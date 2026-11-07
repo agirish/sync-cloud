@@ -3,17 +3,13 @@ import Testing
 @testable import FileExplorer
 import Sync
 
-/// **The outline asks for a directory the walk did not read**, which it did not do at all until
-/// this was reviewed.
+/// The outline asks for a directory the walk did not read. Such a directory arrives with
+/// `children: []` and `isUnexplored`; without the ask its disclosure triangle opens onto nothing,
+/// and looks exactly like an ordinary empty folder, so nobody would report it.
 ///
-/// The node budget landed with the request wired into `PaneColumnsView` only. In the outline the
-/// same directory arrives with `children: []` and `isUnexplored`, which draws a disclosure triangle
-/// that opens onto nothing and stays that way for as long as the pane is on that root — and it
-/// looks exactly like an ordinary empty folder, so nobody would report it as a bug. The budget's
-/// own log line said "columns load it when you open them", which was the admission.
-///
-/// Asserted on the binding rather than by mounting the outline: expanding is the request, so the
-/// binding's setter is where the decision is, and a hosted `DisclosureGroup` would test SwiftUI.
+/// Asserted on the expansion binding rather than by mounting the outline: expanding is the
+/// request, so the setter is where the decision is, and a hosted `DisclosureGroup` would test
+/// SwiftUI.
 @Suite struct OutlineGraftRequestTests {
 
     private func node(_ path: String, unexplored: Bool, children: [FileNode]?) -> FileNode {
@@ -52,9 +48,9 @@ import Sync
                 "expanding a folder the walk never read asked for nothing — it opens onto an empty body forever")
     }
 
-    /// **Opening is an explicit ask, never a passive one** — so the manager retries a folder it
-    /// found unreadable before (a slow cloud folder may have downloaded since), where a scroll
-    /// past would not.
+    /// Opening is an explicit ask, never a passive one, so the manager retries a folder it found
+    /// unreadable before (a slow cloud folder may have downloaded since), where a scroll past would
+    /// not.
     @MainActor
     @Test func openingAsksExplicitly() {
         let rows = [node("/r/unread", unexplored: true, children: [])]
@@ -63,9 +59,9 @@ import Sync
                 "opening a row asked passively — a folder found unreadable once could never be retried")
     }
 
-    /// **The placeholder's `onAppear` is the passive ask**, and the only one: it fires on every
-    /// scroll past, which is what the manager's unreadable memory is for. Read from the body,
-    /// since `onAppear` cannot be fired from a test.
+    /// The placeholder's `onAppear` is the passive ask, and the only one: it fires on every scroll
+    /// past, which is what the manager's unreadable memory is for. Read from the body, since
+    /// `onAppear` cannot be fired from a test.
     @Test func thePlaceholderAsksPassively() throws {
         let outline = try OrganizeScopeCallSiteTests.source("PaneOutlineRows.swift")
         let body = try OrganizeScopeCallSiteTests.body(of: "var body: some View {", in: outline)
@@ -75,9 +71,8 @@ import Sync
                 "opening a row asks passively")
     }
 
-    /// **A walked folder must not be asked about.** Every ordinary directory in a normal source is
-    /// this case, so a request here would relist the whole tree one folder at a time as the user
-    /// browses it.
+    /// A walked folder must not be asked about. Every ordinary directory is this case, so a request
+    /// here would relist the whole tree one folder at a time as the user browses it.
     @MainActor
     @Test func openingAWalkedDirectoryAsksForNothing() {
         let rows = [node("/r/walked", unexplored: false,
@@ -93,9 +88,8 @@ import Sync
         #expect(requestsWhenExpanding(rows, path: "/r/empty", open: true).isEmpty)
     }
 
-    /// **Closing is not a request.** A collapse fires the same setter, and starting a directory
-    /// listing on the way out of a folder somebody is done with is work nobody will look at —
-    /// during the collapse animation, which is the worst moment for it.
+    /// Closing is not a request. A collapse fires the same setter, and a listing started then is
+    /// work nobody will look at, run during the collapse animation.
     @MainActor
     @Test func closingAnUnreadDirectoryAsksForNothing() {
         let rows = [node("/r/unread", unexplored: true, children: [])]
@@ -104,9 +98,9 @@ import Sync
     }
 }
 
-/// **An opened empty or unreadable folder says which in the tree (BR14).** Columns said "Empty"
-/// or "Can’t be read"; the tree expanded onto nothing for both. The placeholder is the column's
-/// own rule asked one level in, so each state below is pinned by its literal words.
+/// An opened empty or unreadable folder says which in the tree, as Columns does with "Empty" and
+/// "Can’t be read". The placeholder is the column's own rule asked one level in, so each state is
+/// pinned by its literal words.
 @MainActor
 @Suite struct OutlineEmptyPlaceholderTests {
 
@@ -146,9 +140,9 @@ import Sync
         #expect(caption(try row(false, children: nil)) == nil)
     }
 
-    /// **The outline draws it, and the pane hands it what it needs.** The rule above is one revert
-    /// away from unused: the outline body must draw the placeholder row from it, and the pane must
-    /// pass its own walk and in-flight state rather than the defaults.
+    /// The outline draws the placeholder and the pane hands it what it needs: the outline body must
+    /// draw the row from the rule above, and the pane must pass its own walk and in-flight state
+    /// rather than the defaults.
     @Test func theOutlineDrawsItAndThePanePassesItsState() throws {
         let outline = try OrganizeScopeCallSiteTests.source("PaneOutlineRows.swift")
         let body = try OrganizeScopeCallSiteTests.body(of: "var body: some View {", in: outline)

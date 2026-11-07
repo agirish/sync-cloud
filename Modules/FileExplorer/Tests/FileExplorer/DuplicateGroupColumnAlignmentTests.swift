@@ -5,22 +5,13 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// **Every card's name starts at the same x**, asserted in pixels — width arithmetic proves room,
-/// only pixels prove paint.
+/// Every card's name starts at the same x, checked in pixels: width arithmetic proves room, only
+/// pixels prove paint.
 ///
-/// What guarantees it has changed, and so has this test. It used to be the badge's fixed slot
-/// absorbing the width difference between one badge and another; the badge is gone with the
-/// sectioning, so the icon is now the first thing in the header and `fileIcon`'s explicit
-/// `.frame(width: 17, height: 17)` is the whole of what holds the column. That frame is easy to
-/// drop as redundant — `FileTypeGlyph.view(pointSize: 14)` looks like it sizes itself — and a
-/// glyph vocabulary whose members differ by a point would then shift every name by a different
-/// amount, which is the one thing a stack of cards must not do.
-///
-/// **The previous version of this test could not fail.** It rendered `card(.sameText)` against
-/// `card(.sameText)` — the same card twice — while its own comment described comparing two
-/// different badges, so the zone was identical by construction and the count was always zero.
-/// Two genuinely different file types, whose glyphs really do differ, is what makes the
-/// comparison mean anything.
+/// The icon is first in the header, and `fileIcon`'s explicit `.frame(width: 17, height: 17)` is
+/// all that holds the column. It looks redundant (`FileTypeGlyph.view(pointSize: 14)` seems to size
+/// itself), but without it glyphs that differ by a point would shift each name differently. The
+/// two cards use different file types, so their glyphs really differ.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct DuplicateGroupColumnAlignmentTests {
 
@@ -61,17 +52,16 @@ import Design
         return rep
     }
 
-    /// Same match type, same name, **different glyph** — a folder against a document. Only the
-    /// icon may differ; the name after it must land on identical pixels.
+    /// Same match type and name, different glyph (a folder against a document): only the icon may
+    /// differ, and the name after it must land on identical pixels.
     @Test func nameStartsAtOneXWhateverTheIconIs() throws {
         let asFile = try #require(render(card(.sameText, isDirectory: false)))
         let asFolder = try #require(render(card(.sameText, isDirectory: true)))
         // Device-pixel space: colorAt indexes the backing store, which is retina-scaled.
         let device = CGFloat(asFile.pixelsWide) / Self.size.width
-        // Where the name begins: the card's own 12pt padding, the header's 14pt, the icon's
-        // fixed 17pt frame and the header stack's 12pt spacing. Spelled out rather than measured
-        // because it is precisely the arithmetic under test — if `fileIcon` stops being 17pt wide,
-        // the name no longer starts here, and that is the failure.
+        // Where the name begins: the card's 12pt padding, the header's 14pt, the icon's fixed
+        // 17pt frame and the stack's 12pt spacing. Spelled out because it is the arithmetic under
+        // test: if `fileIcon` stops being 17pt wide, the name no longer starts here.
         let nameStart = Int(ceil((12 + 14 + 17 + 12) * device))
         let zoneWidth = Int(130 * device)   // inside "Wedding Gifts.pdf" at 14pt semibold
         // The card's hairline edges sit at the top and bottom; the claim lives in the text band.
@@ -86,11 +76,9 @@ import Design
                 "the name zone differs in \(differing) pixels — the icon is not holding a fixed width, so each file type starts its name at a different x")
     }
 
-    /// **The positive control, and the half that makes the zero above mean something.** A zone
-    /// comparison that returns zero proves nothing unless the two renders differ SOMEWHERE: if
-    /// `isDirectory` had stopped reaching the glyph, both cards would be the same card and the
-    /// test above would pass on a tautology — which is exactly how its predecessor passed, having
-    /// rendered `.sameText` against `.sameText`.
+    /// The control for the zero above: the two renders must differ somewhere. If `isDirectory`
+    /// stopped reaching the glyph, both would be the same card and the test above would pass on a
+    /// tautology.
     @Test func theTwoCardsReallyDoDrawDifferentIcons() throws {
         let asFile = try #require(render(card(.sameText, isDirectory: false)))
         let asFolder = try #require(render(card(.sameText, isDirectory: true)))

@@ -4,54 +4,47 @@ import SwiftUI
 
 /// What the reader decided about a file that changed under the buffer.
 ///
-/// **The alert's three answers, exactly** — see `EditorAlerts.DivergenceAnswer`, which is where the
-/// same three live in the app target. There is deliberately no fourth: the overlay is reached *from*
-/// that question and hands the same answer back, so this surface can never become a second way of
-/// resolving a divergence that the alert does not know about.
+/// The alert's three answers, exactly (see `EditorAlerts.DivergenceAnswer` in the app target). No
+/// fourth: the overlay is reached from that question and hands the same answer back, so it can
+/// never become a second way of resolving a divergence the alert doesn't know about.
 public enum EditorDivergenceVerdict: Equatable, Sendable {
     /// Overwrite what is on disk with the buffer.
     case saveAnyway
     /// Throw the buffer away and re-read the file.
     case reloadFromDisk
-    /// Change nothing, and leave autosave stopped. **What dismissing does** — Escape, a click on
-    /// the scrim, ⏎.
+    /// Change nothing, and leave autosave stopped. What dismissing does: Escape, a click on the
+    /// scrim, ⏎.
     case cancel
 }
 
 /// The two column headers over the diff.
 ///
-/// **A value, so the words can be asserted without mounting the overlay** — and so the one rule
-/// worth stating is stated once: *say only what can be known cheaply*. It is tempting to write "on
-/// disk · changed on another machine", and this app cannot know that. What it can know is when the
-/// bytes were last written, from the same `mtime` the divergence check already read.
+/// A value, so the words can be asserted without mounting the overlay, and so one rule is stated
+/// once: say only what can be known cheaply. This app can't know a file "changed on another
+/// machine"; it can know when the bytes were last written, from the `mtime` the divergence check
+/// already read.
 enum EditorDivergenceColumns {
 
     /// `In Edit · 1,204 words`.
     ///
-    /// The count is phrased by ``EditorDocumentFacts/count(_:_:)``, the same rule the status line
-    /// under the document uses — including its singular, which this line passes through on the way
-    /// to everything else.
+    /// The count is phrased by ``EditorDocumentFacts/count(_:_:)``, the same rule as the status
+    /// line under the document, singular included.
     static func editor(words: Int) -> String {
         "\(editorLabel) · \(EditorDocumentFacts.count(words, "word"))"
     }
 
     /// `On disk · written 2 minutes ago`, or just `On disk` when the file has no modification date.
     ///
-    /// **No claim about WHERE it was written.** A sync client, another app on this Mac, a script,
-    /// and another machine are indistinguishable from here, and "changed on another machine" is the
-    /// guess a reader would act on. The age comes from ``ScanFreshness/spokenRelative(_:)`` rather than a
-    /// second ladder of buckets — it is the app's one relative-age vocabulary, already tested, in its
-    /// words form because this caption is prose that VoiceOver reads as it stands — and
-    /// its floor ("just now") is right here too: the interesting case for this overlay is a file that
-    /// changed seconds ago.
+    /// No claim about where it was written: a sync client, another app, a script and another
+    /// machine look the same from here, and "changed on another machine" is a guess a reader would
+    /// act on. The age comes from ``ScanFreshness/spokenRelative(_:)``, the app's one relative-age
+    /// vocabulary, in its words form because VoiceOver reads this caption as prose; its "just now"
+    /// floor suits a file that changed seconds ago.
     static func disk(modified: Date?, now: Date) -> String {
         guard let modified else { return diskLabel }
-        // **A future modification date is not guarded against here, because it does not need to
-        // be.** A clock skew between machines is ordinary in exactly the shared folders this
-        // overlay is about, so a file can carry an mtime ahead of now — and `relative`'s first
-        // bucket (in both forms) is `..<30`, which a negative interval falls into: it answers "just now". A
-        // `max(0, …)` here was written first and then measured, and it changed nothing for any
-        // input; a redundant clamp is a rule no test can hold, so it went and this comment stayed.
+        // A future mtime needs no guard: clock skew between machines is ordinary in shared folders,
+        // and a negative interval falls into `spokenRelative`'s first bucket (`..<30`), "just now".
+        // A `max(0, …)` clamp would change nothing for any input.
         return "\(diskLabel) · written \(ScanFreshness.spokenRelative(now.timeIntervalSince(modified)))"
     }
 
@@ -60,21 +53,17 @@ enum EditorDivergenceColumns {
     static let diskLabel = "On disk"
 }
 
-/// **Show what changed**, for a document whose file moved under it.
+/// Show what changed, for a document whose file moved under it.
 ///
-/// The reader has been asked which version wins by a modal alert that shows them neither version.
-/// This is the answer to that: the buffer on the left, the file on disk on the right, the same
-/// line diff the Compare workspace draws, and the same three verbs at the foot so the decision is
-/// made while looking at the difference.
+/// The alert asks which version wins without showing either. This shows both: the buffer on the
+/// left, the file on disk on the right, the Compare workspace's line diff, and the same three verbs
+/// at the foot, so the decision is made while looking at the difference.
 ///
-/// **Nothing here writes.** The foot's Keep Mine… is the alert's Keep Mine… — the identical
-/// answer travelling back through `onAnswer` to the one place in `ContentView+Editor` that acts on
-/// it — not a second write path. Dismissing (Escape, ⏎, a click on the scrim) is `cancel`, which is
-/// exactly what the alert's Cancel does: change nothing, and leave autosave stopped.
-///
-/// **In-window, on the pair viewer's pattern**, not a second window and not an `NSAlert` with a
-/// custom view: the alert has already been dismissed by the time this is on screen, and a modal
-/// window over a modal window is not a thing to build to show somebody two columns of text.
+/// Nothing here writes. The foot's Keep Mine… is the alert's answer, travelling back through
+/// `onAnswer` to the one place in `ContentView+Editor` that acts on it. Dismissing (Escape, ⏎, a
+/// click on the scrim) is `cancel`, exactly the alert's Cancel: change nothing, leave autosave
+/// stopped. In-window, on the pair viewer's pattern, because the alert is already dismissed by the
+/// time this shows, and a modal window over a modal is no way to show two columns of text.
 public struct EditorDivergenceDiffOverlay: View {
 
     @ObservedObject private var document: EditorDocument
@@ -82,12 +71,12 @@ public struct EditorDivergenceDiffOverlay: View {
     private let takingDiskIsUndoable: Bool
     private let onAnswer: (EditorDivergenceVerdict) -> Void
 
-    /// `now` is injectable for the reason every clock in this repo is: "written 2 minutes ago" is a claim
-    /// about a duration, and a test that had to wait two minutes to assert it would not be written.
+    /// `now` is injectable so a test can assert "written 2 minutes ago" without waiting two
+    /// minutes.
     ///
-    /// `takingDiskIsUndoable` is whether Use Disk Version is the one ⌘Z takes back — true while the
-    /// disk banner stands (TE59), where the host takes the version as an undoable step rather than
-    /// reloading over the buffer. Only the tooltip reads it: the answer is the host's either way.
+    /// `takingDiskIsUndoable` is whether ⌘Z takes back Use Disk Version: true while the disk banner
+    /// stands, where the host takes the disk version as an undoable step rather than reloading over
+    /// the buffer. Only the tooltip reads it; the answer is the host's either way.
     public init(document: EditorDocument,
                 now: @escaping () -> Date = Date.init,
                 takingDiskIsUndoable: Bool = false,
@@ -107,8 +96,8 @@ public struct EditorDivergenceDiffOverlay: View {
     private var accent: Color { glassHue.accentColor }
 
     /// Everything one pass produced: the diff or the reason there is none, and the two column
-    /// captions — which are computed in the same background pass, because the word count is an
-    /// O(characters) walk of a buffer that may be megabytes and the modification date is a `stat`.
+    /// captions, computed in the same background pass because the word count walks a buffer that
+    /// may be megabytes and the modification date is a `stat`.
     private struct Loaded: Sendable {
         var outcome: TextPairDiffPipeline.Outcome
         var editorCaption: String
@@ -125,8 +114,8 @@ public struct EditorDivergenceDiffOverlay: View {
             ZStack {
                 OverlayScrim(level: glassLevel)
                     .ignoresSafeArea()
-                    // Clicking away is Cancel, like every other overlay — and here that is not
-                    // merely a dismissal but a real answer, the safe one.
+                    // Clicking away is Cancel, like every other overlay; here that is a real
+                    // answer, the safe one.
                     .onTapGesture { onAnswer(.cancel) }
                 card(available: proxy.size)
                     // Absorb clicks on the card so they don't fall through to the scrim.
@@ -152,27 +141,25 @@ public struct EditorDivergenceDiffOverlay: View {
             foot
         }
         .frame(width: size.width, height: size.height)
-        // `.focusable()` is what makes the keys below work; `.focusEffectDisabled()` stops macOS
-        // painting a focus ring around the whole card, which reads as a stray highlight. Same
-        // bargain `CompareCopiesSheet` strikes.
+        // `.focusable()` makes the keys below work; `.focusEffectDisabled()` stops macOS ringing
+        // the whole card, which reads as a stray highlight. Same as `CompareCopiesSheet`.
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
         .onAppear { focused = true }
-        // **⏎ and esc are `.onKeyPress`, never key equivalents.** This is an in-window overlay: the
-        // editor's text view is still mounted under the scrim, so a `.keyboardShortcut(.cancelAction)`
-        // here would register a WINDOW-level equivalent and eat bare esc and bare ⏎ typed anywhere
-        // in the window, on key repeat. `BareKeyEquivalentScanTests` bans exactly that.
+        // ⏎ and esc are `.onKeyPress`, never key equivalents. The editor's text view is still
+        // mounted under the scrim, so a `.keyboardShortcut(.cancelAction)` would register a
+        // window-level equivalent and eat bare esc and ⏎ typed anywhere in the window.
+        // `BareKeyEquivalentScanTests` bans exactly that.
         //
-        // **Both keys answer `cancel`, and neither answers anything else.** The two other verbs each
-        // discard something, and a keystroke is not how somebody says which version of their work to
-        // throw away.
+        // Both keys answer `cancel` and nothing else: the other two verbs each discard something,
+        // and a keystroke is no way to say which version of your work to throw away.
         .onKeyPress(keys: [.escape, .return, .keypadEnter], phases: .down) { press in
             guard press.isPlainKeystroke else { return .ignored }
             onAnswer(.cancel)
             return .handled
         }
-        // ↑/↓ step between changes, the same rule and the same wrap the compare pane's stepper uses.
+        // ↑/↓ step between changes, with the compare pane stepper's rule and wrap.
         .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
             guard press.isPlainKeystroke, let regions = loaded?.outcome.diff?.regions,
                   !regions.isEmpty else { return .ignored }
@@ -182,8 +169,8 @@ public struct EditorDivergenceDiffOverlay: View {
             return .handled
         }
         .task(id: document.path) { await refresh() }
-        // **Work does not outlive the surface.** The walk is bounded but not instant, and a diff
-        // still running for an overlay that has gone is a pinned core for an answer nobody will see.
+        // Work doesn't outlive the surface: a diff still running after the overlay has gone pins a
+        // core for an answer nobody will see.
         .onDisappear { work?.cancel(); work = nil }
     }
 
@@ -199,9 +186,8 @@ public struct EditorDivergenceDiffOverlay: View {
                     .scaledFont(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                // **The consequence, in the alert's own words.** This overlay replaces the alert on
-                // screen, so dropping the sentence that says what each verb costs would mean the
-                // decision is made with less in front of the reader than before, not more.
+                // The consequence, in the alert's own words: this replaces the alert on screen, so
+                // the reader must still see what each verb costs.
                 Text("Keeping your version replaces the one on disk, and the other changes are lost.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -214,7 +200,7 @@ public struct EditorDivergenceDiffOverlay: View {
     }
 
     /// `In Edit · 1,204 words` over the left column, `On disk · written 2 minutes ago` over the
-    /// right — split down the middle so each sits over the side it describes.
+    /// right, split down the middle so each sits over its side.
     private var columnHeaders: some View {
         HStack(spacing: 0) {
             Text(loaded?.editorCaption ?? EditorDivergenceColumns.editorLabel)
@@ -229,8 +215,8 @@ public struct EditorDivergenceDiffOverlay: View {
         .padding(.vertical, 6)
     }
 
-    /// The rows, or the reason there are none — a refusal names WHICH side and why, rather than an
-    /// empty pane the reader has to guess at. The same shape `CompareCopiesSheet.textDiffPane` uses.
+    /// The rows, or the reason there are none: a refusal names which side and why, rather than an
+    /// empty pane to guess at. Same shape as `CompareCopiesSheet.textDiffPane`.
     @ViewBuilder
     private var pane: some View {
         Group {
@@ -262,26 +248,25 @@ public struct EditorDivergenceDiffOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// What Use Disk Version's tooltip promises — that ⌘Z brings the typing back only where it does.
+    /// What Use Disk Version's tooltip promises: that ⌘Z brings the typing back only where it does.
     static func useDiskVersionHelp(undoable: Bool) -> String {
         undoable ? "Take the version on the right — ⌘Z brings your version back."
             : "Take the version on the right and lose what you typed."
     }
 
-    /// **The same three verbs the alert offered, in the same order**, in the banner's words (TE97,
-    /// ``EditorDiskVerbs``).
+    /// The same three verbs the alert offered, in the same order, in the banner's words
+    /// (``EditorDiskVerbs``).
     ///
-    /// Nothing here is `.borderedProminent`, and that is the point of the surface: two of the three
-    /// discard something in opposite directions and the third resolves nothing, so there is no verb
-    /// to recommend. A prominent button would be a recommendation, made by an app that cannot know
-    /// which version of somebody's work matters.
+    /// Nothing here is `.borderedProminent`: two verbs discard something in opposite directions and
+    /// the third resolves nothing, so there is none to recommend, and the app can't know which
+    /// version of somebody's work matters.
     private var foot: some View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
             Button("Cancel") { onAnswer(.cancel) }
                 .buttonStyle(.bordered)
-                // ⌥ shows esc, which answers Cancel here (TE194) — ⏎ does too, but esc is the
-                // key every other Cancel in the app wears.
+                // ⌥ shows esc, which answers Cancel here; ⏎ does too, but esc is the key every
+                // other Cancel in the app wears.
                 .shortcutKeycap("esc")
                 .help("Change nothing. Autosave stays stopped until you settle this.")
             Button(role: .destructive) { onAnswer(.reloadFromDisk) } label: {
@@ -289,7 +274,7 @@ public struct EditorDivergenceDiffOverlay: View {
             }
             .buttonStyle(.bordered)
             .help(Self.useDiskVersionHelp(undoable: takingDiskIsUndoable))
-            // Asks before it writes — the host's `applyDivergenceAnswer`, as from the banner.
+            // Asks before it writes: the host's `applyDivergenceAnswer`, as from the banner.
             Button(role: .destructive) { onAnswer(.saveAnyway) } label: {
                 Text(EditorDiskVerbs.keepMine)
             }
@@ -302,14 +287,13 @@ public struct EditorDivergenceDiffOverlay: View {
 
     // MARK: Reading the two sides
 
-    /// Reads the file, diffs it against the buffer, and composes the two captions — all off the
-    /// main actor, and all cancellable.
+    /// Reads the file, diffs it against the buffer, and composes the two captions, all off the main
+    /// actor and cancellable.
     ///
-    /// **The left side is the buffer and is never read from disk**, which is the whole difference
-    /// from the compare pane: the question is what the *unsaved* text differs from. It is handed to
-    /// the pipeline as an already-read `.text` outcome carrying the encoding the document was opened
-    /// in, so an encoding that changed under the buffer is reported by the same note that reports it
-    /// for two files.
+    /// The left side is the buffer, never read from disk, unlike the compare pane: the question is
+    /// what the unsaved text differs from. It goes to the pipeline as an already-read `.text`
+    /// outcome with the document's encoding, so an encoding that changed under the buffer gets the
+    /// same note as it would for two files.
     private func refresh() async {
         guard let path = document.path else { return }
         work?.cancel()
@@ -332,7 +316,7 @@ public struct EditorDivergenceDiffOverlay: View {
         }
         work = task
         let result = await task.value
-        // A cancelled pass knows nothing about the pair and must land nowhere — see
+        // A cancelled pass knows nothing about the pair and must land nowhere; see
         // ``TextPairDiffPipeline/Outcome``.
         guard !result.outcome.cancelled, !Task.isCancelled else { return }
         loaded = result

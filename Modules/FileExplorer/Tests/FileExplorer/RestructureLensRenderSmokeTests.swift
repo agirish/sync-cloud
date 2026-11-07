@@ -4,10 +4,10 @@ import SwiftUI
 @testable import Sync
 @testable import FileExplorer
 
-/// Every card kind and the crowding strip, actually laid out — the cheapest guard against the
-/// failure a rule test cannot see: a card body that traps at render (a @MainActor static read
-/// off the main actor is signal 5 with no message; a ForEach over colliding ids renders one row
-/// twice). No pixel reads, so it runs on any machine.
+/// Every card kind and the crowding strip, laid out: the cheapest guard against what a rule test
+/// can't see, a card body that traps at render (a @MainActor static read off the main actor is
+/// signal 5 with no message; a ForEach over colliding ids renders one row twice). Its only pixel
+/// check is an ink floor, so it runs on any machine.
 @MainActor
 @Suite struct RestructureLensRenderSmokeTests {
 
@@ -55,14 +55,12 @@ import SwiftUI
             onHandOff: { _ in },
             scaffoldedSubjects: ["Work/Benefits/2026"],
             hasReviewed: true)
-        // An ink floor over the magenta backdrop, not a width — an offscreen host rasterizes
-        // transparent, and against a transparent ground a blank render and a drawn one read the
-        // same. This is the difference between "every card kind laid out" and "nothing trapped".
+        // An ink floor over the magenta backdrop, not a width: an offscreen host rasterizes
+        // transparent, where a blank render and a drawn one read the same.
         let rep = try #require(RestructureRender.raster(lens, width: 640, height: 900))
         #expect(RestructureRender.inkedPixels(rep) > 5000, "every card kind drew")
 
-        // The clean state with a non-empty strip — the roadmap's open question, settled by
-        // rendering: the strip must lay out above the seal.
+        // The clean state with a non-empty strip: the strip must lay out above the seal.
         let clean = RestructureLens(
             findings: [], hasProfile: true, folderCount: 10,
             deadWeight: ["C": .empty], accent: .blue,

@@ -5,19 +5,17 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// RD46.3 — Organize's rail hosts a selection lens: in Frosted and Clear the lens lands exactly on
-/// the selected item, where Solid draws its wash and 2pt ring — and wears that ring itself.
-///
-/// Mounted through the real `LensWorkspaceView`, because the host is the rail's own row inside its
-/// scroll view — a test of `RailItemLabel` alone would pass with the host missing. The manager has
-/// no findings, so nothing on the rail but the selected item's ring and glyph wears the accent, and
-/// the ring's box is the item's box. The probe draws the lens's ring too, so in glass the item's
-/// box is the probe and its ring together.
+/// Organize's rail hosts a selection lens: in Frosted and Clear the lens lands exactly on the
+/// selected item, where Solid draws its wash and 2pt ring, and wears that ring itself. Mounted
+/// through the real `LensWorkspaceView`, because the host is the rail's own row inside its scroll
+/// view; `RailItemLabel` alone would pass with the host missing. With no findings, only the
+/// selected item's ring and glyph wear the accent, so the ring's box is the item's box; in glass
+/// the item's box is the probe and its ring together.
 @MainActor
 @Suite(.serialized) struct SelectionLensOrganizeRailTests {
 
     nonisolated static let canvas = CGSize(width: 1400, height: 620)
-    /// Row 1, where the rail is. Anything below — the readout, the lens content — is not searched.
+    /// Row 1, where the rail is. Anything below (the readout, the lens content) is not searched.
     nonisolated static let railBand: ClosedRange<CGFloat> = 0...60
 
     static func mount(lens: OrganizeLens?, appearance: SelectionLensAppearance) -> ProbeRig<AnyView> {
@@ -44,7 +42,7 @@ import Design
         return ProbeRig(AnyView(subject), size: canvas)
     }
 
-    /// Blue's raw accent — the ring's colour — allowing for the render's shift.
+    /// Blue's raw accent, the ring's colour, allowing for the render's shift.
     nonisolated static let isRing: Pixel.Match = { r, g, b in
         abs(Int(r) - 51) < 31 && abs(Int(g) - 128) < 31 && abs(Int(b) - 255) < 31
     }

@@ -6,25 +6,24 @@ import Sync
 @testable import FileExplorer
 
 /// Visual snapshot net over FileExplorer's composite surfaces: StatPill, the Storage treemap's
-/// tile-label pairing (the AccentLabel light-hue fix), DuplicateGroupCard, and ConditionChip
-/// wrapping inside FlowLayout. Fixed sizes, frozen dates, light + dark; workflow and caveats
-/// in Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
+/// tile-label pairing, DuplicateGroupCard, and ConditionChip wrapping inside FlowLayout. Fixed
+/// sizes, frozen dates, light + dark; workflow and caveats in
+/// Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct FileExplorerSnapshotTests {
 
-    /// A frozen mtime for every fixture copy (2026-06-01 12:00 UTC) — never `Date()`, the
-    /// card's meta line renders it through a DateFormatter.
+    /// A frozen mtime for every fixture copy (2026-06-01 12:00 UTC), never `Date()`: the card's
+    /// meta line renders it through a DateFormatter.
     private static let fixedDate = Date(timeIntervalSince1970: 1_780_315_200)
 
     /// The zone the cards below render their "modified" date in, so these references hold the
     /// card's layout and not the recording machine's location.
     ///
-    /// A frozen `Date` is only half of a frozen string. `DashboardSnapshotTests` learned that the
-    /// expensive way: its two log-row references baked in Pacific, went red on an unchanged fixture
-    /// when this Mac moved to `Asia/Kolkata`, and read as a colour regression for a day. These
-    /// references had the identical exposure and survived on luck alone — 12:00 UTC is the same
-    /// calendar day either side, and the card prints no clock — so the pin is taken now rather than
-    /// after a move that does cross a midnight. UTC, matching the fixture comment above.
+    /// A frozen `Date` is only half of a frozen string: without a pinned zone, a reference baked in
+    /// one zone goes red on an unchanged fixture when the Mac moves to another, and reads as a
+    /// colour regression. 12:00 UTC happens to land on the same calendar day either side and the
+    /// card prints no clock, but the pin keeps that from resting on luck. UTC, matching the fixture
+    /// date above.
     private static let pinnedZone = TimeZone(identifier: "UTC")!
 
     // MARK: StatPill
@@ -50,13 +49,13 @@ import Sync
     }
 
     /// `StatPill`'s four surfaces stacked for comparison: the accent capsule the differences pill
-    /// actually ships (solid accent fill, paired label, and — since the freshness rework — NO
-    /// leading dot), the `.attention` and `.neutral` families as whole capsules, and the tint wash.
+    /// ships (solid accent fill, paired label, no leading dot), the `.attention` and `.neutral`
+    /// families as whole capsules, and the tint wash.
     ///
-    /// The two flat families are no longer what a stale or in-flight scan flips the pill to; that
-    /// treatment moved into the age run (`StatPill.detailStyle`, referenced by
-    /// `countPillFreshnessStates`). They stay here because they remain supported surfaces and this
-    /// is the reference for what they look like at full capsule size.
+    /// A stale or in-flight scan doesn't flip the pill to the flat families; that treatment
+    /// lives in the age run (`StatPill.detailStyle`, see `countPillFreshnessStates`). They stay
+    /// here because they remain supported surfaces and this is the reference for them at full
+    /// capsule size.
     @Test func statPillSemanticCapsule() {
         assertViewSnapshot(
             of: SemanticStatPillSpecimen().padding(12),
@@ -64,20 +63,20 @@ import Sync
             named: "semantic-capsule")
     }
 
-    /// Reads `colorScheme` from the environment rather than taking it as a parameter — the whole
-    /// point of a semantic capsule is that its family is chosen per appearance, and a specimen
-    /// pinned to one of them renders the light values into the dark reference.
+    /// Reads `colorScheme` from the environment rather than taking it as a parameter: a semantic
+    /// capsule's family is chosen per appearance, and a specimen pinned to one of them renders the
+    /// light values into the dark reference.
     private struct SemanticStatPillSpecimen: View {
         @Environment(\.colorScheme) private var scheme
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
-                // Green, the hue the pill was designed against — not the environment's accent,
-                // which would make this reference depend on the host's System Settings.
+                // Green, the hue the pill was designed against, not the environment's accent, which
+                // would make this reference depend on the host's System Settings.
                 //
                 // `accentFillColor`, exactly as `DifferencesView` passes it. The raw `accentColor`
-                // renders a brighter capsule that looks livelier in isolation and strands its white
-                // label at 2.68:1 — the reference must show the pairing that ships.
+                // renders a brighter capsule that strands its white label at 2.68:1; the reference
+                // must show the pairing that ships.
                 StatPill(count: 21, label: "Differences", color: .blue,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right",
@@ -100,19 +99,16 @@ import Sync
 
     /// The four dressings the differences count pill ships, in order: pre-scan (no age run, no
     /// chevron), fresh (bare age run), stale (the run wears terracotta), scanning (the run wears
-    /// slate). Freshness used to be a separate badge in each pane header; this is the reference for
-    /// it living on the count instead.
+    /// slate).
     ///
-    /// What the eye must find here is that **the capsule never changes** — all four are the accent
-    /// — and that only the age run does. That is the whole freshness rework: flipping the capsule
-    /// made a stale pill read as *disabled* next to a saturated accent, on a control whose job is
-    /// being clickable, and at the old ten-minute threshold it was in that state nearly always.
+    /// What the eye must find here is that the capsule never changes (all four are the accent) and
+    /// only the age run does. Flipping the capsule would make a stale pill read as disabled next to
+    /// a saturated accent, on a control whose job is being clickable.
     ///
-    /// The age run's RING is visible in the dark frame, and these references do NOT protect it —
-    /// stated here because the opposite is the natural assumption. Deleting the ring and re-running
-    /// this test passes: a 1pt stroke around two small capsules is a smaller share of the frame
-    /// than the 0.99/0.98 tolerance absorbs. `StatPillDetailRingTests` measures the boundary in
-    /// painted pixels precisely because these frames cannot.
+    /// The age run's ring is visible in the dark frame, and these references do not protect it:
+    /// deleting the ring still passes, because a 1pt stroke around two small capsules is a smaller
+    /// share of the frame than the 0.99/0.98 tolerance absorbs. `StatPillDetailRingTests` measures
+    /// the boundary in painted pixels because these frames cannot.
     @Test func countPillFreshnessStates() {
         assertViewSnapshot(
             of: FreshnessCountPillSpecimen().padding(12),
@@ -124,14 +120,14 @@ import Sync
         @Environment(\.colorScheme) private var scheme
 
         var body: some View {
-            // Green, the hue the pill was designed against — not the environment's accent, which
+            // Green, the hue the pill was designed against, not the environment's accent, which
             // would make this reference depend on the host's System Settings.
             let hue = LiquidGlassHue.green
             let accent = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor,
                                                        label: hue.onAccentLabelColor)
-            // Four states, ONE capsule. The reference must show the accent surviving all of them —
-            // if a future change puts a semantic family back on the outer capsule, these frames
-            // are where it shows up.
+            // Four states, one capsule. The reference must show the accent surviving all of them; a
+            // change that puts a semantic family back on the outer capsule shows up in these
+            // frames.
             VStack(alignment: .leading, spacing: 10) {
                 // Pre-scan: no age run at all, and no chevron (the toggle is a no-op here).
                 StatPill(count: 0, label: "Differences", color: hue.accentColor,
@@ -181,23 +177,20 @@ import Sync
             }
             .padding(12)
             .frame(width: 340, alignment: .leading),
-            // 152, not the 120 this shipped with. At the old header height the fourth subject —
-            // the long name that must middle-truncate — fell entirely off a 120pt canvas, so the
-            // reference pinned three states while its own comment described four. Shortening the
-            // header brought it half onto the canvas, which is worse than either: a clipped
-            // subject makes the crop boundary itself the assertion. 152 fits all four.
+            // 152 fits all four subjects. Shorter, the fourth (the long name that must
+            // middle-truncate) falls partly or wholly off the canvas, and a clipped subject makes
+            // the crop boundary itself the assertion.
             size: CGSize(width: 364, height: 152),
             named: "section-headers")
     }
 
-    /// The Name and Path cells side by side, as the table now splits them: the name alone in the
-    /// Name cell, the location in the Path cell anchored at the compared folder's name.
+    /// The Name and Path cells side by side, as the table splits them: the name alone in the Name
+    /// cell, the location in the Path cell anchored at the compared folder's name.
     ///
-    /// `pathColumnText` is well covered as a pure function, but nothing else pins that the cell
-    /// actually SHOWS its result — the cell could stop passing `rootName` through and every pure
-    /// test would still pass. The last row is the entire point of the column: a ROOT-level file,
-    /// whose location used to render as nothing at all (empty prefix, no section header), must
-    /// print the compared folder's own name ("Home"), not a blank.
+    /// `pathColumnText` is covered as a pure function, but nothing else pins that the cell shows
+    /// its result: the cell could stop passing `rootName` through and every pure test would still
+    /// pass. The last row is the point of the column: a root-level file (empty prefix, no section
+    /// header) must print the compared folder's own name ("Home"), not a blank.
     @Test func differenceNameAndPathCells() {
         let paths = ["Claude/Projects/Investing/notes.md",
                      "Immigration/Authorization/H-1B/form.pdf",
@@ -228,9 +221,9 @@ import Sync
                        description: "Missing on right")
     }
 
-    /// **The load-bearing question for collapsing.** Collapsing is implemented by emitting no rows
-    /// for a section, which only works if a `Section` with zero rows still renders its header — if
-    /// SwiftUI drops empty sections, a collapsed folder VANISHES instead of collapsing.
+    /// The load-bearing question for collapsing. Collapsing emits no rows for a section, which only
+    /// works if a `Section` with zero rows still renders its header; if SwiftUI dropped empty
+    /// sections, a collapsed folder would vanish instead of collapsing.
     ///
     /// Rendered rather than reasoned about: this is a framework behaviour, and the failure mode is
     /// a folder silently disappearing from a table the user is about to act on. The reference must
@@ -275,23 +268,19 @@ import Sync
 
     // MARK: Treemap    // MARK: Treemap
 
-    /// Five tiles wide enough (≥ 68 pt) to show name + size labels, and none narrow enough to
-    /// fold — so the ramp runs its full length across them.
+    /// Five tiles wide enough (≥ 68 pt) to show name + size labels, and none narrow enough to fold,
+    /// so the ramp runs its full length across them.
     ///
-    /// **Rewritten for the sequential ramp.** It used to read "the palette assigns index 3 the
-    /// AMBER hue", which was true of the rotating ten-hue palette and is meaningless now that
-    /// colour is the ranking. What it guards is unchanged and is why the fixture still has five
-    /// tiles: index 3 is the ramp's pale end, and its label must flip to near-black through
-    /// `AccentLabel.prefersDarkText` exactly as amber's did. The plan for the ramp claimed this
-    /// case away — "the pale end lands on the small tiles, which carry no labels" — and it does
-    /// not, because the fold floors the smallest tile at the width labels begin at. "Other" stays
-    /// neutral gray with a `.primary` label.
+    /// Index 3 is the sequential ramp's pale end, and its label must flip to near-black through
+    /// `AccentLabel.prefersDarkText`. The pale end does not only land on small unlabelled tiles:
+    /// the fold floors the smallest tile at the width labels begin at. "Other" stays neutral gray
+    /// with a `.primary` label.
     @Test func treemapTileLabels() {
         let nodes = [
             TreemapNode(name: "Documents", path: "/d/Documents", bytes: 400),
             TreemapNode(name: "Photos", path: "/d/Photos", bytes: 300),
             TreemapNode(name: "Projects", path: "/d/Projects", bytes: 250),
-            TreemapNode(name: "Backups", path: "/d/Backups", bytes: 220),   // amber tile
+            TreemapNode(name: "Backups", path: "/d/Backups", bytes: 220),   // the ramp's pale end
             TreemapNode(name: "Other", path: "", bytes: 180),
         ]
         assertViewSnapshot(
@@ -302,9 +291,9 @@ import Sync
 
     // MARK: DuplicateGroupCard
 
-    /// Collapsed file "Versions" group: type badge, middle-truncating name, subtitle,
-    /// green reclaim figure, disclosure chevron. Collapsed deliberately — expansion would
-    /// pull async QuickLook thumbnails into the tree.
+    /// Collapsed file "Versions" group: type badge, middle-truncating name, subtitle, green reclaim
+    /// figure, disclosure chevron. Collapsed deliberately: expansion would pull async QuickLook
+    /// thumbnails into the tree.
     @Test func duplicateGroupCardCollapsedVersions() {
         let group = DuplicateGroup(
             matchType: .versions,
@@ -328,18 +317,15 @@ import Sync
             named: "collapsed-versions")
     }
 
-    /// The same-text card, expanded: the unfilled seal that says "less certain than identical",
-    /// the "same text, different bytes" subtitle, the note explaining that a signed or redacted
-    /// copy would read the same too, and an action row that offers a per-group trash while the
-    /// group stays out of "Apply recommended". Rendered because none of that is provable from
-    /// geometry — the badge, the note and the button label are the whole claim.
+    /// The same-text card, expanded: the unfilled seal that says "less certain than identical", the
+    /// "same text, different bytes" subtitle, the note explaining that a signed or redacted copy
+    /// would read the same too, and an action row that offers a per-group trash while the group
+    /// stays out of "Apply recommended". Rendered because none of that is provable from geometry:
+    /// the badge, the note and the button label are the whole claim.
     ///
-    /// **The row includes "Compare Copies", and that is the point of the reference being re-taken.**
-    /// This is a FILE group, and the action was once gated to folders; ungating it is the whole
-    /// premise of the compare surface. The reference was recorded before that landed, so it went on
-    /// asserting a row that no longer existed — the render was right and the picture was stale.
-    /// A source scan pins the gate's absence, but only this reference pins what the reader SEES,
-    /// which is a button in a row of four rather than a control reachable in principle.
+    /// The row includes "Compare Copies", offered for file groups as well as folders. A source scan
+    /// pins that no folder-only gate exists, but only this reference pins what the reader sees: a
+    /// button in a row of four.
     @Test func duplicateGroupCardExpandedSameText() {
         let group = DuplicateGroup(
             matchType: .sameText,
@@ -389,8 +375,8 @@ import Sync
     }
 
     /// Compact-density twin of the expanded card above (same fixture, same canvas): pins the
-    /// density behavior nothing else snapshots — tighter header/row padding and the hidden
-    /// secondary detail lines — so a compact regression can't hide behind a green comfortable run.
+    /// density behaviour nothing else snapshots (tighter header and row padding, hidden secondary
+    /// detail lines), so a compact regression can't hide behind a green comfortable run.
     @Test func duplicateGroupCardExpandedIdenticalFoldersCompact() {
         let group = DuplicateGroup(
             matchType: .identical,
@@ -416,8 +402,8 @@ import Sync
     // MARK: ConditionChip + FlowLayout
 
     /// A rule's condition chips at card width: chips wrap onto new lines, and one over-wide
-    /// `mentions` chip is clamped to the container and elides with a tail — it must never
-    /// draw past the trailing edge.
+    /// `mentions` chip is clamped to the container and elides with a tail; it must never draw past
+    /// the trailing edge.
     @Test func conditionChipsWrapInFlowLayout() {
         assertViewSnapshot(
             of: FlowLayout(spacing: 5, lineSpacing: 5) {
@@ -436,9 +422,9 @@ import Sync
 
     // MARK: Activity
 
-    /// Activity's Now, as the capsule's popover draws it (Run Room TE220–TE223): two runs, each with
-    /// its Stop, then Recent — a folded refusal, an Undo greyed behind a newer step, a warning's
-    /// detail line and a run's links — and the foot. Fixed clock, no undo manager.
+    /// Activity's Now, as the capsule's popover draws it: two runs, each with its Stop, then Recent
+    /// (a folded refusal, an Undo greyed behind a newer step, a warning's detail line and a run's
+    /// links) and the foot. Fixed clock, no undo manager.
     @Test func activityNowPopover() {
         let center = ActivityCenter()
         let now = Self.fixedDate

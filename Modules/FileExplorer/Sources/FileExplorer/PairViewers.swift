@@ -8,19 +8,17 @@ import Sync
 /// The one guard every synchronised pair needs: while a change is being mirrored to the other
 /// side, that side's own notification must not mirror it back.
 ///
-/// **A `Bool` set and cleared around the mirror, not a comparison of values.** Comparing values
-/// ("only mirror if they differ") looks equivalent and is not: the two views quantise scroll
-/// offsets and magnification differently, so A → B → A' lands a hair off A, which differs again,
-/// and the pair walks. The latch stops the loop at one hop regardless of what the far side rounds
-/// to.
+/// A `Bool` held around the mirror, not a comparison of values: the two views quantise scroll
+/// offsets and magnification differently, so A → B → A' lands a hair off A, differs again, and the
+/// pair walks. The latch stops the loop at one hop whatever the far side rounds to.
 ///
-/// A class, and deliberately not `@State`: the notification handlers are AppKit closures that
-/// outlive a SwiftUI update, and a value type captured by them would be a copy.
+/// A class, not `@State`: the notification handlers are AppKit closures that outlive a SwiftUI
+/// update, and a value type captured by them would be a copy.
 final class SyncLatch {
     private var mirroring = false
 
-    /// Runs `body` with the latch held, unless it is already held — in which case this is the
-    /// echo, and it does nothing. Returns whether it ran.
+    /// Runs `body` with the latch held, unless it is already held, in which case this is the echo
+    /// and it does nothing. Returns whether it ran.
     @discardableResult
     func mirror(_ body: () -> Void) -> Bool {
         guard !mirroring else { return false }
@@ -37,15 +35,12 @@ final class SyncLatch {
 
 /// Two `PDFView`s showing the same page of two documents, kept in step.
 ///
-/// **This is what phase 1 could not do.** `QLPreviewView` exposes no scroll or zoom API at all —
-/// the app sets exactly three properties on it and by design knows nothing about formats — so
-/// synchronised Quick Look panes are not merely unbuilt, they are unbuildable. A typed viewer has
-/// the document, the page and the scroll view, which is why sync arrives with typed viewers and
-/// not before.
+/// `QLPreviewView` has no scroll or zoom API, so synchronised Quick Look panes can't be built; a
+/// typed viewer owns the document, the page and the scroll view, so it can sync.
 ///
-/// **Documents are opened through `PDFKitSerialAccess`, never on the main actor.** `PDFDocument(url:)`
-/// parses, PDFKit's parsing is not thread-safe, and `run` would be `queue.sync` from the main
-/// thread — the whole window waiting behind a running scan's extractions.
+/// **Never open the documents on the main actor**; they go through `PDFKitSerialAccess`.
+/// `PDFDocument(url:)` parses, PDFKit parsing isn't thread-safe, and `run` would be `queue.sync`
+/// from the main thread, the whole window waiting behind a running scan's extractions.
 struct PDFPairView: NSViewRepresentable {
 
     let leftPath: String
@@ -53,18 +48,17 @@ struct PDFPairView: NSViewRepresentable {
     /// The page both sides show, clamped per side by ``PagePairing``.
     let page: Int
     let pairing: PagePairing
-    /// Suspends mirroring while held — ⌥ lets one pane be scrolled on its own.
+    /// Suspends mirroring while held: ⌥ lets one pane be scrolled on its own.
     let syncSuspended: Bool
     /// The page the reader has scrolled onto, reported back so the strip and the pixel modes
     /// follow. Only ever called with a page the surface is not already on.
     var onPageChange: (Int) -> Void = { _ in }
     /// The zoom the surface remembers, or nil to let `autoScales` fit the page.
     ///
-    /// **The surface holds it because this view does not survive a mode switch.** `panes` switches
-    /// on the mode, so pressing `2`–`4` removes this representable and pressing `1` builds a fresh
-    /// one — new coordinator, new `PDFView`s, `autoScales` back at fit. Measured: a reader zoomed
-    /// to 2.01× came back to 0.81×. The page already survives, for exactly this reason and by
-    /// exactly this route; the zoom is the other half of where the reader was.
+    /// The surface holds it because this view doesn't survive a mode switch: `panes` switches on
+    /// the mode, so `2`–`4` remove this representable and `1` builds a fresh one with `autoScales`
+    /// back at fit. The page survives by the same route; the zoom is the other half of where the
+    /// reader was.
     var zoom: CGFloat?
     /// The zoom the reader has set, reported back so the surface can hand it to the next mount.
     var onZoomChange: (CGFloat) -> Void = { _ in }
@@ -76,53 +70,46 @@ struct PDFPairView: NSViewRepresentable {
         var right: PDFView?
         var syncSuspended = false
         /// The paths the loaded documents came from, so `updateNSView` reloads only on a real
-        /// change — re-opening the same document on every ancestor render is a parse per redraw.
+        /// change rather than parsing on every ancestor render.
         var loaded: (left: String, right: String)?
-        /// Whether the SCROLL observers are registered. They cannot be registered at construction
-        /// (see `wireScroll`), and registering them twice would mirror every scroll twice.
+        /// Whether the scroll observers are registered. They can't be at construction (see
+        /// `wireScroll`), and registering them twice would mirror every scroll twice.
         var scrollWired = false
         /// Just the scroll observers, so a re-wire after a path change can drop the previous
         /// pair's without disturbing the zoom ones, which are registered once for the view's life.
         ///
-        /// **Disjoint from ``observers``, not a subset of it, and maintained only through
-        /// ``replaceScrollObservers(_:)``.** A token held in both lists survives the re-wire in the
-        /// other one: this list is cleared and `observers` goes on holding a token already removed
-        /// from the centre, for the life of the view and growing by two per pair opened.
+        /// Disjoint from ``observers`` and maintained only through ``replaceScrollObservers(_:)``.
+        /// A token in both lists would survive the re-wire in `observers`, already removed from the
+        /// centre, growing by two per pair opened.
         private(set) var scrollObservers: [NSObjectProtocol] = []
 
         /// Swaps this pair's scroll observers in and the previous pair's out, in one step.
         ///
-        /// **One step, because two was the bug.** The `PDFView`s are reused across a path change,
-        /// so their clip views can be the very same objects — a second registration on one clip
-        /// mirrors every scroll twice, and the latch hiding that in effect is exactly what let it
-        /// go unnoticed as a leak in fact.
+        /// One step, because the `PDFView`s are reused across a path change, so their clip views
+        /// can be the same objects: a second registration on one clip mirrors every scroll twice,
+        /// and the latch would hide that while the observers leak.
         func replaceScrollObservers(_ make: () -> [NSObjectProtocol]) {
             for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
             scrollObservers = make()
         }
         /// The page each side should be showing, as of the most recent `updateNSView`.
         ///
-        /// **Read by the load completion rather than captured at its start**, because a page turn
-        /// during the open is otherwise dropped on the floor: `go` bails while `document` is still
-        /// nil, and the load then goes to the index it captured before the turn. The strip pointed
-        /// at page 12 and the panes sat on page 1 until the next turn — most likely exactly when
-        /// the lane is busy behind a scan, which is when the open is slow enough to click through.
+        /// Read by the load completion, not captured at its start: `go` does nothing while
+        /// `document` is nil, so a page turn during a slow open (the lane busy behind a scan)
+        /// would otherwise be lost, the strip on page 12 and the panes on page 1.
         var requestedPages: (left: Int, right: Int) = (0, 0)
         /// The surface's page as of the last update, so a report can be suppressed when it merely
         /// echoes a page the surface itself just asked for.
         var surfacePage = 0
-        /// True while THIS view is driving its own page — setting a document, or going to the page
+        /// True while this view is driving its own page: setting a document, or going to the page
         /// the surface asked for.
         ///
-        /// **A value check alone did not hold, and the reason is the document assignment.** Setting
-        /// `document` puts the view on page 1 and posts, which is a page the surface never asked
-        /// for: the handler took it as a reader's move, reported it, and recorded it — so the `go`
-        /// that followed a moment later no longer matched what was recorded and was reported too.
-        /// A surface opened on page 2 was told twice that the reader had gone somewhere.
+        /// A value check alone isn't enough: setting `document` puts the view on page 1 and posts,
+        /// a page the surface never asked for. Taken as a reader's move, it would be reported, and
+        /// so would the `go` that follows: two false moves for a surface opened on page 2.
         var drivingPage = false
-        /// Re-read on every update rather than captured once: a SwiftUI view is a fresh value on
-        /// every render, and an observer holding the FIRST one would be calling into a closure
-        /// whose captured state stopped moving.
+        /// Re-read on every update rather than captured once: a SwiftUI view is a fresh value each
+        /// render, and an observer holding the first one would call a closure with stale state.
         var onPageChange: (Int) -> Void = { _ in }
         var onZoomChange: (CGFloat) -> Void = { _ in }
         /// The zoom the surface remembers, as of the most recent update.
@@ -130,21 +117,15 @@ struct PDFPairView: NSViewRepresentable {
         /// What "not zoomed" currently means: the scale a pane that is still auto-fitting has
         /// settled on.
         ///
-        /// **`autoScales` alone cannot answer "did the reader zoom", and the reason is the
-        /// mirror.** During load one pane fits first and the mirror copies its scale to the other,
-        /// which turns THAT pane's `autoScales` off — measured, on every ordinary mount, with no
-        /// reader involved. Which pane loses it depends on which of two concurrent loads finished
-        /// first, so a flag read off one side is a coin toss. This is a value instead, kept current
-        /// by whichever pane is still fitting itself, so a card resized while open moves the
-        /// baseline with it rather than making the new fit look like a choice.
+        /// `autoScales` alone can't answer "did the reader zoom": during load the mirror copies one
+        /// pane's fit to the other, turning that pane's `autoScales` off, and which pane that is
+        /// depends on which load finished first. So this is a value kept current by whichever pane
+        /// is still fitting, and resizing the card moves the baseline instead of reading as a zoom.
         var fittedScale: CGFloat?
 
         deinit {
             // Both lists, because they are disjoint: `observers` holds the ones registered once
-            // for the view's life, `scrollObservers` the ones a path change re-registers. Keeping
-            // a scroll observer in both was the shape this started as, and it meant the re-wire
-            // could drop it from one list and leave it in the other — a token already removed from
-            // the centre, retained for the life of the view and growing by two per pair opened.
+            // for the view's life, `scrollObservers` the ones a path change re-registers.
             for observer in observers + scrollObservers {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -162,8 +143,8 @@ struct PDFPairView: NSViewRepresentable {
         context.coordinator.right = right
         split.addArrangedSubview(left)
         split.addArrangedSubview(right)
-        // Only the zoom half can be wired now — see `wireScroll`. The page observers go here too:
-        // like the scale notification, `PDFViewPageChanged` is posted BY the view, which exists.
+        // Only the zoom half can be wired now (see `wireScroll`). The page observers go here too:
+        // like the scale notification, `PDFViewPageChanged` is posted by the view, which exists.
         wireZoom(context.coordinator)
         wirePageReporting(context.coordinator)
         return split
@@ -171,26 +152,16 @@ struct PDFPairView: NSViewRepresentable {
 
     /// Hands the reader's zoom back to the surface on the way out.
     ///
-    /// **At unmount, not from `PDFViewScaleChanged`, and the notification route was tried first.**
-    /// Two things make it the wrong hook. PDFKit posts its own initial fit, so a fit and a reader's
-    /// zoom arrive as the same notification and a value check cannot separate them — the surface
-    /// was told 0.806 and dutifully remembered the fit as a choice. And the mirror makes it worse:
-    /// setting `target.scaleFactor` turns the target's `autoScales` off, so the far pane's echo of
-    /// a fit then looks like a deliberate zoom by every test available at that moment.
+    /// At unmount, not from `PDFViewScaleChanged`: PDFKit posts its own initial fit through that
+    /// notification, so a fit and a reader's zoom can't be told apart, and the mirror makes the far
+    /// pane's echo of a fit look like a zoom too. Unmount is when the value is needed (this view
+    /// doesn't survive a mode switch), and everything has settled by then.
     ///
-    /// Unmount has neither problem. It is the exact moment the value is needed (this view does not
-    /// survive a mode switch), everything has settled by then, and `autoScales` still standing is a
-    /// complete answer to "did the reader ever zoom": PDFKit clears it on any explicit
-    /// `scaleFactor` set, measured.
+    /// "Did the reader zoom" compares against ``Coordinator/fittedScale``, not the `autoScales`
+    /// flag (see there). Skipped with ⌥ held: the panes are deliberately apart, with no one zoom.
     ///
-    /// `syncSuspended` is honoured here for the reason the page report honours it: with ⌥ held the
-    /// two panes are deliberately apart, and there is no single zoom to record.
-    ///
-    /// The test for "did the reader zoom" is a comparison against ``Coordinator/fittedScale``
-    /// rather than the pane's `autoScales` flag — see there for why the flag is a coin toss.
-    ///
-    /// Off this turn, because dismantle runs inside a view-graph update and the closure writes
-    /// `@State`. The value is only read by the NEXT mount, so a turn's delay costs nothing.
+    /// Reported on the next turn, because dismantle runs inside a view-graph update and the closure
+    /// writes `@State`. Only the next mount reads it, so the delay costs nothing.
     static func dismantleNSView(_ nsView: NSSplitView, coordinator: Coordinator) {
         guard !coordinator.syncSuspended,
               let pane = coordinator.left, pane.document != nil,
@@ -204,22 +175,12 @@ struct PDFPairView: NSViewRepresentable {
     private func makePDFView() -> PDFView {
         let view = PDFView()
         view.autoScales = true
-        // **Continuous, so that scrolling is a thing this surface can do at all.**
-        //
-        // This was `.singlePage`, on the reasoning that the strip and ⇞/⇟ are the navigation and a
-        // continuous scroll would put the two sides on different pages with nothing saying so.
-        // Measured, that reasoning cost more than it bought: `autoScales` fits the page to the
-        // pane, so at the size the overlay actually opens a US Letter page lays out at 792.0pt
-        // inside a 792.0pt clip view — the content fits to the pixel and a scroll gesture is
-        // clamped to nothing. Both panes sat dead under the reader's fingers, which reads as
-        // "these do not scroll together" and is really "neither one scrolls".
-        //
-        // The objection it was built on no longer holds either: the two sides are mirrored now
-        // (`wireScroll`, fixed after it was found registering nothing), so a scroll moves both, and
-        // `onPageChange` walks the strip along with them rather than leaving it pointing elsewhere.
+        // Continuous, so the panes can scroll at all: in `.singlePage`, `autoScales` fits the page
+        // to the pane exactly and a scroll gesture is clamped to nothing. The two sides are
+        // mirrored (`wireScroll`), and `onPageChange` walks the strip along with them.
         view.displayMode = .singlePageContinuous
-        // Page breaks earn their space once pages flow past each other: without them a two-page
-        // document scrolls as one unbroken column and the reader cannot see where one page ends.
+        // Page breaks, so a continuous document doesn't scroll as one unbroken column with no
+        // sign of where a page ends.
         view.displaysPageBreaks = true
         view.backgroundColor = .textBackgroundColor
         return view
@@ -232,9 +193,8 @@ struct PDFPairView: NSViewRepresentable {
         coordinator.onZoomChange = onZoomChange
         coordinator.surfacePage = page
         coordinator.surfaceZoom = zoom
-        // Recorded FIRST, and on every update: a turn arriving while the documents are still
-        // opening reaches the panes only through this, since the `go` below has nothing to act on
-        // yet. See `Coordinator.requestedPages`.
+        // Recorded first, on every update: a turn while the documents are still opening reaches
+        // the panes only through this, since `go` has nothing to act on yet.
         coordinator.requestedPages = (pairing.leftIndex(at: page), pairing.rightIndex(at: page))
         if coordinator.loaded?.left != leftPath || coordinator.loaded?.right != rightPath {
             coordinator.loaded = (leftPath, rightPath)
@@ -251,19 +211,12 @@ struct PDFPairView: NSViewRepresentable {
 
     /// Puts both panes at the zoom the surface remembers.
     ///
-    /// **Nothing happens with no remembered zoom**, which is the ordinary first mount: `autoScales`
-    /// fits the page, and a surface that has never been zoomed must not take that decision away
-    /// from it. Turning `autoScales` off is deliberate once a zoom HAS been chosen — a pane that
-    /// re-fits itself on the next overlay resize would be discarding the reader's choice a second
-    /// time, by a different route.
+    /// With no remembered zoom (the ordinary first mount) nothing happens, and `autoScales` fits
+    /// the page. Once a zoom has been chosen, `autoScales` goes off, so the next overlay resize
+    /// doesn't re-fit and discard the reader's choice.
     ///
-    /// **Applied inline, and the timing was measured both ways rather than assumed.** A hop onto
-    /// the next main-queue turn sat here for a while, on the theory that PDFKit's own initial fit
-    /// lands after the document assignment returns and would overwrite this. Traced over ten layout
-    /// passes on a static mount asking for 2.0, the two spellings are indistinguishable — both hold
-    /// 2.0 from the first pass — so the hop was removed rather than kept as a defensive half no test
-    /// could fail. `aFreshStaticMountAppliesTheZoomItWasGiven` is what guards the outcome; if a fit
-    /// ever does win the race, that test fails and names the number.
+    /// Applied inline: PDFKit's initial fit does not overwrite it. If a fit ever wins that race,
+    /// `aFreshStaticMountAppliesTheZoomItWasGiven` fails.
     @MainActor
     private func applyZoom(_ coordinator: Coordinator) {
         guard let zoom = coordinator.surfaceZoom else { return }
@@ -284,18 +237,15 @@ struct PDFPairView: NSViewRepresentable {
             }
             coordinator.drivingPage = true
             view.document = document?.document
-            // The page as it stands NOW, not as it stood when this open was queued — a turn during
-            // the open reaches the view only here.
+            // The page as it stands now, not when this open was queued: a turn during the open
+            // reaches the view only here.
             go(view, to: coordinator.requestedPages[keyPath: side])
             coordinator.drivingPage = false
-            // The remembered zoom, once there is a document to apply it to — `autoScales` has just
-            // fitted this page and would otherwise be the last word.
+            // The remembered zoom, now there is a document; `autoScales` has just fitted this page
+            // and would otherwise have the last word.
             applyZoom(coordinator)
-            // **HERE, not in `makeNSView`.** A `PDFView` with no document has no `documentView`,
-            // so it has no scroll view and no clip view to observe — the observers registered at
-            // construction found nil and silently registered nothing, and the panes then scrolled
-            // independently while every other part of the sync looked correct. This is the moment
-            // both halves exist.
+            // Here, not in `makeNSView`: a `PDFView` with no document has no `documentView`, so no
+            // clip view to observe, and registering earlier would silently register nothing.
             wireScroll(coordinator)
         }
     }
@@ -312,9 +262,8 @@ struct PDFPairView: NSViewRepresentable {
     /// Mirrors magnification between the two views. Registrable at construction: the notification
     /// is posted by the `PDFView` itself, which exists from the moment it is made.
     ///
-    /// Page changes are NOT mirrored: the page is owned by the surface (the strip, ⇞/⇟), and a
-    /// viewer that also pushed page changes at its twin would fight the surface's own state for
-    /// which page is current. Scroll and zoom have no such owner, so they are mirrored.
+    /// Page changes are not mirrored: the surface owns the page (the strip, ⇞/⇟), and a viewer
+    /// pushing pages at its twin would fight it. Scroll and zoom have no such owner.
     private func wireZoom(_ coordinator: Coordinator) {
         guard let left = coordinator.left, let right = coordinator.right else { return }
         for (source, target) in [(left, right), (right, left)] {
@@ -322,8 +271,8 @@ struct PDFPairView: NSViewRepresentable {
                 forName: .PDFViewScaleChanged, object: source, queue: .main
             ) { [weak coordinator, weak target, weak source] _ in
                 guard let coordinator, let target, let source else { return }
-                // A pane still auto-fitting is reporting a FIT, not a zoom. Recorded before the ⌥
-                // guard, because a fit is a fit whether or not the panes are being held apart.
+                // A pane still auto-fitting is reporting a fit, not a zoom. Recorded before the ⌥
+                // guard, because a fit is a fit whether or not the panes are held apart.
                 if source.autoScales { coordinator.fittedScale = source.scaleFactor }
                 guard !coordinator.syncSuspended else { return }
                 coordinator.latch.mirror {
@@ -337,25 +286,16 @@ struct PDFPairView: NSViewRepresentable {
 
     /// Reports the page the reader has scrolled onto, so the strip follows the panes.
     ///
-    /// **The page is still owned by the surface — this reports, it does not decide.** Continuous
-    /// scrolling means the reader can move the document without ever touching the strip or ⇞/⇟,
-    /// and a strip left pointing at page 1 while page 4 is on screen would be describing a
-    /// different document than the one being read; worse, the pixel modes would be diffing a page
-    /// nobody is looking at. So each view says which page it landed on and the surface decides.
+    /// The surface still owns the page; this reports, it doesn't decide. A continuous scroll moves
+    /// the document without touching the strip, and a strip left on page 1 with page 4 on screen
+    /// would have the pixel modes diffing a page nobody is looking at.
     ///
-    /// **Both sides report, and the echo is suppressed by value, not by a latch.** The surface
-    /// setting a page moves both views, each of which posts — so the guard is that a report equal
-    /// to what the surface already asked for is not a report at all. That also collapses the second
-    /// side's notification when a mirrored scroll carries it onto the same page.
+    /// Both sides report, and the echo is suppressed by value: a report equal to the surface's own
+    /// page is no report. That also collapses the second side's post after a mirrored scroll.
     ///
-    /// **⌥ silences the report, and that is not the same guard as the scroll mirror's.** While ⌥ is
-    /// held the two viewers stop mirroring so one pane can be moved alone — but a report is not a
-    /// mirror, it is a message to the surface, and the surface owns the page for BOTH panes. So a
-    /// ⌥-held scroll that crossed a page boundary reported it, the surface set its page, and the
-    /// next update drove the other pane there: the one thing ⌥ exists to prevent, arriving by the
-    /// long way round. Nothing said so, because the scroll offsets really had stopped mirroring —
-    /// only whole pages jumped. Released, the surface's page drives both panes back into step,
-    /// which is what ⌥ being held-and-released means.
+    /// ⌥ silences the report too, separately from the scroll mirror: the surface sets the page for
+    /// both panes, so a ⌥-held scroll across a page boundary would drag the other pane there. On
+    /// release the surface's page drives both panes back into step.
     private func wirePageReporting(_ coordinator: Coordinator) {
         for view in [coordinator.left, coordinator.right].compactMap({ $0 }) {
             let observer = NotificationCenter.default.addObserver(
@@ -377,11 +317,10 @@ struct PDFPairView: NSViewRepresentable {
 
     /// Mirrors scroll, once both sides have a document.
     ///
-    /// **Called from the document load, and this is the correction that matters.** A `PDFView`
-    /// with no document has no `documentView`, hence no enclosing scroll view and no clip view to
-    /// observe — so registering these in `makeNSView` registered nothing at all, silently, while
-    /// the zoom half worked and made the pair look synchronised. Idempotent, because both sides'
-    /// loads call it and only the second one can succeed.
+    /// **Call it from the document load, not `makeNSView`**: a `PDFView` with no document has no
+    /// `documentView`, hence no clip view to observe, and registering earlier silently registers
+    /// nothing while the zoom half makes the pair look synchronised. Idempotent, because both
+    /// sides' loads call it and only the second can succeed.
     @MainActor
     private func wireScroll(_ coordinator: Coordinator) {
         guard !coordinator.scrollWired,
@@ -389,7 +328,7 @@ struct PDFPairView: NSViewRepresentable {
               let leftClip = left.documentView?.enclosingScrollView?.contentView,
               let rightClip = right.documentView?.enclosingScrollView?.contentView else { return }
         coordinator.scrollWired = true
-        // The previous pair's observers go as this pair's arrive — see `replaceScrollObservers`.
+        // The previous pair's observers go as this pair's arrive; see `replaceScrollObservers`.
         coordinator.replaceScrollObservers {
             [(leftClip, right), (rightClip, left)].map { sourceClip, target in
                 sourceClip.postsBoundsChangedNotifications = true
@@ -462,11 +401,9 @@ struct ImagePairView: NSViewRepresentable {
         return scroll
     }
 
-    /// **Only what actually changed is assigned.** `updateNSView` runs on every render of the
-    /// surface above it — every publish of the manager the host observes, every pointer event of a
-    /// divider drag — and it used to wrap the same unchanged `CGImage` in a new `NSImage` and
-    /// reassign it each time, which resets the image view and its frame. `CGImage` is immutable,
-    /// so identity is the whole question: the same object is the same picture.
+    /// Assigns only what changed. `updateNSView` runs on every render above it (every manager
+    /// publish, every pointer event of a divider drag), and reassigning an unchanged image resets
+    /// the image view and its frame. `CGImage` is immutable, so identity is the whole question.
     func updateNSView(_ split: NSSplitView, context: Context) {
         context.coordinator.syncSuspended = syncSuspended
         let images = [left, right]

@@ -2,20 +2,20 @@ import SwiftUI
 import Design
 import Sync
 
-/// What the Files list needs to search inside files (RD38): the window's search, the folder it
-/// searches, and what opening a result does. `nil` on the rail draws the name filter alone — the
-/// previews and layout probes, which have no folder behind them.
+/// What the Files list needs to search inside files: the window's search, the folder it searches,
+/// and what opening a result does. `nil` on the rail draws the name filter alone, for the previews
+/// and layout probes, which have no folder behind them.
 struct EditorRailContentSearch {
     let model: EditorContentSearchModel
-    /// The rail's folder, as a path — the search covers it and every folder inside.
+    /// The rail's folder, as a path; the search covers it and every folder inside.
     let folder: String
     /// Opens a result: a text file at one of its lines (`nil` for its first), a PDF with its find
     /// holding the word, a Word or PowerPoint file in Quick Look.
     let onOpen: (EditorContentHit, EditorContentLine?) -> Void
 }
 
-/// **Names | Contents**, under the filter's field and inside its surface — the rail's tab bar's
-/// look, at the field's width.
+/// Names | Contents, under the filter's field and inside its surface: the rail's tab bar's look,
+/// at the field's width.
 struct EditorRailFilterScopeBar: View {
     @Binding var scope: EditorRailFilterScope
     let accentFill: Color
@@ -63,13 +63,10 @@ struct EditorRailFilterScopeBar: View {
 
 /// The filter's field with the switch under it, for a rail that can search inside files.
 ///
-/// **Observes the search, and that is why it is its own view**: the placeholder and ↩ follow the
-/// switch, and the rail around it is redrawn on every keystroke in the document beside it — it
-/// must not also redraw for every file the search reads.
-///
-/// **Where the search is asked for.** Only while the field is showing — it exists for exactly as
-/// long as the filter is open — and stopped when it goes, so a search never runs behind a
-/// folded filter, another tab or another workspace.
+/// Its own view because it observes the search: the rail around it redraws on every keystroke in
+/// the document beside it and must not also redraw for every file the search reads. The search is
+/// asked for only while the field shows and stopped when it goes, so it never runs behind a folded
+/// filter, another tab or another workspace.
 struct EditorRailFilterField: View {
     @ObservedObject var model: EditorContentSearchModel
     let search: EditorRailContentSearch
@@ -77,7 +74,7 @@ struct EditorRailFilterField: View {
     @Binding var isExpanded: Bool
     let accentFill: Color
     let onAccent: Color
-    /// ↩ on Names: the rail's own — open the first row and hand the list the keys (TE110).
+    /// ↩ on Names: the rail's own, which opens the first row and hands the list the keys.
     let onSubmitNames: () -> Void
 
     var body: some View {
@@ -91,7 +88,7 @@ struct EditorRailFilterField: View {
             .onSubmit {
                 guard model.scope == .contents else { return onSubmitNames() }
                 // ↩ asks now rather than after the settle, and opens the first result once there is
-                // one — the name filter's ↩, for contents.
+                // one, as the name filter's ↩ does.
                 if let first = model.firstResult, model.key?.query == EditorContentSearchModel.searchable(filter) {
                     search.onOpen(first.hit, first.line)
                 } else if let needle = EditorContentSearchModel.searchable(filter) {
@@ -111,7 +108,7 @@ struct EditorRailFilterField: View {
     }
 }
 
-/// The names list, or — with the switch on Contents — the files whose contents match.
+/// The names list or, with the switch on Contents, the files whose contents match.
 struct EditorRailContentSwitch<Names: View>: View {
     @ObservedObject var model: EditorContentSearchModel
     let search: EditorRailContentSearch
@@ -132,9 +129,9 @@ struct EditorRailContentSwitch<Names: View>: View {
     }
 }
 
-/// **The Contents results**: the text files that hold the word, each with its matching lines, then
-/// the PDFs (and Word and PowerPoint files) Spotlight says hold it — two groups, each labelled with
-/// where its answer came from, because the two answer differently (``EditorContentSpotlight``).
+/// The Contents results: the text files that hold the word, each with its matching lines, then the
+/// PDFs, Word and PowerPoint files Spotlight says hold it. Two groups, each labelled with where its
+/// answer came from, because the two answer differently (``EditorContentSpotlight``).
 struct EditorRailContentResults: View {
     @ObservedObject var model: EditorContentSearchModel
     let search: EditorRailContentSearch
@@ -251,8 +248,8 @@ struct EditorRailContentResults: View {
         .help("Line \(line.line) of \(hit.name)")
     }
 
-    /// A PDF, Word or PowerPoint file Spotlight named. Dim when its content is not on this Mac — Edit
-    /// says why when it is opened, as it does for the same file's row on Names.
+    /// A PDF, Word or PowerPoint file Spotlight named. Dim when its content isn't on this Mac; Edit
+    /// says why when it is opened, as for the same file's row on Names.
     private func documentRow(_ hit: EditorContentHit) -> some View {
         let isSelected = hit.path == selectedPath
         return Button {
@@ -285,8 +282,8 @@ struct EditorRailContentResults: View {
     }
 }
 
-/// The words the Contents results say — **functions, so each distinction is testable**, the shape
-/// ``EditorFileRailView/fileEmptyCaption(folderName:anyEntries:filter:otherFiles:)`` takes.
+/// The words the Contents results say, as functions so each distinction is testable, as
+/// ``EditorFileRailView/fileEmptyCaption(folderName:anyEntries:filter:otherFiles:)`` is.
 enum EditorRailContentCaption {
 
     /// The line above the results: what to type, how far the search has got, or what it did not
@@ -299,7 +296,7 @@ enum EditorRailContentCaption {
         guard let needle = EditorContentSearchModel.searchable(query) else {
             return "Type a word to search inside the text files and PDFs in \(place) and the folders inside it."
         }
-        // Typed, and still settling — or answering an older query.
+        // Typed, and still settling or answering an older query.
         guard key?.query == needle else { return "Searching…" }
         switch text {
         case .idle:
@@ -349,8 +346,8 @@ enum EditorRailContentCaption {
         "Text Files · \(count.formatted())"
     }
 
-    /// The Spotlight group's heading, or `nil` when the group is not drawn — no files, and not
-    /// still asking.
+    /// The Spotlight group's heading, or `nil` when the group isn't drawn: no files, and not still
+    /// asking.
     static func documentHeading(_ hits: [EditorContentHit], phase: EditorContentSearchModel.SpotlightPhase) -> String? {
         if hits.isEmpty {
             return phase == .searching ? "PDFs · asking Spotlight…" : nil

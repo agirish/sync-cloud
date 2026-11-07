@@ -32,10 +32,9 @@ public struct DestinationPlace: Identifiable, Equatable, Sendable {
         self.symbol = symbol
     }
 
-    /// **The source that holds `path` most closely**: the one it is the root of, else the one it
-    /// sits fewest levels inside. Not the longest root string — iCloud's container path is long,
-    /// and through its Documents link it "holds" a folder source at `~/Documents/Clients` too, which
-    /// re-rooted that source's own row at iCloud.
+    /// The source that holds `path` most closely: the one it is the root of, else the one it sits
+    /// fewest levels inside. Not the longest root string: through its Documents link iCloud also
+    /// "holds" a folder source at `~/Documents/Clients`, and would re-root that source's own row.
     public static func closestOwner(of path: String, among sources: [(name: String, root: String)],
                                     links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
         -> (name: String, root: String)? {
@@ -61,9 +60,9 @@ public struct DestinationPlaceSection: Identifiable, Equatable, Sendable {
         self.places = places
     }
 
-    /// Each folder once, where it first appears, and empty sections dropped — as the sidebar drops
-    /// a recent already shown under Favorites or Locations. Two rows with one path were two rows
-    /// with one id: the rail's highlight settled on whichever registered last.
+    /// Each folder once, where it first appears, and empty sections dropped, as the sidebar drops
+    /// a recent already shown under Favorites or Locations. Two rows with one path would share an
+    /// id, and the rail's highlight would settle on whichever registered last.
     public static func deduplicated(_ sections: [DestinationPlaceSection],
                                     excluding taken: Set<String> = []) -> [DestinationPlaceSection] {
         var seen = taken
@@ -75,17 +74,13 @@ public struct DestinationPlaceSection: Identifiable, Equatable, Sendable {
 }
 
 public extension DestinationPicker {
-    /// **The Here rows: the item's own folder, then up one, then up two — and the source's root**,
-    /// always last, so the root keeps a row of its own wherever the item sits.
+    /// The Here rows: the item's own folder, then up one, then up two, and the source's root always
+    /// last, so the root keeps a row wherever the item sits. Most moves are short, so these lead.
     ///
-    /// Most moves are short — into a folder beside the item, or up a level — so the folders the
-    /// item sits in lead the column. Walked by relative path and re-joined through `PathBoundary`,
-    /// not by deleting path components: above `~/Documents` the real parent is `~`, which is not
-    /// in iCloud Drive at all; through the link it is iCloud Drive itself.
-    ///
-    /// When the items are NOT in `itemFolder` (a loose file filed in from Downloads opens on the
-    /// File Into root; a selection can span folders) there is no "now here" to claim: the root row
-    /// alone.
+    /// Walked by relative path and re-joined through `PathBoundary`, not by deleting components:
+    /// above `~/Documents` the real parent is `~`, outside iCloud Drive; through the link it is
+    /// iCloud Drive itself. When the items aren't in `itemFolder` (a loose file from Downloads, a
+    /// selection spanning folders), there is no "now here": the root row alone.
     nonisolated static func hereRows(itemFolder: String, root: String, rootName: String, itemsAreHere: Bool = true,
                                      links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [DestinationPlace] {
         let normalizedRoot = PaneBrowsePath.normalized(root)

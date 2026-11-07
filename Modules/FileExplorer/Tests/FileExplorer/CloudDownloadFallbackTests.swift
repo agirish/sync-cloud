@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// A Download the system refuses is not silent (BR1).
-///
-/// **The row menu's and File ▸ Download's click used to do nothing on screen** when the request
-/// threw — the only trace was a log line — while the preview's Download and Compare Copies revealed
-/// the file in Finder. It now does what those do. A plain local file is the refused case here: it is
-/// not a ubiquitous item, so `startDownloadingUbiquitousItem` throws for it.
+/// A Download the system refuses is not silent: the row menu's and File ▸ Download's click reveal
+/// the file in Finder, as the preview's Download and Compare Copies do. A plain local file is the
+/// refused case here: it isn't a ubiquitous item, so `startDownloadingUbiquitousItem` throws.
 @MainActor
 @Suite struct CloudDownloadFallbackTests {
 
@@ -102,7 +99,7 @@ import Testing
             fetch: { _, _ in .init(requested: [], refused: ["/P/Folder/a", "/P/loose.bin"], unreadable: 0) },
             whenUnavailable: { revealed.append(contentsOf: $0) })
 
-        // The whole selection, folders first — what was asked for, not what was found inside.
+        // The whole selection, folders first: what was asked for, not what was found inside.
         #expect(revealed.map(\.path) == ["/P/Folder", "/P/loose.bin"])
         #expect(recorder.accepted.isEmpty, "a watch was started for a download nobody started")
     }
@@ -124,7 +121,7 @@ import Testing
     }
 }
 
-/// The fetch is handed exactly the selection it was given — files and folders apart, so a folder is
+/// The fetch is handed exactly the selection it was given, files and folders apart, so a folder is
 /// walked and a file is not.
 @MainActor
 @Suite struct RequestDownloadsHandOffTests {

@@ -2,19 +2,18 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **A name typed into "Create as" belongs to the destination it was typed for.**
+/// A name typed into "Create as" belongs to the destination it was typed for.
 ///
-/// `FilingSuggestionCard.editedFolderName` is `@State`, and the card's identity is the SUGGESTION —
-/// so "Try another" replaces `best` underneath the same card and the field keeps its contents. A
-/// name meant for `Finance › HDFC › <new>` was then applied to whatever came back next, creating
-/// `Health › Kaiser › 2026 Statements`. The only clue was the field showing the old name against
-/// the new folder's placeholder.
+/// `FilingSuggestionCard.editedFolderName` is `@State`, and the card's identity is the suggestion,
+/// so "Try another" replaces `best` underneath the same card and the field keeps its contents.
+/// Without a reset, a name meant for `Finance › HDFC › <new>` would be applied to whatever came
+/// back next, with the only clue the old name in the field against the new folder's placeholder.
 ///
 /// A scan, and honest about its reach: `@State` cannot be driven from here without mounting the
-/// card inside a host that can serve it a second destination, and the mounted-view harnesses in
-/// this target drive tables rather than lens cards. What is checkable is that the reset exists, is
-/// keyed on the destination, and that the button still reads the field — a reset that fired on
-/// every render would "fix" this by making the field useless, and that would pass a one-sided test.
+/// card in a host that can serve it a second destination, and the mounted-view harnesses in this
+/// target drive tables, not lens cards. What is checkable is that the reset exists, is keyed on the
+/// destination, and that the button still reads the field: a reset that fired on every render would
+/// "fix" this by making the field useless, and would pass a one-sided test.
 @Suite struct FilingCardTypedNameScopeTests {
 
     private static func cardSource() throws -> String {
@@ -39,7 +38,7 @@ import Foundation
                 "nothing clears the typed name when the destination changes, so it carries to the next one")
     }
 
-    /// The button must still USE the field, or the reset above would be protecting nothing.
+    /// The button must still use the field, or the reset above would be protecting nothing.
     @Test func fileHereStillAppliesTheTypedName() throws {
         let source = try Self.cardSource()
         #expect(source.contains("onFileHere(best.renamingNewFolder(to: editedFolderName))"),

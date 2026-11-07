@@ -7,19 +7,16 @@ import Sync
 ///
 /// Grammar (any word not recognized as a token is free text, matched as a substring of the path):
 ///   - `kind:<ext>`     — file extension, e.g. `kind:pdf`, or a class alias (`kind:image`);
-///                        LAST-WINS when repeated — two extensions can never both match one path,
-///                        so conjunction would be a guaranteed dead-end
+///                        last wins when repeated, since one path can't match two extensions
 ///   - `>N` / `<N`      — size at least / at most N, unit b/kb/mb/gb (SI 1000-base, matching the
 ///                        displayed sizes); a bare number is bytes, e.g. `>10mb`, `<500kb`
 ///   - `only:left` / `only:right` — items present on only that side
 ///
-/// Backwards-compatible by construction: a query with NO recognized tokens keeps the exact legacy
-/// behavior — the whole raw string (spacing intact) is one case-insensitive substring over the
-/// relative path — so phrase and trailing-space searches are unchanged.
+/// A query with no recognized tokens is the whole raw string, spacing intact, as one
+/// case-insensitive substring over the relative path, so phrase and trailing-space searches work.
 ///
-/// The mechanics (tokenizer, verbatim-raw fallback, all-occurrences removal, family-last-wins
-/// chips, the number+unit size parser) are Design's shared `TokenQuery` core; this grammar owns
-/// only its token table and `matches()`.
+/// The mechanics (tokenizer, raw fallback, removal, last-wins chips, size parser) are Design's
+/// shared `TokenQuery`; this grammar owns only its token table and `matches()`.
 enum DifferenceSearch {
 
     enum Token: Equatable {
@@ -37,9 +34,9 @@ enum DifferenceSearch {
         var isEmpty: Bool { tokens.isEmpty && freeText.isEmpty }
 
         /// `pathRootName` is the Path column's anchor for the rows being searched. Free text
-        /// matches what the table shows: `relativePath` (the legacy haystack) OR the anchored
-        /// Path-column text — the anchor ("Home", or the "Top level" fallback) appears in no
-        /// `relativePath`, and visible-but-unfindable text reads as "no differences match".
+        /// matches what the table shows: `relativePath` or the anchored Path-column text, since
+        /// the anchor ("Home", or "Top level") appears in no `relativePath` and visible text must
+        /// be findable.
         func matches(_ difference: FileDifference, pathRootName: String?) -> Bool {
             for token in tokens where !DifferenceSearch.matches(token, difference) { return false }
             if freeText.isEmpty { return true }
@@ -49,22 +46,20 @@ enum DifferenceSearch {
         }
     }
 
-    /// Class aliases for `kind:` — a single word matching a fixed extension set, shared with the
-    /// Duplicates lens search so `kind:image` means the same thing on every surface. Deliberately
-    /// tiny: one alias, fixed list, everything else stays an exact extension match.
+    /// Class aliases for `kind:`, shared with the Duplicates lens search so `kind:image` means the
+    /// same everywhere. Deliberately tiny: everything else is an exact extension match.
     static let kindClasses: [String: Set<String>] = [
         "image": ["jpg", "jpeg", "png", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"],
     ]
 
     static func parse(_ raw: String) -> Query {
         var tokens: [Token] = []
-        // No recognized tokens → freeText preserves the raw string verbatim (legacy substring search).
+        // No recognized tokens → freeText keeps the raw string verbatim (one substring search).
         let freeText = TokenQuery.freeText(raw) { word in
             guard let token = parseToken(word) else { return false }
-            // `kind:` is last-wins (like the lens/Log families): a path has ONE extension, so two
-            // conjunctive kind: tokens can never both match — the earlier one is dropped rather
-            // than turning the query into a guaranteed-empty dead-end. Size bounds and only:
-            // stay conjunctive; those combinations are legitimate (ranges).
+            // `kind:` is last-wins, like the lens and Log families: a path has one extension, so
+            // an earlier kind: is dropped rather than emptying the query. Size bounds and only:
+            // stay conjunctive, since ranges are legitimate.
             if case .kind = token {
                 tokens.removeAll { if case .kind = $0 { return true } else { return false } }
             }
@@ -81,16 +76,14 @@ enum DifferenceSearch {
     struct Chip: Equatable, DimmableTokenChip {
         var raw: String
         var token: Token
-        /// Whether this chip is part of the effective query. `parse` is last-wins for the `kind:`
-        /// family, so when kind: appears twice only the LAST word filters anything; earlier ones
-        /// render dimmed so the chips read as the query the filter actually runs.
+        /// Whether this chip is part of the effective query. `kind:` is last-wins in `parse`, so
+        /// earlier kind: chips render dimmed and the chips read as the query that actually runs.
         var isActive: Bool = true
     }
 
-    /// Every recognized token word in `raw`, in typed order, as display chips. Free text is
-    /// excluded. Within the `kind:` family only the last occurrence is `isActive` — matching
-    /// `parse`'s last-wins semantics (via `TokenQuery.lastWinsChips`); size and only: chips are
-    /// always active (conjunctive, so their family is nil).
+    /// Every recognized token word in `raw`, in typed order, as display chips; free text is
+    /// excluded. Only the last `kind:` is `isActive`, matching `parse` (via
+    /// `TokenQuery.lastWinsChips`); size and only: chips have no family, so are always active.
     static func chips(_ raw: String) -> [Chip] {
         TokenQuery.lastWinsChips(raw) { word in
             guard let token = parseToken(word) else { return nil }
@@ -101,8 +94,8 @@ enum DifferenceSearch {
         }
     }
 
-    /// Removes every occurrence of `word` from `raw` — see `TokenQuery.removing` for why ALL
-    /// occurrences is the honest ✕ semantics under last-wins parsing.
+    /// Removes every occurrence of `word` from `raw`. See `TokenQuery.removing` for why ✕ removes
+    /// all of them under last-wins parsing.
     static func removing(_ raw: String, word: String) -> String {
         TokenQuery.removing(raw, word: word)
     }
@@ -147,8 +140,7 @@ enum DifferenceSearch {
     }
 
     /// "10mb" / "1.5gb" / "500kb" / "1024" → bytes, via the shared `TokenQuery` parser (SI
-    /// 1000-base, overflow-guarded). Kept as this grammar's named entry point because the Duplicates lens's
-    /// `DuplicateSearch` and the tests address the size vocabulary through it.
+    /// 1000-base, overflow-guarded). The named entry point `DuplicateSearch` and the tests use.
     static func parseSize(_ string: String) -> Int? {
         TokenQuery.parseSizeBytes(string)
     }

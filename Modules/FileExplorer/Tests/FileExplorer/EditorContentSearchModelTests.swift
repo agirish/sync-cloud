@@ -4,8 +4,8 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Search inside files (RD38): when the window's search asks, what it keeps, what Spotlight is
-/// asked, what the results say — and that opening a text result leaves Find holding the word.
+/// Search inside files: when the window's search asks, what it keeps, what Spotlight is asked,
+/// what the results say, and that opening a text result leaves Find holding the word.
 @MainActor
 @Suite(.serialized) struct EditorContentSearchModelTests {
 
@@ -31,8 +31,8 @@ import Sync
         var ended = 0
     }
 
-    /// The window an ABSENCE is given — a search that should not start, or a hit that should not
-    /// be asked for. Never what a positive assertion waits on: that is `waitFor`.
+    /// The window an absence is given: a search that should not start, or a hit that should not be
+    /// asked for. Never what a positive assertion waits on; that is `waitFor`.
     private func settle() async {
         for _ in 0..<50 { await Task.yield() }
         try? await Task.sleep(for: .milliseconds(30))
@@ -42,9 +42,8 @@ import Sync
     /// rather than by seconds, and fails at the caller when it never comes.
     ///
     /// All of it arrives on scheduler turns: the typing settle's task, the scan's events, and a
-    /// stream's end, counted by the `Task` its `onTermination` starts. `settle()` was ample alone
-    /// and short of it in a loaded CI run (40614524397), where `ended` read 0 where it wanted 1.
-    /// See `docs/flaky-tests.md`, "Fixed pumps and fixed sleeps".
+    /// stream's end, counted by the `Task` its `onTermination` starts. A fixed `settle()` can fall
+    /// short under load. See `docs/flaky-tests.md`, "Fixed pumps and fixed sleeps".
     private func waitFor(_ what: String, sourceLocation: SourceLocation = #_sourceLocation,
                          until condition: () -> Bool) async {
         let wait = await LayoutPumpWait.poll(upTo: 5, until: condition)
@@ -239,8 +238,8 @@ import Sync
 
     // MARK: Where it is
 
-    /// The filter opens over rows to filter — or, where it can search inside files, over a folder
-    /// of folders, which is where a search of the folders inside is wanted (TE138 greys the rest).
+    /// The filter opens over rows to filter, or, where it can search inside files, over a folder of
+    /// folders, where a search of the folders inside is wanted.
     @Test func theFilterOpensWhereThereIsSomethingToSearch() {
         #expect(EditorFileRailView.filterIsOffered(hasEntries: true, searchesContents: false, hasSubfolders: false))
         #expect(!EditorFileRailView.filterIsOffered(hasEntries: false, searchesContents: false, hasSubfolders: true))
@@ -270,10 +269,10 @@ import Sync
         return (scroll, view, window)
     }
 
-    /// **The match stays selected, the bar shows it, and ⌘G goes on to the next match** — in a
-    /// different case, since the search is the name filter's, case-blind. Measured on a real text
-    /// view in a window: the bar's field takes the keyboard when it opens, and an incremental
-    /// search could have moved the selection to the first match in the file.
+    /// The match stays selected, the bar shows it, and ⌘G goes on to the next match, in a different
+    /// case, since the search is case-blind like the name filter. On a real text view in a window,
+    /// because the bar's field takes the keyboard when it opens and an incremental search could
+    /// move the selection to the file's first match.
     @Test func seedingFindKeepsTheMatchAndStepsToTheNext() {
         let (scroll, view, window) = hosted("Lentils first\nthen red lentils here\nand LENTILS last\n")
         defer { PlainTextEditor.retireFindBar(of: view) }
@@ -304,10 +303,10 @@ import Sync
         return found
     }
 
-    /// **The editor itself does it, from the request** — the call site, mounted: a request with a
-    /// length selects that much and seeds Find; the same request without `seedsFind` leaves the bar
-    /// down, so the bar is the request's doing. Asked of a view already up, as the workspace asks:
-    /// a request standing when a text view is built is taken as answered (`makeCoordinator`).
+    /// The editor does it from the request, mounted: a request with a length selects that much and
+    /// seeds Find, and without `seedsFind` the bar stays down, so the bar is the request's doing.
+    /// Asked of a view already up, as the workspace asks: a request standing when a text view is
+    /// built is taken as answered (`makeCoordinator`).
     @Test func theEditorSelectsAndSeedsFromTheRequest() throws {
         let text = "one\nred lentils\n"
         let source = EditorSourceStorage(text: text)

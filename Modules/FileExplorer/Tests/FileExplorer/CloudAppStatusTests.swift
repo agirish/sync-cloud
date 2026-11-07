@@ -4,7 +4,7 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// **RD68's rules** — when a cloud app's sources say it isn't syncing, and when they say nothing.
+/// When a cloud app's sources say it isn't syncing, and when they say nothing.
 /// Driven through `CloudAppMonitor` with a fake system and a hand-turned clock, so every answer is
 /// the one the panes, the source menu, the sidebar and Activity read.
 @MainActor
@@ -22,7 +22,7 @@ import Sync
         private var _changes: [(path: String, at: Date)] = []
         private var _inside: [String: [String]] = [:]
         func set(inside files: [String], of folder: String) { lock.lock(); _inside[folder] = files; lock.unlock() }
-        /// When set, every upload read waits on it — a provider that has stopped answering.
+        /// When set, every upload read waits on it, like a provider that has stopped answering.
         var gate: DispatchSemaphore?
         private var _heldReads = 0
         /// How many upload reads have waited on `gate`.
@@ -95,9 +95,9 @@ import Sync
 
     // MARK: Not running
 
-    /// **Five minutes missing, and not a second less.** A restart of the app, or a slow login,
-    /// must not flash a warning; one that stays gone must be said. The grace runs from the first
-    /// time it was seen missing — a refresh in between does not restart it.
+    /// Five minutes missing, and not a second less. A restart of the app, or a slow login, must not
+    /// flash a warning; one that stays gone must be said. The grace runs from the first time it was
+    /// seen missing, and a refresh in between doesn't restart it.
     @Test func anAppMissingFiveMinutesIsNotRunningAndNotBefore() async {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -115,7 +115,7 @@ import Sync
         #expect(CloudAppStatusModel.notRunningGrace == 300)
     }
 
-    /// A quit seen as a notification starts the grace at the quit, not at SyncCloud's launch — and
+    /// A quit seen as a notification starts the grace at the quit, not at SyncCloud's launch, and
     /// at any time, not only at login.
     @Test func aQuitLaterInTheSessionStartsItsOwnGrace() async {
         let fake = Fake()
@@ -132,7 +132,7 @@ import Sync
         #expect(monitor.problems == [Self.dropbox.id: .notRunning(.dropbox)])
     }
 
-    /// **The moment the app launches, the warning goes** — in the refresh the change to the running
+    /// The moment the app launches, the warning goes, in the refresh the change to the running
     /// apps asks for, without waiting out a grace the other way.
     @Test func aLaunchClearsTheWarningAtOnce() async {
         let fake = Fake()
@@ -160,9 +160,9 @@ import Sync
 
     // MARK: What gets nothing
 
-    /// **A source turned off in Settings shows nothing**, while its sibling account of the same
-    /// app, still on, does — so a rule that ignored `disabled` and one that hid every account of
-    /// the app would both fail here.
+    /// A source turned off in Settings shows nothing, while its sibling account of the same app,
+    /// still on, does, so a rule that ignored `disabled` and one that hid every account of the app
+    /// would both fail here.
     @Test func aDisabledSourceShowsNothingAndItsSiblingStillDoes() async {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -192,7 +192,7 @@ import Sync
 
     // MARK: Not responding, iCloud
 
-    /// A folder not downloaded here that didn't answer marks the source it is in — and only that
+    /// A folder not downloaded here that didn't answer marks the source it is in, and only that
     /// one.
     @Test func anUnansweredFolderMarksItsSourceNotResponding() async {
         let fake = Fake()
@@ -207,7 +207,7 @@ import Sync
         #expect(monitor.problems.isEmpty)
     }
 
-    /// A folder asked of OneDrive while it was gone stays unanswered — its read may never return —
+    /// A folder asked of OneDrive while it was gone stays unanswered (its read may never return),
     /// so when OneDrive launches its folders are read again, not "not responding" for the session.
     /// Another app's unanswered folder is not its to clear.
     @Test func aLaunchForgetsItsSourcesUnansweredFolders() async {
@@ -270,8 +270,8 @@ import Sync
         let added = "\(Self.storage)/Dropbox/b.pdf"
         fake.change(added)
         monitor.requestRefresh()            // the slow half drains b.pdf, then hangs reading a.pdf
-        // Held for real — the run has drained the ledger and is waiting on a read — before the
-        // sources change: a sleep would race the hop on a loaded Mac.
+        // Held for real (the run has drained the ledger and waits on a read) before the sources
+        // change: a sleep would race the hop on a loaded Mac.
         let started = ContinuousClock.now + .seconds(60)
         while fake.heldReads == 0, ContinuousClock.now < started { try await Task.sleep(for: .milliseconds(10)) }
         try #require(fake.heldReads > 0 && monitor.isRefreshingUploads, "premise: the slow half is held")
@@ -289,9 +289,9 @@ import Sync
         #expect(monitor.statusModel.watchedPaths.contains(added), "the change drained under the old sources was lost")
     }
 
-    /// **A folder the provider never syncs says nothing about the app.** Each OneDrive account's
-    /// `.Trash` is dataless and never answers, OneDrive running or not (measured 2026-10-31) — it
-    /// marked both accounts "not responding" at every launch.
+    /// A folder the provider never syncs says nothing about the app. Each OneDrive account's
+    /// `.Trash` is dataless and never answers, OneDrive running or not, so counting it would mark
+    /// every account "not responding" at each launch.
     @Test func anUnansweredHiddenFolderMarksNothing() async {
         let fake = Fake()
         fake.set(unanswered: ["\(Self.storage)/OneDrive-Work/.Trash", "\(Self.storage)/OneDrive-Personal/.Trash"])
@@ -315,7 +315,7 @@ import Sync
 
     // MARK: Uploads
 
-    /// **A refusal is skipped; a file still waiting is not uploading** — and only after 30 minutes.
+    /// A refusal is skipped; a file still waiting is not uploading, and only after 30 minutes.
     /// The refused file is named first in the fixture so a rule that took any error as "not
     /// uploading" would put it in the problem.
     @Test func aRefusedFileIsSkippedAndAWaitingOneIsNotUploading() async {
@@ -347,8 +347,8 @@ import Sync
         #expect(monitor.skipped[Self.dropbox.id]?.map(\.path) == [refused])
     }
 
-    /// Only files inside a cloud source are watched, and never a hidden one — Dropbox reports its
-    /// ignored `.DS_Store` as not uploaded, with no error, for good (measured 2026-10-30).
+    /// Only files inside a cloud source are watched, and never a hidden one: Dropbox reports its
+    /// ignored `.DS_Store` as not uploaded, with no error, for good.
     @Test func hiddenFilesAndFilesOutsideEveryCloudSourceAreNotWatched() async {
         let fake = Fake()
         fake.change("\(Self.storage)/Dropbox/.DS_Store")
@@ -376,7 +376,7 @@ import Sync
 
     // MARK: Activity
 
-    /// **A dismissed row stays dismissed while it says the same, and comes back when it changes.**
+    /// A dismissed row stays dismissed while it says the same, and comes back when it changes.
     @Test func aDismissedRowComesBackWhenTheStateChanges() async throws {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -403,7 +403,7 @@ import Sync
         #expect(monitor.notices.first?.actions == [.open(.dropbox), .open(.oneDrive)])
     }
 
-    /// Open is offered for an installed app only — known from the refresh, never asked of
+    /// Open is offered for an installed app only, known from the refresh, never asked of
     /// LaunchServices while a view renders.
     @Test func openIsOfferedOnlyForAnInstalledApp() async {
         let fake = Fake()
@@ -418,7 +418,7 @@ import Sync
 
     // MARK: Running apps
 
-    /// The bundle an executable sits in — the last `Contents/MacOS`, so a helper app nested inside
+    /// The bundle an executable sits in: the last `Contents/MacOS`, so a helper app nested inside
     /// another is its own bundle and is never taken for the app around it.
     @Test func anExecutableBelongsToTheInnermostBundle() {
         #expect(RunningBundles.bundlePath(ofExecutable: "/Applications/Dropbox.app/Contents/MacOS/Dropbox")
@@ -428,8 +428,8 @@ import Sync
         #expect(RunningBundles.bundlePath(ofExecutable: "/usr/libexec/fileproviderd") == nil)
     }
 
-    /// The kernel route finds an app that is certainly running in a logged-in session — the Dock
-    /// or Finder — so an empty answer can never pass as "nothing is running".
+    /// The kernel route finds an app that is certainly running in a logged-in session (the Dock
+    /// or Finder), so an empty answer can never pass as "nothing is running".
     @Test func theKernelRouteFindsARunningApp() throws {
         let ids = RunningBundles.shared.identifiers()
         #expect(!ids.isEmpty)
@@ -438,7 +438,7 @@ import Sync
 
     // MARK: Review fixes, 2026-10-30
 
-    /// **The same problem coming back is a change.** Dismiss "OneDrive isn't running", OneDrive
+    /// The same problem coming back is a change. Dismiss "OneDrive isn't running", OneDrive
     /// runs again, then quits again: the row is back. And iCloud's row, whose words never change.
     @Test func aDismissedRowComesBackWhenTheSameProblemReturns() async throws {
         let fake = Fake()
@@ -462,9 +462,9 @@ import Sync
         #expect(monitor.notices.map(\.id).sorted() == ["icloud-off", "not-running"])
     }
 
-    /// **The worst that applies, and no "not responding" while an app is merely missing.** A
-    /// missing app's folders do not answer; within the grace nothing is said, after it "not
-    /// running" is. A running app's unanswered folder outranks a late upload.
+    /// The worst that applies, and no "not responding" while an app is merely missing. A missing
+    /// app's folders don't answer; within the grace nothing is said, after it "not running" is. A
+    /// running app's unanswered folder outranks a late upload.
     @Test func notRunningOutranksAndSilencesNotResponding() async {
         let fake = Fake()
         let silent = "\(Self.storage)/OneDrive-Work/Projects"
@@ -485,8 +485,8 @@ import Sync
         #expect(monitor.problems == [Self.personal.id: .notRunning(.oneDrive), Self.work.id: .notRunning(.oneDrive)])
     }
 
-    /// `since` is the OLDEST waiting change — the newest is first in the fixture, so a `.max()`
-    /// or a `.first` would both answer wrong — and a file changed again starts its wait over.
+    /// `since` is the oldest waiting change (the newest is first in the fixture, so `.max()` or
+    /// `.first` would answer wrong), and a file changed again starts its wait over.
     @Test func sinceIsTheOldestWaitAndAChangeRestartsIt() async {
         let fake = Fake()
         let old = "\(Self.storage)/Dropbox/Old.pdf"
@@ -507,8 +507,8 @@ import Sync
         #expect(monitor.problems == [Self.dropbox.id: .notUploading(paths: [new], since: started + 600)])
     }
 
-    /// A file whose upload state is not known yet stays watched — and is counted once its provider
-    /// says "not uploaded" — instead of being dropped at the first look.
+    /// A file whose upload state isn't known yet stays watched, and is counted once its provider
+    /// says "not uploaded", instead of being dropped at the first look.
     @Test func aFileNotYetKnownStaysWatched() async {
         let fake = Fake()
         let file = "\(Self.storage)/Dropbox/Fresh.pdf"
@@ -543,7 +543,7 @@ import Sync
         #expect(model.watchedPaths == ["/x/Report.docx"])
     }
 
-    /// **A failed File Provider check is asked again**, so a moment it was unavailable does not hide
+    /// A failed File Provider check is asked again, so a moment it was unavailable doesn't hide
     /// a source until the next wake; a "known" answer is kept.
     @Test func aFailedAccountCheckIsAskedAgain() async {
         let fake = Fake()
@@ -559,7 +559,7 @@ import Sync
         #expect(monitor.problems[Self.work.id] == .notRunning(.oneDrive))
     }
 
-    /// **A change made through a link into an account counts** — `~/Dropbox/x.pdf` is the Dropbox
+    /// A change made through a link into an account counts: `~/Dropbox/x.pdf` is the Dropbox
     /// account's file, though spelled outside CloudStorage.
     @Test func aChangeSpelledThroughALinkIsWatched() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("rd68-link-\(UUID().uuidString)")
@@ -580,9 +580,9 @@ import Sync
         #expect(monitor.problems == [dropbox.id: .notUploading(paths: [realAccount + "/x.pdf"], since: fake.now - CloudAppStatusModel.uploadDeadline)])
     }
 
-    /// **A stuck upload read does not freeze the status.** With every upload read hanging, a
-    /// launch still clears "not running" — through the same request a change to the running apps
-    /// makes, not a test-only path.
+    /// A stuck upload read doesn't freeze the status. With every upload read hanging, a launch
+    /// still clears "not running", through the same request a change to the running apps makes,
+    /// not a test-only path.
     @Test func aStuckUploadReadDoesNotHoldBackALaunch() async throws {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -601,7 +601,7 @@ import Sync
         fake.set(running: .oneDrive, true)
         monitor.requestRefresh()
         // Bounded, and generous: the claim is that the fast half runs at all while the slow one
-        // hangs, not how fast — 5 s failed twice on hosted CI's 3 vCPUs ("Tests racing a
+        // hangs, not how fast. A tight bound flakes on hosted CI's 3 vCPUs ("Tests racing a
         // real-time window", docs/flaky-tests.md).
         let deadline = ContinuousClock.now + .seconds(60)
         while !monitor.problems.isEmpty, ContinuousClock.now < deadline {
@@ -626,10 +626,10 @@ import Sync
 
     // MARK: Asked about at once (decision DN)
 
-    /// **A source the user picks says "not running" at once; one restored at launch waits.** The
-    /// launch's own refresh with OneDrive already quit shows nothing — the grace — and picking a
-    /// OneDrive source then shows it with no wait, on every OneDrive account (it is the app that
-    /// is down). Activity's row still waits out the grace: it appears on its own.
+    /// A source the user picks says "not running" at once; one restored at launch waits. The
+    /// launch's own refresh with OneDrive already quit shows nothing (the grace), and picking a
+    /// OneDrive source then shows it with no wait, on every OneDrive account, since the app is
+    /// down. Activity's row still waits out the grace: it appears on its own.
     @Test func aPickedSourceSaysNotRunningAtOnceAndARestoredOneWaits() async {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -674,10 +674,10 @@ import Sync
         #expect(monitor.problems.isEmpty, "said \(monitor.problems)")
     }
 
-    /// **The four places that ask, and the one that must not.** A pick in the source menu and the
-    /// pointer reaching its chip, a click on a sidebar source, and Settings ▸ Sources on screen
-    /// all check at once; the window's own provider restore does not — ContentView's one call is
-    /// the Settings one.
+    /// The four places that ask, and the one that must not. A pick in the source menu, the pointer
+    /// reaching its chip, a click on a sidebar source, and Settings ▸ Sources on screen all check
+    /// at once; the window's own provider restore doesn't, so ContentView's one call is the
+    /// Settings one.
     @Test func theUserGesturesAskAndARestoreDoesNot() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

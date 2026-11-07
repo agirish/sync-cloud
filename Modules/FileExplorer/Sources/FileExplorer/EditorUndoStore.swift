@@ -3,28 +3,17 @@ import Events
 
 /// One undo stack per document, so ⌘Z survives switching files.
 ///
-/// **The stack used to be wiped on every file switch, and that wipe was correct.** `NSTextView`
-/// registers undo by character RANGE in the buffer the edit was made against; assigning a new
-/// string replaces the buffer and clears nothing, so a ⌘Z after switching files replayed one
-/// document's edits into another — splicing its characters out where the ranges happened to land,
-/// or throwing `NSRangeException` and taking the app down with every unsaved buffer in it.
+/// `NSTextView` registers undo by character range against the text it was made in. Replayed into
+/// another document, a ⌘Z splices characters out wherever the ranges land, or throws
+/// `NSRangeException` and takes the app down with every unsaved buffer. A stack per path keeps two
+/// documents' registrations apart.
 ///
-/// Keeping a stack per path fixes the cause rather than the symptom: two documents' registrations
-/// can no longer meet. But it introduces a second way to get the same crash, and this type exists
-/// to close it.
-///
-/// **A stack is only replayable if the buffer you come back to is the buffer you left**, and there
-/// are now several ways for it not to be — the file was reloaded from disk, an Organize run moved
-/// it, or (since autosave became per-file) you left it with autosave off and answered "Don't Save",
-/// so the disk still holds the text from before your edits while the stack holds registrations
-/// against the text after them. So every stack is kept beside a fingerprint of the text it was
-/// parted from, and a stack whose fingerprint does not match what was loaded is thrown away rather
-/// than handed back. **Refusing is always safe; replaying a stale stack is what is not.**
-///
-/// **Each stack is kept beside the text storage its actions were made against** (TE67.0) — see
-/// ``EditorSourceStorage``. An `NSTextView` registers undo against its storage, not against the
-/// buffer, so a stack is only replayable against the storage it was made in; the two are kept,
-/// refused, handed back and evicted together.
+/// A stack is only replayable if the buffer you come back to is the buffer you left. It may not
+/// be: the file was reloaded, an Organize run moved it, or you answered "Don't Save" with autosave
+/// off. So each stack is kept beside a fingerprint of the text it was parted from, and one that
+/// doesn't match what loads is thrown away. Refusing is always safe; replaying a stale stack is not.
+/// Each stack also travels with the text storage its actions edit (``EditorSourceStorage``): the
+/// two are kept, refused, handed back and evicted together.
 @MainActor
 public final class EditorUndoStore: ObservableObject {
 
@@ -32,26 +21,18 @@ public final class EditorUndoStore: ObservableObject {
     /// the new one the moment the document changes.
     @Published public private(set) var current = UndoManager()
 
-    /// The text storage ``current``'s actions edit — the open document's, handed to its buffer by
+    /// The text storage ``current``'s actions edit, the open document's, handed to its buffer by
     /// ``EditorBuffer/follow(_:)`` once ``activate(path:text:)`` has chosen it.
     @Published public private(set) var source = EditorSourceStorage()
 
-    /// How many documents keep their history.
-    ///
-    /// **A count, deliberately, and deliberately not a timer.** An idle expiry would take the
-    /// history exactly when it is most wanted — you edited a file this morning, worked elsewhere,
-    /// and came back having forgotten what you changed — to reclaim a few megabytes. The count is
-    /// what actually bounds the growth, and eight covers every realistic round trip.
+    /// How many documents keep their history. A count, not an idle timer: a timer would take the
+    /// history exactly when you come back to a file you edited hours ago. Eight covers every
+    /// realistic round trip.
     public let limit: Int
 
-    /// The deepest each stack goes before its oldest edits fall off.
-    ///
-    /// **The bound for the pathological case the count cannot reach**: one document in which large
-    /// blocks are deleted over and over, where a single stack holds every removed block. An
-    /// undo registration for an INSERTION stores a range and nothing else, so typing is nearly
-    /// free; it is deletion that costs, and this is what stops one file's deletions growing without
-    /// limit. 200 groups is far past any session's real use — the stack was wiped at every file
-    /// switch until now, so effective depth has always been much shallower than this.
+    /// The deepest each stack goes before its oldest edits fall off. Bounds the case the count
+    /// can't: one document where large blocks are deleted over and over. An insertion's undo stores
+    /// only a range, so typing is nearly free; deletions cost. 200 groups is far past real use.
     public static let levelsOfUndo = 200
 
     public init(limit: Int = 8) {
@@ -59,45 +40,19 @@ public final class EditorUndoStore: ObservableObject {
         current.levelsOfUndo = Self.levelsOfUndo
     }
 
-    /// What a stack expects the buffer to be.
+    /// What a stack expects the buffer to be: length and hash, since a second copy of every
+    /// document's text would cost more than the stacks do.
     ///
-    /// Length and hash rather than the text: keeping a second copy of every document's contents to
-    /// protect their undo stacks would cost more memory than the stacks do. The length is in there
-    /// because it is free and rules out the overwhelming majority of mismatches on its own.
+    /// The hash is over the UTF-8 bytes, not the `String`. `String.hashValue` normalises for
+    /// canonical equivalence grapheme by grapheme over a bridged UTF-16 buffer with no fast path:
+    /// 138 ms against 12 ms at the 4 MiB ``BoundedTextRead/maxBytes`` allows, on the main actor, on
+    /// every file switch. Both fields come from one `Data`, so the text is transcoded once. The copy
+    /// is cheaper than making the bridged string contiguous for `Hasher.combine(bytes:)`, and
+    /// `Data.hashValue` reads every byte (it is not the `NSData` prefix hash).
     ///
-    /// **The hash is over the BYTES rather than the `String`, and that is a measurement rather than
-    /// a preference.** `String.hashValue` hashes for Unicode canonical equivalence, which means
-    /// walking the buffer grapheme by grapheme and normalising as it goes — and the buffer this is
-    /// handed is the one `NSTextView` gave back, bridged from UTF-16 text storage, so there is no
-    /// native representation for it to fast-path. Measured at 4 MiB, which is exactly what
-    /// ``BoundedTextRead/maxBytes`` lets the editor open: **138 ms against 12 ms**, on the main
-    /// actor, on every file switch.
-    ///
-    /// **Transcoded ONCE, which is the difference between 12 ms and 16 ms.** Both fields come from
-    /// the same `Data`, because asking the bridged string for `utf8.count` and then again for its
-    /// bytes walks it twice — the count alone is 4.5 ms of the total at this size. The two spellings
-    /// produce an identical pair; this one produces it for a quarter less.
-    ///
-    /// It does allocate a buffer the size of the document for the duration of the hash. That is
-    /// deliberate and measured against the alternatives: `Hasher.combine(bytes:)` over
-    /// `String.withUTF8` has to make the bridged string contiguous first, which costs more than the
-    /// copy it avoids. `Data.hashValue` reads every byte — verified against 2,000 random single-byte
-    /// flips in a 4 MiB buffer, zero collisions — so this is not the `NSData` prefix hash.
-    ///
-    /// That made it the largest main-thread cost in the editor by some sixty times, which is not
-    /// obvious and is worth writing down: assigning a 4 MiB buffer into the text view measures
-    /// 0.6 ms and drawing it 2.5 ms, because TextKit 2 lays out only the viewport — and the
-    /// Markdown parse, the word counts and the line table were all moved off the main actor
-    /// already. Everything else about a large document is single-digit milliseconds; this was the
-    /// stall.
-    ///
-    /// **It also narrows what counts as the same buffer, deliberately.** Two strings that are
-    /// canonically equivalent while holding different bytes — the same combining marks in a
-    /// different order, say — used to fingerprint alike and now do not, so a stack kept against one
-    /// is refused when the other comes back. Refusing is the safe direction by this type's own
-    /// rule, and here it is also the more honest answer: the bytes differ, so saving one over the
-    /// other really does write a different file. Pinned by
-    /// `EditorUndoStoreTests.aStackIsRefusedWhenTheBytesChangedUnderAnEqualString`.
+    /// Byte-hashing also refuses a stack when canonically equivalent text with different bytes comes
+    /// back. That is the safe direction, and honest: saving one over the other writes a different
+    /// file. Pinned by `EditorUndoStoreTests.aStackIsRefusedWhenTheBytesChangedUnderAnEqualString`.
     struct Fingerprint: Equatable {
         var length: Int
         var hash: Int
@@ -117,7 +72,7 @@ public final class EditorUndoStore: ObservableObject {
     }
 
     private var stacks: [String: Entry] = [:]
-    /// Least-recently-used last. A plain array, because eight entries never justify anything else.
+    /// Most recently used last, so eviction takes from the front. A plain array suits eight entries.
     private var order: [String] = []
     /// The document `current` belongs to, so its stack is filed under the right path on the way out.
     private var activePath: String?
@@ -125,34 +80,25 @@ public final class EditorUndoStore: ObservableObject {
     /// Files whose history is being kept, not counting the open one.
     public var keptCount: Int { stacks.count }
 
-    /// Files the eviction rule dropped this session — for the log, and for a test to prove eviction
-    /// happened rather than inferring it from an absence.
+    /// Files the eviction rule dropped this session, for the log and for a test to prove eviction
+    /// happened rather than infer it from an absence.
     public private(set) var evictedCount = 0
 
-    /// Puts the open document's stack away, against the text it is being parted from.
+    /// Puts the open document's stack away, against the text it is being parted from. Called on the
+    /// way out, the one moment the buffer and the stack are known to agree.
     ///
-    /// Called on the way OUT, which is the one moment the buffer and the stack are known to agree.
+    /// The storage stops listening to the buffer first, document or not: a load or close writes
+    /// the buffer next, and a storage still attached would take the incoming file's text into the
+    /// storage kept for the outgoing one.
     ///
-    /// **The storage stops listening to the buffer here, document or not**, before the buffer is
-    /// replaced: a load or a close writes the buffer next, and a storage still attached would take
-    /// that text in — the incoming file's text, into the storage kept for the outgoing one, against
-    /// a fingerprint of what it held before.
+    /// Not kept: a document with nothing to undo or redo (it would hold up to 4 MiB of storage and
+    /// an LRU slot for an empty history), and a storage parted from mid-composition, whose text
+    /// holds a word the buffer never had. The composition is ended here as a backstop
+    /// (`settleEditorDocument` ends it first) and that history dropped, the safe direction.
     ///
-    /// **A document with nothing to undo or redo is not kept** (2026-10-09): its entry would hold
-    /// the whole text storage for an empty history — up to 4 MiB of text, per file only read — and
-    /// take an LRU slot from a file that was edited. ``activate(path:text:)`` builds a fresh pair
-    /// for it from what loads, which is what it would have been handed anyway.
-    ///
-    /// **A storage parted from mid-composition is not kept** (UND-5). Its characters include a word
-    /// the buffer never had, so `text` does not describe it: kept, it came back showing the word
-    /// beside a document without it. The composition is ended here — every route out ends it before
-    /// settling (`settleEditorDocument`), so this only catches one that did not — and the history
-    /// is dropped, which is the safe direction.
-    ///
-    /// - Parameter opening: the file about to be opened, **which eviction never takes** (UND-7).
-    ///   The eviction runs here, before ``activate(path:text:)``, so the least recently used entry
-    ///   was often exactly the one being reached for: edit nine files in turn, go back to the first,
-    ///   and its history was dropped at the moment it was wanted. The next oldest goes instead.
+    /// - Parameter opening: the file about to be opened, **which eviction never takes**. Eviction
+    ///   runs here, before ``activate(path:text:)``, so the oldest entry is often the one being
+    ///   reached for; the next oldest goes instead.
     public func remember(text: String, opening: String? = nil) {
         let wasComposing = source.endComposition()
         source.buffer = nil
@@ -167,13 +113,12 @@ public final class EditorUndoStore: ObservableObject {
         evictIfNeeded(sparing: opening)
     }
 
-    /// **Takes the buffer's own storage as the open one, before the first load** — so the two start
-    /// as one, as every load and close leaves them (2026-10-09). They began with a storage each:
-    /// ``remember(text:)`` let go of the store's, the load wrote the whole file into the buffer's,
-    /// still listening — a storage then thrown away — and a view mounted on it logged a resync.
+    /// Takes the buffer's own storage as the open one before the first load, so the two start as
+    /// one, as every load and close leaves them. Otherwise the first load writes into a storage that
+    /// is then thrown away, and a view mounted on it resyncs.
     ///
-    /// Only while nothing is open and nothing can be undone, so ``current``'s actions can never be
-    /// paired with a storage they were not made against; a no-op once the two are one.
+    /// Only while nothing is open and nothing can be undone, so ``current``'s actions are never
+    /// paired with a storage they weren't made against; a no-op once the two are one.
     public func adopt(_ initial: EditorSourceStorage) {
         guard activePath == nil, !current.canUndo, !current.canRedo else { return }
         source = initial
@@ -205,7 +150,7 @@ public final class EditorUndoStore: ObservableObject {
         }
     }
 
-    /// Throws away one document's history — the file was reloaded, abandoned, or is gone.
+    /// Throws away one document's history: the file was reloaded, abandoned, or is gone.
     public func forget(_ path: String) {
         stacks[path]?.manager.removeAllActions()
         stacks[path] = nil
@@ -215,12 +160,10 @@ public final class EditorUndoStore: ObservableObject {
         }
     }
 
-    /// **The open document's file moved, and its history goes with it** (TE59) — Finder, Organize or
-    /// another device renamed or moved it while it was open. The stack and the storage are the same
-    /// objects and still fit the text exactly; only the path they are filed under changes, so the
-    /// next ``remember(text:)`` files them where the document now is and a later return to the file
-    /// finds them. A history kept under the destination path — a different file that used to be
-    /// there — describes text that is gone and is dropped.
+    /// The open document's file moved (Finder, Organize or another device), and its history goes
+    /// with it. The stack and storage still fit the text; only the path they're filed under changes,
+    /// so the next ``remember(text:opening:)`` files them where the document now is. A history kept
+    /// under the destination path belonged to a different file and is dropped.
     public func move(from old: String, to new: String) {
         guard old != new else { return }
         if activePath == old { activePath = new }
@@ -232,11 +175,8 @@ public final class EditorUndoStore: ObservableObject {
         }
     }
 
-    /// Drops the history of files that are no longer where they were.
-    ///
-    /// **Correctness before thrift.** A stack for a path that no longer exists can never be handed
-    /// back — reopening from that path will not happen — so keeping it is holding memory for an
-    /// outcome that cannot occur. Cheap enough to run when a stack is put away.
+    /// Drops the history of files that are no longer where they were: a stack for a path that no
+    /// longer exists can never be handed back. Cheap enough to run on every document load.
     public func forgetMissingFiles(fileManager: FileManager = .default) {
         for path in stacks.keys where !fileManager.fileExists(atPath: path) {
             stacks[path] = nil
@@ -258,9 +198,8 @@ public final class EditorUndoStore: ObservableObject {
     private func evictIfNeeded(sparing spared: String? = nil) {
         while order.count > limit, let oldest = order.first(where: { $0 != spared }) {
             order.removeAll { $0 == oldest }
-            // **Emptied, not just dropped.** An `UndoManager` the text view still references would
-            // otherwise keep every registration alive for as long as that reference lasts, which is
-            // the memory this eviction exists to release.
+            // Emptied, not just dropped: an `UndoManager` the text view still references would
+            // otherwise keep every registration alive, the memory eviction exists to release.
             stacks[oldest]?.manager.removeAllActions()
             stacks[oldest] = nil
             evictedCount += 1

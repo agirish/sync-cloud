@@ -27,9 +27,9 @@ import Sync
 
     // MARK: What the survey offers
 
-    /// **The folders inside, in Finder's order, and nothing else** — "Year 2" before "Year 10", no
-    /// file, and a folder named like a text file offered as the folder it is. Asked of a folder that
-    /// also lists rows, AND of one that lists none, since the two return through different exits.
+    /// The folders inside, in Finder's order, and nothing else: "Year 2" before "Year 10", no file,
+    /// and a folder named like a text file offered as the folder it is. Asked of a folder that also
+    /// lists rows and of one that lists none, since the two return through different exits.
     @Test func theSurveyNamesTheFoldersInsideInFindersOrder() throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -50,7 +50,7 @@ import Sync
                 "a folder with nothing to open listed no way into its subfolders")
     }
 
-    /// The pane's rule for hidden — a leading dot — so the menu offers what the pane lists.
+    /// The pane's rule for hidden (a leading dot), so the menu offers what the pane lists.
     @Test func hiddenFoldersFollowTheAppsOwnPreference() throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -63,12 +63,11 @@ import Sync
                                   isCloudOnly: nothingIsCloudOnly).folders == [".git", "Visible"])
     }
 
-    /// **A link that leads to a folder is a folder** (TE205) — as the pane lists it, which follows
-    /// the link. Out of the folder (iCloud Drive's `Documents` is a link to `~/Documents`) and to a
-    /// sibling; while a link to a file, a dangling link and a hidden link to a folder are not
-    /// offered. Asked of a folder that lists rows and of one that lists none, the two exits.
-    /// Mutation: drop the link term and `Documents` and `Shortcut` vanish; drop the follow and
-    /// `Readme` and `Gone` appear.
+    /// A link that leads to a folder is a folder, as the pane lists it, following the link: out of
+    /// the folder (iCloud Drive's `Documents` is a link to `~/Documents`) and to a sibling. A link to
+    /// a file, a dangling link and a hidden link to a folder are not offered. Asked of both exits.
+    /// Mutation: dropping the link term must lose `Documents` and `Shortcut`; dropping the follow
+    /// must add `Readme` and `Gone`.
     @Test func aLinkToAFolderIsOfferedAndALinkToNothingIsNot() throws {
         let root = try scratch()
         let elsewhere = try scratch()
@@ -101,12 +100,11 @@ import Sync
         #expect(unlisted.otherFileCount == 0)
     }
 
-    /// **A plain entry costs the folders nothing; a link costs one follow.** The survey runs after
-    /// every autosave, so a folder of 300 files must not be `stat`ed 300 times for a menu: the
-    /// listing names its links from the enumerator's prefetched answer, and only those are followed.
-    /// Counted through the `FileManaging` the survey is handed — the one row is its own `stat`, the
-    /// three links one each. The prefetch needs no pin of its own: the listing names no links unless
-    /// it was asked with the key, so a survey that dropped it would lose `Linked` here and fail.
+    /// A plain entry costs the folders nothing; a link costs one follow. The survey runs after every
+    /// autosave, so a folder of 300 files must not be `stat`ed 300 times for a menu: the listing
+    /// names its links from the enumerator's prefetched answer, and only those are followed. Counted
+    /// through the `FileManaging` the survey is handed: the one row is its own `stat`, the three
+    /// links one each. Without the prefetch key the listing names no links, losing `Linked` here.
     @Test func onlyALinkIsFollowedAndTheListingPrefetchesTheAnswer() throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -126,11 +124,11 @@ import Sync
         #expect(counting.existenceAsks == 1 + 3, "the survey asked \(counting.existenceAsks) times")
     }
 
-    /// **A pick of a linked folder lands the pane there, and the rail lists what is inside** — in
-    /// Columns and in Tree, one level into the link and two, through the pane's own walk on a real
-    /// folder. Two below a link is where the walk's ids go resolved (`contentsOfDirectory` follows
-    /// the link), so it is the level that could miss. Under the root's canonical spelling and under
-    /// `/var`, which the walk lists as `/private/var` from its first level down.
+    /// A pick of a linked folder lands the pane there, and the rail lists what is inside, in Columns
+    /// and in Tree, one level into the link and two, through the pane's own walk on a real folder.
+    /// Two below a link the walk's ids go resolved (`contentsOfDirectory` follows the link), so that
+    /// level could miss. Under the root's canonical spelling and under `/var`, which the walk lists
+    /// as `/private/var` from its first level down.
     @MainActor
     @Test(arguments: [false, true])
     func aPickedLinkLandsThePaneOnTheLinkedFolder(spelledThroughVar: Bool) async throws {
@@ -191,9 +189,9 @@ import Sync
         }
     }
 
-    /// Unreadable reports nothing to step into, as it reports nothing to open. **A real folder
-    /// with a folder inside, made unreadable** — a path that does not exist answered "empty" too,
-    /// whatever the survey did, so the test proved nothing. The control reads it first.
+    /// Unreadable reports nothing to step into, as it reports nothing to open. A real folder with a
+    /// folder inside, made unreadable, since a missing path would answer "empty" whatever the survey
+    /// did. The control reads it first.
     @Test func anUnreadableFolderOffersNoFolders() throws {
         let root = try scratch()
         defer {
@@ -212,7 +210,7 @@ import Sync
 
     // MARK: Where a pick goes
 
-    /// A subfolder's target is the folder's own plus its name — the bare name at the top of the
+    /// A subfolder's target is the folder's own plus its name: the bare name at the top of the
     /// source, where the folder's target is `""`.
     @Test func aSubfoldersTargetIsBuiltFromTheFolders() {
         let deep = EditorFolderTrail(levels: [], currentTarget: "Documents/Family", subfolders: [])
@@ -224,8 +222,8 @@ import Sync
                 "a folder outside the pane's source offered a subfolder the pane cannot reach")
     }
 
-    /// **The path reads from the folder up**, Finder's order, so under the subfolders the whole
-    /// menu walks one way.
+    /// The path reads from the folder up, Finder's order, so under the subfolders the whole menu
+    /// walks one way.
     @Test func thePathReadsFromTheFolderUp() {
         let trail = EditorFolderTrail(levels: [.init(name: "iCloud", target: ""),
                                                .init(name: "Documents", target: "Documents"),
@@ -234,8 +232,8 @@ import Sync
         #expect(trail.upward.map(\.name) == ["Family", "Documents", "iCloud"])
     }
 
-    /// A trail with nowhere to go draws the plain line, not a menu of greyed rows; one door
-    /// anywhere — a level up, or a subfolder of a folder the pane can reach — is enough for a menu.
+    /// A trail with nowhere to go draws the plain line, not a menu of greyed rows; one door anywhere
+    /// (a level up, or a subfolder of a folder the pane can reach) is enough for a menu.
     @Test func aMenuIsDrawnOnlyWhereThereIsSomewhereToGo() {
         let nowhere = EditorFolderTrail(levels: [.init(name: "Scratch", target: nil)],
                                         currentTarget: nil, subfolders: ["Inside"])
@@ -252,7 +250,7 @@ import Sync
     }
 }
 
-/// A real `FileManager` that counts what the survey asks of it — `is FileManager` still holds, so
+/// A real `FileManager` that counts what the survey asks of it; `is FileManager` still holds, so
 /// the listing takes the real-disk path. The survey is synchronous and asks from one thread, so the
 /// count needs no lock.
 private final class CountingFileManager: FileManager, @unchecked Sendable {

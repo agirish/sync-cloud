@@ -5,17 +5,13 @@ import PDFKit
 
 /// The printed document, read back out of the bytes it was rendered into.
 ///
-/// **PDFKit is the check, not a snapshot.** Every claim File ▸ Print… and File ▸ Export as PDF…
-/// make is about what ends up on the page — the words are there, they are text rather than a
-/// picture of text, and a page break did not land inside a heading — and each of those is a
-/// question the rendered file can be asked directly. A snapshot would answer "it looks like it did
-/// last time", which is a different question and passes just as happily when the answer is three
-/// blank sheets.
+/// PDFKit is the check, not a snapshot. File ▸ Print… and File ▸ Export as PDF… promise what is on
+/// the page (the words, as text, with no break inside a heading), and the rendered file can be asked
+/// that directly; a snapshot would pass just as happily on three blank sheets.
 ///
-/// The failure this is written against is real and was measured on this branch: an
-/// `NSHostingView` handed to `NSPrintOperation` produces correctly paginated, entirely empty
-/// paper — right page count, no ink. `extract` below returns nothing at all in that state, which
-/// is why every test here goes through it rather than trusting a byte count.
+/// An `NSHostingView` handed to `NSPrintOperation` produces correctly paginated, entirely empty
+/// paper. Extracted text is empty in that state, so every test reads the text back rather than
+/// trusting a byte count.
 @MainActor
 @Suite struct DocumentPDFTests {
 
@@ -34,13 +30,13 @@ import PDFKit
         return try #require(PDFDocument(data: data), "the bytes are not a PDF")
     }
 
-    /// The text on one page, as PDFKit reads it back. Empty when the page carries no real glyphs —
-    /// which is the rasterised-or-blank failure this suite exists to catch.
+    /// The text on one page, as PDFKit reads it back. Empty when the page carries no real glyphs,
+    /// the rasterised-or-blank failure this suite catches.
     private func text(of document: PDFDocument, page index: Int) -> String {
         document.page(at: index)?.string ?? ""
     }
 
-    /// Every run of whitespace as one space — see `aLongParagraphWrapsRatherThanBeingTruncated`.
+    /// Every run of whitespace as one space; see `aLongParagraphWrapsRatherThanBeingTruncated`.
     private static func flattened(_ text: String) -> String {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
@@ -51,9 +47,8 @@ import PDFKit
 
     // MARK: The render is text
 
-    /// **The whole document reaches the page, as glyphs.** A heading, a paragraph, a list, a quote,
-    /// a code fence and a table — one of each arm `MarkdownBlockView` draws — and every one of them
-    /// is readable back out of the file.
+    /// The whole document reaches the page as glyphs: one of each block `MarkdownBlockView` draws
+    /// (heading, paragraph, list, quote, code fence, table), each readable back out of the file.
     @Test func everyKindOfBlockReachesThePageAsRealText() throws {
         let source = """
         # Quarterly notes
@@ -81,46 +76,37 @@ import PDFKit
         }
     }
 
-    /// **Vector text, not a picture of it.** If the render ever falls back to rasterising, the
-    /// glyphs stop being glyphs and PDFKit returns nothing — the page still looks right in a viewer
-    /// and is unsearchable, unselectable and soft at any zoom.
+    /// Vector text, not a picture of it. A rasterised render still looks right in a viewer but is
+    /// unsearchable, unselectable and soft at any zoom, and PDFKit extracts nothing from it.
     @Test func thePageCarriesSelectableTextRatherThanAnImage() throws {
         let document = try render("# Heading\n\nSome ordinary prose.\n")
         #expect(!allText(document).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 "the page has no extractable text — the render rasterised")
     }
 
-    /// **A paragraph too long for one line WRAPS — it is not truncated to one.**
-    ///
-    /// This is the defect a rendered page found and every test above missed, which is why it is
-    /// written as its own claim rather than folded into one of them: each block was measured with
-    /// `NSHostingView.fittingSize` against a frame set on the *host*, which does not constrain the
-    /// content's ideal size — so every prose block came back one line tall, was pinned to one line,
-    /// and printed as a sentence ending in an ellipsis. The tests could not see it because the
-    /// words they look for are all on the first line.
-    ///
-    /// The check is the LAST words of a long paragraph, which is exactly what truncation removes.
+    /// A paragraph too long for one line wraps rather than being truncated to one. A frame set on
+    /// the host doesn't constrain `NSHostingView.fittingSize`, so a block measured that way comes
+    /// back one line tall and prints ending in an ellipsis. The check reads the paragraph's last
+    /// words, which are what truncation removes; the other tests' words sit on the first line.
     @Test func aLongParagraphWrapsRatherThanBeingTruncated() throws {
         let tail = "and this sentence ends with the unmistakable phrase margarine parliament."
         let source = "A paragraph long enough that it cannot possibly fit on a single line of a "
             + "letter-sized page, going on at some length about nothing in particular, "
             + "continuing past the width of any reasonable column, " + tail
-        // **Whitespace-flattened, because a wrap IS a newline to PDFKit.** The extractor breaks the
-        // string where the line breaks, so the very wrapping this test is about would split the
-        // phrase it looks for — a check that failed on the fixed render as loudly as on the broken
-        // one, which is a check about the extractor rather than about the page.
+        // Whitespace-flattened, because PDFKit's extractor puts a newline at each wrap, which
+        // would split the phrase on a correct render too.
         let printed = Self.flattened(allText(try render(source)))
         #expect(printed.contains("margarine parliament"),
                 "the paragraph's last words never reached the page — it was cut to one line")
         #expect(!printed.contains("…"), "the page carries a truncation ellipsis")
     }
 
-    /// The same claim one level down, where the cause was: a block measured at the page width must
-    /// be taller than a block measured with room to spare.
+    /// The same claim by count: a block measured at the page width keeps every line, so nearly all
+    /// sixty repetitions reach the page.
     @Test func aWrappedBlockKeepsEveryRepetition() throws {
         let printed = Self.flattened(allText(try render(String(repeating: "wrapping words ", count: 60))))
-        // Sixty repetitions cannot fit on one line; if the block is pinned to one, most of them
-        // are simply gone. A few may be lost to the extractor's spacing, hence the margin.
+        // Sixty can't fit on one line, so a block pinned to one loses most of them. The margin
+        // allows for a few lost to the extractor's spacing.
         let occurrences = printed.components(separatedBy: "wrapping words").count - 1
         #expect(occurrences >= 55,
                 "only \(occurrences) of 60 repetitions reached the page — the block was cut short")
@@ -140,9 +126,8 @@ import PDFKit
                 "the last paragraph never made it onto paper")
     }
 
-    /// **No paragraph is on two pages at once** — the property the block paginator buys, checked
-    /// against a real render rather than against the model that drove it. A block cut in half would
-    /// have its text extracted from both sides of the break.
+    /// No paragraph is on two pages at once, checked on a real render rather than the paginator's
+    /// model: a block cut in half would be extracted from both sides of the break.
     @Test func noBlockIsSplitAcrossAPageBreak() throws {
         let source = (1...40).map { "Paragraph number \($0), which is here to take up room." }
             .joined(separator: "\n\n")
@@ -158,8 +143,7 @@ import PDFKit
         #expect(split.isEmpty, "these blocks were cut across a page break: \(split)")
     }
 
-    /// Every paragraph is printed exactly once — a break that skipped content would leave one out,
-    /// and one that reset would print it twice.
+    /// Every paragraph is printed: a break that skipped content would leave one out.
     @Test func everyBlockIsPrintedExactlyOnce() throws {
         let source = (1...40).map { "Paragraph number \($0), which is here to take up room." }
             .joined(separator: "\n\n")
@@ -175,8 +159,8 @@ import PDFKit
 
     // MARK: Plain text
 
-    /// **A plain-text file prints as text** — the roadmap's own words. It goes through CoreText
-    /// rather than the block pipeline, so it gets its own end-to-end check.
+    /// A plain-text file prints as text. It goes through CoreText rather than the block pipeline,
+    /// so it gets its own end-to-end check.
     @Test func aPlainTextFilePrintsAsText() throws {
         let source = (1...200).map { "log line \($0): something happened" }.joined(separator: "\n")
         let document = try render(source, isMarkdown: false, geometry: Self.small)
@@ -202,8 +186,7 @@ import PDFKit
 
     // MARK: Geometry
 
-    /// The paper is the geometry's, not a hardcoded Letter — an A4 default has to produce A4 pages
-    /// or every export on a metric desk is the wrong shape.
+    /// The paper is the geometry's, not a hardcoded Letter: an A4 default must produce A4 pages.
     @Test func thePagesAreTheGeometrysPaper() throws {
         let a4 = DocumentPDF.PageGeometry(paper: CGSize(width: 595, height: 842),
                                           content: CGRect(x: 36, y: 36, width: 523, height: 770))

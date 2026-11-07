@@ -5,64 +5,12 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// What re-rendering a Columns pane costs when a selection changes.
-///
-/// Built to chase a reported ~290ms click on panes of ~40,000 nodes, and it **cleared the pane's own
-/// render**: three open columns over a 40k tree re-render in ~10ms. Two independent results agreed
-/// that the reported number was not this view's rendering — the same click measured identically in
-/// a Release build as in Debug, and optimisation would have moved real computation. What neither
-/// could see is the row menus, which this window never builds (below) and which is where a click's
-/// cost later turned out to be.
-///
-/// It stays as the regression net that finding implies: if a pane render ever does start costing
-/// what a click was blamed for, this catches it, and the threshold is deliberately far above the
-/// measured cost so it fails on a regression rather than on machine noise.
-///
-/// The fixture has to be REALISTIC or the measurement is worthless: a small tree, or one whose
-/// arrays are COW-shared with the assertion, benchmarks at 0.0ms and proves nothing.
-///
-/// **It cannot see the row menus, which is where a click's cost was (CP9, 2026-09-27).** SwiftUI
-/// runs a row's `.contextMenu` BODY only in a window that is really on screen, and this one never
-/// is — the menu closure ran for every row and the body for none. In the app every visible row's
-/// menu body ran on every click and walked the tree: 277 of the 281 samples the menus cost. So a
-/// pass here says the pane's own render is cheap and nothing about its menus; `ContextMenuWalkTests`
-/// pins those, by counting walks rather than timing them.
-///
-/// **The budget was load-scaled by a probe that cannot see this machine's load, and is now a fixed
-/// number sized against the worst starvation ever measured here.**
-///
-/// The scaling read `slowdown = max(1.0, probeMedian / 10ms)` and multiplied a 120ms bar by it. The
-/// premise — "a genuine render regression is CPU work that slows down with the machine exactly as
-/// the probe does" — does not survive the measurements recorded in `docs/flaky-tests.md` §6. Be
-/// precise about which numbers are this test's, since the whole point here is a figure that was
-/// believed without being checked:
-///
-/// - **This test's own recorded reading is `slowdown=1.00x`**, printed during the CI run where
-///   `HeaderLadderCostBenchmark` failed on starvation. Its probe was at or below nominal, so
-///   `max(1.0, …)` floored the multiplier and the bar did not stretch. This test passed that run,
-///   so there is no inflated ColumnClick median recorded beside it.
-/// - The 9.2ms-idle against 7.4ms-contended pair belongs to the **sibling's** probe, not this one.
-///   It is the evidence that the probe did not rise on the run that mattered — and "anti-correlated"
-///   overstates it, which is worth saying because the sibling's own four-run table shows the probe
-///   at 8.5/9.0ms quiet against 15.1/16.2ms contended, rising 1.7-1.9x in the right direction. The
-///   honest verdict is that it is **unreliable**: sometimes it tracks load, and on the one occasion
-///   the bar needed it, it did not. A multiplier that is right most of the time and floors exactly
-///   when a starved run fails is worse than no multiplier, because it looks like protection.
-/// - The 163ms figure is from a separate, earlier deliberate-starvation run, whose `slowdown` print
-///   was not recorded.
-///
-/// It reads that way because a tight FNV loop and a run-loop-driven render are starved by different
-/// things: the loop only wants a core, while the render waits on the main run loop, the window
-/// server and everything else on this Mac. So the scaling was protection that existed in prose,
-/// never fired, and left the real exposure — the run that pushed this median to 163ms with nothing
-/// regressed — sitting above an unstretched 120ms bar.
-///
-/// The fixed 250ms bar covers that 163ms measurement with half again on top, and still fails the
-/// regression this exists for: the reported ~290ms click it was built to chase, against a measured
-/// ~10ms render. An absolute number is legitimate here for the same reason the sibling's is —
-/// `.machinePinned(.calibratedTiming)` means this only ever runs on the machine it was calibrated
-/// on. The probe stays, printed, as diagnosis, and **is deliberately not asserted on**: a probe that
-/// feeds no assertion is never checked, and this one was wrong for as long as it was there.
+/// What re-rendering a Columns pane costs when a selection changes: three columns over a ~40k-node
+/// tree, ~10ms. Blind to row menus, whose `.contextMenu` bodies run only on screen
+/// (`ContextMenuWalkTests` pins those). The fixture must be realistic: a small or COW-shared tree
+/// measures 0.0ms. The bar is a fixed 250ms, not load-scaled, because a CPU probe can't see what
+/// starves a render (`docs/flaky-tests.md`, "Load-scaled benchmarks"); see `budgetMs`. Absolute is
+/// fine under `.machinePinned(.calibratedTiming)`.
 @MainActor
 @Suite(.machinePinned(.calibratedTiming)) struct ColumnClickCostBenchmark {
 
@@ -97,8 +45,8 @@ import Sync
 
     static let root = "/root"
 
-    /// ~40,000 nodes, three levels deep, matching the shape the panes actually hold (the user's two
-    /// sides are 40,177 and 37,894). Distinct strings throughout so nothing is COW-shared.
+    /// ~40,000 nodes, three levels deep, the shape real panes hold. Distinct strings throughout so
+    /// nothing is COW-shared.
     private static func bigTree(side: PaneTree.Side) -> PaneTree {
         var top: [FileNode] = []
         top.reserveCapacity(40)
@@ -147,13 +95,10 @@ import Sync
         }
     }
 
-    /// Mounts the pane on a `NotificationCenter` of its own.
-    ///
-    /// This benchmark wants nothing from `.cloudDownloadRequested`, but a mounted `FileTreeView`
-    /// subscribes regardless, and it is machine-pinned — so on `.default` it sits in the process
-    /// for a 1.5 s pump accepting the `.left` posts `CloudDownloadWiringTests` makes to prove a
-    /// RIGHT pane ignores them, running `CloudOnlyBadgeCache.forget` on that suite's ghosts. See
-    /// `docs/flaky-tests.md` mechanism 9.
+    /// Mounts the pane on a `NotificationCenter` of its own. A mounted `FileTreeView` subscribes to
+    /// `.cloudDownloadRequested` regardless, and on `.default` it would accept other suites' posts
+    /// during its pump (`docs/flaky-tests.md`, "A mounted view is a live subscriber, in every suite
+    /// at once").
     private func mount(_ box: Box, counter: Counter) -> NSWindow {
         let tree = Self.bigTree(side: .left)
         let otherTree = Self.bigTree(side: .right)
@@ -189,24 +134,15 @@ import Sync
         return found
     }
 
-    /// One fixed chunk of CPU-bound work (FNV-1a over a counter), timed on the calling thread.
-    /// Its wall time was the load probe, and is now printed for diagnosis only: it cost ~10ms
-    /// unloaded when measured on 2026-07-28, and it does **not** reliably stretch when this process
-    /// is starved — see the type comment. Do not restore it as a load signal for a render. The
-    /// iteration count is FIXED, so the number remains comparable between runs.
+    /// One fixed chunk of CPU-bound work (FNV-1a over a counter), timed on the calling thread and
+    /// printed for diagnosis only, ~10ms unloaded. It doesn't reliably stretch when the process is
+    /// starved, so don't use it as a load signal for a render. The count is fixed so readings
+    /// compare between runs.
     private static let probeIterations = 100_000
-    /// The render budget, in milliseconds. Sized against the worst starvation measured on this
-    /// machine (163ms, nothing regressed) rather than against an idle run, because the scaling that
-    /// was supposed to absorb that never fired.
-    ///
-    /// **The blind band is 164-249ms, and it is worth naming precisely.** A healthy render is ~10ms
-    /// and the regression this chases was reported at ~290ms, which this bar catches. What escapes
-    /// is a regression landing above the 163ms starvation floor but below 250ms — real, and
-    /// invisible here. The alternative is a tighter bar that fires on a starved run, which is the
-    /// failure mode this whole change is about; the old 120ms bar sat *below* the noise floor,
-    /// protected only by a multiplier that never applied, so it had no honest band at all. If a
-    /// render regression is ever suspected between 164ms and 250ms, this is the number to move, and
-    /// the thing to measure first is whether 163ms is still the worst this machine does.
+    /// The render budget, in milliseconds, sized against the worst starvation measured on this
+    /// machine (163ms, nothing regressed) rather than an idle run. A regression between 164ms and
+    /// 249ms escapes; a tighter bar would fire on starved runs. To chase one in that band, first
+    /// check whether 163ms is still this machine's worst, then move this number.
     private static let budgetMs: Double = 250.0
 
     private func probeMs() -> Double {
@@ -220,10 +156,9 @@ import Sync
         return (CFAbsoluteTimeGetCurrent() - started) * 1000
     }
 
-    /// Wall time from committing the selection to the view graph having re-rendered and laid out.
-    /// `layoutIfNeeded` drives `NSHostingView`'s update, so this captures the render the click pays
-    /// for. The body counter is checked by the caller: a measurement over a body that never ran is
-    /// timing nothing.
+    /// Wall time from committing the selection to the view graph having re-rendered and laid out;
+    /// `layoutIfNeeded` drives `NSHostingView`'s update. The caller checks the body counter, since a
+    /// body that never ran times nothing.
     private func renderMs(_ window: NSWindow, _ body: () -> Void) -> Double {
         let started = CFAbsoluteTimeGetCurrent()
         body()
@@ -238,7 +173,7 @@ import Sync
         let counter = Counter()
         let window = mount(box, counter: counter)
         // Drops the last reference to the SwiftUI graph, and with it the pane's live subscription,
-        // rather than leaving it to ARC. Not `close()` — see mechanism 8.
+        // rather than leaving it to ARC. Not `close()`, which over-releases a `.titled` window.
         defer { window.contentView = nil }
         // Two columns deep, as the user was: /root/top3/mid7 open, its files listed.
         box.browsePath = PaneBrowsePath(components: ["top3", "mid7"])
@@ -249,10 +184,8 @@ import Sync
         let rowCounts = columns.map(\.numberOfRows)
         #expect(rowCounts.allSatisfy { $0 > 0 }, "a column materialised no rows: \(rowCounts)")
 
-        // Click a file in the deepest column, repeatedly, as the user does walking a folder.
-        // Each render sample is still paired with a probe reading, but only so the two appear side
-        // by side in the printed line — there is no slowdown estimate any more, and nothing here is
-        // load-adjusted. See the type comment for the measurements that retired it.
+        // Click a file in the deepest column, repeatedly, as the user does walking a folder. Each
+        // sample is paired with a probe reading only for the printed line; nothing is load-adjusted.
         var samples: [Double] = []
         var probes: [Double] = []
         for i in 0..<8 {
@@ -264,14 +197,12 @@ import Sync
         }
         let median = samples.sorted()[samples.count / 2]
         let probeMedian = probes.sorted()[probes.count / 2]
-        // The probe is printed for diagnosis and NOT asserted on — see the type comment for the
-        // measurement that retired it as a load signal.
+        // The probe is printed for diagnosis, not asserted on (see the type comment).
         print("BENCH columns=\(rowCounts) render samples=\(samples.map { Int($0) }) median=\(Int(median))ms "
               + "probes=\(probes.map { Int($0) }) probeMedian=\(Int(probeMedian))ms "
               + "budget=\(Int(Self.budgetMs))ms")
-        // Measured ~10ms unloaded, and 163ms once under deliberate starvation with nothing
-        // regressed. The bar clears that worst case and still catches the ~290ms this was built to
-        // chase.
+        // ~10ms unloaded, 163ms under deliberate starvation with nothing regressed. The bar clears
+        // that and still catches a ~290ms click.
         #expect(median < Self.budgetMs,
                 "pane render cost regressed to \(Int(median))ms (was ~10ms; budget \(Int(Self.budgetMs))ms)")
     }

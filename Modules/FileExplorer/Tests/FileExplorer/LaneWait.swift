@@ -4,26 +4,21 @@ import Sync
 import Testing
 
 /// The wait for a mounted view whose condition rests on work queued in `PDFKitSerialAccess`'s
-/// lane — a `PDFPairView`'s two opens, a PDF find's page turns. **Paced by the lane, not by
-/// seconds or main-actor turns.**
+/// lane, such as a `PDFPairView`'s two opens or a PDF find's page turns. Paced by the lane, not by
+/// seconds or main-actor turns.
 ///
-/// In a full package run the lane is shared by every PDF suite, and some of them hold it on purpose
-/// (`LaneHold`), so a turn queued there can wait past 30 s (`LaneHold.patience`). A
-/// `LayoutPumpWait.pump` spends its deadline and its floor while the work it waits for is still in
-/// the queue, and fails with nothing wrong: `ComparePairViewingTests` reported "the pair never
-/// loaded (51 pumps)" after 616 s on CI (run 40214697085), and `EditorContentOpenMountedTests`
-/// counted one of a PDF's two matches, its find still searching page two (run 40216946771).
+/// In a full package run every PDF suite shares the lane, and some hold it on purpose (`LaneHold`),
+/// so a queued turn can wait past 30 s. A `LayoutPumpWait.pump` would spend its deadline and floor
+/// while the work is still queued, and fail with nothing wrong.
 ///
-/// Each pass here lays the window out, checks, and then takes a lane turn of its own. The lane is
-/// serial and first come, first served, so that turn ends only after everything queued ahead of
-/// it, and the sleep after gives the main actor the turn the work's answer hops back on. A pass is
-/// therefore at least one lane pass AND one main-actor turn, and `LayoutPumpWait.pumpFloor` of them
-/// clears both.
+/// Each pass lays the window out, checks, then takes a lane turn of its own. The lane is serial and
+/// first come, first served, so that turn ends only after everything queued ahead of it, and the
+/// sleep after gives the main actor the turn the answer hops back on. `LayoutPumpWait.pumpFloor`
+/// passes therefore clear both.
 ///
-/// **A lane that never comes free fails the wait, after `ceiling`** — a time no healthy run reaches,
-/// twice `LaneHold.patience`, since a turn can wait behind holds that each take up to that. It
-/// records an issue naming the pass it stopped at, rather than hanging the run until CI's own
-/// timeout, which names nothing.
+/// A lane that never comes free fails the wait after `ceiling`, twice `LaneHold.patience`, since a
+/// turn can wait behind holds that each take up to that. It records an issue naming the pass it
+/// stopped at, rather than hanging the run until CI's timeout, which names nothing.
 enum LaneWait {
     static let ceiling: TimeInterval = 2 * LaneHold.patience
 

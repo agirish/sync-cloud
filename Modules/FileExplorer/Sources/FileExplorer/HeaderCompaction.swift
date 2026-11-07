@@ -2,17 +2,14 @@ import Foundation
 
 /// How much the differences header has had to give up to fit the pane's width.
 ///
-/// The header renders as a `ViewThatFits` over one row per case, in this order, so the ladder IS
-/// the shedding order: SwiftUI takes the first row whose ideal width fits and every case below it
-/// is a further concession. Ordering it here rather than inline in the view is what lets a test
-/// assert the concessions directly.
+/// The header is a `ViewThatFits` over one row per case, in this order, so the ladder is the
+/// shedding order: SwiftUI takes the first row that fits. Ordering it here lets a test assert the
+/// concessions directly.
 ///
-/// The order answers one question per rung — what can this row lose and still tell you where your
-/// files are about to go? Verify and Review name no destination, so they go first (into the
-/// overflow menu, which exists only once one of them has been folded in). The reverse button's
-/// destination goes next, then the filter's name, and the primary's destination is last: it is the
-/// one word the bar exists to say. That is the exact inverse of what the header did before, where
-/// `.truncationMode(.middle)` ate the provider name out of the widest button first.
+/// Each rung asks what the row can lose and still say where your files are going. Verify and Review
+/// name no destination, so they fold first (into the overflow menu, which exists only once one has
+/// folded). The reverse button's destination goes next, then the filter's name; the primary's
+/// destination goes last, because it is the one word the bar exists to say.
 enum HeaderCompaction: Int, CaseIterable, Comparable, Sendable {
     /// Everything spelled out; no overflow menu.
     case full
@@ -37,23 +34,16 @@ enum BulkActionLabel {
 
     /// A transfer button's label.
     ///
-    /// Both verbs are spelled out while the button has room for a destination — "Copy 17 to
-    /// Dropbox" against "Move 17 to Dropbox". This deliberately REPLACES the markedness rule the
-    /// button shipped with, where Copy was the unmarked default and carried no verb at all on the
-    /// grounds that the arrow glyph already said "to there". The argument against it: a bare
-    /// "17 to Dropbox" is only unambiguous once you know the convention, and the convention is
-    /// invisible — nothing on screen teaches that a verbless button means copy. Symmetry costs one
-    /// word and needs no prior knowledge; the ⇧ flip then reads as one swapped word rather than a
-    /// verb materialising out of nowhere.
+    /// Both verbs are spelled out while there is room for a destination ("Copy 17 to Dropbox",
+    /// "Move 17 to Dropbox"): a verbless "17 to Dropbox" relies on a convention nothing on screen
+    /// teaches, and with both verbs the ⇧ flip reads as one swapped word.
     ///
-    /// What survives from the old rule is its safety half, at the narrow rungs. When the
-    /// destination has been shed (`destination == nil`) Copy drops its verb with it and the button
-    /// falls back to a bare count, exactly as before — but **Move never sheds its verb at any
-    /// width**. The asymmetry is the point: the word that has to be there is the one saying the
-    /// source will not survive, and losing "Copy" costs a narrow window nothing it can act on.
+    /// Once the destination is shed (`destination == nil`), Copy drops to a bare count, but
+    /// **Move never sheds its verb at any width**: it is the word saying the source will not
+    /// survive.
     static func text(count: Int, destination: String?, isMove: Bool) -> String {
         guard let destination else {
-            // Narrow rung: Move keeps its verb, Copy is the bare count it has always been.
+            // Narrow rung: Move keeps its verb, Copy is a bare count.
             return isMove ? "Move \(count.formatted())" : count.formatted()
         }
         return "\(isMove ? "Move" : "Copy") \(count.formatted()) to \(destination)"
@@ -69,10 +59,9 @@ enum BulkActionLabel {
 
     /// Whether the reverse (right-to-left) button keeps its destination name.
     ///
-    /// It always does when the reverse is the bulk of the work, at any width. That is the one
-    /// thing a fixed-direction primary cannot tell you — the loudest button on the bar is pointing
-    /// away from most of the work — so it is the last thing the row is allowed to swallow. When the
-    /// reverse is the minority the name is redundant with the primary's and can go early.
+    /// Always, at any width, when the reverse is the bulk of the work: the loudest button then
+    /// points away from most of it, which a fixed-direction primary can't say. As the minority, its
+    /// name repeats the primary's and can go early.
     static func reverseNamesDestination(reverseIsMajority: Bool, compaction: HeaderCompaction) -> Bool {
         reverseIsMajority || compaction < .shortReverse
     }

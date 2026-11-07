@@ -5,11 +5,10 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// A pane row's ideal HEIGHT must not depend on the width it is offered.
+/// A pane row's ideal height must not depend on the width it is offered.
 ///
-/// AppKit raises `NSGenericException` — "marked as needing another update constraints pass, but it
-/// has already had more … passes than there are views in the window" — once a window will not stop
-/// dirtying itself. The crash of 2026-08-02 21:37 named the mechanism outright:
+/// AppKit raises `NSGenericException` ("…already had more … passes than there are views in the
+/// window") once a window won't stop dirtying itself. The path looks like this:
 ///
 /// ```
 /// OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)
@@ -19,11 +18,10 @@ import Sync
 ///   → NSHostingView.setNeedsUpdate() → -[NSView setNeedsUpdateConstraints:]
 /// ```
 ///
-/// A row reported a new ideal height *during* the update-constraints pass, so the list enqueued
-/// another one, in which the row reported a new height again. A row whose name can WRAP has exactly
-/// that shape: its height is a function of the width the list offers, and the list's width is a
-/// function of the total content height (the scroller). Short synthetic names never wrap, which is
-/// why every earlier fixture — and `PaneTreeSwapLayoutBudgetTests` — measured a settled window.
+/// A row that reports a new ideal height during the update-constraints pass makes the list enqueue
+/// another, in which it reports a new height again. A row whose name can wrap has that shape: its
+/// height depends on the width the list offers, and the list's width on the total content height
+/// (the scroller). Short synthetic names never wrap, so fixtures using them always settle.
 @MainActor
 @Suite struct PaneRowHeightStabilityTests {
 
@@ -48,8 +46,8 @@ import Sync
 
     private static let root = "/root"
 
-    /// Names of the length real documents actually have. `long: false` gives the short synthetic
-    /// names every earlier fixture used, so the two can be compared in one run.
+    /// Names of the length real documents have. `long: false` gives short synthetic names, so the
+    /// two can be compared in one run.
     private static func tree(files: Int, long: Bool) -> PaneTree {
         let nodes = (0..<files).map { i -> FileNode in
             let name = long
@@ -128,12 +126,11 @@ import Sync
         return heights
     }
 
-    /// **This driver cannot see the AppKit display-cycle guard, and that is measured.**
-    /// `layoutIfNeeded()` runs constraint updates with the runaway guards disarmed: a deliberate
-    /// never-settling sibling ping-pong survives 400 rounds of it (469,000 `updateConstraints`
-    /// calls) without raising, while one second of the RUNLOOP raises on the first cycle. So a low
-    /// round count here says the tree stops dirtying itself under a manual pump — worth having, and
-    /// not the same claim as "this window will not blow AppKit's pass budget". The runloop-driven
+    /// This driver can't see the AppKit display-cycle guard. `layoutIfNeeded()` runs constraint
+    /// updates with the runaway guards disarmed: a never-settling sibling ping-pong survives
+    /// hundreds of rounds of it without raising, while the runloop alone raises on the first cycle.
+    /// So a low round count here says the tree stops dirtying itself under a manual pump, which is
+    /// worth having but is not "this window won't blow AppKit's pass budget". The runloop-driven
     /// counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
     private func roundsToSettle(_ window: NSWindow, cap: Int = 500) -> Int {
         var rounds = 0
@@ -148,8 +145,8 @@ import Sync
     ///
     /// The width sweep is the point: a real pane's width moves (the split divider, the details
     /// sidebar, a window resize), and each new width re-asks every wrapping name how tall it wants
-    /// to be. This walks the pane down through the widths where a long name crosses from one line
-    /// to two and measures whether the window ever stops dirtying itself.
+    /// to be. This walks the pane down through the widths where a long name goes from one line to
+    /// two and measures whether the window ever stops dirtying itself.
     @Test func testALongNameDoesNotMakeRowHeightAMovingTarget() {
         let window = mount(Self.tree(files: 40, long: true), width: 900)
         pump(window, seconds: 0.5)
@@ -169,17 +166,15 @@ import Sync
         #expect(heights.count == 1, "rows settled at disagreeing heights \(heights.sorted()) — height is width-dependent")
     }
 
-    /// A row's height must be an INTEGER at every density and text size.
+    /// A row's height must be an integer at every density and text size.
     ///
-    /// A hosting view whose ideal height is fractional can never equal the integral height the
-    /// table gives its row, so every constraints pass reports a fresh "new" ideal height and
-    /// enqueues another — which is the shape of the crash this suite exists for. Asserting
-    /// integrality here is cheap and rules that cause out across the whole settings matrix, which
-    /// no single mounted pane test can do.
+    /// A hosting view with a fractional ideal height can never equal the integral height the table
+    /// gives its row, so every constraints pass reports a "new" ideal height and enqueues another:
+    /// the loop this suite exists for. Asserting integrality is cheap and rules that cause out
+    /// across the whole settings matrix, which no single mounted pane test can do.
     @Test func testRowHeightIsIntegralAtEveryDensityAndTextSize() {
-        // The shipped scales, not a hardcoded list: when `FontSize` moved to the knee curve the
-        // old literals (1.15, 1.3) stopped being sizes any user can select, and a sweep over
-        // phantom scales proves nothing about the settings matrix.
+        // The shipped scales, not a hardcoded list: literals drift from the sizes a user can
+        // select, and a sweep over phantom scales proves nothing about the settings matrix.
         for density in [ListDensity.compact, ListDensity.comfortable] {
             for scale in FontSize.allCases.map(\.scale) {
                 let row = FileRowView(
@@ -197,9 +192,8 @@ import Sync
         }
     }
 
-    /// The same sweep with the short synthetic names every earlier fixture used. This is the
-    /// control: it is what made the previous investigations measure a settled window and conclude
-    /// there was no runaway to find.
+    /// The same sweep with short synthetic names: the control, which stays settled where long names
+    /// might not.
     @Test func testShortNamesAreTheControlAndStaySettled() {
         let window = mount(Self.tree(files: 40, long: false), width: 900)
         pump(window, seconds: 0.5)

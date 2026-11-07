@@ -3,8 +3,8 @@ import Testing
 @testable import FileExplorer
 @testable import Sync
 
-/// To File's words about the survey that placed its cards (GK–GN): the menu's label names whose
-/// survey it is, and the by-name strip gives the measurement that decided it.
+/// To File's words about the survey that placed its cards: the menu's label names whose survey it
+/// is, and the by-name strip gives the measurement that decided it.
 @Suite struct FilingSurveyTextTests {
 
     static func use(_ kind: FilingSurveyInUse.Kind, matched: Int = 2_499, total: Int = 2_745,
@@ -43,7 +43,7 @@ import Testing
                 .hasPrefix("Couldn’t learn Google Drive’s folders. “Empty” holds no folders"))
     }
 
-    /// Read Documents (GL): the menu item, and the strip's progress naming the source.
+    /// Read Documents: the menu item, and the strip's progress naming the source.
     @Test func readingASourceNamesItInTheStrip() {
         #expect(FilingSurveyText.readItem(sourceName: "Google Drive") == "Read Google Drive’s Documents…")
         let started = Date(timeIntervalSince1970: 1_780_315_200)

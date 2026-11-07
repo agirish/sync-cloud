@@ -4,7 +4,7 @@ import QuickLook
 import SwiftUI
 import Sync
 
-/// **Presents one-way sync's sheets** over the window that asked for them (`OneWaySyncSheetHost`).
+/// Presents one-way sync's sheets over the window that asked for them (`OneWaySyncSheetHost`).
 public struct OneWaySyncSheets: ViewModifier {
     @ObservedObject var controller: OneWaySyncController
     let host: OneWaySyncSheetHost
@@ -85,7 +85,7 @@ struct OneWaySyncSideChip: View {
             Text(label ?? (side == .iCloud ? "Changes made here" : "Kept as a copy"))
         }
         .scaledFont(.system(size: 11, weight: .semibold))
-        // The words in ink, the colour in the wash and the glyph (DS1).
+        // The words in ink, the colour in the wash and the glyph.
         .foregroundStyle(.primary)
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
@@ -96,10 +96,10 @@ struct OneWaySyncSideChip: View {
 
 // MARK: - Setup
 
-/// **Set Up One-Way Sync in three steps** (decision EE, TE253) — and *Review First Run…*: which
-/// folders, what to do when a Dropbox copy is changed, then what the first sync will do and Start.
-/// It opens on the folders Compare shows when one is in iCloud and the other in Dropbox. *Choose
-/// Folders…* is its first step alone.
+/// Set Up One-Way Sync in three steps, and *Review First Run…*: which folders, what to do when a
+/// Dropbox copy is changed, then what the first sync will do and Start. It opens on the folders
+/// Compare shows when one is in iCloud and the other in Dropbox. *Choose Folders…* is its first
+/// step alone.
 struct OneWaySyncSetupSheet: View {
     @ObservedObject var controller: OneWaySyncController
     let replacing: Bool
@@ -235,9 +235,9 @@ struct OneWaySyncSetupSheet: View {
         OneWaySyncSettings(whenDeletedRenamedOrMoved: whenDeleted, whenEdited: whenEdited)
     }
 
-    /// Nothing is ticked for you, ever: a pair opened from the panes can be your whole Documents
-    /// (on 31 Oct it was, with every folder ticked). Only *Review First Run* and *Choose Folders*
-    /// start from the folders already synced, and a folder made in Dropbox here is ticked.
+    /// Nothing is ticked for you, ever: a pair opened from the panes can be your whole Documents.
+    /// Only *Review First Run* and *Choose Folders* start from the folders already synced, and a
+    /// folder made in Dropbox here is ticked.
     func load(selectAll _: Bool?) async {
         if draft == nil {
             if let prefill = controller.setupPrefill, !choosingFolders {
@@ -312,8 +312,8 @@ struct OneWaySyncSetupSheet: View {
         Text("Which folders should Dropbox keep a copy of?")
             .scaledFont(.system(size: 13, weight: .semibold))
         folderList
-        // DL holds for a folder ticked later too: its first run sends changes into whatever
-        // shares it on Dropbox, which SyncCloud can't see.
+        // The "not shared" confirmation holds for a folder ticked later too: its first run sends
+        // changes into whatever shares it on Dropbox, which SyncCloud can't see.
         if choosingFolders, !added.isEmpty {
             Toggle(added.count == 1 ? "\(added.sorted()[0]) isn’t shared with anyone on Dropbox"
                                     : "These \(added.count) folders aren’t shared with anyone on Dropbox", isOn: $notShared)
@@ -592,8 +592,8 @@ struct OneWaySyncSetupSheet: View {
     /// Folders ticked in Choose Folders that don't sync yet.
     var added: Set<String> { Self.added(ticked: ticked, synced: (controller.record?.syncedFolders ?? []).map(\.iCloudPath)) }
 
-    /// The ticked folders that don't sync yet, by Dropbox's names (case folded): each needs DL's
-    /// "not shared on Dropbox" before Save.
+    /// The ticked folders that don't sync yet, by Dropbox's names (case folded): each needs the
+    /// "not shared on Dropbox" confirmation before Save.
     static func added(ticked: Set<String>, synced: [String]) -> Set<String> {
         let key = OneWaySyncSide.dropbox.nameKey
         let syncedKeys = Set(synced.map(key))
@@ -622,7 +622,7 @@ private extension String {
 
 // MARK: - The sync at a glance
 
-/// **The sync's overview** (ED): its pair, how it stands, what needs you, and its controls — from
+/// The sync's overview: its pair, how it stands, what needs you, and its controls. Opened from
 /// the differences bar's pill and Compare's sidebar.
 struct OneWaySyncOverviewSheet: View {
     @ObservedObject var controller: OneWaySyncController
@@ -700,7 +700,7 @@ struct OneWaySyncOverviewSheet: View {
 
 // MARK: - Review removals
 
-/// **Review…** for the removal limit: each removal and replacement waiting, ticked to go ahead.
+/// *Review…* for the removal limit: each removal and replacement waiting, ticked to go ahead.
 struct OneWaySyncReviewSheet: View {
     @ObservedObject var controller: OneWaySyncController
     let folder: String?
@@ -787,7 +787,7 @@ struct OneWaySyncReviewSheet: View {
 
 // MARK: - Choose a Version
 
-/// **Choose a Version…**: iCloud's and Dropbox's, side by side, and which to keep.
+/// *Choose a Version…*: iCloud's and Dropbox's, side by side, and which to keep.
 struct OneWaySyncVersionSheet: View {
     @ObservedObject var controller: OneWaySyncController
     let subject: OneWaySyncWait.Subject
@@ -914,8 +914,8 @@ struct OneWaySyncRenameSheet: View {
 
 // MARK: - Reverse in iCloud
 
-/// **Reverse in iCloud · sync of 10:14** (DE): the changes of one sync that can be undone in
-/// iCloud, using Dropbox's copies.
+/// *Reverse in iCloud · sync of 10:14*: the changes of one sync that can be undone in iCloud,
+/// using Dropbox's copies.
 struct OneWaySyncReverseSheet: View {
     @ObservedObject var controller: OneWaySyncController
     let entryID: UUID
@@ -983,7 +983,7 @@ struct OneWaySyncReverseSheet: View {
     }
 
     /// One change: its tick and what reversing does, or, when it can't be now (a file moved in
-    /// whose folder is gone, say), no tick and why (EU).
+    /// whose folder is gone, say), no tick and why.
     @ViewBuilder func row(_ reversal: OneWaySyncReversal) -> some View {
         HStack {
             if let why = reversal.unavailable {
@@ -1005,8 +1005,8 @@ struct OneWaySyncReverseSheet: View {
 
 // MARK: - Choose Items to Empty
 
-/// **Choose Items to Empty…** — SyncCloud Removed by age or size; the chosen go to Dropbox's own
-/// deleted files (DB).
+/// *Choose Items to Empty…*: SyncCloud Removed by age or size; the chosen go to Dropbox's own
+/// deleted files.
 struct OneWaySyncEmptySheet: View {
     @ObservedObject var controller: OneWaySyncController
     @Environment(\.dismiss) private var dismiss
@@ -1100,8 +1100,8 @@ struct OneWaySyncEmptySheet: View {
 
 // MARK: - After a takeover
 
-/// **Files only in Dropbox, after taking the sync over** (decided 31 Oct): removals that may have
-/// waited on the other Mac, each ticked to go to SyncCloud Removed or kept in Dropbox.
+/// Files only in Dropbox after taking the sync over: removals that may have waited on the other
+/// Mac, each ticked to go to SyncCloud Removed or kept in Dropbox.
 struct OneWaySyncTakeoverSheet: View {
     @ObservedObject var controller: OneWaySyncController
     @Environment(\.dismiss) private var dismiss

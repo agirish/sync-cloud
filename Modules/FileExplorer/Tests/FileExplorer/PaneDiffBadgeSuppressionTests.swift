@@ -3,14 +3,14 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Pins the difference accessories — a row's status glyph and a folder's contained-count pill —
-/// to the COMPARISON panes.
+/// Pins the difference accessories (a row's status glyph and a folder's contained-count pill) to
+/// the comparison panes.
 ///
-/// A difference is a statement about the other pane, and the single-source rail has no other pane. It was
-/// badging its folders from whatever Compare last scanned, so the rail showed counts against a
-/// provider it isn't looking at. `FileTreeView.init` empties the index for the rail, which is the
-/// single gate: the tree rows, and `PaneColumnsView` (handed this same stored property), all read
-/// it, so asserting on the property covers both presentations.
+/// A difference is a statement about the other pane, and the single-source rail has none; badging
+/// it from whatever Compare last scanned would show counts against a provider it isn't looking at.
+/// `FileTreeView.init` empties the index for the rail, the single gate: the tree rows and
+/// `PaneColumnsView` (handed this same stored property) both read it, so asserting on the property
+/// covers both presentations.
 @MainActor
 @Suite struct PaneDiffBadgeSuppressionTests {
 
@@ -33,8 +33,8 @@ import Sync
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
-    /// Two differences under `Health/`, mirroring the reported screenshot: the folder earns a
-    /// contained-count pill and one of the files earns a status glyph.
+    /// Two differences under `Health/`: the folder earns a contained-count pill and one of the
+    /// files earns a status glyph.
     private var populatedIndex: DiffStatusIndex {
         DiffStatusIndex(
             differences: [
@@ -61,8 +61,8 @@ import Sync
         )
     }
 
-    /// The fixture is only meaningful if it actually badges something — without this the rail
-    /// assertion below would pass against an index that was empty all along.
+    /// The fixture is only meaningful if it actually badges something; otherwise the rail assertion
+    /// below would pass against an index that was empty all along.
     @Test func testFixtureBadgesTheFolderAndTheFile() {
         let index = populatedIndex
         #expect(index.containedDiffCount(forNodeId: "/root/Health") == 2)

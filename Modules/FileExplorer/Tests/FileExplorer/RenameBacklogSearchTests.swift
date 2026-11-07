@@ -3,12 +3,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Searching the rename backlog.
-///
-/// The backlog rides `.filing`'s lens, and before this existed it rode its *search* too: typing
-/// filtered the filing queue, which is not the list on screen, while the backlog sat underneath
-/// unfiltered and the trailing readout counted the queue. So these assert the two things that were
-/// wrong — that a query reaches this list at all, and that it reaches it by folder AND by file name.
+/// Searching the rename backlog. The backlog rides `.filing`'s lens, so a query must reach this
+/// list rather than only the filing queue, and match by folder and by file name.
 @Suite struct RenameBacklogSearchTests {
 
     private func plan(_ rel: String, current: String = "1. Jan 2021.pdf",
@@ -36,8 +32,8 @@ import Testing
 
     @Test("A folder is findable by a name inside it, before or after the rename")
     func matchesFileNames() {
-        // The reason this searches names at all: 129 folders is a lot to scroll, and what you
-        // remember is the file — `9829custbill…` — not the folder it landed in.
+        // Names are searched because what you remember is the file (`9829custbill…`), not the
+        // folder it landed in, and the backlog runs to a hundred folders and more.
         let p = plan("Home/Utilities/X/2023", current: "9829custbill07182023.pdf",
                      proposed: "07. Jul 2023.pdf", skip: "Interest Certificate.pdf")
         #expect(RenameBacklogSearch.matches("custbill", p))
@@ -54,12 +50,9 @@ import Testing
                   reason: "Colons break sync", isDirectory: false)
     }
 
-    /// **A risky name answers the same query the plans do.**
-    ///
-    /// The backlog draws the folded Names lens as its leading "to fix" section, and those rows were
-    /// left unfiltered on the argument that the backlog's grammar was about folders. There is no
-    /// grammar — this is free text over the names a row is about — so the argument protected
-    /// nothing and the list answered one query two ways.
+    /// A risky name answers the same query the plans do. The backlog draws the folded Names lens as
+    /// its leading "to fix" section, and the query is free text over the names a row is about, so
+    /// both halves must filter or the list answers one query two ways.
     @Test("A to-fix name is findable by its name, its safe name, and its folder")
     func matchesRiskyNames() {
         let r = risky("Q1:report.pdf", in: "Finance/Statements")
@@ -72,9 +65,8 @@ import Testing
         #expect(!RenameBacklogSearch.matches("Vodafone", r))
     }
 
-    /// The `reason` is **not** matched, and that is a decision rather than an oversight: the plan
-    /// half does not match its steps' reasons either, so a query finding rows by their explanation
-    /// in one half of one list and not the other would be worse than either rule alone.
+    /// The `reason` is not matched, by decision: the plan half doesn't match its steps' reasons
+    /// either, and one list must not find rows by explanation in one half only.
     @Test("A to-fix row is not findable by the reason printed beside it")
     func doesNotMatchTheReason() {
         let r = risky("Q1:report.pdf")

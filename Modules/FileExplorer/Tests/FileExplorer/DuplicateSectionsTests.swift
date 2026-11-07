@@ -4,11 +4,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Sectioning the Duplicates list — his report on the grid: "still looks very crowded", and
-/// "maybe we categorize them into the Needs Review, needs a choice etc sections?".
-///
-/// The claims that can rot: the partition is total, sections keep their consequence order and
-/// vanish at zero, and the order itself is a decision rather than the enum's declaration order.
+/// Sectioning the Duplicates list by match kind, so a crowded grid reads as a few decisions. The
+/// claims that can rot: the partition is total, sections keep their consequence order and vanish
+/// at zero, and the order is a decision, not the enum's declaration order.
 @Suite struct DuplicateSectionsTests {
 
     private func group(_ matchType: DuplicateMatchType, name: String,
@@ -22,8 +20,8 @@ import Testing
                               copies: copies, reclaimableBytes: reclaim)
     }
 
-    /// **Every group lands in exactly one section**, and a kind with no findings gets no heading —
-    /// a section reading "0 to merge" is a row of chrome explaining an absence.
+    /// Every group lands in exactly one section, and a kind with no findings gets no heading: "0 to
+    /// merge" is chrome explaining an absence.
     @Test func thePartitionIsTotalAndEmptySectionsVanish() {
         let groups = [group(.identical, name: "a"), group(.identical, name: "b"),
                       group(.sameText, name: "c"), group(.versions, name: "d")]
@@ -35,10 +33,9 @@ import Testing
         #expect(Set(placed) == Set(groups.map(\.name)))
     }
 
-    /// **The order is the argument.** `identical` leads because it is the only kind the header's
-    /// button clears and the only one carrying a reclaim figure; the rest follow in consequence
-    /// order under it. It used to be last, and a screen that opens on four findings you must think
-    /// about with thirty-one one-click ones below the fold buries its own answer.
+    /// `identical` leads, as the only kind the header's button clears and the only one with a
+    /// reclaim figure; the rest follow in consequence order. Leading with the judgment calls would
+    /// bury the one-click findings below the fold.
     @Test func theOrderPutsTheBulkFirstAndTheJudgmentCallsUnderIt() {
         let all: [DuplicateMatchType] = [.identical, .versions, .sameText,
                                          .overlapping(sharedFraction: 0.8)]
@@ -48,13 +45,12 @@ import Testing
         #expect(sections.map(\.kind) == [.identical, .overlapping, .sameText, .versions])
         #expect(sections.first?.kind == .identical,
                 "the bulk you can clear in a click leads; everything under it needs a person")
-        // …and the declaration order is NOT this order, so the constant is doing real work.
+        // The declaration order is not this order, so the constant does real work.
         #expect(DuplicateSections.order != DuplicateMatchType.Kind.allCases)
     }
 
-    /// **A new match kind must not fall out of the list.** `sections` builds from `order`, so a
-    /// kind missing from it would be silently dropped — every group of that kind gone from a
-    /// screen whose whole job is showing them.
+    /// A new match kind must not fall out of the list: `sections` builds from `order`, so a kind
+    /// missing from it would silently drop every group of that kind.
     @Test func everyKindHasAPlaceAndSaysSomething() {
         #expect(Set(DuplicateSections.order) == Set(DuplicateMatchType.Kind.allCases))
         #expect(DuplicateSections.order.count == DuplicateMatchType.Kind.allCases.count,
@@ -78,15 +74,10 @@ import Testing
         #expect(identical.reclaimableBytes == 1000)
     }
 
-    /// **The whole row picks the copy, and only where a pick exists.** His report: "it's not
-    /// obvious that only the thumbnail needs to be clicked."
-    ///
-    /// What this pins is the gate, over all four combinations. What it does NOT pin — stated rather
-    /// than implied — is that the view actually wraps the row in a button: a `.hoverAffordance`
-    /// style draws nothing at rest, so a render cannot tell a live row from a dead one, and the
-    /// accessibility tree is unpopulated without an assistive client. Deleting the wrapper leaves
-    /// this green. The gate is here so at least the rule cannot drift from the radio's and the
-    /// thumbnail's, which is the failure that would give one copy three different answers.
+    /// The whole row picks the copy, and only where a pick exists. This pins the gate, so it can't
+    /// drift from the radio's rule. Not pinned: that the view wraps the row in a button. A
+    /// `.hoverAffordance` style draws nothing at rest and the accessibility tree is empty without
+    /// an assistive client, so deleting the wrapper leaves this green.
     @Test func onlyACopyThatCanBePickedMakesItsRowClickable() {
         func card(_ matchType: DuplicateMatchType) -> DuplicateGroupCard {
             DuplicateGroupCard(group: group(matchType, name: "x"), isExpanded: true,
@@ -107,7 +98,7 @@ import Testing
         #expect(!overlap.isRowPickable(overlap.group.copies[1]),
                 "a row that highlights under the pointer and does nothing is the same complaint")
 
-        // And it is the shared rule, not a second copy of it.
+        // It is the shared rule, not a second copy of it.
         for matchType: DuplicateMatchType in [.identical, .versions, .sameText,
                                               .overlapping(sharedFraction: 0.5)] {
             let c = card(matchType)
@@ -121,15 +112,12 @@ import Testing
         }
     }
 
-    /// **A "merge" that copies nothing is a removal, and the card has to say so.**
-    ///
-    /// His screenshot: a one-item `Visa` folder, 100% shared, under a button reading "Merge into
-    /// keeper" and a note reading "the other copy adds 0 unique items. Merging copies those into
-    /// \u{201C}Visa\u{201D}" — copying *those*, where those is nothing. The action is the same code path
-    /// either way; what this pins is that the wording follows the contents.
+    /// A "merge" that copies nothing is a removal, and the card says so. The action is the same
+    /// code path either way; this pins that the wording follows the contents, so a 100%-shared
+    /// folder isn't offered a merge that "copies those" 0 unique items.
     // `@MainActor` because a `View`'s members are implicitly main-actor isolated, and
-    // `mergeCopiesNothing` closes over one inside `allSatisfy` — off the main actor the
-    // isolation check traps rather than failing an assertion.
+    // `mergeCopiesNothing` closes over one inside `allSatisfy`: off the main actor the isolation
+    // check traps rather than failing an assertion.
     @MainActor
     @Test func aMergeThatCopiesNothingSaysSo() {
         func card(_ unique: [Int]) -> DuplicateGroupCard {
@@ -151,7 +139,7 @@ import Testing
         #expect(!card([0, 0, 3]).mergeCopiesNothing,
                 "one folded copy with something of its own is enough to make it a merge")
 
-        // And the note follows, rather than describing a copy of nothing.
+        // The note follows, rather than describing a copy of nothing.
         let empty = DuplicateGroupNote.text(for: card([0, 0]).group) ?? ""
         #expect(empty.contains("nothing the keeper lacks"))
         #expect(empty.contains("only trashes it"))
@@ -161,9 +149,8 @@ import Testing
         #expect(real.contains("copied into"))
     }
 
-    /// The card's vocabulary: a folder group's members are folders, and a count of one is singular.
-    /// Interpolating a number into a noun phrase is where this app's plural bugs live — the merge
-    /// card read "1 items" in his screenshot.
+    /// A count of one is singular: a number interpolated into a noun phrase is where plural bugs
+    /// like "1 items" live.
     @Test func countsReadAsEnglish() {
         #expect(DuplicateGroupCard.uniqueHere(1) == "1 unique here")
         #expect(DuplicateGroupCard.uniqueHere(4) == "4 unique here")
@@ -189,14 +176,12 @@ import Testing
 /// card draws — both read from the shipped constants rather than restating them.
 @Suite struct DuplicateGridWidthTests {
 
-    /// **The two lenses ask for different minimums, and the difference has to bite.** A renames
-    /// card holds a two-column table of file names; a collapsed duplicates tile holds a caption.
-    /// One number for both would be wrong for one of them — and the pane he actually reads these
-    /// in is exactly where they disagree.
+    /// The two lenses ask for different minimums, and the difference bites: a renames card holds a
+    /// two-column table of names, a collapsed duplicates tile a caption, and the pane he reads them
+    /// in is where they disagree.
     @Test func theDuplicatesTileReachesTwoColumnsWhereARenamesCardCannot() {
-        // **Both minimums read from the source**, not restated. They were restated once, the
-        // duplicates one was raised 220 → 250 in a later commit, and this test stayed green while
-        // asserting a column count the app no longer produced.
+        // Both minimums read from the source, not restated, so a change to either can't leave
+        // this asserting a column count the app no longer produces.
         let duplicates = LensWorkspaceView.duplicateTileMinimumWidth
         let renames = RenamePassLens.minimumCardWidth
         #expect(duplicates < renames, "a positive control: the two lenses really do differ")
@@ -209,13 +194,9 @@ import Testing
     }
 }
 
-/// Which header a duplicates card draws — a question about the CARD's width, not the pane's
-/// column count.
-///
-/// **Keying it on the column count was wrong in a way that showed only at the floor.** One column
-/// merely meant "the pane is under 534pt", so at the app's 810pt window minimum the card came out
-/// near 350 — narrower than the one-line header needs — and the row header was drawn precisely
-/// where it does not fit, clipping its chevron and its figure at the pane edge.
+/// Which header a duplicates card draws depends on the card's width, not the pane's column count.
+/// One column only means the pane is narrow; at the app's minimum window width a one-column card
+/// is near 350pt, too narrow for the one-line header, which would clip its chevron and figure.
 @Suite struct DuplicateCardHeaderLayoutTests {
 
     private let minimum = DuplicateCardHeaderLayout.rowHeaderMinimumWidth
@@ -233,10 +214,9 @@ import Testing
                 "a degenerate width must not produce a header that overflows it")
     }
 
-    /// **An expanded card stacks at any width.** Not for the narrow card's reason — it has the
-    /// whole pane — but the opposite one: the row header spends the width after the name on a
-    /// subtitle and two figure columns, so a 61-character file name arrived truncated on a card
-    /// five hundred points wide. His report. Stacking gives the name a line to itself.
+    /// An expanded card stacks at any width: the row header spends the width after the name on a
+    /// subtitle and two figure columns, so a long name truncates even on a wide card. Stacking
+    /// gives the name a line to itself.
     @Test func anExpandedCardStacksAtEveryWidth() {
         for width: CGFloat in [220, minimum, 600, 1200] {
             #expect(DuplicateCardHeaderLayout.forCard(width: width, isExpanded: true) == .stacked,

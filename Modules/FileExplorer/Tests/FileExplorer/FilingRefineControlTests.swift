@@ -6,29 +6,26 @@ import SwiftUI
 
 /// Does the Refine control actually reach the screen, and does it say the right thing?
 ///
-/// **Pixels, because nothing else here is open.** The button's label is a `Label` inside a
-/// `Button` inside the header card: `fittingSize` cannot see it (the lens fills a fixed frame),
-/// and a caption assertion passes vacuously with no assistive client attached to the test process.
-/// A previous feature in this app shipped visibly broken behind forty green tests for exactly this
-/// reason — the tests all measured things that could not see paint.
+/// Pixels, because nothing else here is open. The button's label is a `Label` inside a `Button`
+/// inside the header card: `fittingSize` cannot see it (the lens fills a fixed frame), and a
+/// caption assertion passes vacuously with no assistive client attached to the test process.
 ///
-/// The sharp assertion is `theModelNameOnTheButtonComesFromSettings`: two mounts differing ONLY in
+/// The sharp assertion is `theModelNameOnTheButtonComesFromSettings`: two mounts differing only in
 /// the stored model must rasterize differently. A button that hard-coded "Claude", or read a
 /// different key than the classifier does, satisfies every "something painted" case here and fails
 /// only that one.
-/// **Every setting lives in a scratch suite the manager owns, never the standard domain.** A test
-/// that shares one store with another renders whichever state won the race, which reports as "the
-/// button paints the same thing for Opus and Haiku" — the exact product bug this suite exists to
-/// catch. `.serialized` once kept the tests in this process apart; it cannot reach another one,
-/// and under `swift test` the standard domain is one plist shared by every test process on the
-/// machine, which is also the CI runner.
 ///
-/// **`.machinePinned(.pixelSampling)`** because it reads pixels back out of a live renderer
-/// (`colorAt(`) — the repo-wide marker for a suite that only produces a trustworthy verdict on the
-/// recording Mac. CI currently excludes only `referenceImages`, so this still runs there; the
-/// marker is what makes it *selectable*. Leaving it off is exactly the gap `MachinePinnedReason`
-/// was introduced to close: `AccentPreviewTests` was every bit as machine-pinned as the snapshot
-/// suites and was silently never skipped, because the old switch selected by name.
+/// Every setting lives in a scratch suite the manager owns, never the standard domain. A test that
+/// shares one store with another renders whichever state won the race, which reads as "the button
+/// paints the same thing for Opus and Haiku", the very bug this suite exists to catch.
+/// `.serialized` keeps the tests in this process apart but cannot reach another one, and under
+/// `swift test` the standard domain is one plist shared by every test process on the machine, which
+/// is also the CI runner.
+///
+/// `.machinePinned(.pixelSampling)` because it reads pixels back out of a live renderer
+/// (`colorAt(`): the repo-wide marker for a suite whose verdict is trustworthy only on the
+/// recording Mac. CI excludes only `referenceImages`, so this still runs there; the marker is what
+/// makes it selectable.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct FilingRefineControlTests {
 
@@ -43,20 +40,20 @@ import SwiftUI
             providerRoot: "/root")
     }
 
-    /// A manager holding a COMPLETED Organize scan of `/root/Downloads`, with the cached taxonomy
-    /// a refine pass needs — the state the lens is in when the user is looking at results.
+    /// A manager holding a completed Organize scan of `/root/Downloads`, with the cached taxonomy a
+    /// refine pass needs: the state the lens is in when the user is looking at results.
     ///
-    /// **Every setting goes to one scratch suite, the manager's `filingContentDefaults`,** and
-    /// `mount` hands the same suite to the view through `.defaultAppStorage` — so the button and
-    /// the manager read one store and can be made to agree, which is the very thing these tests
-    /// are checking. A fresh suite per manager, so no two mounts share one.
+    /// Every setting goes to one scratch suite, the manager's `filingContentDefaults`, and `mount`
+    /// hands the same suite to the view through `.defaultAppStorage`, so the button and the manager
+    /// read one store and can be made to agree, which is what these tests check. A fresh suite per
+    /// manager, so no two mounts share one.
     private static func manager(cloudOn: Bool, model: String? = nil,
                                 routesTo: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
         let defaults = ScratchDefaults("FilingRefineControlTests")
         m.filingContentDefaults = defaults
         // `routesTo` stands in for the app's router. nil leaves it unset, so the manager falls back
-        // to what the toggle configures — which is what most of these tests want.
+        // to what the toggle configures, which is what most of these tests want.
         if let routesTo { m.filingBackendIdentity = { _ in routesTo } }
         m.publishFilingSuggestions([suggestion("a.pdf"), suggestion("b.pdf")])
         m.hasSuggestedFiling = true
@@ -65,15 +62,14 @@ import SwiftUI
         m.filingLastTaxonomyFolders = ["Documents", "Documents/Family"]
         m.filingLastExistingFolders = ["Documents", "Documents/Family"]
         m.filingClassifier = { _, _, _ in [:] }
-        // **Organize opens on its overview, so a filing fixture has to name its lens.** With the
-        // rail key unset the selection is nil, which is the overview — where no lens's own
-        // controls are drawn at all, so every assertion here would fail as "painted nothing",
-        // indistinguishable from the Refine control being broken.
+        // Organize opens on its overview, so a filing fixture has to name its lens. With the rail
+        // key unset the selection is nil, the overview, where no lens's own controls are drawn, so
+        // every assertion here would fail as "painted nothing", indistinguishable from a broken
+        // Refine control.
         //
-        // It goes in the same suite as the two cloud settings: `.defaultAppStorage` redirects EVERY
+        // It goes in the same suite as the two cloud settings: `.defaultAppStorage` redirects every
         // `@AppStorage` beneath it, so a store holding only this key would shadow the two this
-        // suite exists to vary — which it once did, and four tests then compared two renders of
-        // the same button.
+        // suite exists to vary, and tests would compare two renders of the same button.
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         defaults.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
         if let model { defaults.set(model, forKey: FileSyncManager.cloudModelDefaultsKey) }
@@ -90,7 +86,7 @@ import SwiftUI
     }
 
     /// The window background is not decoration: without one the content composites against the
-    /// borderless window's own buffer and every comparison reads as zero difference — "nothing
+    /// borderless window's own buffer and every comparison reads as zero difference, "nothing
     /// painted", whatever the code did.
     private func mount(_ manager: FileSyncManager, configure: (() -> Void)? = nil) -> Mounted {
         let subject = LensWorkspaceView(syncManager: manager, lens: .filing,
@@ -113,8 +109,8 @@ import SwiftUI
         return Mounted(host: host, window: window)
     }
 
-    /// The header card's action row, where the Refine button lives — cropped so a difference in
-    /// the LIST below (which these fixtures hold constant anyway) cannot be mistaken for one here.
+    /// The header card's action row, where the Refine button lives, cropped so a difference in the
+    /// list below (which these fixtures hold constant anyway) cannot be mistaken for one here.
     private func toolbarStrip(_ mounted: Mounted) -> NSBitmapImageRep? {
         mounted.host.layoutSubtreeIfNeeded()
         let strip = CGRect(x: 0, y: 0, width: Self.canvas.width, height: 90)
@@ -154,19 +150,19 @@ import SwiftUI
         let withoutCloud = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: false))))
 
-        // Both states paint SOMETHING in the action row — the cloud-off state carries the
-        // "Refine with Claude…" invitation, so neither is blank.
+        // Both states paint something in the action row: the cloud-off state carries the "Refine
+        // with Claude…" invitation, so neither is blank.
         #expect(inkedPixels(withCloud) > 500)
         #expect(inkedPixels(withoutCloud) > 500)
-        // …and they are not the same control. "Refine 2 with Opus" is wider than the invitation,
-        // so a build that painted one label in both states fails here.
+        // And they are not the same control. "Refine 2 with Opus" is wider than the invitation, so
+        // a build that painted one label in both states fails here.
         #expect(differingPixels(withCloud, withoutCloud) > 200)
     }
 
     @Test func theModelNameOnTheButtonComesFromSettings() throws {
-        // THE assertion. The button promises a model and the classifier sends to one; if the
-        // button read a different key, or hard-coded a name, these two mounts — identical in every
-        // other input — would rasterize the same.
+        // The assertion. The button promises a model and the classifier sends to one; if the button
+        // read a different key, or hard-coded a name, these two mounts, identical in every other
+        // input, would rasterize the same.
         let opus = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: true, model: "claude-opus-5"))))
         let haiku = try #require(toolbarStrip(mount(
@@ -196,12 +192,12 @@ import SwiftUI
     }
 
     @Test func cloudEnabledWithoutAKeyOffersTheInvitationNotAModelPromise() throws {
-        // The downgrade, at the button. Cloud is ON, so a toggle-based branch painted
-        // "Refine 2 with Opus" — for a pass the router sends to the same on-device model the scan
-        // already ran. The correct control here is the invitation, which opens the Settings tab
-        // holding the key row that is actually missing.
+        // The downgrade, at the button. Cloud is on, but the router sends this pass to the same
+        // on-device model the scan already ran, so the button must not offer "Refine 2 with Opus".
+        // The correct control is the invitation, which opens the Settings tab holding the missing
+        // key row.
         //
-        // Compared against the WORKING cloud state rather than against "something painted": both
+        // Compared against the working cloud state rather than against "something painted": both
         // paint a sparkles button of similar size, so only comparing the two catches a branch that
         // picked the wrong one.
         let downgraded = try #require(toolbarStrip(mount(
@@ -222,10 +218,10 @@ import SwiftUI
     @Test func changingTheCloudSettingUpdatesTheButtonOnTheNextRender() throws {
         // The liveness claim behind the design: `filingCloudRefineAvailable` is not `@Published`
         // and nothing observes the defaults key, so the button depends on SwiftUI re-rendering
-        // LensWorkspaceView when the Settings overlay closes — which ContentView does, because dismissing
-        // it flips `showSettings` and re-runs the body containing this lens.
+        // LensWorkspaceView when the Settings overlay closes, which ContentView does, because
+        // dismissing it flips `showSettings` and re-runs the body containing this lens.
         //
-        // Asserted on ONE mounted view across a setting change, not on two fresh mounts: two mounts
+        // Asserted on one mounted view across a setting change, not on two fresh mounts: two mounts
         // would pass even if the value were captured at init, which is exactly the failure mode.
         let m = Self.manager(cloudOn: false)
         let mounted = mount(m, configure: {})

@@ -5,17 +5,15 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// What the row badge costs the pane — the app's tightest render path, and the one place the brief
-/// for this feature said not to add work blind.
+/// What the row badge costs the pane, the app's tightest render path, where no work should be
+/// added blind.
 ///
-/// **Interleaved, not sequential.** The two arms alternate within a single run and their samples are
-/// reported with their spread. A sequential A/B on this machine has lied before: it is also the CI
-/// runner, other sessions build on it, and a batch of samples taken a minute apart can differ by
-/// more than the effect being measured. Alternating puts both arms under the same load.
+/// Interleaved, not sequential: the two arms alternate within one run and report their spread.
+/// This machine is also the CI runner and other sessions build on it, so samples a minute apart
+/// can differ by more than the effect; alternating puts both arms under the same load.
 ///
-/// The arms differ in exactly one thing — whether the delegate answers `riskyNameReason` — so the
-/// difference is the badge's own cost: the memo lookup per visible row, plus drawing the glyph on
-/// the rows that earn one.
+/// The arms differ only in whether the delegate answers `riskyNameReason`, so the difference is
+/// the badge's own cost: the memo lookup per visible row, plus drawing the glyph where it earns one.
 ///
 /// Inert unless `SYNCCLOUD_BADGE_BENCHMARK=1`, so an ordinary `swift test` and CI never run it:
 ///
@@ -23,16 +21,13 @@ import Sync
 /// SYNCCLOUD_BADGE_BENCHMARK=1 arch -arm64 swift test -c release --filter RiskyNameBadgeCostBenchmark
 /// ```
 ///
-/// Release, deliberately: a Debug number for pure string-and-dictionary work is not a number worth
-/// quoting.
+/// Release, because a Debug number for pure string-and-dictionary work isn't worth quoting.
 ///
-/// **This is a measuring instrument, not the regression net.** It prints and asserts nothing, on
-/// purpose: the delta it reports (+0.03–0.24 ms against a ~9 ms re-render) is smaller than the
-/// spread within either arm, so no threshold over it could separate a real regression from this
-/// machine having a busy minute. `RiskyNameBadgeMemoTests` is the net, and it counts evaluations
-/// instead of timing them — see its opening note for why that catches what a bar here cannot.
-/// Reach for this one when you want to know the current cost, not when you want to be told it
-/// changed.
+/// A measuring instrument, not the regression net: it prints and asserts nothing, because the
+/// delta (+0.03–0.24 ms against a ~9 ms re-render) is smaller than the spread within either arm,
+/// so no threshold could tell a regression from a busy minute. `RiskyNameBadgeMemoTests` is the
+/// net; it counts evaluations instead of timing them. Use this to learn the current cost, not to
+/// be told it changed.
 @MainActor
 @Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgeCostBenchmark {
 
@@ -40,17 +35,16 @@ import Sync
         ProcessInfo.processInfo.environment["SYNCCLOUD_BADGE_BENCHMARK"] == "1"
     }
 
-    /// One in eight names carries a trailing space, which is roughly what a folder holding a
-    /// scanner dump looks like — and far worse than a real provider root, where this Mac's two
-    /// largest hold 16 and 4 risky names in ~40,000. Overstating the badged fraction is deliberate:
-    /// it prices the expensive case, where the badge actually draws.
+    /// One in eight names carries a trailing space, roughly a folder of scanner output and far
+    /// worse than a real provider root (a handful in ~40,000). Overstated on purpose, to price the
+    /// expensive case, where the badge draws.
     private static func riskyName(_ index: Int, _ base: String) -> String {
         index % 8 == 0 ? base + " " : base
     }
 
     private struct BadgingDelegate: FileActionDelegate {
-        /// nil turns the badge off entirely — the "before" arm, and exactly what a delegate with no
-        /// provider context answers.
+        /// nil turns the badge off entirely: the "before" arm, and what a delegate with no provider
+        /// context answers.
         let provider: CloudProvider.ProviderType?
         func handleRefresh() {}
         func handleOpenInEditor(_ path: String) {}
@@ -80,8 +74,8 @@ import Sync
 
     static let root = "/root"
 
-    /// ~40,000 nodes in the shape the panes actually hold, with names that are DISTINCT strings so
-    /// nothing is COW-shared and no name is accidentally free to hash.
+    /// ~40,000 nodes in the shape the panes hold, with distinct name strings so nothing is
+    /// COW-shared and no name is accidentally free to hash.
     private static func bigTree(side: PaneTree.Side) -> PaneTree {
         var top: [FileNode] = []
         for a in 0..<40 {
@@ -116,12 +110,11 @@ import Sync
         }
     }
 
-    /// The pane is mounted on a `NotificationCenter` of this suite's own — it wants nothing from
-    /// `.cloudDownloadRequested`, but a mounted `FileTreeView` subscribes regardless, and on
-    /// `.default` a parallel suite's `.left` post would be accepted here and republish
-    /// `downloads.requests`. On the identically-mounted pane in `RiskyNameBadgeMemoTests` one such
-    /// post was measured to cost a full extra render pass. This suite's arms are render timings, so
-    /// that lands squarely inside the window being measured. See `docs/flaky-tests.md` mechanism 9.
+    /// The pane is mounted on a `NotificationCenter` of its own. A mounted `FileTreeView` subscribes
+    /// to `.cloudDownloadRequested` regardless, and on `.default` a parallel suite's `.left` post
+    /// would republish `downloads.requests` here, costing a full extra render pass inside the
+    /// window being timed. See "A mounted view is a live subscriber, in every suite at once" in
+    /// `docs/flaky-tests.md`.
     private func mount(_ box: Box, delegate: FileActionDelegate, tree: PaneTree, otherTree: PaneTree) -> NSWindow {
         let host = NSHostingView(rootView: Harness(box: box, tree: tree, otherTree: otherTree,
                                                    delegate: delegate,
@@ -161,8 +154,8 @@ import Sync
         let tree = Self.bigTree(side: .left)
         let otherTree = Self.bigTree(side: .right)
 
-        // One window per arm, both mounted and settled BEFORE any sample is taken, so neither arm
-        // is charged for the other's first layout.
+        // One window per arm, both mounted and settled before any sample, so neither arm is
+        // charged for the other's first layout.
         let offBox = Box(), onBox = Box()
         let offWindow = mount(offBox, delegate: BadgingDelegate(provider: nil),
                               tree: tree, otherTree: otherTree)
@@ -173,8 +166,8 @@ import Sync
 
         var off: [Double] = [], on: [Double] = []
         for i in 0..<12 {
-            // A selection change re-renders the pane and every visible row of it — the click the
-            // user pays for, and the pass the badge rides on.
+            // A selection change re-renders the pane and every visible row: the click the user
+            // pays for, and the pass the badge rides on.
             let target = "\(Self.root)/top\(i % 40)"
             off.append(renderMs(offWindow) { offBox.selection = [target] })
             on.append(renderMs(onWindow) { onBox.selection = [target] })

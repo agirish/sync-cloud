@@ -4,11 +4,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// **Both background menus sort through one picker that ticks the current order (BR7).**
-///
-/// The tree's empty-area menu had five plain buttons — nothing said which order the panes were in —
-/// and the columns' menu had no Sort By at all, while the pane bar's picker ticked its choice. Read
-/// through `NSHostingMenu`, which builds the real `NSMenu` (titles, submenus, item state).
+/// Both background menus (tree and columns) sort through one picker that ticks the current order,
+/// as the pane bar's picker does, so the menu says which order the pane is in. Read through
+/// `NSHostingMenu`, which builds the real `NSMenu` (titles, submenus, item state).
 @MainActor
 @Suite struct PaneSortByMenuTests {
 
@@ -33,8 +31,8 @@ import Testing
         #expect(try Self.lines(.name).items == ["✓ Name", "Kind", "Date Modified", "Size", "Tags"])
     }
 
-    /// **Both menus draw it, from the pane's own order.** A picker nobody calls ticks nothing, and
-    /// a pane that forgot to pass the order would tick Name forever.
+    /// Both menus draw it, from the pane's own order. A picker nobody calls ticks nothing, and a
+    /// pane that forgot to pass the order would tick Name forever.
     @Test func theTreeAndColumnsMenusBothDrawIt() throws {
         let tree = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
         let treeMenu = try OrganizeScopeCallSiteTests.body(of: "private var emptyAreaContextMenu: some View {",

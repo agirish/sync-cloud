@@ -4,12 +4,12 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The checklist the plan sheet shows while a landing runs (proposal O7).
+/// The checklist the plan sheet shows while a landing runs.
 @MainActor
 @Suite struct RestructureApplyProgressSurfaceTests {
 
-    /// Done, doing, still to come — a landing only moves forward, so a stage behind the current
-    /// one is finished and one ahead has not started.
+    /// Done, doing, still to come: a landing only moves forward, so a stage behind the current one
+    /// is finished and one ahead hasn't started.
     @Test func theSymbolsSayWhereTheLandingIs() {
         let symbol = RestructurePlanSheet.stageSymbol
         #expect(symbol(.guards, .operations) == "checkmark.circle.fill")
@@ -30,9 +30,9 @@ import Testing
         }
     }
 
-    /// **The checklist only exists while a landing does.** A progress value outliving its
-    /// landing would leave the sheet showing steps for work that finished or refused, so the
-    /// sheet renders it only when the manager is publishing one.
+    /// The checklist exists only while a landing does. A progress value outliving its landing would
+    /// show steps for work that finished or refused, so the sheet renders it only while the manager
+    /// publishes one.
     @Test func theSheetShowsTheChecklistOnlyWhileApplying() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -48,8 +48,8 @@ import Testing
         let engineText = try String(contentsOf: engine, encoding: .utf8)
         #expect(engineText.contains("restructureApplyProgress = nil"),
                 "the value has to be cleared however the landing returns")
-        // Every stage the type declares is actually published by the engine — a stage that never
-        // arrives would sit greyed forever while the landing ran past it.
+        // The engine publishes every stage the type declares; one that never arrives would sit
+        // greyed while the landing ran past it.
         for stage in RestructureApplyProgress.Stage.allCases {
             #expect(engineText.contains("RestructureApplyProgress(stage: .\(stage))")
                         || engineText.contains("stage: .\(stage),"),
@@ -57,8 +57,8 @@ import Testing
         }
     }
 
-    /// The host hands the manager's published value straight through — a sheet holding its own
-    /// copy could show a stage the engine never reached.
+    /// The host hands the manager's published value straight through: a sheet holding its own copy
+    /// could show a stage the engine never reached.
     @Test func theHostPassesTheManagersProgress() throws {
         let host = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
@@ -69,8 +69,8 @@ import Testing
         #expect(host.contains("applyProgress: syncManager.restructureApplyProgress"))
     }
 
-    /// The sheet renders mid-landing, at a stage with a count and at one without — **and the
-    /// checklist is visibly there**, which the `fittingSize` closer this replaces did not check.
+    /// The sheet renders mid-landing, at a stage with a count and at one without, and the checklist
+    /// is visibly there, not merely sized.
     @Test func theSheetRendersItsChecklist() throws {
         func sheet(progress: RestructureApplyProgress?) -> RestructurePlanSheet {
             let finding = StructureFinding(

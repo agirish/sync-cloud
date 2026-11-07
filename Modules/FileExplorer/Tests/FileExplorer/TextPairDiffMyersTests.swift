@@ -2,26 +2,12 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// The hand-rolled Myers walk, held against the standard library's.
-///
-/// **A diff nobody can check is a diff nobody should ship.** `TextPairDiff` used to delegate to
-/// `CollectionDifference`, which is correct by assumption; it now runs its own linear-space Myers,
-/// which is correct only if something says so. This suite is that something: thousands of small
-/// pairs, each one diffed both ways and the two answers compared.
-///
-/// **What "agree" means, and why it is not string equality of the two scripts.** A minimal edit
-/// script is not unique. `["a", "b", "a"]` → `["a"]` can delete offsets 1 and 2 or offsets 0 and 1,
-/// and both are minimal, both reconstruct the right file, and a reader could not tell which one the
-/// pane drew. Measured over this corpus, the two implementations pick the same script about 73% of
-/// the time; demanding 100% would be pinning a tie-break neither of them promises. So the two
-/// things that DO matter are asserted on every pair:
-///
-/// * **valid** — deleting the marked lines from each side leaves the same common subsequence, which
-///   is the same as saying the pane's rows reconstruct both files exactly; and
-/// * **minimal** — the script is exactly as long as `CollectionDifference`'s, so nothing extra was
-///   marked as changed.
-///
-/// A script that is both is a diff of the same quality, whichever of the ties it landed on.
+/// `TextPairDiff`'s hand-rolled linear-space Myers walk, held against `CollectionDifference` over
+/// thousands of pairs. A minimal edit script isn't unique (`["a", "b", "a"]` → `["a"]` can delete
+/// offsets 1 and 2 or 0 and 1), so the scripts aren't compared for equality, which would pin a
+/// tie-break neither promises. Each must instead be valid (deleting the marked lines from each side
+/// leaves the same common subsequence, so the pane's rows reconstruct both files) and minimal (as
+/// many edits as `CollectionDifference` finds).
 @Suite struct TextPairDiffMyersTests {
 
     /// The script the walk produces, as two flag arrays.
@@ -85,10 +71,10 @@ import Testing
         agrees(["", "", "a"], ["", "a", ""], "empty lines")
     }
 
-    /// **CRLF, and the trap this repo has written down: `"\r\n"` is ONE grapheme**, so
-    /// `hasSuffix("\n")` is false on a CRLF line. The reader normalises endings before the diff ever
-    /// sees them (`BoundedTextRead.lines`), which is what makes a CRLF file diff as its content
-    /// rather than as its line endings — but a stray `\r` inside a line is content, and must be.
+    /// CRLF: `"\r\n"` is one grapheme, so `hasSuffix("\n")` is false on a CRLF line. The reader
+    /// normalises endings before the diff sees them (`BoundedTextRead.lines`), so a CRLF file diffs
+    /// as its content, not its line endings; a stray `\r` inside a line is content and must stay
+    /// so.
     @Test func carriageReturnsAreContentNotStructure() {
         agrees(["a\r", "b"], ["a", "b"], "a stray CR on one side")
         let normalised = BoundedTextRead.lines("one\r\ntwo\r\n")
@@ -99,13 +85,13 @@ import Testing
 
     @Test func unicodeLinesAgree() {
         agrees(["é", "👩‍👩‍👧‍👦", "ß"], ["é", "x", "ß"], "combining marks and a family emoji")
-        // Canonically equivalent spellings of "é" are ONE line to Swift, and so to the diff.
+        // Canonically equivalent spellings of "é" are one line to Swift, and so to the diff.
         agrees(["e\u{301}"], ["é"], "NFD against NFC")
     }
 
     // MARK: The corpus
 
-    /// Small random pairs over a tiny alphabet — the shape that produces ties, repeats and
+    /// Small random pairs over a tiny alphabet, the shape that produces ties, repeats and
     /// degenerate cases in bulk. Seeded, so a failure here is reproducible.
     @Test func aCorpusOfSmallRandomPairsAgrees() {
         var rng = SeededGenerator(seed: 0x5EED_1234)
@@ -121,8 +107,8 @@ import Testing
         }
     }
 
-    /// Larger pairs derived by EDITING one side — the shape a real diff has, where most lines match
-    /// and a few do not, sometimes with the whole file shuffled underneath.
+    /// Larger pairs made by editing one side, the shape a real diff has: most lines match and a few
+    /// don't, sometimes with the whole file shuffled underneath.
     @Test func aCorpusOfEditedFilesAgrees() {
         var rng = SeededGenerator(seed: 0xC0FFEE)
         for trial in 0..<300 {
@@ -141,23 +127,23 @@ import Testing
         }
     }
 
-    /// The positive control on the two checks above. A deliberately WRONG script — one edit short —
-    /// must fail both, or the corpus is 2,300 assertions that cannot notice anything.
+    /// The positive control on the checks above: a script one edit short must fail the
+    /// reconstruction, or the corpus is 2,300 assertions that can't notice anything.
     @Test func theChecksCanActuallyFail() {
         let left = ["a", "b", "c"], right = ["a", "x", "c"]
         let theirs = reference(left, right)
         #expect(theirs.removed.filter { $0 }.count == 1 && theirs.inserted.filter { $0 }.count == 1,
                 "the reference no longer finds one edit a side here — re-aim this control")
-        // Mark only the removal: valid reconstruction fails, and so does the count.
+        // Mark only the removal: the reconstruction fails (and the count would too).
         let kept = left.indices.filter { !theirs.removed[$0] }.map { left[$0] }
         #expect(kept != right, "a script one edit short reconstructed the right side anyway")
     }
 
     // MARK: Interning, which is what makes collisions unwriteable
 
-    /// **Equal ids mean equal strings, by construction.** The walk compares integers; if two
-    /// different lines could ever share one, the pane would call them the same line. They cannot:
-    /// the ids come from a dictionary, which resolves hash collisions by comparing the keys.
+    /// Equal ids mean equal strings, by construction. The walk compares integers, so two different
+    /// lines sharing one would be called the same line. They can't: the ids come from a dictionary,
+    /// which resolves hash collisions by comparing the keys.
     @Test func onlyEqualLinesShareAnId() {
         let left = ["a", "b", "a", ""], right = ["b", "a", "c", ""]
         let ids = TextPairDiff.interned(left, right)
@@ -174,15 +160,12 @@ import Testing
 
     // MARK: The ceiling, which is the point of the rewrite
 
-    /// **The shape the estimate prices at zero.** Two files holding the same lines in a different
-    /// order have no multiset difference at all, so `estimatedCost` answers 0 and the old refusal
-    /// waved them through into an uninterruptible `CollectionDifference` — measured at 16.5s for
-    /// 20,000 lines a side, and quadratic from there.
-    /// **The ceiling is passed explicitly here, and that is deliberate.** Reaching the shipped
-    /// ``TextPairDiff/maxDiffWork`` costs exactly that much work by definition — ~0.7s in a Release
-    /// build, several seconds in the unoptimised one a test runs in — which would buy nothing this
-    /// does not already say. `anEntirelyRewrittenFileIsStillAffordable` below is what exercises the
-    /// shipped default, from the other side.
+    /// The shape the estimate prices at zero: the same lines in a different order have no multiset
+    /// difference, so `estimatedCost` answers 0 and only the walk's ceiling can refuse them. The
+    /// ceiling is passed explicitly: reaching the shipped ``TextPairDiff/maxDiffWork`` costs
+    /// seconds in an unoptimised test build and says nothing more.
+    /// `anEntirelyRewrittenFileIsStillAffordable` exercises the shipped default from the other
+    /// side.
     @Test func aReorderedPairIsRefusedByTheCeilingTheEstimateCannotSee() {
         let left = (0..<20_000).map { "line \($0) some text here" }
         var rng = SeededGenerator(seed: 99)
@@ -195,8 +178,8 @@ import Testing
                 "the walk ran a reordered 20,000-line pair past its ceiling")
     }
 
-    /// The positive control on that: the same shape, small enough to be worth diffing, is DIFFED
-    /// rather than refused. Without this the ceiling could be wired to refuse everything.
+    /// The positive control on that: the same shape, small enough to be worth diffing, is diffed,
+    /// not refused. Without this the ceiling could be wired to refuse everything.
     @Test func aReorderedPairSmallEnoughToAffordIsStillDiffed() throws {
         let left = (0..<2_000).map { "line \($0) some text here" }
         var rng = SeededGenerator(seed: 7)
@@ -206,13 +189,13 @@ import Testing
             return
         }
         #expect(!diff.isIdentical)
-        // The rows reconstruct both files — the pane's own contract, asserted on a real diff.
+        // The rows reconstruct both files: the pane's own contract, asserted on a real diff.
         #expect(diff.rows.compactMap(\.left) == left)
         #expect(diff.rows.compactMap(\.right) == right)
     }
 
-    /// The anchor the cap has always been written around: 5,000 lines rewritten end to end is a
-    /// diff someone genuinely wants, and it stays inside the ceiling.
+    /// The anchor the cap is written around: 5,000 lines rewritten end to end is a diff someone
+    /// wants, and it stays inside the ceiling.
     @Test func anEntirelyRewrittenFileIsStillAffordable() {
         let left = (0..<5_000).map { "alpha \($0)" }
         let right = (0..<5_000).map { "beta \($0)" }
@@ -223,13 +206,12 @@ import Testing
         #expect(diff.changedLineCount == 5_000)
     }
 
-    /// **The two bounds count different things, and the factor between them is measured.**
+    /// The two bounds count different things, with a measured factor between them.
     /// ``TextPairDiff/maxEstimatedCost`` is `(N+M)` times a lower bound on the edit distance;
-    /// ``TextPairDiff/maxDiffWork`` is steps actually taken. Setting them to the same number would
-    /// have the cheap one refusing pairs the real one would finish — which is what it was doing.
-    /// On the family the pre-filter exists to catch, files with nothing in common, the estimate
-    /// comes to four times the steps the walk then spends, and that is what the threshold is scaled
-    /// by. If this ratio moves, the scaling in `maxEstimatedCost` has to move with it.
+    /// ``TextPairDiff/maxDiffWork`` is steps actually taken, so equal limits would have the cheap
+    /// one refuse pairs the walk would finish. On files with nothing in common, the family the
+    /// pre-filter exists to catch, the estimate is four times the walk's steps, the factor the
+    /// threshold is scaled by. If this ratio moves, `maxEstimatedCost` must move with it.
     @Test func theEstimateRunsAtFourTimesTheWalkOnTheFamilyItGuards() {
         for lines in [1_000, 2_000] {
             let left = (0..<lines).map { "alpha \($0)" }
@@ -249,8 +231,7 @@ import Testing
                 "the pre-filter is no longer scaled off the real ceiling")
     }
 
-    /// **Cancellation reaches the walk itself**, which is what closing the surface now does. The
-    /// old pass was one call into the standard library with nowhere to ask.
+    /// Cancellation reaches the walk itself, which is what closing the surface relies on.
     @Test func aCancelledWalkStopsAndReportsIt() {
         let left = (0..<20_000).map { "line \($0)" }
         var rng = SeededGenerator(seed: 3)
@@ -278,9 +259,9 @@ import Testing
                 "pricing \(line.debugDescription) disagrees with tokenising it")
     }
 
-    /// The documented exception, asserted rather than left as a claim: whitespace that is not
-    /// ASCII is not seen as a separator by the cheap count. It only ever makes a row look SHORTER
-    /// than it is, which can choose a word pass the walk's own ceiling then bounds anyway.
+    /// The documented exception: whitespace that isn't ASCII isn't a separator to the cheap count.
+    /// It only ever makes a row look shorter than it is, which can choose a word pass the walk's
+    /// own ceiling then bounds anyway.
     @Test func exoticWhitespaceIsUndercountedAndSaysSo() {
         #expect(TextPairDiff.wordCount("a\u{00A0}b") < TextPairDiff.words("a\u{00A0}b").count,
                 "the approximation is gone — update the doc on `wordCount`")
@@ -300,10 +281,9 @@ import Testing
     }
 }
 
-/// A reproducible generator, so a corpus failure names a pair someone can re-run.
-///
-/// SplitMix64 — small, and its quality is beside the point here: what matters is that the same seed
-/// produces the same corpus on every machine and every run.
+/// A reproducible generator, so a corpus failure names a pair someone can re-run. SplitMix64:
+/// small, and its quality is beside the point; what matters is that the same seed gives the same
+/// corpus on every machine and every run.
 struct SeededGenerator: RandomNumberGenerator {
     private var state: UInt64
 

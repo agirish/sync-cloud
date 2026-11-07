@@ -7,17 +7,15 @@ import Design
 // MARK: - Lens / filter / match styling
 
 /// The lenses shown in the right-hand slot. Public so the host can map its selected workspace
-/// onto one; the choice itself is made by the window's workspace bar, not in here.
-///
-/// Still its own type rather than folded into `Workspace`: the per-lens search grammars, query
-/// parking and expansion state in `LensWorkspaceView` are all keyed by it, and they have no meaning for
-/// Compare.
+/// onto one; the workspace bar makes the choice, not this view. Its own type rather than part of
+/// `Workspace` because the per-lens search grammars, query parking and expansion state in
+/// `LensWorkspaceView` are keyed by it, and none of them mean anything for Compare.
 public enum WorkspaceLensKind: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     case filing = "Filing"
     case automations = "Automations"
-    /// The former standalone Storage Lens tab, folded in as a read-only lens (treemap + largest /
-    /// stale / reclaim lists). Sits last, after the action lenses.
+    /// The read-only Storage lens (treemap + largest / stale / reclaim lists). Sits last, after the
+    /// action lenses.
     case storage = "Storage"
     public var id: String { rawValue }
 
@@ -53,9 +51,8 @@ enum DuplicateMatchFilter: String, CaseIterable, Identifiable {
         case .identical: return group.matchType.kind == .identical
         case .sameText: return group.matchType.kind == .sameText
         case .overlapping: return group.matchType.kind == .overlapping
-        // **Everything that is not byte-identical**, which is what the pill beside it counts.
-        // It used to select name-only alone; with that kind gone, the useful narrowing is the one
-        // the badges already name — the kinds "Apply recommended" will not touch.
+        // Everything that is not byte-identical, which is what the pill beside it counts: the
+        // kinds "Apply recommended" will not touch.
         case .needsReview: return group.matchType.kind != .identical
         case .versions: return group.matchType.kind == .versions
         }
@@ -92,12 +89,9 @@ enum DuplicateMatchStyle {
         }
     }
 
-    /// What the row's badge SAYS — the want, not the category (ROADMAP.md, the Identical-badge
-    /// item). nil for `identical`: the majority case wears no badge at all, its certainty moved
-    /// into the green reclaim figure at the trailing edge, and the freed leading space went to
-    /// the file icon and the name. The exceptions state what they need from a person — the
-    /// subtitle beside each already names its category, so a badge repeating it was spending the
-    /// row's loudest slot on the least useful words.
+    /// What the row's badge says: the want, not the category. nil for `identical`, the majority
+    /// case, whose certainty shows in the green reclaim figure instead. The exceptions say what
+    /// they need from a person; the subtitle already names the category.
     static func badgeLabel(_ type: DuplicateMatchType) -> String? {
         switch type {
         case .identical: return nil
@@ -109,15 +103,10 @@ enum DuplicateMatchStyle {
 // MARK: - Scan-start session reset
 
 /// Everything a fresh Duplicates scan retires, as one named list instead of loose assignments
-/// inside `.onChange`.
-///
-/// The defect this exists to prevent was an OMISSION from that list: the reclaim tally and the
-/// search query were cleared on scan start, but the type filter was not — so a "Versions" filter
-/// picked against the previous results silently survived into the new scan. The lens then showed a
-/// partial list with no visible cause, or the "Nothing matches" dead end, whose copy blames *the
-/// search* and offers to clear it — advice that fixes nothing when no search is active. Both
-/// narrowings are one narrowing to the user (the same empty state's button clears both), so both
-/// belong to the results they were aimed at and neither may outlive them.
+/// inside `.onChange`. The type filter belongs here with the search query: a filter picked against
+/// the previous results would otherwise survive into the new scan and show a partial list, or a
+/// "Nothing matches" state that blames a search that isn't there. Both narrowings are one to the
+/// user, so neither may outlive the results they were aimed at.
 enum DuplicateScanReset {
     static func duplicatesScanStarted(filter: inout DuplicateMatchFilter,
                                       searchQuery: inout String,
@@ -131,11 +120,8 @@ enum DuplicateScanReset {
 // MARK: - LensWorkspaceView
 
 /// A single-source lens workspace (Duplicates, Rename, Organize, Automations, or the read-only
-/// Storage), rendered in the right-hand slot with the source rail docked beside it.
-///
-/// Which lens is showing is no longer decided here. It used to be: this view rendered the lens
-/// tabs and wrote the host's binding. The workspace bar in the window toolbar owns that choice
-/// now, and this view is handed the resolved lens.
+/// Storage), rendered in the right-hand slot with the source rail docked beside it. The workspace
+/// bar in the window toolbar picks the lens; this view is handed the result.
 public struct LensWorkspaceView: View {
     @ObservedObject public var syncManager: FileSyncManager
 
@@ -146,67 +132,50 @@ public struct LensWorkspaceView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-    /// The recorded cloud spend both Organize surfaces read — the setup card's price and the
-    /// spend row above the results.
-    ///
-    /// **Held in state, and BOTH of them, which is the half that was missed.** Each of
-    /// `FilingSpendStore.last()` and `.totals()` is a `UserDefaults` read plus a `JSONDecoder`
-    /// pass, and each was being re-read on every body evaluation. Caching only the setup card's
-    /// copy fixed the state that has nothing to type in — the card shows when there are no results
-    /// — and left `filingSpendRow`, which renders alongside the results and therefore on every
-    /// keystroke in the Organize search field, decoding twice per render. One value, refreshed by
-    /// ``refreshFilingSpend()`` at the three moments spend can change across: appearing, a scan
-    /// finishing, and the history sheet closing (it can Clear).
-    ///
-    /// Same shape as `SettingsView`'s `spendTotals`/`spendLast`/`refreshSpend`, deliberately: the
-    /// two surfaces read the same store and now keep it the same way.
+    /// The recorded cloud spend both Organize surfaces read: the setup card's price and the spend
+    /// row above the results. Held in state because each of `FilingSpendStore.last()` and
+    /// `.totals()` is a `UserDefaults` read plus a JSON decode, and `filingSpendRow` renders on
+    /// every keystroke in the search field. ``refreshFilingSpend()`` reloads it on appear, when a
+    /// scan finishes, and when the history sheet closes (it can Clear). Same shape as
+    /// `SettingsView`'s `spendTotals`/`spendLast`/`refreshSpend`.
     @State private var spendLast: FilingSpendEntry?
     @State private var spendTotals = FilingSpendTotals()
-    // The model the refine button names. Read here rather than derived from the manager because
-    // the button has to re-render the moment the Settings picker changes, and resolved through
-    // `currentModel` at the point of use so a stored id from before a model refresh names the
-    // model that will actually run.
+    // The model the refine button names. Read here so the button re-renders the moment the
+    // Settings picker changes, and resolved through `currentModel` at the point of use so a stale
+    // stored id names the model that will actually run.
     @AppStorage(FileSyncManager.cloudModelDefaultsKey)
     private var filingCloudModel: String = CloudFilingProtocol.defaultModel
 
-    /// Honors Settings ▸ Accessibility ▸ Reduce motion: when true, the row-exit slides (H4) and the
-    /// reclaim glow (H5) are dropped for today's instant swap. The numeric count-up is kept — it's an
-    /// acceptable motion under Reduce motion.
+    /// Honors Reduce motion: when true, the row-exit slides and the reclaim glow give way to an
+    /// instant swap. The numeric count-up stays; it is acceptable under Reduce motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.selectionLensAppearance) private var lensAppearance
-    /// The part of Organize's rail on screen, for its selection lens — see `SelectionLensVisibleRegion`.
+    /// The part of Organize's rail on screen, for its selection lens; see
+    /// `SelectionLensVisibleRegion`.
     @State private var railVisibleRegion = SelectionLensVisibleRegion()
     /// The app's text size, for the provider name — a `Menu` label that must stay a `Text`.
     @Environment(\.appFontScale) private var appFontScale
 
     /// The active lens, resolved by the host from the selected workspace. A value, not a binding:
-    /// nothing in here selects a lens any more — the workspace bar does — so a writable binding
-    /// would be a write path with no writer.
+    /// nothing in here selects a lens, so a binding would be a write path with no writer.
     private let lens: WorkspaceLensKind
-    /// Everything on this screen the reader set, kept where it outlives the workspace — see
-    /// ``LensWorkspaceSession``. Every member below is a forwarder onto it, which is why the two
-    /// hundred-odd places that read them are untouched by the move.
+    /// Everything on this screen the reader set, kept where it outlives the workspace; see
+    /// ``LensWorkspaceSession``. Every member below forwards onto it.
     ///
-    /// **`@StateObject`, and the host's object comes in through its initial value.** The app hands
-    /// one down from `ContentView`, which is mounted once for the window's life; a caller that hands
-    /// none — every test that mounts this view to ask about something else — gets a fresh one per
-    /// mount, which is exactly the behaviour it had as `@State`. Held rather than observed from
-    /// outside because the autoclosure runs only on first mount, so the identity is stable for the
-    /// life of this view either way.
+    /// `@StateObject`, with the host's object as its initial value. The app hands one down from
+    /// `ContentView`, mounted once for the window's life; a caller that hands none (tests that
+    /// mount this view for something else) gets a fresh one per mount. The autoclosure runs only
+    /// on first mount, so the identity is stable for the life of this view.
     @StateObject private var session: LensWorkspaceSession
 
     private var filter: DuplicateMatchFilter {
         get { session.filter }
         nonmutating set { session.filter = newValue }
     }
-    /// Each lens's live query, kept SEPARATELY rather than as one shared field.
-    ///
-    /// Not tidiness — correctness. The grammars are deliberately per-lens, so a query carried
-    /// across a tab switch would change meaning silently: `kind:pdf >5mb` typed in Duplicates
-    /// lands in Rename, which declares no size token, so `>5mb` degrades to free text and matches
-    /// nothing. The user would see an empty Rename lens with no visible cause. Each lens keeps
-    /// (and re-enters) its own query instead.
+    /// Each lens's live query, kept separately. The grammars are per-lens, so a query carried
+    /// across a switch would change meaning silently: `kind:pdf >5mb` from Duplicates lands in
+    /// Rename, which has no size token, so `>5mb` becomes free text and matches nothing.
     private var searchQueries: [WorkspaceLensKind: String] {
         get { session.searchQueries }
         nonmutating set { session.searchQueries = newValue }
@@ -220,10 +189,9 @@ public struct LensWorkspaceView: View {
         get { session.expanded }
         nonmutating set { session.expanded = newValue }
     }
-    /// Duplicate sections the user has opened past their fold — see `duplicateTileRows`. Stored as
-    /// the UNFOLDED set rather than the folded one, so a section that grows with the next scan
-    /// folds by default instead of inheriting whatever the first render saw (the same argument
-    /// `RenameCategories` used for its toggled set).
+    /// Duplicate sections the user has opened past their fold; see `duplicateTileRows`. Stores the
+    /// unfolded set, not the folded one, so a section that grows with the next scan folds by
+    /// default (the same reasoning as `RenameCategories`' toggled set).
     private var unfoldedSections: Set<DuplicateMatchType.Kind> {
         get { session.unfoldedSections }
         nonmutating set { session.unfoldedSections = newValue }
@@ -235,12 +203,10 @@ public struct LensWorkspaceView: View {
         get { session.revealedGroupID }
         nonmutating set { session.revealedGroupID = newValue }
     }
-    /// The named answer a handoff put on screen, with the query it describes — never a silently
-    /// filtered-to-nothing list.
-    ///
-    /// It is not *cleared* by the paths that could invalidate it; it is *gated* on still applying,
-    /// by `DuplicateReveal.namedAnswer`. Clearing rules need one at every write path (typing, the
-    /// ✕, chip removal, a scan reset, the next handoff) and the chip-removal path was missed.
+    /// The named answer a handoff put on screen, with the query it describes, so a reveal never
+    /// shows a silently filtered-to-nothing list. Not cleared by the paths that could invalidate
+    /// it but gated on still applying, by `DuplicateReveal.namedAnswer`: clearing would need a rule
+    /// at every write path (typing, the ✕, chip removal, a scan reset, the next handoff).
     private var revealLanding: DuplicateReveal.Landing? {
         get { session.revealLanding }
         nonmutating set { session.revealLanding = newValue }
@@ -252,62 +218,52 @@ public struct LensWorkspaceView: View {
         nonmutating set { session.appliedRevealID = newValue }
     }
     @State private var showSpendHistory = false
-    /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
+    /// Bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
     /// Drives the "… freed this session" count-up caption on the reclaim pill.
     private var reclaim: ReclaimTally {
         get { session.reclaim }
         nonmutating set { session.reclaim = newValue }
     }
-    /// Bumped on every successful resolve to flash the reclaim pill's green glow once (H5). A token,
-    /// not a Bool, so back-to-back resolves each retrigger the fade cleanly.
+    /// Bumped on every successful resolve to flash the reclaim pill's green glow once. A token,
+    /// not a Bool, so back-to-back resolves each retrigger the fade.
     private var reclaimFlashToken: Int {
         get { session.reclaimFlashToken }
         nonmutating set { session.reclaimFlashToken = newValue }
     }
-    /// True once the user has filed at least one loose file since the current Filing scan finished.
-    /// Lets the empty-list state distinguish an earned "All filed" from "nothing was ever loose."
-    /// Reset when a new scan starts (see `.onChange(of: isSuggestingFiles)`).
+    /// True once the user has filed a loose file since the current Filing scan finished, so the
+    /// empty state can tell an earned "All filed" from "nothing was ever loose". Reset when a new
+    /// scan starts (see `.onChange(of: isSuggestingFiles)`).
     private var filedThisSession: Bool {
         get { session.filedThisSession }
         nonmutating set { session.filedThisSession = newValue }
     }
-    /// True once the user has dismissed ("Not here") at least one suggestion this session without
-    /// filing any. Lets the empty state say the scan's suggestions were cleared, rather than the
-    /// misleading "Nothing loose to file" — which claims the scan found nothing when it actually did.
-    /// Reset when a new scan starts.
+    /// True once the user has dismissed ("Not here") a suggestion this session without filing
+    /// any, so the empty state says the suggestions were cleared rather than claiming the scan
+    /// found nothing. Reset when a new scan starts.
     private var dismissedThisSession: Bool {
         get { session.dismissedThisSession }
         nonmutating set { session.dismissedThisSession = newValue }
     }
-    /// A just-made override the user can teach as a rule (G2): they filed a loose file into a folder
-    /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
-    /// until they Remember it or dismiss it. Cleared when a new scan starts.
+    /// A just-made override the user can teach as a rule: they filed a loose file somewhere other
+    /// than the suggested home, the best moment to learn. Held until they Remember or dismiss it;
+    /// cleared when a new scan starts.
     private var pendingRememberPrompt: PendingRememberPrompt? {
         get { session.pendingRememberPrompt }
         nonmutating set { session.pendingRememberPrompt = newValue }
     }
 
-    /// The shape finding whose §5.4 plan sheet is open — sheet presentation state, so it clears
-    /// itself when the sheet closes.
+    /// The shape finding whose plan sheet is open. Sheet presentation state, so it clears itself
+    /// when the sheet closes.
     @State private var planningFinding: StructureFinding?
 
-    /// **What this body computed last time, and what it computed it from.**
+    /// What this body computed last time, and from what.
     ///
-    /// `LensWorkspaceView` is handed about thirty fresh closures by its parent, so nothing about
-    /// it is `Equatable` and SwiftUI re-runs `body` on every publish the manager makes — several
-    /// a second while a scan runs, a landing lands, or a pane is scrolled. Each body pass then
-    /// re-derived the rail's counts (four full scoped passes over the suggestion, duplicate,
-    /// risky-name and rename-plan lists) and the scope's folder count (every folder in the
-    /// profile tested against the scope), for inputs that had not moved.
-    ///
-    /// **The key is the published arrays themselves, and that is the cheap part rather than the
-    /// expensive one.** Swift's `Array ==` short-circuits on storage identity: measured on this
-    /// machine, comparing two 200,000-element arrays that share a buffer is 0.04µs, against 362µs
-    /// for an elementwise compare of equal-but-separate ones. A publish that did not touch the
-    /// list therefore costs a pointer comparison, and one that did rebuilds — which is exactly
-    /// the contract. Keying on something cheaper-looking (a count, a generation guessed at from
-    /// outside the manager) would be keying on less than the answer depends on, and a rail badge
-    /// that is quietly wrong is worse than one that is slowly right.
+    /// The parent hands this view about thirty fresh closures, so nothing about it is `Equatable`
+    /// and SwiftUI re-runs `body` on every publish, several a second during a scan. Without these
+    /// memos each pass would redo the rail's counts (four scoped passes over the lists) and the
+    /// scope's folder count. The key is the published arrays themselves: `Array ==` short-circuits
+    /// on shared storage, so an untouched list costs a pointer compare. Keying on something
+    /// cheaper (a count) would key on less than the answer depends on.
     @State private var railMemo = RenderMemo<RailCountsKey, RailCounts>()
     @State private var scopeFolderMemo = RenderMemo<ScopeFolderKey, Int?>()
 
@@ -320,8 +276,8 @@ public struct LensWorkspaceView: View {
         let structure: [StructureFinding]
         let rules: Int
         let profileRoot: String
-        /// One entry per rail item, in `OrganizeLens.railItems` order — each item asks for its
-        /// OWN applied scope, so one scope value would not be the key.
+        /// One entry per rail item, in `OrganizeLens.railItems` order: each item asks for its own
+        /// applied scope, so one scope value would not be the key.
         let scopes: [OrganizeScope?]
         let hasSuggestedFiling: Bool
         let hasFoundDuplicates: Bool
@@ -340,11 +296,9 @@ public struct LensWorkspaceView: View {
         let folders: [String: FolderProfileEntry]
     }
 
-    /// One remembered answer and the inputs it was computed from.
-    ///
-    /// A reference type in `@State`: `body` both reads and fills it, and neither is a state
-    /// change, so it cannot invalidate the view it is being read from. No expiry and no size —
-    /// exactly one answer is ever held, and it is replaced the moment its inputs differ.
+    /// One remembered answer and the inputs it was computed from. A reference type in `@State`
+    /// because `body` both reads and fills it, and neither may count as a state change. Holds
+    /// exactly one answer, replaced the moment its inputs differ.
     @MainActor
     final class RenderMemo<Key: Equatable, Value> {
         private var key: Key?
@@ -359,11 +313,11 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// §5.5's removal step, requested for one ledger record — the candidates are resolved (and
-    /// re-probed for emptiness) at request time, so the sheet opens on the truth.
+    /// The removal step, requested for one ledger record. Candidates are resolved (and re-probed
+    /// for emptiness) at request time, so the sheet opens on the truth.
     struct RemovalRequest: Identifiable {
-        /// Which folders these are and how the landing will be identified — the landing that
-        /// drained them, or §5.2's standing empties.
+        /// Which folders these are and how the landing is identified: the landing that drained
+        /// them, or the standing empties.
         let origin: RestructureRemoval.Origin
         let family: String
         let candidates: [RestructureRemovalSheet.Candidate]
@@ -378,13 +332,12 @@ public struct LensWorkspaceView: View {
         var isStanding: Bool { origin == .standing }
     }
     @State private var removalRequest: RemovalRequest?
-    /// What the last *Update the survey now* refused with, and which card asked — shown on that
-    /// card alone, and cleared when any of them is pressed again.
+    /// What the last *Update the survey now* refused with, and which card asked. Shown on that
+    /// card alone; cleared when any of them is pressed again.
     @State private var refreshSurveyRefusal: (subject: String, sentence: String)?
-    /// A learn-by-example rule offered after the user files a loose file — turned into an editable
-    /// Automation on Save. Deterministic complement to the AI backend. Rides in the move's result
-    /// message as "Save as rule…" until saved, dismissed or the message leaves; cleared when a new
-    /// scan starts.
+    /// A learn-by-example rule offered after the user files a loose file, turned into an editable
+    /// Automation on Save. Rides in the move's result message as "Save as rule…" until saved,
+    /// dismissed or the message leaves; cleared when a new scan starts.
     private var pendingRuleOffer: RuleOffer? {
         get { session.pendingRuleOffer }
         nonmutating set { session.pendingRuleOffer = newValue }
@@ -394,166 +347,124 @@ public struct LensWorkspaceView: View {
         get { session.ruleVariantChoice }
         nonmutating set { session.ruleVariantChoice = newValue }
     }
-    /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
-    /// review pass (Cancel keeps it as created; it stays editable under Organize ▸ Rules). Also backs
-    /// the header card's "New rule", so a blank rule and a taught one share one editor.
+    /// The just-created rule ("Remember" or "Save rule"), opened in the editor for a review pass
+    /// (Cancel keeps it as created). Also backs the header card's "New rule", so a blank rule and
+    /// a taught one share one editor.
     @State private var reviewingAutomationRule: AutomationRule?
-    /// The Automations lens's host-owned view state. It lives up here because the lens's controls
-    /// now ride the shared header card: "Preview all" is rendered by this view and has to flip the
-    /// lens into its results view.
+    /// The Automations lens's host-owned view state. Lives here because "Preview all" rides the
+    /// shared header card this view renders, and has to flip the lens into its results view.
     private var automationsState: AutomationsLensState { session.automationsState }
 
     private let providerName: String?
-    /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
-    /// name the folder up front and offer to rescan when the user has navigated away from the
-    /// folder the current results were scanned from.
+    /// The folder a rescan would target: the focused pane's current directory. Lets the lenses
+    /// name the folder up front and offer a rescan when the user has navigated away from the
+    /// folder the results came from.
     private let scanTargetFolder: String?
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
-    /// The same scan, but ignoring saved suggestions — see `rescanFilingButton`.
+    /// The same scan, ignoring saved suggestions; see `rescanFilingButton`.
     private let onFindFilingSuggestionsFresh: () -> Void
-    /// Re-derives the folder memory from the tree as it stands now — see `rescanFilingButton`.
-    /// nil when this machine has no filing profile to update, which withholds the item rather than
-    /// offering one that would do nothing.
+    /// Re-derives the folder memory from the tree as it stands now; see `rescanFilingButton`. nil
+    /// when this machine has no filing profile, which withholds the item.
     private let onUpdateFolderMemory: (() -> Void)?
-    /// Opens the app's Help overlay at a named topic — the one front door, never a second one.
+    /// Opens the app's Help overlay at a named topic.
     private let onOpenHelp: ((String) -> Void)?
-    /// A menu verb aimed at a finding, waiting to be carried out here.
-    ///
-    /// **The menu never presents a sheet.** ROADMAP v5 §11's verbs act on the workspace's own
-    /// state, so the request arrives as a value and this view opens its own surface — a sheet
-    /// presented from the menu would live outside the anchor that keeps it alive across a lens
-    /// switch, which is the bug main's round-4 fixed for the two sheets that already existed.
+    /// A menu verb aimed at a finding, waiting to be carried out here. **The menu never presents a
+    /// sheet:** the request arrives as a value and this view opens its own surface, because a
+    /// sheet presented from the menu would live outside the anchor that keeps it alive across a
+    /// lens switch.
     @Binding private var restructureVerbRequest: RestructureVerbRequest?
-    /// Opens Settings ▸ Organize's Suggestions page, where Refine is set up. Optional so the previews and
-    /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
-    /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
-    /// host that has no Settings to open.
+    /// Opens Settings ▸ Organize's Suggestions page, where Refine is set up. nil (previews, tests)
+    /// withholds the "Refine with Claude…" invitation, the honest outcome for a host with no
+    /// Settings to open.
     private let onConfigureCloudRefine: (() -> Void)?
-    /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
     /// Applies whole folder rename plans. Takes the plans explicitly for the same reason
     /// `onNormalizeNames` does: the button's label counts what the action receives.
     private let onApplyRenames: ([RenamePlan]) -> Void
-    /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
+    /// Starts an Automations dry-run preview of the focused folder (the host derives the root).
     /// nil = all enabled rules; a rule id = just that rule.
     private let onPreviewAutomations: (UUID?) -> Void
-    /// The provider root everything in this workspace anchors at.
+    /// The provider root every lens here anchors at: the source's landing folder, not its
+    /// root. The taxonomy every lens files against, scans and measures coverage from.
     ///
-    /// **The source's LANDING folder, not its root** — the taxonomy every lens on this screen files
-    /// against, scans, and measures coverage from.
-    ///
-    /// Several consumers, one value, and they must not drift apart. Automations resolve destinations
-    /// against it, so the Browse… button anchors where the preview does rather than at whatever
-    /// subfolder happened to be scanned; and ``scope`` normalizes against it, which is what makes
-    /// "pointing at the top clears the scope" a fact about this exact folder rather than about some
-    /// other notion of the top of the tree.
-    ///
-    /// It was `providerRoot`, and stayed so for one commit after a source's root and its landing
-    /// folder became two different values — which is exactly long enough to be wrong. The preview
-    /// (`startAutomationPreviewAction`) resolved rule templates at the ANCHOR while the editor
-    /// relativized what the user browsed to against the ROOT, so a destination picked as
-    /// `…/OneDrive-X/Documents/Invoices` was stored as `Documents/Invoices` and applied at
-    /// `…/Documents/Documents/Invoices`: a nested folder created, and files moved into it, with
-    /// nothing rejecting it because the result was still under the anchor. Coverage failed the same
-    /// way — `looseFileScanCovers` compares by equality, so a complete scan of the landing folder
-    /// never covered a subject named as the account root, and Organize reported the pass as not
-    /// having run there, forever.
-    ///
-    /// So the name carries the distinction now, and the root arrives as its own value below rather
-    /// than as a second reading of this one.
+    /// Its consumers must not drift apart. Automations resolve destinations against it, so Browse…
+    /// anchors where the preview does, and ``scope`` normalizes against it. Mixing it up with the
+    /// root double-nests destinations (`Documents/Invoices` applied at `…/Documents/Documents/…`)
+    /// and makes `looseFileScanCovers`, which compares by equality, never see a complete scan as
+    /// covering. The root arrives separately, as ``providerRoot``.
     private let providerAnchor: String?
 
-    /// The source's **root** — the whole of what it covers, and the only thing that can bound
-    /// Organize's scope.
-    ///
-    /// Deliberately not folded into ``providerAnchor``, which was the first attempt. The scope is
-    /// "which folder is the user asking about", and since a pane can now sit above the landing
-    /// folder, `…/OneDrive-X/Teams Recordings` is a folder they can right-click and mean. Bounding
-    /// the scope at the anchor would normalize that to nil — the global view — so the chip would
-    /// clear itself, the coverage subject would become the whole tree, and Organize would report a
-    /// completed scan of that very folder as never having run. Bounding it at the root keeps the
-    /// narrowing the user asked for.
-    ///
-    /// It is only the *fallback* — what the surface describes when NO scope is set — that has to be
-    /// the anchor, because that is the folder an unscoped scan actually enumerates.
+    /// The source's root: everything it covers, and the only thing that can bound Organize's
+    /// scope. Not folded into ``providerAnchor``: a pane can sit above the landing folder, and
+    /// bounding the scope at the anchor would normalize such a folder to nil, clearing the chip and
+    /// turning the coverage subject into the whole tree. Only the fallback, what the surface
+    /// describes when no scope is set, is the anchor, because that is what an unscoped scan
+    /// enumerates.
     private let providerRoot: String?
-    /// The loose-files inbox's absolute path, when the folder exists — the offer on Organize's
-    /// overview that replaced the hidden root-swap. nil hides the offer entirely rather than
-    /// showing one that points nowhere.
+    /// The loose-files inbox's absolute path, when the folder exists, for the offer on Organize's
+    /// overview. nil hides the offer rather than showing one that points nowhere.
     private let filingInboxFolder: String?
-    /// Where To File files into, with the choices for changing it (TE287). nil hides the menu —
-    /// a host with no sources to offer, and the tests that mount this view without one.
+    /// Where To File files into, with the choices for changing it. nil hides the menu: a host with
+    /// no sources to offer, and tests that mount this view without one.
     private let fileInto: FileIntoChoice?
-    /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
-    /// spacebar shortcut uses). nil disables the per-card Preview button.
+    /// Presents a Quick Look preview for a file (the same `quickLookPreview` binding the spacebar
+    /// uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
-    /// Builds (or rebuilds) the read-only storage picture for the focused folder — the Storage lens's
-    /// analyze/re-analyze action. Host owns the root deriving.
+    /// Builds (or rebuilds) the read-only storage picture for the focused folder. The host derives
+    /// the root.
     private let onBuildStorage: () -> Void
-    /// RD11's four verbs. **Optional, and the reason is the one `onUpdateFolderMemory` gives**: a
-    /// host that cannot run a survey — the CLI-driven and preview hosts pass nothing — must get a
-    /// card that states the position rather than a button that does nothing.
+    /// The document survey's verbs. Optional for `onUpdateFolderMemory`'s reason: a host that
+    /// cannot run a survey (the CLI-driven and preview hosts) gets a card that states the position
+    /// rather than a button that does nothing.
     private let onStartDocumentSurvey: (() -> Void)?
     private let onStartDocumentSurveyOver: (() -> Void)?
     private let onResumeDocumentSurvey: (() -> Void)?
     private let onPauseDocumentSurvey: (() -> Void)?
     private let onStopDocumentSurvey: (() -> Void)?
-    /// What the survey card should show, worked out by the host — which is where `Sync` lives.
-    /// nil hides the card entirely: no profile to survey against, or a corpus already covers the
-    /// tree and the incremental pass is the right one.
+    /// What the survey card should show, worked out by the host, where `Sync` lives. nil hides the
+    /// card: no profile to survey against, or a corpus already covers the tree.
     private let documentSurveyCard: DocumentSurveyCardState?
-    /// Whether to show the source bar (provider dropdown + folder) above the lens. True only when the
-    /// source rail is collapsed; when it's expanded, the rail header owns the provider dropdown, so
-    /// showing it here too would name the provider twice.
+    /// Whether to show the source bar (provider dropdown + folder) above the lens. True only when
+    /// the source rail is collapsed; otherwise the rail header names the provider.
     private let showSourcePicker: Bool
-    /// **Whether the source pane beside this column is drawing its tab strip** — two tabs, or View ▸
-    /// Tab Bar. The strip sits above the pane's toolbar card and pushes it down by
-    /// ``PaneTabStripLadder/slotHeight(_:)``, so the column leaves the same slot empty above
-    /// ``lensHeaderCard`` to keep the header's bottom edge on the pane's header↔list line — the
-    /// rule Edit's document column follows (`EditorWorkspaceView.paneShowsTabStrip`). `false`
-    /// whenever the rail is collapsed: there is no pane to line up with then.
+    /// Whether the source pane beside this column draws its tab strip (two tabs, or View ▸ Tab
+    /// Bar). The strip pushes the pane's toolbar card down by ``PaneTabStripLadder/slotHeight(_:)``,
+    /// so the column leaves the same slot empty above ``lensHeaderCard`` to keep the header's bottom
+    /// edge on the pane's header↔list line, as `EditorWorkspaceView.paneShowsTabStrip` does.
+    /// `false` whenever the rail is collapsed: there is no pane to line up with.
     private let paneShowsTabStrip: Bool
-    /// The enabled providers the source can switch between, and the current one — the single
-    /// provider choice the lens workspace needs (no Left/Right).
+    /// The enabled providers the source can switch between, and the current one (no Left/Right).
     private let providers: [CloudProvider]
     private let currentProviderId: String
     private let onSelectProvider: (String) -> Void
     private let onManageProviders: () -> Void
     /// Picks a folder and points the lens at it as a source. nil hides "Choose Folder…".
     private let onChooseFolder: (() -> Void)?
-    /// Raises the destination picker. Owned by the window rather than by this view: the single-source rail
-    /// asks for the same sheet, and two states bound to two sheets would be two pickers to keep in
-    /// step. Defaults to a no-op so previews and tests can build a lens without a host.
+    /// Raises the destination picker. Owned by the window, because the single-source rail asks
+    /// for the same sheet and two sheets would be two pickers to keep in step. Defaults to a no-op
+    /// so previews and tests can build a lens without a host.
     private let onRequestDestination: (PendingDestination) -> Void
-    /// Opens two copies of a duplicate FOLDER group in the Compare tab (keeper left, redundant
-    /// right). Files go to `onCompareFilePair` instead — see `compareCopies(keep:other:in:)`.
+    /// Opens two copies of a duplicate folder group in the Compare tab (keeper left, redundant
+    /// right). Files go to `onCompareFilePair` instead; see `compareCopies(keep:other:in:)`.
     private let onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void
     /// Opens two copies of a duplicate FILE group in the in-window Compare Copies surface.
     private let onCompareFilePair: (DuplicateComparePair) -> Void
     /// "Open in Edit" from a duplicate copy's row menu: the app's `handOffToEditor`. nil (tests,
-    /// previews) withholds the item, which is `DuplicateGroupCard`'s own rule — this view only
-    /// forwards it, and does not decide what the editor opens.
+    /// previews) withholds the item, by `DuplicateGroupCard`'s own rule; this view only forwards it.
     private let onOpenInEditor: ((String) -> Void)?
-    /// A "Find duplicates of this" handoff from a pane row: the file whose group to reveal. nil is
-    /// the ordinary case — nobody has asked. See `DuplicateReveal`, which owns every decision this
-    /// view makes about it.
+    /// A "Find duplicates of this" handoff from a pane row: the file whose group to reveal. nil
+    /// when nobody has asked. `DuplicateReveal` owns every decision this view makes about it.
     private let revealRequest: DuplicateRevealRequest?
-    /// Called once a request has been ANSWERED (any non-waiting outcome), with its id, so the host
-    /// can retire it.
-    ///
-    /// This is the cross-mount half of the applied-id guard, and without it the guard has a hole:
-    /// `appliedRevealID` is `@State` and dies with this view, but the request lives at the app
-    /// level so it survives the workspace switch that mounts the lens — the whole point — and
-    /// therefore also survives every switch AFTER being answered. A round trip through Compare
-    /// (which the revealed card's own "Compare copies" button takes you on) then remounts this
-    /// view with the old request standing and no memory of having applied it, and the stale plan
-    /// re-fires: filter reset, the user's parked query overwritten, the old group re-marked — on
-    /// every return, for the rest of the session.
+    /// Called with a request's id once it has been answered (any non-waiting outcome), so the host
+    /// can retire it. The cross-mount half of the applied-id guard: `appliedRevealID` dies with
+    /// this view but the request lives at app level, so without this a round trip through Compare
+    /// would remount the view with the old request standing and re-fire it, resetting the filter,
+    /// overwriting the parked query and re-marking the old group on every return.
     private let onRevealHandled: ((UUID) -> Void)?
-    /// "Find duplicates of `path`" — the same entry the pane row's context menu uses, for the
-    /// `notScanned` empty state's recovery button. See `namedRevealState`.
+    /// "Find duplicates of `path`", the pane row's context-menu entry, for the `notScanned` empty
+    /// state's recovery button. See `namedRevealState`.
     private let onFindDuplicatesOf: ((String) -> Void)?
 
     public init(
@@ -601,17 +512,14 @@ public struct LensWorkspaceView: View {
         session: LensWorkspaceSession? = nil
     ) {
         self.syncManager = syncManager
-        // The one seam into `searchQueries`, which is otherwise `@State` seeded empty and reachable
-        // only by typing — and SwiftUI is undrivable from a unit test, so **every behaviour that
-        // depends on a live query was untestable**: what the header counts, what the field shows,
-        // which page answers a query at all. That is not a small blind spot, it is where three of
-        // this screen's defects lived. The app passes nothing and gets today's behaviour exactly;
-        // the shape is `SettingsRail.versionText`'s, for the same reason.
+        // The one seam into `searchQueries`, which is otherwise seeded empty and reachable only by
+        // typing. It lets tests drive what depends on a live query: what the header counts, what
+        // the field shows, which page answers. The app passes nothing. Same shape as
+        // `SettingsRail.versionText`.
         //
-        // **Seeded into the session inside the `@StateObject` autoclosure**, so it happens exactly
-        // once, on first mount. Written outside it, a host-supplied session would have its live
-        // queries overwritten by the seed on every re-render — which for the app (whose seed is
-        // empty) is a parked query silently cleared the next time anything published.
+        // Seeded inside the `@StateObject` autoclosure, so it runs once, on first mount. Outside
+        // it, a host-supplied session would have its live queries overwritten by the (empty) seed
+        // on every re-render, silently clearing a parked query.
         _session = StateObject(wrappedValue: Self.startingSession(session, seed: initialSearchQueries))
         self.lens = lens
         self.providerName = providerName
@@ -626,12 +534,10 @@ public struct LensWorkspaceView: View {
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
-        // **The anchor falls back to the root, and only the anchor.** A caller that names one folder
-        // is saying "this source's root and its landing folder are the same place" — true of iCloud,
-        // true of every folder source, and true of every single-root test fixture here. The app
-        // passes both explicitly and a source scan pins that it does
-        // (`theLensWorkspaceGetsTheAnchorAndTheRootSeparately`), so the fallback cannot quietly
-        // re-conflate the two where they actually differ.
+        // The anchor falls back to the root, and only the anchor: a caller naming one folder means
+        // root and landing folder are the same place (iCloud, every folder source, single-root
+        // fixtures). The app passes both, pinned by
+        // `theLensWorkspaceGetsTheAnchorAndTheRootSeparately`.
         self.providerAnchor = providerAnchor ?? providerRoot
         self.providerRoot = providerRoot
         self.filingInboxFolder = filingInboxFolder
@@ -666,48 +572,34 @@ public struct LensWorkspaceView: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
 
-    /// Which of Organize's lenses is on screen — `nil` for the overview.
-    ///
-    /// Persisted, because a rail item is a *place* and closing the app standing in Duplicates and
-    /// reopening on the overview would lose a deliberate choice. See ``OrganizeLens`` for why the
-    /// items are permanent while their badges are not, and why there is no longer an `effective`
-    /// fallback bouncing you off a list that emptied.
+    /// Which of Organize's lenses is on screen; `nil` for the overview. Persisted, because a rail
+    /// item is a place the user chose. See ``OrganizeLens`` for why the items are permanent while
+    /// their badges are not.
     @AppStorage(OrganizeLens.defaultsKey) private var railLens: OrganizeLens?
 
-    /// The scope's stored path — **empty is the global view**, and the global view is the default.
+    /// The scope's stored path. Empty is the global view, the default. Persisted like the rail
+    /// lens: scoping to the `TODO` inbox once should survive the next launch.
     ///
-    /// Persisted for the same reason the rail lens is: scope is a place the user chose, and it is
-    /// the thing the daily flow depends on. Scoping to the `TODO` inbox once and having it survive
-    /// the next launch is what replaces the hidden root-swap that used to retarget To File whenever
-    /// the pane happened to sit at the provider root.
-    ///
-    /// Stored as a bare path rather than as an encoded ``OrganizeScope`` because the provider root
-    /// it must be validated against is not knowable at decode time — the pane can be on a different
-    /// provider by the time this is read. ``scope`` re-resolves on every access, so a stale path
-    /// from another provider degrades to the global view instead of filtering every lens to empty.
+    /// Stored as a bare path, not an encoded ``OrganizeScope``, because the provider root it is
+    /// validated against isn't known at decode time. ``scope`` re-resolves on every access, so a
+    /// stale path from another provider degrades to the global view instead of emptying every lens.
     @AppStorage(OrganizeScopeDefaults.pathKey) private var scopePathRaw: String = ""
 
-    /// The subtree the user has pointed Organize at — **whether or not the lens on screen applies
-    /// it.** Every writer and every readout of the chip goes through this; the lists go through
-    /// ``scope``.
-    ///
-    /// Re-resolved rather than stored: `init?` rejects the provider root and anything outside it,
-    /// so this is also where a scope left over from a provider that is no longer showing quietly
-    /// becomes nil.
+    /// The subtree the user has pointed Organize at, whether or not the lens on screen applies
+    /// it. Every writer and readout of the chip goes through this; the lists go through
+    /// ``scope``. Re-resolved, not stored: `init?` rejects the provider root and anything outside
+    /// it, so a scope left over from another provider becomes nil here.
     private var storedScope: OrganizeScope? {
         guard let providerRoot, !providerRoot.isEmpty, !scopePathRaw.isEmpty else { return nil }
         return OrganizeScope(path: scopePathRaw, providerRoot: providerRoot)
     }
 
-    /// The scope **one named lens** applies: the stored one, or nil where ``OrganizeLens/isScoped``
-    /// says configuration is not narrowed by a folder.
-    ///
-    /// Per-lens rather than per-selection because the rail draws all six badges at once — see
-    /// ``railCounts``, where asking the *selected* lens's question would have lifted the scope off
-    /// the five that do use it. `nil` (the overview) is scoped: it summarises the five.
+    /// The scope one named lens applies: the stored one, or nil where ``OrganizeLens/isScoped``
+    /// says the lens is not narrowed by a folder. Per-lens because the rail draws all six badges at
+    /// once (see ``railCounts``); `nil` (the overview) is scoped, as it summarises the five.
     ///
     /// The suspension is a read, not a write: `scopePathRaw` is untouched, so leaving Rules puts the
-    /// scope back with no restore step for an exit path to forget.
+    /// scope back with no restore step to forget.
     private func appliedScope(for item: OrganizeLens?) -> OrganizeScope? {
         (item?.isScoped ?? true) ? storedScope : nil
     }
@@ -715,31 +607,24 @@ public struct LensWorkspaceView: View {
     /// The subtree the lists on screen are narrowed by, or nil for the global view.
     private var scope: OrganizeScope? { appliedScope(for: organizeLens) }
 
-    /// Whether a scope is set and the lens on screen is deliberately not applying it — the chip's
+    /// Whether a scope is set and the lens on screen deliberately isn't applying it: the chip's
     /// suspended state.
     private var scopeIsSuspended: Bool { scope == nil && storedScope != nil }
 
-    /// Points Organize at a folder, or clears the scope — **this workspace's entry points only**:
-    /// the "Scan '<folder>'" re-aim, the inbox shortcut, the chip's ✕, the scoped empty state's
-    /// "Organize Everything", and the duplicate-reveal handoff that has to clear it.
+    /// Points Organize at a folder, or clears the scope, from this workspace's entry points: the
+    /// "Scan '<folder>'" re-aim, the inbox shortcut, the chip's ✕, the scoped empty state's
+    /// "Organize Everything", and the duplicate-reveal handoff.
     ///
-    /// **Normalizing does NOT live here.** ``OrganizeScope/normalizedPath(_:providerRoot:)`` owns
-    /// it, because this is not the only write of `scopePathRaw`'s key: the folder context menu and
-    /// ⌘K both go through `ContentView.setOrganizeScope(_:)`, which writes the same
-    /// ``OrganizeScopeDefaults/pathKey``. This doc used to list those two as routing through here,
-    /// which was never true, and what they actually applied was a second copy of the rule this
-    /// method used to spell out — two spellings of the collapse that stops the global view having
-    /// two encodings, on a **persisted** key, each documented as the only one.
-    ///
-    /// A nil `providerRoot` and an empty one are the same condition — no provider, so no scope —
-    /// and the owner answers `""` for both, which is what the guard here did.
+    /// Normalizing lives in ``OrganizeScope/normalizedPath(_:providerRoot:)``, not here, because
+    /// the folder context menu and ⌘K write the same persisted ``OrganizeScopeDefaults/pathKey``
+    /// through `ContentView.setOrganizeScope(_:)`. One rule keeps the global view from having two
+    /// encodings. A nil and an empty `providerRoot` both mean no scope (`""`).
     private func setScope(_ path: String?) {
         scopePathRaw = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)
     }
 
-    /// The Restructure → To File hand-off (ROADMAP v5 §5.2): a backlog or loose-files finding's
-    /// per-file half goes to the lens that judges files one at a time, scoped to the finding's
-    /// subject and to nothing wider.
+    /// The Restructure → To File hand-off: a backlog or loose-files finding's per-file half goes
+    /// to the lens that judges files one at a time, scoped to the finding's subject and no wider.
     private func handOffToToFile(_ finding: StructureFinding) {
         guard let root = syncManager.filingFolderProfile?.root else { return }
         let expanded = (root as NSString).expandingTildeInPath
@@ -747,80 +632,56 @@ public struct LensWorkspaceView: View {
         railLens = .toFile
     }
 
-    /// The rail selection.
-    ///
-    /// **The firewall here is gone, and its retirement is the fold.** This used to read
-    /// `lens == .storage ? nil : railLens`, because Storage was a workspace of its own whose
-    /// `@AppStorage` neighbour kept whatever rail item Organize was last left on — reading
-    /// `railLens` unguarded would have let that parked value pick Storage's apparatus, a lens
-    /// selection leaking across a workspace boundary. There is no boundary to leak across now:
-    /// Storage IS a rail item, and `railLens == .storage` is the selection rather than a stale one.
+    /// The rail selection. Read unguarded: Storage is a rail item, so `railLens == .storage` is the
+    /// selection, not a value parked by another workspace.
     private var organizeLens: OrganizeLens? {
-        // `resolvedForPresentation` migrates a stored `.names` selection to `.renames` — the
-        // lens it folded into. The stored raw value is left alone (nothing to migrate on disk);
-        // it simply lands where the findings now live.
         railLens
     }
 
-    /// Whether the rail can spell its items out at this width — see ``OrganizeRailMetrics``.
-    ///
-    /// Resolved in the geometry transform rather than stored as a width, so the state write only
-    /// fires when the ANSWER flips rather than on every point of a live resize.
+    /// Whether the rail can spell its items out at this width; see ``OrganizeRailMetrics``. Stored
+    /// as the answer, not a width, so state is written only when the answer flips during a resize.
     @State private var railStyle: OrganizeRailStyle = .full
 
-    /// Which of Storage's ranked lists the rail is showing, or **absent for all three**.
-    ///
-    /// Optional for the reason ``OrganizeLens/defaultsKey`` is: there is no value to write for "no
-    /// section picked", and a fourth case meaning that would be one more thing to migrate.
+    /// Which of Storage's ranked lists the rail is showing, or absent for all three. Optional
+    /// for ``OrganizeLens/defaultsKey``'s reason: there is no value to write for "none picked".
     @AppStorage(StorageSection.defaultsKey) private var storageSection: StorageSection?
 
 
-    /// Whether Organize is showing its overview: every lens's answer for the scope, one page.
-    ///
-    /// The rail's *unselected* state rather than a seventh rail item, so it has no name of its own
-    /// and cannot be a tab you forget to visit — it is what you land on.
+    /// Whether Organize is showing its overview: every lens's answer for the scope, on one page.
+    /// The rail's unselected state rather than a seventh item, so it is where you land, not a tab
+    /// you forget to visit.
     private var showingOverview: Bool {
         railLens == nil
     }
 
-    /// Whether the overview is what the content card is **drawing** — which is not the same
-    /// question as ``showingOverview``, and the difference has already cost one suite its subject.
-    ///
-    /// `showingOverview` means *no rail item is selected*. The overview is rendered from
-    /// `contentCard`'s `.filing` arm alone, so a view whose apparatus is `.duplicates` with no rail
-    /// selection draws a group list and is not on the overview at all. `filteredRows` learned that
-    /// distinction the hard way (see the guard there); this is the same question asked once, so the
-    /// three places that need it — the rows, the query, the readout — cannot answer it differently.
+    /// Whether the content card is drawing the overview, which differs from ``showingOverview``.
+    /// That one means no rail item is selected; the overview is drawn only from `contentCard`'s
+    /// `.filing` arm, so a `.duplicates` view with no rail selection draws a group list. Asked
+    /// once here so the rows, the query and the readout answer it the same way.
     private var overviewIsOnScreen: Bool { showingOverview && effectiveLens == .filing }
 
     /// The lens whose grammar, pills, actions and content are on screen right now.
     ///
-    /// `lens` is where you ARE (which workspace); this is what you are LOOKING AT (which rail
-    /// item). The rail is the vocabulary and `WorkspaceLensKind` is the machinery — search grammars, parked
-    /// queries, scroll state all key on the apparatus, and three rail items share `.filing`'s
-    /// because their rows are filing rows. What none of them reuse is the title: the header keeps
-    /// saying Organize, because you have not gone anywhere.
+    /// `lens` is where you are (the workspace); this is what you are looking at (the rail item).
+    /// Search grammars, parked queries and scroll state key on this, and three rail items share
+    /// `.filing`'s because their rows are filing rows. The header title stays Organize.
     private var effectiveLens: WorkspaceLensKind {
         organizeLens?.searchLens ?? lens
     }
 
-    /// True when Organize is showing the rename backlog rather than the queue.
-    ///
-    /// Still not a `WorkspaceLensKind` of its own: the backlog's rows are folder plans, which no existing
-    /// apparatus describes, so it borrows `.filing`'s query slot and the content card branches on
-    /// it. It IS a rail item now, which is the part that changed.
+    /// True when Organize is showing the rename backlog rather than the queue. Not a
+    /// `WorkspaceLensKind` of its own: its rows are folder plans, so it borrows `.filing`'s query
+    /// slot and the content card branches on it.
     private var showingRenameBacklog: Bool {
         organizeLens == .renames
     }
 
     // MARK: Search state
 
-    /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
-    /// rather than carrying it into a grammar that would read it differently.
-    ///
-    /// Reads ``query``, so the overview reads back the empty string it actually answers with rather
-    /// than To File's parked text — and writes are dropped there for the same reason: nothing on
-    /// the overview may edit a query belonging to a list it is not showing.
+    /// This lens's query, written through to `searchQueries` so a lens switch parks it rather than
+    /// carrying it into a grammar that reads it differently. Reads ``query``, so the overview reads
+    /// back the empty string it answers with, and drops writes: nothing there may edit a query
+    /// belonging to a list it isn't showing.
     private var searchText: Binding<String> {
         Binding(get: { query },
                 set: { text in
@@ -829,18 +690,11 @@ public struct LensWorkspaceView: View {
                 })
     }
 
-    /// Whether the search field is open, per lens.
-    ///
-    /// The getter still refuses on the overview, which answers no query (see ``query``): the state
-    /// is keyed by lens and the overview shares `.filing`'s key, so a field left open on To File
-    /// would otherwise reappear over a page that filters nothing.
-    ///
-    /// **It no longer has to decide what an overview click means**, because there is no longer a
-    /// control there to click — `LensHeaderCard` takes `showsSearch:` and this header passes false
-    /// for the overview and for Storage-before-a-report. The previous version routed that write to
-    /// To File and opened the field there, which was the best answer available while the card
-    /// appended a toggle to every header unconditionally; a page with nothing to search is better
-    /// served by not offering the button than by having it teleport you somewhere that does.
+    /// Whether the search field is open, per lens. False on the overview, which answers no query
+    /// (see ``query``): it shares `.filing`'s key, so a field left open on To File would otherwise
+    /// reappear over a page that filters nothing. `LensHeaderCard` takes `showsSearch:` and this
+    /// header passes false for the overview and for Storage before a report, so there is no toggle
+    /// there to click.
     private var isSearchExpanded: Binding<Bool> {
         Binding(
             get: { !overviewIsOnScreen && searchExpandedLenses.contains(effectiveLens) },
@@ -850,26 +704,21 @@ public struct LensWorkspaceView: View {
         )
     }
 
-    /// What this page is narrowed by — **empty whenever the page answers no query.**
+    /// What this page is narrowed by, empty whenever the page answers no query.
     ///
-    /// The overview is that page. It draws every lens's answer for the scope and filters none of
-    /// them, and it has no query slot of its own: it borrows `.filing`'s, which belongs to To File.
-    /// So a query typed on To File used to follow you onto the overview and sit there in an open
-    /// field with live chips, narrowing nothing — while the readout below it, counting rows the
-    /// overview does not draw, read "0 of 24".
-    ///
-    /// Returning empty here retires all three at once: no chips (``searchChips``), no field
-    /// (``searchText`` reads this), and no "N of M" (``isFiltered``). **The parked query is not
-    /// cleared** — it is To File's, and it is waiting there when you go back.
+    /// The overview is that page: it filters nothing, and borrows `.filing`'s slot, which belongs
+    /// to To File. Returning empty removes its chips (``searchChips``), its field (``searchText``)
+    /// and its "N of M" (``isFiltered``). The parked query is not cleared: it is To File's, and
+    /// is waiting there when you go back.
     private var query: String { overviewIsOnScreen ? "" : (searchQueries[effectiveLens] ?? "") }
-    /// True when this lens's list is narrowed by anything — the cue for the "N of M" readout.
+    /// True when this lens's list is narrowed by anything: the cue for the "N of M" readout.
     private var isFiltered: Bool {
         !query.isEmpty || filterIsNarrowing
     }
 
-    /// True when the **type filter** — as opposed to a query — is narrowing this lens's list.
-    /// Its own member because three places ask it and one of them (`noMatchesState`) decides which
-    /// cause the empty state names; restating it was how the two got out of step.
+    /// True when the type filter, as opposed to a query, is narrowing this lens's list. Its own
+    /// member so the three places that ask, including `noMatchesState` choosing which cause to
+    /// name, can't get out of step.
     private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }
 
     /// The parsed tokens of this lens's query, as chips. Each lens's own grammar answers, so a
@@ -892,68 +741,43 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// A chip's ✕ edits its exact word back out of THIS lens's raw query.
-    ///
-    /// `effectiveLens`, not `lens`, for the reason every other member of this section says so:
-    /// inside Organize the workspace's `lens` is `.filing` whatever the rail is showing, so keying
-    /// the write on it edited To File's parked query while leaving the chip the user clicked in
-    /// place. Read and write must name the same slot or the ✕ removes nothing and corrupts a
-    /// query the user cannot see.
+    /// A chip's ✕ edits its exact word back out of this lens's raw query. Keyed on `effectiveLens`,
+    /// not `lens`: inside Organize `lens` is `.filing` whatever the rail shows, so read and write
+    /// must name the same slot or the ✕ removes nothing and corrupts a query the user can't see.
     private func removeSearchChip(_ word: String) {
         searchQueries[effectiveLens] = TokenQuery.removing(query, word: word)
     }
 
     // MARK: Filtered rows
 
-    /// One lens's rows after its own search, resolved ONCE per render in `body` and handed to both
-    /// the header card and the content below.
-    ///
-    /// Two consumers, one value — and that is the safety property, not an optimization. The header
-    /// counts these rows and labels a destructive button with the number ("Trash all 3"); the
-    /// action iterates this same array. Recomputing either from an unfiltered source is what makes
-    /// a button destroy items the user can't see.
+    /// One lens's rows after its own search, resolved once per render in `body` and handed to both
+    /// the header card and the content below. A safety property, not an optimization: the header
+    /// labels a destructive button with the count ("Trash all 3") and the action iterates this same
+    /// array. Recomputing either from an unfiltered source would destroy items the user can't see.
     private struct FilteredRows {
         var duplicates: [DuplicateGroup] = []
         var risky: [RiskyName] = []
         var filing: [FilingSuggestion] = []
         var rules: [AutomationRule] = []
         var renames: [RenamePlan] = []
-        /// Restructure's findings, split by how they relate to the scope.
-        ///
-        /// **`.restructure` did not route through here at all** — `restructureContent()` read
-        /// `syncManager.structureFindings` straight off the manager, which is exactly why it was
-        /// the one lens no filter could reach. Two arrays rather than one because its rows have
-        /// two honest kinds and the second must not be silently dropped: see ``ScopeRelation``.
+        /// Restructure's findings, split by how they relate to the scope. Two arrays because its
+        /// rows have two honest kinds and the second must not be silently dropped; see
+        /// ``ScopeRelation``.
         var structure: [StructureFinding] = []
         var structureAboutAncestor: [StructureFinding] = []
     }
 
-    /// Resolves only the ACTIVE lens's rows — the other four aren't on screen, and each of these
-    /// parses a query and walks a collection.
-    ///
-    /// **The scope is applied here, ahead of the search**, so every consumer of these rows —
-    /// header counts, destructive button labels, the action that iterates them — sees one
-    /// consistently narrowed set. Applying it downstream in the content card instead would put the
-    /// count and the list back out of step, which is the failure `FilteredRows` exists to prevent.
+    /// Resolves only the active lens's rows; each of these parses a query and walks a collection.
+    /// The scope is applied here, ahead of the search, so header counts, destructive button
+    /// labels and the action that iterates them all see one narrowed set. Applying it downstream
+    /// would put the count and the list out of step.
     private var filteredRows: FilteredRows {
         var rows = FilteredRows()
         let scope = scope
-        // The overview reads none of these — it renders `overviewSections`, which does its own
-        // per-lens tallying. Without this guard the overview still paid for a parsed query and a
-        // scoped pass over the filing queue on every render, for a value nothing downstream reads.
-        //
-        // **`showingOverview` alone is the wrong test, and the reveal suite caught it doing real
-        // damage.** It means *no rail item is selected*, which is not the same as *the overview is
-        // what renders*: the overview is drawn only from `contentCard`'s `.filing` arm, so a view
-        // whose apparatus is `.duplicates` with no rail selection still draws its group list and
-        // still needs these rows. Guarding on `showingOverview` alone handed it an empty
-        // `FilteredRows`, and `DuplicateRevealLandingTests` went from painting a revealed group to
-        // painting nothing — two pixel comparisons that had been the suite's sharpest assertions
-        // both fell to zero difference.
-        //
-        // So the condition mirrors the one the content card actually branches on — as
-        // ``overviewIsOnScreen``, which is that question asked once for every reader of it. Cheap
-        // either way; the point is that it is the same question.
+        // The overview reads none of these (it renders `overviewSections`), so skip the work. Guard
+        // on ``overviewIsOnScreen``, not `showingOverview`: a `.duplicates` view with no rail
+        // selection still draws its group list and needs these rows, and an empty `FilteredRows`
+        // would paint nothing.
         guard !overviewIsOnScreen else { return rows }
         switch effectiveLens {
         case .duplicates:
@@ -966,19 +790,15 @@ public struct LensWorkspaceView: View {
                 OrganizeScopeFilter.matches($0, scope: scope)
                     && RenameBacklogSearch.matches(query, $0)
             }
-            // **The to-fix rows are part of this list, so they come through the same filter.**
-            // The backlog draws them above the categories (the folded Names lens), and they were
-            // resolved inline in `contentCard` off the manager — scoped but never searched. One
-            // list narrowed in two different ways is exactly what `FilteredRows` exists to stop:
-            // the badge counted 131, the readout 126, and the rows on screen were 3 plans plus 5
-            // fixes that no query could touch.
+            // The to-fix rows are part of this list, so they go through the same filter: one list
+            // narrowed two ways would put the badge, the readout and the rows on screen out of step.
             rows.risky = syncManager.riskyNames.filter {
                 OrganizeScopeFilter.matches($0, scope: scope)
                     && RenameBacklogSearch.matches(query, $0)
             }
         case .filing where organizeLens == .restructure:
-            // Restructure carries no search grammar of its own (it parks in `.filing`'s query
-            // slot — see `OrganizeLens.searchLens`), so the scope is the only narrowing here.
+            // Restructure has no search grammar of its own (it parks in `.filing`'s slot; see
+            // `OrganizeLens.searchLens`), so the scope is the only narrowing here.
             let root = syncManager.filingFolderProfile?.root ?? ""
             for finding in structureFindings {
                 switch OrganizeScopeFilter.relation(of: finding, profileRoot: root, scope: scope) {
@@ -989,16 +809,16 @@ public struct LensWorkspaceView: View {
             }
         case .filing:
             let q = FilingSearch.parse(query)
-            // Filtered UPSTREAM of FilingSuggestionGrouping: the sections are derived from these
-            // rows, so an emptied tier's header falls away with it instead of heading nothing.
+            // Filtered upstream of FilingSuggestionGrouping: the sections derive from these rows,
+            // so an emptied tier's header falls away with it.
             rows.filing = syncManager.filingSuggestions.filter {
                 OrganizeScopeFilter.matches($0, scope: scope) && q.matches($0)
             }
         case .automations:
             let q = AutomationSearch.parse(query)
-            // **The query narrows this list and the scope does not** — `scope` is already nil here,
-            // because `OrganizeLens.isScoped` is false for Rules, so writing the scope test would
-            // be an inert call that reads like a live rule. Rules are configuration, not findings.
+            // The query narrows this list and the scope does not: `scope` is already nil here,
+            // because Rules are configuration (`OrganizeLens.isScoped` is false), so a scope test
+            // would be an inert call that reads like a live rule.
             rows.rules = syncManager.automationRules.filter { q.matches($0) }
         case .storage:
             break   // StorageLensView filters its own three lists from `storageQuery`
@@ -1006,48 +826,29 @@ public struct LensWorkspaceView: View {
         return rows
     }
 
-    /// Storage's parsed query. Its report holds three ranked lists rather than one collection, and
-    /// `StorageLensView` brings its own content card, so the query goes down and the lists are
-    /// filtered there — see `StorageSearch` for why the treemap is deliberately left whole.
+    /// Storage's parsed query. Its report holds three ranked lists and `StorageLensView` brings its
+    /// own content card, so the query goes down and the lists are filtered there; see
+    /// `StorageSearch` for why the treemap stays whole.
     private var storageQuery: StorageSearch.Query { StorageSearch.parse(query) }
 
-    /// "N of M" for Storage — **over the lists the body is actually showing, and nil before there
-    /// is a report to count.**
+    /// "N of M" for Storage, over the lists the body is showing, and nil before there is a report.
     ///
-    /// Nil rather than `(0, 0)`, which is the rail's own rule arriving at the readout: a storage
-    /// lens that has not run cannot claim there are no large files, it can only say it has not
-    /// looked. The section headers say exactly that in the body — the count is absent before a
-    /// report, not zero — while this row, over the intro card's "Analyze storage" pitch, answered a
-    /// query with "0 of 0": a scan's result, reported by a scan that never ran.
-    ///
-    /// It summed all three ranked lists unconditionally, which was right while the page was always
-    /// all three. The rail can narrow it to one now, and the unchanged sum described a page nobody
-    /// was looking at: standing on Largest with a query showing 3 of its 50, the row read "3 of
-    /// 164" — a denominator drawn from two lists that were not on screen. That is the same
-    /// dishonesty the scope work removed from the Organize lenses, arriving here through the rail.
-    ///
-    /// The selection narrows *which lists*; the query narrows *within them*. Both are needed: N is
-    /// the rows on screen and M is the list before the transient narrowing, and after the rail
-    /// "this list" means the selected section.
+    /// Nil, not `(0, 0)`: a storage lens that hasn't run can't claim there are no large files.
+    /// The rail selection narrows which lists count and the query narrows within them, so N is the
+    /// rows on screen and M the selected section before the query; summing all three lists would
+    /// give a denominator from lists not on screen.
     private var storageCounts: (filtered: Int, total: Int)? {
         guard let report = syncManager.storageLensReport else { return nil }
         let q = storageQuery
         return StorageSection.counts(in: report, section: storageSection) { q.matches($0) }
     }
 
-    /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups — the menu
-    /// used to run a full filter per `DuplicateMatchFilter` case on every render.
+    /// Per-filter group counts for the filter menu's badges, in one pass over the groups.
     ///
-    /// **Counted within the scope**, and that is a different question from the one the search
-    /// raises. Counting all groups rather than the *search-narrowed* ones is deliberate and stays —
-    /// a badge must never read zero for a filter that would reveal rows once picked. But the scope
-    /// is not a transient narrowing of a list you are looking at; it decides *which list this is*.
-    /// Left global, the menu offered "Identical (620)" beside a lens holding 27, and picking it
-    /// revealed nothing like 620.
-    ///
-    /// The scope test folds into the existing pass rather than pre-filtering into a second array —
-    /// this builder is not lazy and runs on every render (see `filterMenu`), so the pass stays one
-    /// pass.
+    /// Counted over all groups, not the search-narrowed ones, so a badge never reads zero for a
+    /// filter that would reveal rows. But counted within the scope, which decides which list this
+    /// is: a global count would offer "Identical (620)" beside a lens holding 27. The scope test
+    /// folds into the same pass, because this runs on every render (see `filterMenu`).
     private static func filterCounts(_ groups: [DuplicateGroup],
                                      scope: OrganizeScope?) -> [DuplicateMatchFilter: Int] {
         var counts = Dictionary(uniqueKeysWithValues: DuplicateMatchFilter.allCases.map { ($0, 0) })
@@ -1059,79 +860,60 @@ public struct LensWorkspaceView: View {
     private var hasResults: Bool { !syncManager.duplicateGroups.isEmpty }
 
     public var body: some View {
-        // Resolve this lens's rows ONCE and hand the same value to the header and the content —
+        // Resolve this lens's rows once and hand the same value to the header and the content;
         // see `FilteredRows`.
         let rows = filteredRows
-        // The rail's six counts, resolved ONCE — see `RailCounts`. Both consumers read this same
-        // value: the width arithmetic below (which badge each item is carrying) and each rail item's
-        // own badge. They used to ask independently, which was twelve scoped passes per render.
+        // The rail's six counts, resolved once (see `RailCounts`) for both the width arithmetic
+        // below and each rail item's badge.
         let counts = railCounts
-        // Resolved here too rather than inside the chip, so the header's per-render cost is a
-        // single walk of the profile's folder list instead of one on every redraw of row 2.
+        // Resolved here, not in the chip, so the header pays one walk of the profile's folder list
+        // per render rather than one per redraw of row 2.
         let scopeFolders = scopeFolderCount
-        // Measured ONCE per body: this reads type metrics, while the geometry transform below runs
-        // on every width the card is handed. It is everything row 1's leading half must seat — the
-        // rail alone today; anything put back beside it goes through `leadingWidth` too, which is
-        // where an uncounted companion control cost the model 21pt once already.
-        // One rail, one shedding rule. This used to fork on `lens == .storage` for a second rail
-        // with its own vocabulary and its own widths; the fold removed the second rail, and with it
-        // the only reason row 1 had two width models.
+        // Measured once per body: this reads type metrics, while the geometry transform below runs
+        // on every width the card is handed. It is everything row 1's leading half must seat (the
+        // rail alone today); anything put beside it must be counted in `leadingWidth` too.
         let railLeading = OrganizeRailMetrics.leadingWidth(scale: appFontScale, state: counts.state)
         return VStack(spacing: 0) {
-            // **The shedding rule is measured HERE, on a zero-height probe, and not on the card.**
-            //
-            // It was on the card, and that made it unable to ever fire. A card whose row cannot
-            // compress does not shrink to the width it is offered — it draws at the width it needs
-            // and overflows, and `.onGeometryChange` then reports *that* width, because a geometry
-            // proxy answers "how big am I" and never "how much was I given". Measured: offered
-            // 400pt, a `LensHeaderCard` with a rigid 700pt title reports 768
-            // (`theCardReportsTheWidthItDrewAtNotTheWidthItWasOffered` pins it). So the model was
-            // asked "does 768 hold a 693pt rail?", answered yes, and stayed `.full` at every window
-            // size — while the card it was describing hung over the source pane on its left and off
-            // the window on its right. Every unit test of `style(...)` passed throughout: they call
-            // the arithmetic directly, and the arithmetic was never wrong.
-            //
-            // A `Color.clear` of zero height is flexible in width, so it takes the width the VStack
-            // was PROPOSED — the workspace column — and no sibling's overflow can widen it. That is
-            // the number the rail has to fit inside, which is why `style(columnWidth:)` charges the
-            // card's own inset and padding on top of the search toggle.
+            // The shedding rule is measured here, on a zero-height probe, not on the card. A card
+            // whose row can't compress draws at the width it needs and overflows, and
+            // `.onGeometryChange` reports that width, not the one offered
+            // (`theCardReportsTheWidthItDrewAtNotTheWidthItWasOffered`), so the rail would never
+            // shed. A zero-height `Color.clear` takes the width the VStack was proposed, the
+            // workspace column, and no sibling can widen it. That is why `style(columnWidth:)`
+            // charges the card's own inset and padding on top of the search toggle.
             Color.clear
                 .frame(height: 0)
-                // The STYLE, not the width — `.onGeometryChange` only calls its action when the
-                // transformed value changes, so a live resize writes state twice (once each way)
-                // rather than on every point. Same reason the workspace bar resolves its own
-                // shedding inside the transform.
+                // The style, not the width: `.onGeometryChange` calls its action only when the
+                // transformed value changes, so a live resize writes state once each way. The
+                // workspace bar resolves its shedding the same way.
                 .onGeometryChange(for: OrganizeRailStyle.self) { proxy in
                     OrganizeRailMetrics.style(columnWidth: proxy.size.width,
                                               leadingWidth: railLeading)
                 } action: { railStyle = $0 }
-            // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
-            // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
-            // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
-            // is collapsed, i.e. when there's no pane left to line up with anyway).
+            // The header card heads the workspace in every lens and state, so its bottom edge lands
+            // on 83.5, the file pane's header/list boundary. The `sourceBar` sits below it, and
+            // appears only when the source rail is collapsed.
             //
-            // **Under the pane's tab strip, the strip's slot is left empty** (`paneShowsTabStrip`)
-            // so that edge stays on the pane's line — Edit's document column does the same. In
-            // `.cards` it is a gap above the header card where the strip's own card stands in the
-            // pane; in `.unified` a clear band inside this column's one region, as the pane's strip
-            // is flush inside its region (`PaneTabStripLadder.slotHeight`).
+            // Under the pane's tab strip, the strip's slot is left empty (`paneShowsTabStrip`) so
+            // that edge stays on the pane's line, as Edit's document column does. In `.cards` it is
+            // a gap above the header card; in `.unified` a clear band inside this column's region
+            // (`PaneTabStripLadder.slotHeight`).
             Color.clear.frame(height: paneShowsTabStrip ? PaneTabStripLadder.slotHeight(surfaceStyle) : 0)
             lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
-            // The reading is a three-hour background job and its card lives on one lens; the strip
-            // is how the other five say it is happening. Padded like `sourceBar`, below the header
-            // card whose 81pt this must not touch.
+            // The reading is a long background job and its card lives on one lens; the strip is
+            // how the other five show it running. Padded like `sourceBar`, below the header card,
+            // whose 81pt this must not touch.
             if let documentSurveyCard, DocumentSurveyStrip.isShown(for: documentSurveyCard) {
                 DocumentSurveyStrip(state: documentSurveyCard,
                                     accent: glassHue.accentColor,
                                     onResume: onResumeDocumentSurvey,
                                     onPause: onPauseDocumentSurvey,
                                     onStop: onStopDocumentSurvey)
-                    // The source bar's own inset, so the strip lines up with the row below it
-                    // rather than sitting on an inset of its own.
+                    // The source bar's own inset, so the strip lines up with the row below it.
                     .padding(.horizontal, sectionInset + 12)
                     .padding(.top, stripGap)
             }
-            // A tree placed by name, or one whose folders are being learned (GL).
+            // A tree placed by name, or one whose folders are being learned.
             if effectiveLens == .filing, organizeLens == .toFile, !syncManager.isSuggestingFiles,
                FilingSurveyStrip.isShown(syncManager) {
                 FilingSurveyStrip(syncManager: syncManager, sources: filingSurveySources,
@@ -1142,19 +924,15 @@ public struct LensWorkspaceView: View {
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }
-        // **One region in Unified, two cards in Cards** — the rule every workspace column follows
-        // (see `columnSectionCard`). The header card and the content card are this column's two
-        // sections; in Unified they are one area of the window's one region, so the content starts
-        // flush under the header's hairline at the same 83.5 the file pane's list does.
+        // One region in Unified, two cards in Cards, the rule every workspace column follows (see
+        // `columnSectionCard`). In Unified the content starts flush under the header's hairline at
+        // the same 83.5 the file pane's list does.
         .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-        // `onDismiss`, because the history sheet can Clear History. Without it the setup card went
-        // on quoting "last run ~$0.18" from a record the user had just erased through this very
-        // sheet — the one invalidation the cached spend needed and did not have. `SettingsView`
-        // presents the same sheet the same way.
+        // `onDismiss`, because the history sheet can Clear History, and the setup card's cached
+        // spend must not go on quoting an erased record. `SettingsView` presents it the same way.
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshFilingSpend) { FilingSpendHistoryView().presentedNativeControlAccent() }
-        // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
-        // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
-        // exactly as created — the review is an offer, not a gate.
+        // Review-after-create: a rule just learned from "Remember" (or saved from "Save rule")
+        // opens in its editor. Cancel keeps it as created; the review is an offer, not a gate.
         // The offer is answered from the result message's popover, which hands the rule over here.
         .onReceive(session.$ruleAwaitingReview) { rule in
             guard let rule else { return }
@@ -1175,17 +953,14 @@ public struct LensWorkspaceView: View {
             )
             .presentedNativeControlAccent()
         }
-        // A fresh scan starts a fresh session: forget any files filed against the previous results,
-        // so the "All filed" terminal state is only earned by this scan's work. The search resets
-        // here too — the same rule the other lenses apply just below — rather than from a SECOND
-        // `isSuggestingFiles` handler further down: two handlers on one value both fired, so the
-        // behaviour was right, but an editor changing "the" Organize scan-start handler would find
-        // only one of them.
+        // A fresh filing scan starts a fresh session: forget files filed against the previous
+        // results, so "All filed" is earned only by this scan's work. The search resets in the
+        // same `isSuggestingFiles` handler below, not a second one, so there is one scan-start
+        // handler to find.
         .onAppear(perform: refreshFilingSpend)
-        // The store's own change signal, which covers writers this view cannot enumerate — the
-        // same history view presented from the SETTINGS window can Clear History, and this lens's
-        // own three refresh moments (appear, scan finish, its own sheet closing) could not see it.
-        // `receive(on:)` because `record` posts from off the main actor.
+        // The store's own change signal, for writers this view can't see: the same history view
+        // in the Settings window can Clear History. `receive(on:)` because `record` posts from off
+        // the main actor.
         .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
             .receive(on: DispatchQueue.main)) { _ in refreshFilingSpend() }
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
@@ -1195,57 +970,44 @@ public struct LensWorkspaceView: View {
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
                 pendingRuleOffer = nil
                 searchQueries[.filing] = ""
-                // **The selection is NOT moved, and that is a deliberate reversal.** The chips
-                // bounced you back to the queue here, because a finding chip could vanish under a
-                // rescan and strand you on a list with no way back. A rail item cannot vanish, so
-                // standing on Names while its scan re-runs is a legitimate place to be — the list
-                // says it is scanning and then refills.
-                //
-                // Moving it was actively wrong: the auto-rescan fires as Organize appears, so a
-                // launch that restored Names started a scan and immediately yanked the selection
-                // to To File. Names and Renames could not survive a relaunch at all. Only the
+                // The rail selection is not moved. A rail item can't vanish, so standing on
+                // Renames while its scan re-runs is fine: the list says it is scanning, then
+                // refills. Moving it would be wrong, because the auto-rescan fires as Organize
+                // appears and would yank a restored selection to To File on every launch. Only the
                 // parked query goes, because it described the previous scan's rows.
             } else {
-                // Finished: a cloud call may have recorded spend, and both the spend row and the
-                // setup card quote it. Deliberately this handler's `else` rather than a second
-                // `.onChange` on the same value — see the note above.
+                // Finished: a cloud call may have recorded spend, which the spend row and the
+                // setup card both quote. This handler's `else`, not a second `.onChange`.
                 refreshFilingSpend()
             }
         }
-        // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
-        // counts the current results' work (H5). The search and the type filter reset too: either one
-        // typed against the previous results silently pre-filtering (or hiding) the new scan's groups
-        // is a dead end. The list lives in ``DuplicateScanReset`` so it can be tested — the defect was an
-        // omission from it.
+        // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" counts
+        // only the current results' work. The search and the type filter reset too, since either
+        // one left over would silently pre-filter the new groups. The list lives in
+        // ``DuplicateScanReset`` so it can be tested.
         .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
             if isScanning {
                 DuplicateScanReset.duplicatesScanStarted(filter: &filter,
                                                     searchQuery: &searchQueries[.duplicates, default: ""],
                                                     reclaim: &reclaim)
-                // A landing belongs to the results it landed in. Both of these name a group or a
-                // file from the PREVIOUS scan, so they retire with it rather than marking a card
-                // in the new results that nobody was sent to, or claiming "no duplicates of X"
-                // about an answer that is being recomputed.
+                // A landing belongs to the results it landed in. Both of these name a group or file
+                // from the previous scan, so they retire with it rather than marking a card nobody
+                // was sent to, or claiming "no duplicates of X" about an answer being recomputed.
                 revealedGroupID = nil
                 revealLanding = nil
             }
         }
         // The handoff from a pane row's "Find duplicates of this".
         //
-        // `.task(id:)` and not `.onChange`: this view is MOUNTED by the switch into the Duplicates
-        // workspace, so for the request that caused the switch there is no change to observe — an
-        // `.onChange` here would fire for every later reveal and never for the first one.
-        //
-        // The key carries the scan state as well as the request, which is what lets a request made
-        // while a scan is running resolve when the results land (`DuplicateReveal.outcome` answers
-        // `.waiting` until then). `groupCount` and `scanRoot` stand in for the results themselves:
-        // mapping every group's id on each render to build a key is work per render for a signal
-        // that only ever moves when a scan completes or a group resolves — and re-resolving on
-        // either is harmless, because `appliedRevealID` makes applying a plan idempotent.
+        // `.task(id:)`, not `.onChange`: the switch into Duplicates mounts this view, so for the
+        // request that caused it there is no change to observe, and `.onChange` would miss the
+        // first reveal. The key carries the scan state too, so a request made mid-scan resolves
+        // when the results land (`DuplicateReveal.outcome` answers `.waiting` until then).
+        // `groupCount` and `scanRoot` stand in for the results; re-resolving is harmless because
+        // `appliedRevealID` makes applying a plan idempotent.
         .task(id: revealKey) { applyRevealRequest() }
-        // Storage keeps its own reset for the same reason. Names do NOT have one here: they are
-        // produced by the Filing scan now, so `isScanningNames` never flips on this path and the
-        // reset rides `isSuggestingFiles` above, alongside the rest of that scan's session state.
+        // Storage keeps its own reset. Names have none here: the Filing scan produces them, so the
+        // reset rides `isSuggestingFiles` above with the rest of that scan's session state.
         .onChange(of: syncManager.isBuildingStorageLens) { _, isBuilding in
             if isBuilding { searchQueries[.storage] = "" }
         }
@@ -1253,39 +1015,26 @@ public struct LensWorkspaceView: View {
 
     // MARK: Header card
 
-    /// The one header of this workspace: lens tabs and this lens's controls on row 1, what the
-    /// lens found on row 2, and the search below — 81pt at rest, in every lens and every state.
-    ///
-    /// **This reverses `fd63c8b`'s reasoning, deliberately.** The tabs were kept off the old
-    /// toolbar card precisely because that card was results-gated and would shift them down the
-    /// moment a scan landed. Ungating the card is this change's premise, so that objection no
-    /// longer applies: the card is here in the intro, scanning, empty and clean states too, which
-    /// is exactly what lets the tabs ride it without ever moving.
+    /// The one header of this workspace: the rail on row 1, what the lens found and its controls on
+    /// row 2, and the search below. 81pt at rest, in every lens and every state, including intro,
+    /// scanning, empty and clean, so the rail never moves when a scan lands.
     private func lensHeaderCard(rows: FilteredRows, counts: RailCounts,
                                 scopeFolders: Int?) -> some View {
         LensHeaderCard(
             searchText: searchText,
             isSearchExpanded: isSearchExpanded,
-            // The backlog borrows `.filing`'s lens but not its grammar, so it cannot borrow its
-            // placeholder either — that one advertises `confidence:` and `to:` tokens this list
-            // does not bind, on a field that would then silently do nothing with them.
+            // The backlog borrows `.filing`'s lens but not its grammar, so not its placeholder
+            // either: that one advertises `confidence:` and `to:` tokens this list doesn't bind.
             searchPlaceholder: showingRenameBacklog
                 ? "Search folders and names — PG&E, 2021…"
                 : LensSearch.placeholder(for: effectiveLens),
             searchHelp: showingRenameBacklog
                 ? "Search the rename backlog by folder or by file name"
                 : LensSearch.help(for: effectiveLens),
-            // **The two pages that answer no query do not offer the control.** The overview draws
-            // every lens's answer and filters none of them (see ``query``), and Storage before its
-            // analysis has run has no lists to narrow — it is the intro card's "Analyze storage"
-            // pitch. Both used to carry a search toggle because this card appended one to every
-            // header; opening it on the overview merely routed you to To File, which is a decent
-            // answer to "the write must not be silently dropped" and a poor one to "why is there a
-            // search button on a page with nothing to search".
-            //
-            // Not `overviewIsOnScreen`'s twin for Storage: `showingOverview` is about rail
-            // selection, and Storage has its own rail. `hasStorageReport` is the question — the
-            // same one ``storageCounts`` asks before it will report "N of M".
+            // The two pages that answer no query don't offer the control: the overview filters
+            // nothing (see ``query``), and Storage before its analysis has no lists to narrow.
+            // Storage's test is `hasStorageReport`, the same one ``storageCounts`` asks before it
+            // will report "N of M".
             showsSearch: !overviewIsOnScreen
                 && !(effectiveLens == .storage && !hasStorageReport),
             chips: searchChips,
@@ -1296,89 +1045,50 @@ public struct LensWorkspaceView: View {
             hue: glassHue,
             tint: surfaceTint,
             title: { lensTitle(counts) },
-            // **Row 1's trailing half is empty now, and that is the point.** The lens's controls
-            // moved to row 2 — see ``lensTrailing``. What is left up here is the search toggle,
-            // which `LensHeaderCard` appends itself, so row 1 is the rail and one 30pt button.
+            // Row 1's trailing half is empty on purpose: the lens's controls live on row 2 (see
+            // ``lensTrailing``). `LensHeaderCard` appends the search toggle itself, so row 1 is the
+            // rail and one 30pt button.
             actions: { EmptyView() },
             summary: { lensSummary(rows: rows, counts: counts, scopeFolders: scopeFolders) },
             trailing: { lensTrailing(rows: rows, counts: counts) }
         )
     }
 
-    /// Row 1 of the header card: **navigation, not a name.**
-    ///
-    /// It used to say the workspace's own title, because the lens tabs had just moved to the
-    /// window's workspace bar and the column would otherwise have had no statement of what it was
-    /// showing. The bar says it — the selected segment reads "Organize" or "Storage" three
-    /// centimetres above this — so the card repeated it, and repetition is the one thing a fixed
-    /// 81pt header cannot afford: it spent the most prominent row in the lens saying a word the
-    /// chrome already said.
-    ///
-    /// So Organize gives the row to its rail, which names where you are *more* precisely than the
-    /// title did (the ringed item is the lens, not just the workspace). **Storage has a rail of its
-    /// own now** — All and its three ranked lists — which is what fills the leading half the intro
-    /// button used to hold. Its per-list counts moved onto it; what stays on row 2 is what belongs
-    /// to the whole report rather than to one list.
+    /// Row 1 of the header card: navigation, not a name. The workspace bar already says
+    /// "Organize", and a fixed 81pt header can't afford to repeat it, so the row goes to the rail,
+    /// which names where you are more precisely (the ringed item is the lens, not just the
+    /// workspace).
     @ViewBuilder
     private func lensTitle(_ counts: RailCounts) -> some View {
-        // **Scrolls only when even the glyph rung does not fit**, which is a narrower case than it
-        // sounds and a reachable one: the workspace column's own floor is 340pt
-        // (`singleSourceLayout`), the source pane beside it is draggable, and an icon-only rail
-        // with six three-digit badges measures 474.7 at the largest text size. Shedding labels
-        // cannot save that row — there is nothing left to shed — and what an `HStack` does when it
-        // runs out of room is draw over its neighbours, which is exactly the defect this row just
-        // had. `.basedOnSize` keeps it perfectly still at every width where the rail fits, so the
-        // ordinary case pays nothing; the indicator is off because a 27pt row cannot spare it.
+        // Scrolls only when even the glyph rung doesn't fit, which is reachable: the column's
+        // floor is 340pt (`singleSourceLayout`), the source pane is draggable, and an icon-only rail
+        // with six three-digit badges measures about 475pt at the largest text size. An `HStack`
+        // out of room draws over its neighbours. `.basedOnSize` keeps it still wherever the rail
+        // fits; the indicator is off because a 27pt row can't spare it.
         //
-        // This is the second half of a pair, and deliberately independent of the first: the probe
-        // in `body` decides WHICH rung to draw, and this makes the drawn rung unable to overflow
-        // whatever that decision was. A shedding rule fed a wrong width is a bug; a shedding rule
-        // fed a wrong width AND a row that overlaps the pane next to it is the screenshot.
-        // **A clip that says nothing is a second defect on top of the first.** The rail scrolls,
-        // so at a narrow column the SELECTED item is drawn cut in half at the search toggle and
-        // `.scrollIndicators(.never)` means nothing on screen admits there is more — the render
-        // showed "Rules" entirely off-screen with Organize selected, and "All"/"To File" off the
-        // LEADING edge with Duplicates selected. The indicator stays off (a 27pt row cannot spare
-        // the height, which is why it was turned off in the first place), so the two halves are
-        // answered another way:
-        //
-        // The selected rung is scrolled into view whenever it changes, so the item you chose is
-        // never the one drawn cut in half. That is the reported harm; what it does NOT do is
-        // announce that the row scrolls at all.
-        //
-        // **A fade mask at the two edges was tried and reverted, and the reason is worth keeping.**
-        // It costs no height, which is what made it look free — but it dims the LEADING item, which
-        // on this rail is "All" and is usually the selected one, and it shifts what the row draws:
-        // `OrganizeRailTests` measures the leading model against the drawn row and the fade put it
-        // 13–15pt out at three text sizes, while the accent-ring test lost the overview's ring
-        // entirely. A row whose first item is faded to advertise that a later item exists has
-        // traded the wrong thing.
+        // The second half of a pair: the probe in `body` decides which rung to draw, and this keeps
+        // the drawn rung from overflowing whatever that decision was. With no indicator, the
+        // selected rung is scrolled into view whenever it changes, so the chosen item is never the
+        // one cut in half. An edge fade mask is not an option: it dims the leading item ("All",
+        // usually selected) and throws `OrganizeRailTests`' leading model off the drawn row.
         ScrollViewReader { rail in
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
-            // **Promoting Storage's readout here was tried and was worse.** The readout is prose
-            // whose width is a property of the data, so "Documents" truncated to a bare folder
-            // glyph and row 2 went empty. The failure is worth keeping written down, because "put
-            // the storage readout on row 1" will look like a good idea again.
-            //
-            // **One rail, and that is the point of the fold.** This used to fork: Storage drew a
-            // rail of its own here — All, Largest, Untouched, Reclaim — because it was a workspace
-            // and the slot was free. Two rails in one header shedding by different rules is the
-            // configuration `OrganizeRailMetrics` warns about in its own words, and it is gone:
-            // Storage is a rail ITEM now, and its sections moved into the content card as a
-            // capsule (`StorageSectionBar`).
+            // One rail. Storage is a rail item, and its sections live in the content card as a
+            // capsule (`StorageSectionBar`); two rails shedding by different rules is what
+            // `OrganizeRailMetrics` warns against. Storage's readout stays off row 1: it is prose
+            // whose width depends on the data, and it truncates to a bare glyph there.
             organizeRail(counts)
             }
             // Frosted and Clear: the selected item's wash and ring as one glass lens that glides
-            // between items (RD46). Inside the scroll view, so it scrolls with them.
+            // between items. Inside the scroll view, so it scrolls with them.
             .selectionLensHost(Self.railLensChannel, selected: selectedRailItemID, style: railLensStyle,
                                visibleRegion: railVisibleRegion)
-            // Frosted and Clear: a count arrives rather than appears (RD46.11) — whenever which items
-            // report changes while the rail is on screen: a scan finishing, or the scope moving. Keyed
-            // on the row, so the item and the neighbours it pushes move together, and OUTSIDE the
-            // lens's host, so the lens rides the same spring as the item it sits on instead of
-            // snapping to where the item ends up. Only a change animates: a rail drawn already
-            // reporting shows its badges at rest.
+            // Frosted and Clear: a count arrives rather than appears whenever which items report
+            // changes on screen (a scan finishing, the scope moving). Keyed on the row, so the item
+            // and the neighbours it pushes move together, and outside the lens's host, so the lens
+            // rides the same spring as its item instead of snapping. Only a change animates: a rail
+            // drawn already reporting shows its badges at rest.
             .transaction(value: Self.reportingItems(counts)) { transaction in
                 guard railCountsArrive else { return }
                 transaction.animation = SelectionLensArrival.change(reduceMotion: reduceMotion)
@@ -1398,17 +1108,17 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The rail's selection lens in Frosted and Clear — see `SelectionLens`.
+    /// The rail's selection lens in Frosted and Clear; see `SelectionLens`.
     static let railLensChannel = SelectionLensChannel("organize.rail")
 
     /// Whether a count arrives rather than appears: the glass levels, where the rail draws a lens.
-    /// The same answer the rail's host gives its items, so a badge's transition and the animation
-    /// that drives it can never disagree.
+    /// The same answer the rail's host gives its items, so a badge's transition and its animation
+    /// can't disagree.
     private var railCountsArrive: Bool {
         SelectionLensRule.material(for: lensAppearance, reduceTransparency: reduceTransparency) != .today
     }
 
-    /// The rail items that wear a count, in rail order — what a count arriving or leaving changes.
+    /// The rail items that wear a count, in rail order: what a count arriving or leaving changes.
     static func reportingItems(_ counts: RailCounts) -> [Bool] {
         OrganizeLens.railItems.map {
             if case .reporting = counts.state($0) { return true }
@@ -1423,15 +1133,9 @@ public struct LensWorkspaceView: View {
                            ring: .init(color: glassHue.accentColor, width: RailItemLabel.ringWidth))
     }
 
-    /// The scroll handle for one rail item, and the identity `selectedRailItemID` names.
-    ///
-    /// **One expression for both ends of the lookup**, so a handle and the thing that scrolls to it
-    /// cannot come to mean different items — the failure this repo has already paid for once, where
-    /// a mirror test was written twice and the two copies drifted.
-    ///
-    /// There used to be a second overload for Storage's own rail. That rail is gone: Storage is a
-    /// rail item like the rest, and its sections are a capsule inside the content card, which does
-    /// not scroll horizontally and needs no handle.
+    /// The scroll handle for one rail item, and the identity `selectedRailItemID` names. One
+    /// expression for both ends of the lookup, so a handle and what scrolls to it can't come to
+    /// mean different items.
     static func railItemID(organizeLens: OrganizeLens?) -> String {
         "rail-organize-\(organizeLens?.id ?? "all")"
     }
@@ -1445,7 +1149,7 @@ public struct LensWorkspaceView: View {
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             HStack(spacing: 6) {
-                // Logo outside the Menu label (a resizable image inside one balloons under fixedSize).
+                // Logo outside the Menu label: a resizable image inside one balloons under fixedSize.
                 if let provider {
                     ProviderLogo(provider.imageName, size: 16)
                 }
@@ -1462,8 +1166,8 @@ public struct LensWorkspaceView: View {
                 .help("Switch which cloud you’re organizing")
             }
             .pillSurface(.mini, tint: .secondary)
-            // Frosted and Clear: glass under the pill's wash, as under the breadcrumb's source pill.
-            // The pill strokes its own hairline, so Clear adds no rim under it.
+            // Frosted and Clear: glass under the pill's wash, as under the breadcrumb's source
+            // pill. The pill strokes its own hairline, so Clear adds no rim.
             .chromeGlassGround(.capsule, rim: false)
             if let folder = scanTargetFolder, !folder.isEmpty {
                 Image(systemName: "chevron.right").scaledFont(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
@@ -1472,15 +1176,13 @@ public struct LensWorkspaceView: View {
             }
             Spacer(minLength: 0)
         }
-        // Line this strip up with the card content below it: a card sits `cardInset` in from the
-        // region edge and pads its own contents by 12, so matching both puts the text on the same
-        // vertical rule. Tracks `cardInset`, not `cardGutter` — the card's offset is the inset.
-        // In Unified there is no card to sit in from (`sectionInset` is 0).
+        // Line this strip up with the card content below: a card sits `cardInset` in from the
+        // region edge and pads its contents by 12, so matching both puts the text on the same
+        // vertical rule. In Unified there is no card to sit in from (`sectionInset` is 0).
         .padding(.horizontal, sectionInset + 12)
         .padding(.top, stripGap)
-        // Half a gutter in Cards, like everything else: the card below insets by the other half,
-        // so the strip-to-card gap comes to exactly `cardGutter` (a hard-coded 2 left it at 4.5).
-        // A whole one in Unified, where nothing below insets (`stripGap`).
+        // Half a gutter in Cards, where the card below insets by the other half, so the gap comes
+        // to exactly `cardGutter`. A whole one in Unified, where nothing below insets (`stripGap`).
         .padding(.bottom, stripGap)
     }
 
@@ -1491,19 +1193,16 @@ public struct LensWorkspaceView: View {
         surfaceStyle == .cards ? LiquidGlass.cardInset : 0
     }
 
-    /// The air above and below the strips that sit between the header and the content. Half a
-    /// gutter in Cards, where the other half is the neighbouring card's inset; in Unified there is
-    /// no card inset to make up the rest, and the strip sits under the header's hairline instead,
-    /// so it takes the whole gutter.
+    /// The air above and below the strips between the header and the content. Half a gutter in
+    /// Cards, where the neighbouring card's inset is the other half; the whole gutter in Unified,
+    /// where there is no card inset and the strip sits under the header's hairline.
     private var stripGap: CGFloat {
         surfaceStyle == .cards ? LiquidGlass.cardInset : LiquidGlass.cardGutter
     }
 
-    /// Row 1's trailing controls: this lens's actions, in the order the deck draws them (the
-    /// search toggle is appended by `LensHeaderCard` itself, always last).
-    ///
-    /// Each lens's controls are gated on having something to act on, but the CARD is not — an
-    /// empty row 1 keeps the tabs and the height exactly where they are.
+    /// This lens's action controls, in the order the deck draws them. Each lens's controls are
+    /// gated on having something to act on, but the card is not, so an empty row keeps the rail
+    /// and the height where they are.
     @ViewBuilder
     private func lensActions(rows: FilteredRows) -> some View {
         switch effectiveLens {
@@ -1516,34 +1215,18 @@ public struct LensWorkspaceView: View {
         // Both of Organize's states, through one path.
         case .filing:
             if !syncManager.isSuggestingFiles {
-                // **Rescan belongs to the SCAN, not to any one of its answers.** It used to be
-                // nested inside each focus's apply gate, and so went missing in the state that
-                // wants it most: file everything in the queue and Organize is left showing
-                // "0 to file · 3 risky names · 126 folders to rename" with an empty row 1 — no
-                // Rescan, no way to look again without leaving the lens. (Not *no* way: the
-                // "All filed" empty state offers Scan again, which is why this survived. Pick the
-                // names focus and even that is gone, because its list is not empty.)
-                //
-                // Gated on the filing scan having FINISHED once rather than on any list being
-                // non-empty, which is exactly the condition under which rescanning means anything —
-                // and it covers all three focuses, because all three lists are that one scan's
-                // output. Before the first scan the intro state owns the invitation and this stays
-                // away: a "Rescan" with nothing to re-scan is a button describing something that
-                // never happened.
-                //
-                // The folder-memory status used to sit here, immediately before Rescan. Its
-                // in-flight half is on row 2 now (``folderMemoryStatus``) and its finished report
-                // is inside this very menu (``lastFolderSurveyNote``). Row 1 is fixed-width only,
-                // which is what lets ``OrganizeRailMetrics/searchToggleWidth`` be a number at
-                // all.
-                // Two buttons behind one name — see ``showsFilingControl`` for why Rescan's gate is
-                // not the moved branch's, and where the moved branch stands down.
+                // Rescan belongs to the scan, not to any one of its answers, so it survives an
+                // emptied queue: file everything and Organize still offers a way to look again.
+                // Gated on the filing scan having finished once, the condition under which
+                // rescanning means anything; before that the intro state owns the invitation.
+                // Two buttons behind one name: see ``showsFilingControl`` for Rescan's gate and
+                // where the moved branch stands down.
                 if showsFilingControl {
                     rescanFilingButton
                 }
                 // The apply actions stay with their own list: each acts on the rows on screen, so
-                // each is gated on there being some, and each is handed the FILTERED rows for the
-                // reason `applyAllButton` spells out — the label counts what the action receives.
+                // each is gated on there being some and handed the filtered rows, for the reason
+                // `applyAllButton` gives: the label counts what the action receives.
                 switch organizeLens {
                 case .toFile:
                     if hasFilingResults {
@@ -1554,11 +1237,9 @@ public struct LensWorkspaceView: View {
                     // Gated on the backlog existing, handed what is showing: a query leaving 3 of
                     // 129 folders on screen must rename exactly those 3.
                     if !syncManager.renamePlans.isEmpty { renameAllButton(rows.renames) }
-                // The overview offers no apply-all of its own, deliberately: an "apply" up here
-                // would have to mean one of six different things, and the one it picked would be
-                // the one nobody meant. Each section's own button is one click away.
-                // Storage joins them: its lens has no apply-all because it has no verb that
-                // touches a file at all — the one action it owns is Rescan, on row 2.
+                // The overview has no apply-all: up here it would have to mean one of six things.
+                // Each section's own button is one click away. Storage has none either: no verb of
+                // its touches a file, and its one action, Rescan, is on row 2.
                 case .none, .duplicates, .restructure, .rules, .storage:
                     EmptyView()
                 }
@@ -1576,51 +1257,26 @@ public struct LensWorkspaceView: View {
     }
 
     /// Row 2's leading content: the folder these results are for, then what this lens found.
-    /// While a query is live that is the filter's READOUT — watching 12 groups → 3 and
-    /// 2.1 GB → 840 MB as you type is most of the point, which is why the search field grows the
-    /// card rather than swapping itself in over this row.
+    /// While a query is live that is the filter's readout (12 groups → 3 as you type), which is
+    /// why the search field grows the card rather than covering this row.
     ///
-    /// Organize draws its readout as text rather than as pills (``SummaryRun``), because it is the
-    /// one lens whose row also carries controls and the two had become indistinguishable. The other
-    /// three have nothing clickable on this row, so a pill there claims nothing it cannot keep.
+    /// Organize draws its readout as text rather than pills (``SummaryRun``), because its row also
+    /// carries controls and the two must stay distinguishable. The other lenses have nothing
+    /// clickable here, so pills are fine.
     @ViewBuilder
     private func lensSummary(rows: FilteredRows, counts: RailCounts, scopeFolders: Int?) -> some View {
-        // **The rail draws for EVERY Organize lens, which is why it cannot live inside one arm of
-        // the switch below.** It did, briefly, inside `organizeSummary` — and that arm is reached
-        // only on the filing apparatus, so standing on Duplicates or Rules rendered the lens's own
-        // pills and no rail at all: the six places you navigate by, gone, on two of the six lenses
-        // they navigate to. Caught by installing the build and looking at it, not by any test here.
-        // **The rail lives on row 1 now** (see `lensTitle`) — it is not drawn here. It was, for
-        // one build, and row 1 got a copy without row 2 losing its own: six capsules over six
-        // identical capsules. Moving a slot means swapping it, not adding it.
-        //
-        // And no arm draws a leading divider any more: row 2 is purely the readout now, so a rule
-        // at its head separates prose from the left edge of the card. The divider that used to sit
-        // here (`SummaryZoneDivider`, deleted) marked the boundary between controls and prose, and
-        // with the controls a row above there is no boundary on this row to mark.
-        //
-        // **The scope chip draws for EVERY Organize lens, for the same reason the rail does** — and
-        // it very nearly repeated the rail's exact bug. It was first written inside
-        // `organizeSummary`, which is reached only from the `.rename`/`.filing` arms below, so
-        // Duplicates and Rules would have shown no scope at all: two of the six lenses silently
-        // claiming to answer about the whole tree while the other four named a subtree. One subject
-        // for all six is the entire premise, so it is hoisted here, ahead of the switch.
-        //
-        // **Every lens now, Storage included** (Decision B). It was excluded here on the grounds
-        // that it was "a workspace of its own, not a lens inside Organize"; it is a lens, and it
-        // honours the chip — by re-analysing at the scope root, never by filtering its report.
+        // The scope chip draws for every Organize lens, so it sits ahead of the switch rather than
+        // inside one arm: one subject for all six lenses is the premise, and a lens missing the
+        // chip would claim to answer about the whole tree. Storage honours it by re-analysing at
+        // the scope root, never by filtering its report. The rail is on row 1 (see `lensTitle`),
+        // not here, and row 2 has no leading divider: it is purely the readout.
         scopeChip(folderCount: scopeFolders)
         switch effectiveLens {
         case .duplicates:
             if hasResults {
                 duplicatesSummary(rows.duplicates)
             }
-        // Both of Organize's states, through one path. `.rename` is carried for exhaustiveness and
-        // nothing more: no workspace claims it (`WorkspaceTests` pins that
-        // `Workspace.allCases.compactMap(\.lens)` excludes it), and since Names folded into Renames
-        // no rail selection presents it either — see `WorkspaceLensKind.rename` and
-        // `LensFoldReachabilityTests`. The other four sites in this file switch on
-        // `effectiveLens` on exactly that understanding.
+        // Both of Organize's states, through one path.
         case .filing:
             organizeSummary(rows: rows, counts: counts)
         case .automations:
@@ -1632,57 +1288,34 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Organize's whole summary row: the scope the focused list was scanned from, the focus chips,
-    /// then the pills that describe whichever list is on screen.
+    /// Organize's summary row: the pills that describe whichever list is on screen.
     ///
-    /// **Nothing here renders while a scan runs.** Both of Organize's lists are published on
-    /// *completion* — `filingSuggestions`, `filingScanFolder` and `riskyNames` all still hold the
-    /// previous scan's answer mid-scan, deliberately, so a cancelled rescan leaves the old results
-    /// intact. A row drawn from them during a scan is therefore last scan's numbers over this
-    /// scan's spinner: "24 to file" beside a list that is still counting. The old row hid the
-    /// filing pills for exactly this reason and let the risky-names chip through anyway; both are
-    /// covered now, because staleness is a property of the scan, not of one chip.
-    ///
-    /// The scopes genuinely differ — the queue is one folder, the names are the whole provider — so
-    /// each focus names its own rather than one claiming the other's.
+    /// Nothing here renders while a scan runs. Organize's lists are published on completion:
+    /// `filingSuggestions`, `filingScanFolder` and `riskyNames` still hold the previous answer
+    /// mid-scan, so a cancelled rescan leaves the old results intact. A row drawn from them during
+    /// a scan would put last scan's numbers beside this scan's spinner.
     @ViewBuilder
     private func organizeSummary(rows: FilteredRows, counts: RailCounts) -> some View {
-        // Readout only — ``lensSummary`` draws the rail above every lens, and the divider that
-        // separates navigation from prose with it. What is left here is the scope and the numbers,
-        // which belong to the SELECTED lens: leading the row, the scope read as qualifying
-        // whatever came next, and what comes next is another lens's item, which it does not scope.
+        // Readout only: the scope chip is drawn by ``lensSummary``, above every lens. What is left
+        // here are the numbers, which belong to the selected lens. Nothing renders mid-scan for the
+        // lenses the filing scan republishes; see ``OrganizeLens/goesStaleDuringFilingScan``.
         //
-        // Nothing here renders mid-scan for the three lenses whose lists the filing scan
-        // republishes — see ``OrganizeLens/goesStaleDuringFilingScan``.
-        // The three `scannedFolderChip` roots that used to lead these arms — `filingScanFolder` for
-        // the queue, `nameScanRoot` for names, `filingLastProviderRoot` for renames — are gone,
-        // replaced by the ONE scope chip `lensSummary` draws above every lens. Three chips naming
-        // three different territories is what made six rail items look like peers answering about
-        // one subject when they answered about four.
-        // **The overview is tested for on its own, not reached through the `else` of the guard
-        // below.** Written as `if let organizeLens, !stale { … } else { overviewSummary }` it read
-        // correctly and was wrong: the `else` catches *both* arms of a compound condition, so a
-        // lens that had gone stale mid-scan — To File, Names or Renames, exactly the three the
-        // guard exists for — fell through to the overview's readout and drew "1 reporting · 2
-        // clean" under a selected lens while its own scan was running. Suppressing a stale readout
-        // must leave the row empty, which is what the guard was for; it must not substitute a
-        // different lens's answer.
+        // The overview is tested for on its own, not reached through the `else` of the guard
+        // below: an `else` would catch both arms of the compound condition, so a stale lens would
+        // fall through and draw the overview's readout under its own selection. Suppressing a
+        // stale readout must leave the row empty.
         if organizeLens == nil {
-            // **The overview's own readout.** Row 2 was blank here — the switch below is keyed on a
-            // selected lens and the overview has none — which was tolerable while the overview was
-            // a state you fell into, and is not now that "All" is a place you can point at. A
-            // destination with an empty readout row looks like one that failed to load.
-            //
-            // It says what the rail says, in words: how many lenses have something, how many came
-            // back clean, how many have not run. The third number is the one no other surface on
-            // this row can state, and the reason `RailItemState` keeps clean and unscanned apart.
+            // The overview's own readout: "All" is a place you can point at, and an empty readout
+            // row looks like a page that failed to load. It says what the rail says, in words,
+            // including how many lenses haven't run, the reason `RailItemState` keeps clean and
+            // unscanned apart.
             overviewSummary(counts)
         } else if let organizeLens,
                   !(organizeLens.goesStaleDuringFilingScan && syncManager.isSuggestingFiles) {
             switch organizeLens {
             case .toFile:
                 if hasFilingResults { filingSummary(rows.filing) }
-                // Which tree these files go into (TE287), then whose survey reads it (GK–GN).
+                // Which tree these files go into, then whose survey reads it.
                 if let fileInto { FileIntoMenu(choice: fileInto) }
                 if hasFilingResults {
                     FilingSurveyMenu(syncManager: syncManager, sources: filingSurveySources,
@@ -1690,13 +1323,12 @@ public struct LensWorkspaceView: View {
                 }
                 downloadAndReadButton(rows.filing)
             case .renames:
-                // The FILTERED plans, like the queue's readout beside it and unlike the rail badge
-                // that got you here: a badge is a signpost and counts its whole list, a readout
-                // describes the rows on screen. Typing `PG&E` should watch this fall from 1,192
-                // renames to the eleven it left showing.
+                // The filtered plans, like the queue's readout and unlike the rail badge: a badge
+                // counts its whole list, a readout describes the rows on screen, so typing `PG&E`
+                // shows the count fall to what is left.
                 renameBacklogSummary(rows.renames)
-            // Duplicates and rules reach `lensSummary` through their own apparatus arms, so they
-            // never arrive here; restructure has no readout of its own.
+            // Duplicates, rules and storage reach `lensSummary` through their own apparatus arms,
+            // so they never arrive here; restructure has no readout of its own.
             case .duplicates, .restructure, .rules, .storage:
                 EmptyView()
             }
@@ -1708,10 +1340,8 @@ public struct LensWorkspaceView: View {
         providers.map { ($0.displayName, $0.rootPath) }
     }
 
-    /// "3 reporting · 2 clean · 1 not scanned" — the rail, said in prose.
-    ///
-    /// Absent parts rather than zeroes, the same rule the badge follows: "0 not scanned" is noise,
-    /// and a row of three zeroes says nothing at all.
+    /// "3 reporting · 2 clean · 1 not scanned": the rail, said in prose. Absent parts rather than
+    /// zeroes, as the badge does: "0 not scanned" is noise.
     @ViewBuilder
     private func overviewSummary(_ counts: RailCounts) -> some View {
         let states = OrganizeLens.railItems.map(counts.state)
@@ -1734,21 +1364,13 @@ public struct LensWorkspaceView: View {
 
     /// The one chip naming what Organize is answering about.
     ///
-    /// **Absent in the global view.** Global is the absence of a scope, not a chip reading
-    /// "Everything" — a chip that is always present would make the scoped and unscoped states look
-    /// like two flavours of the same thing rather than a narrowing and its absence.
+    /// Absent in the global view, which is the absence of a scope, not a chip reading
+    /// "Everything". It names the subtree and its folder count, so "0 findings" reads as a real
+    /// answer rather than a broken lens. The ✕ is the way back to the global view.
     ///
-    /// It names the subtree **and its folder count**, because scope honesty was the original
-    /// requirement: "Legal" alone says which folder but not how much of the tree that is, and the
-    /// count is what makes "0 findings" legible as a real answer rather than a broken lens.
-    ///
-    /// The ✕ is the global view. There is no seventh rail place and no "Everything" item.
-    ///
-    /// **It draws from ``storedScope``, not from the applied ``scope``, and that is the whole
-    /// reason Rules can suspend the scope safely.** A chip that vanished on Rules would say the
-    /// scope had been *lost*, and the user's next move would be to set it again — which is the
-    /// one-way trip stated the other way round. Suspended, the chip keeps naming the folder they
-    /// chose and says, in its tooltip, that it comes back.
+    /// Draws from ``storedScope``, not the applied ``scope``, which is what lets Rules suspend the
+    /// scope safely: a chip that vanished on Rules would look like a lost scope and invite setting
+    /// it again. Suspended, it keeps naming the folder and says in its tooltip that it comes back.
     @ViewBuilder
     private func scopeChip(folderCount: Int?) -> some View {
         if let storedScope {
@@ -1757,8 +1379,8 @@ public struct LensWorkspaceView: View {
                            folderCount: folderCount,
                            accent: glassHue.accentColor,
                            isSuspended: suspended,
-                           // No ✕ while suspended: there is nothing to clear *here*, and a ✕ that
-                           // threw away a scope this lens is not even using would be the trip.
+                           // No ✕ while suspended: there is nothing to clear here, and a ✕ would
+                           // throw away a scope this lens isn't even using.
                            onClear: suspended ? nil : { withAnimation(listSettle) { setScope(nil) } })
                 .help(suspended
                       ? "Rules are configuration, not findings, so they are not narrowed by a "
@@ -1769,29 +1391,17 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// How many of the profile's folders sit inside the scope, or **nil when that is unknown**.
+    /// How many of the profile's folders sit inside the scope, or nil when that is unknown: no
+    /// profile, or a folder the survey has never seen.
     ///
-    /// Unknown covers two cases and neither may render as a number: there is no profile at all, and
-    /// the scope is a folder the survey has never seen (created since, or outside what was
-    /// surveyed).
-    ///
-    /// **Zero is the tell, and it can only mean unsurveyed.** A scope that the profile knows about
-    /// always counts at least itself — `PathBoundary.contains(p, under: p)` is true — so a count of
-    /// zero cannot mean "an empty subtree", only "not in the survey". Rendering it as "Legal · 0
-    /// folders" would read as *empty*, which is the same zero-versus-absent confusion the rail's
-    /// badge rule exists to prevent. `ScopeChipLabel` omits the count for nil, so the chip says
-    /// "Legal" and claims nothing it cannot support.
-    ///
-    /// Counted from the profile rather than by walking the disk — the profile is already in memory,
-    /// and a chip in a header must not touch the filesystem. Resolved once per render by `body`.
-    ///
-    /// Counted against ``storedScope``, like the chip it feeds: how big that subtree is stays true
-    /// while Rules is not applying it, and a count that blinked out on one lens would read as the
-    /// survey having lost the folder.
+    /// Zero can only mean unsurveyed, since a known scope always counts itself
+    /// (`PathBoundary.contains(p, under: p)`). "Legal · 0 folders" would read as empty, so nil
+    /// makes `ScopeChipLabel` say just "Legal". Counted from the in-memory profile, never the disk,
+    /// because a header chip must not touch the filesystem. Counted against ``storedScope``, like
+    /// the chip, so the count doesn't blink out while Rules suspends the scope.
     private var scopeFolderCount: Int? {
-        // Memoised on its inputs — see `scopeFolderMemo`. It walks every folder in the profile
-        // (3,013 on the reference tree, each one a path join and a containment test) and it is
-        // resolved once per body, which runs on every publish this view's manager makes.
+        // Memoised on its inputs (see `scopeFolderMemo`): it walks every folder in the profile, a
+        // path join and containment test each, and body runs on every publish.
         let profile = syncManager.filingFolderProfile
         return scopeFolderMemo.value(for: ScopeFolderKey(scope: storedScope, root: profile?.root,
                                                          folders: profile?.folders ?? [:])) {
@@ -1805,48 +1415,33 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Organize's lens rail: six permanent places, each carrying a badge only when it has
-    /// something to report.
+    /// Organize's lens rail: six permanent places, each wearing a badge only when it has something
+    /// to report. The places are permanent because "Organize this folder" has to land somewhere
+    /// before any scan has run; the badges stay absent at zero (``OrganizeLens/badge(count:)``).
     ///
-    /// **The rail is the chips row made persistent.** The chips were absent at zero on the
-    /// argument that a rare finding should announce itself and cost nothing otherwise. That is
-    /// still right about the *badge*, and ``OrganizeLens/badge(count:)`` keeps it. It is wrong
-    /// about the *place*: "Organize this folder" has to land somewhere before any scan has run,
-    /// and you cannot point at a chip that does not exist yet.
-    ///
-    /// Selection is a **ring**, the same affordance the focused pane's provider capsule wears —
-    /// an `.overlay`, which takes its size from the host and gives none back, so it cannot push
-    /// this row out of the header's pinned height. The overview is the state where no ring is
-    /// drawn at all.
+    /// Selection is a ring, as on the focused pane's provider capsule: an `.overlay`, which takes
+    /// its size from the host and can't push this row out of the header's pinned height. The
+    /// overview draws no ring on any lens.
     @ViewBuilder
     private func organizeRail(_ counts: RailCounts) -> some View {
-        // **"All" first, because the overview needs a place that exists at zero.** That is the
-        // rail's own founding argument, turned on the one state it had not applied it to: the
-        // overview is what you land on and what every lens's answer is summarised on, and the only
-        // way back to it was clicking the selected item a second time — a gesture nothing on screen
-        // describes. The item does not add a state; it names one that was already there.
+        // "All" first, because the overview needs a place that exists at zero. It adds no state; it
+        // gives the unselected state a place you can point at.
         organizeOverviewRailItem(counts)
         railSeparator
         ForEach(OrganizeLens.railItems.filter(\.carriesBadge)) { item in
             organizeRailItem(item, counts)
         }
-        // **Rules behind a second rule, because it is not a finding.** Five lenses report what a
-        // scan turned up; this one is configuration you keep. It has always been the one item that
-        // cannot wear a badge, and in a row of peers that read as "a lens that found nothing" —
-        // the separator says *different kind of thing* structurally instead of leaving it to be
-        // inferred from an absence.
+        // Rules sits behind a second separator because it is configuration, not a finding. In a
+        // row of peers its missing badge would read as "a lens that found nothing".
         railSeparator
         ForEach(OrganizeLens.railItems.filter { !$0.carriesBadge }) { item in
             organizeRailItem(item, counts)
         }
     }
 
-    /// Which rung the rail should keep in view — the selected one.
-    ///
-    /// The rail scrolls, and at a narrow column the item you just chose could be the one drawn cut
-    /// in half at the search toggle. Nothing said so: `.scrollIndicators(.never)` is deliberate (a
-    /// 27pt row cannot spare the height), so the answer is to move the selection into view rather
-    /// than to advertise that it is not.
+    /// Which rung the rail keeps in view: the selected one. The rail scrolls with no indicator (a
+    /// 27pt row can't spare it), so the selection is moved into view rather than drawn cut in half
+    /// at the search toggle.
     private var selectedRailItemID: String? {
         Self.railItemID(organizeLens: organizeLens)
     }
@@ -1859,11 +1454,8 @@ public struct LensWorkspaceView: View {
             .accessibilityHidden(true)
     }
 
-    /// The overview's own rail item.
-    ///
-    /// Selected exactly when no lens is — it *is* the unselected state, given somewhere to live —
-    /// and it carries no count of its own: a number here would have to mean the sum of six
-    /// different kinds of thing, which is not a quantity anyone wants.
+    /// The overview's own rail item. Selected exactly when no lens is, and carries no count: a
+    /// number here would have to sum six different kinds of thing.
     private func organizeOverviewRailItem(_ counts: RailCounts) -> some View {
         let isSelected = organizeLens == nil
         return Button {
@@ -1876,29 +1468,25 @@ public struct LensWorkspaceView: View {
                 .selectionLensStop(Self.railLensChannel, id: Self.railItemID(organizeLens: nil))
         }
         .buttonStyle(.plain)
-        // The chosen item sits on the rail's lens in Frosted and Clear, and does not lift off it.
+        // The chosen item sits on the rail's lens in Frosted and Clear, and doesn't lift off it.
         .chromeHover(onLens: isSelected)
         .help("Every lens’s answer for what Organize is pointed at, on one page.")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        // The handle `scrollTo` aims at — see `selectedRailItemID`.
+        // The handle `scrollTo` aims at; see `selectedRailItemID`.
         .id(Self.railItemID(organizeLens: nil))
     }
 
     /// One rail item.
     @ViewBuilder
     private func organizeRailItem(_ item: OrganizeLens, _ counts: RailCounts) -> some View {
-        // The badge reaches the label through `counts.state(_:)`, which calls `counts.badge(_:)`
-        // itself — deliberately the same call the width model makes. The model measures the badge
-        // it is told this item wears; if the two reach that answer down separate paths, a later
-        // rule (suppress a badge past four digits, say) moves one and not the other, and the
-        // arithmetic starts sizing a rail nobody draws. That divergence is this type's whole
-        // failure mode. A second, direct `counts.badge(item)` binding sat here unread — it looked
-        // like the coupling this comment describes while contributing nothing to it.
+        // The badge reaches the label through `counts.state(_:)`, which calls `counts.badge(_:)`:
+        // the same call the width model makes. If the two reached the answer down separate paths,
+        // a later rule (suppress a badge past four digits, say) could move one and not the other,
+        // and the arithmetic would size a rail nobody draws.
         let isSelected = organizeLens == item
         Button {
-            // Clicking the selected item widens back out to the overview. That still works and is
-            // still the quickest way back — "All" gives the same state a place you can point at
-            // rather than replacing the gesture.
+            // Clicking the selected item widens back out to the overview; "All" gives the same
+            // state a place you can point at.
             railLens = isSelected ? nil : item
         } label: {
             RailItemLabel(title: item.title, systemImage: item.symbol, state: counts.state(item),
@@ -1912,47 +1500,27 @@ public struct LensWorkspaceView: View {
         .id(Self.railItemID(organizeLens: item))
     }
 
-    /// The number a rail item's badge would carry — **the whole list it names, never the filtered
-    /// view of it.** A badge is a signpost and its number is that destination's size; one that
-    /// renumbered as you typed would be a moving target, and the badge for the list you are *not*
-    /// looking at would be filtered by a query you cannot see.
-    /// ...and **counted within the scope**, which is the one narrowing a badge must respect.
+    /// The number each rail item's badge would carry: the whole list it names, never the
+    /// filtered view of it, but counted within the scope. A badge is a signpost to its list's
+    /// size; one that renumbered as you typed would be filtered by a query you can't see. The scope
+    /// is different: it decides which list this is, so a global "126" on Renames beside a list
+    /// showing three would be dishonest.
     ///
-    /// A badge is a claim about the list behind it, and under a scope that list is the scoped one.
-    /// Leaving these global would put "126" on Renames next to a list showing three — the precise
-    /// dishonesty this whole change exists to remove. It is not the same thing as filtering by the
-    /// search query, which stays out (see above): a query is a transient view of a list you are
-    /// already looking at, while the scope defines *which list this is*.
+    /// ## Resolved once per render, like `FilteredRows`
     ///
-    /// ## Resolved ONCE per render, for the same reason `FilteredRows` is
-    ///
-    /// Scoping turned six `Array.count` reads — O(1) each — into six filtering passes with path
-    /// math in the predicate, over lists that reach 722 duplicate groups and 1,192 rename plans on
-    /// the real profile. And they were being run **twice over**: `railBadgeCount` asks all six so
-    /// the width arithmetic knows how many badges to reserve for, then `organizeRailItem` asks
-    /// again per item. Twelve full scans per render of a header that re-renders on every manager
-    /// publish, every hover and every defaults change.
-    ///
-    /// That is the rule this file already states one screen up — `structureFindings` is cached on
-    /// the manager precisely because *a view body must not run the detector* — arriving through a
-    /// cheaper-looking door. Counting is not detecting, but twelve passes over 722 groups is not
-    /// free either, and the fix is the one already in use for rows: resolve once, hand the same
-    /// value to both consumers.
+    /// Scoping turns each count into a filtering pass with path math, over lists in the hundreds or
+    /// thousands, and both the width arithmetic and every rail item need the answer. Resolve once
+    /// and hand the same value to both, as for rows.
     struct RailCounts: Equatable {
         var toFile = 0, duplicates = 0, names = 0, renames = 0, restructure = 0, rules = 0
-        /// Whether the names half of the file pass has run — the risky-name detector, which that
-        /// walk runs only when a name ruleset is supplied.
-        ///
-        /// **A flag rather than a member of ``scanned``.** It was `scanned.contains(.names)` while
-        /// Names was still a case; the case is retired and the fact is not, because `.renames` may
-        /// only claim to be clean when *both* halves have run. Its own stored property, so the two
-        /// questions — "did a walk cover this lens" and "did the names detector run" — cannot be
-        /// confused for one another again.
+        /// Whether the names half of the file pass has run: the risky-name detector, which that
+        /// walk runs only when a name ruleset is supplied. A flag of its own, not a member of
+        /// ``scanned``, because Names has no lens case, and `.renames` may claim to be clean only
+        /// when both halves have run.
         var namesScanned = false
 
-        /// Which lenses have actually run here. **A zero means two different things without this**
-        /// — ran and found nothing, or never looked — and the rail used to draw both the same way
-        /// while the overview was careful to keep them apart. Same facts, one vocabulary.
+        /// Which lenses have actually run here. Without it a zero means two things, ran and found
+        /// nothing or never looked; the rail and the overview keep them apart the same way.
         var scanned: Set<OrganizeLens> = []
 
         subscript(item: OrganizeLens) -> Int {
@@ -1963,64 +1531,41 @@ public struct LensWorkspaceView: View {
             case .renames: return renames + names
             case .restructure: return restructure
             case .rules: return rules
-            // Neither counts work: `badge(count:)` discards this for both anyway, since
-            // `carriesBadge` is false. Zero rather than a fatal, so the subscript stays total.
+            // Neither counts work: `badge(count:)` discards this anyway, since `carriesBadge` is
+            // false. Zero rather than a fatal, so the subscript stays total.
             case .storage: return 0
             }
         }
 
-        /// The badge an item is carrying, or nil — **the value, not merely the fact of one**, which
-        /// is what `OrganizeRailMetrics` reserves width for.
-        ///
-        /// This replaces a `badged` *count*. The width arithmetic charged a flat two-digit figure
-        /// per badge, and Duplicates wears `410` while Renames wears `126`; those cost ~8pt more
-        /// apiece than the flat figure allowed, which is part of why row 1 truncated its actions
-        /// while the model still reported room. ``OrganizeRailMetrics/badgeWidth(_:scale:)``
-        /// measures the digits it is handed.
+        /// The badge an item is carrying, or nil: the value, not just the fact of one, because
+        /// ``OrganizeRailMetrics/badgeWidth(_:scale:)`` measures the digits it is handed. A
+        /// three-digit badge costs more width than a two-digit one.
         func badge(_ item: OrganizeLens) -> Int? {
             item.badge(count: self[item])
         }
 
         /// What this item has to say, in the vocabulary ``RailItemState`` and
-        /// ``OrganizeOverviewState`` share.
-        ///
-        /// Rules and Storage answer `.configuration` ahead of everything else, and the `guard` is
-        /// the whole implementation: neither reports nor goes quiet, because both of those describe
-        /// a scan that ends in a count meaning "something needs you". Rules never runs one; Storage
-        /// runs one whose answer it has no verb to act on. That is the same distinction
-        /// ``OrganizeLens/carriesBadge`` already draws, said in the one place the item's whole
-        /// dress is decided — which is why folding Storage in needed no line here.
+        /// ``OrganizeOverviewState`` share. Rules and Storage answer `.configuration` first: neither
+        /// reports nor goes quiet, because both of those describe a scan ending in a count that
+        /// means "something needs you". It is the distinction ``OrganizeLens/carriesBadge`` draws.
         func state(_ item: OrganizeLens) -> RailItemState {
             guard item.carriesBadge else { return .configuration }
             if let badge = badge(item) { return .reporting(badge) }
             return hasScanned(item) ? .clean : .notScanned
         }
 
-        /// Whether "clean" is an honest claim for this item — **folded the same way the badge
-        /// is.** The subscript above sums `renames + names` for `.renames`, and the two halves
-        /// come from different flags: rename plans from the filing walk (`hasSuggestedFiling`)
-        /// and risky names from `detectRiskyNames` (`hasScannedNames`), which that walk runs only
-        /// when a name ruleset is supplied. Testing raw membership here let the two answers split:
-        /// a filing scan without the names half wore "nothing here" for a list nothing had
-        /// computed.
+        /// Whether "clean" is an honest claim for this item, folded the same way the badge is.
+        /// `.renames` sums rename plans (from the filing walk, `hasSuggestedFiling`) and risky
+        /// names (`hasScannedNames`, run only with a name ruleset), so "scanned" for it means
+        /// both halves ran. It may underclaim, never overclaim a clean bill.
         ///
-        /// So "scanned" for the folded item means **both halves ran**. The deliberate direction:
-        /// this can UNDERclaim — one half ran clean and the item still says "not scanned" — and
-        /// never OVERclaims a clean bill for a list never looked at.
+        /// This gate decides what a zero means; it never hides findings, because `state(_:)` answers
+        /// `.reporting` first. That ordering matters: `findFilingSuggestions` publishes risky names
+        /// and plans partway through its walk and sets `hasSuggestedFiling` only at the end, so
+        /// mid-scan (or after a cancel) the fold holds real findings while this is false.
         ///
-        /// **This gate decides what a ZERO means; it never decides whether findings are shown** —
-        /// `state(_:)` above answers `.reporting` before it asks. That ordering matters because
-        /// the two halves are genuinely apart for a stretch of every scan: `findFilingSuggestions`
-        /// publishes the risky names and the rename plans partway through its walk and only sets
-        /// `hasSuggestedFiling` at the end, so mid-scan — and permanently, if the user cancels
-        /// there — the fold holds real findings while this predicate is still false. (Tests reach
-        /// the same cell directly, and a partial clear reaches it too. The CLI does not: it calls
-        /// static helpers on `FileSyncManager` and never runs this scan at all.)
-        ///
-        /// `overviewModel`'s Renames arm asks the same two flags in the same order — findings
-        /// first, this gate only over a zero — so the rail and the overview cannot disagree about
-        /// it. `OrganizeOverviewWiringTests` asks both surfaces about that cell in one test,
-        /// because a pin on either alone stayed green while they disagreed.
+        /// `overviewModel`'s Renames arm asks the same flags in the same order, so the rail and the
+        /// overview can't disagree; `OrganizeOverviewWiringTests` checks both surfaces in one test.
         private func hasScanned(_ item: OrganizeLens) -> Bool {
             item == .renames
                 ? scanned.contains(.renames) && namesScanned
@@ -2028,20 +1573,15 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Whether each pass can answer about the subject `scope` describes — **one member, because the
-    /// rail and the overview must not disagree about it and already did.**
+    /// Whether each pass can answer about the subject `scope` describes. One member, so the rail
+    /// and the overview can't disagree about it.
     ///
-    /// The overview learned this question and the rail did not, so for one commit the rail drew a
-    /// quiet "checked, nothing here" badge for a subtree no pass had entered while the overview
-    /// beside it said the lens had never run. The rail's own `scanned` set carries a comment
-    /// promising the two use the same conditions; this is what makes that true again.
+    /// The subject is what the surface claims to describe: the scope when set, the provider
+    /// anchor otherwise. Never the scanned root, which would ask whether a scan covered itself.
     ///
-    /// **The subject is what the surface CLAIMS to describe** — the scope when set, the provider
-    /// root otherwise. Never the scanned root: that asks whether a scan covered itself.
-    ///
-    /// Names and Renames are absent on purpose. `detectRiskyNames` and `detectRenamePlans` are
-    /// handed the provider-wide taxonomy, so their findings cover any subject inside the provider
-    /// and a gate would only hide real work — see ``overviewModel``.
+    /// Names and Renames are absent on purpose: `detectRiskyNames` and `detectRenamePlans` get the
+    /// provider-wide taxonomy, so their findings cover any subject inside the provider, and a gate
+    /// would only hide real work. See ``overviewModel``.
     func passCoverage(for scope: OrganizeScope?) -> (filing: Bool, duplicates: Bool) {
         let subject = scope?.path ?? providerAnchor
         return (filing: OrganizeScopeFilter.looseFileScanCovers(
@@ -2050,25 +1590,17 @@ public struct LensWorkspaceView: View {
                     subject: subject, scannedRoot: syncManager.duplicateScanRoot))
     }
 
-    /// Internal, not private, for the same reason ``overviewModel`` is: `OrganizeOverviewWiringTests`
-    /// asserts what this actually hands the rail, and the render suite is handed its values rather
-    /// than computing them.
+    /// Internal, not private, like ``overviewModel``: `OrganizeOverviewWiringTests` asserts what
+    /// this hands the rail, and the render suite is handed its values rather than computing them.
     var railCounts: RailCounts {
-        // **The STORED scope, not the applied one, and this is the whole reason the two are
-        // separate.** `scope` answers "what is the list on screen narrowed by", which is nil while
-        // Rules is selected. The rail draws all six badges whatever is selected, so reading it here
-        // would take Duplicates from 27 back to 620 the moment you clicked Rules — the scope
-        // silently lifting off five lenses because a sixth does not use it. Each item is asked for
-        // its own scope, through the same `isScoped` rule the content card obeys.
-        // **`inside` only for restructure**: an ancestor finding is shown in the lens (labelled as
-        // being about the folder above) but must not swell the badge, which promises work *here*.
-        //
-        // Restructure used to return a hard 0 behind a comment saying the detectors had not landed.
-        // They had — `structureFindings` has been feeding the overview and the lens for some time —
-        // so the one lens whose badge could have announced a finding never did.
+        // The stored scope, not the applied one: `scope` is nil while Rules is selected, but the
+        // rail draws all six badges whatever is selected, so reading it would lift the scope off
+        // five lenses because a sixth doesn't use it. Each item asks for its own scope, through
+        // the `isScoped` rule the content card obeys. Restructure counts `inside` only: an
+        // ancestor finding is shown in the lens but must not swell a badge that promises work here.
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
-        // Memoised on everything below — see `railMemo`. These are five scoped passes over the
-        // manager's published lists, resolved once per body, and body runs on every publish.
+        // Memoised on everything below (see `railMemo`): five scoped passes over the manager's
+        // published lists, and body runs on every publish.
         let key = RailCountsKey(
             suggestions: syncManager.filingSuggestions,
             duplicates: syncManager.duplicateGroups,
@@ -2093,29 +1625,24 @@ public struct LensWorkspaceView: View {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
             renames: syncManager.renamePlans.count {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
-            // …and plan-bearing kinds only (§5.1): a badge you cannot drive to zero is a badge
-            // people stop reading, which is why an Ask, the crowding classes and the To File
-            // hand-off kinds do not count — the finding renders, the badge stays honest.
+            // Plan-bearing kinds only: a badge you can't drive to zero is one people stop reading,
+            // so an Ask, the crowding classes and the To File hand-off kinds don't count. The
+            // finding still renders.
             restructure: structureFindings.count {
                 $0.kind.carriesPlan
                     && OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
                                                     scope: appliedScope(for: .restructure)) == .inside
             },
-            // No scope test, because `appliedScope(for: .rules)` is always nil — a call written
-            // here would read like a live narrowing and be one that can never fire.
+            // No scope test, because `appliedScope(for: .rules)` is always nil; a call here would
+            // read like a live narrowing that can never fire.
             rules: syncManager.automationRules.count,
-            // Not a member of `scanned` below: the names half has no lens of its own to stand
-            // for it since the case was retired, and `hasScanned` needs BOTH halves before Renames
-            // may claim to be clean — a filing walk with no name ruleset computed only one.
+            // Not a member of `scanned` below: the names half has no lens of its own, and
+            // `hasScanned` needs both halves before Renames may claim to be clean.
             namesScanned: syncManager.hasScannedNames,
-            // The same conditions ``overviewModel`` uses, so the rail and the overview cannot
-            // disagree about whether a lens has run *here*. Rules is absent because it never scans.
-            //
-            // **"Has run" is not the same question as "has run where this badge is pointed."** A
-            // pass that ran over some other folder leaves these flags true forever, and reading
-            // them alone made the rail draw its quiet checked badge for a subtree nothing had
-            // looked at — the same claim the overview stopped making one commit earlier. Each
-            // item's own applied scope decides its subject, matching the counts above.
+            // The same conditions ``overviewModel`` uses, so the rail and the overview can't
+            // disagree about whether a lens has run here. Rules is absent because it never scans.
+            // "Has run" is not "has run where this badge points": a pass over another folder leaves
+            // the flags true, so each item's own applied scope decides its subject.
             scanned: {
                 var ran: Set<OrganizeLens> = []
                 // Provider-wide walks: their findings cover any subject inside the provider.
@@ -2133,24 +1660,18 @@ public struct LensWorkspaceView: View {
     }
 
     /// Organize's readout while the rename backlog is on screen: what the listed plans would do,
-    /// **in files**, since the chip beside it counts folders and nothing renames a folder.
-    ///
-    /// This is the answer to the one question "126 folders to rename" invites and cannot answer. A
-    /// backlog that size is overwhelmingly zero-padding, and `1,192 renames · 1,134 to pad` says so
-    /// at a glance where the chip alone reads as 126 unspecified changes.
-    ///
-    /// The headline is a `SummaryRun` and the kinds behind it are prose — see
-    /// ``RenameBacklogTally/breakdown`` for why a breakdown of one total must not be four more
-    /// badges beside it.
+    /// in files, since nothing renames a folder. A large backlog is mostly zero-padding, and
+    /// "1,192 renames · 1,134 to pad" says so at a glance. The headline is a `SummaryRun` and the
+    /// kinds behind it are prose; see ``RenameBacklogTally/breakdown`` for why.
     @ViewBuilder
     private func renameBacklogSummary(_ plans: [RenamePlan]) -> some View {
         let tally = RenameBacklogTally(plans)
         SummaryRun(count: tally.renames, label: tally.renames == 1 ? "rename" : "renames",
                    color: SemanticColor.info, systemImage: "pencil")
             .help("Every file the listed folders would rename — one undoable change per folder.")
-        // ``RenameBacklogTally/headerBreakdown``, not `breakdown` — the header's own shorter form.
-        // `breakdown` is the folder rows' string and stays theirs; this row cannot afford its
-        // 268.5pt beside a readout, a divider and two buttons. Same words, fewer of them.
+        // ``RenameBacklogTally/headerBreakdown``, the header's shorter form: `breakdown` is the
+        // folder rows' string, and too wide for this row beside a readout, a divider and two
+        // buttons.
         if !tally.headerBreakdown.isEmpty {
             Text(tally.headerBreakdown)
                 .scaledFont(.system(size: 11))
@@ -2158,59 +1679,34 @@ public struct LensWorkspaceView: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .fixedSize()
-                // **The tooltip is where the full census went, so it now leads with it.** The
-                // visible run collects "to name" and "to reshuffle" into one clause and drops the
-                // skips entirely, so this is the only place the exact four numbers are reachable
-                // without opening a folder — it stopped being a gloss and became the detail.
+                // The tooltip carries the full census: the visible run merges "to name" and "to
+                // reshuffle" and drops the skips, so this is the one place all four numbers show
+                // without opening a folder.
                 .help(tally.breakdown + ". "
                       + "“To pad” only adds a leading zero — “4. Apr 2021.pdf” becomes "
                       + "“04. Apr 2021.pdf”. “To name” gives a raw name a slot it did not have. "
                       + "“To reshuffle” moves an already-correct name to make room for one of them, "
                       + "and is the only kind here that touches a file that was already right. "
                       + "“Left alone” is what the pass declined to rename; open a folder to read why.")
-                // VoiceOver gets the census too: the collected clause is a width compromise, and
-                // a screen reader is not short of width.
+                // VoiceOver gets the census too: the merged clause is a width compromise, and a
+                // screen reader is not short of width.
                 .accessibilityLabel(tally.breakdown)
         }
     }
 
 
-    /// Row 2's trailing edge: a folder-memory survey's progress **while one is running**, then
-    /// "N of M" whenever this lens's list is narrowed, so a shortened list always reads as a
-    /// filtered view rather than as the whole result.
+    /// Row 2's trailing edge: a folder-memory survey's progress while one is running, "N of M"
+    /// whenever this lens's list is narrowed, then this lens's controls. The survey's progress is
+    /// prose, so it is here, not among row 1's fixed-width controls; its finished report lives
+    /// above its Rescan-menu item (``lastFolderSurveyNote``).
     ///
-    /// **The survey's progress is here rather than on row 1 because it is prose, and row 1 is
-    /// controls.** That is the card's own division — `lensSummary` says it for the readout — and
-    /// row 1 broke it: `folderMemoryStatus` sat between the rail and Rescan, so a sentence whose
-    /// length is a property of the last survey was competing with the buttons for the row.
-    ///
-    /// **Its finished report is on neither row now.** It cost this row 223pt permanently once a
-    /// survey had run, it was the only tenant the layout could shorten, and it is the only thing
-    /// that was ever here without being about the list on screen. It reports on a Rescan-menu item
-    /// and now sits above that item — see ``lastFolderSurveyNote``. What is left here is the
-    /// transient half, which costs the row nothing at rest.
-    ///
-    /// **M is the SCOPED list, not the whole tree.**
-    ///
-    /// This read `syncManager.duplicateGroups.count` and friends — the global lists — so under a
-    /// scope it said "3 of 722" about a lens holding 27. The denominator described a list the user
-    /// was not looking at, which is the exact dishonesty the scope exists to remove, restated in
-    /// the one readout whose whole job is to say how much the search is hiding.
-    ///
-    /// `counts` is the right denominator and costs nothing: it is the same scoped-but-unsearched
-    /// tally the rail badges use, already resolved once for this render. The relationship is
-    /// unchanged — N is the rows on screen, M is the list before the *transient* narrowing — only
-    /// the definition of "this list" now matches what the header claims above it.
-    ///
-    /// Storage is scoped like the rest since the fold; what is untouched is its row-2 tenancy —
-    /// the total/counts pills, Rescan and the search toggle sit in the same 81pt rung they
-    /// always did.
+    /// M is the scoped list, not the whole tree: `counts`, the same scoped-but-unsearched
+    /// tally the rail badges use. N is the rows on screen, M the list before the transient
+    /// narrowing.
     @ViewBuilder
     private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {
-        // Same gate the control had on row 1: the filing apparatus, once a scan has finished, and
-        // not while one is running. The status describes an action reachable only from the Rescan
-        // menu, which is drawn under exactly this condition — so moving the readout must not
-        // silently widen where it appears.
+        // The gate the Rescan menu is drawn under: the filing apparatus, once a scan has finished,
+        // and not while one runs. The status describes an action reachable only from that menu.
         if effectiveLens == .filing,
            !syncManager.isSuggestingFiles, syncManager.hasSuggestedFiling {
             folderMemoryStatus
@@ -2219,72 +1715,50 @@ public struct LensWorkspaceView: View {
             switch effectiveLens {
             case .duplicates: ofMLabel(rows.duplicates.count, counts.duplicates)
             case .filing where showingRenameBacklog:
-                // The backlog's own numbers, over **the whole backlog**. Left as the queue's, this
-                // said "3 of 24" about a list that is not on screen; left as `counts.renames` it
-                // then described two thirds of the one that is. The list draws folder plans *and*
-                // the folded to-fix names, the badge above counts both (`RailCounts.subscript`), so
-                // both ends of this readout count both: N is every row on screen and M is
-                // `counts[.renames]` — the badge's own number, reached by the same expression.
+                // Over the whole backlog: the list draws folder plans and the folded to-fix names,
+                // and the badge counts both (`RailCounts.subscript`). So N is every row on screen
+                // and M is `counts[.renames]`, the badge's own number by the same expression.
                 ofMLabel(rows.renames.count + rows.risky.count, counts[.renames])
             case .filing: ofMLabel(rows.filing.count, counts.toFile)
             case .automations: ofMLabel(rows.rules.count, counts.rules)
             case .storage:
-                // Absent before a report — see ``storageCounts``. There is no honest N and no
-                // honest M until the analysis has run.
+                // Absent before a report (see ``storageCounts``): there is no honest N or M until
+                // the analysis has run.
                 if let storage = storageCounts { ofMLabel(storage.filtered, storage.total) }
             }
         }
-        // **This lens's controls, at the end of row 2.** They were row 1's trailing half, opposite
-        // the rail, and the two could not both have it: the rail spells out at 693pt and To File's
-        // controls need 490, so row 1 wanted 1,183pt of card before it would show six names. Every
-        // window narrower than that got the glyph-only rail instead — which is most of them.
-        //
-        // Down here they cost the row nothing that competes with navigation, because what they sit
-        // beside is a readout about the list rather than six destinations that cannot shorten.
-        // **That was not always true and the difference is worth naming**: this row used to also
-        // carry the survey's finished report, and "prose that can shorten" described a sentence
-        // being shortened to `2713 folders c…` to make room. Prose that yields is not the same as
-        // a row that fits; the report moved to its own menu so this one fits. Row 1's reserve collapses to the search toggle alone, and the
-        // shed threshold with it — see ``OrganizeRailMetrics/searchToggleWidth``.
-        //
-        // The divider is what keeps the old objection answered. Controls were pulled OFF this row
-        // once because the readout and the buttons had become indistinguishable; the rule that
-        // settled it is prose on the leading side, controls on the trailing side, one hairline
-        // between. That rule is intact — the boundary is just back on this row rather than being a
-        // row break.
+        // This lens's controls, at the end of row 2. On row 1 they competed with the rail, which
+        // needs 693pt to spell out against To File's 490pt of controls, so most windows would get
+        // the glyph-only rail. Row 1's reserve is just the search toggle, and the shed threshold
+        // with it; see ``OrganizeRailMetrics/searchToggleWidth``. The divider keeps prose on the
+        // leading side and controls on the trailing side, so the two stay distinguishable.
         if hasRowTwoActions {
             summaryZoneDivider
             lensActions(rows: rows)
         }
     }
 
-    /// Whether this lens draws any control on row 2 — the gate on the divider, so a lens with no
-    /// actions does not draw a rule against nothing.
-    ///
-    /// Deliberately mirrors ``lensActions``'s own gates rather than asking whether it produced a
-    /// view: a `@ViewBuilder` cannot be asked whether it is empty, and a divider that appears
-    /// beside an empty band is exactly the "rule separating prose from the card edge" this file
-    /// already rejected once.
+    /// Whether this lens draws any control on row 2: the gate on the divider, so a lens with no
+    /// actions draws no rule against nothing. Mirrors ``lensActions``'s gates, because a
+    /// `@ViewBuilder` can't be asked whether it produced anything.
     private var hasRowTwoActions: Bool {
         switch effectiveLens {
         case .duplicates:
             return hasResults && !syncManager.isFindingDuplicates
         case .filing:
             guard !syncManager.isSuggestingFiles else { return false }
-            // **The same member ``lensActions`` draws from, not a hand-copy of its condition.**
-            // That is the whole point of ``showsFilingControl`` existing: this switch is otherwise
-            // a transcription of `lensActions`'s gates, and a transcription of a compound condition
-            // is how a divider comes to be drawn beside a control that is not there (or withheld
-            // from one that is). On the overview this clause is the only one that can be true.
+            // The same member ``lensActions`` draws from, not a copy of its condition: a copied
+            // compound condition is how a divider ends up beside a control that isn't there. On
+            // the overview this clause is the only one that can be true.
             if showsFilingControl { return true }
             switch organizeLens {
             case .toFile: return hasFilingResults
-            // Both halves: the to-fix rows are part of this list since the fold, so a backlog of
-            // nothing but risky names still has a row-two action.
+            // Both halves: the to-fix rows are part of this list, so a backlog of nothing but
+            // risky names still has a row-two action.
             case .renames:
                 return !syncManager.renamePlans.isEmpty || !syncManager.riskyNames.isEmpty
-            // `.storage` is unreachable here — its `searchLens` is `.storage`, so it leaves the
-            // outer switch one arm down. Written out because the arm must exist, not because it runs.
+            // `.storage` is unreachable here: its `searchLens` is `.storage`, so it leaves the
+            // outer switch one arm down. Written out because the arm must exist.
             case .none, .duplicates, .restructure, .rules, .storage: return false
             }
         case .automations:
@@ -2295,9 +1769,6 @@ public struct LensWorkspaceView: View {
     }
 
     /// The hairline between row 2's prose and row 2's controls.
-    ///
-    /// Named for the type that used to do this job before the controls moved up to row 1 and it was
-    /// deleted; it marks the same boundary for the same reason.
     private var summaryZoneDivider: some View {
         Rectangle()
             .fill(.quaternary)
@@ -2315,35 +1786,23 @@ public struct LensWorkspaceView: View {
             .accessibilityLabel("Showing \(shown) of \(total)")
     }
 
-    /// When an analysis ran, in the words the receipt uses.
+    /// When an analysis ran, in the receipt's words: a day, not a duration. A named day
+    /// ("Tuesday") is what someone matches against their memory of when they last looked; past a
+    /// week it falls back to a date.
     ///
-    /// **A day, not a duration.** "3 days ago" is what a freshness badge says about a scan you are
-    /// deciding whether to re-run; this line is provenance on a report that has no staleness rule
-    /// of its own, and a named day ("Tuesday") is what someone matches against their own memory of
-    /// when they last looked. Older than a week it falls back to a date, because "Tuesday" three
-    /// weeks on is worse than useless.
-    /// **Both formatters are cached.** `DateFormatter` is expensive to construct, and this runs
-    /// from `overviewModel`, which rebuilds on every state change the landing page observes — so a
-    /// per-call formatter is a real allocation on a per-`body` path. Same reason
-    /// `OrganizeRailMetrics` tabulates its glyph widths rather than measuring them each time.
-    ///
-    /// Both re-check the system zone on every use rather than capturing it — see
-    /// `ZoneRefreshedFormatter`. The weekday goes through `template` rather than a literal `EEEE`
-    /// so the name stays the reader's: the two render identically in en_US, fr_FR, de_DE, ja_JP
-    /// and hi_IN, which is what made the swap safe.
+    /// Both formatters are cached: `DateFormatter` is expensive to build and this runs from
+    /// `overviewModel`, on a per-`body` path. Both re-check the system zone on every use (see
+    /// `ZoneRefreshedFormatter`). The weekday goes through `template`, not a literal `EEEE`, so
+    /// the name follows the reader's locale.
     private static let receiptWeekday = ZoneRefreshedFormatter.template("EEEE")
     private static let receiptDate = ZoneRefreshedFormatter.localized(date: .medium, time: .none)
 
-    /// Storage's Overview headline: the whole tree's numbers, never the lists' lengths.
+    /// Storage's Overview headline: the whole tree's numbers, never the lists' lengths. The ranked
+    /// lists are capped at 20 rows, so counting them would read "20 large · 20 untouched" for
+    /// nearly every tree; the report carries totals counted before the cap. "Files", not "large":
+    /// the largest-files list has no threshold, so its only true count is how many files there are.
     ///
-    /// It used to count the three ranked lists, which are each capped at the first 20 rows — so
-    /// nearly every tree read "20 large · 20 untouched", and "reclaimable" summed only the first 20
-    /// candidates. The report now carries the totals counted before the cap, and this reads them.
-    /// "Files" where it said "large": the largest-files list has no size threshold — it is the top
-    /// of every file — so the only true count behind it is how many files there are.
-    ///
-    /// A report saved before 6.1 has no totals; its lists are capped like any other, so it gives
-    /// the size it does know and asks for a rescan rather than counting the lists again.
+    /// An older saved report has no totals, so this gives the size it knows and asks for a rescan.
     static func storageReceiptHeadline(_ report: StorageLensReport) -> String {
         let total = "\(FileSyncManager.formatBytes(report.totalBytes)) total"
         guard let files = report.fileCount, let untouched = report.staleCount,
@@ -2358,12 +1817,8 @@ public struct LensWorkspaceView: View {
 
     static func receiptDay(_ date: Date, now: Date = Date()) -> String {
         let calendar = Calendar.current
-        // **Every comparison is against the injected `now`, including today and yesterday.**
-        // `Calendar.isDateInToday` asks the SYSTEM clock, which ignores the parameter entirely —
-        // so with an injected `now` the two nearest cases silently fell through to the weekday
-        // branch and a report analyzed "today" rendered as "Tuesday". The seam existed and was
-        // half-used, which is the worst of both: a test that injects a clock proves nothing about
-        // the branches that do not read it.
+        // Every comparison is against the injected `now`, including today and yesterday:
+        // `Calendar.isDateInToday` reads the system clock and would ignore the parameter.
         let start = calendar.startOfDay(for: date)
         let today = calendar.startOfDay(for: now)
         let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
@@ -2376,16 +1831,11 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private func lensBody(rows: FilteredRows, counts: RailCounts, scopeFolders: Int?) -> some View {
         Group {
-            // **Keyed on the RAIL, not the workspace's apparatus.** This read `lens == .storage`
-            // while Storage was a workspace; the fold makes `lens` always `.filing` inside
-            // Organize, so the same test would now be false on every page and Storage would render
-            // the ordinary lens content card. The fork itself survives unchanged — it was always
-            // between a lens and its content, never between a workspace and its content, which is
-            // exactly why the move cost it nothing.
+            // Keyed on the rail, not the workspace's apparatus: inside Organize `lens` is always
+            // `.filing`, so `lens == .storage` would never be true here.
             if organizeLens == .storage {
-                // Storage, as a read-only lens: it brings its own CONTENT card (its toolbar card is
-                // gone — the shared header above replaced it), so it renders in place of the lens
-                // content card.
+                // Storage, as a read-only lens: it brings its own content card (the shared header
+                // above stands in for its toolbar), so it renders in place of the lens content card.
                 StorageLensView(
                     syncManager: syncManager,
                     providerName: providerName,
@@ -2406,27 +1856,23 @@ public struct LensWorkspaceView: View {
     // MARK: Row-exit motion (H4)
 
     /// The removal transition for the card lists: rows slide out to the leading edge and fade, so a
-    /// destructive or moving action reads as a thing that happened rather than a silent swap. Insertion
-    /// stays `.identity` — freshly scanned cards should just be there, not animate in.
+    /// destructive or moving action reads as something that happened, not a silent swap. Insertion
+    /// stays `.identity`: freshly scanned cards should just be there.
     private var cardRemoval: AnyTransition {
         .asymmetric(insertion: .identity,
                     removal: .opacity.combined(with: .move(edge: .leading)))
     }
 
-    /// The animation that settles the list as a row leaves — nil under Reduce motion, which restores
-    /// today's instant swap (the `.transition` only fires inside an animated transaction).
+    /// The animation that settles the list as a row leaves. nil under Reduce motion, for an instant
+    /// swap (the `.transition` only fires inside an animated transaction).
     private var listSettle: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.22)
     }
 
-    /// The membership token the card lists animate on.
-    ///
-    /// The lists want to animate exactly when their row IDENTITIES change — not when a keeper pick
-    /// or an expand/collapse rewrites a row in place. Both call sites expressed that as
-    /// `value: rows.map(\.id)`, which is correct and allocates a fresh array of every id on every
-    /// render just to be compared and thrown away. This compares the same thing over the array the
-    /// view is already holding: no allocation, and the count check settles the common case before
-    /// a single id is looked at.
+    /// The membership token the card lists animate on: they animate when row identities change,
+    /// not when a keeper pick or an expand/collapse rewrites a row in place. Compares the ids of
+    /// the array the view already holds, so nothing is allocated per render, and the count check
+    /// settles the common case first.
     struct RowIdentities<Row: Identifiable>: Equatable where Row.ID: Equatable {
         let rows: [Row]
 
@@ -2441,8 +1887,8 @@ public struct LensWorkspaceView: View {
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
 
-    /// Re-reads the recorded cloud spend. See ``spendLast`` for why it is read here rather than in
-    /// `body`, and for the three moments this is called from.
+    /// Re-reads the recorded cloud spend. See ``spendLast`` for why it is cached, and the three
+    /// moments this is called from.
     private func refreshFilingSpend() {
         spendLast = FilingSpendStore.last()
         spendTotals = FilingSpendStore.totals()
@@ -2463,11 +1909,9 @@ public struct LensWorkspaceView: View {
         .scaledFont(.system(size: 11))
         .foregroundStyle(.secondary)
     }
-    /// "File all N confident", scoped to the FILTERED rows.
-    ///
-    /// `batch` is derived from the rows on screen and used for BOTH the count in the label and the
-    /// collection the action files — one value, passed to `applyRecommendedFiling`, which requires
-    /// it. A query leaving 3 of 12 makes this read "File all 3 confident" and file exactly those.
+    /// "File all N confident", scoped to the filtered rows. `batch` comes from the rows on screen
+    /// and is both the label's count and what `applyRecommendedFiling` files, so a query leaving
+    /// 3 of 12 reads "File all 3 confident" and files exactly those.
     @ViewBuilder
     private func fileAllButton(_ filing: [FilingSuggestion]) -> some View {
         let batch = filing.filter { $0.isBatchEligible }
@@ -2487,34 +1931,20 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// "Refine N with Opus" — Organize's opt-in second pass.
+    /// "Refine N with Opus", Organize's opt-in second pass. The scan was free and on-device; this
+    /// is the only control in the lens that can spend money, so it names the model and the file
+    /// count, and the click raises the spend pre-flight with a real estimate. No price here: the
+    /// estimate needs the taxonomy and the token count, which only the pre-flight has.
     ///
-    /// The scan that produced these rows was free and on-device. This is the only control in the
-    /// lens that can spend money, and it says so three ways before it does: it names the model it
-    /// will use, it names how many files it will send, and the click itself raises the existing
-    /// spend pre-flight with a real estimate. Nothing here quotes a price — the estimate needs the
-    /// taxonomy and the token count, which the pre-flight has and a toolbar button does not, and a
-    /// figure invented here would be the one the user remembered.
+    /// `scope` is the filtered rows and the count comes from it, as in `fileAllButton`: a paid
+    /// action must send exactly what it counted.
     ///
-    /// `scope` is the FILTERED rows, and the count is derived from it, for the same reason
-    /// `fileAllButton` does it: a paid action must send exactly what it counted. A query leaving
-    /// 3 of 12 makes this read "Refine 3 with Opus" and send exactly those three.
-    ///
-    /// When cloud isn't set up the button becomes the invitation instead — same slot, same words
-    /// up to the ellipsis, opening Settings ▸ Organize. Hiding it there would mean the better
-    /// answer is only discoverable by someone who already knew to go looking in Settings.
-    ///
-    /// **The branch is `filingCloudRefineAvailable` — is a key stored, not the cloud toggle.**
-    /// With cloud switched on and nothing stored, a toggle-based branch put "Refine 2 with Opus"
-    /// on a button that would run the same on-device model the scan already ran. The invitation is
-    /// the correct control for that state: it opens the Settings tab holding the missing key row.
-    /// It is deliberately NOT the resolved route — that answer costs a Keychain decrypt, and this
-    /// is read on every render including every keystroke in the search field.
-    ///
-    /// **Shown only when it could actually run** (`canRefineFilingSuggestions`), with the
-    /// in-flight case as the one exception, since that property goes false while a pass runs.
-    /// Without the check, switching off on-device AI left a permanently disabled button behind,
-    /// wearing a tooltip that promised to re-ask Claude.
+    /// Without cloud set up the button becomes the invitation, in the same slot, opening Settings.
+    /// The branch is `filingCloudRefineAvailable` (is a key stored), not the cloud toggle, which
+    /// with no key would label an on-device rerun "with Opus"; and not the resolved route, which
+    /// costs a Keychain decrypt on every render. Shown only when it could run
+    /// (`canRefineFilingSuggestions`) or while a pass is in flight, so switching off on-device AI
+    /// doesn't leave a permanently disabled button.
     @ViewBuilder
     private func refineButton(_ scope: [FilingSuggestion]) -> some View {
         let canRun = syncManager.canRefineFilingSuggestions || syncManager.isRefiningFilingSuggestions
@@ -2534,8 +1964,8 @@ public struct LensWorkspaceView: View {
                 .buttonStyle(.bordered)
                 .chromeHover()
                 .controlSize(.small)
-                // `canRefineFilingSuggestions` is false while a pass runs — it reads the same
-                // in-flight token — so this is the whole condition, not half of it.
+                // `canRefineFilingSuggestions` is false while a pass runs (it reads the same
+                // in-flight token), so this is the whole condition.
                 .disabled(!syncManager.canRefineFilingSuggestions)
                 .help(refineButtonHelp(count: batch.count))
             } else if syncManager.filingSuggestionsHiddenFromClaude(scope) > 0 {
@@ -2561,15 +1991,15 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The model id a refine pass would name — the Settings picker's value, resolved the same way
-    /// `CloudFilingClassifier` resolves it so the button cannot name one model and send another.
+    /// The model id a refine pass would name: the Settings picker's value, resolved as
+    /// `CloudFilingClassifier` resolves it, so the button can't name one model and send another.
     private var refineModelName: String {
         CloudFilingProtocol.currentModel(for: filingCloudModel)
     }
 
-    /// Split out of the `.help` modifier, not for tidiness: inline, the interpolation plus the
-    /// pluralization plus the `isFiltered` branch put the whole `Button` expression past what the
-    /// type-checker will solve in reasonable time, and the build fails with no other diagnostic.
+    /// Split out of the `.help` modifier because inline, the interpolation, pluralization and
+    /// `isFiltered` branch push the `Button` expression past what the type-checker solves in
+    /// reasonable time, and the build fails with no other diagnostic.
     private func refineButtonHelp(count: Int) -> String {
         let model = FilingSpendFormat.model(refineModelName)
         let files = count == 1 ? "1 suggestion" : "\(count) suggestions"
@@ -2584,15 +2014,15 @@ public struct LensWorkspaceView: View {
     static let allHiddenFromClaudeHelp = "Every file listed is hidden from Claude, so Refine has "
         + "nothing it may send. Settings ▸ Ask Claude holds the Hidden from Claude list."
 
-    /// Runs the refine pass over `scope`, which the pass filters itself. Unstructured on purpose:
-    /// this is a user-initiated round trip that must survive the view re-rendering underneath it
-    /// (the manager republishes the suggestions when it lands), and the manager's own in-flight
-    /// token — not this Task — is what makes a second click a no-op.
+    /// Runs the refine pass over `scope`, which the pass filters itself. An unstructured Task on
+    /// purpose: the round trip must survive the view re-rendering underneath it (the manager
+    /// republishes the suggestions when it lands), and the manager's in-flight token, not this
+    /// Task, makes a second click a no-op.
     private func refineFilingSuggestions(_ scope: [FilingSuggestion]) {
         guard !scope.isEmpty else { return }
         Task {
             await syncManager.refineFilingSuggestions(scope)
-            // The pass may have spent; the spend row above the list reads from a cached snapshot.
+            // The pass may have spent; the spend row reads from a cached snapshot.
             refreshFilingSpend()
         }
     }
@@ -2607,25 +2037,14 @@ public struct LensWorkspaceView: View {
         URL(fileURLWithPath: p).standardizedFileURL.path
     }
 
-    /// True once the focused pane has moved away from **the subject** — the cue to offer re-aiming
-    /// at the new folder.
+    /// True once the focused pane has moved away from the subject: the cue to offer re-aiming
+    /// at the new folder. The subject is the scope when there is one, else the lens's scanned root,
+    /// because with a scope set the scan root is just how the answer was computed. Storage follows
+    /// the same rule.
     ///
-    /// Measured against the scope when there is one, and against the lens's own scanned root when
-    /// there is not. That swap is the point: with a scope set, the scan root is an implementation
-    /// detail of how the answer was computed, while the scope is what the answer is *about*, so
-    /// "have you wandered off?" is a question about the scope.
-    ///
-    /// **Browsing never moves the scope on its own** — this only decides whether to *offer*. It is
-    /// the offer that `targetMoved` always was; what changed is that accepting it now re-aims
-    /// everything rather than quietly re-rooting one lens.
-    /// **Storage used to be excluded here and is not any more** (Decision B). The exclusion read
-    /// "it is a workspace of its own, and Organize's subject is not its subject"; since the fold
-    /// Organize's subject IS its subject, so the scope decides when Storage offers to re-analyze
-    /// exactly as it does for the other five.
-    ///
-    /// `rootFallback` is the third rung of ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``
-    /// — see there for why an unscoped, unscanned Organize is answering about the provider root
-    /// rather than about nothing.
+    /// Browsing never moves the scope on its own: this only decides whether to offer.
+    /// `rootFallback` is the third rung of ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``;
+    /// see there for why an unscoped, unscanned Organize answers about the provider root.
     private func targetMoved(from scannedRoot: String?, rootFallback: String? = nil) -> Bool {
         OrganizeAim.paneMovedAway(paneFolder: scanTargetFolder,
                                   scope: scope,
@@ -2634,21 +2053,16 @@ public struct LensWorkspaceView: View {
     }
 
     /// A rescan button that becomes a prominent "Organize '<folder>'" once the user has navigated
-    /// away, so navigate-then-re-aim is one obvious click. Shared shape for both lenses.
+    /// away, so navigate-then-re-aim is one click. Shared by the lenses.
     ///
-    /// **The two branches are different verbs now, and they take different actions.** Rescan
-    /// re-runs the current subject's scan and must leave the scope exactly where it is. The moved
-    /// branch is the user pointing somewhere new, so it goes through `reaim`, which sets the scope
-    /// first. Sharing one action between them — which is how this started — meant a plain Rescan
-    /// while scoped to `Legal` from a pane sitting elsewhere would silently drag the scope along.
+    /// The two branches are different verbs with different actions. Rescan re-runs the current
+    /// subject's scan and must leave the scope where it is; the moved branch points somewhere new
+    /// through `reaim`, which sets the scope first. One shared action would let a plain Rescan drag
+    /// the scope to wherever the pane happens to be.
     ///
-    /// `movedTitle` overrides the moved branch's Organize wording — and with it the
-    /// ``reaimClearsScope`` swap, whose label and help both describe *scope* semantics. Storage
-    /// passes one because it participates in none of that: it is a workspace of its own, its
-    /// `reaim` is a plain re-analyze, and the shared wording had it promising `Organize "X"` —
-    /// or, at the provider root, "clears the scope" — for a click that touches no scope at all.
-    /// The action was right and the words lied, and browsing (which now moves the target on every
-    /// column click) surfaced that label constantly.
+    /// `movedTitle` overrides the moved branch's Organize wording, and with it the
+    /// ``reaimClearsScope`` swap, whose label and help describe scope semantics. Storage passes one
+    /// because its `reaim` is a plain re-analyze that touches no scope.
     @ViewBuilder
     private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool,
                               action: @escaping () -> Void, reaim: @escaping () -> Void,
@@ -2677,86 +2091,42 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Whether re-aiming at the pane's folder would **clear** the scope rather than set one.
-    ///
-    /// True exactly when the pane sits at the provider root, because that is what
-    /// ``OrganizeScope/init(path:providerRoot:)`` normalizes to the global view.
-    ///
-    /// **Found by installing the build and looking at it**, not by any test here. Scoped to `Legal`
-    /// with the pane at the provider root, the button read `Organize "Documents"` and its tooltip
-    /// promised "Every lens narrows to it" — while clicking it widens to the whole tree. The
-    /// action was right and only the words were wrong, which is the kind of defect a green suite
-    /// is least likely to notice: nothing misbehaves, the label just lies about which direction
-    /// the click goes.
+    /// Whether re-aiming at the pane's folder would clear the scope rather than set one: true
+    /// exactly when the pane sits at the provider root, which
+    /// ``OrganizeScope/init(path:providerRoot:)`` normalizes to the global view. Without it the
+    /// button would read `Organize "Documents"` and promise to narrow while the click widens.
     private var reaimClearsScope: Bool {
         guard let target = scanTargetFolder, !target.isEmpty,
               let providerRoot, !providerRoot.isEmpty else { return false }
         return OrganizeScope(path: target, providerRoot: providerRoot) == nil
     }
 
-    /// Re-aims Organize at the focused pane's folder: set the scope, then scan.
-    ///
-    /// Routed through ``setScope(_:)``, so pointing at the provider root clears the scope instead
-    /// of setting one — navigating to the top of the tree and clicking is therefore also how you
-    /// get back to the global view. ``reaimClearsScope`` is what makes the button say so.
+    /// Re-aims Organize at the focused pane's folder: set the scope, then scan. Routed through
+    /// ``setScope(_:)``, so at the provider root it clears the scope, which is also how you get
+    /// back to the global view. ``reaimClearsScope`` makes the button say so.
     private func reaimAtScanTarget(then scan: @escaping () -> Void) {
         setScope(scanTargetFolder)
         scan()
     }
 
-    /// What the folder-memory re-survey is doing **while it is doing it**. Row 2 — see
-    /// ``lensTrailing(rows:counts:)``.
+    /// What the folder-memory re-survey is doing while it is doing it, on row 2 (see
+    /// ``lensTrailing(rows:counts:)``). The commonest outcome is that nothing changed, so without
+    /// a spinner that appears, names the work and stops, the menu item would look broken.
     ///
-    /// **The commonest outcome is that nothing changed, and that has to be visible.** A menu item
-    /// that reads a few folder mtimes and writes nothing looks broken otherwise — the user clicks
-    /// it, the tree is already current, and there is no evidence it ran at all. That is why this
-    /// exists, and the argument is entirely about the seconds *after the click*: a spinner that
-    /// appears, names what it is doing, and stops is the evidence. It is not an argument for
-    /// renting the row permanently afterwards.
+    /// The finished report lives at the control it describes (``lastFolderSurveyNote``), not here:
+    /// it is long prose, it would stay all session, and it isn't about the list on screen.
     ///
-    /// ## Why the FINISHED report is no longer here
-    ///
-    /// It used to be this property's second branch, and it was the single most expensive thing on
-    /// row 2 — `FilingSurveyReport.summary` is prose whose length is a property of the last survey
-    /// ("12 folders changed, 340 documents read, 8 followed a move, 3 left the tree, 5 not
-    /// downloaded yet." is 485pt of caption), it stayed for the rest of the session once one
-    /// survey had run, and it was the ONLY tenant of the row the layout was willing to shorten.
-    /// Measured on the Renames lens at the default text size, row 2 wanted **867.2pt** of content
-    /// against **654.1** for row 1 — so the row that has a width model to protect it was never the
-    /// binding one, and the row without a model resolved the overrun the way SwiftUI always does:
-    /// it cut the sentence to `2713 folders c…` and then clipped the readout beside a destructive
-    /// button.
-    ///
-    /// The deciding fact is not the width, though. **It is the only thing on this row that is not
-    /// about the list you are looking at** — it is the receipt for *Refresh what’s learned*, an item
-    /// inside the Rescan menu, and on Renames it sits beside a rename backlog it has nothing to
-    /// say about. So it now lives at the control it describes: see ``lastFolderSurveyNote``, which
-    /// puts it above that menu item where it is read in the same gesture that would run it again.
-    /// Row 2 keeps the branch that is genuinely transient, and keeps it at no resting cost.
-    ///
-    /// ## The two modifiers below are insurance, and today they are inert
-    ///
-    /// Both were mutation-tested and survived, which is worth recording rather than leaving as an
-    /// implied claim:
-    ///
-    /// - **`lineLimit(1)`** — deleting it changes no pixel. Row 2 is a fixed 22pt
-    ///   (``LensHeaderMetrics/summaryRow``), and a `Text` proposed that height has room for one
-    ///   caption line, so it truncates whatever this says. It is the modifier that matters if the
-    ///   line ever moves to a taller row, and it is cheap to keep saying.
-    /// - **`layoutPriority(-1)`** — deleting it changes no pixel either. The row's other tenants
-    ///   are the readout and the "N of M" count, and both are `.fixedSize()`, so this is already
-    ///   the only compressible thing on the row. It is the right *statement* regardless — those
-    ///   describe the list and this describes a menu action — and it is what keeps that true if
-    ///   either sibling ever stops being fixed-size.
+    /// `lineLimit(1)` and `layoutPriority(-1)` are insurance. Row 2's fixed 22pt height
+    /// (``LensHeaderMetrics/summaryRow``) and its `.fixedSize()` siblings make both inert today;
+    /// they keep this line truncating first if the row grows or a sibling stops being fixed-size.
     @ViewBuilder
     private var folderMemoryStatus: some View {
         if let status = syncManager.filingSurveyLifecycle.status,
            syncManager.filingSurveyLifecycle.isRunning {
             HStack(spacing: 5) {
                 InlineSpinner()
-                // **`scaledFont`, not `font`.** Row 2's tenants all scale — `SummaryRun` and
-                // `ofMLabel` both take `scaledFont` — so an unscaled caption beside them reads as a
-                // bug at `.extraLarge`: the numbers grow and the sentence explaining them does not.
+                // `scaledFont`, not `font`: row 2's other tenants scale, so an unscaled caption
+                // beside them would stay small at `.extraLarge` while the numbers grow.
                 Text(status).scaledFont(.caption).lineLimit(1)
             }
             .foregroundStyle(.secondary)
@@ -2764,81 +2134,49 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The last folder-memory survey's result, as the note above the menu item that produces it.
-    ///
-    /// This is where ``folderMemoryStatus``'s finished branch went, and the placement is the point:
-    /// a receipt belongs at the act it is a receipt for. Reading it takes the same click that would
-    /// run the survey again, so the question it answers — "did that do anything, and should I run
-    /// it?" — is answered exactly where it is asked, instead of on a row shared with a rename
-    /// backlog it says nothing about.
-    ///
-    /// Drawn as a `Section` header over the item rather than as a disabled row, so it reads as the
-    /// state of that control instead of as a second thing you might be able to click.
-    ///
-    /// `foldersLearned` rides along here for the same reason it used to ride in the row's tooltip:
-    /// it is the standing fact the survey maintains, and a menu has the room for both where a 22pt
-    /// row had it for neither.
+    /// The last folder-memory survey's result, as the note above the menu item that produces it,
+    /// so "did that do anything, and should I run it?" is answered where it is asked. A `Section`
+    /// header rather than a disabled row, so it reads as that control's state, not something to
+    /// click. `foldersLearned` rides along: it is the standing fact the survey maintains.
     private var lastFolderSurveyNote: String? {
         syncManager.filingSurveyReport.map(FolderSurveyNote.text(for:))
     }
 
-    /// Whether the pane sits somewhere other than what Organize is answering about.
-    ///
-    /// One expression, read twice — by ``rescanFilingButton`` to pick its branch and by
-    /// ``showsFilingControl`` to decide whether to draw the control at all. Split out because those
-    /// two must agree: a gate that says "no control" while the button would have drawn its moved
-    /// branch is exactly the state that was reported, and inlining the condition twice is how they
-    /// drift back apart.
+    /// Whether the pane sits somewhere other than what Organize is answering about. Read by
+    /// ``rescanFilingButton`` to pick its branch and by ``showsFilingControl`` to decide whether to
+    /// draw the control at all; one expression so the two can't drift apart.
     private var filingTargetMoved: Bool {
         targetMoved(from: syncManager.filingScanFolder, rootFallback: providerAnchor)
     }
 
-    /// Whether To File's setup card is the thing on screen — the pre-scan state that carries its
-    /// own folder-named invitation ("File loose files in Insurance", with a Start button).
-    ///
-    /// **Only To File has one.** `contentCard` routes the other `.filing` rail items elsewhere: the
-    /// overview to `organizeOverview`, Restructure to a lens whose empty state points at Settings
-    /// rather than at a scan, and Renames to a `RenamePassLens` — which has carried its own setup
-    /// card since P12, gated separately. So this is a question about one lens, not a general "is
-    /// something else inviting you" predicate.
+    /// Whether To File's setup card is on screen: the pre-scan state with its own folder-named
+    /// invitation ("File loose files in Insurance", with a Start button). Only To File has one;
+    /// `contentCard` sends the overview, Restructure and Renames (`RenamePassLens`, with its own
+    /// setup card) elsewhere.
     private var filingIntroOwnsInvitation: Bool {
         organizeLens == .toFile && !syncManager.hasSuggestedFiling
     }
 
-    /// Whether the filing control is drawn at all — **the one gate, read by both places that must
-    /// agree about it** (``lensActions`` draws it, ``hasRowTwoActions`` decides whether row 2 gets
-    /// its hairline).
+    /// Whether the filing control is drawn at all: the one gate both ``lensActions`` and
+    /// ``hasRowTwoActions`` read. Two clauses, for two different buttons:
     ///
-    /// Two clauses, and they are two different buttons:
+    /// - `hasSuggestedFiling` is Rescan's: a rescan with nothing to re-scan makes no sense.
+    /// - `filingTargetMoved` is the moved branch's, which aims Organize at the browsed folder and
+    ///   then scans. Someone who has never scanned wants that, so it can't share Rescan's gate.
     ///
-    /// - `hasSuggestedFiling` is *Rescan*'s condition and is exactly right for it: a rescan with
-    ///   nothing to re-scan describes something that never happened.
-    /// - `filingTargetMoved` is the *moved* branch's, which is not a rescan — it points Organize at
-    ///   the folder you are browsing and then scans. Someone who has never scanned wants that, so
-    ///   it cannot inherit Rescan's gate; sharing one meant the only way to aim Organize from its
-    ///   own header was to have already aimed it.
-    ///
-    /// **And the moved branch stands down where the intro card is already asking.** Before the
-    /// first scan To File shows a large "File loose files in Insurance" card naming the same folder
-    /// — two invitations to the same place, one of which also moves the scope, is the
-    /// words-nearly-agree-actions-differ shape this file keeps having to remove. The rule the old
-    /// gate encoded ("before the first scan the intro state owns the invitation") was right about
-    /// To File all along; it was wrong only about the **four** places that reach this gate with no
-    /// intro to own it — the overview, Renames and Restructure through `.filing`, and Names through
-    /// `.rename`. Duplicates and Rules never read this: their apparatus arms are their own.
+    /// The moved branch stands down where To File's intro card already invites a scan of the same
+    /// folder: two invitations to one place, only one of which moves the scope, would disagree.
+    /// The overview, Renames and Restructure have no intro, so they keep it. Duplicates and Rules
+    /// never read this.
     private var showsFilingControl: Bool {
         guard !syncManager.isSuggestingFiles else { return false }
         return syncManager.hasSuggestedFiling || (filingTargetMoved && !filingIntroOwnsInvitation)
     }
 
-    /// Organize's rescan, with the ignore-saved-suggestions variant hung off it.
-    ///
-    /// A split control rather than a second button: rescanning is the common act and asking afresh
-    /// is the exception, so the exception belongs one click deeper — and, on the cloud backend,
-    /// it is the one that spends money, which is not something to put under an identical-looking
-    /// button beside the free one. When the user has navigated away the control becomes the
-    /// prominent "Scan '<folder>'" call to action instead, where a menu would only be in the way:
-    /// there are no saved suggestions for a folder that has not been scanned yet.
+    /// Organize's rescan, with the ignore-saved-suggestions variant hung off it. A split control,
+    /// because asking afresh is the exception and, on the cloud backend, the one that spends money:
+    /// it shouldn't look identical to the free one. When the user has navigated away it becomes the
+    /// prominent "Scan '<folder>'" instead; a folder not yet scanned has no saved suggestions.
     @ViewBuilder
     private var rescanFilingButton: some View {
         if filingTargetMoved {
@@ -2858,16 +2196,15 @@ public struct LensWorkspaceView: View {
                 .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
                 if let onUpdateFolderMemory {
                     Divider()
-                    // The last survey's result sits above the item that produced it — see
-                    // ``lastFolderSurveyNote``. Absent before the first survey, when there is no
-                    // result to report and a header saying so would be noise.
+                    // The last survey's result sits above the item that produced it; see
+                    // ``lastFolderSurveyNote``. Absent before the first survey.
                     Section {
                         Button {
                             onUpdateFolderMemory()
                         } label: {
-                            // **The object stays here.** On a card the title above supplies it;
-                            // in a menu, beside "Ignore saved suggestions", a bare "Refresh" names
-                            // nothing. Same rule `rescanAccessibilityLabel` applies for VoiceOver.
+                            // The object stays in the title: in a menu beside "Ignore saved
+                            // suggestions", a bare "Refresh" names nothing. Same rule
+                            // `rescanAccessibilityLabel` applies for VoiceOver.
                             Label("Refresh What’s Learned", systemImage: "brain")
                         }
                         .disabled(syncManager.filingSurveyLifecycle.isRunning)
@@ -2893,15 +2230,11 @@ public struct LensWorkspaceView: View {
     }
 
     private var rescanDuplicatesButton: some View {
-        // This button re-aims the whole workspace too, so it takes the same third rung. It is inert
-        // here in practice — the control is gated on `hasResults`, and groups are published with
-        // `duplicateScanRoot` — so this buys consistency of the *rule*, not a behaviour change.
-        //
-        // It does NOT make the two Organize buttons agree about the subject, and cannot: this one's
-        // second rung is `duplicateScanRoot` and filing's is `filingScanFolder`, so with only one
-        // of the two scans run they genuinely answer about different folders. That is a property of
-        // per-lens scan roots, which the scope exists to override; it is not something a fallback
-        // rung can fix.
+        // This button re-aims the whole workspace too, so it takes the same third rung. Inert in
+        // practice (it is gated on `hasResults`, and groups come with `duplicateScanRoot`); it keeps
+        // the rule consistent. It can't make the two Organize buttons agree on a subject: this
+        // one's second rung is `duplicateScanRoot` and filing's is `filingScanFolder`, which is
+        // what the scope exists to override.
         rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot,
                                         rootFallback: providerAnchor),
                      movedIcon: "wand.and.stars", disabled: syncManager.isFindingDuplicates,
@@ -2911,13 +2244,10 @@ public struct LensWorkspaceView: View {
                          + "focused above. Every lens narrows to it.")
     }
 
-    /// A leading chip naming the folder a lens's current results were **scanned from**.
-    ///
-    /// Distinct from the scope chip and it must stay distinct: the scope is the subject the user
-    /// chose, this is the root a particular scan actually walked. They coincide most of the time
-    /// and the sites below draw this one only when they do not, or when it means something the
-    /// scope cannot say. `help` is required rather than defaulted so no call site can leave two
-    /// folder chips on one row explaining nothing.
+    /// A leading chip naming the folder a lens's current results were scanned from. Distinct
+    /// from the scope chip: the scope is the subject the user chose, this is the root a scan
+    /// walked. Call sites draw it only when the two differ or it says something the scope can't.
+    /// `help` is required so no call site leaves two folder chips on a row explaining nothing.
     @ViewBuilder
     private func scannedFolderChip(_ root: String?, help: String) -> some View {
         if let root {
@@ -2926,28 +2256,24 @@ public struct LensWorkspaceView: View {
                 .scaledFont(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                // A provenance claim you cannot read is worse than one that pushes a readout:
-                // this truncated to "Docum…" at Documents scale while the pills kept full
-                // width. Readouts yield first (the workspace-bar shedding rule).
+                // A provenance claim you can't read is worse than one that pushes a readout, so
+                // readouts yield first (the workspace-bar shedding rule).
                 .layoutPriority(1)
                 .fixedSize()
                 .help(help)
         }
     }
 
-    /// Duplicates' scanned root, shown **only when it is not the scope**.
-    ///
-    /// Duplicates is the one lens whose answer needs a scan of its own, so its root can genuinely
-    /// disagree with the subject: scoping to `Legal` after hashing `Documents` filters real results,
-    /// while scoping to `Legal` after hashing only `Finance` means this lens has never looked where
-    /// you are pointing. Saying so is the honest half; restating the scope when the two agree would
-    /// just be two chips reading the same folder name.
+    /// Duplicates' scanned root, shown only when it is not the scope. Duplicates needs a scan
+    /// of its own, so its root can disagree with the subject: scoped to `Legal` after hashing only
+    /// `Finance`, the lens has never looked where you're pointing. When the two agree, a second
+    /// chip would just repeat the folder name.
     @ViewBuilder
     private var duplicateScanRootChip: some View {
         if let root = syncManager.duplicateScanRoot {
             let name = (root as NSString).lastPathComponent
-            // No scope: the chip is the only thing naming what was hashed, so it always draws.
-            // With a scope: only when the two genuinely differ.
+            // No scope: the chip alone names what was hashed, so it always draws. With a scope:
+            // only when the two differ.
             if let scope {
                 if standardizedPath(root) != standardizedPath(scope.path) {
                     scannedFolderChip(root, help: "Scanned from “\(name)”, which is not the folder "
@@ -2959,23 +2285,16 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Organize's readout — the queue's breakdown, over the rows on screen. **This is the filter's
-    /// readout**: watching 24 → 3 and `ready` fall away as you type is most of the point, which is
-    /// why the search field grows the card rather than swapping itself in over this row.
-    ///
-    /// Drawn as `SummaryRun`s and not as pills, because none of them is clickable and every one of
-    /// them used to look it. See ``SummaryRun``.
-    ///
-    /// The "to file" total and the folder chip both left this Group when the focus chips arrived:
-    /// the total is the queue chip's number now (a signpost, so it counts the whole list rather than
-    /// the filtered view — see `railCount(_:)`), and the scope
-    /// leads the row because Organize's two states scan different ones.
+    /// Organize's readout: the queue's breakdown over the rows on screen. This is the filter's
+    /// readout: watching 24 → 3 as you type is most of the point, which is why the search field
+    /// grows the card rather than covering this row. Drawn as `SummaryRun`s, not pills, because
+    /// none of them is clickable; see ``SummaryRun``.
     private func filingSummary(_ filing: [FilingSuggestion]) -> some View {
         let ready = filing.filter { $0.hasConfidentHome }.count
         let newFolders = filing.filter { $0.best?.isNew == true }.count
         let unsure = filing.count - ready
         return Group {
-            // "ready" = the showing files with a confident home now.
+            // "ready" = the showing files with a confident home.
             SummaryRun(count: ready, label: "ready", color: SemanticColor.success, systemImage: "checkmark.circle")
             if newFolders > 0 {
                 SummaryRun(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
@@ -2984,17 +2303,16 @@ public struct LensWorkspaceView: View {
             if unsure > 0 {
                 SummaryRun(count: unsure, label: "unsure", color: SemanticColor.caution, systemImage: "questionmark.circle")
             }
-            // A scan-level fact, like Duplicates' `need review` / `skipped` — deliberately NOT
-            // recounted over the filtered rows. It describes what the scan cost, and narrowing the
-            // search does not retroactively change how many files the model was asked about.
+            // A scan-level fact, like Duplicates' `need review` / `skipped`, so not recounted over
+            // the filtered rows: narrowing the search doesn't change how many files the model was
+            // asked about.
             if let reuse = syncManager.filingLastCacheReuse, reuse.reused > 0 {
                 SummaryRun(count: reuse.reused, label: "reused", color: .secondary,
                            systemImage: "clock.arrow.circlepath")
                     .help(Self.reuseHelp(reuse))
             }
-            // Durable evidence that the paid pass ran, and what it bought. The banner says so once
-            // and goes away; this stays with the rows it describes. Pass-level like `reused` and
-            // for the same reason — narrowing the search does not change how many files were sent.
+            // Durable evidence that the paid pass ran and what it bought; the banner goes away,
+            // this stays with the rows. Pass-level like `reused`, for the same reason.
             if let refine = syncManager.filingLastRefine {
                 SummaryRun(count: refine.changed, label: "refined", color: glassHue.accentColor,
                            systemImage: "sparkles")
@@ -3003,21 +2321,19 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// What the refine pass actually did, in the terms that matter: how many were sent (the part
-    /// that was billed), how many came back free from the cache, and how many homes it moved. The
-    /// pill counts `changed` rather than `asked` because that is the number the user is entitled
-    /// to judge the spend by — "refined 40" with nothing moved would read as forty improvements.
+    /// What the refine pass did, in the terms that matter: how many were sent (the billed part),
+    /// how many came back free from the cache, and how many homes it moved. The pill counts
+    /// `changed`, not `asked`, because that is what the spend should be judged by: "refined 40"
+    /// with nothing moved would read as forty improvements.
     ///
-    /// `static`, like ``reuseHelp(_:)`` beside it, because both are pure functions of their summary
-    /// and nothing else — which is what lets `FilingSpendWordingTests` assert the wording without
-    /// mounting a view. Same move, and same reason, as ``OrganizeLens/help(state:)``.
+    /// `static`, like ``reuseHelp(_:)``, because both are pure functions of their summary, which
+    /// lets `FilingSpendWordingTests` check the wording without mounting a view. Same as
+    /// ``OrganizeLens/help(state:)``.
     static func refineHelp(_ refine: FileSyncManager.FilingRefineSummary) -> String {
-        // **Asked of the outcome, not inferred from the count.** `classified == 0` has three
-        // causes — everything was cached, the user declined the charge, or Claude's key could not
-        // be read so the pass ran on-device — and this read all three as the first. A user who had
-        // just pressed Cancel was told every answer came from the cache. The banner said the right
-        // thing and then went away; this is on the durable pill, so it was the one still wrong an
-        // hour later. See `FilingRefineSummary.Outcome`.
+        // Asked of the outcome, not inferred from the count: `classified == 0` has three causes
+        // (all cached, the charge declined, Claude's key unreadable so the pass ran on-device),
+        // and this durable pill must not tell someone who pressed Cancel that every answer came
+        // from the cache. See `FilingRefineSummary.Outcome`.
         let sent: String
         switch (refine.outcome, refine.classified) {
         case (.declined, _):
@@ -3032,20 +2348,16 @@ public struct LensWorkspaceView: View {
         case (.ran, _):
             sent = "\(refine.classified) files were sent to Claude."
         }
-        // Singular at one, for the reason ``reuseHelp(_:)`` states about its own first sentence and
-        // this clause did not honour: "1 … so **they** cost nothing" is the same disagreement, in
-        // the tooltip beside it. The two describe the same cache from two pills, so a reader
-        // comparing them sees one sentence that counts and one that does not.
+        // Singular at one, as in ``reuseHelp(_:)``: the two tooltips describe the same cache from
+        // two pills, so their grammar should agree.
         let reused: String
         switch refine.reused {
         case 0: reused = ""
         case 1: reused = " 1 had already been answered by this model, so it cost nothing."
         default: reused = " \(refine.reused) had already been answered by this model, so they cost nothing."
         }
-        // The same distinction one clause on: "the free pass had already found the same homes" is
-        // a claim about an answer that came back, and a declined pass has none to claim it of.
-        // Nothing moved there because nothing was asked, which the sentence above already said —
-        // so this one just states the fact and stops.
+        // A declined pass got no answer back, so it can't claim "the free pass had already found
+        // the same homes". The sentence above already says nothing was asked; this states the fact.
         let changed: String
         switch (refine.changed, refine.outcome) {
         case (0, .declined): changed = "No suggestion changed."
@@ -3057,12 +2369,11 @@ public struct LensWorkspaceView: View {
             + FileSyncManager.hiddenFromClaudeNote(refine.hiddenFromClaude)
     }
 
-    /// Spells out what "reused" bought, in the terms the user cares about — the model wasn't asked,
-    /// so with Claude selected it wasn't billed. Kept out of the pill itself because the number is
-    /// the glanceable part and this is the explanation you go looking for.
+    /// Spells out what "reused" bought: the model wasn't asked, so with Claude selected it wasn't
+    /// billed. Kept out of the pill, whose number is the glanceable part.
     static func reuseHelp(_ reuse: FileSyncManager.FilingCacheReuse) -> String {
-        // Both halves of the first sentence agree in number — "1 file … its suggestion was",
-        // "N files … their suggestions were". The verb used to stay singular for any N.
+        // Both halves of the first sentence agree in number: "1 file … its suggestion was",
+        // "N files … their suggestions were".
         let reused = reuse.reused == 1
             ? "1 file hadn’t changed since the last scan, so its suggestion was reused"
             : "\(reuse.reused) files hadn’t changed since the last scan, so their suggestions were reused"
@@ -3075,32 +2386,29 @@ public struct LensWorkspaceView: View {
             + "Use Rescan ▸ Ignore Saved Suggestions to ask afresh."
     }
 
-    /// Duplicates' pills. `groups` / `redundant` / `reclaimable` recount over the FILTERED rows, so
+    /// Duplicates' pills. `groups` / `redundant` / `reclaimable` recount over the filtered rows, so
     /// typing `kind:pdf` visibly rolls 12 groups → 3 and 2.1 GB → 840 MB. `need review` and
     /// `skipped` stay scan-level facts: they describe what the scan did, not what the query kept.
     private func duplicatesSummary(_ groups: [DuplicateGroup]) -> some View {
         let reclaimable = groups.filter { $0.isRecommendedForBatch }.reduce(0) { $0 + $1.reclaimableBytes }
-        // Scan-level, NOT the filtered rows, exactly as the doc above promises: this pill is
-        // the needs-review filter's TOGGLE, and counted over the filtered rows it would vanish
-        // the moment a menu filter excluded the groups it counts, taking the way into the
-        // filter with it.
+        // Scan-level, not the filtered rows: this pill is the needs-review filter's toggle, and
+        // counted over the filtered rows it would vanish when a menu filter excluded its groups,
+        // taking the way into the filter with it.
         let needsReview = syncManager.duplicateGroups
             .filter { $0.matchType.kind != .identical }.count
         return Group {
             duplicateScanRootChip
-            // §12: the pill reading a count IS the control that narrows to it. `groups` selects
-            // All (its click is the way back), `need review` toggles the needs-review filter,
-            // and when any filter is active the unselected pills dim so the selected one reads
-            // as the state it is.
+            // The pill reading a count is the control that narrows to it. `groups` selects All
+            // (its click is the way back), `need review` toggles the needs-review filter, and while
+            // any filter is active the unselected pills dim so the selected one reads as the state.
             filteringPill(selects: .all,
                           help: "Show every group. Click a narrower pill to filter; this one is "
                               + "the way back.") {
                 StatPill(count: groups.count, label: "groups", color: SemanticColor.info, systemImage: "square.on.square")
             }
-            // The reclaimable figure is not a subset, so it is not a filter — it shed its capsule
-            // (plain trailing text now) so the header never teaches that clicking a pill
-            // sometimes does nothing. The H5 flourish survives the capsule: the number still
-            // rolls and the resolve-glow rides on the text.
+            // The reclaimable figure is not a subset, so it is not a filter: it is plain trailing
+            // text, not a capsule, so the header never teaches that clicking a pill sometimes does
+            // nothing. The number still rolls and the resolve-glow rides on the text.
             ReclaimPill(reclaimableBytes: reclaimable,
                         freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
                         flashToken: reclaimFlashToken,
@@ -3113,11 +2421,11 @@ public struct LensWorkspaceView: View {
                     StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
                 }
             }
-            // Scan-level counterpart to the per-group unverified note (DuplicateUnverifiedNote): files
-            // the scan never content-verified at all, so identical copies among them are absent
-            // from every group below — without this pill the scan is silently blind to them. Not
-            // filtered: these files aren't rows, so no query can include or exclude them — which
-            // is why it stays visibly inert (no button, and it dims with the rest).
+            // Scan-level counterpart to the per-group unverified note (DuplicateUnverifiedNote):
+            // files the scan never content-verified, so identical copies among them are missing
+            // from every group below, and without this pill the scan would be silently blind to
+            // them. These files aren't rows, so no query can include or exclude them; it stays
+            // visibly inert (no button, and it dims with the rest).
             if let skipNote = DuplicateScanSkipNote.text(syncManager.duplicateScanSkips) {
                 StatPill(count: syncManager.duplicateScanSkips.total, label: "skipped",
                          color: SemanticColor.warning, systemImage: "eye.slash")
@@ -3129,8 +2437,8 @@ public struct LensWorkspaceView: View {
     }
 
     /// One filtering pill: a `StatPill` that is also the control narrowing the list to what it
-    /// counts. Selected wears a ring in the pill's own colour family; everything else dims while
-    /// any filter is active (the `.all` pill never rings — the default state is not a selection).
+    /// counts. Selected wears a ring in the pill's colour family; the rest dim while any filter is
+    /// active. The `.all` pill never rings: the default state is not a selection.
     private func filteringPill(selects target: DuplicateMatchFilter, ring: Color = .clear,
                                help: String,
                                @ViewBuilder content: () -> some View) -> some View {
@@ -3150,23 +2458,14 @@ public struct LensWorkspaceView: View {
         }
         .buttonStyle(.plain)
         .help(help)
-        // The selected state otherwise lives only in a 1.5pt ring and the neighbours' dimming —
-        // invisible to VoiceOver, which heard two identical "button"s with no way to tell
-        // whether (or by which) the list is narrowed.
+        // The selected state otherwise lives only in a 1.5pt ring and the neighbours' dimming,
+        // which VoiceOver can't see.
         .accessibilityAddTraits(isSelected && target != .all ? [.isSelected] : [])
         .accessibilityHint(help)
     }
 
-    /// The risky-names pills, over the rows on screen.
-    ///
-    /// No count pill: the Names rail badge carries it. Two capsules reading "17 risky names" side
-    /// by side is what this row looked like the moment that badge arrived.
-    ///
-    /// It no longer names a root of its own. It used to lead with `nameScanRoot` — the whole
-    /// provider — on the argument that the names check and the queue genuinely covered different
-    /// territories and the difference was worth stating. That difference is exactly what this
-    /// change removed: all six lenses answer about the one scope now, and the scope chip above says
-    /// so once instead of each lens saying something different.
+    /// The risky-names pills, over the rows on screen. No count pill, because the rail badge
+    /// carries it, and no root of its own: the scope chip names the subject for every lens.
     private func renameSummary(_ risky: [RiskyName]) -> some View {
         let folders = risky.filter(\.isDirectory).count
         return Group {
@@ -3177,78 +2476,53 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Automations' pills, over the filtered rules. The folder chip names the focused folder — the
-    /// one a preview would run over — since rules aren't scanned FROM anywhere.
+    /// Automations' pills, over the filtered rules. The folder chip names the focused folder, the
+    /// one a preview would run over, since rules aren't scanned from anywhere.
     private func automationsSummary(_ rules: [AutomationRule]) -> some View {
         let enabled = rules.filter(\.enabled).count
         return Group {
-            // NOT the scope: rules are the one genuine non-scoper, and this names the
-            // folder a PREVIEW would run over.
-            //
-            // The chip beside it used to be described here as saying "which rules are listed",
-            // and that stopped being true when Rules stopped being scoped at all: the scope chip
-            // is *suspended* on this lens (`OrganizeLens.isScoped`) and says so. So the two say
-            // different things on purpose — the chip names a folder that is standing by, this
-            // names the folder a preview would actually walk.
+            // Not the scope: Rules is the one lens that isn't scoped, and the scope chip is
+            // suspended here (`OrganizeLens.isScoped`). This chip names the folder a preview would
+            // actually walk.
             scannedFolderChip(scanTargetFolder,
                               help: "A preview would run these rules over “\(scanTargetName)”")
-            // One pill for one fact and its subset — "1 of 1 enabled" — instead of the former
-            // "1 automation" + "1 enabled" pair. Fewer capsules on a row where capsules are
-            // controls; the green only speaks while something is actually on.
+            // One pill for one fact and its subset ("1 of 1 enabled"), since capsules on this row
+            // are controls. The green only shows while something is on.
             StatPill(count: enabled, label: "of \(rules.count) enabled",
                      color: enabled > 0 ? SemanticColor.success : .secondary,
                      systemImage: "checkmark.circle")
         }
     }
 
-    /// Storage's pills. The total is the whole scanned tree's — a query filters the ranked lists,
-    /// never the tree's size, so this figure must not move when you type.
-    ///
-    /// **The per-section counts are not here any more — they are on the rail**, where each sits on
-    /// the place it describes and clicking it goes there. This row could only ever say how many.
-    ///
-    /// The rule they left behind is the one worth keeping: *every section the body draws is
-    /// counted somewhere the reader can see*. It was broken here — `StorageLensView` lists three
-    /// ranked lists and this row had pills for two, so "Untouched for a long time" was a full
-    /// section with its own list that nothing above it announced. `StorageSection.allCases` is what
-    /// makes that unrepeatable now, and `everySectionIsOnTheRail` pins it.
-    ///
-    /// What remains belongs to the whole report rather than to one list: the folder it is about,
-    /// the total, and how old the numbers are.
+    /// Storage's pills: what belongs to the whole report rather than one list, namely the folder
+    /// it is about, the total and how old the numbers are. The total is the whole scanned tree's;
+    /// a query filters the ranked lists, never the tree's size, so it must not move when you type.
+    /// Each section's count sits on its own section header, and `StorageSection.allCases` keeps
+    /// every section the body draws counted (`everySectionIsOnTheRail`).
     private func storageSummary(_ report: StorageLensReport) -> some View {
         Group {
             scannedFolderChip(syncManager.storageLensRoot?.path,
                               help: "This storage picture is for “\(((syncManager.storageLensRoot?.path ?? "") as NSString).lastPathComponent)”")
             Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
                  text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
-            // **The three counts are on the section headers**, where each sits over the list it
-            // describes. They were StatPills here, and the row could only ever say how many; they
-            // moved to Storage's own rail when it had one, and came down to the headers with the
-            // fold — the capsule that replaced that rail carries no counts, because a switcher is
-            // for choosing a list rather than for sizing one. What stays here is what belongs to the
-            // whole report rather than to one list: the folder, the total, and how old the numbers are.
+            // The three counts are on the section headers, over the lists they describe; the
+            // section capsule carries none, because a switcher is for choosing a list, not sizing
+            // one.
             storageFreshnessPill
         }
     }
 
-    /// How old the numbers are, shown only for a report that came off disk.
-    ///
-    /// Restoring Storage means the first thing you see after a launch is a set of figures produced
-    /// at some earlier time, and every one of them — total size, largest files, reclaim candidates
-    /// — may have moved since. Saying so is the condition on which restoring is honest at all.
-    /// A report produced by a scan in this session needs no such marker: you watched it happen.
-    ///
-    /// `ScanFreshness` supplies the wording, the one-hour stale threshold, and — the part that
-    /// matters most — the SPOKEN form, which says "may be out of date" outright. Colour alone
-    /// carrying a staleness warning is exactly what the contrast work around this vocabulary
-    /// exists to avoid.
+    /// How old the numbers are, shown only for a report restored from disk. After a launch the
+    /// first figures you see were produced earlier and may have moved since, so restoring is
+    /// honest only if it says so; a report scanned this session needs no marker. `ScanFreshness`
+    /// supplies the wording, the one-hour stale threshold and the spoken form, which says "may be
+    /// out of date" outright rather than leaving the warning to colour.
     @ViewBuilder
     private var storageFreshnessPill: some View {
         if syncManager.storageLensLifecycle.isRestored,
            let completedAt = syncManager.storageLensLifecycle.completedAt {
-            // Scoped tightly to the pill, following the differences bar: a `TimelineView` re-runs
-            // the closure it wraps, so wrapping any more of the header than the run whose text
-            // actually changes would re-render the whole row every 30 seconds for nothing.
+            // Scoped tightly to the pill: a `TimelineView` re-runs the closure it wraps, so wrapping
+            // more of the header would re-render the whole row every 30 seconds for nothing.
             TimelineView(.periodic(from: completedAt, by: 30)) { context in
                 freshnessPill(ScanFreshness.describe(scanDate: completedAt, now: context.date))
             }
@@ -3260,13 +2534,12 @@ public struct LensWorkspaceView: View {
              tint: freshness.isStale ? SemanticColor.warning : .secondary,
              systemImage: "clock.arrow.circlepath",
              text: freshness.text)
-            // "Rescan", because that is what the control beside this pill is labelled — this used
-            // to say "Re-analyze", a verb no on-screen control carries.
+            // "Rescan", because that is the label of the control beside this pill.
             .help("These are the numbers from your last analysis of this folder, not a live reading. Rescan for current ones.")
             .accessibilityLabel("Saved report, \(freshness.spoken)")
     }
 
-    /// Credits a completed resolve to the session tally and flashes the reclaim pill (H5). Called only
+    /// Credits a completed resolve to the session tally and flashes the reclaim pill. Called only
     /// on success, with the bytes actually reclaimed, so the count-up is honest.
     private func creditReclaim(_ bytes: Int) {
         guard bytes > 0 else { return }
@@ -3276,15 +2549,11 @@ public struct LensWorkspaceView: View {
 
     private var filterMenu: some View {
         Menu {
-            // NOTE: a Menu's content builder is NOT lazy — it's a non-escaping closure that
-            // runs on every render — so this single pass over the groups executes per render,
-            // including the ones a merge's progress publishes trigger. That's accepted: groups
-            // number in the tens-to-hundreds and each check is a flag test, so the pass is
-            // microseconds (unlike the Compare header's counts over up to ~40k differences,
-            // which are memoized in DisplayRows for exactly this reason). Counts cover ALL
-            // groups IN SCOPE, not the search-narrowed `dupGroups`, so a badge never reads zero
-            // for a filter that would reveal rows once picked — see `filterCounts` for why the
-            // scope is the one narrowing it does honour.
+            // A Menu's content builder is not lazy: it runs on every render, including those a
+            // merge's progress publishes trigger. Accepted: groups number in the tens to hundreds
+            // and each check is a flag test (unlike the Compare header's counts, memoized in
+            // DisplayRows). Counts cover all groups in scope, not the search-narrowed `dupGroups`,
+            // so a badge never reads zero for a filter that would reveal rows; see `filterCounts`.
             let counts = Self.filterCounts(syncManager.duplicateGroups, scope: scope)
             Picker("Filter", selection: $session.filter) {
                 ForEach(DuplicateMatchFilter.allCases) { f in
@@ -3300,17 +2569,16 @@ public struct LensWorkspaceView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Filter the groups — showing \(filter.label)")
-        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`) — outside the
-        // menu, where AppKit lets a background paint; 4pt past the label so it reads as a button.
+        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`), outside the
+        // menu where AppKit lets a background paint; 4pt past the label so it reads as a button.
         .chromeGlassGround(.capsule, outset: 4)
     }
 
-    /// "Apply N recommended", scoped to the FILTERED groups.
-    ///
-    /// `batch` is one value: the label counts it and `applyRecommended` iterates it. This is the
-    /// dangerous button — a query leaving 3 of 8 eligible groups must trash exactly those 3, and a
-    /// label that said 3 while the action recomputed 8 from `duplicateGroups` would destroy 5
-    /// copies the user never saw. `applyRecommendedDuplicates` requires the scope for that reason.
+    /// "Apply N recommended", scoped to the filtered groups. **The dangerous button:** `batch` is
+    /// one value that the label counts and `applyRecommended` iterates, so a query leaving 3 of 8
+    /// eligible groups trashes exactly those 3. A label saying 3 while the action recomputed 8
+    /// from `duplicateGroups` would trash copies the user never saw, which is why
+    /// `applyRecommendedDuplicates` requires the scope.
     @ViewBuilder
     private func applyAllButton(_ groups: [DuplicateGroup]) -> some View {
         let batch = groups.filter { $0.isRecommendedForBatch }
@@ -3322,9 +2590,8 @@ public struct LensWorkspaceView: View {
             .accentedProminent(glassHue)
             .chromeHover()
             .controlSize(.small)
-            // The row must shed its readouts before its controls: at Documents scale this
-            // button truncated to "Apply…" while five readout capsules kept full width —
-            // the workspace-bar shedding rule inverted. Priority keeps the label whole.
+            // The row sheds its readouts before its controls (the workspace-bar shedding rule), so
+            // priority keeps this label whole.
             .layoutPriority(1)
             .fixedSize()
             .disabled(syncManager.isFindingDuplicates)
@@ -3336,20 +2603,13 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// "Rename N files", over the plans on screen.
+    /// "Rename N files", over the plans on screen: the same value the label counts and the action
+    /// applies, as in `applyAllButton`.
     ///
-    /// `plans` is the same value the label counts and the action applies — the property
-    /// `applyAllButton` above exists to preserve.
-    ///
-    /// **Gated on there being some**, like `fixAllButton`, `fileAllButton` and `applyAllButton` —
-    /// it was the one of the four without a guard, and its caller's gate reads the GLOBAL backlog
-    /// while the rows it is handed are the narrowed ones. With a search that was a corner (the
-    /// content card shows "nothing matches" beside it); with a scope it is ordinary, because any
-    /// subtree with no drifted folders empties this list while the tree still holds 126. The button
-    /// rendered as a prominent, enabled **"Rename 0 files"** that applies nothing.
-    ///
-    /// The gate counts **files, not plans**: a plan whose steps have all been applied is still a
-    /// plan, so `!plans.isEmpty` would leave the same zero-labelled button standing.
+    /// Gated on there being some, like `fixAllButton`, `fileAllButton` and `applyAllButton`: the
+    /// caller's gate reads the global backlog while these rows are narrowed, so a scope with no
+    /// drifted folders would otherwise show an enabled "Rename 0 files". The gate counts files,
+    /// not plans: a plan whose steps have all been applied is still a plan.
     @ViewBuilder
     private func renameAllButton(_ plans: [RenamePlan]) -> some View {
         let files = plans.reduce(0) { $0 + $1.steps.count }
@@ -3369,15 +2629,14 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// "Fix all N", scoped to the FILTERED risky names. `onNormalize` has always taken its rows
-    /// explicitly, so this one was safe by construction — it just needs the filtered array.
+    /// "Fix all N", scoped to the filtered risky names. `onNormalize` takes its rows explicitly,
+    /// so this is safe by construction given the filtered array.
     @ViewBuilder
     private func fixAllButton(_ risky: [RiskyName]) -> some View {
         if !risky.isEmpty {
-            // Built as a value, not concatenated inside `.help`. A ternary carrying two string
-            // interpolations, joined by `+` to two more literals, is the shape that blows the
-            // type-checker's budget — it fit under the old deployment target and stopped fitting
-            // under the new one, because availability changes the overload sets the solver walks.
+            // Built as a value, not concatenated inside `.help`: a ternary with two interpolations
+            // joined by `+` to two more literals exceeds the type-checker's budget, which depends
+            // on the deployment target's overload sets.
             let scope = isFiltered
                 ? "the \(risky.count) name\(risky.count == 1 ? "" : "s") your search left showing"
                 : "every risky name above"
@@ -3399,10 +2658,9 @@ public struct LensWorkspaceView: View {
     private var hasStorageReport: Bool { syncManager.storageLensReport != nil }
 
     private var reanalyzeStorageButton: some View {
-        // `reaim` is the plain action here, and it stays plain after the fold: Rescan rebuilds
-        // Storage's report at the aim it already has. It does not MOVE the scope — accepting the
-        // moved offer re-analyses the folder now focused, which is what the words say, rather than
-        // re-aiming the other five lenses at it as Organize's shared rescan would.
+        // `reaim` is the plain action here: Rescan rebuilds Storage's report where it is aimed. It
+        // doesn't move the scope; accepting the moved offer re-analyses the focused folder, as the
+        // words say, rather than re-aiming the other five lenses as Organize's rescan would.
         rescanButton(moved: targetMoved(from: syncManager.storageLensRoot?.path),
                      movedIcon: "chart.pie.fill", disabled: syncManager.isBuildingStorageLens,
                      action: onBuildStorage,
@@ -3412,8 +2670,8 @@ public struct LensWorkspaceView: View {
     }
 
     private var newRuleButton: some View {
-        // Reuses the host's existing rule-editor sheet (the one "Remember" opens a learned rule
-        // in), so a blank rule and a taught rule are reviewed through exactly one editor.
+        // The host's existing rule-editor sheet (the one "Remember" opens a learned rule in), so a
+        // blank rule and a taught rule share one editor.
         Button { reviewingAutomationRule = AutomationRule(name: "") } label: {
             Label("New Rule", systemImage: AutomationsGlyph.newRule)
         }
@@ -3423,12 +2681,9 @@ public struct LensWorkspaceView: View {
         .help("Write a plain-words rule for where loose files belong")
     }
 
-    /// How many rules would actually act — the number this screen gates "Preview all" on, and the
-    /// one the user reads as "how many of my rules do something".
-    ///
-    /// Asked of ``AutomationRuleSet/eligible(_:)`` rather than spelled `enabled && isRunnable`
-    /// here: that is the bar the engine and the dry run file by, and a second spelling of it in
-    /// the UI is how the count and the outcome drift apart.
+    /// How many rules would actually act: what "Preview all" is gated on, and what the user reads
+    /// as "how many of my rules do something". Asked of ``AutomationRuleSet/eligible(_:)`` rather
+    /// than spelled `enabled && isRunnable` here, so the count and the engine can't drift apart.
     private var runnableRuleCount: Int {
         AutomationRuleSet.eligible(syncManager.automationRules).rules.count
     }
@@ -3445,8 +2700,8 @@ public struct LensWorkspaceView: View {
         .chromeHover()
         .controlSize(.small)
         .disabled(runnableRuleCount == 0 || providerAnchor == nil)
-        // Name the ACTUAL blocker: with no provider root there is nothing to preview over, and
-        // telling the user to add conditions to already-complete rules is a dead end.
+        // Name the actual blocker: with no provider root there is nothing to preview over, and
+        // asking for conditions on already-complete rules would be a dead end.
         .help(providerAnchor == nil
               ? "Focus a provider folder first — the preview runs over the focused folder."
               : runnableRuleCount == 0
@@ -3462,36 +2717,33 @@ public struct LensWorkspaceView: View {
         VStack(spacing: 0) {
             switch effectiveLens {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates, counts: counts)
-            // Four rail items share `.filing`'s apparatus, so this arm is where the rail actually
-            // decides what you see. The overview leads, because it is what you land on.
+            // Four rail items share `.filing`'s apparatus, so this arm is where the rail decides
+            // what you see. The overview leads, because it is what you land on.
             case .filing:
                 if showingOverview {
                     organizeOverview(rows: rows, scopeFolders: scopeFolders)
                 } else if organizeLens == .restructure {
                     restructureContent(rows: rows, scopeFolders: scopeFolders)
                 } else if showingRenameBacklog {
-                    // The to-fix rows (the folded Names lens) come from `FilteredRows` now, like
-                    // every other list on this screen — they were resolved here, scoped but never
-                    // searched, which is how one list came to be narrowed two ways under a header
-                    // counting a third. See the backlog arm of ``filteredRows``.
+                    // The to-fix rows (the folded Names lens) come from `FilteredRows` like every
+                    // other list here, so the list is narrowed one way. See the backlog arm of
+                    // ``filteredRows``.
                     let fixRows = rows.risky
-                    // **Findings first here too** — the rule the rail's badge and the overview's
-                    // card both follow. The completion flags decide what an EMPTY backlog means,
-                    // never whether a full one is drawn: the filing walk publishes rename plans
-                    // and risky names before it sets `hasSuggestedFiling`, so gating on the flag
-                    // alone showed the never-scanned pitch over findings that were already on the
-                    // screen's badge — and kept showing it if the user cancelled there.
-                    //
-                    // Both flags, like `RailCounts.hasScanned`'s fold: this list has two halves,
-                    // and one of them not having run is not a clean bill for the other.
+                    // Findings first, as the rail badge and the overview card do: the completion
+                    // flags decide what an empty backlog means, never whether a full one is drawn.
+                    // The filing walk publishes rename plans and risky names before it sets
+                    // `hasSuggestedFiling`, so gating on the flag alone would show the never-scanned
+                    // pitch over real findings, and keep showing it after a cancel. Both flags, like
+                    // `RailCounts.hasScanned`: one half not having run is no clean bill for the
+                    // other.
                     if syncManager.renamePlans.isEmpty, syncManager.riskyNames.isEmpty,
                        !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames {
-                        // Never scanned: the setup card (P12), named for the PROVIDER — the
-                        // rename detectors read the provider-wide taxonomy, so a folder-named
-                        // title would promise a narrower answer than the one given.
+                        // Never scanned: the setup card, named for the provider, because the rename
+                        // detectors read the provider-wide taxonomy and a folder name would promise
+                        // a narrower answer.
                         renameSetupState
                     } else if syncManager.renamePlans.isEmpty, syncManager.riskyNames.isEmpty {
-                        // Ran and found nothing — the earned state, never the pitch.
+                        // Ran and found nothing: the earned state, never the pitch.
                         EmptyStateView(
                             icon: "checkmark.seal.fill",
                             tint: SemanticColor.success,
@@ -3501,11 +2753,9 @@ public struct LensWorkspaceView: View {
                                              handler: onFindFilingSuggestions)
                         )
                     } else if rows.renames.isEmpty, fixRows.isEmpty {
-                        // **The folded totals, and the folded noun.** `counts.renames` is the plans
-                        // alone, so a query that hid five to-fix rows and no plans announced how
-                        // many *folders* it was hiding and never mentioned them. `counts[.renames]`
-                        // is what the badge above says, over the same list this state is standing
-                        // in for.
+                        // The folded totals and noun: `counts[.renames]` is the badge's number over
+                        // the same list this state stands in for; `counts.renames` alone would miss
+                        // hidden to-fix rows.
                         noMatchesState(scopedTotal: counts[.renames],
                                        globalTotal: syncManager.renamePlans.count
                                            + syncManager.riskyNames.count,
@@ -3530,20 +2780,18 @@ public struct LensWorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .columnSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-        // The Restructure sheets anchor HERE, not inside the `.restructure` branch: a sheet
-        // hangs off its anchor view, so anchored in the branch, switching lens (a pill, a
-        // View ▸ Organize menu item — macOS menus stay live over a window-modal sheet) tore
-        // the sheet down MID-APPLY: the landing Task kept running and landed silently, and
-        // returning to Restructure re-presented the sheet fresh over stale state — the plan
-        // sheet reseeded to all-keep with no trace of the landing, the removal sheet re-armed
-        // over folders already in the Trash. On this stable anchor the sheet outlives the
-        // branch switch.
+        // The Restructure sheets anchor here, not inside the `.restructure` branch. A sheet hangs
+        // off its anchor view, so in the branch a lens switch (a pill, or a View ▸ Organize item:
+        // macOS menus stay live over a window-modal sheet) would tear the sheet down mid-apply.
+        // The landing would finish silently, and coming back would re-present the sheet over
+        // stale state: the plan sheet reseeded to all-keep, the removal sheet re-armed over
+        // folders already in the Trash.
         .sheet(item: $planningFinding) { finding in
             planSheet(for: finding).presentedNativeControlAccent()
         }
-        // A menu verb, carried out HERE. Resolved against the findings as they stand now rather
-        // than as they stood when the menu was drawn — a menu item is enabled at draw time and
-        // clicked later, and a landing in between can retire the very finding it named.
+        // A menu verb, carried out here. Resolved against the findings as they stand now: a menu
+        // item is enabled at draw time and clicked later, and a landing in between can retire the
+        // finding it named.
         .onChange(of: restructureVerbRequest) { _, request in
             guard let request else { return }
             restructureVerbRequest = nil
@@ -3562,20 +2810,15 @@ public struct LensWorkspaceView: View {
 
     // MARK: Restructure
 
-    /// Where the tree disagrees with its own habits. Cached on the manager — see
-    /// ``FileSyncManager/structureFindings`` for why a view body must not run the detector.
-    /// The VISIBLE set: suppressions are honoured here, at the one accessor every surface in this
-    /// file reads, so the lens, the overview section and the rail badge cannot disagree about
-    /// what "never suggest this again" meant.
+    /// Where the tree disagrees with its own habits. Cached on the manager; see
+    /// ``FileSyncManager/structureFindings`` for why a view body must not run the detector. The
+    /// visible set: suppressions apply at this one accessor, so the lens, the overview section and
+    /// the rail badge agree on what "never suggest this again" meant.
     private var structureFindings: [StructureFinding] { syncManager.visibleStructureFindings }
 
-    /// The findings **inside the current scope** — `inside` only, matching the badge and the
-    /// overview's own Restructure count.
-    ///
-    /// Everything else on the overview is narrowed this way: the section's count, the crowding
-    /// strip, the lens list. The O15 nudge read the unscoped set, so a user scoped to `Legal` was
-    /// told about a gap in `Travel/Trips` and its Set up… created folders outside the subtree they
-    /// had deliberately narrowed to.
+    /// The findings inside the current scope (`inside` only), matching the badge and the
+    /// overview's own Restructure count. Everything on the overview is narrowed this way, so a
+    /// nudge read from here can't point at, or create folders in, a gap outside the subtree.
     private var scopedStructureFindings: [StructureFinding] {
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
         guard let scope = appliedScope(for: .restructure) else { return structureFindings }
@@ -3584,9 +2827,9 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The crowding classification, narrowed to Restructure's scope at render — a count of the
-    /// profile-keyed cache within the scope prefix, O(scope), exactly as the findings are scoped
-    /// one property up. No store, no second cache.
+    /// The crowding classification, narrowed to Restructure's scope at render: the profile-keyed
+    /// cache filtered to the scope prefix, as the findings are scoped above. No store, no second
+    /// cache.
     private var scopedDeadWeight: [String: DeadWeightClass] {
         let all = syncManager.structureReport.deadWeight
         guard let scope = appliedScope(for: .restructure),
@@ -3598,37 +2841,33 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Restructure's rows — **from `FilteredRows` now, not straight off the manager.**
-    ///
-    /// This lens was the one that bypassed the shared filter entirely, reading
-    /// `syncManager.structureFindings` directly, which is precisely why no narrowing could reach
-    /// it. It routes through the same value as every other lens now, so its count and its list
-    /// cannot disagree.
+    /// Restructure's rows, from `FilteredRows` like every other lens, so its count and its list
+    /// can't disagree.
     @ViewBuilder
     private func restructureContent(rows: FilteredRows, scopeFolders: Int?) -> some View {
         RestructureLens(findings: rows.structure,
                         aboutAncestor: rows.structureAboutAncestor,
                         hasProfile: syncManager.filingFolderProfile != nil,
-                        // The SCOPED count, not the whole survey — this lens's answer has been
-                        // narrowed, and "Checked 3,013 folders" beside it was a claim about a tree
-                        // it did not look at. nil when unknown; see `scopeFolderCount`.
+                        // The scoped count, not the whole survey's: "Checked 3,013 folders" beside
+                        // a narrowed answer would claim a tree the lens didn't look at. nil when
+                        // unknown; see `scopeFolderCount`.
                         folderCount: scope == nil
                             ? syncManager.filingFolderProfile?.folders.count
                             : scopeFolders,
-                        // When the survey last looked (§4.1) — the corpus stamp, seeded at attach
-                        // and republished the moment a re-survey finishes.
+                        // When the survey last looked: the corpus stamp, seeded at attach and
+                        // republished the moment a re-survey finishes.
                         surveyedAt: syncManager.filingSurveyedAt,
-                        // §5.9's staleness truth: groups on hand means the taxonomy detector had
-                        // something to read this session.
+                        // Staleness: groups on hand mean the taxonomy detector had something to
+                        // read this session.
                         hasDuplicateScan: syncManager.duplicateScanCoversSurvey,
                         isScoped: scope != nil,
-                        // The PROVIDER, like Renames: the detectors compare sibling families
-                        // across the surveyed tree, so a folder-named setup card would promise a
-                        // narrower answer than the one this lens gives.
+                        // The provider, like Renames: the detectors compare sibling families across
+                        // the surveyed tree, so a folder-named setup card would promise a narrower
+                        // answer than this lens gives.
                         providerName: providerName,
-                        // The crowding classification, narrowed to the scope the findings were —
-                        // strip counts beside a scoped list must count the same subtree
-                        // (ROADMAP v5 §5.2: the counts are scope-dependent, the cache is not).
+                        // The crowding classification, narrowed to the findings' scope: strip
+                        // counts beside a scoped list must count the same subtree (the counts are
+                        // scope-dependent, the cache is not).
                         deadWeight: scopedDeadWeight,
                         accent: glassHue.accentColor,
                         onReveal: { relative in
@@ -3636,20 +2875,18 @@ public struct LensWorkspaceView: View {
                             let full = (root as NSString).appendingPathComponent(relative)
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
                         },
-                        // *Never suggest this again* — the store write, plus its ⌘Z and an
-                        // undoable banner: the manager republishes the store's change,
-                        // `visibleStructureFindings` drops the row, and the badge follows because
-                        // all three read one accessor. nil before the store exists (no profile
-                        // loaded), which withholds the menu item rather than offering a write that
-                        // goes nowhere. `hiddenCount` and Show them again are the way back for
-                        // findings hidden before this session.
+                        // *Never suggest this again*: the store write, with ⌘Z and an undoable
+                        // banner. The manager republishes, `visibleStructureFindings` drops the
+                        // row, and the badge follows, since all three read one accessor. nil before
+                        // the store exists (no profile), which withholds the item. `hiddenCount`
+                        // and Show them again are the way back for findings hidden earlier.
                         onSuppress: syncManager.restructureStore.map { _ in
                             { syncManager.suppressStructureFinding($0) }
                         },
-                        // The hidden findings the detector still produces, within this lens's scope
-                        // — not every key ever written, which counts findings whose folder is gone
-                        // or lies outside the scope, and so would promise a Show them again that
-                        // brings back what this list cannot show.
+                        // The hidden findings the detector still produces, within this lens's
+                        // scope. Not every key ever written: that would count findings whose folder
+                        // is gone or outside the scope, promising a Show them again that brings
+                        // back what this list can't show.
                         hiddenCount: syncManager.hiddenStructureFindings(
                             in: appliedScope(for: .restructure)).count,
                         onShowHidden: syncManager.restructureStore.map { _ in
@@ -3657,8 +2894,8 @@ public struct LensWorkspaceView: View {
                                 in: appliedScope(for: .restructure)) }
                         },
                         // The scaffold: one guarded, ledgered, ⌘Z-able landing of create-dirs,
-                        // then the same hand-off the button below offers on its own. A refusal
-                        // surfaces as a banner sentence, never a silent no-op.
+                        // then the hand-off the button below offers on its own. A refusal shows as
+                        // a banner sentence, never a silent no-op.
                         onScaffold: { finding in
                             Task { @MainActor in
                                 let outcome = await syncManager.applyScaffold(for: finding)
@@ -3669,49 +2906,39 @@ public struct LensWorkspaceView: View {
                                 }
                             }
                         },
-                        // To File, scoped to the finding's subject — the surface that already
-                        // makes per-file judgements with a verdict, a shortlist and Undo.
+                        // To File, scoped to the finding's subject: the surface that already makes
+                        // per-file judgements with a verdict, a shortlist and Undo.
                         onHandOff: handOffToToFile,
-                        // §5.4's plan surface, offered only when there is a store the draft can
-                        // PERSIST into — no store, or one refusing writes over an unreadable
-                        // file, would silently break §5.7's survives-a-quit promise. The same
-                        // gate applyScaffold enforces for its ledger.
+                        // The plan surface, offered only when there is a store the draft can
+                        // persist into: with no store, or one refusing writes over an unreadable
+                        // file, a plan would silently not survive a quit. applyScaffold enforces
+                        // the same gate for its ledger.
                         onPlan: syncManager.restructureStore?.isUnreadable == false
                             ? { planningFinding = $0 }
                             : nil,
-                        // §5.7's Planned-not-applied, derived from the store's drafts: the count
-                        // for the trigger's words, the ledger sentence for the inline line.
+                        // Planned-not-applied, from the store's drafts: the count for the trigger's
+                        // words, the ledger sentence for the inline line.
                         plannedPlans: Dictionary(uniqueKeysWithValues:
                             (syncManager.restructureStore?.drafts ?? [:]).map { key, draft in
                                 (key.findingId, Self.plannedInfo(of: draft.manifest))
                             }),
-                        // Landed scaffolds, read off the ledger: the card for one says the
-                        // survey has not caught up instead of offering the landing twice.
-                        // The subject is the created folders' parent — the manifest records
-                        // the family, and the scaffold's dsts all sit under the subject.
-                        // Probed against the disk, not the ledger alone: a scaffold's ⌘Z
-                        // removes the folders without marking the record, and a card claiming
-                        // "Scaffolded" over folders that are gone would also suppress the one
-                        // button that could bring them back. A handful of existence checks per
-                        // record, only for backlog records, only on render.
+                        // Landed scaffolds, from the ledger: their card says the survey hasn't
+                        // caught up instead of offering the landing twice. The subject is the
+                        // created folders' parent. Probed against the disk, not the ledger alone:
+                        // a scaffold's ⌘Z removes the folders without marking the record, and a
+                        // "Scaffolded" card over missing folders would hide the one button that
+                        // could bring them back. A few existence checks per backlog record.
                         scaffoldedSubjects: scaffoldedSubjects(),
-                        // The launch gate. Restructure is the only lens whose answer exists
-                        // before anyone asks — see `FileSyncManager.hasReviewedStructure` for why
-                        // it needs a flag the others get from their scan lifecycle.
+                        // The launch gate. Restructure is the only lens whose answer exists before
+                        // anyone asks; see `FileSyncManager.hasReviewedStructure` for why it needs
+                        // a flag the others get from their scan lifecycle.
                         hasReviewed: syncManager.hasReviewedStructure,
                         onReview: { syncManager.hasReviewedStructure = true },
-                        // The refresh, and the same value the rescan menu offers: nil on a
-                        // machine with no artifacts to rebuild, which withholds the button
-                        // rather than offering one that would do nothing.
-                        // **`refreshDerivedProfile`, not the document re-survey.** Restructure
-                        // reads the folder PROFILE, and `onUpdateFolderMemory` re-reads documents
-                        // and stamps the date without ever reassigning it — so this button
-                        // cleared its own staleness warning while every finding stayed
-                        // byte-identical. A warning the user can dismiss without fixing anything
-                        // is worse than no warning.
-                        // **Both outcomes are reported.** The success path used to return nil
-                        // and this closure had no branch for it, so a five-second tree walk
-                        // finished in silence and the button read as dead.
+                        // The refresh: `refreshDerivedProfile`, not the document re-survey.
+                        // Restructure reads the folder profile, and `onUpdateFolderMemory` only
+                        // re-reads documents and stamps the date, so it would clear the staleness
+                        // warning while every finding stayed the same. Both outcomes are reported,
+                        // so a several-second tree walk never finishes in silence.
                         onUpdateSurvey: {
                             Task { @MainActor in
                                 refreshSurveyRefusal = nil
@@ -3721,14 +2948,14 @@ public struct LensWorkspaceView: View {
                                     : .warning(outcome.sentence)
                             }
                         },
-                        // The engine's own guard, as the button's enabled state — so a landing
-                        // already running disables the control instead of refusing the press.
+                        // The engine's own guard, as the enabled state, so a running landing
+                        // disables the control instead of refusing the press.
                         isRefreshing: syncManager.restructureLandingInProgress,
-                        // §5.7's Applied/Undone cards — every plan landing in the ledger,
-                        // newest first. Scaffolds keep their own card sentence and stay out.
+                        // The Applied/Undone cards: every plan landing in the ledger, newest
+                        // first. Scaffolds keep their own card sentence and stay out.
                         reorganisations: reorganisationDisplays,
-            // Nil-when-too-short is the CHART's rule, not the host's — the lens takes what the
-            // rule returns so there is one place that decides a line is worth drawing.
+            // Nil-when-too-short is the chart's rule, not the host's, so one place decides whether
+            // a line is worth drawing.
             trend: RestructureTrendChart.points(
                 from: syncManager.restructureStore?.trend ?? []) ?? [],
                         onUndoReorganisation: { manifestId in
@@ -3738,8 +2965,8 @@ public struct LensWorkspaceView: View {
                             }
                         },
                         onRemoveEmptied: requestRemoval,
-                        // §5.7's Scaffolded card, made resolvable — the re-derive a landing
-                        // already runs, with a manifest that moves nothing.
+                        // The Scaffolded card, made resolvable: the re-derive a landing already
+                        // runs, with a manifest that moves nothing.
                         onOpenHelp: onOpenHelp.map { open in
                             { open(RestructureLens.helpTopicID) }
                         },
@@ -3748,8 +2975,8 @@ public struct LensWorkspaceView: View {
                                 refreshSurveyRefusal = nil
                                 let outcome = await syncManager.refreshDerivedProfile()
                                 // A refusal stays on the card that asked; a success is a
-                                // window-level event and belongs in the banner, like the
-                                // setup card's own.
+                                // window-level event and goes in the banner, like the setup
+                                // card's own.
                                 if let refusal = outcome.refusal {
                                     refreshSurveyRefusal = (subject: subject, sentence: refusal)
                                 } else {
@@ -3758,17 +2985,16 @@ public struct LensWorkspaceView: View {
                             }
                         },
                         refreshSurveyRefusal: refreshSurveyRefusal,
-                        // §5.2's decided Trash route for the folders that were already empty.
+                        // The Trash route for folders that were already empty.
                         onRemoveStandingEmpties: standingEmptiesRemover)
     }
 
-    /// The ledger's plan landings as the lens renders them — every record `applyPlan` wrote
-    /// (`appliedUnderProfileId` is set at its step 2; scaffolds never carry one). Deliberately
-    /// NOT filtered to the fully-finalised: a landing whose re-derive failed still moved files,
-    /// and a card the user cannot see is a landing they cannot ask about. Which ONE is undoable
-    /// is the store's `undoableReorganisation` — the same predicate the Organize menu and the
-    /// engine use, because two hand-synchronised copies of that rule is how the menu ends up
-    /// enabling an undo whose card shows no button.
+    /// The ledger's plan landings as the lens renders them: every record `applyPlan` wrote
+    /// (`appliedUnderProfileId` is set at its step 2; scaffolds never carry one). Not filtered to
+    /// the fully finalised: a landing whose re-derive failed still moved files, and a hidden card
+    /// is a landing nobody can ask about. Which one is undoable is the store's
+    /// `undoableReorganisation`, the predicate the Organize menu and the engine use, so the menu
+    /// can't enable an undo whose card shows no button.
     private var reorganisationDisplays: [ReorganisationDisplay] {
         ReorganisationDisplay.rows(
             from: syncManager.restructureStore?.applied ?? [],
@@ -3777,57 +3003,49 @@ public struct LensWorkspaceView: View {
             stillHasEmptiedFolders: { anyEmptiedFolderStillStands(of: $0) })
     }
 
-    /// Subjects whose scaffold landed and still stands — `FileSyncManager`'s answer, not a
-    /// second copy. See ``FileSyncManager/scaffoldedSubjects()`` for why it moved there.
+    /// Subjects whose scaffold landed and still stands: `FileSyncManager`'s answer, not a second
+    /// copy. See ``FileSyncManager/scaffoldedSubjects()``.
     private func scaffoldedSubjects() -> Set<String> { syncManager.scaffoldedSubjects() }
 
-    /// What a card says about a drafted plan — the trigger's count, the ledger's sentence, and
-    /// §5.1's blast radius as numbers. **All of it derived from the manifest**, in one place, so
-    /// the chips and the sentence cannot disagree about the same plan.
+    /// What a card says about a drafted plan: the trigger's count, the ledger's sentence, and the
+    /// blast radius as numbers. All derived from the manifest in one place, so the chips and
+    /// the sentence can't disagree about the same plan.
     ///
-    /// A "merge" here is a source folder the plan drains, which is what the ledger already counts
-    /// as *folders emptied* — the number of folders that stop existing as themselves. Whole-folder
-    /// carries are renames for this purpose: the folder keeps its contents and its identity.
+    /// A "merge" is a source folder the plan drains, which the ledger counts as *folders
+    /// emptied*. Whole-folder carries count as renames: the folder keeps its contents and identity.
     static func plannedInfo(of manifest: RestructureManifest) -> PlannedPlanInfo {
         let ledger = RestructureLedger(of: manifest)
         return PlannedPlanInfo(
             // `operationCount`, not `actions.count`: keeps are the signature block, and counting
-            // them overstated the card's "Review N operations" the same way it did the Apply
-            // button.
+            // them would overstate the card's "Review N operations", as on the Apply button.
             operations: manifest.operationCount,
             summary: ledger.summary,
-            // Each count is the ledger's own, spelled its way — the sentence beneath the chips
-            // is `RestructureLedger.summary`, and a chip that redefines one of its words makes
-            // the two disagree about the same plan one line apart.
+            // Each count is the ledger's own, spelled its way: the sentence beneath the chips is
+            // `RestructureLedger.summary`, and a chip redefining one of its words would disagree
+            // with it one line apart.
             renames: ledger.foldersRenamed,
             carried: ledger.foldersMovedWhole,
             merges: ledger.foldersEmptied,
             filesMove: ledger.filesMoved)
     }
 
-    /// The plan sheet's disk root. `FolderProfile.root` is stored tilde-abbreviated (the
-    /// survey's `recordedRoot` folds home to `"~"`), and `URL(fileURLWithPath:)` does NOT
-    /// expand tildes — it resolves them relative to cwd. Every other consumer of the root in
-    /// this file expands inline; this is the sheet's one spelling, pinned by test.
+    /// The plan sheet's disk root. `FolderProfile.root` is stored tilde-abbreviated (the survey's
+    /// `recordedRoot` folds home to `"~"`), and `URL(fileURLWithPath:)` does **not** expand tildes:
+    /// it resolves them against cwd. The sheet's one spelling, pinned by test.
     static func planDiskRoot(_ root: String) -> URL {
         URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
     }
 
-    /// Whether any folder this landing emptied still stands on disk — the removal button's
-    /// licence.
-    ///
-    /// **On the manager, for the reason `scaffoldedSubjects` moved there**: it is a disk probe a
-    /// view body runs, once per applied record per render, and the caching that stops it being
-    /// dozens of `stat`s a second belongs where every caller can reach it. It ran here with the
-    /// whole walk inline — `emptiedFolders(of:)` over every action of every record, and then a
-    /// probe per drained folder — on every redraw of the ledger cards.
+    /// Whether any folder this landing emptied still stands on disk: the removal button's licence.
+    /// On the manager, like `scaffoldedSubjects`: it is a disk probe a view body runs per applied
+    /// record per render, and the caching that keeps it from being dozens of `stat`s a second
+    /// belongs where every caller can reach it.
     private func anyEmptiedFolderStillStands(of manifest: RestructureManifest) -> Bool {
         syncManager.emptiedFoldersStillStanding(of: manifest)
     }
 
-    /// Opens the removal sheet on one landing's emptied folders, re-probed at this moment — a
-    /// folder that gained a file since the landing shows as "no longer empty" rather than
-    /// silently vanishing from the list.
+    /// Opens the removal sheet on one landing's emptied folders, re-probed now, so a folder that
+    /// gained a file since the landing shows as "no longer empty" rather than vanishing.
     private func requestRemoval(manifestId: String) {
         guard let record = syncManager.restructureStore?.applied
                 .first(where: { $0.manifest.manifestId == manifestId }) else { return }
@@ -3836,18 +3054,15 @@ public struct LensWorkspaceView: View {
                          origin: .landing(manifestId: manifestId))
     }
 
-    /// §5.2's decided Trash route for the folders that were already empty, or nil when there is
-    /// no profile root — without one there is no absolute path to re-probe or trash, which is
-    /// what every path-taking action on this lens needs.
+    /// The Trash route for folders that were already empty, or nil when there is no profile root:
+    /// without one there is no absolute path to re-probe or trash.
     private var standingEmptiesRemover: (() -> Void)? {
         syncManager.filingFolderProfile == nil ? nil : { requestStandingRemoval() }
     }
 
-    /// Opens the same sheet on §5.2's pre-existing empties — the crowding strip's third filter.
-    ///
-    /// **Scoped, like the strip that offered them.** The list comes from `scopedDeadWeight`, so a
-    /// narrowed Organize removes what it showed and nothing outside it; the chip's count and the
-    /// sheet's rows are the same set by construction.
+    /// Opens the same sheet on the pre-existing empties, the crowding strip's third filter. Scoped
+    /// like the strip that offered them (`scopedDeadWeight`), so a narrowed Organize removes what
+    /// it showed and nothing outside it.
     private func requestStandingRemoval() {
         let paths = Self.standingEmptyPaths(in: scopedDeadWeight)
         openRemovalSheet(paths: paths,
@@ -3855,22 +3070,20 @@ public struct LensWorkspaceView: View {
                          origin: .standing)
     }
 
-    /// The folders the standing-removal sheet may offer: **the wholly empty ones and nothing
-    /// else**. A single-file leaf holds a file, and routing one here would put a sheet titled
-    /// "Remove empty folders" over a folder with contents — the exact judgement §5.2 refuses to
-    /// make. Sorted so the sheet's rows and the chip's list read in one order.
+    /// The folders the standing-removal sheet may offer: only the wholly empty ones. A
+    /// single-file leaf holds a file, and a "Remove empty folders" sheet must never list a folder
+    /// with contents. Sorted so the sheet and the chip's list read in one order.
     static func standingEmptyPaths(in deadWeight: [String: DeadWeightClass]) -> [String] {
         deadWeight.filter { $0.value == .empty }.map(\.key).sorted()
     }
 
-    /// Re-probes a list of profile-relative folders and opens the sheet on the result, so it
-    /// opens on the truth: a folder that gained a file since the survey (or since the landing)
-    /// shows as "no longer empty" rather than silently vanishing from the list.
+    /// Re-probes a list of profile-relative folders and opens the sheet on the result, so a folder
+    /// that gained a file since the survey (or the landing) shows as "no longer empty" rather than
+    /// vanishing from the list.
     ///
-    /// **Off the main actor**: each probe below is a full recursive walk, and a candidate folder
-    /// REFILLED with a large subtree since it was enumerated would otherwise be walked entirely
-    /// in a button handler, on the main thread, once per candidate. The engine runs the same
-    /// probe off-main for the same reason.
+    /// **Off the main actor**: each probe is a full recursive walk, and a candidate refilled with a
+    /// large subtree would otherwise be walked on the main thread in a button handler. The engine
+    /// runs the same probe off-main.
     private func openRemovalSheet(paths: [String], family: String,
                                   origin: RestructureRemoval.Origin) {
         guard let root = syncManager.filingFolderProfile?.root, !paths.isEmpty else { return }
@@ -3879,13 +3092,11 @@ public struct LensWorkspaceView: View {
             let candidates = await Task.detached(priority: .userInitiated) {
                 paths.map { path -> RestructureRemovalSheet.Candidate in
                     let absolute = (expandedRoot as NSString).appendingPathComponent(path)
-                    // Recursive on purpose, matching the engine's own remove guard: a drained
-                    // folder whose only remainder is an equally drained subfolder is still
-                    // "empty" here, or the shallowest-only candidate list strands both forever
-                    // behind "no longer empty".
+                    // Recursive, matching the engine's own remove guard: a drained folder whose
+                    // only remainder is an equally drained subfolder is still "empty", or both
+                    // would be stranded behind "no longer empty".
                     let exists = FileManager.default.fileExists(atPath: absolute)
-                    // nil (the walk could not see everything) reads as NOT empty — the
-                    // engine's rule.
+                    // nil (the walk couldn't see everything) reads as not empty, the engine's rule.
                     let isEmptyNow = exists
                         && FileSyncManager.visibleFileCount(atPath: absolute,
                                                             fm: FileManager.default) == 0
@@ -3899,9 +3110,9 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The removal landing itself: its own manifest through the same eight-step apply, so it gets
-    /// the ledger, ⌘Z, the re-derive and the log line like any landing. Returns the refusal, or
-    /// nil on success.
+    /// The removal landing: its own manifest through the same eight-step apply, so it gets the
+    /// ledger, ⌘Z, the re-derive and the log line like any landing. Returns the refusal, or the
+    /// landed result.
     private func removeEmptied(_ paths: [String], for request: RemovalRequest) async
         -> RestructureRemovalSheet.RemovalResult {
         let stamp = RestructurePlanSheet.nowStamp()
@@ -3914,29 +3125,21 @@ public struct LensWorkspaceView: View {
             createdAt: stamp) else { return .refused("Nothing is ticked.") }
         let outcome = await syncManager.applyPlan(manifest)
         if let refusal = outcome.refusal { return .refused(refusal) }
-        // Landed — whatever WAS trashed is in the Trash whether or not profiles.json rewrote.
-        // The engine's own counts ride along, because the engine can skip ticked folders (one
-        // gained a file since the sheet opened; the parent landing was undone underneath it)
-        // and a bare "landed" was announced as "Moved to the Trash" over an all-skip run. A
-        // survey-refresh failure rides as the CAVEAT, typed, so the sheet can both retire its
-        // button (the landing happened) and print the sentence.
+        // Landed: whatever was trashed is in the Trash whether or not profiles.json rewrote. The
+        // engine's counts ride along, because it can skip ticked folders (one gained a file, or
+        // the parent landing was undone), and an all-skip run must not be announced as "Moved to
+        // the Trash". A survey-refresh failure rides as the caveat, so the sheet can retire its
+        // button (the landing happened) and still print the sentence.
         return .landed(removed: outcome.removedEmpty, skippedCount: outcome.skipped.count,
                        caveat: outcome.surveyRefreshFailure)
     }
 
-    /// Carries out a menu verb: resolve the folder to a finding, then open the surface the card
-    /// itself would open. A miss is a banner rather than silence — the item was enabled when it
-    /// was drawn, so the honest report is that the answer moved, not nothing at all.
-    /// §5.6's nudge for the overview, or nil (proposal O15).
-    ///
-    /// The rule decides; this only carries the effects. **`visibleStructureFindings`**, so a
-    /// suppressed finding cannot nudge — suppression is the stronger statement and the one the
-    /// user made deliberately.
+    /// The overview's backlog nudge, or nil. The rule decides; this only carries the effects. Reads
+    /// `visibleStructureFindings`, so a finding the user suppressed can't nudge.
     private func backlogNudge() -> OrganizeOverview.BacklogNudge? {
-        // **An unreadable store cannot remember the dismissal**, and a ✕ that appears to work and
-        // silently does not is worse than no line: the same nudge would come back every launch
-        // with nothing saying why. Every other Restructure control refuses out loud in this
-        // state — the plan trigger, the landing guard — so this one withholds itself.
+        // An unreadable store can't remember the dismissal, and a ✕ that seems to work but
+        // doesn't would bring the same nudge back every launch. Every other Restructure control
+        // refuses out loud in this state, so this one withholds itself.
         guard let store = syncManager.restructureStore, !store.isUnreadable else { return nil }
         let due = RestructureNudge.due(in: scopedStructureFindings,
                                        now: Date(),
@@ -3948,9 +3151,8 @@ public struct LensWorkspaceView: View {
         return OrganizeOverview.BacklogNudge(
             sentence: sentence,
             setUp: {
-                // The same arrival the menu verbs take: show Restructure, then ask the workspace
-                // to carry out the scaffold — one route, so a nudge cannot reach a state the menu
-                // could not.
+                // The menu verbs' route: show Restructure, then ask the workspace to carry out the
+                // scaffold, so a nudge can't reach a state the menu couldn't.
                 syncManager.hasReviewedStructure = true
                 railLens = .restructure
                 restructureVerbRequest = RestructureVerbRequest(
@@ -3959,9 +3161,8 @@ public struct LensWorkspaceView: View {
                                                                 .filingFolderProfile?.root))
             },
             dismiss: {
-                // Every finding the sentence covered, not just the one it named — dismissing a
-                // line that says "and 3 more" and having it come back naming the rest is the
-                // shape of a nag.
+                // Every finding the sentence covered, not just the one it named: a line saying
+                // "and 3 more" that comes back naming the rest would be a nag.
                 for item in due {
                     store.acknowledgeNudge(
                         RestructureKey(kind: item.finding.kind, path: item.finding.subject),
@@ -3970,19 +3171,22 @@ public struct LensWorkspaceView: View {
             })
     }
 
-    /// A profile-relative subject as an absolute path — the spelling the verb request carries,
-    /// because the resolver converts back and both spellings of the root are accepted there.
+    /// A profile-relative subject as an absolute path: the spelling the verb request carries. The
+    /// resolver converts back and accepts both spellings of the root.
     static func absolutePath(of subject: String, under root: String?) -> String {
         guard let root, !root.isEmpty else { return subject }
         return ((root as NSString).expandingTildeInPath as NSString)
             .appendingPathComponent(subject)
     }
 
+    /// Carries out a menu verb: resolve the folder to a finding, then open the surface the card
+    /// itself would open. A miss is a banner, not silence: the item was enabled when drawn, so the
+    /// honest report is that the answer moved.
     private func carryOut(_ request: RestructureVerbRequest) {
         guard let root = syncManager.filingFolderProfile?.root else { return }
-        // **The same answer the menu's availability read.** Two copies of this decision is how an
-        // item ends up enabled over a handler that refuses; `unavailable` here means the survey
-        // moved between the menu opening and the press, which is worth a sentence of its own.
+        // The same answer the menu's availability read: two copies of this decision would let an
+        // item be enabled over a handler that refuses. `unavailable` here means the survey moved
+        // between the menu opening and the press, which gets a sentence of its own.
         let resolution = RestructureVerbResolver.resolve(
             request.verb, folder: request.folder, root: root,
             in: syncManager.visibleStructureFindings,
@@ -4001,8 +3205,8 @@ public struct LensWorkspaceView: View {
                 + "updated since the menu was opened.")
             return
         }
-        // The deliberate arrival §5.10 established: the user asked about this folder, so the
-        // reveal card would charge one intent twice.
+        // A deliberate arrival: the user asked about this folder, so the reveal card would charge
+        // one intent twice.
         syncManager.hasReviewedStructure = true
         switch request.verb {
         case .plan:
@@ -4019,12 +3223,10 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// §5.4's plan surface, modal over the lens — **which one, by geometry.**
-    ///
-    /// A pair under one parent is one row of a family mapping, so it opens the mapping sheet
-    /// seeded and every downstream promise (drafts, Export, Apply) is the shipped path. A pair
-    /// across parents cannot be written as a mapping row at all and gets the confirm sheet over
-    /// its derived operations. ``RestructurePlanRouting`` is the one place that decides.
+    /// The plan surface, modal over the lens, chosen by geometry. A pair under one parent is
+    /// one row of a family mapping, so it opens the seeded mapping sheet and its drafts, Export and
+    /// Apply. A pair across parents can't be a mapping row and gets the confirm sheet over its
+    /// derived operations. ``RestructurePlanRouting`` is the one place that decides.
     @ViewBuilder
     private func planSheet(for finding: StructureFinding) -> some View {
         if let profile = syncManager.filingFolderProfile,
@@ -4033,8 +3235,8 @@ public struct LensWorkspaceView: View {
             let key = RestructureKey(finding)
             switch route {
             case .familyMapping(let family):
-                // Every member, both drop paths included — drift is the part that most needs
-                // housing, and the mapping is applied to all of them.
+                // Every member, both drop paths included: drift most needs housing, and the
+                // mapping applies to all of them.
                 mappingPlanSheet(
                     finding: finding, family: family,
                     members: finding.schemes.flatMap(\.members) + finding.drift
@@ -4052,8 +3254,8 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// §5.4's mapping sheet. The tree view is disk-backed — a plan is derived against the tree as
-    /// it stands now, and merges need file names the profile never stores.
+    /// The mapping sheet. The tree view is disk-backed: a plan is derived against the tree as it
+    /// stands now, and merges need file names the profile never stores.
     @ViewBuilder
     private func mappingPlanSheet(finding: StructureFinding, family: String, members: [String],
                                   seeded: RestructureMapping.Row?, profile: FolderProfile,
@@ -4062,28 +3264,26 @@ public struct LensWorkspaceView: View {
                 finding: finding,
                 family: family,
                 members: members,
-                // `planDiskRoot`, not a bare URL: `profile.root` is stored tilde-abbreviated
-                // ("~/Documents"), and `URL(fileURLWithPath:)` resolves that relative to cwd —
-                // on every real profile the sheet's tree view read a path that does not exist,
-                // every listing came back nil, and Plan… derived nothing with a misleading
-                // "Every row is keep" refusal. Memoized because the sheet re-derives the whole
-                // manifest per edit; one presentation reads each directory once.
+                // `planDiskRoot`, not a bare URL: `profile.root` is tilde-abbreviated
+                // ("~/Documents") and `URL(fileURLWithPath:)` would resolve it against cwd, so the
+                // tree view would read nothing and Plan… would refuse with "Every row is keep".
+                // Memoized because the sheet re-derives the whole manifest per edit; one
+                // presentation reads each directory once.
                 tree: .fromDisk(root: Self.planDiskRoot(profile.root)).memoized(),
-                // The folder the artifacts were read FROM, not the field inside them — the
-                // field decodes to "default" when a hand-built profile omits it, and every
-                // store and the scaffold already key on the directory id for that reason.
+                // The folder the artifacts were read from, not the field inside them: the field
+                // decodes to "default" when a hand-built profile omits it, which is why every
+                // store and the scaffold key on the directory id.
                 profileId: syncManager.filingProfileDirectoryId ?? profile.profileId,
                 accent: glassHue.accentColor,
-                // A saved draft wins over the seed: it is the plan as the user last left it,
-                // and re-seeding over it would silently discard their edits. The seed is what a
-                // pair opens with the FIRST time.
+                // A saved draft wins over the seed: it is the plan as the user left it, and
+                // re-seeding would discard their edits. The seed is what a pair opens with the
+                // first time.
                 initialRows: store.draft(for: key)?.manifest.mapping ?? seeded.map { [$0] },
                 initialVocabulary: store.draft(for: key)?.vocabulary
                     ?? seeded?.target.map { [$0] },
                 onExport: { manifest, vocabulary in
-                    // The file first, then the draft: the export is reviewable even when the
-                    // store is refusing writes, and the draft is what makes §5.7's Planned
-                    // state survive a quit.
+                    // The file first, then the draft: the export is reviewable even when the store
+                    // refuses writes, and the draft keeps the Planned state across a quit.
                     do {
                         let name = try store.exportPlan(manifest)
                         store.saveDraft(.init(manifest: manifest,
@@ -4096,23 +3296,23 @@ public struct LensWorkspaceView: View {
                             + error.localizedDescription)
                     }
                 },
-                // §5.4's store table: a draft is written "when the sheet closes with a plan" —
-                // not only by Export, which left a hand-built mapping to die on one Esc.
+                // A draft is written whenever the sheet closes with a plan, not only on Export,
+                // so a hand-built mapping survives an Esc.
                 onKeepDraft: { manifest, vocabulary in
                     store.saveDraft(.init(manifest: manifest, savedAt: manifest.createdAt,
                                           vocabulary: vocabulary), for: key)
                 },
-                // Discard Plan, and a close after every row went back to keep: until these, a
-                // draft could only be removed by landing it.
+                // Discard Plan, and a close after every row went back to keep: the ways to drop a
+                // draft without landing it.
                 hasSavedDraft: store.draft(for: key) != nil,
                 onDiscardDraft: { store.removeDraft(for: key) },
-                // §5.5: the landing, from the same sheet that derived the plan — the review
-                // above the button IS the review being applied.
+                // The landing, from the same sheet that derived the plan: the review above the
+                // button is the review being applied.
                 onApply: { manifest in
                     let outcome = await syncManager.applyPlan(manifest)
                     if let refusal = outcome.refusal { return .refused(refusal) }
-                    // The draft became a ledger record. The store was swapped to the new
-                    // profile's during the apply, and the draft rode along — drop it there.
+                    // The draft became a ledger record. The store was swapped to the new profile's
+                    // during the apply and the draft rode along, so drop it there.
                     syncManager.restructureStore?.removeDraft(
                         for: key, consumedBy: outcome.landedManifest ?? manifest)
                     var summary = outcome.summary
@@ -4126,23 +3326,23 @@ public struct LensWorkspaceView: View {
                     }
                     return .applied(summary: summary)
                 },
-                // §5.6: the paid pass on the mapping — the transport is the app's, the offer
-                // branch is "is a key stored", and the model label resolves the way the
-                // transport resolves it, all three exactly as the filing refine splits them.
-                // The profile root, so a mapping naming a folder hidden from Claude is refused.
+                // The paid pass on the mapping: the app's transport, offered when a key is stored,
+                // with the model label resolved the way the transport resolves it, all as the
+                // filing refine does. The profile root, so a mapping naming a folder hidden from
+                // Claude is refused.
                 onRefineMapping: { await syncManager.refineMapping($0, under: Self.planDiskRoot(profile.root).path) },
                 refineOffered: syncManager.filingCloudRefineAvailable,
                 refineModelLabel: FilingSpendFormat.model(refineModelName),
                 onConfigureRefine: onConfigureCloudRefine,
-                // Straight from the manager: the checklist can only show stages the engine
-                // actually reached, and it clears itself when the landing ends either way.
+                // Straight from the manager: the checklist shows only stages the engine actually
+                // reached, and clears itself when the landing ends either way.
                 applyProgress: syncManager.restructureApplyProgress,
                 onClose: { planningFinding = nil })
     }
 
-    /// The cross-parent pair's confirm sheet. Same store, same key, same landing — a pair merge
-    /// exports and drafts like a mapped plan, so §5.7's *Planned, not applied* card state and the
-    /// *Review N operations* trigger work on these kinds without a second mechanism.
+    /// The cross-parent pair's confirm sheet. Same store, key and landing: a pair merge exports
+    /// and drafts like a mapped plan, so the *Planned, not applied* card state and the *Review N
+    /// operations* trigger work without a second mechanism.
     @ViewBuilder
     private func pairMergeSheet(finding: StructureFinding, source: String, destination: String,
                                 profile: FolderProfile, store: RestructureStore,
@@ -4154,16 +3354,16 @@ public struct LensWorkspaceView: View {
             tree: .fromDisk(root: Self.planDiskRoot(profile.root)).memoized(),
             profileId: syncManager.filingProfileDirectoryId ?? profile.profileId,
             accent: glassHue.accentColor,
-            // The card's own sentence about this pair, carried in — the review opens on the
-            // claim it was opened from rather than restating it in different words.
+            // The card's own sentence about this pair, so the review opens on the claim it was
+            // opened from rather than restating it.
             rationale: RestructureLens.blastRadius(for: finding)
                 ?? RestructureLens.subtitle(for: finding),
             applyProgress: syncManager.restructureApplyProgress,
             onExport: { manifest in
                 do {
                     let name = try store.exportPlan(manifest)
-                    // No vocabulary: there is no picker here to restore. The draft exists for
-                    // the card's Planned state and its operation count.
+                    // No vocabulary: there is no picker here to restore. The draft exists for the
+                    // card's Planned state and its operation count.
                     store.saveDraft(.init(manifest: manifest, savedAt: manifest.createdAt,
                                           exportedTo: name, vocabulary: []), for: key)
                     return .saved(filename: name)
@@ -4195,25 +3395,16 @@ public struct LensWorkspaceView: View {
 
     // MARK: Overview
 
-    /// Organize's landing — every lens's answer for the current scope, and the scans that would
-    /// produce the answers it does not have.
-    ///
-    /// **`onScan` became `onRun`, and that is the substantive change on this screen.** The old
-    /// closure took a lens and every call site was `{ railLens = item }`: a control captioned
-    /// "Scan…" that navigated. The comment defending it argued that the lens owns its intro state,
-    /// "where that scan's cost is stated — one button up here could not honestly price five scans".
-    /// The first half was true and the second was answering the wrong question: there are not five
-    /// scans. ``OrganizePass`` is the three that exist, each card states its own cost, and the
-    /// button runs it.
+    /// Organize's landing: every lens's answer for the current scope, and the passes that would
+    /// produce the answers it doesn't have. Each pass card states its own cost and its button runs
+    /// the pass (`onRun`, over ``OrganizePass``'s three), rather than navigating to a lens.
     @ViewBuilder
     private func organizeOverview(rows: FilteredRows, scopeFolders: Int?) -> some View {
         let model = overviewModel
         OrganizeOverview(
             sections: model.sections,
-            // **The SCOPE, not the last scan's folder.** It read `filingScanFolder` before, which
-            // is the root one lens happened to walk — so the overview's "Nothing to do in X" named
-            // a folder that had nothing to do with the other five lenses' answers, and named
-            // something even when no scope was set at all.
+            // The scope, not the last scan's folder: the overview's "Nothing to do in X" describes
+            // every lens's answer, and must name nothing when no scope is set.
             scopeLabel: scope?.name,
             accent: glassHue.accentColor,
             inboxShortcut: inboxShortcut,
@@ -4221,22 +3412,16 @@ public struct LensWorkspaceView: View {
             ledger: overviewLedger(model, scopeFolders: scopeFolders),
             runnablePasses: runnablePasses,
             onOpen: { item in
-                // **Arriving from a reporting card's "Open Restructure" skips the reveal card.**
-                // The card states the count in its pill and the user pressed the button beside it
-                // to see those findings; landing them on a card whose own button says "Show 12
-                // findings" is one intent charged twice. The launch gate is about opening the lens
-                // cold, not about a way in that already told you what is behind it.
-                //
-                // (The count used to be *in* the button — "Open Restructure — 12 ›". It moved to
-                // the pill when the overview's cards were unified: one blue verb per card, always
-                // the rightmost control, and a button whose width moved with the data could not be
-                // the thing every other card aligned to.)
+                // Arriving from a reporting card's "Open Restructure" skips the reveal card: the
+                // card's pill already stated the count, and a second card whose button says "Show
+                // 12 findings" would charge one intent twice. The launch gate is for opening the
+                // lens cold.
                 if item == .restructure { syncManager.hasReviewedStructure = true }
                 railLens = item
             },
             onRun: runPass,
-            // Storage's own verb, not `onRun` — it is in no `OrganizePass`, so `rescanControl`
-            // has nothing to mint a button from. Gated exactly as the header's button is.
+            // Storage's own verb, not `onRun`: it is in no `OrganizePass`, so `rescanControl` has
+            // nothing to build a button from. Gated as the header's button is.
             onBuildStorage: onBuildStorage,
             isBuildingStorage: syncManager.isBuildingStorageLens,
             documentSurvey: documentSurveyCard,
@@ -4245,99 +3430,79 @@ public struct LensWorkspaceView: View {
             onResumeDocumentSurvey: onResumeDocumentSurvey,
             onPauseDocumentSurvey: onPauseDocumentSurvey,
             onStopDocumentSurvey: onStopDocumentSurvey,
-            // The privacy line's pointer, routed through the app's one Help front door — the same
-            // shape `RestructureLens.helpPointer` uses, down to the glyph.
+            // The privacy line's pointer, through the app's one Help entry point, shaped like
+            // `RestructureLens.helpPointer`, down to the glyph.
             onOpenSurveyHelp: onOpenHelp.map { open in
                 { open(OrganizeHelpTopics.onDeviceReading) }
             },
-            // The receipt's Refresh IS `Refresh what’s learned` — the same incremental pass, which
-            // until now was only reachable from a dropdown inside To File's rescan button.
+            // The receipt's Refresh is `Refresh what’s learned`: the same incremental pass as the
+            // item in To File's rescan menu.
             onUpdateDocumentSurvey: onUpdateFolderMemory
         )
     }
 
-    /// Starts a pass from the overview.
-    ///
-    /// **Deliberately the plain scan, not the re-aim.** `reaimAtScanTarget` sets the scope to the
-    /// focused pane's folder before scanning, which is right for a button captioned
-    /// `Organize “X”` and wrong for one captioned `Run the file pass`: this offer is about the
-    /// subject the overview is already describing, and silently dragging the scope to wherever the
-    /// pane happens to sit is the exact failure ``rescanButton``'s two branches exist to keep apart.
+    /// Starts a pass from the overview. The plain scan, not the re-aim: `reaimAtScanTarget` moves
+    /// the scope to the focused pane's folder, right for `Organize “X”` but wrong for
+    /// `Run the file pass`, which is about the subject the overview already describes. Keeping
+    /// those apart is what ``rescanButton``'s two branches are for.
     private func runPass(_ pass: OrganizePass) {
         switch pass {
         case .file: onFindFilingSuggestions()
         case .duplicates: onFindDuplicates()
         // Optional at the host boundary, which is why `runnablePasses` exists rather than a card
-        // that draws a button and then does nothing.
+        // whose button does nothing.
         case .folderMemory: onUpdateFolderMemory?()
         }
     }
 
-    /// The passes this host can start. Folder memory is the only conditional one — its handler is
-    /// `(() -> Void)?`, and a host that passes none must get a card that explains the state rather
-    /// than a button that no-ops.
+    /// The passes this host can start. Folder memory is the only conditional one: its handler is
+    /// optional, and a host passing none gets a card that explains the state, not a no-op button.
     ///
-    /// **The other two are asserted rather than detected, because their handlers cannot be asked.**
-    /// `onFindFilingSuggestions` and `onFindDuplicates` are non-optional with `= {}` defaults, so a
-    /// host that omitted one would get a live button over a closure that does nothing, and nothing
-    /// here could tell. Unreachable today — `ContentView` is the only host and passes both — but a
-    /// new host wiring Organize is the shape that would break it, and the fix would be to make those
-    /// handlers optional too rather than to add a flag here. (Storage used to be the second caller,
-    /// omitting both while never rendering this screen; it is a rail item inside the same host now,
-    /// so there is no second caller left to reason about.)
+    /// The other two are asserted, not detected: `onFindFilingSuggestions` and `onFindDuplicates`
+    /// have `= {}` defaults, so a host omitting one would get a live button over a closure that
+    /// does nothing. `ContentView`, the only host, passes both; a new host should make those
+    /// handlers optional rather than add a flag here.
     private var runnablePasses: Set<OrganizePass> {
         var passes: Set<OrganizePass> = [.file, .duplicates]
         if onUpdateFolderMemory != nil { passes.insert(.folderMemory) }
         return passes
     }
 
-    /// The overview's cross-lens facts. The counting lives on ``OrganizeOverview/Ledger`` where it
-    /// can be asserted without a view; what this adds is the two figures that need `Sync`.
+    /// The overview's cross-lens facts. The counting lives on ``OrganizeOverview/Ledger``, where it
+    /// can be asserted without a view; this adds the two figures that need `Sync`.
     private func overviewLedger(_ model: OverviewModel,
                                 scopeFolders: Int?) -> OrganizeOverview.Ledger {
         .derived(
             from: model.sections,
-            // The ratio is over the checks this host can start, not every lens that carries a
-            // badge — see `Ledger.countedLenses`. Same predicate the pass cards use, so the two
-            // cannot disagree about which checks are real on this machine.
+            // The ratio is over the checks this host can start, not every lens with a badge (see
+            // `Ledger.countedLenses`). The pass cards use the same predicate, so the two agree on
+            // which checks are real on this machine.
             runnablePasses: runnablePasses,
-            // Absent rather than "0 bytes" when there is nothing to reclaim. A zero here reads as a
-            // measured claim about the tree, and before a duplicate scan it is not one — the same
-            // rule the rail badges and `inboxSubtitle` follow.
+            // Absent rather than "0 bytes" when there is nothing to reclaim: before a duplicate scan
+            // a zero would read as a measured claim. The rail badges and `inboxSubtitle` follow the
+            // same rule.
             reclaimable: model.reclaimableBytes > 0
                 ? FileSyncManager.formatBytes(model.reclaimableBytes) : nil,
-            // The SCOPED count when scoped, the whole survey when not — matching
-            // `restructureContent` exactly, so the two places that quote a folder count agree.
+            // The scoped count when scoped, the whole survey when not, exactly as
+            // `restructureContent` does, so both folder counts agree.
             scopeFolders: scope == nil
                 ? syncManager.filingFolderProfile?.folders.count : scopeFolders)
     }
 
-    /// The inbox offered as a scope, or nil when there is no inbox — or when it is already the
-    /// scope, where the offer would be a button that changes nothing.
+    /// The inbox offered as a scope, or nil when there is no inbox, or when it is already the scope
+    /// and the offer would change nothing.
     private var inboxShortcut: OrganizeOverview.InboxShortcut? {
         guard let inbox = filingInboxFolder, !inbox.isEmpty else { return nil }
         if let scope, standardizedPath(scope.path) == standardizedPath(inbox) { return nil }
 
-        // **The count is claimed only when the last scan actually covered the inbox.**
+        // The count is claimed only when the last scan covered the inbox. `filingSuggestions` holds
+        // one scan's output, so under another scope or folder, or before any scan, it has nothing
+        // under `TODO`, and "Inbox (TODO) — 0 loose files" while the inbox holds fifty would talk
+        // the user out of the click. A header can't walk the disk on every render, so
+        // `looseFileCount` stays nil and the offer just names the inbox: absent beats a wrong zero.
         //
-        // It is drawn from `filingSuggestions`, which holds ONE scan's output — so scoped to
-        // `Legal`, or having scanned any other folder, or on a launch where nothing has scanned
-        // yet, nothing in that list is under `TODO` and the offer read "Inbox (TODO) — **0 loose
-        // files**" while the inbox held fifty. That is the worst possible wording for this control:
-        // it talks the user out of the one click the inbox was promoted from a hidden default to
-        // make available.
-        //
-        // Counting from disk instead is not the fix — a header must not walk the filesystem on
-        // every render. Not claiming is: `looseFileCount` is optional and the offer falls back to
-        // naming the inbox, which is the same rule the rail badges follow. Absent beats a wrong
-        // zero.
-        // **Equality, not ancestry** — `looseFileScanCovers`, the rule written for exactly this
-        // pass. The filing scan enumerates one folder's direct files, so the only subject it can
-        // answer about is that folder. Asking `PathBoundary.contains` said yes whenever the scan
-        // had run anywhere *above* the inbox: run the file pass at the provider root, or click
-        // "Organize everything", and this read "Inbox (TODO) — 0 loose files" while TODO held
-        // fifty. That is the same wrong zero the paragraph above describes, arrived at by the one
-        // predicate that cannot see the difference.
+        // Equality, not ancestry: `looseFileScanCovers`. The filing scan enumerates one folder's
+        // direct files, so a scan of any folder above the inbox says nothing about it.
         let scanned = syncManager.filingScanFolder
         let covered = OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned)
         let loose = covered
@@ -4348,70 +3513,48 @@ public struct LensWorkspaceView: View {
                      apply: { withAnimation(listSettle) { setScope(inbox) } })
     }
 
-    /// What each lens has to say, in rail order.
+    /// What each lens has to say for the current scope, in rail order. Three states: a lens that
+    /// never ran says so, one that ran clean says that, and only one with findings takes a section,
+    /// so absence is never ambiguous. Resolved per scope: *"0 under Legal" must never render as
+    /// "0 anywhere"*. `notScanned` is a fact about the provider-wide pass; `clean` under a scope
+    /// means this subtree is clean, and `OrganizeOverview` names the scope around it.
     ///
-    /// **The three states are the point** (ROADMAP 20): a lens that has never run says so, a lens
-    /// that ran clean says *that*, and only a lens with findings takes a section. Absence must
-    /// never be ambiguous between "clean" and "cannot run".
-    /// Every lens's answer **for the current scope**.
+    /// ## Why this returns a struct
     ///
-    /// The three states stay exactly as they were and are now resolved per scope, which is the
-    /// whole point: *"0 under Legal" must never render as "0 anywhere"*. `notScanned` still means
-    /// the scan has not run at all — that is a fact about the provider-wide pass, not about the
-    /// subtree — while `clean` under a scope means this subtree is clean, and `OrganizeOverview`
-    /// names the scope in the words it wraps around them.
-    ///
-    /// ## Why this returns a struct now
-    ///
-    /// The ledger needs the **scoped** reclaimable total, and `FileSyncManager.duplicateSummary`
-    /// computes the global one — so the overview would have had to filter 722 groups a second time,
-    /// on every render, to reach a number this loop already has the list for. That is the same
-    /// double-pass ``RailCounts`` was consolidated to avoid, arriving through a different door.
-    /// One walk, both answers.
+    /// The ledger needs the scoped reclaimable total, and `FileSyncManager.duplicateSummary`
+    /// computes the global one. Returning both from one walk avoids a second pass over the groups
+    /// on every render, as ``RailCounts`` does.
     struct OverviewModel {
         var sections: [OrganizeOverviewSection] = []
-        /// Scoped, and **batch-eligible groups only** — mirroring `duplicateSummary` exactly, so
-        /// the ledger's figure is the one "Apply recommended" would actually deliver. Overlapping
-        /// groups never inflate it.
+        /// Scoped, and batch-eligible groups only, mirroring `duplicateSummary`, so the ledger's
+        /// figure is what "Apply recommended" would deliver. Overlapping groups never inflate it.
         var reclaimableBytes = 0
     }
 
-    /// Internal, not private, so `OrganizeOverviewWiringTests` can assert what this actually hands
-    /// the view. The per-lens `isScanning` flags were wrong in two of five arms and no test could
-    /// see it: the render suite mounts ``OrganizeOverview`` directly and is handed its sections, so
-    /// it validates what the view does with them and never what this produces.
+    /// Internal, not private, so `OrganizeOverviewWiringTests` can assert what this hands the view.
+    /// The render suite mounts ``OrganizeOverview`` directly with its sections, so it can't check
+    /// what this produces (the per-lens `isScanning` flags, say).
     var overviewModel: OverviewModel {
         let scope = scope
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
         var model = OverviewModel()
-        // **A count of zero under a scope the scan never covered is not "clean", it is "unasked".**
-        // The overview said "Nothing to do in Legal. Every check that has run came back clean."
-        // about a subtree nothing had looked at, and three doors reach that state without scanning:
-        // the inbox shortcut, Open on a single-source row, and ⌘K. Absent beats a wrong zero; here
-        // that means falling back to `notScanned`, which is also the state that puts the run offer
-        // back on screen — the honest answer and the useful one are the same.
+        // A zero under a scope the scan never covered is not "clean", it is "unasked": it falls
+        // back to `notScanned`, which also puts the run offer back. The inbox shortcut, Open on a
+        // single-source row and ⌘K all reach a scope without scanning.
         //
-        // **The two passes have different shapes, so they take different predicates**, and getting
-        // this wrong in either direction is a defect of its own:
+        // The passes have different shapes, so they take different predicates:
         //
-        // - **To File** enumerates the direct files of ONE folder, so only that exact folder can be
-        //   answered about. Ancestry would call a provider-root scan "covering" `Legal` and hand
-        //   back the same false clean, one level up.
-        // - **Duplicates** hashes a whole subtree, so any ancestor of the scope covers it.
-        // - **Names and Renames are NOT gated at all**, and that is the correction to a first pass
-        //   of this fix which gated them on To File's folder "because they ride the same walk".
-        //   They ride the same walk but not the same root: `detectRiskyNames` and
-        //   `detectRenamePlans` are both handed the provider-wide taxonomy (`root: providerRoot`,
-        //   `maxDepth: nil`) while the loose-file enumeration is one folder deep. Their findings
-        //   therefore cover every scope inside the provider, and gating them on the filing folder
-        //   hid real findings under any scope the inbox scan did not sit in. If either detector is
-        //   ever narrowed to a subtree, it needs a gate here against ITS OWN root.
+        // - To File enumerates one folder's direct files, so only that exact folder is
+        //   covered. Ancestry would call a provider-root scan "covering" `Legal`.
+        // - Duplicates hashes a whole subtree, so any ancestor of the scope covers it.
+        // - Names and Renames are not gated: `detectRiskyNames` and `detectRenamePlans` get the
+        //   provider-wide taxonomy (`root: providerRoot`, `maxDepth: nil`), so their findings cover
+        //   every scope in the provider. If either detector is ever narrowed to a subtree, it needs
+        //   a gate here against its own root.
         let covers = passCoverage(for: scope)
         let filingCovers = covers.filing
         let duplicatesCover = covers.duplicates
-        // Hoisted out of the loop below because the ledger needs it too. Filtering it a second time
-        // for the reclaimable total would be a second pass over 722 groups per render — see the
-        // type's note.
+        // Hoisted out of the loop because the ledger needs it too; see the type's note.
         let scopedDuplicates = syncManager.duplicateGroups.filter {
             OrganizeScopeFilter.matches($0, scope: scope)
         }
@@ -4421,19 +3564,15 @@ public struct LensWorkspaceView: View {
         model.sections = OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
             switch item {
             case .storage:
-                // **A receipt, on Storage's own clock.** Every other arm here answers "what did the
-                // current scan find in the current scope"; Storage answers "what did the last
-                // analysis find, and when, and of what" — a report that outlives the session and is
-                // restored at launch. `.receipt` is what lets the card say that instead of
-                // borrowing `.findings` and reading as a backlog nobody can discharge.
+                // A receipt, on Storage's own clock. The other arms answer "what did the current
+                // scan find in the current scope"; Storage answers "what did the last analysis
+                // find, when, and of what", a report restored at launch. `.receipt` says that
+                // instead of reading as a backlog nobody can discharge.
                 //
-                // **Not scoped-filtered, and the detail line is why that is honest rather than
-                // sloppy.** Every other arm narrows its rows to the scope; a treemap cannot be
-                // narrowed without misstating its own proportions, so this reports what the analysis
-                // actually covered and *names the root* beside it. On the Storage lens
-                // `restoreStorageLensIfShowing` keeps report and scope in step; on this page there
-                // is no lens selected, so the card can legitimately describe a root the current
-                // scope does not — and says so rather than implying otherwise.
+                // Not scope-filtered: a treemap can't be narrowed without misstating its
+                // proportions, so this reports what the analysis covered and names its root. On
+                // the Storage lens `restoreStorageLensIfShowing` keeps report and scope in step; on
+                // this page the card may describe another root, and says which.
                 guard let report = syncManager.storageLensReport else {
                     return OrganizeOverviewSection(
                         lens: item,
@@ -4462,17 +3601,14 @@ public struct LensWorkspaceView: View {
                     blurb: n > 0
                         ? "Loose files and where they belong — \(ready) ready, \(n - ready) unsure."
                         : "Loose files and where they belong.",
-                    // **Findings first: coverage decides what a ZERO means, never whether real
-                    // findings are shown.** Ordering the gate ahead of the count would hide work the
-                    // scan genuinely found — a duplicate scan of `Legal/2024` while scoped to
-                    // `Legal` produces groups that are really in `Legal`, and an uncovered-therefore-
-                    // notScanned arm would bury them. That is the same mistake as gating Names on
-                    // the filing folder, one line further down the ternary.
+                    // Findings first: coverage decides what a zero means, never whether real
+                    // findings show. A duplicate scan of `Legal/2024` while scoped to `Legal` finds
+                    // groups that really are in `Legal`, and gating first would bury them.
                     state: n > 0 ? .findings(count: n, headline: "\(n) file\(n == 1 ? "" : "s")",
-                                    // `lazy` before `prefix`, so the limit bounds the SUGGESTIONS
-                                    // examined and not merely the ones kept: a plain
-                                    // `scoped.prefix(3).compactMap` over three homeless files
-                                    // yields nothing at all while the fourth had a home to show.
+                                    // `lazy` before `prefix`, so the limit bounds the suggestions
+                                    // examined, not just those kept: `scoped.prefix(3).compactMap`
+                                    // over three homeless files would show nothing while the
+                                    // fourth had a home.
                                     examples: Array(scoped.lazy.compactMap { s in
                                         s.best.map { "\(s.fileName) → \(($0.path as NSString).lastPathComponent)" }
                                     }.prefix(OrganizeOverview.exampleLimit)))
@@ -4485,7 +3621,7 @@ public struct LensWorkspaceView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: "Identical content under different names or folders.",
-                    // Findings first, for the reason written on To File above.
+                    // Findings first, as on To File above.
                     state: n > 0 ? .findings(count: n, headline: "\(n) group\(n == 1 ? "" : "s")",
                                     examples: scoped.prefix(OrganizeOverview.exampleLimit).map {
                                         "\($0.name) — \(DuplicateGroupCard.memberCount($0.copies.count, isDirectory: $0.isDirectory, matchType: $0.matchType))"
@@ -4497,41 +3633,26 @@ public struct LensWorkspaceView: View {
                 let scoped = syncManager.renamePlans.filter {
                     OrganizeScopeFilter.matches($0, scope: scope)
                 }
-                // The backlog's list now opens with the to-fix section, so this card counts and
-                // previews it too — one list, one card, one number.
+                // The backlog's list opens with the to-fix section, so this card counts and
+                // previews it too: one list, one card, one number.
                 let scopedRisky = syncManager.riskyNames.filter {
                     OrganizeScopeFilter.matches($0, scope: scope)
                 }
                 let n = scoped.count + scopedRisky.count
-                // The tally is rebuilt from the SCOPED plans, not the whole backlog — its breakdown
-                // is the section's example line, and quoting the global one under a narrow scope is
-                // the same lie the badge used to tell.
+                // The tally is rebuilt from the scoped plans, not the whole backlog: its breakdown
+                // is the section's example line, and a global one under a narrow scope would lie.
                 let tally = RenameBacklogTally(scoped)
-                // **The breakdown belongs in the blurb, not in the detail slot.**
+                // The breakdown goes in the blurb, not the detail slot: that slot is monospaced for
+                // filenames and paths (`Invoice.pdf → Finance`, `clip.mp4 — 2 copies`), and prose
+                // looks wrong there. Restructure's arm does the same.
                 //
-                // It was two lines under this card set in a monospaced font — a font chosen for the
-                // slot's usual tenants, which are filenames and paths. To File draws
-                // `Invoice.pdf → Finance` there and Duplicates draws `clip.mp4 — 2 copies`; those
-                // are identifiers, and monospacing them helps you read them. A run of prose set the
-                // same way just looks like prose in the wrong font. Restructure's arm below made the
-                // same move for the same reason, and this arm's own note already conceded the
-                // point: it said the evidence here "is a summary of the whole list rather than a
-                // sample from it", which is a description of a blurb.
+                // It replaces the generic triple ("to sync, to convention, to order") rather than
+                // joining it, which would say the same list twice; the generic version stays for
+                // when there is nothing to count. To File's shape ("… — 31 ready, 11 unsure").
                 //
-                // **It REPLACES the generic triple rather than joining it.** "to sync, to
-                // convention, to order" is exactly what the breakdown says concretely — the three
-                // categories, unfilled — so carrying both would state the same list twice, once
-                // vaguely, and leave the sentence with two em-dash clauses. The generic version
-                // survives where there is nothing to count, which is the only place it is the best
-                // available answer. This is To File's shape ("… — 31 ready, 11 unsure") with the
-                // placeholder standing in until a count exists.
-                //
-                // **`headerBreakdown`, not `breakdown`** — the shorter form, and picked for its
-                // stated reason rather than for its length. It drops "N left alone" because the run
-                // it belongs to is prefixed by a total the skips are not part of; here the prefix
-                // is the words "Names worth changing", and a file the pass deliberately declined to
-                // rename is not one of those. It is also what the Renames lens's own header draws,
-                // so the two summaries of one backlog cannot say different things.
+                // `headerBreakdown`, not `breakdown`: it drops "N left alone", which aren't "names
+                // worth changing", and it is what the Renames lens's own header draws, so the two
+                // summaries of one backlog can't differ.
                 let riskyClause = scopedRisky.isEmpty ? nil
                     // Not "this provider will not accept": an iCloud or folder source has no naming
                     // rules of its own and still reports here, because the invisible-hazard half of
@@ -4542,39 +3663,26 @@ public struct LensWorkspaceView: View {
                     .compactMap { $0 }
                 return OrganizeOverviewSection(
                     lens: item,
-                    // All three categories in one line, in the order the list draws them. It said
-                    // "Folders that have drifted from their own numbering", which is the *pad*
-                    // section alone — the narrowest of the three, and the one that names the least
-                    // of what this lens now does: since Names folded in (P10) the same list carries
-                    // provider-hostile names to fix and files that ignore their folder's
-                    // convention, and neither is a folder or a number.
+                    // All three categories in one line, in the order the list draws them: the list
+                    // carries provider-hostile names, files ignoring their folder's convention and
+                    // numbering to pad, not just folders that drifted from their numbering.
                     blurb: renameParts.isEmpty
                         ? "Names worth changing — to sync, to convention, to order."
                         : "Names worth changing — \(renameParts.joined(separator: " · ")).",
-                    // Ungated by coverage for the same reason Names is: `detectRenamePlans` reads
-                    // the provider-wide taxonomy, not the enumerated folder. But "clean" vouches
-                    // for BOTH of the card's lists — the rename plans (filing walk) AND the risky
-                    // names (`detectRiskyNames`, which that walk runs only when a name ruleset is
-                    // supplied) — so both completion flags gate it, the same fold rule
-                    // `RailCounts.state` applies to the badge beside this card. One flag alone
-                    // called the card clean when half its list was never computed.
+                    // Ungated by coverage, like Names: `detectRenamePlans` reads the provider-wide
+                    // taxonomy. But "clean" vouches for both of the card's lists, the rename plans
+                    // (filing walk) and the risky names (`detectRiskyNames`, run only with a name
+                    // ruleset), so both completion flags gate it, as `RailCounts.state` does.
                     //
-                    // **Findings first, like every arm above and like the rail's own
-                    // `RailCounts.state`.** The two flags decide what a ZERO means and nothing
-                    // else. This arm read them first until now, which is not a hypothetical
-                    // difference: the filing walk publishes rename plans and risky names before it
-                    // sets `hasSuggestedFiling`, so mid-scan — and permanently after a cancel —
-                    // the badge beside this card said "126" while the card itself said the lens
-                    // had never run.
+                    // Findings first, like every arm above: the flags decide what a zero means and
+                    // nothing else. The filing walk publishes plans and risky names before it sets
+                    // `hasSuggestedFiling`, so mid-scan (and after a cancel) the card must still
+                    // show what the badge beside it counts.
                     //
-                    // No detail rows at all: this card's evidence is its breakdown, and a
-                    // breakdown is a summary of the whole list rather than a sample from it — so it
-                    // reads as a clause of the blurb above and not as a row in a slot whose other
-                    // tenants are filenames. See the composition just above `return`.
-                    //
-                    // The headline's unit: "folders" while the list is folders — the common
-                    // case — and the neutral "to change" once to-fix rows share it, because a
-                    // count of folders-plus-names in one number has no honest single noun.
+                    // No detail rows: the evidence is the breakdown, a summary of the whole list,
+                    // which reads as a clause of the blurb above. The headline's unit is "folders"
+                    // while the list is folders, and the neutral "to change" once to-fix rows share
+                    // it, because folders plus names has no single honest noun.
                     state: n > 0
                         ? .findings(count: n,
                                     headline: scopedRisky.isEmpty
@@ -4584,29 +3692,20 @@ public struct LensWorkspaceView: View {
                         : !syncManager.hasSuggestedFiling || !syncManager.hasScannedNames ? .notScanned
                         : .clean,
                     // `isScanningNames` too: this card hosts the folded Names findings, so a
-                    // standalone name scan must mark it — the claim the old Names card carried.
+                    // standalone name scan must mark it.
                     isScanning: syncManager.isSuggestingFiles || syncManager.isScanningNames)
             case .restructure:
-                // `inside` only, matching the badge: a finding about the folder ABOVE the scope is
-                // shown inside the lens and labelled there, but it is not work in this subtree and
-                // must not be counted as though it were.
+                // `inside` only, matching the badge: a finding about the folder above the scope is
+                // shown in the lens and labelled there, but it isn't work in this subtree.
                 let scoped = structureFindings.filter {
                     OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
                                                  scope: scope) == .inside
                 }
-                // **The breakdown goes in the blurb, and the detail rows go away entirely.**
-                //
-                // This lens's rows are deep paths that repeat their parents, so
-                // `scoped.prefix(3).map(\.headline)` drew three lines from whichever subtree
-                // happened to sort first — on the reference tree, one `node_modules` three times
-                // over, sixty characters of shared prefix, saying only that the list is not empty.
-                // The pill three inches away had already said that. See ``StructureBacklogTally``.
-                //
-                // The blurb is where a count clause belongs: To File's arm above already appends
-                // "31 ready, 11 unsure" to its own, so the card has a summary channel and this is
-                // it. It also renders in the system font, which a run of prose wants and the
-                // monospaced detail slot does not give it. To File and Duplicates keep their rows,
-                // which are short distinct filenames and exactly what that slot is for.
+                // The breakdown goes in the blurb and the detail rows go away: this lens's rows are
+                // deep paths that repeat their parents, so three of them would show one subtree's
+                // shared prefix three times and say only that the list isn't empty. See
+                // ``StructureBacklogTally``. To File and Duplicates keep their rows, which are
+                // short distinct filenames, what the monospaced slot is for.
                 let structureBlurb = StructureBacklogTally(scoped).breakdown
                 let blurb = structureBlurb.isEmpty
                     ? "Where the tree disagrees with its own habits."
@@ -4614,22 +3713,19 @@ public struct LensWorkspaceView: View {
                 return OrganizeOverviewSection(
                     lens: item,
                     blurb: blurb,
-                    // No profile means the detectors have nothing to read — "cannot run", which is
-                    // a different sentence from "clean" and must not borrow its words.
+                    // No profile means the detectors have nothing to read: "cannot run", a
+                    // different sentence from "clean".
                     state: syncManager.filingFolderProfile == nil ? .notScanned
                         : scoped.isEmpty ? .clean
                         : .findings(count: scoped.count,
                                     headline: "\(scoped.count) finding\(scoped.count == 1 ? "" : "s")",
                                     examples: []),
-                    // **The folder survey, which is this lens's pass.** Hard-coded `false` was
-                    // right while nothing read it — Restructure runs no walk of its own — and wrong
-                    // the moment the row grew a Refresh button: that button stayed
-                    // live and the count stayed bold for the whole survey it had just started,
-                    // while the menu item running the identical action one row up is `.disabled`
-                    // for exactly that period.
+                    // The folder survey, which is this lens's pass: its Refresh button and bold
+                    // count must go quiet while the survey runs, as the menu item for the same
+                    // action does.
                     isScanning: syncManager.filingSurveyLifecycle.isRunning)
-            // Configuration, not a result: it has nothing to report and no scan to run, so it
-            // takes no section, no pass card and no footer line either.
+            // Configuration, not a result: nothing to report and no scan to run, so no section,
+            // no pass card and no footer line.
             case .rules:
                 return nil
             }
@@ -4643,11 +3739,9 @@ public struct LensWorkspaceView: View {
             scanningState
         } else if !syncManager.hasFoundDuplicates {
             introState
-        // Ahead of `cleanState`, deliberately. A scan that turned up no groups AT ALL is still an
-        // answer about the folder, and the user asked about a file — landing them on the folder's
-        // all-clear leaves them to infer that it covered the thing they clicked. This branch is
-        // reached only when the visible list is empty, so a name query that DOES surface other
-        // groups still shows them.
+        // Ahead of `cleanState`: a scan that found no groups at all is still an answer about the
+        // folder, and the user asked about a file, so name it. Reached only when the visible list
+        // is empty, so a name query that does surface other groups still shows them.
         } else if let landing = revealLanding,
                   let answer = DuplicateReveal.namedAnswer(for: landing,
                                                            currentQuery: query,
@@ -4664,20 +3758,14 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The honest end of a "Find duplicates of this" — which of the two answers depends on
-    /// whether the scan looked at the file at all.
+    /// The honest end of a "Find duplicates of this", in one of two answers depending on whether
+    /// the scan looked at the file at all. A handoff writes the query itself, so the generic
+    /// "Nothing matches" would answer about the filter when the user asked about a file.
     ///
-    /// **The generic "Nothing matches" is not good enough here, which is the whole reason these
-    /// exist.** A handoff writes the query itself, so without them the user arrives at a
-    /// filtered-to-empty list captioned with a count — an answer about the *filter* where they
-    /// asked about a *file*, and indistinguishable from having mistyped something.
-    ///
-    /// And the two answers are kept apart because they are different claims. "No other copy of
-    /// this file" is a finding; "this file was not in the folder that was scanned" is the absence
-    /// of one. Collapsing the second into the first is the false-confidence failure the whole
-    /// feature is built to avoid — see `DuplicateReveal.outcome`.
-    /// `path` rides in from the landing: the request that carried it has been consumed by the
-    /// time these are on screen, and the `notScanned` recovery button needs a folder to scan.
+    /// The two answers are different claims: "no other copy of this file" is a finding, "this file
+    /// wasn't in the scanned folder" is the absence of one. Merging them would be false confidence;
+    /// see `DuplicateReveal.outcome`. `path` comes from the landing because the request is consumed
+    /// by now, and the `notScanned` recovery button needs a folder to scan.
     @ViewBuilder
     private func namedRevealState(_ answer: DuplicateReveal.NamedEmptyState, path: String) -> some View {
         switch answer {
@@ -4692,8 +3780,8 @@ public struct LensWorkspaceView: View {
                 primary: .init("Clear Search", systemImage: "xmark.circle") { clearRevealAnswer() }
             )
         case .notScanned(let name):
-            // Deliberately claims nothing about the file. The last scan covered somewhere else (or
-            // was cancelled), so the only true statement available is that it did not look here.
+            // Claims nothing about the file: the last scan covered somewhere else (or was
+            // cancelled), so the only true statement is that it didn't look here.
             EmptyStateView(
                 icon: "questionmark.folder",
                 title: "“\(name)” wasn’t in the last scan",
@@ -4703,17 +3791,14 @@ public struct LensWorkspaceView: View {
                 caption: "Scan the folder this file is in to get an answer about it.",
                 primary: .init("Find Duplicates", systemImage: "wand.and.stars",
                                help: "Scan the folder this file is in for duplicates") {
-                    // Through the same door as the context menu, with the FILE's path — so the
-                    // host scans a folder that actually contains it and hands back a fresh
-                    // request, which re-fires the reveal naturally. `onFindDuplicates` here
-                    // scanned the LENS's focused root, which for a handoff from the other pane is
-                    // a root that still cannot contain the file: the scan ran, resolved
-                    // `.outsideScan` again, and offered the same button — a loop dressed as a
-                    // recovery, under a caption promising "the folder this file is in".
+                    // The context menu's route, with the file's path, so the host scans a folder
+                    // that contains it and hands back a fresh request, which re-fires the reveal.
+                    // `onFindDuplicates` would rescan the lens's focused root, which for a handoff
+                    // from the other pane still can't contain the file: a loop, not a recovery.
                     if let onFindDuplicatesOf {
                         onFindDuplicatesOf(path)
                     } else {
-                        // No host wiring (previews, tests): the old behaviour, re-armed so the
+                        // No host wiring (previews, tests): rescan the focused root, re-armed so the
                         // standing request resolves against whatever the scan finds.
                         appliedRevealID = nil
                         onFindDuplicates()
@@ -4732,41 +3817,21 @@ public struct LensWorkspaceView: View {
         filter = .all
     }
 
-    /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): rows exist,
-    /// but the search hides them all — name the cause and offer one click out, instead of a blank
-    /// list that reads like the lens found nothing.
-    /// The list is empty because something is *hiding* rows — and which something matters.
-    ///
-    /// **Found by installing the build and looking at it.** Scoped to `Legal`, the Rules lens read
-    /// "0 automations · 0 enabled" over a blank pane, and what little it did offer was
-    /// `noMatchesState`: "The current search hides all 3 rules. Clear it to see the results again",
-    /// with a **Clear Search** button — while no search was running. The message named the wrong
-    /// cause and the button could not fix it, on a lens whose whole complaint is that "0 here"
-    /// reads as "0 anywhere".
-    ///
-    /// So the cause is resolved before the words are chosen. A live query owns the emptiness (it is
-    /// the thing the user just typed); otherwise, if a scope is set, the scope owns it.
+    /// The empty list when something is hiding rows, naming which something, with one click out
+    /// instead of a blank list that reads as "found nothing" (like the Activity Log's "No matching
+    /// entries"). The cause is resolved before the words: a live query or type filter, else the
+    /// scope.
     /// - Parameters:
-    ///   - scopedTotal: how many this lens holds **within the scope** — the denominator a search
-    ///     is hiding. It was the global list, so under a scope the message read "the current
-    ///     search hides all 722 duplicate groups" about a lens that held 27.
+    ///   - scopedTotal: how many this lens holds within the scope: the denominator a search
+    ///     hides.
     ///   - globalTotal: how many exist in the whole tree, for the scope's own message.
     @ViewBuilder
     private func noMatchesState(scopedTotal: Int, globalTotal: Int, noun: String) -> some View {
-        // **Three causes, in the order the reader would blame them**: a live query owns the
-        // emptiness, then a live type filter — the other control they just set — and only then the
-        // scope. The filter was missing from this chooser: scoped to `Legal` with "Versions"
-        // picked, a lens holding 27 groups none of which are versions fell to the scope's sentence
-        // and reported that all of them were somewhere else, while they were right there behind
-        // the filter. It also made the filter-only wording below unreachable under any scope.
-        //
-        // **Nothing in the scope means the scope owns the emptiness, whatever else is set.**
-        // A query and a type filter can only hide rows that are there; over a scope holding none,
-        // both of the other sentences degenerate to "hides all 0 …" with a button that clears the
-        // control and re-renders the same empty list — the loop dressed as a recovery this
-        // apparatus exists to remove. The first attempt asked this of the filter alone and left
-        // the identical dead end one branch over, on the query. `scopedTotal` is the scope-only
-        // count (it sees neither the query nor the filter), which is exactly the right question.
+        // Nothing in the scope means the scope owns the emptiness, whatever else is set: a query
+        // or type filter can only hide rows that are there, and over an empty scope their sentence
+        // would read "hides all 0 …" with a button that changes nothing. `scopedTotal` sees neither
+        // the query nor the filter, so it is the right question. Otherwise a query or the filter is
+        // hiding rows, and `searchHidesAllState` names which.
         if scopedTotal == 0, let scope {
             // Reached only when the scoped list is empty, so everything there is is elsewhere.
             scopeHidesAllState(total: globalTotal - scopedTotal, noun: noun, scope: scope)
@@ -4775,22 +3840,17 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// - Note: **Everything here keys on `effectiveLens`.** Keyed on `lens` — the workspace's,
-    ///   always `.filing` inside Organize — the button cleared To File's parked query and left the
-    ///   Duplicates or Rules query that was actually hiding the rows standing, so the empty state
-    ///   redrew unchanged on every click. That is the same dead-end this whole apparatus was
-    ///   written to remove, reintroduced by the fold that made Duplicates a rail item.
+    /// - Note: Everything here keys on `effectiveLens`. Inside Organize `lens` is always
+    ///   `.filing`, so keying on it would clear To File's parked query and leave the one actually
+    ///   hiding the rows, redrawing the same empty state on every click.
     ///
-    ///   The narrowing can also be the **type filter alone**, with no query at all — `isFiltered`
-    ///   has said so since Duplicates got one. The wording follows the cause rather than asserting
-    ///   a search that isn't running. The button clears **both** whichever it names — one press
-    ///   should end the dead end rather than hand back a second one — so it is labelled for the
-    ///   cause, not for everything it does.
+    ///   The narrowing can be the type filter alone, with no query, so the wording follows the
+    ///   cause. The button clears both whichever it names, so one press ends the dead end; it is
+    ///   labelled for the cause.
     private func searchHidesAllState(total: Int, noun: String) -> some View {
         let plural = "\(total) \(noun)\(total == 1 ? "" : "s")"
-        // `total > 0` belongs to the chooser above, which routes an empty scope to the scope's own
-        // sentence — but this state is also reachable with no scope at all, and "hides all 0" is
-        // not a sentence in either.
+        // `total > 0`: this state is also reachable with no scope, and "hides all 0" is not a
+        // sentence either way.
         let filterOnly = query.isEmpty && filterIsNarrowing && total > 0
         return EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",
@@ -4806,13 +3866,10 @@ public struct LensWorkspaceView: View {
         )
     }
 
-    /// Nothing here, but there is something **elsewhere** — the sentence a scoped zero owes the
-    /// reader.
-    ///
-    /// It names the scope, states the total outside it, and offers the one action that changes the
-    /// answer. Deliberately not phrased as "clean": a lens that found nothing under `Legal` has not
-    /// established that the tree is tidy, and borrowing `cleanState`'s words would be the exact
-    /// ambiguity between *clean* and *not looked here* that Organize's three states exist to avoid.
+    /// Nothing here, but something elsewhere: the sentence a scoped zero owes the reader. Names
+    /// the scope, states the total outside it, and offers the one action that changes the answer.
+    /// Not phrased as "clean": finding nothing under `Legal` says nothing about the tree, and
+    /// `cleanState`'s words would blur *clean* with *not looked here*.
     private func scopeHidesAllState(total: Int, noun: String, scope: OrganizeScope) -> some View {
         EmptyStateView(
             icon: "scope",
@@ -4825,24 +3882,18 @@ public struct LensWorkspaceView: View {
             }
         )
     }
-    /// **Below this a collapsed duplicates tile stops holding its own content.** A tile is a badge
-    /// and a figure on one line, a name on the next, and a ~24-character subtitle with a chevron on
-    /// the third; the subtitle is the widest of the three at about 155pt of 10.5pt monospace, plus
-    /// the chevron and the card's padding, which is where 220 would be the floor — 250 leaves the
-    /// name something to say rather than the bare minimum.
-    ///
-    /// Smaller than the renames lens's minimum (`RenamePassLens.minimumCardWidth`, 340) on purpose:
-    /// that card carries a two-column table of file names and this one carries a caption.
-    ///
-    /// **Not `private`**, so the tests can read the shipped value rather than restate it. They
-    /// restated 220 through a raise to 250 and stayed green while asserting a column count the app
-    /// does not produce.
+    /// Below this a collapsed duplicates tile stops holding its own content. A tile is a badge
+    /// and figure, then a name, then a ~24-character subtitle with a chevron; the subtitle, about
+    /// 155pt of 10.5pt monospace plus chevron and padding, puts the floor near 220, and 250 leaves
+    /// the name some room. Smaller than `RenamePassLens.minimumCardWidth` (340), whose card carries
+    /// a two-column table rather than a caption. Not `private`, so tests read the shipped value
+    /// rather than restating it.
     static let duplicateTileMinimumWidth: CGFloat = 250
 
     private func groupList(dupGroups: [DuplicateGroup]) -> some View {
         let sections = DuplicateSections.sections(dupGroups)
-        // Read here, once per list, and not in the GeometryReader below: that closure re-runs on
-        // every frame of a window drag, and this is a defaults read and a filter of every key.
+        // Read here, once per list, not in the GeometryReader below: that closure re-runs on every
+        // frame of a window drag, and this is a defaults read and a filter of every key.
         let kept = keptSeparateCount
         return ScrollViewReader { proxy in
         GeometryReader { geo in
@@ -4850,23 +3901,20 @@ public struct LensWorkspaceView: View {
         let columns = LensCardGrid.columns(
             forWidth: geo.size.width,
             minimumCardWidth: Self.duplicateTileMinimumWidth,
-            // This lens is a `ScrollView` with its own padding, not the renames `List` — see
+            // This lens is a `ScrollView` with its own padding, not the renames `List`; see
             // `LensCardGrid.listHorizontalPadding`.
             horizontalPadding: chrome)
-        // What one card actually gets, which is what decides its header — see
-        // `DuplicateCardHeaderLayout.forCard(width:isExpanded:)`. A column count cannot answer it:
-        // one column at the window floor is a narrower card than two columns on a wide display.
+        // What one card actually gets, which decides its header; see
+        // `DuplicateCardHeaderLayout.forCard(width:isExpanded:)`. A column count can't answer it:
+        // one column at the window floor is narrower than two on a wide display.
         let cardWidth = LensCardGrid.cardWidth(forWidth: geo.size.width, columns: columns,
                                                horizontalPadding: chrome)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
-                // **Sectioned by what each finding asks of you** — see `DuplicateSections`, and
-                // `RenameCategories`, which made the same move for the same reason. 88 tiles of
-                // equal weight is a wall: the two findings that need a person were somewhere among
-                // eighty-six that do not.
-                // Sectioned once per group list, not once per frame: this closure re-runs on every
-                // frame of a window drag, and re-bucketing 88 groups there is work the width does
-                // not change the answer to.
+                // Sectioned by what each finding asks of you (see `DuplicateSections`, and
+                // `RenameCategories`), so the few groups that need a person aren't lost in a wall
+                // of equal tiles. Sectioned once per group list, not per frame of a window drag:
+                // the width doesn't change the answer.
                 ForEach(sections, id: \.kind) { section in
                     duplicateSectionHeader(section, columns: columns)
                     duplicateTileRows(section, columns: columns, cardWidth: cardWidth,
@@ -4875,31 +3923,29 @@ public struct LensWorkspaceView: View {
                 keptSeparateRow(kept: kept)
             }
             .padding(densityMetrics.cardListPadding)
-            // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
-            // the visible id list so only membership changes animate — expand/collapse and keeper
-            // picks (which don't change the id set) stay instant.
+            // Animate the list settling when a resolved or merged group leaves. Keyed on the
+            // visible ids so only membership changes animate; expand/collapse and keeper picks
+            // stay instant.
             .designAnimation(listSettle, value: RowIdentities(rows: dupGroups))
         }
         .scrollContentBackground(.hidden)
-        // Scrolling is the LAST step of a landing, and the only one that can fail silently: the
-        // card is already expanded and marked by the time this runs, so a scroll that does not
-        // happen leaves a correct-but-offscreen answer. Keyed on the marked group and not on the
-        // request, because a group only becomes scrollable once it is in `dupGroups` — which is
-        // after the filter and query the plan cleared have actually taken effect.
+        // Scrolling is the last step of a landing, and the only one that can fail silently: the
+        // card is already expanded and marked, so a missed scroll leaves a correct answer off
+        // screen. Keyed on the marked group, not the request, because a group is scrollable only
+        // once it is in `dupGroups`, after the plan's filter and query changes take effect.
         .onChange(of: revealedGroupID) { _, id in
             guard let id else { return }
             unfoldSection(holding: id, in: dupGroups)
-            // **The hop is the fold's.** `unfoldSection` writes `@State`, and until the body
-            // re-evaluates the card is not merely unlaid-out — it is absent from the view tree
-            // (`shown` is a `prefix`). A `scrollTo` issued in the same turn resolves against a list
-            // that does not contain its target and is silently dropped, never retried: the same
-            // mechanism `FileTreeView`'s reveal and `PaneColumnsView`'s both hop for.
+            // The hop is for the fold: `unfoldSection` writes `@State`, and until the body
+            // re-evaluates the card is absent from the view tree (`shown` is a `prefix`). A
+            // `scrollTo` in the same turn would be silently dropped, never retried. The same
+            // reason `FileTreeView`'s and `PaneColumnsView`'s reveals hop.
             DispatchQueue.main.async {
                 withAnimation { proxy.scrollTo(id, anchor: .top) }
             }
         }
-        // The reveal that MOUNTS this list (the workspace switch) sets `revealedGroupID` before
-        // there is a proxy to scroll with, so `onChange` never sees it move. This is that case.
+        // The reveal that mounts this list (the workspace switch) sets `revealedGroupID` before
+        // there is a proxy to scroll with, so `onChange` never sees it move. This handles that.
         .onAppear {
             guard let id = revealedGroupID else { return }
             unfoldSection(holding: id, in: dupGroups)
@@ -4909,23 +3955,18 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Opens the fold over a revealed group, so a landing cannot aim at a card the fold is hiding.
-    ///
-    /// **The fold is a fourth way the last step of a landing can fail silently.** The card is
-    /// expanded and marked by the time the scroll runs; a target sitting past "Show 48 more" is
-    /// not in the view tree at all, so `scrollTo` finds nothing and the reveal ends on whatever
-    /// happened to be on screen — with the group correctly expanded, three hundred rows away.
+    /// Opens the fold over a revealed group, so a landing can't aim at a card the fold hides. A
+    /// target past "Show 48 more" isn't in the view tree, so `scrollTo` would find nothing and the
+    /// reveal would end wherever the list happened to be.
     private func unfoldSection(holding id: DuplicateGroup.ID, in groups: [DuplicateGroup]) {
         guard let group = groups.first(where: { $0.id == id }) else { return }
         unfoldedSections.insert(group.matchType.kind)
     }
 
-    /// A section's heading: the count, what the section asks for, and its one-line definition.
-    ///
-    /// No bulk button, deliberately. Only `identical` is batchable
-    /// (`DuplicateGroup.isRecommendedForBatch`), and the header's "Apply N recommended" is already
-    /// exactly that section's action — a second control doing the same thing, three rows lower, is
-    /// how a reader comes to wonder which of the two is scoped differently.
+    /// A section's heading: the count, what the section asks for, and its one-line definition. No
+    /// bulk button: only `identical` is batchable (`DuplicateGroup.isRecommendedForBatch`), and the
+    /// header's "Apply N recommended" is already that section's action. A second control three rows
+    /// lower would make a reader wonder which one is scoped differently.
     private func duplicateSectionHeader(_ section: DuplicateSections.Section,
                                         columns: Int) -> some View {
         let tint = DuplicateSections.tint(section.kind)
@@ -4934,11 +3975,10 @@ public struct LensWorkspaceView: View {
                 Pill(.standard, tint: tint, count: section.groups.count,
                      label: DuplicateSections.label(section.kind))
                 if section.reclaimableBytes > 0 {
-                    // **The verb, and the `~` on an overlap.** The card is careful that an overlap
-                    // reports "shared" rather than "reclaim" — the figure must not promise a
-                    // button that isn't there — and approximates it, because the per-copy share is
-                    // an average. A bare byte count in the slot `identical` uses for a real
-                    // reclaim made a merge section look like free space.
+                    // The verb, and the `~` on an overlap. An overlap reports "shared", not
+                    // "reclaim", because no button would reclaim it, and approximates it because
+                    // the per-copy share is an average. A bare byte count would make a merge
+                    // section look like free space.
                     let isOverlap = section.kind == .overlapping
                     Text((isOverlap ? "~" : "")
                          + FileSyncManager.formatBytes(section.reclaimableBytes)
@@ -4959,11 +3999,9 @@ public struct LensWorkspaceView: View {
         .padding(.horizontal, 2)
     }
 
-    /// A section's tiles, folded after four rows.
-    ///
-    /// **"Show a few tiles and then a see-more view", his words.** A section of sixty is the same
-    /// wall the whole list was; four rows is enough to see what the section holds and short enough
-    /// that the next heading is on screen. Whole rows, so the button never sits under a half-row.
+    /// A section's tiles, folded after four rows: enough to see what the section holds, short
+    /// enough that the next heading is on screen. Whole rows, so the button never sits under a
+    /// half-row.
     @ViewBuilder
     private func duplicateTileRows(_ section: DuplicateSections.Section,
                                    columns: Int, cardWidth: CGFloat,
@@ -4974,8 +4012,8 @@ public struct LensWorkspaceView: View {
         ForEach(LensCardGrid.identifiedRows(shown, columns: columns,
                                             spansFullWidth: { expanded.contains($0.id) })) { gridRow in
             let row = gridRow.items
-            // One card, expanded, is a full-width row on purpose — it must NOT be padded out to a
-            // third of the pane by the spacers a genuinely short row needs.
+            // One expanded card is a full-width row on purpose: it must not be padded out to a
+            // third of the pane by the spacers a short row needs.
             let isFullWidthRow = row.count == 1 && expanded.contains(row[0].id)
             HStack(alignment: .top, spacing: LensCardGrid.gutter) {
                 ForEach(row) { group in
@@ -5004,17 +4042,15 @@ public struct LensWorkspaceView: View {
                     .padding(.vertical, 2)
                     .contentShape(Rectangle())
             }
-            // **`.segment`, not `chromeHover()`.** This draws no chrome of its own, and
-            // `chromeHover` is the treatment for a control that KEEPS system chrome — on a bare
-            // accent label it resolves to two shadows and a 1pt lift, so the text glowed and rose,
-            // while its `hoverTint` did nothing at all because the label was already accent.
-            // `.segment` is what the ten other groundless controls in this app wear.
+            // `.segment`, not `chromeHover()`: this draws no chrome, and `chromeHover` is for
+            // controls that keep system chrome. On a bare accent label it adds two shadows and a
+            // 1pt lift, and its `hoverTint` does nothing. `.segment` is what the other groundless
+            // controls in the app wear.
             .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
-            // **The padding-compensation idiom, and both halves of it.** A bare caption has no room
-            // for a wash, so the 6/2 above pads INSIDE the label to give the capsule something to
-            // fill — and it must be cancelled out here, or the button's resting footprint grows by
-            // 12pt across and 4pt down and shoves the section below it. Seven other sites in the
-            // app pair these two numbers; the rule is to always move them together.
+            // The padding-compensation idiom: the 6/2 above pads inside the label to give the
+            // hover capsule something to fill, and must be cancelled here or the resting footprint
+            // grows by 12pt across and 4pt down and shoves the section below. Always move the two
+            // pairs together.
             .padding(.horizontal, -6)
             .padding(.vertical, -2)
             .padding(.top, 2)
@@ -5022,29 +4058,22 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// **The card has ONE compare closure; the branch is here.** A folder pair goes to the
+    /// The card has one compare closure; the branch is here. A folder pair goes to the
     /// Compare-workspace hand-off, which relativizes both paths against provider roots and re-pins
-    /// the panes — the right tool for two folders and the wrong one for two files. A file pair
-    /// opens the in-window Compare Copies surface instead.
+    /// the panes: right for two folders, wrong for two files. A file pair opens the in-window
+    /// Compare Copies surface. The card would otherwise need to know two hosts, and `ContentView`
+    /// doesn't know which kind of group a click came from.
     ///
-    /// Branching in the card would have meant the card knowing about two hosts; branching at
-    /// `ContentView` would have meant the wiring knowing which kind of group a click came from,
-    /// which it does not. This wrapper already exists and already holds the group.
-    ///
-    /// The payload carries copy VALUES and paths, never `group.id`: a rescan mints a fresh UUID
-    /// for every group, so an id captured here names nothing a few seconds later. Everything the
-    /// surface acts through re-looks-up the live group by path at click time.
-    /// Internal, not private, and named — the `keeperAction(for:)` precedent. A branch written
-    /// inline in the card's closure argument is reachable from nothing: swapping its two arms
-    /// compiles, ships, and sends a file pair down the folder path, which re-pins both Compare
-    /// panes against provider roots for two files that have no such relationship.
+    /// The payload carries copy values and paths, never `group.id`: a rescan mints fresh UUIDs, so
+    /// a captured id soon names nothing. The surface re-looks-up the live group by path at click
+    /// time. Internal and named, like `keeperAction(for:)`, so the branch is testable: swapped
+    /// arms would send a file pair down the folder path.
     func compareCopies(keep: DuplicateCopy, other: DuplicateCopy, in group: DuplicateGroup) {
         if group.isDirectory {
             onCompareCopies(keep, other)
         } else {
-            // The folder hand-off logs its pair; this one did not, so the log he audits recorded
-            // every folder comparison and no file one — and the trash that may follow names two
-            // paths that appear from nowhere.
+            // Logged like the folder hand-off, so the log records file comparisons too, and any
+            // trash that follows has its two paths' origin on record.
             Logger.shared.info(
                 "Comparing duplicate copies — keep \(keep.path) · other \(other.path)")
             onCompareFilePair(DuplicateComparePair(keeper: keep, other: other,
@@ -5053,13 +4082,9 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// One group's card, with the two things drawn from OUTSIDE it — the landing mark and the
-    /// scroll anchor.
-    ///
-    /// **The `.id` is what `proxy.scrollTo` finds.** In the flat list it came free from
-    /// `ForEach(dupGroups)`; the grid's `ForEach` is over ROWS, so without this the reveal would
-    /// expand and mark the right card and then scroll to nothing — the one step of a landing that
-    /// fails silently.
+    /// One group's card, with the two things drawn from outside it: the landing mark and the scroll
+    /// anchor. The `.id` is what `proxy.scrollTo` finds: the grid's `ForEach` is over rows, so
+    /// without it the reveal would mark the right card and then scroll to nothing.
     private func duplicateCard(_ group: DuplicateGroup, cardWidth: CGFloat) -> some View {
         DuplicateGroupCard(
             group: group,
@@ -5079,9 +4104,8 @@ public struct LensWorkspaceView: View {
             headerLayout: .forCard(width: cardWidth, isExpanded: expanded.contains(group.id))
         )
         .id(group.id)
-        // The landing mark, drawn from OUTSIDE the card rather than threaded through it: the card
-        // renders a duplicate group, and "you were sent here" is a fact about this session's
-        // navigation, not about the group.
+        // The landing mark, drawn from outside the card: "you were sent here" is a fact about this
+        // session's navigation, not about the group.
         .overlay {
             if revealedGroupID == group.id {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -5091,11 +4115,9 @@ public struct LensWorkspaceView: View {
                     .accessibilityHidden(true)
             }
         }
-        // The spoken form of the ring. The mark exists because a reveal into a list of similar
-        // cards leaves the user to work out which one they were sent to — and a VoiceOver user has
-        // no ring, so without this the one card that answers their question sounds identical to its
-        // neighbours. `.isSelected` rather than words of our own: "selected" is how assistive tech
-        // already says "this one".
+        // The spoken form of the ring: a VoiceOver user has no ring, so without this the card
+        // that answers their question sounds like its neighbours. `.isSelected` rather than our
+        // own words, because "selected" is how assistive tech already says "this one".
         .accessibilityAddTraits(revealedGroupID == group.id ? .isSelected : [])
         .transition(cardRemoval)
     }
@@ -5103,9 +4125,9 @@ public struct LensWorkspaceView: View {
     // MARK: Empty / scanning states
 
     private var introState: some View {
-        // The setup card (P12): the job, the safety contract, one trigger, and sample rows in
-        // the shape real groups take — the first real list should not be the first sighting of
-        // its layout. Named for the FOCUSED folder: that is what the scan hashes.
+        // The setup card: the job, the safety contract, one trigger, and sample rows in the shape
+        // real groups take, so the first real list isn't the first sight of its layout. Named for
+        // the focused folder, which is what the scan hashes.
         LensSetupCard(
             intro: LensIntros.duplicates(targetName: scanTargetName),
             accent: glassHue.accentColor,
@@ -5118,10 +4140,9 @@ public struct LensWorkspaceView: View {
                 + "These are samples, not files on your disk.",
             onStart: onFindDuplicates
         ) {
-            // **The real card's header at sample scale** (LN8): name, then the card's own
-            // subtitle, then the verb and figure — the green pill only on an identical group, as the card
-            // draws it. These led with match badges ("Identical", "Same text", "Needs review")
-            // after the cards had dropped theirs; the section headings carry the kind now.
+            // The real card's header at sample scale: name, the card's own subtitle, then the
+            // verb and figure, with the green pill only on an identical group, as the card draws
+            // it. No match badges: the section headings carry the kind.
             LensSetupSampleRow {
                 Text("Wedding Gifts.pdf").scaledFont(.caption).lineLimit(1)
                 Spacer(minLength: 6)
@@ -5142,11 +4163,9 @@ public struct LensWorkspaceView: View {
                     .foregroundStyle(SemanticColor.success)
             }
             LensSetupSampleRow {
-                // **A finding the scan can actually produce.** This sample used to be a
-                // "Name only" row reading "nothing to reclaim" — the first screen in the lens,
-                // teaching the shape of a kind that was removed. An overlap is the nearest real
-                // one: it needs a person, and its figure is approximate and shared rather than
-                // reclaimed, which is exactly what the section header and the card both say.
+                // A finding the scan can actually produce: an overlap needs a person, and its
+                // figure is approximate and shared rather than reclaimed, as the section header and
+                // the card both say.
                 Text("Petition").scaledFont(.caption).lineLimit(1)
                 Spacer(minLength: 6)
                 Text("2 folders · 92% shared").scaledFont(.caption.monospaced())
@@ -5160,8 +4179,8 @@ public struct LensWorkspaceView: View {
 
     private var scanningState: some View {
         VStack(spacing: 14) {
-            // Determinate linear bar once the hashing phase knows exact counts (matches the
-            // Differences syncProgressRow look); indeterminate spinner during the walk phase.
+            // Determinate bar once hashing knows exact counts (like the Differences
+            // syncProgressRow); an indeterminate spinner during the walk.
             if let progress = syncManager.duplicateScanProgress, progress.total > 0 {
                 let completed = min(progress.completed, progress.total)
                 ProgressView(value: Double(completed), total: Double(progress.total))
@@ -5180,20 +4199,15 @@ public struct LensWorkspaceView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
-        // No dress at all: this sits on an empty surface, where a material has nothing to blur
-        // and paints a flat gray slab instead. The file pane's busy chip follows the same rule and
-        // goes unbacked over an empty pane — see `PaneBusyIndicator`.
+        // No backing: on an empty surface a material has nothing to blur and paints a flat gray
+        // slab. The file pane's busy chip follows the same rule; see `PaneBusyIndicator`.
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The clean state's message, as a value so the scope claim can be asserted without pixels.
-    ///
-    /// **The subject is the folder the scan actually covered**, exactly as the named-reveal
-    /// states one screen over already phrase it via `duplicateScanRoot`. This message used to
-    /// say "Nothing repeats across iCloud" while the results chip beside it said the scan was
-    /// one folder — a clean claim wider than the scan that produced it, which is the class of
-    /// lie the rail badges are engineered never to tell.
+    /// The clean state's message, as a value so the scope claim can be checked without pixels.
+    /// The subject is the folder the scan covered, as the named-reveal states phrase it via
+    /// `duplicateScanRoot`: a clean claim must never be wider than the scan behind it.
     nonisolated static func duplicatesCleanMessage(scanRootName: String?, providerName: String?) -> String {
         if let scanRootName {
             return "Nothing repeats in “\(scanRootName)”. Scan again after adding files."
@@ -5210,8 +4224,8 @@ public struct LensWorkspaceView: View {
             message: Self.duplicatesCleanMessage(
                 scanRootName: syncManager.duplicateScanRoot.map { ($0 as NSString).lastPathComponent },
                 providerName: providerName),
-            // An all-clear can be the all-clear of everything having been kept separate, so it
-            // says so — and offers the way back, as the list's own foot does.
+            // An all-clear can be the result of everything having been kept separate, so it says
+            // so and offers the way back, as the list's foot does.
             caption: kept > 0 ? Self.keptSeparateSentence(kept) : nil,
             primary: kept > 0
                 ? .init("Show Them Again", systemImage: "eye",
@@ -5221,8 +4235,8 @@ public struct LensWorkspaceView: View {
         )
     }
 
-    /// The way back from Keep separate, at the foot of the list. Nothing listed what had been kept
-    /// separate before, so a mis-click hid a group for good, across every rescan.
+    /// The way back from Keep separate, at the foot of the list, so a mis-click can't hide a group
+    /// for good across every rescan.
     @ViewBuilder
     private func keptSeparateRow(kept: Int) -> some View {
         if kept > 0 {
@@ -5245,14 +4259,14 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The groups kept separate that a scan of this folder could flag — the keys are kept for
-    /// every folder and provider at once, and only these are this lens's to count or forget.
+    /// The groups kept separate that a scan of this folder could flag. The keys cover every folder
+    /// and provider at once; only these are this lens's to count or forget.
     private var keptSeparateCount: Int {
         syncManager.keptSeparateKeys(under: keptSeparateFolder).count
     }
 
-    /// The one folder *Show them again* counts, forgets and rescans — the deeper of the scan's
-    /// root and the scope, the folder the list on screen covers. See
+    /// The one folder *Show them again* counts, forgets and rescans: the deeper of the scan's root
+    /// and the scope, the folder the list on screen covers. See
     /// ``OrganizeAim/keptSeparateFolder(scannedRoot:scope:)``.
     private var keptSeparateFolder: String? {
         OrganizeAim.keptSeparateFolder(scannedRoot: syncManager.duplicateScanRoot,
@@ -5268,11 +4282,9 @@ public struct LensWorkspaceView: View {
     static let keptSeparateHelp = "Forget the groups kept separate in this folder and scan again"
 
     /// Kept-separate groups leave no trace a scan can restore from, so the way back is to forget
-    /// them and scan again — this folder's only.
-    ///
-    /// **The rescan is aimed here, not through `onFindDuplicates`**, which hashes the scope or else
-    /// the focused pane's folder: with the pane moved, or a scan deeper than the scope, that is a
-    /// different folder from the one whose keys were just forgotten.
+    /// them and scan again, for this folder only. The rescan is aimed here, not through
+    /// `onFindDuplicates`, which hashes the scope or the focused pane's folder: either can differ
+    /// from the folder whose keys were just forgotten.
     private func showKeptSeparateAgain() {
         guard let folder = keptSeparateFolder else { return }
         syncManager.forgetKeptSeparateGroups(under: folder)
@@ -5286,26 +4298,21 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private func filingContent(filing: [FilingSuggestion], counts: RailCounts) -> some View {
         VStack(spacing: 0) {
-            // The Cloud Filing spend row lives here now, at the top of the content, rather than as
-            // a third row of the header: the header is a fixed two-row ladder (that's what makes it
-            // 81pt in every lens), and this row is a footnote about what the last scan cost — not a
-            // control. It kept its place above the list, and its History button, unchanged.
+            // The Cloud Filing spend row sits at the top of the content, not as a third header row:
+            // the header is a fixed two-row ladder (81pt in every lens), and this row is a footnote
+            // about what the last scan cost, not a control.
             //
-            // **Except over the setup card, where it goes underneath instead** (it is handed to
-            // `filingIntroState` as the card's footnote). Every lens is supposed to open with the
-            // same card at the same height; this row is the one thing any lens puts *above* it, so
-            // To File — and only To File, and only on machines with cloud scans on record — opened
-            // ~28pt lower than Duplicates, Renames and Storage. Same information, same History
-            // button, below the pitch rather than in front of it.
+            // Over the setup card it goes underneath instead, as the card's footnote (see
+            // `filingIntroState`): every lens opens with its card at the same height, and this row
+            // above it would push To File's down.
             if spendRowPlacement == .aboveTheList {
                 filingSpendRow
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
             }
-            // No teach prompt here any more (Banner Room, CB). It was inserted above the cards
-            // after a move, so the next card's "File here" slid down under the pointer by the
-            // prompt's height. The offer rides in the move's "Filed …" result message as
-            // "Save as rule…" (`FilingRuleOfferPanel`), and these cards never move for it.
+            // No teach prompt here: inserted above the cards after a move, it would slide the next
+            // card's "File here" out from under the pointer. The offer rides in the move's "Filed …"
+            // result message as "Save as rule…" (`FilingRuleOfferPanel`), so these cards never move.
             Group {
                 switch Self.filingContentState(
                     isScanning: syncManager.isSuggestingFiles, showsSetup: showsFilingSetupCard,
@@ -5326,9 +4333,8 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// N2 — the Automations lens. Its rules header is gone (the shared card carries New rule /
-    /// Preview all), so the host threads in the filtered rules and the shared `viewingResults`
-    /// state the card's Preview button has to flip.
+    /// The Automations lens. The shared card carries New rule / Preview all, so the host threads in
+    /// the filtered rules and the shared `viewingResults` state the card's Preview button flips.
     @ViewBuilder
     private func automationsContent(rules: [AutomationRule], counts: RailCounts) -> some View {
         if !syncManager.automationRules.isEmpty, rules.isEmpty, !automationsState.viewingResults {
@@ -5340,8 +4346,8 @@ public struct LensWorkspaceView: View {
                 state: automationsState,
                 rules: rules,
                 providerName: providerName,
-                // File Into's folder when the host gives one (TE287) — the tree the Rules preview
-                // resolves into, so the editor relativizes against the same root.
+                // File Into's folder when the host gives one: the tree the Rules preview resolves
+                // into, so the editor relativizes against the same root.
                 destinationRoot: (fileInto?.path ?? providerAnchor).flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
                 onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
                 onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
@@ -5352,22 +4358,20 @@ public struct LensWorkspaceView: View {
 
     // MARK: Learned rules (offered after a filing move)
 
-    /// After the user files a loose file, propose an editable Automation rule for files like it —
-    /// the deterministic, learn-by-example complement to the AI backend.
+    /// After the user files a loose file, propose an editable Automation rule for files like it:
+    /// the deterministic, learn-by-example complement to the AI backend. The manager assembles it
+    /// (see `proposeAutomationRule`), because it keys on the page this scan read and the tree's own
+    /// filing memory.
     ///
-    /// Assembled by the manager, not here: the proposal keys on the page this scan already read and
-    /// on the tree's own filing memory, and both live there (see `proposeAutomationRule`).
-    ///
-    /// `providerRoot` is the tree the card was scanned against — the root a rule's relative
-    /// destination is resolved from on the next scan. Not ``providerAnchor``: with File Into on
-    /// Documents in iCloud and the source on the Home folder (TE287), measuring against the Home
-    /// folder saved `Documents/Family/Shweta`, which the next scan would resolve to
-    /// `Documents/Documents/Family/Shweta` and create.
+    /// `providerRoot` is the tree the card was scanned against, which a rule's relative destination
+    /// resolves from on the next scan. Not ``providerAnchor``: with File Into on iCloud Documents
+    /// and the source on the Home folder, the anchor would save `Documents/Family/Shweta`, which
+    /// the next scan would resolve to `Documents/Documents/Family/Shweta` and create.
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
                            providerRoot: String?, modificationDate: Date?) {
         let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerRoot)
-        // The file's own date is what lets a destination ending in a year generalise to `{year}`
-        // rather than freezing the year the example happened to have.
+        // The file's own date lets a destination ending in a year generalise to `{year}` rather
+        // than freezing the example's year.
         guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
                                                                filePath: filePath,
                                                                destinationRelativePath: rel,
@@ -5382,10 +4386,9 @@ public struct LensWorkspaceView: View {
     private func filingList(_ filing: [FilingSuggestion]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
-                // Grouped by confidence (High / Medium / Low) so the list reads as "these are sure,
-                // these are maybes, these need you" rather than one undifferentiated wall of cards.
-                // Sectioned from the FILTERED rows, so a tier the query empties loses its header
-                // too rather than heading nothing.
+                // Grouped by confidence (High / Medium / Low), so the list reads as sure, maybe and
+                // needs-you. Sectioned from the filtered rows, so a tier the query empties loses
+                // its header too.
                 ForEach(FilingSuggestionGrouping.sections(filing)) { section in
                     filingSectionHeader(section)
                     ForEach(section.suggestions) { suggestion in
@@ -5395,17 +4398,16 @@ public struct LensWorkspaceView: View {
                 }
             }
             .padding(densityMetrics.cardListPadding)
-            // Slide + fade a filed/dismissed card out and settle the list (H4). Keyed on the id list
-            // so only a card leaving animates; an emptied tier's header falls away in the same pass.
+            // Slide and fade a filed or dismissed card out and settle the list. Keyed on the ids so
+            // only a leaving card animates; an emptied tier's header falls away in the same pass.
             .designAnimation(listSettle, value: RowIdentities(rows: filing))
         }
         .scrollContentBackground(.hidden)
     }
 
     private func filingSectionHeader(_ section: FilingSuggestionSection) -> some View {
-        // The 3-bar meter replaces the old tint dot (G5) so the header reads as a scale, and the
-        // tier's gloss doubles as the once-per-screen legend for what raises confidence — no
-        // separate key line needed.
+        // The 3-bar meter makes the header read as a scale, and the tier's gloss doubles as the
+        // once-per-screen legend for what raises confidence.
         HStack(spacing: 8) {
             ConfidenceMeter(tier: section.tier)
             Text(section.tier.title)
@@ -5434,9 +4436,8 @@ public struct LensWorkspaceView: View {
             onFileHere: { dest in
                 filedThisSession = true
                 Task {
-                    // Offer a rule only when the file actually MOVED — filing into the folder it
-                    // already lives in (`.notNeeded`) is a no-op, and a rule keyed on where the file
-                    // already sits is noise.
+                    // Offer a rule only when the file actually moved: filing into the folder it
+                    // already lives in (`.notNeeded`) is a no-op, and a rule from it is noise.
                     guard await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved else { return }
                     offerRule(fileName: suggestion.fileName, filePath: suggestion.filePath,
                               destinationPath: dest.path,
@@ -5453,8 +4454,8 @@ public struct LensWorkspaceView: View {
             onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
             isTryAnotherBusy: syncManager.filingTryAnotherInFlight.keys.contains(suggestion.id),
-            // Offered only for the files the scan read and got nothing from — see
-            // `FileSyncManager.readScan(for:)` for why it is an offer and not a scan step.
+            // Offered only for files the scan read and got nothing from; see
+            // `FileSyncManager.readScan(for:)` for why it is an offer, not a scan step.
             onReadScan: syncManager.filingUnreadableScans.contains(suggestion.filePath)
                 ? { Task { await syncManager.readScan(for: suggestion) } }
                 : nil,
@@ -5463,26 +4464,19 @@ public struct LensWorkspaceView: View {
         )
     }
 
-    /// The pre-scan state. Not `EmptyStateView` like the other four: the template centres two
-    /// sentences in a large panel, and this card shows three sample rows in the shape real
-    /// suggestions take, which is what makes the first real result list legible. See
-    /// ``FilingSetupCard``.
-    ///
-    /// **It no longer carries a price, because the scan no longer has one.** It used to quote the
-    /// last recorded cloud run — a figure about a different folder, hedged into honesty by the
-    /// word "last" — because the trigger beneath it could reach the paid backend. It cannot: the
-    /// scan runs at ``FilingClassifierTier/free`` and money is spent only by the refine button on
-    /// the results, which quotes a real estimate for a batch it has in hand.
+    /// The pre-scan state. Not `EmptyStateView` like the other four: this card shows three sample
+    /// rows in the shape real suggestions take, which makes the first real list legible. See
+    /// ``FilingSetupCard``. No price: the scan runs at ``FilingClassifierTier/free``, and money is
+    /// spent only by the refine button, which quotes a real estimate for a batch it has in hand.
     private var filingIntroState: some View {
         FilingSetupCard(
             // `documentsRead` is the memory's own answer: a tree whose documents have been read
-            // has learned folders, and one that has not has none. Reading it here rather than
-            // passing another flag in keeps the sentence and the fact it describes together.
+            // has learned folders. Reading it here keeps the sentence and its fact together.
             intro: LensIntros.organize(
                 scanTargetName: scanTargetName,
                 documentsRead: !(syncManager.filingMemory?.folders.isEmpty ?? true)),
             accent: glassHue.accentColor,
-            // Under the card, not above it — see `SpendRowPlacement`.
+            // Under the card, not above it; see `SpendRowPlacement`.
             footnote: spendRowPlacement == .underTheSetupCard
                 ? AnyView(filingSpendRow.padding(.top, 2))
                 : nil,
@@ -5490,29 +4484,22 @@ public struct LensWorkspaceView: View {
         )
     }
 
-    /// Whether To File is showing its pre-scan setup card — asked by the state switch that draws
-    /// it **and** by the spend row that has to get out of its way, from this one place so the two
-    /// cannot answer differently. A spend row hidden for a card that is not there (or, worse,
-    /// above one that is) is exactly the drift a second copy of this predicate would produce.
+    /// Whether To File is showing its pre-scan setup card. Asked by the state switch that draws it
+    /// and by the spend row that moves out of its way, from one place so the two can't disagree.
     private var showsFilingSetupCard: Bool {
         !syncManager.isSuggestingFiles && !syncManager.hasSuggestedFiling
     }
 
-    /// Where the cloud spend row goes.
-    ///
-    /// A value rather than two `if`s in two view bodies, because the bug this fixes was a
-    /// *placement* bug and placement spread across two sibling branches is how it happened. Both
-    /// call sites read this one answer, so "above the card" cannot come back by one branch being
-    /// edited and not the other — and `LensSetupCardAlignmentTests` can render each case knowing
-    /// it is rendering what the lens really does, rather than a reconstruction that happens to
-    /// agree today.
+    /// Where the cloud spend row goes. A value rather than two `if`s in two view bodies, so both
+    /// call sites read one answer and editing one branch can't put the row back above the card.
+    /// `LensSetupCardAlignmentTests` renders each case knowing it is what the lens really does.
     enum SpendRowPlacement: Equatable {
-        /// Above the results, where it has always been.
+        /// Above the results.
         case aboveTheList
         /// Under the setup card, as its footnote. Every lens opens with the same card at the same
         /// height, so the one row a lens adds cannot go in front of it.
         case underTheSetupCard
-        /// No cloud pass on record — a footnote about nothing.
+        /// No cloud pass on record: a footnote about nothing.
         case hidden
     }
 
@@ -5527,9 +4514,9 @@ public struct LensWorkspaceView: View {
                                showsSetupCard: showsFilingSetupCard)
     }
 
-    /// Renames before its first run (P12): the walk's job for this lens, one trigger (the same
-    /// file pass To File offers — one walk answers both lenses), and the row shapes of all three
-    /// categories a scan can produce, the red to-fix first.
+    /// Renames before its first run: the walk's job for this lens, one trigger (the same file pass
+    /// To File offers, since one walk answers both), and the row shapes of all three categories a
+    /// scan can produce, the red to-fix first.
     private var renameSetupState: some View {
         LensSetupCard(
             intro: LensIntros.renames(providerName: providerName),
@@ -5575,7 +4562,7 @@ public struct LensWorkspaceView: View {
                 .controlSize(.regular)
                 .padding(.top, 2)
         }
-        // No dress, for the reason the duplicate scan above gives — still one dialect.
+        // No backing, for the duplicate scan's reason above.
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -5583,8 +4570,8 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private var filingCleanState: some View {
         if filedThisSession {
-            // Earned: the user just filed everything loose this session — a positive terminal state,
-            // not a neutral empty one. Its own glyph (a full tray), never the duplicate finder's seal.
+            // Earned: the user filed everything loose this session, a positive terminal state, not
+            // a neutral empty one. Its own glyph (a full tray), never the duplicate finder's seal.
             EmptyStateView(
                 icon: FilingGlyph.allFiled,
                 tint: SemanticColor.success,
@@ -5594,7 +4581,7 @@ public struct LensWorkspaceView: View {
             )
         } else if dismissedThisSession {
             // Handled, but not by filing: the user cleared every suggestion with "Not here". Don't
-            // claim the scan found nothing — it found these and the user set them aside.
+            // claim the scan found nothing; it found these and the user set them aside.
             EmptyStateView(
                 icon: FilingGlyph.nothingLoose,
                 tint: .secondary,
@@ -5619,13 +4606,13 @@ public struct LensWorkspaceView: View {
         return (folder as NSString).lastPathComponent
     }
 
-    /// What To File's content area shows — the chooser `filingContent` switches on, kept pure so
+    /// What To File's content area shows: the chooser `filingContent` switches on, kept pure so
     /// the order of its questions can be asserted without mounting a scope.
     enum FilingContentState: Equatable { case scanning, setup, notScannedHere, clean, hidden, list }
 
-    /// **"Not scanned here" is asked before "clean" and "hidden"** (TE287): with a scope To File
-    /// never read, the list is empty by construction, and both of those answers would describe a
-    /// folder nobody looked at — "Nothing loose to file", or "Nothing in “Downloads”".
+    /// "Not scanned here" is asked before "clean" and "hidden": with a scope To File never
+    /// read, the list is empty by construction, and both of those would describe a folder nobody
+    /// looked at ("Nothing loose to file", or "Nothing in “Downloads”").
     static func filingContentState(isScanning: Bool, showsSetup: Bool, rowsShown: Int, suggestions: Int,
                                    scopeIsSet: Bool, scopeWasScanned: Bool) -> FilingContentState {
         if isScanning { return .scanning }
@@ -5636,17 +4623,14 @@ public struct LensWorkspaceView: View {
         return .list
     }
 
-    /// The scope is a folder To File has not read (TE287).
-    ///
-    /// Moving the scope does not scan, and the filing pass reads one folder's own files, so after
-    /// a scan of `Finance` the list holds nothing under `Downloads` by construction. That empty
-    /// list used to reach ``scopeHidesAllState`` and read "Nothing in “Downloads”" over a folder of
-    /// twenty loose files nobody had looked at. ``passCoverage(for:)`` is the overview's own test
-    /// for this, so the two surfaces say the same thing about the same folder.
+    /// The scope is a folder To File hasn't read. Moving the scope doesn't scan, and the filing
+    /// pass reads one folder's own files, so after a scan of `Finance` nothing is listed under
+    /// `Downloads`, and ``scopeHidesAllState`` would wrongly say "Nothing in “Downloads”".
+    /// ``passCoverage(for:)`` is the overview's test for this, so the two surfaces agree.
     private func filingNotScannedHereState(_ scope: OrganizeScope) -> some View {
         let into = fileInto.map { " in \($0.label)" } ?? ""
-        // Named apart when the two share a name — iCloud ▸ Downloads scanned, Home ▸ Downloads
-        // scoped — or the sentence reads "last read “Downloads”. Scan “Downloads”".
+        // Named apart when the two share a name (iCloud ▸ Downloads scanned, Home ▸ Downloads
+        // scoped), or the sentence would read "last read “Downloads”. Scan “Downloads”".
         let last = syncManager.filingScanFolder.map { folder -> String in
             let name = (folder as NSString).lastPathComponent
             return name == scope.name ? "To File last read another folder named “\(name)”. "
@@ -5665,8 +4649,8 @@ public struct LensWorkspaceView: View {
         )
     }
 
-    /// "Download and Read 13" — fetches the cloud-only files among the rows on screen, reads
-    /// page 1 of each and places them again (GJ). Absent when none of them is cloud-only.
+    /// "Download and Read 13": fetches the cloud-only files among the rows on screen, reads page 1
+    /// of each and places them again. Absent when none of them is cloud-only.
     @ViewBuilder
     private func downloadAndReadButton(_ filing: [FilingSuggestion]) -> some View {
         let cloudOnly = filing.filter { syncManager.filingNotDownloaded.contains($0.filePath) }
@@ -5686,29 +4670,23 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Asks where this suggestion should go, then files it there.
-    ///
-    /// The question used to be an `NSOpenPanel`, which knows nothing about the provider, nothing
-    /// about where you last filed, and opens on the scan folder — the one folder the file is
-    /// certainly leaving. The picker browses the provider the rail is already showing. The panel
-    /// survives as `Other…`, for a destination genuinely outside it.
+    /// Asks where this suggestion should go, then files it there. The picker browses the provider
+    /// the rail is showing and opens near where you last filed; the system panel stays as
+    /// `Other…`, for a destination outside the provider.
     private func chooseFolder(for suggestion: FilingSuggestion) {
-        // Both fallbacks have to test for EMPTY, not just nil. `providerRoot` is handed
-        // down as a non-optional String that is "" for an unconfigured provider, so `??` alone never
-        // reached the suggestion's own root — the chain read as three options and behaved as one.
+        // Both fallbacks test for empty, not just nil: `providerRoot` is "" for an unconfigured
+        // provider, so `??` alone would never reach the next option.
         //
-        // **The card's own root first** (TE287): it is the tree the scan filed this file against,
-        // which is the source's anchor except when File Into points elsewhere — loose files in
-        // Home ▸ Downloads filed into Documents in iCloud, where browsing the Home folder would
-        // offer every folder but the ones the suggestion came from.
+        // The card's own root first: the tree the scan filed this file against. It is the source's
+        // anchor except when File Into points elsewhere (loose files in Home ▸ Downloads filed
+        // into iCloud Documents), where browsing Home would miss the suggestion's folders.
         let root = [suggestion.providerRoot, providerAnchor]
             .compactMap { $0 }
             .first { !$0.isEmpty } ?? ""
         let panel = { Self.runSystemFolderPanel(for: suggestion.fileName,
                                                 startingAt: syncManager.filingScanFolder) }
-        // Nothing to browse without a provider root: the card would draw a stack rooted at "/" whose
-        // first column is permanently empty, because `subfolders` refuses an empty root. Fall back
-        // to the panel this replaced rather than showing a picker that cannot pick.
+        // Nothing to browse without a provider root: `subfolders` refuses an empty root, so the
+        // picker's first column would be permanently empty. Fall back to the system panel.
         guard !root.isEmpty else {
             if let chosen = panel() { file(suggestion, into: chosen) }
             return
@@ -5721,10 +4699,10 @@ public struct LensWorkspaceView: View {
                 providerRoot: root,
                 providerName: fileInto.flatMap { $0.path == root ? $0.label : nil }
                     ?? ((providerName?.isEmpty == false) ? providerName! : "this provider"),
-                // Opens where the rail is looking, not at the root — the folder you were just in is
-                // the best guess available, and it is one click from the root either way. Only when
-                // it IS in the tree being browsed: loose files read from Home ▸ Downloads and filed
-                // into Documents would otherwise open the picker outside its own root (TE287).
+                // Opens where the rail is looking, not at the root: the folder you were just in is
+                // the best guess, one click from the root either way. Only when it is inside the
+                // tree being browsed, or files read from Home ▸ Downloads and filed into Documents
+                // would open the picker outside its own root.
                 openAt: syncManager.filingScanFolder.flatMap {
                     PathBoundary.relativize($0, under: root) != nil ? $0 : nil
                 } ?? root
@@ -5734,11 +4712,9 @@ public struct LensWorkspaceView: View {
         ))
     }
 
-    /// Files `suggestion` into `destination`, and — when this overrode the suggested home and the
-    /// filename has something distinctive to key on — offers to remember it (G2).
-    ///
-    /// Shared by the picker and the system panel so one path reaches the transfer no matter which
-    /// surface answered the question.
+    /// Files `suggestion` into `destination` and, when this overrode the suggested home and the
+    /// filename has something distinctive to key on, offers to remember it. Shared by the picker
+    /// and the system panel, so one path reaches the transfer whichever answered.
     private func file(_ suggestion: FilingSuggestion, into destination: String) {
         let dest = FilingDestination(path: destination, confidence: .high,
                                      reasons: ["You chose this folder"], newSegments: [])
@@ -5746,8 +4722,8 @@ public struct LensWorkspaceView: View {
         let teachable = FilingOverride.isOverride(suggestion, chosenPath: destination)
             && FilingEngine.canRemember(fileName: suggestion.fileName)
         Task {
-            // Only prompt to remember an override when the file actually MOVED — no point learning a
-            // rule from filing a file into the folder it already sits in (`.notNeeded`).
+            // Only prompt to remember an override when the file actually moved: a rule from filing
+            // into the folder it already sits in (`.notNeeded`) is pointless.
             if await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved, teachable {
                 pendingRuleOffer = nil   // a stale offer would otherwise hide the fresh teach prompt
                 pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
@@ -5771,18 +4747,17 @@ public struct LensWorkspaceView: View {
         return url.path
     }
 
-    /// Files `batch` — the exact array `fileAllButton` counted. Never re-derived from
-    /// `syncManager.filingSuggestions`: under a query that's a different, larger set, and the
-    /// confirmation the user reads names this one.
+    /// Files `batch`, the exact array `fileAllButton` counted. Never re-derived from
+    /// `syncManager.filingSuggestions`: under a query that is a different, larger set, and the
+    /// confirmation names this one.
     private func applyRecommendedFiling(_ batch: [FilingSuggestion]) {
         guard !batch.isEmpty else { return }
         let newFolders = batch.filter { $0.best?.isNew == true }.count
         let folderNote = newFolders > 0 ? " Creates \(newFolders) new folder\(newFolders == 1 ? "" : "s")." : ""
-        // **`confirmChange`, not `confirmDestructive`** (LN20). Filing moves files, and ⌘Z moves
-        // them back; nothing goes to the Trash. The destructive alert's caution icon and red
-        // default are the signal the duplicate dialogs below spend on a real Trash, and spending
-        // it here too is how it stops meaning anything. The confirm itself stays, because this
-        // can create folders — which "Rename N files" and "Fix all N" never do.
+        // `confirmChange`, not `confirmDestructive`: filing moves files and ⌘Z moves them back;
+        // nothing goes to the Trash. The destructive alert's caution icon and red default are
+        // reserved for a real Trash, as in the duplicate dialogs below. The confirm stays because
+        // this can create folders, which "Rename N files" and "Fix all N" never do.
         let ok = NativeAlerts.confirmChange(
             messageText: "File \(batch.count) file\(batch.count == 1 ? "" : "s") into their suggested homes?",
             informativeText: "Moves each file into its suggested folder.\(folderNote) Unsure files stay put. Every move can be undone with ⌘Z.",
@@ -5797,7 +4772,7 @@ public struct LensWorkspaceView: View {
 
     // MARK: The "Find duplicates of this" landing
 
-    /// The reveal task's key — see the `.task(id:)` it drives for why each field is in it.
+    /// The reveal task's key; see the `.task(id:)` it drives for why each field is in it.
     private struct RevealKey: Equatable {
         let requestID: UUID?
         let isScanning: Bool
@@ -5812,24 +4787,15 @@ public struct LensWorkspaceView: View {
                   scanRoot: syncManager.duplicateScanRoot)
     }
 
-    /// Applies whatever `DuplicateReveal` decides about the current request.
+    /// Applies whatever `DuplicateReveal` decides about the current request. Every decision lives
+    /// there, so the handoff's behaviour, including "no duplicates of X" never degrading into a
+    /// silently empty list, is pinned by `DuplicateRevealTests` without mounting anything. This
+    /// only writes state; `applyRevealPlan` is the seam a view test drives.
     ///
-    /// Every decision is over there, and deliberately: this function only writes state, so the
-    /// handoff's behaviour — including the "no duplicates of X" answer, which must never degrade
-    /// into a silently empty filtered list — is pinned by `DuplicateRevealTests` without mounting
-    /// anything. `applyRevealPlan` is the seam a view test drives.
-    ///
-    /// **`appliedRevealID` is set only once an outcome ANSWERS the request.** A `.waiting` outcome
-    /// leaves it alone, which is what lets the same request resolve again when the scan it is
-    /// waiting for publishes its results. Once recorded, re-resolving is suppressed — otherwise a
-    /// group resolving (which moves `groupCount`, and so the key) would re-clear a search the user
-    /// had typed since landing.
-    ///
-    /// Every outcome, `.waiting` included, goes through the SAME apply. Waiting used to be a
-    /// hand-written early return that cleared the mark and the landing itself — a duplicate of what
-    /// applying `DuplicateReveal.plan(for: .waiting)` does, which left that branch unreachable and
-    /// its documentation describing behaviour nothing ran. The only thing special about waiting now
-    /// is that it is not recorded.
+    /// `appliedRevealID` is set only once an outcome answers the request. `.waiting` leaves it
+    /// alone, so the same request resolves again when the scan publishes. Once recorded,
+    /// re-resolving is suppressed, or a group resolving (which moves the key) would re-clear a
+    /// search typed since landing. Every outcome, `.waiting` included, goes through the same apply.
     func applyRevealRequest() {
         guard let request = revealRequest, request.id != appliedRevealID,
               let outcome = DuplicateReveal.outcome(for: request,
@@ -5839,16 +4805,15 @@ public struct LensWorkspaceView: View {
         else { return }
         if outcome != .waiting {
             appliedRevealID = request.id
-            // Retire the request at the HOST too. The applied-id above is @State and dies with
-            // this view, and a request that outlives its answer replays it on the next remount —
-            // see `onRevealHandled`.
+            // Retire the request at the host too: the applied id above is @State and dies with this
+            // view, and a request that outlives its answer would replay on the next remount. See
+            // `onRevealHandled`.
             onRevealHandled?(request.id)
-            // **A handoff names ONE file, and the scope must not be allowed to answer about a
-            // different subject.** The outcome above is resolved against the WHOLE group list while
-            // the rows on screen come through `filteredRows` — see
-            // ``OrganizeScopeFilter/revealClearsScope(revealedPath:scope:)`` for why those two
-            // disagreeing produces a silent "no other copies", and why clearing is the only honest
-            // resolution of the three available.
+            // A handoff names one file, and the scope must not answer about a different subject.
+            // The outcome is resolved against the whole group list while the rows on screen come
+            // through `filteredRows`; see
+            // ``OrganizeScopeFilter/revealClearsScope(revealedPath:scope:)`` for why that gap
+            // produces a silent "no other copies" and why clearing is the honest resolution.
             if OrganizeScopeFilter.revealClearsScope(revealedPath: request.path, scope: scope) {
                 setScope(nil)
             }
@@ -5856,33 +4821,30 @@ public struct LensWorkspaceView: View {
         applyRevealPlan(DuplicateReveal.plan(for: outcome, path: request.path))
     }
 
-    /// Writes one plan into this lens's state. Split from the resolve so a test can hand it a plan
-    /// directly and read back what the lens does with it — the resolve is already pure, and what
-    /// is left to get wrong is here.
+    /// Writes one plan into this lens's state. Split from the resolve, which is already pure, so a
+    /// test can hand it a plan and read back what the lens does with it.
     func applyRevealPlan(_ plan: DuplicateReveal.Plan) {
         if plan.clearsFilterAndQuery { filter = .all }
         if let query = plan.searchQuery {
             searchQueries[.duplicates] = query
-            // The field is revealed only when there is something in it to see. A landing that
-            // clears the query must also put the field away, or the user is left looking at an
-            // empty search box they did not open.
+            // The field is revealed only when there is something in it: a landing that clears the
+            // query also puts the field away, rather than leaving an empty box the user didn't open.
             if query.isEmpty {
                 searchExpandedLenses.remove(.duplicates)
             } else {
                 searchExpandedLenses.insert(.duplicates)
             }
         }
-        // An empty-query landing shows now or never — dropped rather than stored when the list has
-        // rows, so it cannot sit latent and surface over a later all-clear. See `landingToStore`.
+        // An empty-query landing shows now or never: dropped rather than stored when the list has
+        // rows, so it can't sit latent and surface over a later all-clear. See `landingToStore`.
         revealLanding = DuplicateReveal.landingToStore(plan.landing,
                                                        listIsEmpty: syncManager.duplicateGroups.isEmpty)
         if let id = plan.expandsGroupID { expanded.insert(id) }
         revealedGroupID = plan.revealedGroupID
     }
 
-    /// Test seam: what the lens is currently showing as a result of a handoff. A value rather than
-    /// four separate internal reads, so a test asserts the LANDING (which group is open, which is
-    /// marked, what the field says) rather than the container it happened in.
+    /// Test seam: what the lens shows as a result of a handoff. One value, so a test asserts the
+    /// landing (which group is open, which is marked, what the field says).
     struct RevealState: Equatable {
         var expandedGroupIDs: Set<UUID>
         var revealedGroupID: UUID?
@@ -5898,11 +4860,8 @@ public struct LensWorkspaceView: View {
     }
 
     private func toggle(_ id: UUID) {
-        // Touching ANY card by hand ends the landing: the mark says "this is the one you were
-        // sent to", and once the user is working the list themselves it is describing history.
-        // This used to clear only when the touched card WAS the marked one, so opening the
-        // neighbours left the ring standing through a whole review session — the code quietly
-        // narrower than this comment, which always said "any".
+        // Touching any card by hand ends the landing: the mark says "this is the one you were sent
+        // to", and once the user is working the list themselves it no longer applies.
         revealedGroupID = nil
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
@@ -5922,45 +4881,40 @@ public struct LensWorkspaceView: View {
         )
         guard ok else { return }
         // Only identical (batch-eligible) groups feed `duplicateSummary.reclaimableBytes`, the
-        // figure the ReclaimPill counts *down*. Credit the "freed this session" count-up only for
-        // those, so the two numbers stay in lockstep — otherwise resolving a versions/overlap
-        // group (never part of the reclaimable total) would bump "freed" while "reclaimable" sat
-        // still. Those groups still go to the Trash and stay undoable; they just aren't headlined
-        // in this batch-oriented pill.
+        // figure the ReclaimPill counts down, so only those credit the "freed this session"
+        // count-up and the two numbers stay in lockstep. Versions and overlap groups still go to
+        // the Trash and stay undoable; they just aren't headlined in this pill.
         let reclaimable = group.isRecommendedForBatch ? group.reclaimableBytes : 0
         Task {
             if await syncManager.resolveDuplicateGroup(group) { creditReclaim(reclaimable) }
         }
     }
 
-    /// Trashes the redundant copies of `groups` — the exact array `applyAllButton` counted. Never
-    /// re-derived from `syncManager.duplicateGroups`: under a query that's a different, larger set,
-    /// and this dialog's counts must describe what will actually happen.
+    /// Trashes the redundant copies of `groups`, the exact array `applyAllButton` counted. Never
+    /// re-derived from `syncManager.duplicateGroups`: under a query that is a different, larger
+    /// set, and this dialog's counts must describe what will actually happen.
     private func applyRecommended(_ groups: [DuplicateGroup]) {
         guard !groups.isEmpty else { return }
         let bytes = groups.reduce(0) { $0 + $1.reclaimableBytes }
         let copies = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
         let ok = NativeAlerts.confirmDestructive(
-            // Drawn from `DuplicateRemovalPrompt`, like the per-group dialog above: the wording of
-            // the last screen before a delete belongs in a pure type that can be tested, not in a
-            // string interpolation nobody can reach.
+            // From `DuplicateRemovalPrompt`, like the per-group dialog: the wording of the last
+            // screen before a delete belongs in a pure, testable type.
             messageText: DuplicateRemovalPrompt.batchMessageText(groupCount: groups.count,
                                                                  providerName: providerName),
             informativeText: DuplicateRemovalPrompt.batchInformativeText(
                 copyCount: copies, reclaimText: FileSyncManager.formatBytes(bytes)),
-            // The same verb the per-group dialog confirms with: the honest name for what happens,
-            // not the feature's old "Tidy" branding.
+            // The per-group dialog's verb: the honest name for what happens.
             confirmTitle: "Move to Trash"
         )
         guard ok else { return }
         // Credit the batch by the reclaimable it actually erased (the drop in the still-reclaimable
-        // figure), so a partial failure counts only what really landed — `applyRecommendedDuplicates`
-        // returns Void, so we measure the delta rather than trust the dialog's promised total.
+        // figure), so a partial failure counts only what landed: `applyRecommendedDuplicates`
+        // returns Void, so measure the delta rather than trust the promised total.
         //
-        // That delta is a shared meter, though: a per-card `apply` finishing while this batch runs
-        // lowers it too, and that path already credited the group itself — so the raw drop would
-        // count those bytes twice. `netBatchCredit` nets out whatever the tally banked meanwhile,
-        // which is exactly the concurrent per-card credits (see ``ReclaimTally``).
+        // The meter is shared: a per-card `apply` finishing during this batch lowers it too, and
+        // has already credited itself, so the raw drop would count those bytes twice.
+        // `netBatchCredit` nets out what the tally banked meanwhile (see ``ReclaimTally``).
         let before = syncManager.duplicateSummary.reclaimableBytes
         let bankedAtStart = reclaim.totalBytes
         Task {
@@ -5971,18 +4925,14 @@ public struct LensWorkspaceView: View {
     }
 
     private func merge(_ group: DuplicateGroup) {
-        // Belt over the manager's own re-entry guard: don't even raise the confirm dialog for a
-        // group whose merge is already in flight (the button disables, but the state can flip
-        // between the click and this handler).
+        // Belt over the manager's own re-entry guard: no confirm dialog for a group whose merge is
+        // already in flight (the button disables, but state can flip between click and handler).
         guard !syncManager.mergingGroupIDs.contains(group.id) else { return }
         let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
         let many = group.redundantCopies.count != 1
-        // "About": this figure is the scan's distinct-content estimate, while the merge plans
-        // its copies per relative path (re-hashing at merge time) — the two legitimately differ
-        // in both directions (same content under two names copies twice; content present in the
-        // keeper under another name at the same spot may skip). An exact promise here was
-        // routinely off by a file or two; the safety statement — nothing is trashed until
-        // everything landed — is the load-bearing part.
+        // "About": this is the scan's distinct-content estimate, while the merge plans copies per
+        // relative path, re-hashing at merge time, so the two can differ either way. The safety
+        // statement, nothing trashed until everything has landed, is the load-bearing part.
         let ok = NativeAlerts.confirmDestructive(
             messageText: "Merge “\(group.name)” into one folder?",
             informativeText: "Copies anything “\(group.keeper.name)” doesn’t already have (about \(unique) item\(unique == 1 ? "" : "s")) into it, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost; undo with ⌘Z.",
@@ -6004,13 +4954,13 @@ public struct LensWorkspaceView: View {
 
 // MARK: - Reclaim pill (H5)
 
-/// The Duplicates summary's reclaim figure, given the H5 payoff: the still-reclaimable number rolls
-/// with `numericText` as groups resolve, an optional "… freed this session" caption counts *up*, and
-/// a green glow flashes once per resolve and fades over ~1s — the one flourish the feature earns.
+/// The Duplicates summary's reclaim figure: the still-reclaimable number rolls with `numericText`
+/// as groups resolve, an optional "… freed this session" caption counts up, and a green glow
+/// flashes once per resolve and fades over ~1s.
 private struct ReclaimPill: View {
     /// Bytes still reclaimable across the remaining groups (counts *down* as you resolve).
     let reclaimableBytes: Int
-    /// "… freed this session" — nil until something's been reclaimed, so it's hidden at zero.
+    /// "… freed this session": nil until something has been reclaimed, so it is hidden at zero.
     let freedCaption: String?
     /// Bumped once per successful resolve to retrigger the glow.
     let flashToken: Int
@@ -6027,7 +4977,7 @@ private struct ReclaimPill: View {
             Text("\(FileSyncManager.formatBytes(reclaimableBytes)) reclaimable")
                 .scaledFont(PillVariant.standard.numberFont)
                 .monospacedDigit()
-                // Numeric roll is kept even under Reduce motion (an acceptable content transition).
+                // The numeric roll stays under Reduce motion (an acceptable content transition).
                 .contentTransition(.numericText())
             if let freedCaption {
                 Text("· \(freedCaption)")
@@ -6038,19 +4988,17 @@ private struct ReclaimPill: View {
             }
         }
         .foregroundStyle(SemanticColor.success)
-        // No capsule (ROADMAP.md, the stat-pills item): the reclaimable figure is not a subset,
-        // so once the counting pills became filters this one had to stop dressing like them — a
-        // header where clicking a pill sometimes does nothing teaches people to stop clicking
-        // pills. The H5 flourish survives the shedding: the numbers still roll, and the
-        // once-per-resolve glow now rides on the text itself.
+        // No capsule: the reclaimable figure is not a subset, so it isn't a filter, and dressing
+        // it like the filter pills would teach that clicking a pill sometimes does nothing. The
+        // once-per-resolve glow rides on the text.
         .shadow(color: SemanticColor.success.opacity(0.65 * glow), radius: 6 * glow)
         .fixedSize()
         // Roll the numbers whenever they change (both the count-down and the count-up caption).
         .animation(.easeInOut(duration: 0.35), value: reclaimableBytes)
         .animation(.easeInOut(duration: 0.35), value: freedCaption)
         .onChange(of: flashToken) { _, _ in
-            // The glow is pure decoration, so it's dropped under Reduce motion — the numeric roll above
-            // still conveys the change.
+            // The glow is pure decoration, so it is dropped under Reduce motion; the numeric roll
+            // above still conveys the change.
             guard !reduceMotion else { return }
             glow = 1
             withAnimation(.easeOut(duration: 1.0)) { glow = 0 }

@@ -1,29 +1,20 @@
 import Foundation
 import Sync
 
-/// One file armed for comparison, waiting for the click that names its counterpart.
+/// One file armed for comparison, waiting for the click that names its counterpart. A left-click
+/// in the other pane completes the pair; as a plain selection it would clear the first pane
+/// (`PaneLogic.applySelectionWrite` keeps one pane selected).
 ///
-/// **The whole idea is one inversion: the click that used to destroy the state is the click that
-/// completes it.** Comparing two files across the panes was reachable only by right-clicking, and
-/// only a RIGHT-click — a left-click in the other pane writes a selection, and
-/// `PaneLogic.applySelectionWrite` clears the first pane in the same update to hold the
-/// one-pane-selected invariant. So the gesture that most people try is the gesture that throws away
-/// the half they had already armed, silently, with nothing on screen teaching otherwise.
-///
-/// **The armed file lives HERE, outside both selection sets.** That is what makes this cheap: the
-/// invariant is not relaxed, not special-cased and not touched, because nothing about an armed path
-/// is a selection. The selection may move, be cleared, or land in the other pane — the pick does not
-/// care, and survives all three.
-///
-/// The armed `FileNode` is held by value rather than by path, so navigating away from its folder
-/// (which finding the counterpart usually requires) cannot strand the pick. It may of course go
-/// stale on disk; the viewer re-reads both sides when it opens, and says so when a side has gone.
+/// The armed file lives here, outside both selection sets, so that invariant is untouched and the
+/// pick survives any selection change. It is held by value, not by path, so navigating away to find
+/// the counterpart can't strand it; the viewer re-reads both sides when it opens and says when one
+/// has gone.
 public struct ComparePick: Equatable, Sendable {
 
     /// The file waiting for a counterpart.
     public let armed: FileNode
-    /// Which pane it was armed in — needed to tell a same-pane pair from a cross-pane one, since
-    /// the two are ordered by different rules.
+    /// Which pane it was armed in, to tell a same-pane pair from a cross-pane one: they are
+    /// ordered by different rules.
     public let armedPaneIsLeft: Bool
 
     public init(armed: FileNode, armedPaneIsLeft: Bool) {
@@ -31,18 +22,15 @@ public struct ComparePick: Equatable, Sendable {
         self.armedPaneIsLeft = armedPaneIsLeft
     }
 
-    /// The armed file's name, which is what the mode indicator shows.
-    ///
-    /// **The NAME, not a finished sentence.** The indicator has to truncate it — real filenames run
-    /// to "Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf" — and a
-    /// sentence with the name buried inside it truncates the sentence too, taking the instruction
-    /// with it. The strip composes the words around this and bounds this alone.
+    /// The armed file's name, for the mode indicator. The name alone, not a sentence: long names
+    /// must truncate, and a sentence built around one would lose its instruction too. The strip adds
+    /// the words and truncates only this.
     public var armedName: String { armed.name }
 
     /// What a click resolves to while a pick is armed.
     public enum Outcome: Equatable {
-        /// The armed row was clicked again. **The marker is also the off switch** — the natural
-        /// undo for a mode whose only visible anchor is that row.
+        /// The armed row was clicked again. The marker is also the off switch, since that row is
+        /// the mode's only visible anchor.
         case cancelled
         /// A folder. Navigation is how the counterpart gets found, so the click does its ordinary
         /// job and the mode stands.
@@ -51,12 +39,9 @@ public struct ComparePick: Equatable, Sendable {
         case paired(DifferencePair)
     }
 
-    /// Resolve a click on `node`, in the pane `inLeftPane`.
-    ///
-    /// **Ordering is `PaneComparePairMenu.pair` unchanged** — pick mode is a different gesture
-    /// supplying the same two arguments, not a second ordering rule. A cross-pane pair is ordered
-    /// by pane side so the viewer's columns match its subtitle; a same-pane pair leads with the
-    /// ARMED file, which is the one the reader chose first and the one the strip has been naming.
+    /// Resolve a click on `node`, in the pane `inLeftPane`. Ordered by `PaneComparePairMenu.pair`,
+    /// not a rule of its own: a cross-pane pair by pane side, so the viewer's columns match its
+    /// subtitle; a same-pane pair leads with the armed file, the one the strip has been naming.
     public func outcome(clicking node: FileNode, inLeftPane: Bool,
                         leftPaneName: String, rightPaneName: String) -> Outcome {
         if node.id == armed.id { return .cancelled }

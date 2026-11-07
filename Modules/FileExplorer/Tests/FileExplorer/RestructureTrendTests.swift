@@ -5,11 +5,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// "Is the tree getting better?", from counts the detectors already produced (proposal O16).
-///
-/// The chart's decisions are three rules — which points to draw, where they sit, and what the
-/// caption says — and all three are here without a view. The `Canvas` closure itself is
-/// unreachable from a test, which is exactly why the geometry does not live inside it.
+/// "Is the tree getting better?", from counts the detectors already produced. The chart's three
+/// rules (which points to draw, where they sit, what the caption says) are tested without a view;
+/// the `Canvas` closure is unreachable from a test, which is why the geometry lives outside it.
 @MainActor
 @Suite struct RestructureTrendTests {
 
@@ -32,16 +30,15 @@ import Testing
 
     // MARK: Which points are worth a line
 
-    /// **One survey is a dot, not a trend.** A chart over a single point claims a history that
-    /// does not exist, and its caption would read "33 → 33" about a tree nothing has happened to.
+    /// One survey is a dot, not a trend: a chart over one point claims a history that doesn't exist.
     @Test func aSingleSurveyDrawsNoLine() {
         #expect(RestructureTrendChart.points(from: []) == nil)
         #expect(RestructureTrendChart.points(from: Self.stored([33])) == nil)
         #expect(RestructureTrendChart.points(from: Self.stored([33, 19]))?.count == 2)
     }
 
-    /// The newest window, not the whole history: a line squeezing two years into 200 points shows
-    /// nothing but its own ends.
+    /// The newest window, not the whole history: a line squeezing years into 200 points shows only
+    /// its own ends.
     @Test func theWindowKeepsTheNewestPoints() throws {
         let many = Self.stored(Array(1...60))
         let drawn = try #require(RestructureTrendChart.points(from: many, limit: 40))
@@ -50,8 +47,8 @@ import Testing
         #expect(drawn.last?.total == 60)
     }
 
-    /// The total is the sum across kinds, so a tree that traded five shape findings for five echo
-    /// ones has not improved and the line must not say it has.
+    /// The total sums every kind: a tree that traded five shape findings for five echo ones hasn't
+    /// improved, and the line must not say it has.
     @Test func theTotalSumsEveryKind() {
         let point = RestructureStore.TrendPoint(
             at: "t", profileId: "p", countsByKind: ["shape": 4, "echoName": 3, "backlog": 1],
@@ -63,8 +60,8 @@ import Testing
 
     // MARK: Where the points sit
 
-    /// y is the count, the conventional reading — so a falling line means fewer findings and the
-    /// chart needs no legend to be read correctly.
+    /// y is the count, the conventional reading, so a falling line means fewer findings and the
+    /// chart needs no legend.
     @Test func theHighestCountSitsAtTheTopOfTheRange() throws {
         let positions = RestructureTrendChart.unitPositions(Self.points([10, 30, 20]))
         #expect(positions.count == 3)
@@ -75,9 +72,8 @@ import Testing
         #expect(positions.map(\.x) == [0, 0.5, 1])
     }
 
-    /// **A flat line sits in the middle.** Dividing by a zero span is the crash; drawing it along
-    /// the floor would be worse, because "as low as it has ever been" is a claim, and a tree that
-    /// simply did not change has not made it.
+    /// A flat line sits in the middle. Dividing by a zero span would crash, and the floor would
+    /// claim "as low as it has ever been" for a tree that merely didn't change.
     @Test func anUnchangedTreeDrawsThroughTheMiddle() {
         let positions = RestructureTrendChart.unitPositions(Self.points([19, 19, 19]))
         #expect(positions.allSatisfy { $0.y == 0.5 })
@@ -85,8 +81,8 @@ import Testing
 
     // MARK: The caption
 
-    /// The two ends as numbers, not a direction word: "fewer findings" is a claim the reader must
-    /// take on trust, and the numbers can be checked against the line above them.
+    /// The two ends as numbers, not a direction word: "fewer findings" must be taken on trust, and
+    /// numbers can be checked against the line.
     @Test func theCaptionStatesBothEndsAndTheLandings() throws {
         #expect(RestructureTrendChart.caption(for: Self.points([33, 27, 19], landings: [1, 2]))
                     == "33 → 19 findings · 2 landings")
@@ -96,24 +92,20 @@ import Testing
                     == "33 → 19 findings", "no landings, nothing about landings")
     }
 
-    /// An unchanged pair says so rather than printing "19 → 19", which reads like a change that
+    /// An unchanged trend says so rather than printing "19 → 19", which reads like a change that
     /// came to nothing.
     @Test func anUnchangedTrendSaysUnchanged() throws {
         let caption = try #require(RestructureTrendChart.caption(for: Self.points([19, 19, 19])))
         #expect(caption == "19 findings, unchanged across 3 surveys")
-        // ST15: one finding is one, not "1 findings".
+        // One finding is one, not "1 findings".
         #expect(RestructureTrendChart.caption(for: Self.points([1, 1])) == "1 finding, unchanged across 2 surveys")
     }
 
     // MARK: It is drawn
 
-    /// The line and the dots reach the pixels — **and the caption is held constant**, because
-    /// `caption(for:)` appends "· N landings" and the first version of this compared two renders
-    /// that differed in their text as well as their dots. Deleting the dot loop outright left it
-    /// green.
-    ///
-    /// Same number of landings in both arms, at different positions: the caption is identical
-    /// word for word, so every differing pixel is a dot that moved.
+    /// The line and the dots reach the pixels, with the caption held constant: `caption(for:)`
+    /// appends "· N landings", so both arms have the same number of landings at different
+    /// positions, and every differing pixel is a dot that moved. Deleting the dot loop must fail.
     @Test func theChartDrawsItsLineAndItsLandingDots() throws {
         func chart(landings: Set<Int>) -> RestructureTrendChart {
             RestructureTrendChart(points: Self.points([33, 27, 19], landings: landings),
@@ -129,8 +121,8 @@ import Testing
         #expect(RestructureRender.differingPixels(atStart, atEnd) > 20,
                 "the dot is drawn where the landing is, not just somewhere")
 
-        // And the LINE is drawn, measured inside the canvas band alone — the caption inks well
-        // over a hundred pixels on its own, so an ink floor over the whole view proved nothing.
+        // And the line is drawn, measured inside the canvas band alone: the caption inks over a
+        // hundred pixels by itself, so an ink floor over the whole view proves nothing.
         let band = try #require(RestructureRender.raster(
             RestructureTrendChart(points: Self.points([33, 27, 19]), accent: .blue)
                 .frame(height: RestructureTrendChart.height),

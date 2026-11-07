@@ -3,19 +3,17 @@ import PDFToolkitCore
 import SwiftUI
 import Design
 
-/// **Fill & Sign's palette** (Phase 6b, mockup F): the tools, floating in glass over the canvas as
-/// Acrobat's do, instead of a toolbar row that pushed the pages down. Turning Fill & Sign on leaves
-/// the page where it was.
+/// Fill & Sign's palette: the tools, floating in glass over the canvas as Acrobat's do, rather than
+/// a toolbar row that pushes the pages down. Turning Fill & Sign on leaves the page where it was.
 ///
-/// Select, Text, Replace, Date, Marks, Signature and Initials, then style, size and ink — with Form Fields first on
-/// a file that has fields of its own. A tool with a corner triangle opens a flyout beside it, lined
-/// up with it, and that tool is the one lit while its flyout is open (``isLit(_:armed:flyout:)``).
-/// What a tool does is its tooltip; the toolbar's line of words went with the toolbar (decided
-/// 2026-10-19).
+/// Select, Text, Replace, Date, Marks, Signature and Initials, then style, size and ink, with Form
+/// Fields first on a file that has fields of its own. A tool with a corner triangle opens a flyout
+/// beside it, lined up with it, and that tool is the one lit while its flyout is open
+/// (``isLit(_:armed:flyout:)``). What a tool does is its tooltip.
 ///
-/// **It moves as the capsule does**: the same grip, the same eight places and Move To, remembered
-/// under its own key (``EditorPDFViewState/palettePlace``), and the same shape rule — a column in
-/// the middle of a side, a row along the top or bottom edge.
+/// It moves as the capsule does: the same grip, the same eight places and Move To, remembered under
+/// its own key (``EditorPDFViewState/palettePlace``), and the same shape rule: a column in the
+/// middle of a side, a row along the top or bottom edge.
 struct EditorPDFFillPalette: View {
     @ObservedObject var fill: EditorPDFFillSign
     /// Not observed: the palette reads only its own place, which the canvas hands it.
@@ -23,12 +21,12 @@ struct EditorPDFFillPalette: View {
     let place: EditorPDFCapsulePlace
     /// The tools' hover tint.
     let accent: Color
-    /// The lit tool's fill — see ``EditorWorkspaceView/accentFill`` — and the ink on it.
+    /// The lit tool's fill (see ``EditorWorkspaceView/accentFill``) and the ink on it.
     let accentFill: Color
     let onAccent: Color
     var onDrag: (CGSize) -> Void = { _ in }
     var onDrop: (CGSize) -> Void = { _ in }
-    /// The palette's size as drawn, and `.zero` once it goes — what the canvas keeps the other
+    /// The palette's size as drawn, and `.zero` once it goes: what the canvas keeps the other
     /// floating pieces clear of.
     var onSize: (CGSize) -> Void = { _ in }
 
@@ -38,7 +36,7 @@ struct EditorPDFFillPalette: View {
     @State private var lastMark = EditorPDFFillMark.check
     private let anchors = Anchors()
 
-    /// One per tool that opens a flyout — where its menu opens from.
+    /// One per tool that opens a flyout: where its menu opens from.
     private final class Anchors {
         let marks = EditorHeadingMenuAnchor()
         let signature = EditorHeadingMenuAnchor()
@@ -64,14 +62,14 @@ struct EditorPDFFillPalette: View {
         case formFields
         case select
         case text
-        /// **Replace** (TE82): a click picks the line of words under it to retype.
+        /// Replace: a click picks the line of words under it to retype.
         case replace
         case date
         case marks
         case signature
         case initials
-        /// **Aa** (TE92, TE93): the selected text's font, typed signature's face or drawn
-        /// signature's pen — or the next text's font.
+        /// Aa: the selected text's font, a typed signature's face or a drawn signature's pen, or
+        /// the next text's font.
         case style
         case size
         case ink
@@ -120,19 +118,19 @@ struct EditorPDFFillPalette: View {
         case ink
     }
 
-    /// **The tools this file gets**: Form Fields first, only on a file with fields of its own
-    /// (mockup 19), then the rest. Replace is off on a form (decision AV): in a column it is there,
-    /// greyed, its tooltip saying why; in a row along the top or bottom it is left out, since the
-    /// row with Form Fields and Replace both is wider than the narrowest column
-    /// (`theRowFitsTheNarrowestColumnAtEveryTextSize`). Right-click ▸ Replace Text… still says why.
+    /// The tools this file gets: Form Fields first, only on a file with fields of its own, then the
+    /// rest. Replace is off on a form: in a column it is there, greyed, its tooltip saying why; in a
+    /// row along the top or bottom it is left out, since a row with both Form Fields and Replace is
+    /// wider than the narrowest column (`theRowFitsTheNarrowestColumnAtEveryTextSize`). Right-click ▸
+    /// Replace Text… still says why.
     static func tools(for fill: EditorPDFFillSign, upright: Bool = true) -> [Tool] {
         Tool.allCases.filter { $0 != .formFields || fill.form.hasFields }
             .filter { $0 != .replace || upright || !fill.form.hasFields }
     }
 
-    /// **Which tool is lit.** While a flyout is open its tool, and no other — the chosen tool goes
-    /// dark until it closes. Otherwise the armed one; Select when nothing is armed. Size and ink are
-    /// lit only while their flyouts are open, as is style.
+    /// Which tool is lit. While a flyout is open, its tool and no other: the chosen tool goes dark
+    /// until it closes. Otherwise the armed one, or Select when nothing is armed. Style, size and ink
+    /// are lit only while their flyouts are open.
     static func isLit(_ tool: Tool, armed: EditorPDFFillTool?, flyout: Flyout?) -> Bool {
         if let flyout { return tool.flyout == flyout }
         switch (tool, armed) {
@@ -159,7 +157,7 @@ struct EditorPDFFillPalette: View {
         }
     }
 
-    /// A column in the middle of a side, a row everywhere else — the capsule's rule.
+    /// A column in the middle of a side, a row everywhere else: the capsule's rule.
     private var tools: some View {
         let upright = place.isVertical
         let layout = upright ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
@@ -207,8 +205,8 @@ struct EditorPDFFillPalette: View {
         .help(Self.refusal(tool, fill: fill) ?? Self.hint(tool))
     }
 
-    /// **What a tool's face shows that its name does not (PD6)**: Ink's swatch is the colour, and
-    /// Marks wears the mark — "Ink, Blue", "Marks, Check Mark" — where VoiceOver said only the name.
+    /// What a tool's face shows that its name doesn't, for VoiceOver: Ink's swatch is the colour,
+    /// and Marks wears the mark ("Ink, Blue", "Marks, Check Mark").
     static func spokenValue(_ tool: Tool, color: EditorPDFFillColor, mark: EditorPDFFillMark) -> String {
         switch tool {
         case .ink: return color.title
@@ -250,11 +248,11 @@ struct EditorPDFFillPalette: View {
         return lastMark
     }
 
-    /// **Why `tool` is greyed now, in its tooltip's words — or `nil` while it is live.** Style, Text
-    /// Size and Ink grey out where they could change nothing (TE108): a form field keeps the form's
-    /// own text style, a drawn signature has no text size, Replace's next correction starts in the
-    /// covered words' own style, and on a form whose owner forbids adding to its pages there is
-    /// nothing they could style. File ▸ Fill & Sign Tool greys its Ink and Text Size by this too.
+    /// Why `tool` is greyed now, in its tooltip's words, or `nil` while it is live. Style, Text Size
+    /// and Ink grey out where they could change nothing: a form field keeps the form's own text
+    /// style, a drawn signature has no text size, Replace's next correction starts in the covered
+    /// words' own style, and on a form whose owner forbids adding to its pages there is nothing to
+    /// style. File ▸ Fill & Sign Tool greys its Ink and Text Size by this too.
     static func refusal(_ tool: Tool, fill: EditorPDFFillSign) -> String? {
         switch tool {
         case .formFields:
@@ -273,7 +271,7 @@ struct EditorPDFFillPalette: View {
             if tool == .size, case .drawnSignature = fill.styleTarget { return "Text Size — a drawn signature has no text size" }
             return nil
         case .replace:
-            // Off on a form (decision AV), and wherever Fill & Sign may not add to the pages.
+            // Off on a form, and wherever Fill & Sign may not add to the pages.
             return fill.replaceRefusal.map { "Replace — \($0)" }
         case .select, .text, .date, .marks, .signature, .initials:
             return tool.places && !fill.offersPlacing ? EditorPDFFillSign.noCommentingReason : nil
@@ -310,8 +308,8 @@ struct EditorPDFFillPalette: View {
         Self.press(tool, fill: fill, choseMark: { lastMark = $0 }, open: open)
     }
 
-    /// **What pressing `tool` does**: arms it, or opens its flyout through `open` — except Signature
-    /// and Initials with none saved, which go straight to the Add sheet (TE141).
+    /// What pressing `tool` does: arms it, or opens its flyout through `open`, except Signature and
+    /// Initials with none saved, which go straight to the Add sheet.
     static func press(_ tool: Tool, fill: EditorPDFFillSign, choseMark: @escaping (EditorPDFFillMark) -> Void = { _ in },
                       open: (Flyout, NSMenu) -> Void) {
         switch tool {
@@ -330,10 +328,10 @@ struct EditorPDFFillPalette: View {
         }
     }
 
-    /// **Opens a flyout beside its tool, lit while it is open.** The tool lights first and the menu
-    /// opens on the next turn of the run loop, so the light is drawn before the menu's tracking
-    /// takes over; it goes out when the menu closes. Away from the edge the palette is docked to:
-    /// to the right of a column on the left, above a row at the bottom.
+    /// Opens a flyout beside its tool, lit while it is open. The tool lights first and the menu opens
+    /// on the next turn of the run loop, so the light is drawn before the menu's tracking takes over;
+    /// it goes out when the menu closes. The menu opens away from the edge the palette is docked to:
+    /// right of a column on the left, above a row at the bottom.
     private func open(_ flyout: Flyout, _ menu: NSMenu) {
         self.flyout = flyout
         let view = anchors.anchor(flyout).view
@@ -344,7 +342,7 @@ struct EditorPDFFillPalette: View {
         }
     }
 
-    /// The small triangle in a flyout tool's corner, as Acrobat's and the mockup's.
+    /// The small triangle in a flyout tool's corner, as Acrobat draws it.
     private struct FlyoutCorner: View {
         let lit: Bool
         let onAccent: Color
@@ -364,11 +362,11 @@ struct EditorPDFFillPalette: View {
     }
 }
 
-/// **The palette's flyouts**: Marks, Style, Text Size and Ink, each an `NSMenu` built when its tool is
-/// pressed, as the zoom's and the signatures' menus are — so a test can read and fire them.
+/// The palette's flyouts: Marks, Style, Text Size and Ink, each an `NSMenu` built when its tool is
+/// pressed, as the zoom's and the signatures' menus are, so a test can read and fire them.
 @MainActor
 enum EditorPDFFillFlyouts {
-    /// ✓ Check Mark, ✗ Cross, • Dot — the chosen one ticked. Choosing one makes the next click on a
+    /// ✓ Check Mark, ✗ Cross, • Dot, the chosen one ticked. Choosing one makes the next click on a
     /// page place it; `chose` hears which.
     static func marks(for fill: EditorPDFFillSign, chose: @escaping (EditorPDFFillMark) -> Void = { _ in }) -> NSMenu {
         let menu = NSMenu()
@@ -390,10 +388,9 @@ enum EditorPDFFillFlyouts {
     static let changesSavedLine = "Also changes your saved signature"
     static let changesSavedInitialsLine = "Also changes your saved initials"
 
-    /// **The Aa tool's flyout, by what is selected**: a typed signature's faces, each in its own
-    /// words; a drawn one's pens; text's fonts, each drawn in itself — and with nothing selected,
-    /// the next text's font. A saved signature's list ends with the line saying the saved one
-    /// changes too (decision AS).
+    /// The Aa tool's flyout, by what is selected: a typed signature's faces, each in its own words; a
+    /// drawn one's pens; text's fonts, each drawn in itself; and with nothing selected, the next
+    /// text's font. A saved signature's list ends with a line saying the saved one changes too.
     static func style(for fill: EditorPDFFillSign) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -401,9 +398,9 @@ enum EditorPDFFillFlyouts {
         return menu
     }
 
-    /// **An item's right-click menu** (TE140) — what the palette's tools would change for it, each in
-    /// a submenu named as the tool is, then Delete. Text: Edit Text, then Font, Text Size and Ink; a
-    /// typed signature: Face and Ink; a drawn one: Pen and Ink; a mark: Ink.
+    /// An item's right-click menu: what the palette's tools would change for it, each in a submenu
+    /// named as the tool is, then Delete. Text: Edit Text, then Font, Text Size and Ink; a typed
+    /// signature: Face and Ink; a drawn one: Pen and Ink; a mark: Ink.
     static func itemMenu(for fill: EditorPDFFillSign) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -450,7 +447,7 @@ enum EditorPDFFillFlyouts {
         return items
     }
 
-    /// The Aa tool's lines for what is selected — under a heading saying what they change, unless
+    /// The Aa tool's lines for what is selected, under a heading saying what they change, unless
     /// they are a submenu whose name already does.
     private static func styleItems(for fill: EditorPDFFillSign, headed: Bool = true) -> [NSMenuItem] {
         var out: [NSMenuItem] = []
@@ -524,8 +521,8 @@ enum EditorPDFFillFlyouts {
         return [.separator(), heading(kind == .signature ? changesSavedLine : changesSavedInitialsLine)]
     }
 
-    /// The signature's own words in `face`, then the face's name, small — Zapfino a size down, its
-    /// loops are tall.
+    /// The signature's own words in `face`, then the face's name, small. Zapfino goes a size down,
+    /// since its loops are tall.
     static func faceTitle(_ words: String, face: EditorPDFSignatureFace) -> NSAttributedString {
         let title = NSMutableAttributedString(
             string: words, attributes: [.font: PDFToolkit.font(size: face == .zapfino ? 12 : 18, script: true, font: face.toolkit)])
@@ -552,8 +549,8 @@ enum EditorPDFFillFlyouts {
     static let smallerTitle = "Smaller"
     static let biggerTitle = "Bigger"
 
-    /// Smaller and Bigger, the steps A− and A+ were, then every size with the current one ticked —
-    /// of the selected text, else of the next.
+    /// Smaller and Bigger, then every size with the current one ticked, for the selected text, else
+    /// for the next.
     static func size(for fill: EditorPDFFillSign) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -577,7 +574,7 @@ enum EditorPDFFillFlyouts {
     static func ink(for fill: EditorPDFFillSign) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        // A correction's own ink first: the covered words' (TE83).
+        // A correction's own ink first: the covered words'.
         let correction = fill.selected?.correction
         if let correction {
             let item = EditorClosureMenuItem(title: originalInkTitle) { fill.useOriginalInk() }
@@ -610,10 +607,10 @@ enum EditorPDFFillFlyouts {
     }
 }
 
-/// **The save pill and the note card, at the top of the canvas** (Phase 6b, mockup F): "3 items not
-/// saved", Discard and Save Filled Copy, in a glass pill that appears with the first mark and goes
-/// when nothing is left to save — and under it, while there is one, a card of what Save would
-/// refuse and the file's own caveats (decided 2026-10-19). Neither moves the page.
+/// The save pill and the note card, at the top of the canvas: "3 items not saved", Discard and Save
+/// Filled Copy, in a glass pill that appears with the first mark and goes when nothing is left to
+/// save; under it, while there is one, a card of what Save would refuse and the file's own caveats.
+/// Neither moves the page.
 struct EditorPDFFillSaveStack: View {
     @ObservedObject var fill: EditorPDFFillSign
     @ObservedObject var tools: EditorPDFTools
@@ -638,10 +635,10 @@ struct EditorPDFFillSaveStack: View {
         }
     }
 
-    /// **The pill gives way before it overflows** — "2 fields changed · 1 item not saved", then
-    /// "2 fields · 1 item", then no words, the count kept in its tooltip. Its words were fixed, so in
-    /// the narrowest column, or at a large text size, the pill ran past the canvas, where the rule
-    /// that keeps it clear of the find card found no place for it and drew it over the card.
+    /// The pill gives way before it overflows: "2 fields changed · 1 item not saved", then
+    /// "2 fields · 1 item", then no words, the count kept in its tooltip. Fixed words would run past
+    /// the canvas in the narrowest column or at a large text size, where the rule that keeps the
+    /// pill clear of the find card finds no place for it and draws it over the card.
     private var pill: some View {
         ViewThatFits(in: .horizontal) {
             pill(caption: fill.unsavedCaption)
@@ -669,8 +666,8 @@ struct EditorPDFFillSaveStack: View {
                                           : "Remove everything placed — ⌘Z brings it back")
             Button(fill.saveTitle) { Task { await fill.save() } }
                 .buttonStyle(.borderedProminent)
-                // The app's accent, deepened, as the Pages tab's Save Reordered Copy has it — not
-                // the system's, and not the raw one, which leaves the white label at 2.7:1 on Green.
+                // The app's accent, deepened, as the Pages tab's Save Reordered Copy has it: not the
+                // system's, and not the raw one, which leaves the white label at 2.7:1 on Green.
                 .accentedProminent()
                 .disabled(!fill.canSave || tools.running != nil)
                 .help(fill.saveHelp)
@@ -678,10 +675,10 @@ struct EditorPDFFillSaveStack: View {
                 .fill(Color(nsColor: .separatorColor))
                 .frame(width: 1, height: 14)
                 .accessibilityHidden(true)
-            // **A way out from where the work is** (TE98) — the header's button's own toggle, which
-            // asks about what isn't saved. The tooltip says Esc's order (TE98, `escape(first:)`):
-            // Fill & Sign opens with a tool chosen, and the first Esc lets go of that, not of Fill
-            // & Sign — after ending any typing, and before an open Find card closes.
+            // A way out from where the work is: the header button's own toggle, which asks about
+            // what isn't saved. The tooltip gives Esc's order (`escape(first:)`): Fill & Sign opens
+            // with a tool chosen, and the first Esc lets go of that, not of Fill & Sign, after
+            // ending any typing and before an open Find card closes.
             Button(Self.doneTitle) { fill.toggle() }
                 .help("Put Fill & Sign away — asks first about what isn’t saved. "
                       + "Esc does it too, once nothing is being typed, selected or chosen and Find is closed")
@@ -695,10 +692,9 @@ struct EditorPDFFillSaveStack: View {
         .help(caption == nil ? (fill.unsavedCaption ?? "") : "")
     }
 
-    /// The card: what Save would refuse and the file's caveats, then each corrected page's line —
-    /// the covered words are still in the copy — with the button that makes the page a picture
-    /// (TE85, decision AK), then the save's two choices: the links under corrections (FR56) and
-    /// the file's comments (FR57).
+    /// The card: what Save would refuse and the file's caveats, then each corrected page's line (the
+    /// covered words are still in the copy) with the button that makes the page a picture, then the
+    /// save's two choices: the links under corrections and the file's comments.
     private func card(_ notes: [String], corrections: [EditorPDFCorrectionNote]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(notes, id: \.self) { note in
@@ -719,23 +715,21 @@ struct EditorPDFFillSaveStack: View {
                 }
                 .padding(.top, notes.isEmpty && note.id == corrections.first?.id ? 0 : 4)
             }
-            // **A link under a patch, kept unless chosen otherwise** (FR56, decided 2026-10-25) —
-            // for this save only.
+            // A link under a patch is kept unless chosen otherwise, for this save only.
             if fill.offersUnlinking {
                 Toggle(EditorPDFFillSign.unlinkTitle, isOn: $fill.unlinksCorrections)
                     .toggleStyle(.checkbox)
                     .controlSize(.small)
                     .help(EditorPDFFillSign.unlinkHelp)
                     .padding(.top, 4)
-                // What it costs on macOS 26, said while ticked (F5).
+            // What it costs on macOS 26, said while ticked.
                 if let loss = fill.unlinkLossNote {
                     Text(loss).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            // **The file's comments, drawn in unless chosen otherwise** (FR57, decided 2026-10-25) —
-            // for this save only. Greyed, unticked and saying why while a page is saved as a
-            // picture or the links under corrections are removed, rather than vanishing from under
-            // a reader who ticked it.
+            // The file's comments are drawn in unless chosen otherwise, for this save only. Greyed,
+            // unticked and saying why while a page is saved as a picture or the links under
+            // corrections are removed, rather than vanishing from under a reader who ticked it.
             if fill.offersKeepingComments {
                 let refusal = fill.keepCommentsRefusal
                 Toggle(EditorPDFFillSign.keepCommentsTitle,
@@ -761,12 +755,12 @@ struct EditorPDFFillSaveStack: View {
     }
 }
 
-/// **The Signature and Initials menus** (mockup 18): the saved ones, drawn — choosing one makes the
-/// next click place it — then Add…, and a submenu to delete a saved one. Built when pressed, as the
-/// zoom's menu is — the Signature and Initials tools' flyouts in the palette.
+/// The Signature and Initials menus: the saved ones, drawn (choosing one makes the next click place
+/// it), then Add…, and a submenu to delete a saved one. Built when pressed, as the zoom's menu is;
+/// they are the Signature and Initials tools' flyouts in the palette.
 ///
-/// **Opened from a form's signature field** (`signing`, TE107) it signs that field: choosing one, or
-/// adding one, places it there.
+/// Opened from a form's signature field (`signing`), it signs that field: choosing one, or adding
+/// one, places it there.
 @MainActor
 enum EditorPDFSignatureMenu {
     static func menu(for fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind,
@@ -790,7 +784,7 @@ enum EditorPDFSignatureMenu {
             let delete = NSMenuItem(title: deleteTitle(kind), action: nil, keyEquivalent: "")
             let submenu = NSMenu()
             for signature in saved {
-                // Asks first (decision BE).
+                // Asks first.
                 submenu.addItem(item(signature, among: saved) { fill.deleteSaved(signature) })
             }
             delete.submenu = submenu
@@ -801,13 +795,13 @@ enum EditorPDFSignatureMenu {
 
     static let signFieldTitle = "Sign this field"
 
-    /// "Delete a Saved Signature", "Delete Saved Initials" (TE100) — initials are a plural.
+    /// "Delete a Saved Signature", "Delete Saved Initials": initials are a plural.
     static func deleteTitle(_ kind: EditorPDFSignature.Kind) -> String {
         kind == .signature ? "Delete a Saved Signature" : "Delete Saved Initials"
     }
 
-    /// A saved signature as a menu line: typed ones in the script face, drawn ones as a picture
-    /// that VoiceOver reads by its number and pen among `saved` (decision BD).
+    /// A saved signature as a menu line: typed ones in the script face, drawn ones as a picture that
+    /// VoiceOver reads by its number and pen among `saved`.
     static func item(_ signature: EditorPDFSignature, among saved: [EditorPDFSignature],
                      act: @escaping () -> Void) -> NSMenuItem {
         let item = EditorClosureMenuItem(title: signature.kind.title, act: act)

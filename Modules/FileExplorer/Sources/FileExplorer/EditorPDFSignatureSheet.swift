@@ -3,18 +3,16 @@ import PDFToolkitCore
 import SwiftUI
 import Design
 
-/// **Add Signature / Add Initials** (mockup 18; Signature Styles TE88–TE91, TE94): drawn on a pad
-/// or typed in one of the Mac's handwriting faces, in Blue or Black, and saved on this Mac unless
-/// the box is unticked. Adding chooses it, so the next click places it.
-///
-/// **The pad, the preview and the face tiles are paper-white in either appearance** — the ink shows
-/// as it will print, where blue on a dark pad was close to unreadable.
+/// Add Signature / Add Initials: drawn on a pad or typed in one of the Mac's handwriting faces, in
+/// Blue or Black, and saved on this Mac unless the box is unticked. Adding chooses it, so the next
+/// click places it. The pad, the preview and the face tiles are paper-white in either appearance,
+/// so the ink shows as it will print; blue on a dark pad would be close to unreadable.
 struct EditorPDFAddSignatureSheet: View {
     let fill: EditorPDFFillSign
     let kind: EditorPDFSignature.Kind
     @Environment(\.dismiss) private var dismiss
-    /// **Opens on Type, the caret in the name field** (decision BC, 2026-10-20): on Draw, as it
-    /// opened, there was no key to reach Type without the Mac's Keyboard navigation setting.
+    /// Opens on Type with the caret in the name field: from Draw, no key reaches Type without the
+    /// Mac's Keyboard navigation setting.
     @State private var typing = true
     @FocusState private var nameFocused: Bool
     @State private var strokes: [[CGPoint]] = []
@@ -22,14 +20,14 @@ struct EditorPDFAddSignatureSheet: View {
     @State private var keep = true
     @State private var ink: EditorPDFFillColor
     @State private var makeInitials = true
-    /// The last face, pen and smoothing chosen — remembered in the store's defaults.
+    /// The last face, pen and smoothing chosen, remembered in the store's defaults.
     @AppStorage private var faceRaw: String
     @AppStorage private var penRaw: String
     @AppStorage private var smooth: Bool
-    /// The window's hue, for the Draw / Type picker — `accentedSegments` takes the hue itself.
+    /// The window's hue, for the Draw / Type picker; `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
-    /// `drawing` opens it on Draw — for a test; the app opens on Type.
+    /// `drawing` opens it on Draw, for a test; the app opens on Type.
     init(fill: EditorPDFFillSign, kind: EditorPDFSignature.Kind, drawing: Bool = false) {
         self.fill = fill
         self.kind = kind
@@ -48,7 +46,7 @@ struct EditorPDFAddSignatureSheet: View {
         + "signature. Saved signatures stay on this Mac — drawn ones as pen strokes, typed ones as their words — "
         + "and are never synced or written to the log."
 
-    /// The sheet's floor and the width it opens at (TE134) — the 440 it always had.
+    /// The sheet's floor and the width it opens at.
     static let minWidth: CGFloat = 440
     static let idealWidth: CGFloat = 440
 
@@ -98,7 +96,7 @@ struct EditorPDFAddSignatureSheet: View {
                     HStack(spacing: 4) {
                         Text("Also make initials")
                         // On a chip of paper, as the face tiles are: black ink on a dark sheet
-                        // was close to unreadable (TE135).
+                        // would be close to unreadable.
                         Text(initials.isEmpty ? "—" : initials)
                             .font(Font(PDFToolkit.font(size: 17, script: true, font: face.toolkit)))
                             .foregroundStyle(Color(nsColor: ink.nsColor))
@@ -120,8 +118,8 @@ struct EditorPDFAddSignatureSheet: View {
             HStack {
                 Button("Clear") { if typing { typed = "" } else { strokes = [] } }
                     .disabled(typing ? typed.isEmpty : strokes.isEmpty)
-                // **On Draw only** (decision BN, TE193): in Type, ⌘Z is the name field's own undo.
-                // Clear stays final (decision BV) — this takes back strokes, not a Clear.
+                // On Draw only: in Type, ⌘Z is the name field's own undo. Clear stays final; this
+                // takes back strokes, not a Clear.
                 if !typing {
                     Button(Self.undoStrokeTitle) { _ = strokes.popLast() }
                         .keyboardShortcut("z", modifiers: .command)
@@ -133,16 +131,14 @@ struct EditorPDFAddSignatureSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Add") { add() }
                     .keyboardShortcut(.defaultAction)
-                    // The window's hue, deepened for its white label, as the tool sheets' default
-                    // buttons wear it (TE101).
+                    // The window's hue, deepened for its white label, as on the tool sheets.
                     .accentedProminent(hue)
                     .disabled(made == nil)
             }
         }
         .padding(18)
-        // A floor, not a fixed width, as the tool sheets have (TE134). Measured 2026-10-20, the
-        // content needs 264pt at every text size — the pickers, toggles and buttons keep the
-        // system's size — so this opens at 440 at all of them; the floor is for what is added next.
+        // A floor, not a fixed width, as the tool sheets have. The content needs about 264pt at
+        // every text size (the controls keep the system's size), so it opens at 440 at all of them.
         .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth)
     }
 
@@ -168,7 +164,7 @@ struct EditorPDFAddSignatureSheet: View {
         }
     }
 
-    /// **A face, shown in the name as typed** (TE88) — chosen, and remembered for next time.
+    /// A face, shown in the name as typed; choosing it is remembered for next time.
     private func tile(_ option: EditorPDFSignatureFace) -> some View {
         let chosen = option == face
         return Button { faceRaw = option.rawValue } label: {
@@ -244,7 +240,7 @@ struct EditorPDFAddSignatureSheet: View {
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
-    /// **What the sheet says when one more lets the oldest go** (TE100) — `nil` with room to spare.
+    /// What the sheet says when one more lets the oldest go; `nil` with room to spare.
     static func fullCaption(_ kind: EditorPDFSignature.Kind, store: EditorPDFSignatureStore) -> String? {
         guard store.isFull(kind) else { return nil }
         let n = EditorPDFSignatureStore.limit
@@ -267,8 +263,8 @@ struct EditorPDFAddSignatureSheet: View {
     }
 }
 
-/// The pad a signature is drawn on: a stroke per drag, in the pad's own points, y down — drawn in
-/// the chosen ink and pen, smoothed as it will be saved when smoothing is on.
+/// The pad a signature is drawn on: a stroke per drag, in the pad's own points, y down, drawn in
+/// the chosen ink and pen and smoothed as it will be saved when smoothing is on.
 struct EditorPDFSignaturePad: NSViewRepresentable {
     @Binding var strokes: [[CGPoint]]
     var ink: EditorPDFFillColor = .blue

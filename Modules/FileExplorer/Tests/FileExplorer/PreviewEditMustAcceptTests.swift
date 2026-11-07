@@ -3,13 +3,11 @@ import AppKit
 @testable import FileExplorer
 import EventsTestSupport
 
-/// **Natural edits that Preview must WRITE** — each typed through the real text view, as a person
-/// would make it, with the exact source it must leave (TE67 review, 2026-10-09).
-///
-/// The property test only counts refusals, so an edit refused every time it is tried is invisible
-/// to it: 2,000 random edits can pass while deleting the first word of a heading never works. Every
-/// case here was refused, or written wrongly, before the fix named beside it — and each one is an
-/// edit a person makes without thinking.
+/// Natural edits that Preview must write, each typed through the real text view as a person would
+/// make it, with the exact source it must leave. The property test only counts refusals, so an edit
+/// refused every time is invisible to it: 2,000 random edits can pass while deleting the first word
+/// of a heading never works. Each case is an edit a person makes without thinking; the `T…` and
+/// `R…` prefixes group them.
 @MainActor
 @Suite(.serialized) struct PreviewEditMustAcceptTests {
 
@@ -176,8 +174,8 @@ import EventsTestSupport
         Case(name: "T19 space then letter at a paragraph's start", source: "# Title\n\nWords here.",
              steps: [.caretBefore("Words"), .type(" "), .type("x")], expected: "# Title\n\nxWords here."),
 
-        // Round 2, R1 — a line between two blocks that draws nothing — a reference definition, the
-        // `[//]: # (note)` comment — stays when a block beside it is deleted.
+        // R1 — a line between two blocks that draws nothing (a reference definition, the
+        // `[//]: # (note)` comment) stays when a block beside it is deleted.
         Case(name: "R1 a triple-clicked paragraph before a comment", source: "Para A\n\n[//]: # (note)\n\nPara B",
              steps: [.selectParagraph(of: "Para A"), .backspace(1)],
              expected: "[//]: # (note)\n\nPara B", display: "Para B"),
@@ -194,8 +192,8 @@ import EventsTestSupport
              source: "> - a\n>\n> [x]: /u\n>\n> - b",
              steps: [.selectParagraph(of: "a"), .backspace(1)], expected: "> [x]: /u\n>\n> - b"),
 
-        // R2 — a space typed in a line where it would draw nothing YET — before a span's closing
-        // marker, before punctuation — is held for the next character, not dropped.
+        // R2 — a space typed where it would draw nothing yet (before a span's closing marker,
+        // before punctuation) is held for the next character, not dropped.
         Case(name: "R2 a space at the end of bold, mid-line", source: "Hello **world** today",
              steps: [.caretAfter("world"), .type(" "), .type("x")], expected: "Hello **world x** today"),
         Case(name: "R2 a space before punctuation", source: "**Note**: text",
@@ -254,8 +252,8 @@ import EventsTestSupport
 @MainActor
 @Suite(.serialized) struct PreviewEditReviewTests {
 
-    /// T11: Replace All leaves the caret after the last replacement, as `NSTextView`'s does — it
-    /// went to the top of the note.
+    /// Replace All leaves the caret after the last replacement, as `NSTextView`'s does, not at the
+    /// top of the note.
     @Test func replaceAllLeavesTheCaretAfterTheLastReplacement() throws {
         let r = PreviewEditRig("cat and cat, then more")
         try r.run(.replaceAll("cat", with: "dog"))
@@ -263,12 +261,10 @@ import EventsTestSupport
         #expect(r.view.selectedRange() == NSRange(location: 11, length: 0))
     }
 
-    /// T13: what an edit may not do is make text read-only — and that is a question of WHICH
-    /// pieces, not how many: one tag swapped for another keeps the count, and was let through.
-    ///
-    /// Measured 2026-10-09: no keystroke found reaches this — the rendering check already refuses
-    /// every swap tried, because turning a tag into text costs the character that does it (a `\`, a
-    /// backtick). So the comparison itself is what is pinned, on two notes that differ only in it.
+    /// An edit may not make text read-only, and that is a question of which pieces, not how many:
+    /// one tag swapped for another keeps the count. No known keystroke reaches this (the rendering
+    /// check refuses every swap tried, since turning a tag into text costs a `\` or a backtick), so
+    /// the comparison itself is pinned, on two notes that differ only in it.
     @Test func readOnlyPiecesCompareByWhatTheyAreNotHowMany() {
         let bold = MarkdownProjection.project("x <b>"), italic = MarkdownProjection.project("x <i>")
         #expect(PreviewEditTranslator.readOnlyPieces(bold).isSubset(of: PreviewEditTranslator.readOnlyPieces(bold)))
@@ -286,9 +282,9 @@ import EventsTestSupport
         #expect(result.source == "x \\<i\\><b>")
     }
 
-    /// T15: Tab over several list items moves none of them, and says why — it moved the first
-    /// alone. (Source's Tab replaces such a selection with a tab character, so there is nothing to
-    /// match: the finding's "Source indents them all" is not what Source does.)
+    /// Tab over several list items moves none of them, and says why, rather than moving the first
+    /// alone. Source's Tab replaces such a selection with a tab character, so there is no Source
+    /// behaviour to match.
     @Test func tabOverSeveralItemsIsRefusedNotHalfDone() throws {
         let r = PreviewEditRig("- one\n- two\n- three")
         let two = try r.find("two")
@@ -298,7 +294,7 @@ import EventsTestSupport
         #expect(r.refusals == [.crossesBlocks])
     }
 
-    /// T16: ⌘B over two paragraphs says it crosses blocks — it said "not text".
+    /// ⌘B over two paragraphs says it crosses blocks, not "not text".
     @Test func boldOverTwoParagraphsSaysItCrossesBlocks() throws {
         let r = PreviewEditRig("one\n\ntwo")
         r.view.selectAll(nil)
@@ -307,11 +303,11 @@ import EventsTestSupport
         #expect(r.refusals == [.crossesBlocks])
     }
 
-    /// T17: a refusal says, at INFO, what was refused, where, and by which line — never the text.
+    /// A refusal says, at INFO, what was refused, where, and by which line, never the text.
     @Test func aRefusalIsLoggedWithItsSiteAndNoText() async throws {
         let log = LogCapture()
         // A first paragraph of 1,111 characters, so the offsets are this case's alone: the suites
-        // around it refuse in parallel, and their lines are captured too (round 2, 2026-10-10).
+        // around it refuse in parallel, and their lines are captured too.
         let r = PreviewEditRig(String(repeating: "w", count: 1_111) + "\n\n**two three**")
         try r.run(.caretBefore("two"))
         try r.run(.backspace(1))
@@ -329,9 +325,9 @@ import EventsTestSupport
         for line in lines { #expect(!line.message.contains("two") && !line.message.contains("ww"), "\(line.message)") }
     }
 
-    /// A paragraph emptied where taking its line would move the next block — an indented paragraph
-    /// after it would join the list above — is refused, and the file left alone: the characters
-    /// alone read right either way, so the blocks around it are checked too.
+    /// A paragraph emptied where taking its line would move the next block (an indented paragraph
+    /// after it would join the list above) is refused, and the file left alone: the characters read
+    /// right either way, so the blocks around it are checked too.
     @Test func anEmptiedParagraphThatWouldMoveTheNextBlockIsRefused() throws {
         let r = PreviewEditRig("- a\n\nb\n\n  c")
         try r.run(.caretAfter("b"))
@@ -340,8 +336,8 @@ import EventsTestSupport
         #expect(r.refusals == [.unverified])
     }
 
-    /// T20: with a space held, the status line's Line and Column are the held space's — the end of
-    /// its line — not the next paragraph's start.
+    /// With a space held, the status line's Line and Column are the held space's (the end of its
+    /// line), not the next paragraph's start.
     @Test func theSourceSelectionCountsAHeldSpaceAsItsLine() throws {
         let r = PreviewEditRig("Hello\n\nworld")
         try r.run(.caretAfter("Hello"))
@@ -351,7 +347,7 @@ import EventsTestSupport
     }
 }
 
-/// The editable Preview as `makeNSView` builds it, in a window — for driving it as a person does.
+/// The editable Preview as `makeNSView` builds it, in a window, for driving it as a person does.
 @MainActor
 final class PreviewEditRig {
     let view: PreviewTextView

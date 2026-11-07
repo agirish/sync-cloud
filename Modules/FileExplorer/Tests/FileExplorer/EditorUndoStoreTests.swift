@@ -2,22 +2,21 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// One undo stack per document: that it survives a round trip, and — the half that matters — that
-/// it is refused when it no longer fits the buffer.
+/// One undo stack per document: that it survives a round trip, and (the half that matters) that it
+/// is refused when it no longer fits the buffer.
 @MainActor
 @Suite final class EditorUndoStoreTests {
 
-    /// **A class, for its `deinit`** — Swift Testing makes one instance per test, so the two tests
-    /// that need real files put them in one folder the instance owns and removes when it goes. They
-    /// each left a folder behind in the temporary directory before.
+    /// A class, for its `deinit`: Swift Testing makes one instance per test, so the tests that need
+    /// real files put them in one folder the instance owns and removes when it goes.
     let folder = NSTemporaryDirectory() + "undo-" + UUID().uuidString
 
     deinit { try? FileManager.default.removeItem(atPath: folder) }
 
     private func store(limit: Int = 8) -> EditorUndoStore { EditorUndoStore(limit: limit) }
 
-    /// Gives the open document something to undo — **a history worth keeping**: a document with
-    /// nothing to undo or redo is not kept at all (2026-10-09), so every round trip below edits.
+    /// Gives the open document a history worth keeping: a document with nothing to undo or redo is
+    /// not kept at all, so every round trip below edits.
     private func edit(_ subject: EditorUndoStore) {
         subject.current.registerUndo(withTarget: subject) { _ in }
     }
@@ -44,10 +43,10 @@ import Foundation
         #expect(subject.current === first, "the first document's history was not handed back")
     }
 
-    /// **The case the whole fingerprint exists for.** Leave a file with autosave off, answer
-    /// "Don't Save", and the disk holds text from before the edits while the stack holds
-    /// registrations made against the text after them. Replaying that splices or throws
-    /// `NSRangeException`; refusing it costs a lost history and nothing else.
+    /// The case the whole fingerprint exists for. Leave a file with autosave off, answer "Don't
+    /// Save", and the disk holds text from before the edits while the stack holds registrations
+    /// made against the text after them. Replaying that splices or throws `NSRangeException`;
+    /// refusing it costs a lost history and nothing else.
     @Test func aStackIsRefusedWhenTheBufferCameBackDifferent() {
         let subject = store()
         subject.activate(path: "/n/a.md", text: "the edited text")
@@ -62,23 +61,22 @@ import Foundation
         #expect(subject.current !== edited, "a stale stack was handed back")
     }
 
-    /// **Equal strings, different bytes — and the stack is refused.**
+    /// Equal strings, different bytes, and the stack is refused.
     ///
-    /// The fingerprint hashes the buffer's UTF-8 rather than the `String`, which is what took a
-    /// 4 MiB file switch from 162 ms to 19 ms — see ``EditorUndoStore/Fingerprint``. This is the
-    /// behaviour that bought: Swift compares and hashes strings for Unicode canonical equivalence,
-    /// so these two are `==` and used to fingerprint alike, and the length field cannot separate
-    /// them either because both are five UTF-8 bytes. Only the hash can, and now it does.
+    /// The fingerprint hashes the buffer's UTF-8 rather than the `String`, for speed on large files
+    /// (see ``EditorUndoStore/Fingerprint``). Swift compares and hashes strings for Unicode
+    /// canonical equivalence, so these two are `==`, and the length field can't separate them
+    /// either, since both are five UTF-8 bytes. Only the byte hash can.
     ///
-    /// **Refusing is the point, not a regression.** The bytes on disk differ, so a save of one over
-    /// the other writes a different file — and this type's rule is that refusing costs a lost
-    /// history while replaying a stale stack costs the app.
+    /// Refusing is the point, not a regression: the bytes on disk differ, so a save of one over the
+    /// other writes a different file, and this type's rule is that refusing costs a lost history
+    /// while replaying a stale stack costs the app.
     @Test func aStackIsRefusedWhenTheBytesChangedUnderAnEqualString() {
         // q + dot-below + dot-above, against q + dot-above + dot-below.
         let first = "q\u{0323}\u{0307}"
         let second = "q\u{0307}\u{0323}"
         // The premise, asserted rather than assumed: Swift cannot tell these apart, and neither can
-        // the length. If either of these ever stops holding, this test is measuring nothing.
+        // the length. If either stops holding, this test measures nothing.
         #expect(first == second, "fixture: these must be canonically equivalent")
         #expect(Array(first.utf8) != Array(second.utf8), "fixture: their bytes must differ")
         #expect(first.utf8.count == second.utf8.count, "fixture: the length must not separate them")
@@ -117,8 +115,8 @@ import Foundation
 
     // MARK: The bound
 
-    /// **Eviction is asserted by counting it, not by inferring it from an absence.** A store that
-    /// silently kept nothing at all would satisfy "the ninth document evicted the first".
+    /// Eviction is asserted by counting it, not inferred from an absence: a store that silently
+    /// kept nothing at all would satisfy "the ninth document evicted the first".
     @Test func onlyTheLastFewDocumentsKeepTheirHistory() {
         let subject = store(limit: 3)
         for name in ["a", "b", "c"] {
@@ -143,7 +141,7 @@ import Foundation
         #expect(subject.current === afterEviction, "the rebuilt stack was dropped too")
     }
 
-    /// Least-recently-USED, not least-recently-opened: revisiting a document moves it back to the
+    /// Least-recently-used, not least-recently-opened: revisiting a document moves it back to the
     /// front, so a file you keep returning to is not evicted by files you opened once.
     @Test func revisitingADocumentProtectsIt() {
         let subject = store(limit: 2)
@@ -159,10 +157,10 @@ import Foundation
         #expect(subject.current === managerA, "the revisited document was evicted anyway")
     }
 
-    /// **The file being opened is never the one evicted** (UND-7). Eviction runs on the way OUT of
-    /// a document, before the incoming one is activated — so with the incoming file the least
-    /// recently used, cycling through one more edited file than the limit dropped each file's
-    /// history at the very moment it was reopened. Limit 2: a, b and c edited in turn, then a again.
+    /// The file being opened is never the one evicted. Eviction runs on the way out of a document,
+    /// before the incoming one is activated, so with the incoming file the least recently used,
+    /// cycling through one more edited file than the limit would drop each file's history the
+    /// moment it was reopened. Limit 2: a, b and c edited in turn, then a again.
     /// Mutation: evict `order.first` regardless of `opening` and a's stack is gone.
     @Test func theFileBeingOpenedIsNeverEvicted() {
         let subject = store(limit: 2)
@@ -231,9 +229,8 @@ import Foundation
 
     // MARK: The text storage kept beside each stack (TE67.0)
 
-    /// **A stack comes back with the storage its actions edit.** An `NSTextView` registers undo
-    /// against its storage, so a stack handed back beside a different one reverts text nobody can
-    /// see — the mode-switch defect, reached by a file switch instead.
+    /// A stack comes back with the storage its actions edit. An `NSTextView` registers undo against
+    /// its storage, so a stack handed back beside a different one reverts text nobody can see.
     @Test func aStackComesBackWithTheStorageItsActionsEdit() {
         let subject = store()
         subject.activate(path: "/n/a.md", text: "one")
@@ -248,7 +245,7 @@ import Foundation
         #expect(subject.source === storageA, "the stack came back without the storage its actions edit")
     }
 
-    /// **A refused stack takes its storage with it** — the fingerprint refusal, one level down. The
+    /// A refused stack takes its storage with it: the fingerprint refusal, one level down. The
     /// storage holds the text the stack was made against; handing it back to a buffer that loaded
     /// something else would put that text on screen.
     @Test func aRefusedStackTakesItsStorageWithIt() {
@@ -265,9 +262,9 @@ import Foundation
         #expect(subject.source.textStorage.string == "the ORIGINAL text")
     }
 
-    /// **The next load cannot write into the storage just put away.** `remember` runs before the
-    /// buffer is replaced; a storage still attached would take the incoming file's text in, against
-    /// a fingerprint of what it held — and be handed back holding the wrong file. Mutation: drop
+    /// The next load cannot write into the storage just put away. `remember` runs before the buffer
+    /// is replaced; a storage still attached would take the incoming file's text in, against a
+    /// fingerprint of what it held, and be handed back holding the wrong file. Mutation: drop
     /// `source.buffer = nil` from `remember`.
     @Test func aKeptStorageIsNotWrittenByTheNextLoad() {
         let subject = store()
@@ -298,8 +295,8 @@ import Foundation
         #expect(subject.source.text.isEmpty)
     }
 
-    /// **Eviction releases the storage with the stack** — the memory the bound exists for. Asserted
-    /// by the storage going away, not by the count alone.
+    /// Eviction releases the storage with the stack, the memory the bound exists for. Asserted by
+    /// the storage going away, not by the count alone.
     @Test func evictionReleasesTheStorageWithTheStack() {
         let subject = store(limit: 1)
         weak var storageA: EditorSourceStorage?
@@ -316,9 +313,9 @@ import Foundation
 
     // MARK: Nothing to undo, nothing kept (2026-10-09)
 
-    /// **A document opened only to be read keeps nothing.** Its stack is empty, and since TE67.0 the
-    /// entry would also hold its whole text storage — up to 4 MiB of text as UTF-16, per file
-    /// visited, for a history with nothing in it. Coming back builds a fresh one from what loads.
+    /// A document opened only to be read keeps nothing. Its stack is empty, and the entry would
+    /// also hold its whole text storage (up to 4 MiB of text as UTF-16, per file visited) for a
+    /// history with nothing in it. Coming back builds a fresh one from what loads.
     @Test func aDocumentWithNothingToUndoKeepsNothing() {
         let subject = store()
         let text = String(repeating: "read only ", count: 1_000)
@@ -337,8 +334,8 @@ import Foundation
         #expect(!subject.current.canUndo)
     }
 
-    /// **And files only read never push an edited file's history out.** With the limit at two,
-    /// reading three files used to evict the one history that had anything in it.
+    /// And files only read never push an edited file's history out: with the limit at two, reading
+    /// three files must not evict the one history that has anything in it.
     @Test func filesOnlyReadDoNotEvictAnEditedFilesHistory() {
         let subject = store(limit: 2)
         subject.activate(path: "/n/edited.md", text: "e")
@@ -356,10 +353,10 @@ import Foundation
 
     // MARK: One storage from the start (2026-10-09)
 
-    /// **The store starts on the buffer's own storage**, so the first load writes into neither.
-    /// They used to start with one each: `remember` let go of the store's, the load then wrote the
-    /// whole file into the buffer's — a storage about to be thrown away — and a view mounted on it
-    /// logged "storage resync … with no undo" for a write nothing was wrong with.
+    /// The store starts on the buffer's own storage, so the first load writes into neither. With
+    /// one each, `remember` would let go of the store's, the load would write the whole file into
+    /// the buffer's (a storage about to be thrown away), and a view mounted on it would log
+    /// "storage resync … with no undo" for a write nothing was wrong with.
     @Test func theFirstLoadWritesIntoNoStorage() {
         let buffer = EditorBuffer()
         let initial = buffer.source
@@ -374,8 +371,8 @@ import Foundation
         #expect(buffer.source.textStorage.string == "the first file")
     }
 
-    /// **Never once a document is open**: its stack's actions edit the storage beside it, and a
-    /// different one adopted under them would be the mode-switch defect again.
+    /// Adopting is refused once a document is open: its stack's actions edit the storage beside it,
+    /// and a different one adopted under them would replay edits into text nobody can see.
     @Test func adoptingIsRefusedOnceADocumentIsOpen() {
         let subject = store()
         subject.activate(path: "/n/a.md", text: "a")

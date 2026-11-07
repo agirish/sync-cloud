@@ -6,8 +6,8 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// FV on screen: the pill's rung for what changed since the last sync, its words, its colour,
-/// and the controller handing its record to the count. Scratch parents; nothing syncs.
+/// The change count on screen: the pill's rung for what changed since the last sync, its words,
+/// its colour, and the controller handing its record to the count. Scratch parents; nothing syncs.
 @MainActor
 @Suite struct OneWaySyncChangeCountScreenTests {
     typealias Scratch = OneWaySyncControllerTests.Scratch

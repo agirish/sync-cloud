@@ -21,10 +21,9 @@ struct RenderedEdit: Equatable {
     var action: Action
 }
 
-/// Inline styles waiting for the next character (A4): ⌘B with nothing selected lights Bold and
-/// writes nothing, because Preview would draw an empty `****` as four asterisks.
-///
-/// **Toggled against the style at the caret**: in bold, ⌘B means "not bold" for what is typed next.
+/// Inline styles waiting for the next character: ⌘B with nothing selected lights Bold and writes
+/// nothing, because Preview would draw an empty `****` as four asterisks. Toggled against the
+/// style at the caret: in bold, ⌘B means "not bold" for what is typed next.
 struct PreviewPendingStyle: OptionSet, Hashable {
     let rawValue: Int
     static let bold = PreviewPendingStyle(rawValue: 1)
@@ -36,23 +35,21 @@ struct PreviewPendingStyle: OptionSet, Hashable {
 /// What the view knows that the projection does not.
 struct PreviewEditContext: Equatable {
     var pending: PreviewPendingStyle = []
-    /// A Return at the end of this block opened an empty paragraph the source does not have yet
-    /// (§3.5): the next character typed is what writes it.
+    /// A Return at the end of this block opened an empty paragraph the source does not have yet:
+    /// the next character typed is what writes it.
     var phantomAfterBlock: Int?
-    /// Whether an edit in a tidy table re-pads it (decision T). Off for each match of a Replace All,
-    /// whose re-paddings would overlap; the whole is re-padded once instead.
+    /// Whether an edit in a tidy table re-pads it. Off for each match of a Replace All, whose
+    /// re-paddings would overlap; the whole is re-padded once instead.
     var realignsTables = true
-    /// Text ▸ Continue Lists (TE54), as Source follows it (LST-3): off, Return in a list item writes
-    /// no marker and Tab and ⇧Tab move no item.
+    /// Text ▸ Continue Lists, as Source follows it: off, Return in a list item writes no marker and
+    /// Tab and ⇧Tab move no item.
     var continuesLists = true
 }
 
 /// Read-only pieces counted by what they are and what they say (``PreviewEditTranslator/check``).
-///
-/// **What they say is a hash of their source, with its length** (round 2, 2026-10-10): a copy of
-/// each piece's text, for both projections at every check, was a keystroke's cost on a note full
-/// of HTML. Two pieces that differ and still collide in 64 bits, at the same length and reason,
-/// would compare as one.
+/// What they say is a hash of their source, with its length, because copying each piece's text
+/// at every check costs a keystroke on a note full of HTML. Two different pieces colliding in 64
+/// bits, at the same length and reason, would compare as one.
 struct PreviewPieceCount {
     private struct Piece: Hashable {
         var reason: PreviewReadOnlyReason
@@ -84,7 +81,7 @@ enum PreviewUndoStep: Equatable {
     /// Joins neighbouring typing in the same block into one "Undo Typing", as `NSTextView` does.
     case typing
     /// Its own ⌘Z step, never merged with typing on either side: every verb, Return, Tab, paste and
-    /// tick — the rule Markup verbs follow in Source (`MarkupVerbUndoTests`).
+    /// tick, the rule Markup verbs follow in Source (`MarkupVerbUndoTests`).
     case own
 }
 
@@ -93,14 +90,14 @@ enum PreviewUndoStep: Equatable {
 enum PreviewRefusal: Equatable, Error {
     /// The selection crosses from one block into another.
     case crossesBlocks
-    /// It would join two blocks — Backspace at a block's start, Delete at its end.
+    /// It would join two blocks: Backspace at a block's start, Delete at its end.
     case joinsBlocks
     case readOnly(PreviewReadOnlyReason)
     /// On something that is not text: a checkbox, an image, a rule.
     case notText
     /// Several lines pasted outside a code block, or a Return or Tab where v1 has no rule.
     case notSupported
-    /// The edit was built, and the re-render did not show what was typed — even escaped.
+    /// The edit was built, and the re-render did not show what was typed, even escaped.
     case unverified
     /// One of a Replace All's matches could not be made, so none were.
     case replaceAll(failed: Int, of: Int)
@@ -109,23 +106,23 @@ enum PreviewRefusal: Equatable, Error {
 /// What the translator decided.
 enum PreviewEditOutcome {
     case apply(PreviewEditApplication)
-    /// Move the caret without touching the source — Return or Tab in a table.
+    /// Move the caret without touching the source: Return or Tab in a table.
     case moveCaret(Int)
     /// Return at the end of a paragraph or heading: show an empty paragraph after `afterBlock`, and
     /// change nothing in the file until a character is typed into it.
     case openPhantom(afterBlock: Int)
     /// ⌘B, ⌘I and friends with nothing selected: the new pending set.
     case setPending(PreviewPendingStyle)
-    /// `line` is where in this file it was refused — the site the log names, which a refusal's
-    /// reason alone does not: a dozen places say `.notSupported` (review, 2026-10-09).
+    /// `line` is where in this file it was refused, for the log: a dozen places say
+    /// `.notSupported`, so the reason alone doesn't name the site.
     case refuse(PreviewRefusal, line: Int = #line, unverified: PreviewEditTranslator.Unverified? = nil)
-    /// The key is taken and nothing happens, without the hint — Tab outside a list, table or code,
+    /// The key is taken and nothing happens, without the hint: Tab outside a list, table or code,
     /// where nothing the person wrote was lost.
     case ignore
 }
 
 struct PreviewEditApplication {
-    /// Non-overlapping, in increasing order of location, each against the source BEFORE any of them.
+    /// Non-overlapping, in increasing order of location, each against the source before any of them.
     var edits: [PreviewSourceEdit]
     var undo: PreviewUndoStep
     /// The source after the edits, and its projection.
@@ -135,19 +132,18 @@ struct PreviewEditApplication {
     var sourceSelection: NSRange
     var renderedSelection: NSRange
     /// A deletion emptied a paragraph, which Markdown cannot hold: its line went, and an empty
-    /// paragraph is opened after this block (§3.5), the caret in it — where the person left it.
+    /// paragraph is opened after this block, the caret in it, where the person left it.
     var opensParagraphAfter: Int?
 }
 
 /// Turns one edit in the preview into the smallest edit to the Markdown source that renders as
-/// what the person did — or refuses it (TE67 §3.4).
+/// what the person did, or refuses it.
 ///
-/// **Refuse unless verified.** Every text edit is applied to a copy of the source and re-projected,
+/// Refuse unless verified: every text edit is applied to a copy of the source and re-projected,
 /// and accepted only when the new rendering is the old one with exactly the person's change made:
-/// the same characters (allowing for the parser's curly quotes and dashes, §2.1), and the typed
-/// characters in the style they were typed in. A `*` typed into prose first goes in bare; it
-/// renders as emphasis, the check fails, and it goes in again as `\*`. `snake_case` passes bare.
-/// Nothing guesses which characters need escaping — the parser is asked.
+/// the same characters (allowing for the parser's curly quotes and dashes), in the style they were
+/// typed in. A `*` typed into prose first goes in bare; it renders as emphasis, the check fails,
+/// and it goes in again as `\*`. Nothing guesses which characters need escaping: the parser is asked.
 enum PreviewEditTranslator {
 
     static func translate(_ edit: RenderedEdit, in p: MarkdownProjection,
@@ -173,11 +169,10 @@ enum PreviewEditTranslator {
         }
     }
 
-    /// Replace All (A11): every match or none, one undo step.
+    /// Replace All: every match or none, one undo step.
     static func translateAll(_ edits: [RenderedEdit], in p: MarkdownProjection) -> PreviewEditOutcome {
-        // Each match as its own edit would take it — a match replaced with nothing at a line's edge
-        // takes the spaces beside it, so the whole is expected without them too (review, 2026-10-09:
-        // refused whenever a match was followed by a line break).
+        // Each match as its own edit would take it: a match replaced with nothing at a line's edge
+        // takes the spaces beside it, so the whole is expected without them too.
         let edits = edits.map { edit -> RenderedEdit in
             guard edit.text.isEmpty, edit.range.length > 0 else { return edit }
             var each = edit
@@ -205,8 +200,8 @@ enum PreviewEditTranslator {
         guard var after = verified(source, expected: expected, in: p) else {
             return .refuse(.replaceAll(failed: edits.count, of: edits.count))
         }
-        // Decision T, once for the whole: each tidy table a match fell in is re-padded around all
-        // of its matches together (review: per match, the re-paddings overlapped and all failed).
+        // Re-padded once for the whole: each tidy table a match fell in is re-padded around all of
+        // its matches together, since per-match re-paddings would overlap.
         let tables = Set(edits.compactMap { edit -> Int? in
             guard let b = PreviewEditRules.block(at: edit.range.location, in: p), case .table = p.blocks[b].kind,
                   let before = MarkdownTables.locate(in: p.source as NSString, at: p.blocks[b].source.location),
@@ -226,8 +221,8 @@ enum PreviewEditTranslator {
             source = retidied.edits
             after = retidied.projection
         }
-        // The caret after the last replacement, as `NSTextView`'s Replace All leaves it — not at
-        // the top of the note (review, 2026-10-09).
+        // The caret after the last replacement, as `NSTextView`'s Replace All leaves it, not at
+        // the top of the note.
         let caret = ordered.last.map { last in
             NSMaxRange(last.range) + ordered.reduce(0) { $0 + ($1.text as NSString).length - $1.range.length }
         } ?? 0
@@ -239,7 +234,7 @@ enum PreviewEditTranslator {
                                              renderedSelection: rendered))
     }
 
-    /// The source re-padded as `tidied`, as the edits from `p` and their projection — when it
+    /// The source re-padded as `tidied`, as the edits from `p` and their projection, when it
     /// renders exactly as `after` did, which re-padding always should; otherwise `nil`.
     private static func retidied(_ tidied: String, as after: MarkdownProjection,
                                  from p: MarkdownProjection) -> (edits: [PreviewSourceEdit], projection: MarkdownProjection)? {
@@ -256,7 +251,7 @@ enum PreviewEditTranslator {
                              context: PreviewEditContext) -> PreviewEditOutcome {
         var edit = edit
         // One line copied with its line break is one line: the break is not a paragraph's worth.
-        // `last`, not `hasSuffix("\n")`: a CRLF is one Character, which "\n" is not (review).
+        // `last`, not `hasSuffix("\n")`: a CRLF is one Character, which "\n" is not.
         if edit.action == .paste, edit.text.last?.isNewline == true,
            !edit.text.dropLast().contains(where: { $0.isNewline }) {
             edit.text.removeLast()
@@ -264,7 +259,7 @@ enum PreviewEditTranslator {
         if edit.range.length > 0 {
             // A triple-click's selection ends with the line break the next block starts with. Typed
             // over or bolded, the paragraph is meant and the break stays; deleted, the paragraph
-            // goes, line and all, as it would in any text editor (review, 2026-10-09: refused).
+            // goes, line and all, as it would in any text editor.
             if edit.text.isEmpty, let whole = wholeBlock(edit.range, in: p) { return whole }
             edit.range = withoutTrailingBlockBreak(edit.range, in: p)
         }
@@ -273,7 +268,7 @@ enum PreviewEditTranslator {
             if let emptied = emptiedParagraph(edit.range, in: p) { return emptied }
         }
         if edit.text.contains(where: { $0.isNewline }) {
-            // Several lines pasted: verbatim in fenced code (A10), refused anywhere else.
+            // Several lines pasted: verbatim in fenced code, refused anywhere else.
             return multilinePaste(edit, in: p)
         }
         let undo: PreviewUndoStep = edit.action == .paste ? .own : .typing
@@ -294,8 +289,8 @@ enum PreviewEditTranslator {
             point = found
         } else {
             // Typed over: a span the selection covers from inside its start keeps its style for the
-            // new text; one it covers from before its start is replaced whole (review: ` docs`
-            // over a link left an empty `[](…)` behind).
+            // new text; one it covers from before its start is replaced whole, so no empty
+            // `[](…)` is left behind.
             switch removalRanges(edit.range, in: p, keepingSpansAt: edit.text.isEmpty ? nil : edit.range.location) {
             case .failure(let refusal): return .refuse(refusal)
             case .success(let found):
@@ -309,7 +304,7 @@ enum PreviewEditTranslator {
         }
 
         // A blank line of fenced code inside a list or quote holds no prefix in the file: the first
-        // character typed there brings it, or the line would fall out of the block (review).
+        // character typed there brings it, or the line would fall out of the block.
         var linePrefix = ""
         if edit.range.length == 0, p.blocks[point.block].kind.isCode, !p.blocks[point.block].linePrefix.isEmpty,
            let line = p.index.line(p.index.lineNumber(containing: point.source)),
@@ -323,8 +318,8 @@ enum PreviewEditTranslator {
             return .refuse(.notSupported)   // a style turned off inside a link or code, which cannot be split
         }
         let (open, close) = delimiters(for: place.adding)
-        // **Spaces leading the text go before the markers it is styled with** — `** x**` is no
-        // bold. A space held at a line's end, then ⌘B and a letter, came here as ` x` (round 2).
+        // Spaces leading the text go before the markers it is styled with: `** x**` is no bold. A
+        // space held at a line's end, then ⌘B and a letter, arrives here as ` x`.
         let lead = open.isEmpty ? 0 : edit.text.prefix(while: { $0 == " " }).count
         let found = firstVerified(inCode ? [edit.text] : escapeAttempts(edit.text), expected: expected, in: p) { typed in
             let styled = typed.dropFirst(lead)
@@ -348,10 +343,10 @@ enum PreviewEditTranslator {
                           typedLength: (linePrefix + place.before + (made.attempt.count == lead ? "" : open)
                                         + made.attempt).utf16.count)
         var result = application(made.edits, undo: undo, caret: caret, after: made.after)
-        // When the rendering is exactly the old one with the edit made, the caret's place in it
-        // is known without mapping: after what was typed. Mapping is the fallback for when the
-        // parser's smart punctuation changed the length — a separator's source runs on through
-        // the next text's opening markers, so a caret there cannot say which side it is on.
+        // When the rendering is exactly the old one with the edit made, the caret goes after what
+        // was typed, without mapping. Mapping is the fallback for when smart punctuation changed
+        // the length: a separator's source runs on through the next text's opening markers, so a
+        // caret there cannot say which side it is on.
         if made.after.renderedString == expected {
             let rendered = edit.range.location + (edit.text as NSString).length
             result.renderedSelection = NSRange(location: rendered, length: 0)
@@ -359,11 +354,10 @@ enum PreviewEditTranslator {
         return .apply((context.realignsTables ? realigned(result, typedInto: point, in: p) : nil) ?? result)
     }
 
-    /// Where text typed at `point` goes, given the styles ⌘B, ⌘I and friends toggled for it (A4).
-    /// A style the caret is not in is ADDED, by markers around the text; one it
-    /// is in is TURNED OFF: at the span's end the text goes after its closing marker, and inside
-    /// it the span is closed before the text and opened again after — `**bo**x**ld**`. Both used to
-    /// add the style again, which wrote `**bold****x**` and refused it (review, 2026-10-09).
+    /// Where text typed at `point` goes, given the styles ⌘B, ⌘I and friends toggled for it. A
+    /// style the caret is not in is added, by markers around the text; one it is in is turned off:
+    /// at the span's end the text goes after its closing marker, and inside it the span is closed
+    /// before the text and opened again after (`**bo**x**ld**`).
     private static func placement(at point: PreviewEditRules.InsertionPoint, toggling pending: PreviewPendingStyle,
                                   in p: MarkdownProjection) -> Placement? {
         // The outermost span the caret is in whose style is toggled: the typed text leaves it.
@@ -373,10 +367,10 @@ enum PreviewEditTranslator {
         let x = point.spans[off]
         let outside = Array(point.spans[..<off])
         // Added: the toggled styles the caret is not in, and those of the spans inside the one it
-        // leaves that were not toggled — italic inside bold stays italic when ⌘B turns bold off.
+        // leaves that were not toggled; italic inside bold stays italic when ⌘B turns bold off.
         let adding = pending.subtracting(style(of: point.spans, in: p))
             .union(style(of: Array(point.spans[(off + 1)...]), in: p).subtracting(pending))
-        // At the span's end — no more of its text after the caret — the text goes after its marker.
+        // At the span's end (no more of its text after the caret), the text goes after its marker.
         if let last = p.segments.last(where: { $0.kind == .content && $0.spans.contains(x) }),
            NSMaxRange(last.source) == point.source {
             return Placement(at: NSMaxRange(p.spans[x].source), spans: outside, adding: adding)
@@ -400,7 +394,7 @@ enum PreviewEditTranslator {
         var adding: PreviewPendingStyle
     }
 
-    /// The pending styles spans `indices` are — a link or code is none.
+    /// The pending styles spans `indices` are; a link or code is none.
     private static func style(of indices: [Int], in p: MarkdownProjection) -> PreviewPendingStyle {
         indices.reduce(into: []) { style, index in
             switch p.spans[index].kind {
@@ -412,7 +406,7 @@ enum PreviewEditTranslator {
         }
     }
 
-    /// The marker span `index` closes with, as written — `**` or `__`, `*` or `_`, `~~` or `~`;
+    /// The marker span `index` closes with, as written (`**` or `__`, `*` or `_`, `~~` or `~`);
     /// `nil` for a link or code, which are not closed and opened again around typing.
     private static func marker(of index: Int, in p: MarkdownProjection) -> String? {
         let span = p.spans[index]
@@ -428,11 +422,10 @@ enum PreviewEditTranslator {
         return (p.source as NSString).substring(with: NSRange(location: NSMaxRange(span.source) - length, length: length))
     }
 
-    /// **Decision T — re-align as you type** (the user's choice, 2026-10-05): an edit in a cell of a
-    /// table whose pipes lined up leaves them lined up, the whole table re-padded around it, the
-    /// caret kept at its place in its cell. A ragged table keeps its own spacing, as the Table
-    /// menu's edits keep it (TE66). `nil` when there is nothing to re-pad — or when the re-padded
-    /// table would not render exactly as the edit did, which it always should.
+    /// Re-align as you type: an edit in a cell of a table whose pipes lined up leaves them lined up,
+    /// the whole table re-padded around it, the caret kept at its place in its cell. A ragged table
+    /// keeps its own spacing, as the Table menu's edits keep it. `nil` when there is nothing to
+    /// re-pad, or when the re-padded table would not render exactly as the edit did.
     private static func realigned(_ result: PreviewEditApplication, typedInto point: PreviewEditRules.InsertionPoint,
                                   in p: MarkdownProjection) -> PreviewEditApplication? {
         guard case .table = p.blocks[point.block].kind,
@@ -447,21 +440,19 @@ enum PreviewEditTranslator {
                                       renderedSelection: result.renderedSelection)
     }
 
-    /// **Which tables decision T re-pads:** those whose pipes line up AND are written padded —
-    /// `| a | b |`, the way Format Table writes them. A compact `|a|b|` or a pipe-less `a | b` can
-    /// line up too, but re-padding would rewrite the author's style on the first keystroke
-    /// (review, 2026-10-05); those keep it, as a ragged table does. **The Table menu's rule too**
-    /// (TBL-4) — ``MarkdownTables/keepsLinedUp(source:table:)``, one predicate, so a row added from
-    /// the menu and a word typed in a cell treat a table the same way.
+    /// Which tables re-align as you type: those whose pipes line up and are written padded
+    /// (`| a | b |`, as Format Table writes them). A compact `|a|b|` or a pipe-less `a | b` keeps
+    /// its style, as a ragged table does. The Table menu's rule too,
+    /// ``MarkdownTables/keepsLinedUp(source:table:)``, so the menu and typing treat a table alike.
     static func realignsAsYouType(_ source: String, table range: NSRange) -> Bool {
         MarkdownTables.keepsLinedUp(source: source, table: range)
     }
 
     /// The source ranges a rendered selection removes, and where text typed over it goes.
     ///
-    /// **Markers survive (A2):** deleting "nty of" across `**plenty** of` deletes the characters and
-    /// keeps the `**`. **A span left with no text loses its markers too**, so no `****` is left
-    /// behind — but only when nothing replaces the text: typing over a whole bold word keeps it bold.
+    /// Markers survive: deleting "nty of" across `**plenty** of` deletes the characters and keeps
+    /// the `**`. A span left with no text loses its markers too, so no `****` is left behind, but
+    /// only when nothing replaces the text: typing over a whole bold word keeps it bold.
     private static func removalRanges(_ range: NSRange, in p: MarkdownProjection,
                                       keepingSpansAt keep: Int?)
         -> Result<(ranges: [NSRange], start: PreviewEditRules.InsertionPoint), PreviewRefusal> {
@@ -496,7 +487,7 @@ enum PreviewEditTranslator {
                 return .failure(.readOnly(reason))
             }
         }
-        // A span whose every piece of text is going takes its delimiters with it — unless what is
+        // A span whose every piece of text is going takes its delimiters with it, unless what is
         // typed is to take its place, from where the span starts.
         let candidates = Set(touched.flatMap { $0.element.spans })
         for span in candidates {
@@ -517,21 +508,19 @@ enum PreviewEditTranslator {
                                                          block: block)))
     }
 
-    /// `range` without the block break it ends on, if it ends on one — what a triple-click adds.
+    /// `range` without the block break it ends on, if it ends on one: what a triple-click adds.
     private static func withoutTrailingBlockBreak(_ range: NSRange, in p: MarkdownProjection) -> NSRange {
         guard range.length > 1, let last = PreviewEditRules.segment(containing: NSMaxRange(range) - 1, in: p),
               last.kind == .blockBreak else { return range }
         return NSRange(location: range.location, length: range.length - last.rendered.length)
     }
 
-    /// A deletion of exactly one block and the break after it — a triple-clicked paragraph, heading
-    /// or list item — removes it whole: its lines, and the blank lines after them.
+    /// A deletion of exactly one block and the break after it (a triple-clicked paragraph, heading
+    /// or list item) removes it whole: its lines, and the blank lines after them.
     ///
-    /// **The first item of a numbered list hands its number on** (round 2, 2026-10-10): the list
-    /// starts at the number its first item is written with, so `1. a` deleted over `2. b` left a
-    /// list that started at 2. The next item is written with the deleted one's number, in the same
-    /// step — and only where its number on screen would change: a middle item's going renumbers
-    /// nothing in the file.
+    /// The first item of a numbered list hands its number on, because the list starts at the
+    /// number its first item is written with: delete `1. a` over `2. b` and `b` is rewritten as `1.`
+    /// in the same step. Only where its number on screen would change; a middle item renumbers none.
     private static func wholeBlock(_ range: NSRange, in p: MarkdownProjection) -> PreviewEditOutcome? {
         guard let index = p.blocks.firstIndex(where: { $0.rendered.location == range.location }),
               p.blocks[index].rendered.length > 0, index + 1 < p.blocks.count,
@@ -557,7 +546,7 @@ enum PreviewEditTranslator {
         return renumbered
     }
 
-    /// Where list item `block`'s number is written — the digits of its `1.` — or `nil`.
+    /// Where list item `block`'s number is written (the digits of its `1.`), or `nil`.
     private static func markerNumber(of block: PreviewBlock, in p: MarkdownProjection) -> NSRange? {
         let units = p.index.units
         var end = block.source.location
@@ -565,13 +554,10 @@ enum PreviewEditTranslator {
         return end > block.source.location ? NSRange(location: block.source.location, length: end - block.source.location) : nil
     }
 
-    /// Block `block`'s lines whole — a quote's markers too — and the blank lines after them, up to
-    /// the line `next` starts on.
-    ///
-    /// **Up to the first line that holds anything, which stays** (round 2, 2026-10-10). A link
-    /// reference definition makes no block, so it sits between two blocks unseen — and so does the
-    /// comment written as one, `[//]: # (note)`. Deleting the paragraph before it took it too, and
-    /// nothing on screen could tell: it draws nothing either way.
+    /// Block `block`'s lines whole (a quote's markers too) and the blank lines after them, up to the
+    /// line `next` starts on, or the first line that holds anything, which stays. A link reference
+    /// definition, or a comment written as one (`[//]: # (note)`), makes no block and draws nothing,
+    /// so deleting it with the paragraph above would go unseen.
     private static func lines(of block: PreviewBlock, upTo next: PreviewBlock, in p: MarkdownProjection) -> NSRange {
         let start = lineStart(block.source.location, in: p)
         let limit = lineStart(next.source.location, in: p)
@@ -587,25 +573,24 @@ enum PreviewEditTranslator {
         p.index.units[line.start..<line.end].contains { $0 != 0x20 && $0 != 0x09 && $0 != 0x3E }
     }
 
-    /// **A deletion that empties a paragraph takes its line too** — Markdown has no empty
-    /// paragraph, so what was left was two blank lines and a refusal (review, 2026-10-09). The line
-    /// goes with the blank line before it, and the session opens an empty paragraph where it was
-    /// (§3.5), the caret in it, as a text editor leaves an emptied line: the next character typed
-    /// writes it, and ⌫ there closes it. Headings, items, cells and code can stand empty, and keep
-    /// their place.
+    /// A deletion that empties a paragraph takes its line too, since Markdown has no empty
+    /// paragraph. The line goes with the blank line before it, and the session opens an empty
+    /// paragraph where it was, the caret in it, as a text editor leaves an emptied line: the next
+    /// character typed writes it, and ⌫ there closes it. Headings, items, cells and code can stand
+    /// empty, and keep their place.
     ///
     /// The first block has nothing above it to open a paragraph after: it goes with the blank line
-    /// after it, and the caret is at the next block's start. Nor does one that was not at the level
-    /// of the block above — the paragraph after a sub-list is the outer list's: it goes, and the
-    /// caret is at the end of the block above.
+    /// after it, and the caret is at the next block's start. Nor does one not at the level of the
+    /// block above (the paragraph after a sub-list is the outer list's): it goes, and the caret is
+    /// at the end of the block above.
     private static func emptiedParagraph(_ range: NSRange, in p: MarkdownProjection) -> PreviewEditOutcome? {
         guard let index = p.blocks.firstIndex(where: { $0.rendered == range && range.length > 0 }),
               case .paragraph = p.blocks[index].kind, p.blocks[index].readOnly == nil else { return nil }
         let block = p.blocks[index]
         if index > 0 {
             let above = p.blocks[index - 1]
-            // From the end of the last line above it that holds anything — the block above's, or a
-            // reference definition's between them, which stays (round 2, see `lines(of:upTo:)`).
+            // From the end of the last line above it that holds anything: the block above's, or a
+            // reference definition's between them, which stays (see `lines(of:upTo:)`).
             var from = NSMaxRange(above.source)
             let aboveLast = p.index.lineNumber(containing: max(above.source.location, NSMaxRange(above.source) - 1))
             var number = p.index.lineNumber(containing: block.source.location) - 1
@@ -621,7 +606,7 @@ enum PreviewEditTranslator {
                 return .apply(application)
             }
         }
-        // Its lines whole — a quote's markers too, or the next block would move into the quote.
+        // Its lines whole, a quote's markers too, or the next block would move into the quote.
         let start = lineStart(block.source.location, in: p)
         guard index + 1 < p.blocks.count else {
             // The only block: the file is left as empty as it looks.
@@ -636,13 +621,12 @@ enum PreviewEditTranslator {
     }
 
     /// Source `range` removed, taking `blocks` with it: checked to render as the old rendering
-    /// without `rendered`, **and to leave every other block as it was** — of its kind, at its
-    /// indent, in its quote. The characters alone could not tell a list item pulled into the quote
-    /// above, when a quote's paragraph went without its `> ` (found 2026-10-09, by the property test).
+    /// without `rendered`, and to leave every other block as it was (of its kind, at its indent, in
+    /// its quote). The characters alone can't tell a list item pulled into the quote above.
     private static func removal(_ range: NSRange, rendered: NSRange, blocks: ClosedRange<Int>,
                                 in p: MarkdownProjection, also: [PreviewSourceEdit] = []) -> PreviewEditOutcome {
         let expected = (p.renderedString as NSString).replacingCharacters(in: rendered, with: "")
-        // One edit where two touch — a removal up to the number it rewrites — so no two edits
+        // One edit where two touch (a removal up to the number it rewrites), so no two edits
         // share an offset, and undoing them is exact.
         let edits = ([PreviewSourceEdit(range: range, text: "")] + also).sorted { $0.range.location < $1.range.location }
             .reduce(into: [PreviewSourceEdit]()) { edits, edit in
@@ -664,8 +648,8 @@ enum PreviewEditTranslator {
         return outcome
     }
 
-    /// What a block is, for telling whether a removal moved it: its kind — an ordered item without
-    /// its number, which a removal above it changes — its indent and its quote.
+    /// What a block is, for telling whether a removal moved it: its kind (an ordered item without
+    /// its number, which a removal above it changes), its indent and its quote.
     private static func shape(_ block: PreviewBlock) -> String {
         let kind: String = switch block.kind {
         case .listItem(.ordered): "ordered item"
@@ -707,9 +691,9 @@ enum PreviewEditTranslator {
         guard let blockIndex = PreviewEditRules.block(at: caret, in: p) else { return .refuse(.notText) }
         let block = p.blocks[blockIndex]
         let atEnd = caret == NSMaxRange(block.rendered)
-        // After a picture, a rule, HTML, front matter — anything not text — Return at its end opens
-        // a paragraph after it, which leaves it alone: a note ending in one could not grow (review,
-        // 2026-10-09). So does Return anywhere in a table's last row, which has no row below to move to.
+        // After a picture, a rule, HTML, front matter (anything not text), Return at its end opens
+        // a paragraph after it and leaves it alone, so a note ending in one can grow. So does
+        // Return anywhere in a table's last row, which has no row below to move to.
         switch block.kind {
         case .image, .thematicBreak, .html, .frontMatter, .other:
             if atEnd { return .openPhantom(afterBlock: blockIndex) }
@@ -743,12 +727,11 @@ enum PreviewEditTranslator {
 
         case .paragraph, .heading:
             if atEnd {
-                // **The end of an item's last words is the end of the item, whichever block holds
-                // them** (LST-8, 2026-10-15) — a later paragraph of it, or words that are a heading.
-                // Source carries the list on there; Preview opened a paragraph inside the item, so
-                // the same Return wrote two different documents. TE54's rule decides, as for the
-                // item's first words; where it says no — more of the item follows, a line under it
-                // would run on — this is a paragraph's end like any other.
+                // The end of an item's last words is the end of the item, whichever block holds
+                // them (a later paragraph of it, or a heading), so Return carries the list on as
+                // Source does. The same rule as for the item's first words decides; where it says
+                // no (more of the item follows, or a line under it would run on), this is a
+                // paragraph's end like any other.
                 if continuesLists, block.indent > 0,
                    let carried = listReturn(at: caret, block: blockIndex, atEnd: true, in: p, orNil: true) {
                     return carried
@@ -779,12 +762,10 @@ enum PreviewEditTranslator {
         }
     }
 
-    /// **Return in a list item with Continue Lists off** (LST-3, 2026-10-15): no marker — what
-    /// Return at the end of any other block does here, a paragraph opened after it, which the first
-    /// character typed writes: `- a` then a paragraph, at the item's own indent in a sub-list, so a
-    /// sub-list ends and the list around it carries on. Not where the item holds blocks of its own
-    /// under its words, which a paragraph written between would cut off from it — nor in the middle
-    /// of its words, which Preview has never split.
+    /// Return in a list item with Continue Lists off: no marker, but what Return at the end of any
+    /// other block does, a paragraph opened after it at the item's own indent, so a sub-list ends
+    /// and the list around it carries on. Not where the item holds blocks of its own under its
+    /// words, which the paragraph would cut off, nor in the middle of its words.
     private static func plainListReturn(block: Int, atEnd: Bool, in p: MarkdownProjection) -> PreviewEditOutcome {
         guard atEnd else { return .refuse(.notSupported) }
         if p.blocks.indices.contains(block + 1), p.blocks[block + 1].indent > p.blocks[block].indent {
@@ -793,20 +774,21 @@ enum PreviewEditTranslator {
         return .openPhantom(afterBlock: block)
     }
 
-    /// Return in a list item: TE54's rule, byte for byte what Return does there in Source (C11).
+    /// Return in a list item: `MarkdownListEdits`' rule, byte for byte what Return does there in
+    /// Source.
     ///
-    /// - Parameter orNil: `nil` rather than a refusal where the rule offers nothing — for the words
-    ///   of an item that are a block of their own (LST-8), where Return is then a paragraph's end.
+    /// - Parameter orNil: `nil` rather than a refusal where the rule offers nothing, for the words
+    ///   of an item that are a block of their own, where Return is then a paragraph's end.
     private static func listReturn(at renderedCaret: Int, block: Int, atEnd: Bool,
                                    in p: MarkdownProjection, orNil: Bool = false) -> PreviewEditOutcome? {
         guard atEnd else { return .refuse(.notSupported) }
         let ns = p.source as NSString
         // The end of the item's line in the source: after its words, or after its marker when empty.
-        // A picture or inline HTML ending the item counts as its words (review, 2026-10-09).
+        // A picture or inline HTML ending the item counts as its words.
         let words = p.segments.last {
             $0.block == block && ($0.kind == .content || PreviewEditRules.isInlinePiece($0, in: p))
         }
-        // Past any span closing on the last words — `- **done**` ends after its `**` (review).
+        // Past any span closing on the last words: `- **done**` ends after its `**`.
         let wordsEnd = words.map { segment in
             segment.spans.map { NSMaxRange(p.spans[$0].source) }.reduce(NSMaxRange(segment.source), max)
         } ?? NSMaxRange(p.blocks[block].source)
@@ -824,11 +806,10 @@ enum PreviewEditTranslator {
             edits = [PreviewSourceEdit(range: NSRange(location: sourceCaret, length: 0),
                                        text: ending + opening)]
             caret = sourceCaret + (ending + opening).utf16.count
-            // **A new item is one more line, empty — or holding a box — and nothing else changes.**
-            // At the end of an item with a sub-list under it the opening is the sub-list's, written
-            // straight under the item's words, where `  - ` is a setext underline: the words became a
-            // heading (found 2026-10-09, by the property test's rendering check; Source's Return
-            // writes the same). Refused, rather than written.
+            // A new item is one more line, empty or holding a box, and nothing else changes. At the
+            // end of an item with a sub-list under it the opening is the sub-list's, written straight
+            // under the item's words, where `  - ` is a setext underline that makes them a heading
+            // (Source's Return writes the same). Refused, rather than written.
             let rendered = p.renderedString as NSString
             let added = ["\n", "\n\u{FFFC}"].map { rendered.replacingCharacters(in: NSRange(location: renderedCaret, length: 0), with: $0) }
             let after = MarkdownProjection.project(applied(edits, to: p.source), style: p.style, after: p)
@@ -840,10 +821,9 @@ enum PreviewEditTranslator {
             return .apply(application(edits, undo: .own, caret: caret, after: after))
         case .endList(let line, let indent, let separatesNext):
             // As `carryOnList` does it in Source, in one step: the empty item's line emptied, the
-            // Return, the item's own indent in a sub-list, and — when a written line follows — a
-            // second break after the caret, which stays on the line to type on. The one difference
-            // is deliberate: the file's own line ending (C31), where Source's `insertNewline`
-            // always writes `\n`.
+            // Return, the item's own indent in a sub-list, and, when a written line follows, a second
+            // break after the caret, which stays on the line to type on. One deliberate difference:
+            // the file's own line ending, where Source's `insertNewline` always writes `\n`.
             let text = ending + indent + (separatesNext ? ending : "")
             edits = [PreviewSourceEdit(range: line, text: text)]
             caret = line.location + (ending + indent).utf16.count
@@ -851,24 +831,22 @@ enum PreviewEditTranslator {
             return orNil ? nil : .refuse(.notSupported)
         }
         // Ending a list is not checked against an expected rendering: the empty item goes, and
-        // what the line it leaves becomes is TE54's rule, verified by the parser itself.
+        // what the line it leaves becomes is `MarkdownListEdits`' rule.
         let source = applied(edits, to: p.source)
         return .apply(application(edits, undo: .own, caret: caret,
                                   after: MarkdownProjection.project(source, style: p.style, after: p)))
     }
 
-    /// ⇧Return: a hard line break, written as two trailing spaces and a newline (decision U) — the
-    /// form that keeps the parser's line count right. Never the backslash form (§2.1, case 2).
+    /// ⇧Return: a hard line break, written as two trailing spaces and a newline, the form that
+    /// keeps the parser's line count right; never the backslash form.
     ///
-    /// **At a paragraph's end it is not written yet**, because Markdown ignores a hard break with
+    /// At a paragraph's end it is not written yet, because Markdown ignores a hard break with
     /// nothing after it: the session holds it in the display, as it holds a trailing space, and
-    /// hands it back with the next character typed — `typed` — which writes both.
+    /// hands it back with the next character typed (`typed`), which writes both.
     ///
     /// Spaces after the caret would start the new line, where they render as nothing: they go.
-    ///
-    /// **What is typed after it is one line, in the styles chosen for it** (round 2, 2026-10-10): a
-    /// second line break in it was written as itself, a U+2028 the preview draws as a line and
-    /// Markdown reads as none; and ⌘B before the character that writes the break was lost.
+    /// What is typed after it is one line (a U+2028 in it would draw as a line Markdown reads as
+    /// none), in the styles chosen for it.
     private static func lineBreak(at range: NSRange, typing typed: String = "", pending: PreviewPendingStyle = [],
                                   in p: MarkdownProjection) -> PreviewEditOutcome {
         guard range.length == 0, !typed.contains(where: \.isNewline),
@@ -883,7 +861,7 @@ enum PreviewEditTranslator {
         let prefix = "  " + PreviewEditRules.lineEnding + PreviewEditRules.continuationPrefix(of: point.block, in: p)
         let expected = (p.renderedString as NSString).replacingCharacters(in: range, with: "\u{2028}" + typed)
         // The styles the typed text is to have: the caret's, with the pending ones toggled. A split
-        // inside a span keeps it open for the new line; one after it does not — so each split adds
+        // inside a span keeps it open for the new line; one after it does not, so each split adds
         // what it lacks, and the style is checked.
         let inCode = point.spans.contains { p.spans[$0].kind == .code }
         let pending = typed.isEmpty || inCode ? [] : pending
@@ -909,8 +887,8 @@ enum PreviewEditTranslator {
     }
 
     /// Where a break at `point` can go: inside the spans the caret is in first; failing that,
-    /// after each span that closes there — a Return or ⇧Return just after bold breaks after its
-    /// `**`, not between them (review: `**Note  \n  ** text` was refused).
+    /// after each span that closes there, so a Return or ⇧Return just after bold breaks after its
+    /// `**`, not between them.
     private static func splits(at point: PreviewEditRules.InsertionPoint, in p: MarkdownProjection) -> [Int] {
         [point.source] + point.spans.reversed().map { NSMaxRange(p.spans[$0].source) }
     }
@@ -923,17 +901,16 @@ enum PreviewEditTranslator {
         guard block.readOnly == nil else { return .ignore }
         switch block.kind {
         case .listItem:
-            // Continue Lists off: no item moves (LST-3). The key is taken — a tab character has no
-            // rendering of its own in an item's words.
+            // Continue Lists off: no item moves. The key is taken: a tab character has no rendering
+            // of its own in an item's words.
             guard continuesLists else { return .ignore }
-            // Over several items, nothing: TE54 moves one item, and Source's Tab replaces such a
-            // selection with a tab — moving only the first was half the edit (review, 2026-10-09).
+            // Over several items, nothing: the rule moves one item, and Source's Tab replaces such
+            // a selection with a tab, so moving only the first would be half the edit.
             if NSMaxRange(range) > NSMaxRange(block.rendered) { return .refuse(.crossesBlocks) }
-            // The whole item moves, by TE54's rule, from anywhere in its words — which on screen
-            // are one paragraph, and in the file may run on over several lines (LST-9, 2026-10-15).
-            // TE54 reads the marker off the line it is asked about, so it is asked on the item's
-            // first line: from its second, the caret mapped there, no marker was read, and Tab did
-            // nothing. The caret then stays on the same rendered character.
+            // The whole item moves from anywhere in its words, which are one paragraph on screen
+            // but may run over several lines in the file. `MarkdownListEdits` reads the marker off
+            // the line it is asked about, so it is asked on the item's first line. The caret then
+            // stays on the same rendered character.
             let firstLineEnd = p.index.line(p.index.lineNumber(containing: block.source.location))?.end
                 ?? NSMaxRange(block.source)
             let asked = PreviewEditRules.insertionPoint(at: range.location, in: p)?.source ?? NSMaxRange(block.source)
@@ -1010,12 +987,12 @@ enum PreviewEditTranslator {
         default: nil
         }
         if range.length == 0, let inline {
-            // A4: nothing selected — light the style for what is typed next, write nothing.
+            // Nothing selected: light the style for what is typed next, write nothing.
             return .setPending(context.pending.symmetricDifference(inline))
         }
-        // A line verb on the empty paragraph Return opened (§3.5): the paragraph is not in the file
-        // yet, so write the blank line it stands for and let the verb start its list, heading or
-        // quote there — never on the block above, which is where its caret maps in the source.
+        // A line verb on the empty paragraph Return opened: the paragraph is not in the file yet,
+        // so write the blank line it stands for and let the verb start its list, heading or quote
+        // there, never on the block above, which is where its caret maps in the source.
         let lineVerb: Bool = switch verb {
         case .heading, .bulletList, .numberedList, .taskItem, .blockQuote: true
         default: false
@@ -1053,9 +1030,8 @@ enum PreviewEditTranslator {
             }
         } else {
             after = MarkdownProjection.project(edit.text, style: p.style, after: p)
-            // **On an opened paragraph, checked: one new block, there, and nothing else changed**
-            // (round 2, 2026-10-10). Opened after HTML that runs on — `<pre>` to its `</pre>` — the
-            // heading went into the HTML and was written all the same.
+            // On an opened paragraph, checked: one new block, there, and nothing else changed.
+            // After HTML that runs on (`<pre>` to its `</pre>`), a heading would go into the HTML.
             if let opened, !opensOneBlock(after: opened, from: p, to: after) {
                 return .refuse(.unverified, unverified: .movesBlocks)
             }
@@ -1069,7 +1045,7 @@ enum PreviewEditTranslator {
     }
 
     /// Whether `after` is `p` with one new block straight after block `block`, editable, and every
-    /// other block — and everything else on screen — as it was.
+    /// other block, and everything else on screen, as it was.
     private static func opensOneBlock(after block: Int, from p: MarkdownProjection, to after: MarkdownProjection) -> Bool {
         let new = block + 1
         guard after.blocks.count == p.blocks.count + 1, after.blocks[new].readOnly == nil,
@@ -1082,9 +1058,9 @@ enum PreviewEditTranslator {
         return rest == p.renderedString
     }
 
-    /// A selection reaching over several blocks, for the line verbs — Bullets over three paragraphs
-    /// makes three items (review: refused). From the first character's place to the last's, none of
-    /// the blocks it crosses read-only.
+    /// A selection reaching over several blocks, for the line verbs: Bullets over three paragraphs
+    /// makes three items. From the first character's place to the last's, none of the blocks it
+    /// crosses read-only.
     private static func acrossBlocks(_ range: NSRange, in p: MarkdownProjection) -> NSRange? {
         guard range.length > 0 else { return nil }
         let crossed = p.blocks.filter { NSIntersectionRange($0.rendered, range).length > 0 }
@@ -1098,12 +1074,10 @@ enum PreviewEditTranslator {
         return NSRange(location: start, length: end - start)
     }
 
-    /// **The source selection Preview reports for a rendered one** (FMT-14) — the one a verb would
-    /// act on: as ``sourceSelection(for:in:)`` maps it, else with a triple-click's trailing block
-    /// break left out, else — over several blocks — from the first selected character's place to
-    /// the last's. A triple-click selects a paragraph AND the break after it, which maps to no
-    /// single block, so it was never reported: the format bar kept the last caret's lit state, dark
-    /// over a bold paragraph whose Bold press then took the bold off.
+    /// The source selection Preview reports for a rendered one, the one a verb would act on: as
+    /// ``sourceSelection(for:in:)`` maps it, else without a triple-click's trailing block break,
+    /// else (over several blocks) from the first selected character's place to the last's. Without
+    /// the fallbacks a triple-clicked paragraph maps to nothing and the format bar lights wrongly.
     static func reportedSelection(for range: NSRange, in p: MarkdownProjection) -> NSRange? {
         if let exact = sourceSelection(for: range, in: p) { return exact }
         let trimmed = withoutTrailingBlockBreak(range, in: p)
@@ -1111,8 +1085,8 @@ enum PreviewEditTranslator {
         return acrossBlocks(range, in: p)
     }
 
-    /// A rendered selection as a source selection, for the verbs (§3.6): its start where the first
-    /// selected character is, its end after the last — so a selection of exactly a bold word maps to
+    /// A rendered selection as a source selection, for the verbs: its start where the first
+    /// selected character is, its end after the last, so a selection of exactly a bold word maps to
     /// the word between its asterisks, which is what makes ⌘B there take the bold off.
     static func sourceSelection(for range: NSRange, in p: MarkdownProjection) -> NSRange? {
         if range.length == 0 {
@@ -1135,7 +1109,7 @@ enum PreviewEditTranslator {
 
     // MARK: Tasks and phantoms
 
-    /// A8: the box's three characters, ticked or unticked — now an undo step of its own (F6).
+    /// A task box's three characters, ticked or unticked, as an undo step of its own.
     private static func tickTask(at range: NSRange, in p: MarkdownProjection) -> PreviewEditOutcome {
         guard let box = p.segments.first(where: {
                   $0.kind == .decoration && $0.rendered == range && $0.source.length == 3 }),
@@ -1151,12 +1125,11 @@ enum PreviewEditTranslator {
     }
 
     /// The first character typed into a phantom paragraph writes it: a blank line, the prefix that
-    /// keeps it in the same quote, and the character (§3.5). Until then the file is untouched (C9).
+    /// keeps it in the same quote, and the character. Until then the file is untouched.
     ///
-    /// **In the styles chosen for it** — Return, ⌘B, typing is bold (review, 2026-10-09: the bold
-    /// text went on the end of the paragraph above). **And kept apart from what follows**: when the
-    /// next line holds text, a blank line goes after the character too — `# Title` straight over
-    /// `Some text` took the new paragraph into that one (review, 2026-10-09).
+    /// In the styles chosen for it (Return, ⌘B, then typing is bold), and kept apart from what
+    /// follows: when the next line holds text, a blank line goes after the character too, or
+    /// `# Title` straight over `Some text` would join them.
     private static func phantomParagraph(after block: Int, typing text: String, pending: PreviewPendingStyle,
                                          in p: MarkdownProjection) -> PreviewEditOutcome {
         guard p.blocks.indices.contains(block) else { return .refuse(.notSupported) }
@@ -1182,7 +1155,7 @@ enum PreviewEditTranslator {
     }
 
     /// What opens a paragraph after block `block` in the source: where, what goes before its first
-    /// character — a line break, a blank line kept inside any quote, the quote's prefix — and what
+    /// character (a line break, a blank line kept inside any quote, the quote's prefix), and what
     /// goes after, which is a second blank line when the next line holds text, or nothing.
     private static func phantomOpening(after block: Int, in p: MarkdownProjection)
         -> (at: Int, before: String, after: String) {
@@ -1194,7 +1167,7 @@ enum PreviewEditTranslator {
         return (end, ending + blank + ending + prefix, after)
     }
 
-    /// The first characters of an empty file — or of one that is only blank lines.
+    /// The first characters of an empty file, or of one that is only blank lines.
     private static func emptyDocument(typing text: String, in p: MarkdownProjection) -> PreviewEditOutcome {
         let end = p.index.length
         let found = firstVerified(escapeAttempts(text), expected: text, in: p) { typed in
@@ -1217,7 +1190,7 @@ enum PreviewEditTranslator {
         try? check(edits, expected: expected, in: p, structural: structural).get()
     }
 
-    /// Why an edit was not verified, for the log — never what it said.
+    /// Why an edit was not verified, for the log, never what it said.
     enum Unverified: Error, Equatable {
         /// The new rendering was not what was expected, over this many characters.
         case renders(differingBy: Int)
@@ -1241,9 +1214,9 @@ enum PreviewEditTranslator {
 
     /// The edits applied and re-projected, and the projection when the new rendering is `expected`.
     ///
-    /// **Compared through the parser's smart punctuation** (`'` and ’, `--` and –), because a
-    /// typed straight quote renders curly and that is the file being right, not wrong.
-    /// `structural` also forgives whitespace beside a new line or break, which the parser trims.
+    /// Compared through the parser's smart punctuation (`'` and ’, `--` and –), because a typed
+    /// straight quote renders curly and that is the file being right, not wrong. `structural` also
+    /// forgives whitespace beside a new line or break, which the parser trims.
     static func check(_ edits: [PreviewSourceEdit], expected: String, in p: MarkdownProjection,
                       structural: Bool = false) -> Result<MarkdownProjection, Unverified> {
         let after = MarkdownProjection.project(applied(edits, to: p.source), style: p.style, after: p)
@@ -1251,19 +1224,18 @@ enum PreviewEditTranslator {
             return .failure(.renders(differingBy: difference(after.renderedString, expected)))
         }
         // An edit that renders right but leaves the projection unable to map a block it could map
-        // before would strand the caret — and every keystroke after it — so it is refused too.
+        // before would strand the caret, and every keystroke after it, so it is refused too.
         //
-        // **And so is one that renders right but MEANS something else** — typed text that the
-        // parser took for HTML (`Vec<T` + `>` is a tag, and dropped by every other renderer), or a
-        // table pushed too wide to edit. Each shows up as a read-only piece the source did not have
-        // (review, 2026-10-05); the escaped retry is what gets written instead. **Which pieces, not
-        // how many**: a paste that turned one tag into text and its own `<i>` into a tag kept the
-        // count, and was written (review, 2026-10-09).
+        // So is one that renders right but means something else: typed text the parser took for
+        // HTML (`Vec<T` + `>` is a tag, dropped by every other renderer), or a table pushed too wide
+        // to edit. Each shows up as a read-only piece the source did not have, and the escaped retry
+        // is written instead. Which pieces, not how many: a paste can turn one tag into text and its
+        // own `<i>` into a tag and keep the count.
         guard readOnlyPieces(after).isSubset(of: readOnlyPieces(p)) else { return .failure(.makesReadOnly) }
         return .success(after)
     }
 
-    /// Every piece of `q` Preview cannot edit — read-only blocks and segments — by what it is and
+    /// Every piece of `q` Preview cannot edit (read-only blocks and segments), by what it is and
     /// what it says, counted: an edit never touches one, so after it each is one that was there.
     static func readOnlyPieces(_ q: MarkdownProjection) -> PreviewPieceCount {
         if let known = q.memo.readOnlyPieces { return known }
@@ -1287,12 +1259,12 @@ enum PreviewEditTranslator {
         return max(x.count, y.count) - prefix - suffix
     }
 
-    /// The first of `attempts` whose edits verify — and, when `accepting` is given, are accepted
-    /// by it — with the attempt and its edits; otherwise why the last did not.
+    /// The first of `attempts` whose edits verify (and, when `accepting` is given, are accepted by
+    /// it), with the attempt and its edits; otherwise why the last did not.
     ///
-    /// The attempts are what is typed, bare and then escaped (§3.4), and where a break goes: one
-    /// loop, for each place something is written — typing, the opened paragraph, an empty file,
-    /// Return and ⇧Return.
+    /// The attempts are what is typed, bare and then escaped, and where a break goes: one loop
+    /// for each place something is written (typing, the opened paragraph, an empty file, Return
+    /// and ⇧Return).
     private static func firstVerified<Attempt>(_ attempts: [Attempt], expected: String, in p: MarkdownProjection,
                                                structural: Bool = false,
                                                _ edits: (Attempt) -> [PreviewSourceEdit],
@@ -1313,7 +1285,7 @@ enum PreviewEditTranslator {
         return .failure(failure)
     }
 
-    /// The application `make` builds, once `edits` are checked to render as `expected` — or the
+    /// The application `make` builds, once `edits` are checked to render as `expected`, or the
     /// refusal that says why not. `line` is the caller's, for the log.
     private static func verifying(_ edits: [PreviewSourceEdit], expected: String, in p: MarkdownProjection,
                                   structural: Bool = false, line: Int = #line,
@@ -1327,7 +1299,7 @@ enum PreviewEditTranslator {
     /// `comparable(a) == comparable(b)`, without making either of a long note's two copies: the
     /// part they share as written is the same either way, so only what lies between is compared.
     ///
-    /// Cut where two ASCII letters or digits meet — always a character boundary, and never beside
+    /// Cut where two ASCII letters or digits meet: always a character boundary, and never beside
     /// the spaces and breaks `structural` trims, or inside a `--` or `...` the parser joined.
     static func sameComparable(_ a: String, _ b: String, structural: Bool) -> Bool {
         let x = a as NSString, y = b as NSString
@@ -1387,7 +1359,7 @@ enum PreviewEditTranslator {
         return segment.spans.map { normalizedKind(p.spans[$0].kind) }
     }
 
-    /// The pending styles of the text at rendered `offset` in `p` — ``style(of:in:)`` of its spans.
+    /// The pending styles of the text at rendered `offset` in `p`: ``style(of:in:)`` of its spans.
     private static func style(at offset: Int, in p: MarkdownProjection) -> PreviewPendingStyle {
         guard let segment = p.segments.first(where: {
             $0.kind == .content && $0.rendered.location <= offset && offset < NSMaxRange($0.rendered)
@@ -1403,12 +1375,11 @@ enum PreviewEditTranslator {
 
     // MARK: Building blocks
 
-    /// What is tried for typed `text`, in turn: as typed; with only what can START Markdown
-    /// inline escaped — the emphasis, code, link, HTML and table characters; and with every ASCII
-    /// punctuation character escaped, the escape that always renders as the character itself, for
-    /// what only means something at a line's start (`#`, `-`, `1.`). One `*` in a pasted sentence
-    /// escaped its every `'`, `,` and `.` too — `Don\'t` stays straight where the note shows curly
-    /// quotes (review, 2026-10-09).
+    /// What is tried for typed `text`, in turn: as typed; with only what can start Markdown inline
+    /// escaped (the emphasis, code, link, HTML and table characters); and with every ASCII
+    /// punctuation character escaped, which always renders as the character itself, for what only
+    /// means something at a line's start (`#`, `-`, `1.`). The middle step keeps one `*` in a pasted
+    /// sentence from escaping every `'` too: `Don\'t` stays straight where the note shows curly.
     static func escapeAttempts(_ text: String) -> [String] {
         guard !text.isEmpty else { return [text] }
         var attempts = [text]
@@ -1421,7 +1392,7 @@ enum PreviewEditTranslator {
     /// The characters that open or close inline Markdown anywhere on a line.
     private static let inlineMarkup = Set<Character>(["\\", "`", "*", "_", "[", "]", "<", ">", "&", "~", "|", "!"])
 
-    /// Every ASCII punctuation character in `text` — or only those in `only` — backslash-escaped:
+    /// Every ASCII punctuation character in `text` (or only those in `only`) backslash-escaped:
     /// CommonMark's escape, which renders as the character itself in prose and in a table cell.
     static func escaped(_ text: String, only: Set<Character>? = nil) -> String {
         var out = ""

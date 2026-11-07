@@ -5,11 +5,11 @@ import Design
 // MARK: - Learned-rule offer/review models
 //
 // The "teach a rule" flow that follows a filing move. It rides in the move's result message as
-// "Save as rule…", which opens `FilingRuleOfferPanel` (Banner Room, CB); the state machine lives in
+// "Save as rule…", which opens `FilingRuleOfferPanel`; the state machine lives in
 // `LensWorkspaceSession`, and the two prompt views stay dumb, plumbed via params/bindings.
 
-/// One pending "remember this override?" prompt (G2) — the loose file just filed and the folder it
-/// went into, enough to seed an F3 rule. Identifiable so the inline prompt can animate in and out.
+/// One pending "remember this override?" prompt: the loose file just filed and the folder it went
+/// into, enough to seed a rule. Identifiable so the inline prompt can animate in and out.
 struct PendingRememberPrompt: Identifiable {
     let id = UUID()
     let fileName: String
@@ -33,9 +33,8 @@ struct RuleOffer: Identifiable {
 enum RuleOfferLogic {
     /// The destination folder as a path relative to the provider root (the rule's template is
     /// provider-relative). Falls back to the folder's leaf name when no root is known or the
-    /// path lies outside it. The boundary math is Sync's `PathBoundary` (the one implementation
-    /// of "inside the root?"); the standardizing pass and the leaf-name fallback stay here —
-    /// they are this call site's policy, not the boundary rule's.
+    /// path lies outside it. The boundary math is Sync's `PathBoundary`; standardizing and the
+    /// leaf-name fallback are this call site's policy.
     static func relativeToProviderRoot(_ absolutePath: String, providerRoot: String?) -> String {
         guard let root = providerRoot, !root.isEmpty else {
             return (absolutePath as NSString).lastPathComponent
@@ -48,10 +47,9 @@ enum RuleOfferLogic {
 
 // MARK: - The panel "Save as rule…" opens
 
-/// **The full offer, opened from the "Filed …" message's "Save as rule…"** (Banner Room, CB) — the
-/// rule offer when there is one, else the remember-this-override prompt. It used to sit above
-/// To File's cards, inserted after the move, which pushed the next card's "File here" down under
-/// the pointer; in a popover off the message, the cards never move.
+/// The full offer, opened from the "Filed …" message's "Save as rule…": the rule offer when there
+/// is one, else the remember-this-override prompt. In a popover off the message, so To File's
+/// cards never move under the pointer.
 public struct FilingRuleOfferPanel: View {
     @ObservedObject var session: LensWorkspaceSession
     let syncManager: FileSyncManager
@@ -86,19 +84,19 @@ public struct FilingRuleOfferPanel: View {
                 )
             }
         }
-        // The prompts carry their own inset for the list they used to sit in; here the popover's
-        // edge is the frame, so they get its padding instead.
+        // The prompts carry their own top and side inset; the popover's edge is the frame, so
+        // they get bottom padding to match.
         .padding(.bottom, 12)
         .frame(width: 460)
     }
 }
 
-/// **"Save as rule…" in the "Filed …" message**, for as long as that move's offer rides in it.
+/// "Save as rule…" in the "Filed …" message, for as long as that move's offer rides in it.
 ///
-/// Its own view, observing the session, because the window must not: `ContentView` owns the session
-/// without subscribing to it (`WorkspaceSessionHoistTests`), and the offer is made a moment AFTER
-/// the message appears — once the move it follows returns — so a check made in the window's body
-/// would never see it arrive. Empty while nothing rides in `bannerID`.
+/// Its own view, observing the session, because the window must not: `ContentView` owns the
+/// session without subscribing (`WorkspaceSessionHoistTests`), and the offer arrives after the
+/// message appears, so the window's body would never see it. Empty while nothing rides in
+/// `bannerID`.
 public struct FilingRuleOfferButton: View {
     @ObservedObject var session: LensWorkspaceSession
     let bannerID: UUID
@@ -129,8 +127,8 @@ public struct FilingRuleOfferButton: View {
                         .presentedNativeControlAccent()
                 }
                 .onChange(of: isOpen) { _, open in onOpenChange(open) }
-                // The offer retired (or the message replaced) with the popover up takes the popover
-                // with it, and must let go of the message too.
+                // If the offer retires or the message is replaced with the popover up, the popover
+                // goes too and must let go of the message.
                 .onDisappear { if isOpen { onOpenChange(false) } }
         }
     }
@@ -138,9 +136,9 @@ public struct FilingRuleOfferButton: View {
 
 // MARK: - Remember-override prompt
 
-/// G2 — "Remember this for files like it?" The correction the user just made (filing into a
-/// folder that wasn't the suggestion) is the strongest training signal, so surface it as a
-/// visible, one-tap prompt rather than F3's easy-to-miss NSOpenPanel checkbox.
+/// "Remember this for files like it?" The correction the user just made (filing into a folder
+/// that wasn't the suggestion) is the strongest training signal, so it gets a visible one-tap
+/// prompt rather than an easy-to-miss NSOpenPanel checkbox.
 struct RememberOverridePromptView: View {
     let prompt: PendingRememberPrompt
     let accent: Color
@@ -186,11 +184,10 @@ struct RememberOverridePromptView: View {
 /// The inline "Save a rule?" offer after a filing move: the proposed rule with a compact picker
 /// for how tightly to draw it, and the destination; Save creates an Automation.
 ///
-/// **The picker offers phrasings, not condition types.** It used to be name / content / kind — three
-/// unrelated single conditions, because that was all the proposer could produce. A proposal is now a
-/// conjunction ("mentions *tmobile* and *autopay*"), and the choice worth offering is narrower
-/// versus broader. The chips stay short (the row is three-across in a one-line prompt) and the
-/// selected phrasing is spelled out in full underneath, so what Save will store is on screen.
+/// The picker offers phrasings, not condition types: a proposal is a conjunction ("mentions
+/// *tmobile* and *autopay*"), and the choice worth offering is narrower versus broader. The chips
+/// stay short (three across in a one-line prompt), and the selected phrasing is spelled out
+/// underneath, so what Save will store is on screen.
 struct RuleOfferPromptView: View {
     let offer: RuleOffer
     let accent: Color
@@ -224,7 +221,7 @@ struct RuleOfferPromptView: View {
                                 // unselected-chip treatment).
                                 .background(Capsule().fill(on ? accent.opacity(0.14) : Color.primary.opacity(0.06)))
                                 .overlay(Capsule().strokeBorder(on ? accent.opacity(0.5) : Color.clear, lineWidth: 0.5))
-                                // Label-colour words; the accent is the wash and hairline (DS1).
+                                // Label-colour words; the accent is the wash and hairline.
                                 .foregroundStyle(on ? Color.primary : Color.secondary)
                         }
                         .buttonStyle(.hoverAffordance(on ? .filled : .segment, tint: accent))

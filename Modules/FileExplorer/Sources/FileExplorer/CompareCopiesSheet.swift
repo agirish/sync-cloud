@@ -8,16 +8,14 @@ import Sync
 
 /// One file pair, as the Compare Copies surface is opened on it.
 ///
-/// **Copy paths and value snapshots, never the group's UUID.** `DuplicateGroup.id` is minted fresh
-/// on every scan — a rescan replaces `duplicateGroups` wholesale — so a payload keyed on it names
-/// nothing the moment a scan lands under the open surface: `setKeeper` silently no-ops, and a
-/// reveal targets a retired id. `DuplicateCompareContext` set this precedent for the Compare
-/// review, by documented design, for the same reason.
+/// Copy paths and value snapshots, never the group's UUID: `DuplicateGroup.id` is minted fresh on
+/// every scan, so a payload keyed on it would name nothing once a scan lands under the open surface
+/// (`setKeeper` would silently no-op, a reveal would target a retired id). `DuplicateCompareContext`
+/// follows the same rule.
 ///
-/// The two sides keep the order they were opened in for the whole life of the surface, even when
-/// the keeper is flipped. That is the card's rule too (`choosingKeeper` deliberately leaves the
-/// copies where they were): a list that rearranges itself under the click that changed it gives
-/// the reader no before and after to compare.
+/// The two sides keep their opening order for the life of the surface, even when the keeper is
+/// flipped, as on the card (`choosingKeeper` leaves the copies where they were): a list that
+/// rearranges itself under the click gives the reader no before and after.
 public struct DuplicateComparePair: Identifiable, Equatable, Sendable {
     let left: DuplicateCopy
     let right: DuplicateCopy
@@ -25,12 +23,12 @@ public struct DuplicateComparePair: Identifiable, Equatable, Sendable {
     /// The group's display name, for the surface's header.
     let groupName: String
 
-    /// The two paths, sorted — so opening the same pair from either side is the same surface and
-    /// not a second one sliding in over the first.
+    /// The two paths, sorted, so opening the same pair from either side is the same surface, not a
+    /// second one sliding in over the first.
     public var id: String { [left.path, right.path].sorted().joined(separator: "\n") }
 
-    /// Opens with the keeper on the left, which is where every other two-copy surface in this app
-    /// puts it (the Compare review's banner says "keep left, trash right").
+    /// Opens with the keeper on the left, where every other two-copy surface in this app puts it
+    /// (the Compare review's banner says "keep left, trash right").
     init(keeper: DuplicateCopy, other: DuplicateCopy, matchType: DuplicateMatchType,
          groupName: String) {
         self.left = keeper
@@ -45,9 +43,9 @@ public struct DuplicateComparePair: Identifiable, Equatable, Sendable {
         copies.first { $0.path == path }
     }
 
-    /// The copy that is NOT the keeper, given the live keeper path — the one "Trash the other
-    /// copy" acts on. nil when the keeper path names neither side, which is what a stale payload
-    /// looks like.
+    /// The copy that is not the keeper, given the live keeper path: the one "Trash the other copy"
+    /// acts on. nil when the keeper path names neither side, which is what a stale payload looks
+    /// like.
     func other(than keeperPath: String) -> DuplicateCopy? {
         guard copies.contains(where: { $0.path == keeperPath }) else { return nil }
         return copies.first { $0.path != keeperPath }
@@ -58,32 +56,28 @@ public struct DuplicateComparePair: Identifiable, Equatable, Sendable {
 
 /// How big the overlay draws inside the space it is given.
 ///
-/// **Not a sheet, and the reason is measured.** macOS clamps a sheet to its host window's content
-/// width, the window floor is 760×560, and every existing sheet in this app is a fixed width of
-/// 620 or less because of it — so a 1080pt sheet would be silently squeezed exactly when the user
-/// is at the floor and has least room to spare. The Settings card and the Help book already solve
-/// this the other way: a `GeometryReader` around an overlay that clamps itself against the live
-/// window. At the floor this resolves to 762×512 — two ~355pt panes, which is workable; on a large
-/// window it opens out to 1080×760 and stops.
+/// Not a sheet: macOS clamps a sheet to its host window's content width, and the window floor is
+/// 760×560, so a 1080pt sheet would be squeezed exactly when the user has least room. Like the
+/// Settings card and the Help book, it is an overlay in a `GeometryReader` that clamps itself to
+/// the live window: 762×512 at the floor (two ~355pt panes), up to 1080×760 on a large window.
 ///
-/// Pure, so the numbers can be checked without rendering anything — and checked at the floor,
-/// which is the size nobody develops at.
+/// Pure, so the numbers can be checked without rendering, and at the floor, the size nobody
+/// develops at.
 enum CompareOverlayMetrics {
     static let idealWidth: CGFloat = 1080
     static let idealHeight: CGFloat = 760
     /// The breathing room left around the card, matching the Settings overlay's.
     static let hostMargin: CGFloat = 48
-    /// Below this the panes stop being previews. The overlay does not shrink past it — it
-    /// overhangs instead, which is visible, where a 40pt-wide preview pane is not.
+    /// Below this the panes stop being previews. The overlay doesn't shrink past it; it overhangs
+    /// instead, which is visible, where a 40pt-wide preview pane isn't.
     static let minimumWidth: CGFloat = 560
     static let minimumHeight: CGFloat = 380
 
     static var minimum: CGSize { CGSize(width: minimumWidth, height: minimumHeight) }
 
-    /// The remembered size. **Two keys rather than one archived `CGSize`**, the reason the Help
-    /// card gives: a width that survives a height's decoding failure is strictly better than
-    /// losing both, and `@AppStorage` reads `Double` natively. `0` means "never resized" — the
-    /// default below is then whatever the window can give.
+    /// The remembered size. Two keys rather than one archived `CGSize`, as for the Help card: a
+    /// width that survives a height's decoding failure beats losing both, and `@AppStorage` reads
+    /// `Double` natively. `0` means "never resized", and the default is what the window can give.
     static let widthDefaultsKey = "compareOverlayWidth"
     static let heightDefaultsKey = "compareOverlayHeight"
 
@@ -96,10 +90,9 @@ enum CompareOverlayMetrics {
     /// The size to draw at: the remembered one when there is one, always held to the floor and to
     /// what the window can show.
     ///
-    /// **A stored size is clamped on every render, not only when it is written.** The window can
-    /// shrink between sessions — or between two launches on different displays — and a card that
-    /// trusted what it stored would open wider than the window it is in, with its verdict bar off
-    /// screen and no way to reach the grip that would fix it.
+    /// A stored size is clamped on every render, not only when written. The window can shrink
+    /// between sessions or displays, and a card that trusted its stored size would open wider than
+    /// its window, with the verdict bar and the resize grip off screen.
     static func size(available: CGSize, stored: CGSize?) -> CGSize {
         guard let stored, stored.width > 0, stored.height > 0 else { return size(available: available) }
         return ResizableCardSize.clamped(stored, minimum: minimum, within: available)
@@ -108,53 +101,50 @@ enum CompareOverlayMetrics {
 
 // MARK: - The surface
 
-/// Two copies of one file, side by side, with the verdict at the bottom.
+/// Two copies of one file, side by side, with the verdict at the bottom. Named for what it looks
+/// like, a sheet, but presented as an in-window overlay (see ``CompareOverlayMetrics``).
 ///
-/// Named for what it looks like — a sheet — and presented as an in-window overlay, for the reason
-/// ``CompareOverlayMetrics`` gives.
-///
-/// **The view holds no manager reference.** Every act leaves through a closure, and every fact
-/// about the live grouping (who the keeper is, whether a choice is allowed, whether the scan has
-/// moved on) arrives as a value the host re-derives at render time by PATH. That is what lets the
-/// surface stay honest across a rescan: the host stops finding a live group, hands down a keeper
-/// of nil and a notice saying so, and the previews stay readable while the verdict goes away.
+/// The view holds no manager reference. Every act leaves through a closure, and every fact about
+/// the live grouping (the keeper, whether a choice is allowed, whether the scan moved on) arrives
+/// as a value the host re-derives by path at render time. So across a rescan the host stops finding
+/// a live group, passes a nil keeper and a notice, and the previews stay readable while the verdict
+/// goes away.
 struct FilePairCompareView<Verdict: View>: View {
 
     let left: DuplicateCopy
     let right: DuplicateCopy
-    /// What the surface is comparing — a duplicate group's name, or a relative path.
+    /// What the surface is comparing: a duplicate group's name, or a relative path.
     let title: String
     /// The line under it: a match kind, or which two roots the pair came from.
     let subtitle: String
     /// The claim the pair's origin makes about its content, or nil where it makes none. The
-    /// Differences host makes none: two files at one relative path on two roots are not asserted
-    /// to be anything.
+    /// Differences host makes none: two files at one relative path on two roots aren't asserted to
+    /// be anything.
     let claimHeadline: String?
-    /// Whether "Verify now" is offered — only where a byte-identical claim exists to re-check.
+    /// Whether "Verify now" is offered: only where a byte-identical claim exists to re-check.
     let offersVerify: Bool
-    /// The path of the copy currently being kept, or nil where there is no keeper concept at all.
-    /// The Differences host passes nil and its pane headers are labels rather than pickers.
+    /// The path of the copy being kept, or nil where there is no keeper concept. The Differences
+    /// host passes nil, and its pane headers are labels rather than pickers.
     let keeperPath: String?
     /// Whether the keeper may be changed. Read off the live group rather than assumed, so the
-    /// surface and the card cannot drift.
+    /// surface and the card can't drift.
     let allowsKeeperChoice: Bool
-    /// A line the host wants above the facts — the duplicates host's "the scan moved on" notice.
+    /// A line the host wants above the facts: the duplicates host's "the scan moved on" notice.
     let notice: String?
     let scanRoot: String?
     let providerName: String?
-    /// The window's hue, not a resolved `Color`. The segmented mode picker needs the hue itself —
-    /// `.accentedSegments` takes one, and handing it a literal is the bug that modifier exists to
-    /// prevent — so the surface carries the hue and resolves the accent from it, rather than
-    /// carrying both and letting them disagree.
+    /// The window's hue, not a resolved `Color`: `.accentedSegments` on the mode picker needs the
+    /// hue itself (a literal is what that modifier prevents), so the surface carries the hue and
+    /// resolves the accent from it rather than carrying both and letting them disagree.
     let hue: LiquidGlassHue
     let availableSize: CGSize
 
     var onChooseKeeper: (String) -> Void = { _ in }
     var onClose: () -> Void
 
-    /// How a side is classified. A seam for the same reason `ColumnPreviewColumn`'s is: `.cloudOnly`
-    /// is otherwise unreachable from a test — the flag is provider-set and cannot be fabricated —
-    /// and the placeholder half of this surface renders only in that state.
+    /// How a side is classified. A seam, as `ColumnPreviewColumn`'s is: `.cloudOnly` is
+    /// provider-set and can't be fabricated in a test, and the placeholder half of this surface
+    /// renders only in that state.
     var probe: @Sendable (String) async -> ColumnPreviewSource = {
         await ColumnPreviewProbe.read(path: $0).source
     }
@@ -162,37 +152,32 @@ struct FilePairCompareView<Verdict: View>: View {
     var hash: @Sendable (String) async -> FileContentVerifier.HashOutcome = {
         await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
     }
-    /// The mode to open in. nil — every production caller — means side by side.
+    /// The mode to open in. nil, as every production caller passes, means side by side.
     ///
-    /// A seam for one property: a pixel mode entered BEFORE the sides have been classified must
-    /// still get them classified. Pressing `4` on a freshly-opened surface is exactly that, and
-    /// there is no way to post a key into a `@State` mode from a test.
+    /// A seam for one property: a pixel mode entered before the sides are classified must still get
+    /// them classified, and a test can't post a key into a `@State` mode.
     var initialMode: ComparePairMode?
 
-    /// **The only thing the two hosts do not share.** Everything above this bar is one component:
-    /// the facts, the panes, the modes, the strip. Only the bottom bar knows WHY you are looking —
-    /// Duplicates offers a keeper and a trash, Differences offers Done. Which is exactly what
-    /// ROADMAP §11 asked for and why it is one build rather than two.
-    /// **Given the facts the viewer built, rather than deriving them again.** The bar's line
-    /// names what differs, and the strip above it draws the same rows — two `ComparePairFacts.make`
-    /// calls would agree only for as long as their arguments matched, and the page counts (which
-    /// only this view has) are where they stopped matching.
+    /// The only part the two hosts don't share. The facts, panes, modes and strip are one
+    /// component; only the bottom bar knows why you are looking: Duplicates offers a keeper and a
+    /// trash, Differences offers Done.
+    ///
+    /// Given the facts the viewer built rather than deriving them again: the bar's line and the
+    /// strip above it must name the same rows, and only this view has the page counts.
     @ViewBuilder var verdict: (ComparePairFacts) -> Verdict
 
-    /// The pair's viewer kind. **Both sides must agree, or the pair is `.other`** — a versions
-    /// group can hold `Report.pdf` beside `Report.docx`, and a PDF viewer given a Word document
-    /// shows a blank pane rather than saying it cannot page it.
+    /// The pair's viewer kind. Both sides must agree, or the pair is `.other`: a versions group
+    /// can hold `Report.pdf` beside `Report.docx`, and a PDF viewer given a Word document shows a
+    /// blank pane rather than saying it can't page it.
     ///
-    /// **Stored, and resolved once in `init`, because it was a computed property read fifteen to
-    /// twenty times per render.** Each read is two `PairContentKind.classify` calls — a `UTType`
-    /// lookup and, for anything ImageIO does not name outright, a walk of its conformances — and
-    /// the body re-runs on every publish of the manager the host observes and on every pointer
-    /// event of the swipe divider. The answer is a function of two `let` paths and cannot change
-    /// while this value exists.
+    /// Stored, resolved once in `init`: it is read many times per render, each read is two
+    /// `PairContentKind.classify` calls (a `UTType` lookup and possibly a conformance walk), and the
+    /// body re-runs on every manager publish and every swipe-divider pointer event. It depends only
+    /// on two `let` paths.
     private let kind: PairContentKind
 
     /// Spelled out rather than left to the memberwise initializer, only so ``kind`` can be resolved
-    /// once. Every parameter, its order and its default is the memberwise one this replaced.
+    /// once. Parameters, order and defaults match the memberwise one.
     init(left: DuplicateCopy, right: DuplicateCopy, title: String, subtitle: String,
          claimHeadline: String?, offersVerify: Bool, keeperPath: String?,
          allowsKeeperChoice: Bool, notice: String?, scanRoot: String?, providerName: String?,
@@ -236,135 +221,126 @@ struct FilePairCompareView<Verdict: View>: View {
     @State private var page = 0
     /// nil until the page counts have been asked for.
     ///
-    /// **"Not asked yet" and "opens to nothing" are different**, and a plain `PagePairing(0, 0)`
-    /// said both. A PDF pair fell through to the Quick Look panes while the count was in flight
-    /// and swapped to the typed viewer when it landed — a visible flicker, and a Quick Look
-    /// extension process spun up for a preview that was about to be replaced.
+    /// "Not asked yet" and "opens to nothing" are different. If they were one state, a PDF pair
+    /// would fall through to the Quick Look panes while the count was in flight and swap to the
+    /// typed viewer when it landed: a visible flicker, and a Quick Look extension spun up for
+    /// nothing.
     @State private var pairing: PagePairing?
     @State private var rasters: (left: CGImage?, right: CGImage?) = (nil, nil)
-    /// The difference raster and the regions it found, held as ONE value.
+    /// The difference raster and the regions it found, held as one value.
     ///
-    /// **Two `@State`s would be two lifetimes for one computation.** Five places clear or set this
-    /// — a pair swap, three guards in the raster refresh, and the refresh's own landing — and a
-    /// count that outlived its canvas by one of them would caption a page the reader is no longer
-    /// looking at. The struct makes that unwriteable rather than a rule to remember.
+    /// Two `@State`s would be two lifetimes for one computation. Several places clear or set this,
+    /// and a count that outlived its canvas would caption a page the reader is no longer looking
+    /// at; the struct makes that unwriteable.
     private struct PageComparison: Equatable {
         var image: CGImage?
         /// Changed regions in the difference raster's pixel coordinates. See ``BitmapDiff``.
         var regions: [CGRect] = []
     }
     @State private var pageComparison = PageComparison()
-    /// Guards a page search still walking when the pair or the page moves under it — the raster
+    /// Guards a page search still walking when the pair or the page moves under it: the raster
     /// path's token, for the same race.
     @State private var pageSearchToken = UUID()
-    /// Whether a ↑/↓ search is walking pages right now, so the strip can say so rather than
-    /// looking like a key that did nothing on a document whose next difference is far away.
+    /// Whether a ↑/↓ search is walking pages right now, so the strip can say so rather than look
+    /// like a key that did nothing on a document whose next difference is far away.
     @State private var pageSearching = false
-    /// The ↑/↓ page walk in flight, held so it can be CANCELLED rather than only ignored.
+    /// The ↑/↓ page walk in flight, held so it can be cancelled rather than only ignored.
     ///
-    /// **The token alone leaves the WORK running.** The walk renders up to
-    /// ``PageDifferenceStepper/renderBudget`` page pairs, two PDFKit serial-lane turns each, and
-    /// checking only the token means a superseded search goes on opening documents on the lane a
-    /// running scan shares — with nothing on screen waiting for any of it. The token stays: it is
-    /// what stops a stale verdict landing. This is what stops the work.
+    /// The token alone leaves the work running: the walk renders up to
+    /// ``PageDifferenceStepper/renderBudget`` page pairs, two PDFKit serial-lane turns each, and a
+    /// superseded search would go on opening documents on the lane a running scan shares. The token
+    /// stops a stale verdict landing; this stops the work.
     @State private var pageSearchTask: Task<Void, Never>?
     @State private var pageStates: [Int: PageDiffState] = [:]
     @State private var swipeFraction: Double = 0.5
     @State private var onionOpacity: Double = 0.5
     /// ⌥ held: the two viewers stop mirroring each other so one pane can be moved on its own.
     @State private var optionHeld = false
-    /// The PDF panes' zoom, held HERE rather than in the viewer, because the viewer does not
-    /// survive a mode switch.
+    /// The PDF panes' zoom, held here rather than in the viewer, because the viewer doesn't survive
+    /// a mode switch.
     ///
-    /// **`panes` switches on the mode, so `2`–`4` unmount `PDFPairView` and `1` builds a fresh
-    /// one** — new coordinator, new `PDFView`s, `autoScales` back to fit. Measured: a reader zoomed
-    /// to 2.01× to read a table came back to 0.81× after checking the pixel difference and pressing
-    /// `1`. The page already survives that round trip by living here; the zoom is the other half of
-    /// where the reader was, and losing it on every `1`–`4` press is a tax on the one workflow the
-    /// modes exist for.
+    /// `panes` switches on the mode, so `2`–`4` unmount `PDFPairView` and `1` builds a fresh one,
+    /// with `autoScales` back to fit. The page already survives that round trip by living here; the
+    /// zoom is the other half of where the reader was, and losing it on every `1`–`4` press would
+    /// tax the workflow the modes exist for.
     ///
-    /// nil until the reader zooms — `autoScales` owns the fit until then, and a surface that has
-    /// never been zoomed must not take that decision away from it.
+    /// nil until the reader zooms: `autoScales` owns the fit until then, and a never-zoomed surface
+    /// must not take that from it.
     @State private var pdfZoom: CGFloat?
-    /// Guards a raster that arrives after the user has paged on — the same token shape the verify
+    /// Guards a raster that arrives after the user has paged on: the same token shape the verify
     /// uses, for the same reason.
     @State private var rasterToken = UUID()
-    /// Which pair, page and side the rasters in hand are OF, or nil when there are none — see
-    /// ``decodeKey``. What lets a mode change reuse a decode instead of redoing it.
+    /// Which pair, page and side the rasters in hand are of, or nil when there are none (see
+    /// ``decodeKey``). What lets a mode change reuse a decode instead of redoing it.
     @State private var heldRasterKey: String?
     /// Which decode ``pageComparison`` was made from, or nil when nothing has been compared.
     @State private var heldComparisonKey: String?
-    /// Whether that comparison had the de-skew applied — see ``PageComparisonReuse``, which is what
-    /// stops a mode press replacing an aligned verdict with a weaker one.
+    /// Whether that comparison had the de-skew applied. See ``PageComparisonReuse``, which stops a
+    /// mode press replacing an aligned verdict with a weaker one.
     @State private var heldComparisonAligned = false
-    /// Whether the current page's rasters are still coming or are never going to. A pane with no
-    /// image and no answer here spins for the life of the surface — see ``PairRenderOutcome``.
+    /// Whether the current page's rasters are still coming or never will. A pane with no image and
+    /// no answer here would spin for the life of the surface (see ``PairRenderOutcome``).
     @State private var renderOutcome: PairRenderOutcome = .rendering
-    /// The alignment applied to the page on screen, or nil where none was — CC14.4.
+    /// The alignment applied to the page on screen, or nil where none was.
     ///
-    /// Per-page and per-render, cleared with the rasters, because it describes ONE comparison. A
-    /// value surviving into the next page would caption that page with the previous one's skew.
+    /// Per page and per render, cleared with the rasters, because it describes one comparison: a
+    /// value surviving into the next page would caption it with the previous one's skew.
     @State private var pageRegistration: PageRegistration?
     @State private var textDiff: TextPairDiff?
     @State private var textNotes: [String] = []
-    /// The pair the held diff is ABOUT, or nil when there is none.
+    /// The pair the held diff is about, or nil when there is none.
     ///
-    /// **What makes the diff survive a mode toggle.** The task that computes it used to be keyed on
-    /// the mode as well as the pair, and its guard cleared `textDiff` on the way out — so every
-    /// `1`→`2` press re-read both files (up to 8 MB), re-split them into lines and re-ran the whole
-    /// walk. The comment justifying that keying is about LAZINESS — a pair never switched to Diff
-    /// costs nothing — and laziness needs no eviction. This is the memo that separates the two.
+    /// What lets the diff survive a mode toggle. Keyed on the mode too, every `1`→`2` press would
+    /// re-read both files (up to 8 MB), re-split them and re-run the walk. A pair never switched to
+    /// Diff should cost nothing, but that laziness needs no eviction; this memo separates the two.
     @State private var textDiffPairKey: String?
-    /// The pass in flight, held so it can be CANCELLED — by a pair change, and by the surface
-    /// closing. `.task(id:)` cancels the task that awaits, which a `Task.detached` inside it never
-    /// hears; the handle is the only way to reach the walk itself, which asks `Task.isCancelled` on
-    /// every step of its outer loop.
+    /// The pass in flight, held so it can be cancelled by a pair change and by the surface closing.
+    /// `.task(id:)` cancels the awaiting task, which a `Task.detached` inside it never hears; the
+    /// handle is the only way to reach the walk, which checks `Task.isCancelled` on every step of
+    /// its outer loop.
     @State private var textDiffTask: Task<TextDiffResult, Never>?
-    /// Guards a diff that lands after the pair moved on — the raster path's token, for a race the
-    /// text path is MORE exposed to: two detached Myers passes have no ordering between them, so a
-    /// slow pair's diff can resume after a fast pair's has already been drawn.
+    /// Guards a diff that lands after the pair moved on: the raster path's token, for a race the
+    /// text path is more exposed to. Two detached Myers passes have no ordering, so a slow pair's
+    /// diff can resume after a fast pair's has been drawn.
     @State private var textDiffToken = UUID()
     /// Which change ↑/↓ last stepped to, or nil while nothing has been stepped to yet.
     ///
-    /// **Optional rather than 0, because "the first change" and "no change chosen" are different
-    /// states.** Starting at 0 made the first ↓ compute 0+1 and skip to the second change — the
-    /// first was then reachable only by wrapping all the way round — and the counter read "1 of N"
-    /// about a region nothing had scrolled to.
+    /// Optional rather than 0, because "the first change" and "no change chosen" are different
+    /// states: starting at 0, the first ↓ would skip to the second change, and the counter would
+    /// read "1 of N" about a region nothing had scrolled to.
     @State private var focusedRegion: Int?
-    /// Guards a completion from a verify the user has already superseded — the same token shape
+    /// Guards a completion from a verify the user has already superseded: the same token shape
     /// `ReviewCardView.performVerify` uses.
     @State private var verifyToken = UUID()
     /// The running Verify Now, so closing the surface or changing the pair stops its reads. The
-    /// token only stops a stale verdict landing; with no size cap on the hash, the read it guarded
-    /// could go on for gigabytes after nothing was waiting for it.
+    /// token only stops a stale verdict landing; with no size cap on the hash, the read could go on
+    /// for gigabytes after nothing was waiting for it.
     @State private var verifyTask: Task<Void, Never>?
     @StateObject private var downloads = PaneDownloadWatch()
     @FocusState private var focused: Bool
 
     @AppStorage(CompareOverlayMetrics.widthDefaultsKey) private var storedWidth: Double = 0
     @AppStorage(CompareOverlayMetrics.heightDefaultsKey) private var storedHeight: Double = 0
-    /// The live size WHILE a grip is held. Separate from the stored one so a drag redraws without
-    /// writing to defaults on every frame — the size is committed once, on release.
+    /// The live size while a grip is held. Separate from the stored one so a drag redraws without
+    /// writing to defaults every frame; the size is committed once, on release.
     @State private var dragging: CGSize?
 
     private var accent: Color { hue.accentColor }
 
-    /// What every `.task(id:)` here is keyed on. The two paths, sorted — so opening the same pair
-    /// from either side re-uses the work rather than redoing it.
+    /// What every `.task(id:)` here is keyed on. The two paths, sorted, so opening the same pair
+    /// from either side reuses the work rather than redoing it.
     private var pairKey: String { [left.path, right.path].sorted().joined(separator: "\n") }
 
-    /// The size a drag measures FROM — the committed one, never the live one.
-    ///
-    /// **Always the committed size, so the drag needs no starting size captured.** Resolving each
-    /// frame against the previous frame's result compounds: the doubling in
-    /// `ResizableCardSize.resized` would be applied again to an already-grown size and the card
-    /// would run away from the pointer.
+    /// The size a drag measures from: always the committed one, never the live one, so the drag
+    /// needs no starting size captured. Resolving each frame against the previous frame's result
+    /// would compound the doubling in `ResizableCardSize.resized`, and the card would run away from
+    /// the pointer.
     private var committedSize: CGSize {
         CompareOverlayMetrics.size(available: availableSize,
                                    stored: CGSize(width: storedWidth, height: storedHeight))
     }
 
-    /// The size the card draws at — a live drag, else the committed one.
+    /// The size the card draws at: a live drag, else the committed one.
     private var size: CGSize { dragging ?? committedSize }
 
     private var facts: ComparePairFacts {
@@ -373,24 +349,24 @@ struct FilePairCompareView<Verdict: View>: View {
                               pages: pageFacts)
     }
 
-    /// The two page counts this pair's facts strip states — see ``ComparePairFacts/pages(for:pairing:)``.
+    /// The two page counts this pair's facts strip states; see
+    /// ``ComparePairFacts/pages(for:pairing:)``.
     ///
-    /// Internal rather than private, as a seam: a SwiftUI `Text` cannot be read back off a mounted
-    /// view, so this is where a test asserts that the strip is fed the pair's real kind and the
-    /// lane's real answer rather than a constant.
+    /// Internal rather than private, as a seam: a SwiftUI `Text` can't be read back off a mounted
+    /// view, so a test asserts here that the strip gets the pair's real kind and the lane's real
+    /// answer rather than a constant.
     var pageFacts: (left: Int?, right: Int?)? {
         ComparePairFacts.pages(for: kind, pairing: pairing)
     }
 
     private var modes: [ComparePairMode] { ComparePairMode.available(for: kind) }
 
-    /// The mode to DRAW in — the chosen one, unless this pair does not offer it.
+    /// The mode to draw in: the chosen one, unless this pair doesn't offer it.
     ///
-    /// **A kind change can strand the mode.** `mode` is `@State` and the offered set comes from
-    /// the pair's kind, so a surface handed a PDF pair while sitting in `.textDiff` would render
-    /// the previous pair's line diff under a segmented control with nothing selected. Clamped
-    /// here rather than only reset on the pair task, so the render can never disagree with the
-    /// picker even for the frame between the two.
+    /// A kind change can strand the mode: `mode` is `@State` and the offered set comes from the
+    /// pair's kind, so a surface handed a PDF pair while in `.textDiff` would draw the previous
+    /// pair's line diff under a picker with nothing selected. Clamped here, not only reset on the
+    /// pair task, so the render never disagrees with the picker, even for the frame between.
     private var activeMode: ComparePairMode { modes.contains(mode) ? mode : .sideBySide }
 
     /// The page pairing, or an empty one while the counts are still being asked for. Callers that
@@ -398,11 +374,9 @@ struct FilePairCompareView<Verdict: View>: View {
     private var resolvedPairing: PagePairing { pairing ?? PagePairing(leftPages: 0, rightPages: 0) }
 
     var body: some View {
-        // **Built once and handed to both readers.** `facts` is a computed property that allocates
-        // its rows — and, through `FileSyncManager.formatBytes`, used to allocate two
-        // `ByteCountFormatter`s each time — and the body read it three times: once for each column
-        // of the strip and once for the verdict bar. One value cannot disagree with itself either,
-        // which is the reason the bar is handed the viewer's facts rather than re-deriving them.
+        // Built once and handed to both readers. `facts` allocates its rows and would be read once
+        // per strip column and once for the verdict bar; one value also can't disagree with itself,
+        // which is why the bar gets the viewer's facts rather than re-deriving them.
         let facts = self.facts
         return VStack(spacing: 0) {
             header
@@ -415,7 +389,7 @@ struct FilePairCompareView<Verdict: View>: View {
             if kind == .pdf, resolvedPairing.stripLength > 1 {
                 Divider()
                 // `.equatable()`, because the surface's body re-runs on every publish of the
-                // manager the host observes and the strip is one view per page.
+                // manager the host observes, and the strip is one view per page.
                 PageStrip(pairing: resolvedPairing, states: pageStates, current: page,
                           accent: accent, isSearching: pageSearching) { page = $0 }
                     .equatable()
@@ -425,11 +399,9 @@ struct FilePairCompareView<Verdict: View>: View {
             verdict(facts)
         }
         .frame(width: size.width, height: size.height)
-        // **`.focusable()` is what makes the keys below work, and `.focusEffectDisabled()` is what
-        // stops it painting.** Without it macOS draws the standard focus ring — a hard accent
-        // rectangle around the WHOLE card, which reads as a stray highlight rather than as focus,
-        // because nothing about this surface looks like a control. The keys still arrive: the ring
-        // is the effect, not the focus.
+        // `.focusable()` makes the keys below work, and `.focusEffectDisabled()` stops it
+        // painting: otherwise macOS draws a focus ring around the whole card, which reads as a
+        // stray highlight. The keys still arrive; the ring is the effect, not the focus.
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -437,28 +409,26 @@ struct FilePairCompareView<Verdict: View>: View {
             focused = true
             if let initialMode { mode = initialMode }
         }
-        // **Work does not outlive the surface.** Both of these are `Task.detached`/`Task` handles
-        // that no `.task(id:)` can reach: closing the card used to leave a line diff walking two
-        // 4 MB files and a page search with up to fifty PDF opens still queued on the serial lane,
-        // for an answer nothing would ever draw.
+        // Work doesn't outlive the surface. These are `Task.detached`/`Task` handles no
+        // `.task(id:)` can reach, so without this a closed card would leave a line diff walking two
+        // files, a page search queued on the serial lane, and a hash reading on, for answers
+        // nothing will draw.
         .onDisappear {
             textDiffTask?.cancel()
             pageSearchTask?.cancel()
             verifyTask?.cancel()
         }
-        // **Both sides are classified at the ROOT, not inside a pane.** The probe used to live in
-        // the per-side preview, which only the side-by-side fallback mounts — so opening the
-        // surface and pressing `4` straight away left `sources` empty for ever: the raster refresh
-        // bailed on "not both readable" and nothing could re-trigger it, because the thing that
-        // would have was in a branch that mode never renders. A permanent spinner.
+        // Both sides are classified at the root, not inside a pane. Only the side-by-side fallback
+        // mounts the per-side preview, so a probe there would leave `sources` empty for ever when
+        // the surface opens straight into a pixel mode (`4`): the raster refresh bails on "not
+        // both readable" and nothing re-triggers it. A permanent spinner.
         //
-        // Keyed on the path AND the download latch, so a cloud-only side that lands re-probes —
-        // which is what turns its placeholder into a preview without a second poller.
+        // Keyed on the path and the download latch, so a cloud-only side that lands re-probes,
+        // turning its placeholder into a preview without a second poller.
         .task(id: probeKey(left)) { sources[left.path] = await probe(left.path) }
         .task(id: probeKey(right)) { sources[right.path] = await probe(right.path) }
         // Drag any edge or corner to resize, and the size is remembered. `ResizableCardGrips` is
-        // the Help card's own apparatus, moved to `Design` when this became the second resizable
-        // overlay rather than copied.
+        // the Help card's apparatus, shared through `Design`.
         .overlay {
             ResizableCardGrips(
                 onDrag: { translation, grip in
@@ -474,49 +444,42 @@ struct FilePairCompareView<Verdict: View>: View {
                     dragging = nil
                 })
         }
-        // Plain keys anchored on the surface's focused root. **The `keys:` overload, because it
-        // is the one that hands the handler a `KeyPress`** — `.onKeyPress(_:action:)` does not, so
-        // a handler written that way cannot tell a bare ← from ⌘←, and `.onKeyPress` is measured
-        // to deliver MODIFIED presses to its handlers. `isPlainKeystroke` rather than
-        // `modifiers.isEmpty`, per the house rule: Caps Lock alone arrives as a modifier and would
-        // kill both keys.
+        // Plain keys anchored on the surface's focused root. The `keys:` overload, because it hands
+        // the handler a `KeyPress`: `.onKeyPress(_:action:)` doesn't, so it can't tell a bare ←
+        // from ⌘←, and `.onKeyPress` does deliver modified presses. `isPlainKeystroke`, not
+        // `modifiers.isEmpty`: Caps Lock alone arrives as a modifier and would kill both keys.
         .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
             guard press.isPlainKeystroke else { return .ignored }
             return chooseKeeper(press.key == .leftArrow ? left : right)
         }
-        // **⏎ and esc are `.onKeyPress`, NOT key equivalents — and that is a correction to the
-        // design this surface was built from.** The plan said to use
-        // `.keyboardShortcut(.cancelAction)`/`(.defaultAction)` "the pattern every existing sheet
-        // uses". Every existing sheet is a real `.sheet`: window-modal, so its equivalents cannot
-        // reach a field behind it. This is an in-window OVERLAY — the Duplicates cards, the panes
-        // and their search fields are all still mounted underneath the scrim — and a key
-        // equivalent registered here would be a window-level one, eating bare ⏎ and bare esc typed
-        // anywhere in the window, on key-repeat. `BareKeyEquivalentScanTests` bans exactly that
-        // for every non-sheet file in this module; the ban is right and the plan inherited an
-        // assumption from a shape this surface no longer has.
+        // **⏎ and esc are `.onKeyPress`, not key equivalents.** This is an in-window overlay: the
+        // Duplicates cards, the panes and their search fields stay mounted under the scrim, so a
+        // key equivalent here would be window-level, eating bare ⏎ and esc typed anywhere in the
+        // window, on key-repeat. Only a real `.sheet`, being window-modal, can use
+        // `.keyboardShortcut(.cancelAction)`; `BareKeyEquivalentScanTests` bans it in every
+        // non-sheet file in this module.
         //
-        // `.keypadEnter` beside `.return`: keyCode 76 sends U+0003, not U+000D, so `.return`
-        // alone is deaf to one of the two keycaps that say Enter. `isPlainKeystroke` rather than
-        // `modifiers.isEmpty` — the keypad's Enter always carries `.numericPad` and `.function`,
-        // and Caps Lock rides on every event while it is engaged.
+        // `.keypadEnter` beside `.return`: keyCode 76 sends U+0003, not U+000D, so `.return` alone
+        // is deaf to one of the two Enter keycaps. `isPlainKeystroke`, not `modifiers.isEmpty`: the
+        // keypad's Enter always carries `.numericPad` and `.function`, and Caps Lock rides on every
+        // event while engaged.
         //
-        // **⏎ closes; it never trashes.** The house rule, tested at the Restructure sheet: the
-        // safe act keeps the default, and landing a destructive one is a deliberate click.
+        // **⏎ closes; it never trashes.** The safe act keeps the default, and a destructive one
+        // takes a deliberate click.
         .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
             guard press.isPlainKeystroke else { return .ignored }
             onClose()
             return .handled
         }
-        // `keys:` rather than the single-key overload, because that one does NOT filter modifiers
-        // either — the same measured fact the ⏎ handler above is written around. This file's rule
-        // is `isPlainKeystroke` on every handler, and esc was the one that did not follow it.
+        // `keys:` rather than the single-key overload, which doesn't filter modifiers either;
+        // every handler in this file checks `isPlainKeystroke`.
         .onKeyPress(keys: [.escape], phases: .down) { press in
             guard press.isPlainKeystroke else { return .ignored }
             onClose()
             return .handled
         }
-        // 1–4 pick a mode by its position in what this pair OFFERS — see
-        // `ComparePairMode.forDigit(_:in:)`. A text pair offers two segments, so `2` there is its
+        // 1–4 pick a mode by its position in what this pair offers (see
+        // `ComparePairMode.forDigit(_:in:)`). A text pair offers two segments, so `2` there is its
         // Diff; a digit past the end is `.ignored` rather than reaching a segment not on screen.
         .onKeyPress(keys: ["1", "2", "3", "4"], phases: .down) { press in
             guard press.isPlainKeystroke,
@@ -525,50 +488,46 @@ struct FilePairCompareView<Verdict: View>: View {
             mode = picked
             return .handled
         }
-        // ⇞/⇟ page BOTH sides — the surface owns the page, so there is one number and the
-        // pairing clamps each side to its own last page.
+        // ⇞/⇟ page both sides: the surface owns the page, so there is one number and the pairing
+        // clamps each side to its own last page.
         .onKeyPress(keys: [.pageUp, .pageDown], phases: .down) { press in
             guard press.isPlainKeystroke, resolvedPairing.stripLength > 1 else { return .ignored }
             let next = press.key == .pageUp ? page - 1 : page + 1
             page = min(max(0, next), resolvedPairing.stripLength - 1)
             return .handled
         }
-        // ⌥ as a HELD modifier, not a chord: chords with ⌥ are banned app-wide (they fire from
-        // inside the ⌥-hold keycap reveal), and this is the modifier's other meaning — while it is
-        // down the two viewers stop mirroring, so one pane can be moved on its own.
+        // ⌥ as a held modifier, not a chord: chords with ⌥ are banned app-wide (they fire from
+        // inside the ⌥-hold keycap reveal). While it is down the two viewers stop mirroring, so
+        // one pane can be moved on its own.
         .onModifierKeysChanged(mask: .option) { _, new in
             optionHeld = new.contains(.option)
         }
-        // The page count each side actually has, which is what the strip and the pairing are
-        // built from. Off the main actor and behind the serial lane, so a scan already parsing
-        // simply makes it arrive late.
+        // The page count each side actually has, which the strip and the pairing are built from.
+        // Off the main actor and behind the serial lane, so a scan already parsing just makes it
+        // arrive late.
         .task(id: pairKey) {
-            // **A fresh pair inherits nothing.** Every one of these is `@State` on a view the host
-            // can hand a new pair without unmounting, and each carries an answer about the
-            // PREVIOUS pair: a strip of dots, a line diff, a verify verdict, a page number, and a
-            // mode this pair may not even offer. The reset used to cover only the first of them,
-            // and only for PDFs — it sat below the `kind` guard.
+            // **A fresh pair inherits nothing.** Each of these is `@State` on a view the host can
+            // hand a new pair without unmounting, and each holds an answer about the previous pair:
+            // a strip of dots, a line diff, a verify verdict, a page number, and a mode this pair
+            // may not offer. All of it resets here, above the `kind` guard, for every kind.
             pageStates = [:]
             page = 0
             textDiff = nil
             textNotes = []
             textDiffPairKey = nil
-            // **Not cancelled here, deliberately.** The two tasks re-key on the same render, and
-            // SwiftUI does not promise which starts first: cancelling from this one can land on a
-            // walk the OTHER has just started for the NEW pair, which would leave the diff pane
-            // empty with nothing to re-trigger it. `refreshTextDiff` cancels the previous walk as
-            // it starts the next, which is the one ordering that cannot go wrong — and a walk left
-            // running is bounded by `TextPairDiff.maxDiffWork` and lands nowhere, because the key
-            // it was started for is checked again before anything is written.
+            // Not cancelled here, deliberately. The two tasks re-key on the same render and SwiftUI
+            // doesn't promise which starts first, so cancelling from this one could hit a walk the
+            // other just started for the new pair, leaving the diff pane empty with nothing to
+            // re-trigger it. `refreshTextDiff` cancels the previous walk as it starts the next; a
+            // walk left running is bounded by `TextPairDiff.maxDiffWork` and lands nowhere, because
+            // its key is re-checked before anything is written.
             focusedRegion = nil
             verify = .idle
-            // **Rotated, not just cleared — the one token the pair change has to move itself.**
-            // `rasterToken` and `textDiffToken` are taken inside `.task(id:)`s keyed on the pair, so
-            // a new pair re-runs them and they rotate on their own. A verify is started by the
-            // READER, from a button, and nothing re-runs it here: clearing `verify` alone left an
-            // in-flight hash whose token still matched, so it landed its verdict — about the
-            // previous pair's two files — under the new pair's name, on the surface whose whole
-            // claim is that it is telling you about these two.
+            // Rotated, not just cleared: the one token the pair change must move itself.
+            // `rasterToken` and `textDiffToken` are taken inside `.task(id:)`s keyed on the pair,
+            // so they rotate on their own. A verify is started from a button and nothing re-runs
+            // it, so without this an in-flight hash would land its verdict about the previous
+            // pair's files under the new pair's name.
             verifyToken = UUID()
             verifyTask?.cancel()
             clearRasters()
@@ -576,8 +535,8 @@ struct FilePairCompareView<Verdict: View>: View {
             pageSearchToken = UUID()
             pageSearchTask?.cancel()
             pageSearching = false
-            // A zoom is about the document the reader was reading, not about this one — a new pair
-            // opens fitted, the way it would if the surface had just been opened on it.
+            // A zoom is about the document the reader was reading: a new pair opens fitted, as if
+            // the surface had just been opened on it.
             pdfZoom = nil
             if !modes.contains(mode) { mode = .sideBySide }
             guard kind == .pdf else {
@@ -590,31 +549,26 @@ struct FilePairCompareView<Verdict: View>: View {
             pairing = PagePairing(leftPages: await leftCount ?? 0, rightPages: await rightCount ?? 0)
         }
         // One in-flight render per side, re-keyed on the page and the mode's need for a raster.
-        // Cancelled by `.task(id:)` when the page changes, and a cancelled render that has not
-        // reached the PDF lane yet never opens or draws its page — which is what stops paging
-        // through a 300-page document from queueing 300 renders behind a scan.
+        // `.task(id:)` cancels it when the page changes, and a cancelled render that hasn't reached
+        // the PDF lane never opens or draws its page, so paging through a 300-page document
+        // doesn't queue 300 renders behind a scan.
         .task(id: rasterKey) { await refreshRasters() }
-        // **A page search does not outlive the mode that started it.** ↑/↓ only searches in a
-        // pixel mode, and a search still walking when the reader leaves one would land its jump
-        // under whatever they switched to — moving the page in a text diff they had started
-        // reading, or in a side-by-side pane they were scrolling. Cancelled rather than finished:
-        // the verdicts it already wrote stay in the strip, so nothing it learned is thrown away.
+        // A page search doesn't outlive the mode that started it. ↑/↓ only searches in a pixel
+        // mode, and a search still walking when the reader leaves would move the page under
+        // whatever they switched to. Cancelled rather than finished: the verdicts it wrote stay in
+        // the strip.
         .onChange(of: activeMode) { _, _ in
             pageSearchToken = UUID()
             pageSearchTask?.cancel()
             pageSearching = false
         }
-        // Re-read only when the pair changes or the diff is actually being looked at — a text
-        // pair the user never switches to Diff costs nothing.
-        // Re-read when the pair changes, and on the FIRST entry into the diff. A text pair the
+        // Re-read when the pair changes, and on the first entry into the diff. A text pair the
         // reader never switches to Diff costs nothing; one they switch away from and back keeps
-        // what it already has — see `textDiffPairKey`.
+        // what it has (see `textDiffPairKey`).
         .task(id: "\(pairKey)|\(activeMode == .textDiff)") { await refreshTextDiff() }
-        // ↑/↓ step between what CHANGED, in whichever unit the mode is made of: text regions in
-        // the diff — a twelve-line replacement is one thing that happened, and twelve presses to
-        // get past it is twelve too many — and differing PAGES in a visual mode, where ⇞/⇟ already
-        // move one page at a time and the thing a reader is hunting for is the next amber dot.
-        // One grammar, two units.
+        // ↑/↓ step between what changed, in the mode's unit: text regions in the diff (a
+        // twelve-line replacement is one change, not twelve presses), and differing pages in a
+        // visual mode, where ⇞/⇟ already move one page and the reader hunts the next amber dot.
         .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
             guard press.isPlainKeystroke else { return .ignored }
             let direction = press.key == .upArrow ? -1 : 1
@@ -635,12 +589,9 @@ struct FilePairCompareView<Verdict: View>: View {
 
     // MARK: Header
 
-    /// Glyph, name, and the kind as a PILL beside it rather than grey text beneath.
-    ///
-    /// **The card states the kind as a pill and so does this.** Stacked under the title it read as
-    /// a subtitle — a property of the sentence above it — where it is really a claim about the
-    /// pair, and the one the whole surface is arguing about. On one line with the name it is the
-    /// same badge the group card wears, which is where the reader met it.
+    /// Glyph, name, and the kind as a pill beside it rather than grey text beneath. Under the title
+    /// it would read as a subtitle, when it is a claim about the pair, the one the surface is
+    /// arguing about; as a pill it is the badge the group card wears, where the reader met it.
     private var header: some View {
         HStack(spacing: 10) {
             FileTypeGlyph.view(name: title, isDirectory: false, pointSize: 16)
@@ -683,9 +634,9 @@ struct FilePairCompareView<Verdict: View>: View {
 
     // MARK: The host's notice
 
-    /// A line the host wants above the facts. Today that is the duplicates host saying a rescan
-    /// landed under the open surface — the previews are still worth reading and only the verdict
-    /// has to stop, so the surface says so rather than being torn down under the user.
+    /// A line the host wants above the facts: today, the duplicates host saying a rescan landed
+    /// under the open surface. The previews are still worth reading and only the verdict has to
+    /// stop, so the surface says so rather than being torn down under the user.
     private func noticeBar(_ text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "clock.arrow.circlepath")
@@ -705,9 +656,8 @@ struct FilePairCompareView<Verdict: View>: View {
     @ViewBuilder
     private func claimAndFacts(_ facts: ComparePairFacts) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // **Verify sits beside the claim it re-checks, not at the far edge.** Pushed right by
-            // a `Spacer` it was a control floating alone 900pt from the sentence that gives it
-            // meaning; the eye had no reason to connect them.
+            // Verify sits beside the claim it re-checks, not at the far edge, where it would float
+            // alone far from the sentence that gives it meaning.
             if claimHeadline != nil || offersVerify {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     if let claimHeadline {
@@ -743,18 +693,15 @@ struct FilePairCompareView<Verdict: View>: View {
         }
     }
 
-    /// The facts, as two blocks — one over each pane.
+    /// The facts, as two blocks, one over each pane.
     ///
-    /// **The whole card is two columns, and this is the top of them.** A single table with the
-    /// labels in a left gutter pushed both value columns right by the gutter's width, so neither
-    /// sat over the pane it describes; a centre spine fixed the alignment and broke the reading,
-    /// because right-aligning the left column drags long paths into the middle and leaves the
-    /// pane's own half empty. Two self-contained blocks put each side's facts, its keeper control
-    /// and its preview in one column from top to bottom, which is the structure the reader is
-    /// already using.
+    /// The card is two columns and this is their top. A single table with a label gutter would push
+    /// both value columns off their panes, and a centre spine would drag long paths into the
+    /// middle. Two self-contained blocks keep each side's facts, keeper control and preview in one
+    /// column, top to bottom.
     ///
-    /// The labels repeat, and that is the cost. At 9pt tertiary they are a gutter rather than
-    /// content, and what is bought is that a value never sits over the wrong pane.
+    /// The labels repeat, which is the cost: at 9pt tertiary they are a gutter, not content, and a
+    /// value never sits over the wrong pane.
     private func factsGrid(_ facts: ComparePairFacts) -> some View {
         HStack(alignment: .top, spacing: 10) {
             factsBlock(facts, \.left)
@@ -773,10 +720,9 @@ struct FilePairCompareView<Verdict: View>: View {
                         .foregroundStyle(.tertiary)
                         .gridColumnAlignment(.trailing)
                     factValue(row[keyPath: side], differs: row.differs,
-                              // **A path truncates from the HEAD.** Middle-truncation ate the one
-                              // part of a breadcrumb that distinguishes two copies — the deepest
-                              // folders — and left the provider name both sides share. A name
-                              // truncates in the middle, where the extension and any "(1)" live.
+                              // A path truncates from the head: the deepest folders tell two
+                              // copies apart, and both share the provider name. A name truncates
+                              // in the middle, where the extension and any "(1)" live.
                               truncation: row.field == .location ? .head : .middle)
                 }
             }
@@ -817,10 +763,9 @@ struct FilePairCompareView<Verdict: View>: View {
                     .help("Fade the right copy over the left — drag right to see more of it")
                     .accessibilityLabel("Onion blend")
             }
-            // **The mode's standing caveat says "with no alignment", and CC14.4 makes that
-            // sometimes false.** When a de-skew was applied the caveat is replaced rather than
-            // joined: two sentences, one saying the pages were not aligned and one saying they
-            // were, is worse than either.
+            // The mode's standing caveat says "with no alignment", which is false when a de-skew
+            // was applied, so the caveat is replaced rather than joined: one sentence saying the
+            // pages weren't aligned and one saying they were is worse than either.
             if let caveat = alignmentCaveat ?? activeMode.caveat {
                 Text(caveat)
                     .scaledFont(.system(size: 10.5))
@@ -828,9 +773,8 @@ struct FilePairCompareView<Verdict: View>: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // The count the callouts are an index of. Gated on the page being RESOLVED for the
-            // reason the size caveat below is: a count printed over a pending render describes the
-            // previous page.
+            // The count the callouts are an index of. Gated on the page being resolved, as the size
+            // caveat below is: a count over a pending render describes the previous page.
             if activeMode == .difference, pageStates[page]?.isResolved == true,
                let regions = ChangedRegionCallouts.caption(
                     regionCount: pageComparison.regions.count) {
@@ -839,9 +783,9 @@ struct FilePairCompareView<Verdict: View>: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            // Only where a raster answered AND the sizes actually differ: a caveat printed while
-            // the render is pending would be describing the previous page, and an empty one would
-            // reserve space for a sentence that is not there.
+            // Only where a raster answered and the sizes differ: a caveat while the render is
+            // pending would describe the previous page, and an empty one would reserve space for
+            // nothing.
             if !sizeCaveat.isEmpty, pageStates[page]?.isResolved == true {
                 Text(sizeCaveat)
                     .scaledFont(.system(size: 10.5))
@@ -852,14 +796,12 @@ struct FilePairCompareView<Verdict: View>: View {
         .padding(.vertical, 8)
     }
 
-    /// What replaces the mode's "no alignment" caveat when a de-skew WAS applied — CC14.4.
+    /// What replaces the mode's "no alignment" caveat when a de-skew was applied.
     ///
-    /// **"Best effort" is in the sentence because it is the truth about the method.** The estimate
-    /// is a coarse correlation over a 256-pixel grid, good for the scanner skew it was built for
-    /// and nothing like a registration pass; a reader told only "aligned" would reasonably read
-    /// the remaining glow as content. Nil where nothing was applied, which is both "not attempted"
-    /// and "attempted and refused" — the pages were compared as they are, and the mode's own
-    /// caveat says so.
+    /// "Best effort" is in the sentence because it is the truth about the method: a coarse
+    /// correlation over a 256-pixel grid, fine for scanner skew and nothing like a registration
+    /// pass, and a reader told only "aligned" would read the remaining glow as content. Nil where
+    /// nothing was applied (not attempted, or attempted and refused); the mode's caveat covers it.
     ///
     /// Gated on the page being resolved for `sizeCaveat`'s reason: a caption printed over a
     /// pending render describes the previous page.
@@ -903,8 +845,8 @@ struct FilePairCompareView<Verdict: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The line diff, or the reason there is none. **A refusal names WHICH side and why** —
-    /// too large, not downloaded, not text — rather than an empty pane the reader has to guess at.
+    /// The line diff, or the reason there is none. A refusal names which side and why (too
+    /// large, not downloaded, not text) rather than leaving an empty pane to guess at.
     @ViewBuilder
     private var textDiffPane: some View {
         Group {
@@ -935,53 +877,48 @@ struct FilePairCompareView<Verdict: View>: View {
         .padding(10)
     }
 
-    /// Reads both sides and diffs them, off the main actor.
-    ///
-    /// Bounded and encoding-tolerant — see ``BoundedTextRead``. The diff itself is a Myers pass
-    /// over two line arrays, which for a 4 MB file is real work and has no business on the actor
-    /// that draws the window.
-    ///
-    /// **Token-guarded, like the raster path.** `.task(id:)` cancels the task that awaits, but a
-    /// `Task.detached` neither observes that cancellation nor finishes in the order it was
-    /// started: a large pair's diff can resume after a small pair's has been drawn and overwrite
-    /// it, leaving one pair's changes under another pair's name until the mode is left and
-    /// re-entered. The token is taken before the hop and re-read after it.
-    /// One pass's answer — see ``TextPairDiffPipeline/Outcome``, which is where the reading, the
-    /// pre-filter, the walk and the notes now live, so the editor's divergence overlay can ask the
-    /// same question in the same order rather than growing a second copy of it.
+    /// One pass's answer. See ``TextPairDiffPipeline/Outcome``, where the reading, the pre-filter,
+    /// the walk and the notes live, so the editor's divergence overlay asks the same question in the
+    /// same order rather than keeping a second copy.
     private typealias TextDiffResult = TextPairDiffPipeline.Outcome
 
+    /// Reads both sides and diffs them, off the main actor: bounded and encoding-tolerant (see
+    /// ``BoundedTextRead``), and a Myers pass over a 4 MB file is real work with no place on the
+    /// actor that draws the window.
+    ///
+    /// Token-guarded, like the raster path. `.task(id:)` cancels the awaiting task, but a
+    /// `Task.detached` neither observes that nor finishes in start order: a large pair's diff could
+    /// resume after a small pair's was drawn and overwrite it under the wrong name. The token is
+    /// taken before the hop and re-read after it.
     private func refreshTextDiff() async {
-        // **Not the diff's mode: nothing is cleared and nothing is read.** Leaving `.textDiff` used
-        // to evict the diff, so coming back re-read both files and re-walked them. The pane simply
-        // does not draw while another mode is up.
+        // Not the diff's mode: nothing is cleared and nothing is read. Leaving `.textDiff` keeps
+        // the diff, so coming back needn't re-read both files; the pane just isn't drawn.
         guard activeMode == .textDiff else { return }
         guard kind == .text else {
-            // A pair that is not text has no diff, and anything held here is the PREVIOUS pair's —
-            // `textDiffPane` renders whatever is in it the moment the mode comes back. The focus
-            // goes with it: a position into regions that no longer exist.
+            // A pair that isn't text has no diff, and anything held here is the previous pair's,
+            // which `textDiffPane` would draw the moment the mode comes back. The focus goes too:
+            // it points into regions that no longer exist.
             textDiff = nil
             textNotes = []
             focusedRegion = nil
             textDiffPairKey = nil
             return
         }
-        // Already answered for these two files. The mode has been left and re-entered, which is
-        // not a reason to read 8 MB again.
+        // Already answered for these two files. Leaving and re-entering the mode is no reason to
+        // read 8 MB again.
         guard textDiffPairKey != pairKey else { return }
-        // The pair this pass is ABOUT, read once. The view can be handed a new pair while the walk
-        // is in flight, and `pairKey` at the far end of the await would then name the wrong two
-        // files — which is exactly what the memo would go on to claim.
+        // The pair this pass is about, read once. The view can be handed a new pair while the walk
+        // is in flight, and `pairKey` after the await would then name the wrong two files, which
+        // the memo would go on to claim.
         let key = pairKey
         let token = UUID()
         textDiffToken = token
         textDiffTask?.cancel()
         let leftPath = left.path, rightPath = right.path
         let task = Task.detached(priority: .userInitiated) { () -> TextDiffResult in
-            // The reads stay inside the detached task — they are two `contents(atPath:)` calls of
-            // up to 4 MiB each — and the ordering after them is ``TextPairDiffPipeline/diff``'s,
-            // which this call site used to spell out. The walk still stops when THIS task is
-            // cancelled, which is what the handle above exists for.
+            // The reads stay inside the detached task (two `contents(atPath:)` calls of up to
+            // 4 MiB each), and the ordering after them is ``TextPairDiffPipeline/diff``'s. The walk
+            // stops when this task is cancelled, which is what the handle above is for.
             TextPairDiffPipeline.diff(left: BoundedTextRead.read(path: leftPath),
                                       right: BoundedTextRead.read(path: rightPath),
                                       isCancelled: { Task.isCancelled })
@@ -989,9 +926,9 @@ struct FilePairCompareView<Verdict: View>: View {
         textDiffTask = task
         let result = await task.value
         guard textDiffToken == token, key == pairKey, !result.cancelled else { return }
-        // Logged where the result LANDS, so a superseded pass says nothing: the note the reader is
-        // given is the one written down. A refusal is the whole answer, which is why it is a
-        // warning; a coarse row is a diff that arrived with less in it than usual.
+        // Logged where the result lands, so a superseded pass says nothing and the logged note is
+        // the one the reader sees. A refusal is the whole answer, hence a warning; a coarse row is
+        // a diff with less in it than usual.
         if result.diff == nil, !result.notes.isEmpty {
             Logger.shared.warning(
                 "[compare] no line diff for \(left.path) vs \(right.path): \(result.notes.joined(separator: " "))")
@@ -1005,23 +942,23 @@ struct FilePairCompareView<Verdict: View>: View {
         textDiffPairKey = key
     }
 
-    /// Whether both documents actually opened. **A page count of zero is a document that would not
-    /// open** — encrypted, truncated, or not really a PDF — and the pairing's `stripLength` cannot
-    /// say so, because it is the longer of the two: one side at 0 against a healthy 6 still reads
-    /// as 6, and the typed viewer then mounted a pane that could only ever be grey.
+    /// Whether both documents actually opened. A page count of zero is a document that wouldn't
+    /// open (encrypted, truncated, or not really a PDF), and `stripLength` can't say so because it
+    /// is the longer of the two: 0 against a healthy 6 reads as 6, and the typed viewer would mount
+    /// a pane that can only ever be grey.
     private var bothSidesOpened: Bool {
         resolvedPairing.leftPages > 0 && resolvedPairing.rightPages > 0
     }
 
     /// The line explaining why a pair that should have earned a typed viewer is showing plain
-    /// previews instead, or nil when nothing is wrong. Named per side, because the reader is
-    /// looking at two similarly named files and needs to know which one is the problem.
+    /// previews, or nil when nothing is wrong. Named per side, because the reader is looking at two
+    /// similarly named files and needs to know which one is the problem.
     private var unopenableCaption: String? {
         guard bothSidesReadable else { return nil }
         switch kind {
         case .pdf:
             // Reached only once the page counts have landed: while they are in flight the surface
-            // is showing a spinner from `stillResolvingTypedViewer` and never renders this branch.
+            // shows a spinner from `stillResolvingTypedViewer` and never renders this branch.
             guard !bothSidesOpened else { return nil }
             let leftClosed = resolvedPairing.leftPages == 0
             let rightClosed = resolvedPairing.rightPages == 0
@@ -1040,23 +977,20 @@ struct FilePairCompareView<Verdict: View>: View {
 
     /// Side by side, in whichever viewer the pair's kind earns.
     ///
-    /// **A typed viewer replaces the Quick Look panes only where it is genuinely better.** For a
-    /// cloud-only or missing side there is nothing to open, so the pair falls back to the per-side
-    /// panes that can say why — a `PDFView` given a placeholder path shows an empty grey box.
+    /// A typed viewer replaces the Quick Look panes only where it is genuinely better. A cloud-only
+    /// or missing side has nothing to open, so the pair falls back to the per-side panes that can
+    /// say why; a `PDFView` given a placeholder path shows an empty grey box.
     @ViewBuilder
     private var sideBySidePanes: some View {
         if kind.hasSyncedViewer && stillResolvingTypedViewer {
-            // **Neither panes nor a decision yet.** A kind that is about to get a typed viewer
-            // must not flash the Quick Look fallback first: that swaps the whole pane a moment
-            // later, and spins up a Quick Look extension process for a preview already on its way
-            // out. `pairing == nil` is what distinguishes "the count is in flight" from "this PDF
-            // opens to nothing", which is why it is optional.
+            // Neither panes nor a decision yet. A kind about to get a typed viewer must not flash
+            // the Quick Look fallback first, which would swap the whole pane a moment later and
+            // spin up a Quick Look extension for nothing. `pairing == nil` is what tells "the count
+            // is in flight" from "this PDF opens to nothing", which is why it is optional.
             //
-            // **In the same frame the viewer will occupy, headers and all.** A bare spinner filling
-            // the area meant the keeper control popped in when the wait ended and everything below
-            // it shifted down — and the keeper is precisely what a reader might want to click while
-            // the document opens. Both other branches draw the headers too, so this is the one
-            // shape all three share and nothing moves as the surface makes up its mind.
+            // Drawn in the frame the viewer will occupy, headers and all, so the keeper control
+            // (which a reader may want to click while the document opens) doesn't pop in and shift
+            // everything down when the wait ends. All three branches share this shape.
             typedPanes {
                 ProgressView()
                     .controlSize(.small)
@@ -1066,10 +1000,9 @@ struct FilePairCompareView<Verdict: View>: View {
             typedPanes {
                 PDFPairView(leftPath: left.path, rightPath: right.path,
                             page: page, pairing: resolvedPairing, syncSuspended: optionHeld,
-                            // Scrolling is now a way to change page, so the strip and the pixel
-                            // modes follow the panes rather than only leading them. Clamped to the
-                            // strip, which runs to the LONGER document: a report past its end
-                            // would select a chip that is not drawn.
+                            // Scrolling also changes page, so the strip and the pixel modes follow
+                            // the panes. Clamped to the strip, which runs to the longer document: a
+                            // report past its end would select a chip that isn't drawn.
                             onPageChange: { reported in
                                 let last = max(0, resolvedPairing.stripLength - 1)
                                 let clamped = min(max(0, reported), last)
@@ -1088,9 +1021,8 @@ struct FilePairCompareView<Verdict: View>: View {
                     pane(left)
                     pane(right)
                 }
-                // **Why these are plain previews and not the typed viewer.** Falling back without
-                // saying so leaves the reader with a surface that is quietly less than it was for
-                // the pair beside it, and no idea which copy is the reason.
+                // Say why these are plain previews and not the typed viewer, or the reader sees a
+                // surface quietly less than for the pair beside it, with no idea which copy is why.
                 if let caption = unopenableCaption {
                     Text(caption)
                         .scaledFont(.system(size: 10.5))
@@ -1126,25 +1058,23 @@ struct FilePairCompareView<Verdict: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Both sides have content on disk. A typed viewer has no way to say "this one is a cloud
-    /// placeholder"; the per-side Quick Look panes do, and that is what they fall back to.
+    /// Both sides have content on disk. A typed viewer can't say "this one is a cloud
+    /// placeholder"; the per-side Quick Look panes can, so they are the fallback.
     private var bothSidesReadable: Bool {
         sources[left.path] == .quickLook && sources[right.path] == .quickLook
     }
 
-    /// Whether a kind that earns a typed viewer is still waiting on the facts that decide it —
+    /// Whether a kind that earns a typed viewer is still waiting on the facts that decide it:
     /// either side unclassified, the page counts not yet asked for, or the first raster not yet
     /// decoded.
     ///
-    /// **An image pair waits for its raster, and that was the gap.** `ImagePairView` draws the two
-    /// `CGImage`s, which are decoded off the main actor — so mounting it before the first render
-    /// lands puts two empty scroll views on screen. Blank rather than spinning, but the same defect
-    /// ``PairRenderOutcome`` exists to fix: the interface saying nothing about something that has
-    /// not arrived. On a 100-megapixel raw that is seconds of it.
+    /// An image pair waits for its raster: `ImagePairView` draws two `CGImage`s decoded off the
+    /// main actor, so mounting it before the first render lands shows two empty scroll views, the
+    /// silence ``PairRenderOutcome`` exists to prevent. On a 100-megapixel raw that is seconds.
     ///
     /// `bothSidesReadable` is in the image term because `refreshRasters` bails without it, leaving
-    /// `renderOutcome` at `.rendering` for ever — a cloud-only side would then spin here instead of
-    /// falling through to the placeholder pane that offers to download it. `.failed` is not waiting
+    /// `renderOutcome` at `.rendering` for ever: a cloud-only side would spin here instead of
+    /// falling through to the placeholder pane that offers to download it. `.failed` isn't waiting
     /// either: it falls through to the Quick Look panes and the caption naming the copy.
     private var stillResolvingTypedViewer: Bool {
         TypedViewerReadiness.isStillResolving(
@@ -1158,24 +1088,20 @@ struct FilePairCompareView<Verdict: View>: View {
 
     // MARK: Rasters
 
-    /// What a render is keyed on. The mode is in it because side-by-side on a PDF needs no raster
-    /// at all — the two `PDFView`s draw themselves — so switching INTO a pixel mode is what starts
-    /// the work, and switching out stops re-doing it.
-    /// **`bothSidesReadable` is in the key, and that is the other half of the probe fix.** The
-    /// refresh bails when the sides are not yet classified; without that term nothing re-keys the
-    /// task when they are, so the bail was permanent.
+    /// What a render is keyed on. The mode is in it because side by side on a PDF needs no raster
+    /// (the two `PDFView`s draw themselves), so entering a pixel mode starts the work and leaving
+    /// stops redoing it. `bothSidesReadable` is in it (through ``decodeKey``) because the refresh
+    /// bails until the sides are classified, and without the term nothing would re-key the task
+    /// once they are.
     private var rasterKey: String {
         "\(decodeKey)|\(showsOverlayModes)|\(wantsAlignedDifference)"
     }
 
-    /// What the two RASTERS depend on — everything the key above holds except the mode.
+    /// What the two rasters depend on: everything in `rasterKey` except the mode.
     ///
-    /// **Split out because the mode was making the decode run again.** `rasterKey` carries
-    /// `showsOverlayModes`, so entering or leaving a pixel mode re-keyed the task and
-    /// `refreshRasters` decoded both sides afresh — a fresh `CGImageSourceCreateThumbnailAtIndex`
-    /// per side — before comparing anything. For an image pair the rasters are needed in EVERY
-    /// mode and were already in hand: the whole decode was thrown away and redone to answer a
-    /// question about the comparison.
+    /// Split out so a mode change doesn't re-run the decode. For an image pair the rasters are
+    /// needed in every mode, so entering or leaving a pixel mode must not throw away rasters
+    /// already in hand to answer a question about the comparison.
     ///
     /// Held against ``heldRasterKey``, which names the pair, page and side the rasters on hand are
     /// actually of.
@@ -1184,35 +1110,25 @@ struct FilePairCompareView<Verdict: View>: View {
             + "|\(bothSidesReadable)|\(resolvedPairing.stripLength)"
     }
 
-    /// Whether the mode on screen is the one that wants the expensive comparison — the de-skew,
-    /// and the difference raster it is drawn against. One property, because it is one mode.
+    /// Whether the mode on screen wants the expensive comparison: the de-skew, and the difference
+    /// raster it is drawn against. One property, because it is one mode.
     ///
-    /// **The difference raster** is a third full-page image and a pass over two more, and swipe and
-    /// onion draw none of it. It was computed for all three overlay modes because they share one
-    /// refresh.
+    /// The difference raster is a third full-page image and a pass over two more, which swipe and
+    /// onion never draw. The de-skew costs far more (about 590 ms against 8 ms for the plain
+    /// comparison on a 1600×2070 page, nearly all of it `PageRegistrationEstimator.estimate`), and
+    /// outside the difference mode nothing reads it: `alignmentCaveat` and the callouts are gated
+    /// on `.difference`.
     ///
-    /// **The de-skew** costs far more — measured at 1600×2070 on an Apple M4, Release, machine
-    /// quiet: the aligned comparison is 588 ms against the plain one's 7.8 ms, and 564 ms of that
-    /// is `PageRegistrationEstimator.estimate` alone — and outside the difference mode nothing reads
-    /// what it produces: `alignmentCaveat` and the callouts are both gated on `.difference`, so in swipe and
-    /// onion the only surviving output was the strip's dot for the visible page.
-    ///
-    /// **And that dot was the odd one out, not the rule.** `comparedState(atPage:)` — the walk that
-    /// fills `pageStates` for every page the ↑/↓ search touches — has always used the plain,
-    /// unaligned `BitmapDiff.compare`; only the visible page went through the aligned path. So a
-    /// document's strip already carries one aligned dot among a row of unaligned ones, and which
-    /// page is the odd one out moves as the reader navigates. Gating the estimator here makes the
-    /// strip uniformly unaligned outside the difference mode: it removes a mixture rather than
-    /// creating one. Inside the difference mode, where the alignment is read and captioned, nothing
-    /// changes.
+    /// This keeps the strip uniform: `comparedState(atPage:)`, the walk that fills `pageStates` for
+    /// the ↑/↓ search, uses the plain unaligned `BitmapDiff.compare`, so outside the difference mode
+    /// the visible page's dot is unaligned like the rest. Inside it, the alignment is read and
+    /// captioned.
     private var wantsAlignedDifference: Bool { activeMode == .difference }
 
-    /// Whether the DIFF is being looked at, as opposed to the rasters merely being needed.
-    ///
-    /// An image pair needs its rasters in every mode — `ImagePairView` draws them — but the
-    /// difference image is a third full-size raster and the comparison a pass over two more, and
-    /// side by side shows neither. Computing them anyway would spend that on every image pair
-    /// opened, for a number nobody is reading.
+    /// Whether the diff is being looked at, as opposed to the rasters merely being needed. An image
+    /// pair needs its rasters in every mode (`ImagePairView` draws them), but side by side shows
+    /// neither the difference image nor the comparison, so computing them would be spent on every
+    /// image pair opened, for a number nobody reads.
     private var showsOverlayModes: Bool { activeMode != .sideBySide }
 
     private var needsRasters: Bool {
@@ -1221,18 +1137,16 @@ struct FilePairCompareView<Verdict: View>: View {
 
     /// Moves to the next page in `direction` whose comparison found a difference.
     ///
-    /// **A bounded search, because the strip does not already know.** `pageStates` is filled by
-    /// the raster refresh, which runs for the current page alone — so on a fresh pair nothing is
-    /// known and the step has to go and look. Verdicts already held are taken for free;
-    /// ``PageDifferenceStepper/renderBudget`` caps how many pages one press will render, and a
-    /// second press resumes from what the first learned rather than re-treading it.
+    /// A bounded search, because the strip doesn't already know: `pageStates` is filled by the
+    /// raster refresh for the current page alone, so on a fresh pair the step has to go and look.
+    /// Verdicts already held are free; ``PageDifferenceStepper/renderBudget`` caps how many pages one
+    /// press renders, and a second press resumes from what the first learned.
     ///
-    /// The states it writes are the same ones the strip draws, so a search visibly fills the strip
-    /// in as it walks — which is also what tells a reader the key did something on a long document
-    /// where the answer is far away.
+    /// The states it writes are the ones the strip draws, so a search visibly fills the strip as it
+    /// walks, which tells the reader the key did something when the answer is far away.
     ///
-    /// Token-guarded like the raster path, and for the same race: a search still walking when the
-    /// pair or the page moves under it would land on a page nobody asked for.
+    /// Token-guarded like the raster path, for the same race: a search still walking when the pair
+    /// or the page moves under it would land on a page nobody asked for.
     private func stepToDifferingPage(direction: Int) {
         let token = UUID()
         pageSearchToken = token
@@ -1249,9 +1163,9 @@ struct FilePairCompareView<Verdict: View>: View {
             let task = Task {
                 defer { if pageSearchToken == token { pageSearching = false } }
                 for candidate in candidates {
-                    // Both, and they answer different questions: the token says a NEWER search has
-                    // superseded this one, and cancellation says nobody is waiting for any search
-                    // at all — the surface has closed, or the pair has moved on.
+                    // Both, for different questions: the token says a newer search superseded this
+                    // one; cancellation says nobody wants any search (the surface closed, or the
+                    // pair moved on).
                     guard pageSearchToken == token, !Task.isCancelled else { return }
                     let state = await comparedState(atPage: candidate)
                     guard pageSearchToken == token, !Task.isCancelled else { return }
@@ -1261,8 +1175,8 @@ struct FilePairCompareView<Verdict: View>: View {
                         return
                     }
                 }
-                // None of them differed, but the walk had already passed a page that does — see
-                // `Plan.examine`. Landing there is what stops the press reading as a dead key.
+                // None of them differed, but the walk already passed a page that does (see
+                // `Plan.examine`). Landing there stops the press reading as a dead key.
                 if let fallback { page = fallback }
             }
             pageSearchTask = task
@@ -1271,9 +1185,9 @@ struct FilePairCompareView<Verdict: View>: View {
 
     /// One page pair's verdict, rendered and compared off the main actor.
     ///
-    /// **At `compareLongEdge`, the same resolution the page the reader is looking at is judged
-    /// at.** A cheaper render would let the strip hold two dots that were decided by different
-    /// arithmetic, and the smaller one cannot prove sameness — see ``PageDifferenceStepper``.
+    /// At `compareLongEdge`, the resolution the page on screen is judged at. A cheaper render would
+    /// put dots decided by different arithmetic in one strip, and the smaller one can't prove
+    /// sameness (see ``PageDifferenceStepper``).
     private func comparedState(atPage index: Int) async -> PageDiffState {
         guard resolvedPairing.isComparable(at: index) else { return .oneSided }
         let kind = self.kind
@@ -1290,19 +1204,17 @@ struct FilePairCompareView<Verdict: View>: View {
         return PageDiffState.from(result)
     }
 
-    /// Drops the rasters AND orphans whatever is still rendering them.
+    /// Drops the rasters and orphans whatever is still rendering them.
     ///
-    /// **One helper because there are two clearers and both have to rotate.** `.task(id:)` cancels
-    /// the render in flight, and Swift cancellation is cooperative: a render already drawing
-    /// finishes and the two `PagePairRaster` awaits resume anyway. So the only thing between a
-    /// superseded render and the state it is about to overwrite is `guard rasterToken == token` —
-    /// and a clear that leaves the token alone leaves that guard satisfied. The run then re-fills
-    /// `rasters` and `pageComparison` a moment after they were cleared: two full-page CGImages and
-    /// a difference image retained by a mode that draws none of them, ready to be shown as this
-    /// page's answer the moment an overlay mode comes back.
+    /// One helper because both clearers must rotate the token. `.task(id:)` cancellation is
+    /// cooperative: a render already drawing finishes and its awaits resume anyway, so the only
+    /// thing between a superseded render and the state it would overwrite is
+    /// `guard rasterToken == token`. A clear that left the token alone would leave that guard
+    /// satisfied, and the run would re-fill `rasters` and `pageComparison` just after they were
+    /// cleared, ready to show as this page's answer when an overlay mode comes back.
     ///
-    /// The pair reset clears these too, and rotating there matters for a second reason — the pair
-    /// has CHANGED, so a landing render describes two files that are no longer on screen.
+    /// The pair reset clears these too, where rotating also matters because the pair has changed,
+    /// so a landing render would describe two files no longer on screen.
     ///
     /// **Rotate first, then clear**, or the clear is what the stale render overwrites.
     private func clearRasters() {
@@ -1310,8 +1222,8 @@ struct FilePairCompareView<Verdict: View>: View {
         rasters = (nil, nil)
         pageRegistration = nil
         pageComparison = PageComparison()
-        // The two memos describe what was just dropped, and a memo that outlived its value would
-        // let the next refresh reuse rasters that are no longer there.
+        // The two memos describe what was just dropped; a memo outliving its value would let the
+        // next refresh reuse rasters that are no longer there.
         heldRasterKey = nil
         heldComparisonKey = nil
         heldComparisonAligned = false
@@ -1320,14 +1232,13 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Renders both sides of the current page and diffs them.
     ///
     /// **The lane is held for open and draw only.** `PagePairRaster` releases it before returning,
-    /// and the diff — plain arithmetic over two buffers, not PDFKit — runs off it. Holding the
-    /// lane across the pixel work would stall a running scan's extractions behind a compare.
+    /// and the diff (plain arithmetic over two buffers, not PDFKit) runs off it. Holding the lane
+    /// across the pixel work would stall a running scan's extractions behind a compare.
     private func refreshRasters() async {
         guard needsRasters, bothSidesReadable else {
             clearRasters()
-            // No answer rather than a verdict: nothing was asked of the renderer here, and a
-            // `.failed` left standing from a previous page would caption a pane that is merely
-            // waiting for its first render.
+            // No answer rather than a verdict: nothing was asked of the renderer, and a `.failed`
+            // left from a previous page would caption a pane merely waiting for its first render.
             renderOutcome = .rendering
             return
         }
@@ -1335,8 +1246,8 @@ struct FilePairCompareView<Verdict: View>: View {
         rasterToken = token
         let decodeKey = self.decodeKey
 
-        // **The decode is skipped when the rasters on hand are already of this page.** Only the
-        // MODE changed — see ``decodeKey``.
+        // The decode is skipped when the rasters on hand are already of this page, and only the
+        // mode changed (see ``decodeKey``).
         var pair: (left: CGImage, right: CGImage)?
         if heldRasterKey == decodeKey, let l = rasters.left, let r = rasters.right {
             pair = (l, r)
@@ -1354,9 +1265,9 @@ struct FilePairCompareView<Verdict: View>: View {
                                                          page: rightPage,
                                                          longEdge: PagePairRaster.compareLongEdge)
             let (l, r) = (await leftImage, await rightImage)
-            // A raster that lands after the user has paged on describes a page nobody is looking at.
-            // A cancelled one may be no raster at all (`PagePairRaster.render`), not a page that
-            // failed to render.
+            // A raster that lands after the user has paged on describes a page nobody is looking
+            // at. A cancelled one may be no raster at all (`PagePairRaster.render`), not a page
+            // that failed to render.
             guard rasterToken == token, !Task.isCancelled else { return }
             rasters = (l?.cgImage, r?.cgImage)
             heldRasterKey = decodeKey
@@ -1364,12 +1275,12 @@ struct FilePairCompareView<Verdict: View>: View {
             guard let l, let r else {
                 pageComparison = PageComparison()
                 pageStates[page] = .unrenderable
-                // **The same finding the strip just recorded, told to the panes.** They knew only
-                // that they had no image, which is what a render still in flight looks like too.
+                // The same finding the strip just recorded, told to the panes, which otherwise know
+                // only that they have no image, as a render in flight also looks.
                 renderOutcome = .failed(left: l == nil, right: r == nil)
-                // On the visible page only — the page search renders many and would turn a broken
-                // document into a hundred lines. "It said my file could not be rendered" is the
-                // report this surface will actually generate, and the log held nothing about it.
+                // Logged for the visible page only: the page search renders many and would turn a
+                // broken document into a hundred lines. Without it the log would say nothing when
+                // someone reports a file that couldn't be rendered.
                 let unread = [l == nil ? left.path : nil,
                               r == nil ? right.path : nil].compactMap { $0 }
                 Logger.shared.warning(
@@ -1387,21 +1298,20 @@ struct FilePairCompareView<Verdict: View>: View {
             return
         }
         let wantsAligned = wantsAlignedDifference
-        // **What is held may already be better than what this mode asks for**, and then it stays —
-        // see ``PageComparisonReuse``. Recomputing an unaligned verdict over an aligned one would
-        // change the strip's dot for this page under a mode press that changed nothing about it.
+        // What is held may already be better than this mode asks for, and then it stays (see
+        // ``PageComparisonReuse``): recomputing an unaligned verdict over an aligned one would
+        // change the page's dot under a mode press that changed nothing about it.
         guard !PageComparisonReuse.isEnough(held: heldComparisonKey, decode: decodeKey,
                                             heldAligned: heldComparisonAligned,
                                             wantsAligned: wantsAligned) else { return }
         let (l, r) = (SendableImage(pair.left), SendableImage(pair.right))
-        // Off the main actor: this is the buffer loop, and on a 1600px page it is milliseconds of
-        // arithmetic that has no business on the actor that draws the window.
+        // Off the main actor: the buffer loop is milliseconds of arithmetic on a 1600px page, with
+        // no place on the actor that draws the window.
         let comparison = await Task.detached(priority: .utility) {
             () -> (SendableImage?, BitmapDiffResult?) in
-            // **Aligned only for the mode that reads the alignment**, and the difference raster
-            // comes out of the same call rather than from a second, independent pass over its own
-            // normalised copies of both pages. See ``wantsAlignedDifference`` for why the other two
-            // overlay modes are better off without either.
+            // Aligned only for the mode that reads the alignment, and the difference raster comes
+            // out of the same call rather than a second pass over its own copies of both pages.
+            // See ``wantsAlignedDifference`` for why the other overlay modes skip both.
             guard wantsAligned else { return (nil, BitmapDiff.compare(l.cgImage, r.cgImage)) }
             let outcome = BitmapDiff.compareAligning(l.cgImage, r.cgImage,
                                                      wantsDifferenceImage: true)
@@ -1409,14 +1319,14 @@ struct FilePairCompareView<Verdict: View>: View {
         }.value
         guard rasterToken == token else { return }
         heldComparisonKey = decodeKey
-        // Nil for an unaligned pass, which is what keeps `alignmentCaveat` from captioning one as
-        // a de-skewed comparison: the caption is read straight off `pageRegistration`.
+        // The registration is nil for an unaligned pass, which keeps `alignmentCaveat` from
+        // captioning it as de-skewed: the caption is read straight off `pageRegistration`.
         heldComparisonAligned = wantsAligned
         pageRegistration = comparison.1?.registration
-        // **The only trace an applied de-skew leaves behind.** The caption states it on screen and
-        // then goes with the sheet; a pair that glowed oddly is reported afterwards, when the one
-        // question worth asking — was this page rotated before it was compared, and by how much —
-        // has no other answer. `.debug`, so it costs nothing at the shipped log level.
+        // The only trace an applied de-skew leaves: the caption goes with the sheet, and when a
+        // pair that glowed oddly is reported later, the log is the only answer to whether the page
+        // was rotated before comparing, and by how much. `.debug`, so it costs nothing at the
+        // shipped log level.
         if let applied = comparison.1?.registration {
             Logger.shared.debug("""
                 [compare] page \(page + 1) aligned before comparing: \
@@ -1445,28 +1355,25 @@ struct FilePairCompareView<Verdict: View>: View {
         }
     }
 
-    /// **A keeper picker only where there is a keeper to pick.** With `keeperPath` nil — the
+    /// A keeper picker only where there is a keeper to pick. With `keeperPath` nil (the
     /// Differences host, where two files at one relative path on two roots are not a group and
-    /// nothing is being kept — the header is the file's name and nothing else. It used to render
-    /// two disabled "Keep this" buttons there, which advertises a choice that does not exist: the
-    /// exact complaint that produced `DuplicateKeeperMarker` ("Why is there a checkbox, especially
-    /// if we can't choose among the rows?"), reached through a new door.
+    /// nothing is kept) there is no header: disabled "Keep this" buttons would advertise a choice
+    /// that doesn't exist.
     @ViewBuilder
     private func paneHeader(_ copy: DuplicateCopy) -> some View {
         if let keeperPath {
             let isKeeper = copy.path == keeperPath
             let marker = DuplicateKeeperMarker.style(allowsKeeperChoice: allowsKeeperChoice,
                                                      isKeeper: isKeeper)
-            // **The keeper control, and nothing else.** The file's name used to sit at the far
-            // end of this row — the same string the NAME fact states directly above it, on a
-            // surface whose whole complaint was clutter. One statement per fact.
+            // The keeper control and nothing else: the file's name is already the Name fact just
+            // above. One statement per fact.
             CompareKeeperHeaderRow(
                 control: CompareKeeperControl.control(isKeeper: isKeeper, marker: marker),
                 accessibilityLabel: marker.accessibilityLabel, accent: accent,
                 onKeepInstead: { chooseKeeper(copy) })
         }
-        // With no keeper — the Differences host — the row collapses entirely. The facts block
-        // above already names and locates each side, and an empty header row is furniture.
+        // With no keeper (the Differences host) the row collapses entirely: the facts block above
+        // already names and locates each side.
     }
 
     @ViewBuilder
@@ -1476,8 +1383,8 @@ struct FilePairCompareView<Verdict: View>: View {
             Color.secondary.opacity(0.05)
             switch source {
             case .quickLook:
-                // The existing representable, unmodified. Its `dismantleNSView` close is what
-                // keeps a Quick Look extension process from leaking per file previewed.
+                // The existing representable, unmodified. Its `dismantleNSView` close keeps a
+                // Quick Look extension process from leaking per file previewed.
                 QuickLookPreview(url: URL(fileURLWithPath: copy.path))
             case .cloudOnly:
                 cloudOnlyPlaceholder(copy)
@@ -1491,7 +1398,7 @@ struct FilePairCompareView<Verdict: View>: View {
         }
     }
 
-    /// Re-probes when the path changes AND when a download this surface is watching concludes —
+    /// Re-probes when the path changes and when a download this surface is watching concludes:
     /// the latch is what turns "cloud-only" into a real preview without a second poller.
     private func probeKey(_ copy: DuplicateCopy) -> String {
         "\(copy.path)|\(downloads.request(forPath: copy.path)?.requestID.uuidString ?? "-")"
@@ -1540,9 +1447,9 @@ struct FilePairCompareView<Verdict: View>: View {
 
     // MARK: Actions
 
-    /// The one keeper flip, for the pane button and for ←/→ alike. Returns `.ignored` when there
-    /// is nothing to flip, so an arrow key over a stale surface falls through to whatever else
-    /// might want it rather than being swallowed.
+    /// The one keeper flip, for the pane button and for ←/→ alike. Returns `.ignored` when there is
+    /// nothing to flip, so an arrow key over a stale surface falls through rather than being
+    /// swallowed.
     @discardableResult
     private func chooseKeeper(_ copy: DuplicateCopy) -> KeyPress.Result {
         guard allowsKeeperChoice, keeperPath != nil, copy.path != keeperPath else { return .ignored }
@@ -1553,12 +1460,12 @@ struct FilePairCompareView<Verdict: View>: View {
     private func requestDownload(_ copy: DuplicateCopy) {
         do {
             try MaterializationStatus.download(atPath: copy.path)
-            // This surface owns its own watch, so no pane latches a download it did not start —
-            // the double-watch the pane-scoped token exists to prevent, reached from a new door.
+            // This surface owns its own watch, so no pane latches a download it didn't start, the
+            // double watch the pane-scoped token exists to prevent.
             downloads.begin(CloudDownloadRequest(path: copy.path, paneToken: .compareCopies))
         } catch {
-            // Works for iCloud and was measured working on Google Drive; Dropbox and OneDrive are
-            // not measured. When it throws, the fallback is Finder, which can reach the provider's
+            // Works for iCloud and was seen working on Google Drive; Dropbox and OneDrive are
+            // untested. When it throws, the fallback is Finder, which can reach the provider's
             // extension.
             Logger.shared.warning("[compare] download refused for \(copy.path): \(error.localizedDescription) — revealing in Finder")
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: copy.path)])
@@ -1577,7 +1484,7 @@ struct FilePairCompareView<Verdict: View>: View {
             async let l = hash(leftPath)
             async let r = hash(rightPath)
             let outcome = ComparePairVerify.outcome(left: await l, right: await r)
-            // A completion from a verify the user has already superseded describes a question
+            // A completion from a verify the user has already superseded answers a question
             // nobody is asking any more.
             guard verifyToken == token else { return }
             verify = outcome
@@ -1587,35 +1494,29 @@ struct FilePairCompareView<Verdict: View>: View {
 
 // MARK: - The Duplicates host's sheet
 
-/// Which copy a live duplicate group is keeping, **as one compared PAIR can see it** — three
+/// Which copy a live duplicate group is keeping, as one compared pair can see it: three
 /// answers, because a group may hold more copies than the two on screen.
 ///
-/// The whole reason this is a type: the Compare surface used to be handed a keeper path that fell
-/// back to the left pane whenever the group's keeper was neither side, so a three-copy group
-/// compared pairwise drew a keeper marker on a copy nothing was keeping and left the trash enabled
-/// beside it. Nothing was stale, so no notice contradicted it, and the destructive act would have
-/// run against a keeper that existed only on that surface.
+/// A type so the surface never falls back to the left pane when the group's keeper is neither side:
+/// that would draw a keeper marker on a copy nothing keeps, with the trash enabled beside it, and
+/// the destructive act would run against a keeper that exists only on this surface.
 ///
-/// Produced by ``CompareCopiesOverlay/keeperStanding(of:in:)``, which is a pure function of a pair
-/// and a group and is asserted as one — `sheet(available:)` is private and a `some View` cannot be
-/// interrogated.
+/// Produced by ``CompareCopiesOverlay/keeperStanding(of:in:)``, a pure function of a pair and a
+/// group, asserted as one: `sheet(available:)` is private, and a `some View` can't be interrogated.
 enum PairKeeperStanding: Equatable {
     /// The group keeps one of these two, at this path.
     case inPair(String)
     /// The group keeps a copy that is neither of these two. The facts on screen are current; the
     /// verdict has no subject.
     case outsidePair(name: String)
-    /// No live group holds both paths any more — the scan moved on under an open surface.
+    /// No live group holds both paths any more: the scan moved on under an open surface.
     case noLiveGroup
 
     /// The keeper path to draw a marker for, or nil for no marker at all.
     ///
-    /// **Nil in BOTH of the other two cases, and for one reason: neither knows.** With the keeper
-    /// outside the pair, marking either side would be the original false claim. With no live
-    /// group, there is no grouping left to be keeping anything — the payload's own left side is
-    /// what the scan said before it moved on, and the notice already says the facts are old. So
-    /// the header row collapses rather than asserting a keeper, exactly as it does on the
-    /// Differences host, where nothing is being kept either.
+    /// Nil in both other cases, because neither knows. With the keeper outside the pair, marking
+    /// either side would be a false claim; with no live group, nothing is being kept, and the notice
+    /// already says the facts are old. So the header row collapses, as on the Differences host.
     var keeperPath: String? {
         if case .inPair(let path) = self { return path }
         return nil
@@ -1631,23 +1532,21 @@ enum PairKeeperStanding: Equatable {
 /// ``FilePairCompareView`` with the Duplicates verdict bar under it: a keeper, a single-copy
 /// trash, and Done.
 ///
-/// **Everything above that bar is the shared component**, and this wrapper is what the seam is
-/// worth: it maps a duplicate group's vocabulary — match kind, keeper, protected copies, a stale
-/// scan — onto a viewer that knows none of it.
+/// Everything above that bar is the shared component; this wrapper maps a duplicate group's
+/// vocabulary (match kind, keeper, protected copies, a stale scan) onto a viewer that knows none
+/// of it.
 struct CompareCopiesSheet: View {
 
     let pair: DuplicateComparePair
-    /// Which copy the live group is keeping, as this pair can see it — the ONE value the keeper
+    /// Which copy the live group is keeping, as this pair can see it: the one value the keeper
     /// markers, the picker, the notice and the destructive verdict are all read off.
     ///
-    /// **One value rather than three, because only three of eight combinations were legal.** This
-    /// was a `keeperPath`, a `keeperOutsidePair` name and an `isStale` flag, which a call site
-    /// could pair into a surface that withheld its verdict and said nothing about why, or claimed
-    /// a keeper while reporting itself stale. There is one question here — what is this group
-    /// keeping — and it has exactly three answers.
+    /// One value rather than separate keeper, outside-keeper and stale fields, which could combine
+    /// into a surface that withheld its verdict without saying why, or claimed a keeper while
+    /// reporting itself stale. The question has exactly three answers.
     let standing: PairKeeperStanding
     let allowsKeeperChoice: Bool
-    /// Copies that may never be removed — inside a folder another group is keeping.
+    /// Copies that may never be removed: inside a folder another group is keeping.
     let protectedPaths: Set<String>
     let scanRoot: String?
     let providerName: String?
@@ -1665,7 +1564,7 @@ struct CompareCopiesSheet: View {
     var hash: @Sendable (String) async -> FileContentVerifier.HashOutcome = {
         await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
     }
-    /// Forwarded to ``FilePairCompareView/initialMode`` — tests only; see there.
+    /// Forwarded to ``FilePairCompareView/initialMode``; tests only, see there.
     var initialMode: ComparePairMode?
 
     var body: some View {
@@ -1678,9 +1577,8 @@ struct CompareCopiesSheet: View {
                 contentUnverified: pair.copies.contains(where: \.contentUnverified)),
             offersVerify: ComparePairClaim.offersVerify(kind: pair.matchType.kind),
             keeperPath: standing.keeperPath,
-            // A stale surface still shows everything; only the ACTS stop. Folding staleness into
-            // the keeper rule here rather than inside the viewer keeps the viewer free of a
-            // concept only one host has.
+            // A stale surface still shows everything; only the acts stop. Folding staleness into
+            // the keeper rule here keeps the viewer free of a concept only one host has.
             allowsKeeperChoice: allowsKeeperChoice && standing.offersVerdict,
             notice: notice,
             scanRoot: scanRoot, providerName: providerName, hue: hue,
@@ -1693,15 +1591,14 @@ struct CompareCopiesSheet: View {
 
     /// The line above the facts: what is wrong with this pair's verdict, or nothing.
     ///
-    /// **Internal rather than private, as a seam** — the same reason ``trashTitle`` is. A SwiftUI
-    /// button's enablement and a `Text`'s string cannot be read back off a mounted view, so this
-    /// and ``verdictSummary`` are the only way to assert that a surface whose group keeps a third
-    /// copy actually withdraws its destructive verdict and says why.
+    /// Internal rather than private, as a seam, like ``trashTitle``: a button's enablement and a
+    /// `Text`'s string can't be read back off a mounted view, so this and ``verdictSummary`` are how
+    /// a test asserts that a surface whose group keeps a third copy withdraws its verdict and says
+    /// why.
     ///
-    /// Two states, and they are not the same thing. A STALE surface is showing last scan's facts
-    /// and the fix is to look again. A surface whose group keeps a third copy is showing facts
-    /// that are perfectly current — there is simply no keeper here to trash the other side
-    /// against, and saying "rescan" would send the reader to do something that changes nothing.
+    /// Two different states. A stale surface shows last scan's facts, and the fix is to look again.
+    /// A group keeping a third copy shows current facts with no keeper here to trash against, and
+    /// "rescan" would send the reader to do something that changes nothing.
     var notice: String? {
         switch standing {
         case .inPair:
@@ -1724,9 +1621,9 @@ struct CompareCopiesSheet: View {
 
     private var otherCopy: DuplicateCopy? { standing.keeperPath.flatMap { pair.other(than: $0) } }
 
-    /// What the bar says beside the buttons. The facts summary where the verdict stands; a
-    /// one-line reason where it does not, so the bar is never a row of disabled buttons with
-    /// nothing saying why.
+    /// What the bar says beside the buttons: the facts summary where the verdict stands, a one-line
+    /// reason where it doesn't, so the bar is never a row of disabled buttons with nothing saying
+    /// why.
     func verdictSummary(_ facts: ComparePairFacts) -> String {
         switch standing {
         case .inPair: return facts.summary
@@ -1744,12 +1641,11 @@ struct CompareCopiesSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 12)
             trashButton
-            // **⏎ AND esc both mean Done** — the handlers live on the viewer's focused root. An
-            // earlier draft of this surface put ⌘⏎ on the trash button.
+            // ⏎ and esc both mean Done; the handlers live on the viewer's focused root. No
+            // chord goes on the trash button.
             //
-            // Prominent, and that is the house rule made visible: the SAFE act is the one the
-            // surface leads with, standing beside a destructive one that is a plain bordered
-            // button. Reversing the emphasis would be the ⌘⏎-to-trash mistake in paint.
+            // Prominent, so the safe act is the one the surface leads with, beside a destructive
+            // one that is a plain bordered button. Never reverse the emphasis.
             Button("Done", action: onClose)
                 .buttonStyle(.borderedProminent)
                 .accentedProminent(hue)
@@ -1759,7 +1655,7 @@ struct CompareCopiesSheet: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         // A quiet ground under the bar that decides things, so it reads as the surface's footer
-        // rather than as one more row of content.
+        // rather than one more row of content.
         .background(Color.secondary.opacity(0.05))
     }
 
@@ -1784,15 +1680,14 @@ struct CompareCopiesSheet: View {
         .help(reason ?? "Move the other copy to the Trash")
     }
 
-    /// Named for the copy it destroys, which follows the keeper flip — see
+    /// Named for the copy it destroys, which follows the keeper flip; see
     /// ``DuplicateComparePrompt/trashTitle(kind:keeper:target:)``.
     ///
-    /// **Internal rather than private, as a seam.** The wording rule is unit-tested where it lives,
-    /// but the rule is only half the defect: handing it `keeper:` and `target:` the wrong way round
-    /// would invert the label on every versions pair and satisfy every test of the rule itself. A
-    /// SwiftUI button's title cannot be read back off a mounted view — these styles bridge to
-    /// `_NSGraphicsView`, with no `NSButton` and no title to walk to — so the seam is what lets the
-    /// CALL SITE be asserted at all. `SettingsRail.versionText` exists for the same reason.
+    /// Internal rather than private, as a seam. The wording rule is tested where it lives, but
+    /// passing `keeper:` and `target:` the wrong way round would invert the label on every versions
+    /// pair and still satisfy those tests. A SwiftUI button's title can't be read back off a mounted
+    /// view (these styles bridge to `_NSGraphicsView`, with no `NSButton`), so the seam lets the
+    /// call site be asserted. `SettingsRail.versionText` exists for the same reason.
     var trashTitle: String {
         DuplicateComparePrompt.trashTitle(kind: pair.matchType.kind,
                                           keeper: standing.keeperPath.flatMap { pair.copy(atPath: $0) },
@@ -1802,18 +1697,17 @@ struct CompareCopiesSheet: View {
 
 // MARK: - The host-side overlay
 
-/// The Compare Copies surface as the window presents it: scrim, clamp, card treatment — and the
-/// one place that re-derives the LIVE grouping the sheet renders against.
+/// The Compare Copies surface as the window presents it: scrim, clamp, card treatment, and the one
+/// place that re-derives the live grouping the sheet renders against.
 ///
-/// **Public, and the only public thing here**, so `ContentView` mounts one view and knows nothing
-/// about pair verdicts, keeper rules or stale scans. That knowledge belongs beside the sheet, and
-/// the sheet itself stays free of any manager reference — every act it performs leaves through a
-/// closure this wrapper supplies.
+/// Public, and the only public thing here, so `ContentView` mounts one view and knows nothing
+/// about pair verdicts, keeper rules or stale scans. The sheet itself holds no manager reference:
+/// every act leaves through a closure this wrapper supplies.
 ///
-/// **Everything is re-derived on every render, by path.** `DuplicateGroup.id` does not survive a
+/// Everything is re-derived on every render, by path. `DuplicateGroup.id` doesn't survive a
 /// rescan, so the keeper, the keeper-choice rule, the protected set and "has the scan moved on"
-/// are read out of `duplicateGroups` at draw time — which means a rescan landing under the open
-/// surface re-validates it for free, with no observer to wire and none to forget.
+/// are read out of `duplicateGroups` at draw time, and a rescan under the open surface
+/// re-validates it with no observer to wire or forget.
 public struct CompareCopiesOverlay: View {
 
     @ObservedObject private var syncManager: FileSyncManager
@@ -1827,11 +1721,10 @@ public struct CompareCopiesOverlay: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
 
-    /// `confirmTrash` is a seam for the reason `DuplicateReviewCoordinator.confirmTrashRightCopy`
-    /// is one: `NativeAlerts.confirmDestructive` is a BLOCKING modal, so with the call inlined the
-    /// one destructive path on this surface could not be driven by a test at all — not the
-    /// declined answer, not the engine's refusals, not the success that closes the overlay.
-    /// Defaults to the real alert, so production behaviour is unchanged.
+    /// `confirmTrash` is a seam, as `DuplicateReviewCoordinator.confirmTrashRightCopy` is:
+    /// `NativeAlerts.confirmDestructive` is a blocking modal, so inlined, the one destructive path on
+    /// this surface couldn't be driven by a test (the declined answer, the engine's refusals, the
+    /// success that closes the overlay). Defaults to the real alert.
     ///
     /// It takes the copy, the keeper and the keeper's location rather than composing its own
     /// wording: the words come from ``DuplicateComparePrompt``, which is where they are tested.
@@ -1864,16 +1757,14 @@ public struct CompareCopiesOverlay: View {
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
 
-    /// The group holding BOTH paths right now, or nil once the scan has moved on.
+    /// The group holding both paths right now, or nil once the scan has moved on.
     private var liveGroup: DuplicateGroup? {
         syncManager.liveGroup(holding: pair.right.path, and: pair.left.path)
     }
 
-    /// Which copy the live group is keeping, as this pair can see it — see ``PairKeeperStanding``.
-    ///
-    /// `sheet(available:)` is private and a `some View` cannot be interrogated, so this is the
-    /// seam: the rule that decides whether the destructive verdict is offered at all is a pure
-    /// function of a pair and a group, and it is asserted as one.
+    /// Which copy the live group is keeping, as this pair can see it (see ``PairKeeperStanding``).
+    /// The seam for the rule that decides whether the destructive verdict is offered at all: a
+    /// pure function of a pair and a group, asserted as one, since `sheet(available:)` is private.
     static func keeperStanding(of pair: DuplicateComparePair,
                                in group: DuplicateGroup?) -> PairKeeperStanding {
         guard let group else { return .noLiveGroup }
@@ -1913,10 +1804,9 @@ public struct CompareCopiesOverlay: View {
             hue: glassHue,
             availableSize: available,
             onChooseKeeper: { path in
-                // Re-looked-up at CLICK time, not captured: `setKeeper` takes a group id, and the
-                // id this surface opened over may already have been replaced by a rescan — in
-                // which case it silently no-ops. Reading the live group here means the flip either
-                // lands on the current group or does not happen at all.
+                // Looked up at click time, not captured: `setKeeper` takes a group id, and a rescan
+                // may have replaced the one this surface opened over, making it a silent no-op.
+                // With the live group, the flip lands on the current group or not at all.
                 guard let live = syncManager.liveGroup(holding: pair.right.path,
                                                        and: pair.left.path) else { return }
                 syncManager.setKeeper(for: live.id, to: path)
@@ -1928,12 +1818,10 @@ public struct CompareCopiesOverlay: View {
     /// The destructive act: confirm in the app's own destructive dialog, then hand the pair to the
     /// engine, which re-verifies both ends and gates the removal.
     ///
-    /// The confirmation is a plain deliberate click — never `⏎`, which belongs to Done. Its wording
-    /// comes from ``DuplicateComparePrompt`` rather than being composed here, for the reason that
-    /// type exists: inline destructive wording in a view is untestable, and this app has already
-    /// shipped a dialog that called an unproven copy "redundant" at the point of no return.
-    /// Internal, not private, so the ONE destructive path on this surface is reachable from a
-    /// test at all — the same reason `confirmTrash` is a seam.
+    /// The confirmation is a deliberate click, never `⏎`, which belongs to Done. Its wording comes
+    /// from ``DuplicateComparePrompt``, where it is tested, so it can't call an unproven copy
+    /// "redundant" at the point of no return. Internal, not private, so the one destructive path on
+    /// this surface is reachable from a test, as `confirmTrash` is.
     func trash(_ copy: DuplicateCopy, keeper: DuplicateCopy) {
         let keeperLocation = DuplicateGroupCard
             .crumbs(of: keeper.path, scanRoot: scanRoot, providerName: providerName)
@@ -1943,9 +1831,9 @@ public struct CompareCopiesOverlay: View {
             return
         }
         Task { @MainActor in
-            // The surface closes only on a removal that actually happened. A refusal — a drifted
-            // copy, a keeper that moved, a scan that landed underneath — posts its banner and
-            // leaves the pair up, which is where the user can see what it said and try again.
+            // The surface closes only on a removal that actually happened. A refusal (a drifted
+            // copy, a moved keeper, a scan landing underneath) posts its banner and leaves the pair
+            // up, where the user can see what it said and try again.
             if await syncManager.resolveDuplicateCopy(copy, keeper: keeper) { onClose() }
         }
     }
@@ -1976,10 +1864,9 @@ struct CompareKeeperHeaderRow: View {
                 .accessibilityLabel(accessibilityLabel ?? "Keep this copy")
                 .help(ShortcutHint.tooltip("Keep this copy instead", "←→"))
             case .nothing:
-                // An overlap group: it has a keeper, but no choice — see `CompareKeeperControl`.
-                // **The chip's height, drawn invisibly.** An empty row here sat the preview below
-                // it ~22pt higher than the kept side's, under its "Keeping this" chip, so the two
-                // previews being compared did not line up.
+                // An overlap group: it has a keeper, but no choice (see `CompareKeeperControl`).
+                // The chip's height, drawn invisibly, so this preview lines up with the kept side's
+                // under its "Keeping this" chip.
                 keepingChip
                     .hidden()
                     .accessibilityHidden(true)
@@ -2000,13 +1887,11 @@ struct CompareKeeperHeaderRow: View {
 
 /// What the Compare sheet's pane header offers on one side of a group that has a keeper.
 ///
-/// **A keeper is not the same as a choice.** An overlap group has a keeper — the copy holding
-/// what the others lack — but cannot re-aim it, because which copy is "unique" is computed from
-/// content hashes the scan does not retain (`DuplicateKeeperMarker.style`). The other side used to
-/// draw "Keep this instead" disabled, which advertises a choice that does not exist, and VoiceOver
-/// heard only "Copy" (LN23). The rule the header's own doc states — a keeper picker only where
-/// there is a keeper to pick — now holds on that side too: it draws nothing (in the chip's height,
-/// so the two previews still line up — see `CompareKeeperHeaderRow`).
+/// A keeper is not the same as a choice. An overlap group has a keeper (the copy holding what
+/// the others lack) but can't re-aim it, because which copy is "unique" comes from content hashes
+/// the scan doesn't retain (`DuplicateKeeperMarker.style`). A disabled "Keep this instead" would
+/// advertise a choice that doesn't exist, so that side draws nothing, in the chip's height so the
+/// two previews still line up (see `CompareKeeperHeaderRow`).
 enum CompareKeeperControl: Equatable {
     /// The kept side: a chip, never a control.
     case keeping

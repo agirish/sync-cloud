@@ -5,23 +5,11 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// Storage inside Organize, in pixels — **the fold held to what row 1 actually draws.**
-///
-/// This suite used to hold `storageLeadingWidth` against Storage's own rail. That rail is gone: the
-/// fold gave the header's rail slot to the Organize rail and moved Storage's sections into the
-/// content card as a capsule, so there is no second width model left to check. What replaced it is
-/// the claim the fold actually makes, which nothing else can see:
-///
-/// - **Row 1 draws the ORGANIZE rail when the Storage lens is selected**, and it is the same
-///   `leadingWidth` model the other five lenses are measured against. Two rails shedding by
-///   different rules is what `OrganizeRailMetrics` warns about in its own comment; this is the
-///   assertion that there is now one.
-/// - **The capsule is on screen**, below the header, in the content card.
-///
-/// The pure sizing of the capsule — one width per selection, the two rungs, the type ramp — is in
-/// `StorageRailTests`, which is not machine-pinned and runs everywhere. Only the questions that
-/// need a live render are here, for the reason the old suite gave: folding them together would pin
-/// the pure assertions to this Mac and they would stop running wherever this suite is skipped.
+/// Storage inside Organize, in pixels: with the Storage lens selected, row 1 draws the Organize
+/// rail by the same `leadingWidth` model as the other lenses (`OrganizeRailMetrics` warns about two
+/// rails shedding by different rules), and Storage's section capsule sits below the header, in the
+/// content card. The capsule's pure sizing is in `StorageRailTests`, which isn't machine-pinned;
+/// merged in here, those assertions would stop running wherever this suite is skipped.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct StorageRailRenderTests {
 
@@ -36,12 +24,9 @@ import Design
                      modified: Date(timeIntervalSince1970: 0))
     }
 
-    /// A report whose three lists carry **three different digit counts** — 8, 96 and 1,204.
-    ///
-    /// Deliberate: `badgeWidth` measures the digits it is handed, so a model that charged a flat
-    /// figure per badge would agree with the render on a fixture where every count is the same
-    /// width and disagree on a real one. This is the same trap the Organize model fell into, where
-    /// `410` and `126` each cost ~8pt more than a two-digit estimate allowed.
+    /// A report whose three lists carry three different digit counts: 8, 96 and 1,204.
+    /// `badgeWidth` measures the digits it is handed, so a model charging a flat figure per badge
+    /// would agree with the render only on a fixture whose counts are all the same width.
     private static func report(largest: Int = 8, stale: Int = 96,
                                reclaim: Int = 1_204) -> StorageLensReport {
         StorageLensReport(treemap: [],
@@ -99,11 +84,9 @@ import Design
         } else {
             defaults.removeObject(forKey: StorageSection.defaultsKey)
         }
-        // **The RAIL lens is what selects the Storage page now, and passing `lens: .storage` is
-        // not enough.** Before the fold the content forked on the workspace's apparatus, so this
-        // harness got Storage's page for free; `lensBody` keys on `organizeLens` since, which reads
-        // this key. Without it the mount renders Organize's overview and every assertion about
-        // Storage's content is made against a page that is not there.
+        // The rail lens selects the Storage page; `lens: .storage` alone isn't enough. `lensBody`
+        // keys on `organizeLens`, which reads this key, so without it the mount renders Organize's
+        // overview and every assertion about Storage's content is made against the wrong page.
         defaults.set(OrganizeLens.storage.rawValue, forKey: OrganizeLens.defaultsKey)
         let subject = LensWorkspaceView(syncManager: manager, lens: .storage, providerName: "Projects",
                                scanTargetFolder: "/root/Documents", onFindDuplicates: {},
@@ -123,7 +106,7 @@ import Design
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = NSColorSpace.sRGB
         window.contentView = host
-        // Twice: `.onGeometryChange` writes `railStyle` *after* a pass, so a single layout renders
+        // Twice: `.onGeometryChange` writes `railStyle` after a pass, so a single layout renders
         // the initial value rather than the width-dependent answer.
         host.layoutSubtreeIfNeeded()
         host.layoutSubtreeIfNeeded()
@@ -137,12 +120,10 @@ import Design
         return rep
     }
 
-    /// The x-extent of row 1's leading cluster, read off the render.
-    ///
-    /// Same recipe as `OrganizeRailTests.leadingExtent`, and the two comments there are load-bearing
-    /// here too: the band starts at **x 8** because the card paints a border at x≈2.5 that a wider
-    /// band merges into the cluster, and a **30pt** run of background ends it — inside Storage's
-    /// rail the widest gap is the separator's 13pt, while the reach to the trailing search toggle is
+    /// The x-extent of row 1's leading cluster, read off the render by the recipe of
+    /// `OrganizeRailTests.leadingExtent`. The band starts at x 8 because the card paints a border
+    /// at x≈2.5 that a wider band merges into the cluster, and a 30pt run of background ends it:
+    /// the gaps inside the rail are far narrower, while the reach to the trailing search toggle is
     /// hundreds of points.
     private func leadingExtent(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
         let origin: CGFloat = 8
@@ -182,7 +163,8 @@ import Design
         return cluster.1 - cluster.0
     }
 
-    /// The states the fixture's report produces — the same accessor `LensWorkspaceView` hands the model.
+    /// The states the fixture's report produces, through the same accessor `LensWorkspaceView`
+    /// hands the model.
     private static func states(_ report: StorageLensReport?) -> (StorageSection) -> RailItemState {
         { section in
             guard let report else { return .notScanned }
@@ -195,15 +177,11 @@ import Design
 
     @Test("Row 1 draws the same rail on Storage as on any other lens", arguments: FontSize.allCases)
     func theStorageLensDrawsTheOrganizeRail(size: FontSize) throws {
-        // **This is the fold, measured.** Before it, mounting `lens: .storage` drew four storage
-        // items here, budgeted by a width model of its own. Now it draws the same rail every other
-        // lens draws — and the sharpest way to say that in pixels is not "the model covers it" but
-        // "it is the same cluster". If `lens == .storage` ever forks on this row again, the two
-        // clusters diverge and this fails; a model comparison would not necessarily notice, because
-        // a second rail can be within a few points of the first.
-        //
-        // Held at every text size because a fork could be introduced in a scale-dependent branch —
-        // the failure `theLeadingModelMatchesWhatTheRowDraws` exists to catch on the Organize side.
+        // Mounting `lens: .storage` must draw the rail every other lens draws, checked as the same
+        // cluster rather than "the model covers it": if `lens == .storage` ever forks this row, the
+        // clusters diverge, while a model comparison might not notice a second rail a few points
+        // off. Held at every text size because a fork could hide in a scale-dependent branch (as
+        // `theLeadingModelMatchesWhatTheRowDraws` checks on the Organize side).
         let report = Self.report()
         let onStorage = try #require(leadingExtent(mount(Self.manager(report), section: nil, scale: size.scale),
                                                    width: Self.canvas.width),
@@ -211,19 +189,14 @@ import Design
         let onDuplicates = try #require(leadingExtent(mountLens(.duplicates, Self.manager(report), scale: size.scale),
                                                       width: Self.canvas.width),
                                         "row 1 drew no leading cluster on Duplicates at \(size.scale)×")
-        // **Not exact equality, and the reason is a real property of the rail rather than
-        // measurement slop.** `RailItemLabel` draws the SELECTED item semibold and the rest medium,
-        // so "Storage" selected and "Duplicates" selected are genuinely a fraction of a point
-        // apart — measured at 1.0pt at 0.9×, which a `< 1` tolerance refuted. The tolerance is what
-        // separates "the same rail with a different item lit" from "a different rail": the storage
-        // rail this replaced measured 417.8pt against this one's ~623, so anything that would let
-        // the old fork back in is two orders of magnitude outside this band.
+        // Not exact equality: `RailItemLabel` draws the selected item semibold and the rest medium,
+        // so the rail with "Storage" lit and with "Duplicates" lit differ by up to about a point.
+        // A different rail would be far outside this band.
         #expect(abs(onStorage - onDuplicates) < 8,
                 "at \(size.scale)× row 1's rail draws \(onStorage)pt on Storage and \(onDuplicates)pt on Duplicates — the header is still forking on the lens")
 
-        // Non-vacuity: the cluster is a six-item rail, not a stub the two lenses agree on by both
-        // drawing almost nothing. The shared model is the yardstick — a rail this wide cannot be
-        // the four-item storage rail that used to be here.
+        // Non-vacuity: the cluster is the six-item rail, not a stub both lenses agree on by drawing
+        // almost nothing. The shared model is the yardstick.
         let quiet = OrganizeRailMetrics.leadingWidth(scale: size.scale, state: { _ in .clean })
         #expect(onStorage > quiet * 0.9,
                 "row 1 draws \(onStorage)pt at \(size.scale)× against a \(quiet)pt six-item rail — that is not the Organize rail")
@@ -231,9 +204,9 @@ import Design
 
     @Test("The section capsule is drawn below the header, not in it")
     func theCapsuleIsInTheContentCard() throws {
-        // Where the switcher went. Asserted as ink in a band BELOW row 1's 81pt rung: the whole
-        // point of the move is that the header's geometry is out of the blast radius, and a capsule
-        // that had crept back up into it would still pass every sizing test in `StorageRailTests`.
+        // Ink in a band below row 1's 81pt rung: the capsule must stay out of the header's
+        // geometry, and one that crept back up into it would still pass every sizing test in
+        // `StorageRailTests`.
         let host = mount(Self.manager(Self.report()), section: nil)
         let header: CGFloat = 81
         let band = CGRect(x: 8, y: header + 14, width: 420, height: 34)

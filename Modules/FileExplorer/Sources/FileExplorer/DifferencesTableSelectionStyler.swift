@@ -2,34 +2,27 @@ import AppKit
 import SwiftUI
 import Design
 
-/// Replaces the differences `Table`'s native selection highlight with the accent wash the panes
-/// draw, so one window shows one selection language. The native highlight is painted by AppKit
-/// from `NSColor.selectedContentBackgroundColor` — the SYSTEM accent, flat gray under Graphite —
-/// while every pane row draws `accentColor.opacity(0.22)` through `.listRowBackground`. A `Table`
-/// exposes no per-row background hook, so the wash has to be painted from the AppKit side: disable
-/// the system highlight (as `PaneListSelectionStyler` does for the pane lists) and give each
-/// selected `NSTableRowView` a wash subview whose geometry matches the panes' rounded capsule.
+/// Replaces the differences `Table`'s native selection highlight with the panes' accent wash, so
+/// one window shows one selection language. AppKit paints the native one in the system accent
+/// (flat gray under Graphite), and a `Table` has no per-row background hook, so this turns the
+/// highlight off (as `PaneListSelectionStyler` does for the panes) and gives each selected
+/// `NSTableRowView` a wash subview shaped like the panes' rounded capsule.
 ///
-/// Placed as a `.background` sibling of the Table, it finds the table through `PaneListResolver`
-/// (in its multi-column mode — the pane resolver's single-column filter exists precisely to skip
-/// THIS table) with the same frame anchoring and the same bounded search-budget discipline as the
-/// pane styler — both now inherited from `FrameAnchoredResolveView`, where the re-arm rules (the
-/// correctness story) are documented once.
+/// A `.background` sibling of the Table, it finds the table through `PaneListResolver` in its
+/// multi-column mode, with the frame anchoring and bounded search inherited from
+/// `FrameAnchoredResolveView`, where the re-arm rules are documented.
 ///
-/// What repaints the washes is three signals, each covering a hole in the others:
-/// - `NSTableView.selectionDidChangeNotification` — selection moved (posted for both user clicks
-///   and the programmatic writes SwiftUI makes when its selection binding changes) — plus
-///   `selectionIsChangingNotification`, the live stream a drag-extend posts before mouse-up.
-/// - the clip view's bounds changing — scrolling recycles row views, and a reused row view
-///   scrolled in under a selected index must gain the wash (and one under an unselected index
-///   must lose a stale one) without any selection having changed.
-/// - this view's own `layout()` — mount, resize, and SwiftUI re-tiling, which also re-asserts
+/// Three signals repaint the washes, each covering a hole in the others:
+/// - `NSTableView.selectionDidChangeNotification` (user clicks and SwiftUI's programmatic writes),
+///   plus `selectionIsChangingNotification`, the live stream a drag-extend posts before mouse-up.
+/// - the clip view's bounds changing: scrolling recycles row views, and a reused one must gain or
+///   lose the wash with no selection change.
+/// - this view's own `layout()`: mount, resize, and SwiftUI re-tiling, which also re-asserts
 ///   `selectionHighlightStyle` on a table SwiftUI may have rebuilt.
 struct DifferencesTableSelectionStyler: NSViewRepresentable {
-    /// The wash: the app accent at `PaneSelectionWash.active`. An `NSColor` so the row views can
-    /// resolve it at draw time. (Correctness doesn't hinge on the color staying dynamic: an
-    /// accent or appearance change re-evaluates the view's body and pushes a fresh color through
-    /// `updateNSView`, and an appearance switch redisplays the window anyway.)
+    /// The wash: the app accent at `PaneSelectionWash.active`, as an `NSColor` the row views
+    /// resolve at draw time. An accent or appearance change also pushes a fresh color through
+    /// `updateNSView`.
     let washColor: NSColor
 
     func makeNSView(context: Context) -> StylerView { StylerView() }
@@ -41,14 +34,13 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
     }
 
     final class StylerView: FrameAnchoredResolveView {
-        /// The differences table is the window's one multi-column table — the pane resolver's
-        /// single-column filter exists precisely to skip it, and this flag is the inverse.
+        /// The differences table is the window's one multi-column table, which the pane
+        /// resolver's single-column filter skips; this flag is the inverse.
         override class var resolvesMultiColumnTable: Bool { true }
 
         var washColor: NSColor = .clear {
-            // Equality-guarded: `updateNSView` assigns on every SwiftUI update, and the
-            // differences view re-renders per published file during a bulk sync — an
-            // unconditional repaint here would enumerate the visible rows twice per file.
+            // Equality-guarded: `updateNSView` assigns on every SwiftUI update, which during a
+            // bulk sync is once per file, and each repaint enumerates the visible rows.
             didSet { if washColor != oldValue { paintWashes() } }
         }
 
@@ -69,40 +61,31 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             paintWashes()
         }
 
-        /// The repaint observers attach on BOTH resolution paths — a cached hit and a fresh
-        /// resolve — because a table can resolve before SwiftUI has wrapped it in its scroll
-        /// view, and `observe` is what re-registers once the clip exists.
+        /// The repaint observers attach on both resolution paths, a cached hit and a fresh
+        /// resolve, because a table can resolve before SwiftUI wraps it in its scroll view, and
+        /// `observe` re-registers once the clip exists.
         override func tableIsCurrent(_ table: NSTableView) {
             observe(table)
-            // **And the keyboard.** Clicking a difference did not move first responder, so the
-            // keys went on reaching whichever pane was last clicked: measured 2026-09-25, ⇧↓ in
-            // the differences list grew the LEFT PANE's selection instead. This is the one place
-            // that already resolves this table, exactly as `PaneBackgroundDeselect` is for the
-            // panes. The review queue is deliberately NOT here — it carries no styler, and
-            // `reviewFocusNudge` hands focus back to the review card on every selection change.
+            // And the keyboard: a click on a difference doesn't move first responder by itself,
+            // so ⇧↓ would extend the last-clicked pane's selection. Registered here, the one place
+            // that resolves this table, as `PaneBackgroundDeselect` is for the panes. The review
+            // queue has no styler; `reviewFocusNudge` hands focus back to its card instead.
             PaneListKeyFocus.register(table)
-            // And a recognizer, whose only job is to make this table's clicks visible to the app at
-            // all — see `PaneListKeyFocus.ClickNormalizer`. Registration alone is not enough: with
-            // no recognizer the click reaches nothing that can claim the keyboard.
-            // Idempotent, and the recognizer belongs to the TABLE rather than to this view — a
-            // rebuilt styler adopts the one already there, and nothing here has to take it back.
-            // The guard is an economy only: this runs on every layout pass.
+            // And a recognizer, so this table's clicks reach something that can claim the keyboard
+            // (see `PaneListKeyFocus.ClickNormalizer`). It belongs to the table, so a rebuilt
+            // styler adopts the one already there; the guard only saves work on each layout pass.
             if normalizedTable !== table {
                 normalizedTable = table
                 PaneListKeyFocus.ClickNormalizer.install(on: table)
             }
         }
 
-        /// Attaches the repaint observers to a newly resolved table (and its clip view),
-        /// dropping any previous table's. Safe to call with the same table repeatedly — it
-        /// re-registers only when something is actually missing.
+        /// Attaches the repaint observers to a newly resolved table and its clip view, dropping
+        /// any previous table's. Safe to repeat: it re-registers only when something is missing.
         ///
-        /// The clip view is tracked as its own condition, not folded into "observers exist":
-        /// a table can resolve before SwiftUI has wrapped it in its scroll view, and a guard
-        /// that read one registered observer as "fully observed" would then skip the clip
-        /// observer for the table's whole lifetime — scroll-driven row-view reuse would repaint
-        /// nothing, leaving reused rows washless (or stale-washed) until the next selection
-        /// change or unrelated re-render.
+        /// The clip view is its own condition, not folded into "observers exist": a table can
+        /// resolve before its scroll view exists, and treating that as fully observed would skip
+        /// the clip observer for good, leaving recycled rows with a missing or stale wash.
         private func observe(_ table: NSTableView) {
             let clip = table.enclosingScrollView?.contentView
             guard observedTable !== table || observers.isEmpty || observedClip !== clip else { return }
@@ -112,8 +95,8 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
             observedClip = clip
             let center = NotificationCenter.default
             // Both selection notifications: `DidChange` lands at mouse-up, but a drag-extend
-            // posts `IsChanging` throughout — with the native highlight off, that stream is the
-            // only live feedback a rubber-band selection has.
+            // posts `IsChanging` throughout, the only live feedback once the native highlight is
+            // off.
             for name in [NSTableView.selectionDidChangeNotification,
                          NSTableView.selectionIsChangingNotification] {
                 observers.append(center.addObserver(forName: name, object: table, queue: .main) {
@@ -146,9 +129,9 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
     }
 }
 
-/// The rounded accent capsule drawn behind a selected differences row. Geometry matches the pane
-/// rows' `RoundedRectangle(cornerRadius: Radius.chip).padding(.horizontal, 6).padding(.vertical, 1)`, so the
-/// two surfaces read as the same selection.
+/// The rounded accent capsule drawn behind a selected differences row. Its geometry matches the
+/// pane rows' `RoundedRectangle(cornerRadius: Radius.chip).padding(.horizontal, 6)
+/// .padding(.vertical, 1)`, so the two read as the same selection.
 final class SelectionWashView: NSView {
     static let horizontalInset: CGFloat = 6
     static let verticalInset: CGFloat = 1
@@ -178,8 +161,8 @@ final class SelectionWashView: NSView {
         if wash.color != color { wash.color = color }
     }
 
-    /// Hit-testing must fall through to the row: the wash is decoration, and swallowing clicks
-    /// here would make selected rows dead to further clicks.
+    /// Hit-testing falls through to the row: the wash is decoration, and swallowing clicks would
+    /// make selected rows dead to further clicks.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {

@@ -6,10 +6,9 @@ import Sync
 @testable import FileExplorer
 
 /// Columns sized one at a time, on a mounted pane: each column takes its own width, the deepest one
-/// has a handle, and a double-click fit leaves the longest name whole.
-///
-/// The width rules themselves are pure and live in `ColumnWidthsTests` (Design). This suite pins that
-/// `PaneColumnsView` actually draws from them, and that the fit measures what it claims to.
+/// has a handle, and a double-click fit leaves the longest name whole. The pure width rules live in
+/// `ColumnWidthsTests` (Design); this pins that `PaneColumnsView` draws from them and that the fit
+/// measures what it claims to.
 @MainActor
 @Suite(.serialized) struct ColumnWidthsMountTests {
 
@@ -64,8 +63,8 @@ import Sync
         }
     }
 
-    /// Waits for `condition` — arrival, not a fixed time — up to a ceiling a loaded full run cannot
-    /// outlast (`docs/flaky-tests.md`, "quiescence is not arrival").
+    /// Waits for `condition` to arrive, not for a fixed time, up to a generous ceiling
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
         let end = Date().addingTimeInterval(timeout)
@@ -130,10 +129,9 @@ import Sync
         return found
     }
 
-    /// **At rest, the one column has its own width** — the width it was sized to at depth 0, not the
-    /// pane's. It used to span the pane until a folder was opened, then snap to this width on the
-    /// first click. The dead space after it is the stack's filler: the content still exactly fills
-    /// the viewport, which keeps the gutter after it.
+    /// At rest, the one column has the width it was sized to at depth 0, not the pane's, so it
+    /// doesn't snap on the first click. The filler takes the space after it, so the content still
+    /// fills the viewport and the gutter stays.
     @Test func aRestingColumnTakesItsOwnWidth() async throws {
         let defaults = ScratchDefaults("ColumnWidthsMountTests")
         defaults.set(210.0, forKey: PaneViewMode.columnWidthDefaultsKey)
@@ -153,8 +151,8 @@ import Sync
                 "the filler does not take the slack after the column: \(stack.documentView?.frame.width ?? 0)")
     }
 
-    /// **Push mode still spans.** Below two minimum columns a pane shows one column at every depth,
-    /// and that column takes the whole pane — no gutter, whatever width the column was sized to.
+    /// Push mode still spans: below two minimum columns a pane shows one column at every depth, and
+    /// it takes the whole pane, with no gutter, whatever width it was sized to.
     @Test func aPushingPaneSpansItsOneColumn() async throws {
         let defaults = ScratchDefaults("ColumnWidthsMountTests")
         defaults.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
@@ -168,10 +166,9 @@ import Sync
         #expect(abs(widths[0] - paneWidth) < 1, "the pushing column is \(widths[0]) in a \(paneWidth)pt pane")
     }
 
-    /// **The fit leaves the longest name whole — and not a point more than needed.** Rendered at the
-    /// fitted width minus the list's inset, the row paints exactly as it does with all the room in the
-    /// world; thirty points narrower, the name is cut. The control is what makes the first claim mean
-    /// something: a harness that painted nothing would pass it.
+    /// The fit leaves the longest name whole and is tight. At the fitted width less the list's inset
+    /// the row paints as it does with ample room; thirty points narrower the name is cut, which is
+    /// also the control against a harness that paints nothing.
     @Test(.machinePinned(.pixelSampling)) func aFittedColumnShowsItsLongestNameWhole() throws {
         let name = "Brokerage Statement - Individual Account - February 2024.pdf"
         let rows = ["a.pdf", "Notes.txt", name].map {
@@ -220,10 +217,9 @@ import Sync
                 "thirty points narrower than the fit the name is still whole — the fit is not tight, or nothing was painted")
     }
 
-    /// **The fit finds the widest name, not the longest.** Candidates are the names that SET widest,
-    /// so a name of wide letters — here twenty CJK characters — is measured even among forty-odd
-    /// Latin names with more characters and less width. Counting characters would leave it out of
-    /// the pool, and the column would be fitted too narrow to show it.
+    /// The fit finds the widest name, not the longest. Candidates are the names that set widest, so
+    /// twenty CJK characters are measured among forty-odd longer, narrower Latin names; counting
+    /// characters would leave them out and fit the column too narrow.
     @Test func theFitFindsTheWidestNameNotTheLongest() {
         let wide = "四半期報告書二〇二四年度第三四半期決算資料"
         let latin = (0..<45).map { "file-\($0)-iiiiiiiiiiiiiiiiiiiiii.txt" }
@@ -240,17 +236,11 @@ import Sync
         #expect(fit(rows) >= needed, "fitted to \(fit(rows)) — narrower than the \(needed) the widest name needs")
     }
 
-    /// **The List's leading inset is the half of `columnRowHorizontalInset` it budgets.** The fit
-    /// lays rows out on their own and adds that constant for what the List puts around a row — a
-    /// number measured once, by eye (16–16.5pt leading, 17pt trailing, rounded up to 34). Here the
-    /// leading half is measured through the real stack: the row's icon, its first painted pixel,
-    /// starts no further in than half the constant.
-    ///
-    /// **Only the leading half can be seen from here.** Offscreen, `cacheDisplay` captures the
-    /// icon — an `NSImage` — but none of SwiftUI's text or symbols inside a List cell: a first
-    /// version of this test compared a fitted column's name against a wider one's and passed with
-    /// the constant cut to 14, because no name was ever painted. The trailing half stays the measured
-    /// number it was.
+    /// The List's leading inset fits within half of `columnRowHorizontalInset`, the constant the fit
+    /// adds for what the List puts around a row (measured by eye: 16–16.5pt leading, 17pt trailing,
+    /// rounded up to 34). Measured through the real stack: the row's icon, its first painted pixel,
+    /// starts no further in than half the constant. Only the leading half is visible: offscreen,
+    /// `cacheDisplay` captures the icon (an `NSImage`) but no SwiftUI text or symbols in a List cell.
     @Test(.machinePinned(.pixelSampling)) func theListsLeadingInsetIsTheHalfTheFitBudgets() async throws {
         let defaults = ScratchDefaults("ColumnWidthsMountTests-inset")
         let host = NSHostingView(rootView: Harness(box: Box(), defaults: defaults).environment(\.colorScheme, .light))
@@ -285,9 +275,8 @@ import Sync
                 "a row's content starts \(leading)pt into its column, past the \(PaneViewMode.columnRowHorizontalInset / 2) the fit budgets for it")
     }
 
-    /// **The deepest column has a resize handle** — a resting pane's lone column included. Dividers
-    /// used to be drawn only BETWEEN columns — one shared width needed no more — which left the column
-    /// most worth widening, the deepest one listing files, with no handle at all. A source scan, because a SwiftUI gesture view exposes
+    /// The deepest column has a resize handle, a resting pane's lone column included: it lists files
+    /// and is the one most worth widening. A source scan, because a SwiftUI gesture view exposes
     /// nothing a mounted test can find; scoped to the overlay that places the divider.
     @Test func theDeepestColumnHasAResizeHandle() throws {
         let url = URL(fileURLWithPath: #filePath)

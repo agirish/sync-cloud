@@ -2,31 +2,21 @@ import Foundation
 
 /// Edits made to Markdown source by something other than typing.
 ///
-/// **Pure functions over a string, with the buffer handed in and a new buffer — or the edit that
-/// makes it — handed back.** The
-/// alternative — reaching into the `NSTextView` and splicing — would put the app's only unattended
-/// writes to somebody's file behind a view, where nothing can test them. Everything here can be run
-/// against a fixture and asserted character for character, which is the bar for code that edits
-/// files in his cloud folders.
+/// Pure functions: the buffer goes in, and a new buffer, or the edit that makes it, comes back.
+/// Splicing inside the `NSTextView` would put unattended writes to a user's file behind a view,
+/// where nothing can test them; here every edit is asserted character for character.
 enum MarkdownEdits {
 
-    /// The edit that flips the checkbox on a 1-based source line — the one UTF-16 unit of the box
-    /// that changes, and what goes there — or `nil` when there is not one to flip.
+    /// The edit that flips the checkbox on a 1-based source line (the one UTF-16 unit of the box
+    /// that changes, and what goes there), or `nil` when there is none to flip.
     ///
-    /// **`nil` is the honest answer to a stale click, and it has to be checked.** The preview is
-    /// rendered from a parse that is up to 150ms behind the buffer, so a click can arrive naming a
-    /// line whose checkbox has just been typed away. Rewriting that line anyway would put an `[x]`
-    /// into whatever now stands there.
+    /// `nil` answers a stale click, and callers must check it: the preview's parse can be up to
+    /// 150 ms behind the buffer, so a click may name a line whose checkbox was just typed away, and
+    /// rewriting it would put an `[x]` into whatever stands there now.
     ///
-    /// The match is deliberately narrow: leading whitespace, a list marker, whitespace, then the
-    /// box. A `[ ]` written in the middle of a sentence is not a checkbox and is left alone — the
-    /// same distinction ``MarkdownListMarker/task(done:)`` exists to make.
-    ///
-    /// **Read in place, and only as far as the line** (P52). A tick is one click on one line of a
-    /// document that can be 4 MiB, and it used to copy the whole text, walk it a Character at a time,
-    /// build a new text and diff the two in full: 19 ms at 200 KB. Now it reads the UTF-16 up to the
-    /// line's end and works on that line alone. The flip is the same Character rules applied to the
-    /// same line, so what a tick writes is unchanged.
+    /// The match is narrow: leading whitespace, a list marker, whitespace, then the box. A `[ ]`
+    /// mid-sentence is not a checkbox (as in ``MarkdownListMarker/task(done:)``). Reads the text in
+    /// place, only as far as the line, since a document can be 4 MiB.
     static func taskToggle(onLine target: Int, in text: NSString) -> (range: NSRange, text: String)? {
         guard let range = lineRange(of: target, in: text) else { return nil }
         let line = text.substring(with: range)
@@ -37,10 +27,9 @@ enum MarkdownEdits {
 
     /// The line's own range in UTF-16, not including its terminator.
     ///
-    /// **LF, CR and CRLF end a line, as in ``EditorLineIndex``** — counted by unit, which counts the
-    /// same lines as a walk by Character: a CR or an LF is always a Character of its own, or the
-    /// two are one, `"\r\n"`. Read ``lineScanChunk`` units at a time, so finding line 3 of a long
-    /// document reads one chunk of it.
+    /// LF, CR and CRLF end a line, as in ``EditorLineIndex``. Counted by UTF-16 unit, which finds the
+    /// same lines as a walk by Character: CR and LF are each a Character, or together `"\r\n"`.
+    /// Reads ``lineScanChunk`` units at a time, so line 3 of a long document costs one chunk.
     static func lineRange(of target: Int, in text: NSString) -> NSRange? {
         guard target >= 1 else { return nil }
         let length = text.length
@@ -75,9 +64,8 @@ enum MarkdownEdits {
 
     /// The same line with its checkbox flipped, or `nil` when it has none.
     ///
-    /// `[X]` is checked too — GFM accepts either case, and a file written by another tool routinely
-    /// uses the capital. It is flipped to a lowercase `[x]`, because the flip has to choose one and
-    /// this is what the app writes everywhere else.
+    /// `[X]` counts as checked too, since GFM accepts either case and other tools write it. Ticking
+    /// writes a lowercase `[x]`, as the app does everywhere else.
     private static func flippedCheckbox(in line: String) -> String? {
         var index = line.startIndex
         func skipWhitespace() {
@@ -97,8 +85,7 @@ enum MarkdownEdits {
         } else {
             return nil
         }
-        // **At least one space between the marker and the box.** `-[x]` is not a task item to any
-        // parser, so it must not become one here either.
+        // At least one space between the marker and the box: `-[x]` is no task item to a parser.
         let beforeSpace = index
         skipWhitespace()
         guard index > beforeSpace else { return nil }

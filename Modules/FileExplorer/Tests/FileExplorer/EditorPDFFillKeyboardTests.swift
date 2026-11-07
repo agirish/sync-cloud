@@ -8,8 +8,8 @@ import EventsTestSupport
 @testable import FileExplorer
 
 extension PDFFixtures {
-    /// The corpus form with a `/TU` — the description a form gives a field for screen readers —
-    /// on `applicant.name` and `subscribe`, added by an appended update that rewrites the two fields.
+    /// The corpus form with a `/TU` (a field's description for screen readers) on `applicant.name`
+    /// and `subscribe`, added by an appended update that rewrites the two fields.
     static func writeDescribedForm(_ path: String) throws {
         let plain = path + ".plain.pdf"
         try writeForm(plain)
@@ -38,11 +38,10 @@ extension PDFFixtures {
     }
 }
 
-/// **Fill & Sign by keyboard alone and with VoiceOver** (decisions AZ–BE, 2026-10-20): Return
-/// places the chosen tool's item, Tab walks the form's fields then what is placed, VoiceOver reads
-/// and presses every field and item, saved drawn signatures are told apart, deleting one asks, and
-/// Add Signature opens on Type. Keys go in through `NSWindow.sendEvent`, as a real key does, to a
-/// window buried under everything on screen.
+/// Fill & Sign by keyboard alone and with VoiceOver: Return places the chosen tool's item, Tab
+/// walks the form's fields then what is placed, VoiceOver reads and presses every field and item,
+/// saved drawn signatures are told apart, deleting one asks, and Add Signature opens on Type. Keys
+/// go in through `NSWindow.sendEvent`, as a real key does, to a window buried under everything.
 ///
 /// Serialized, because the opens take `PDFKitSerialAccess`'s one lane.
 @MainActor
@@ -80,8 +79,8 @@ extension PDFFixtures {
         return try await open(file)
     }
 
-    /// The reader in a buried window, the pages holding the keyboard, Fill & Sign on — the overlay
-    /// has taken the keyboard, as it does in the app.
+    /// The reader in a buried window with Fill & Sign on and the overlay holding the keyboard, as
+    /// in the app.
     private struct Stage {
         let window: NSWindow
         let reader: ReaderPDFView
@@ -104,7 +103,7 @@ extension PDFFixtures {
         reader.layoutDocumentView()
         reader.layoutSubtreeIfNeeded()
         reader.fillSign = pdf.fill
-        // A real "Save the filled copy?" alert would wait forever: a test that turns it off with
+        // A real "Save the filled copy?" alert would wait forever, so turning Fill & Sign off with
         // work on the page discards it.
         pdf.fill.askLeaving = { _, _ in .discard }
         window.makeFirstResponder(reader)
@@ -133,20 +132,19 @@ extension PDFFixtures {
     private func returnKey(_ window: NSWindow) { press(36, "\r", in: window) }
     private func tab(_ window: NSWindow, back: Bool = false) { press(48, back ? "\u{19}" : "\t", shift: back, in: window) }
 
-    /// Lets the overlay's refresh — a turn after each change — run.
+    /// Lets the overlay's refresh, a turn after each change, run.
     private func settle() async { for _ in 0..<20 { await Task.yield() } }
 
     // MARK: Placing (decision BA)
 
-    /// **Return places the chosen tool's item in the middle of what can be seen of the page** —
-    /// selected, so the arrows move it — and a second Return puts the next one just below, not on
-    /// top. A signature is placed once; Text takes the typing straight away.
+    /// Return places the chosen tool's item in the middle of the visible part of the page,
+    /// selected so the arrows move it; a second Return puts the next just below, not on top. A
+    /// signature is placed once; Text takes the typing straight away.
     @Test func returnPlacesTheChosenItemInTheMiddleOfWhatCanBeSeen() async throws {
         let pdf = try await letter()
         let fill = pdf.fill
         fill.formatDate = { _ in "20/10/2026" }
-        // At 100% a Letter page is taller than the window, so what can be seen is the page's top —
-        // and its middle is not the page's.
+        // At 100% a Letter page is taller than the window, so the visible middle isn't the page's.
         let stage = try await stage(pdf)
         defer { close(stage) }
         let page = try #require(pdf.document?.page(at: 0))
@@ -194,8 +192,8 @@ extension PDFFixtures {
         #expect(fill.items.last?.words?.string == "Lease ends 1 May")
     }
 
-    /// **Return on a text box reached by Tab types into it**, as a double-click does — only the
-    /// one just placed by Return is followed by another instead.
+    /// Return on a text box reached by Tab types into it, as a double-click does; only a box just
+    /// placed by Return gets another placed after it instead.
     @Test func returnOnATextBoxReachedByTabTypesIntoIt() async throws {
         let pdf = try await letter()
         let fill = pdf.fill
@@ -215,15 +213,15 @@ extension PDFFixtures {
 
     // MARK: Tab's ring (decision BB)
 
-    /// **Tab walks the form's fields, then what is placed, round again** — and Tab while typing in
-    /// a text box goes on round the ring, the keyboard still in the pages. Unanswered, it ended the
-    /// typing and nothing on the page had the keyboard. An item off screen is scrolled into sight.
+    /// Tab walks the form's fields, then what is placed, and round again. Tab while typing in a
+    /// text box goes on round the ring with the keyboard still in the pages, rather than leaving
+    /// nothing with the keyboard. An item off screen is scrolled into sight.
     @Test func tabWalksTheFormThenThePlacedItems() async throws {
         let pdf = try await form()
         let fill = pdf.fill
         let stage = try await stage(pdf, scale: 1)
         defer { close(stage) }
-        // The fillable fields and the signature fields, in the form's own order (decision BK).
+        // The fillable fields and the signature fields, in the form's own order.
         let fillable = Set(fill.form.fillable.map(\.name))
         let order = fill.form.fields.filter { fillable.contains($0.name) || $0.kind == .signature }.map(\.name)
         try #require(order.count > 3 && order.contains("signature"))
@@ -284,10 +282,9 @@ extension PDFFixtures {
         #expect(flat.fill.selection == dot)
     }
 
-    /// **A signature field signs without the mouse** (TE164, decision BK): Tab stops on it in the
-    /// form's own order; Space opens Add Signature for it when none is saved, Return its Signature
-    /// menu once one is, and the keyboard stays on the field meanwhile; VoiceOver's press opens the
-    /// same menu.
+    /// A signature field signs without the mouse: Tab stops on it in the form's order; Space opens
+    /// Add Signature for it when none is saved, Return its Signature menu once one is, and the
+    /// keyboard stays on the field meanwhile. VoiceOver's press opens the same menu.
     @Test func aSignatureFieldSignsFromTheKeyboardAndVoiceOver() async throws {
         let pdf = try await form()
         let fill = pdf.fill
@@ -321,8 +318,8 @@ extension PDFFixtures {
         #expect(menus.count == 2 && menus.last?.items.first?.title == EditorPDFSignatureMenu.signFieldTitle)
     }
 
-    /// **The typing box is drawn light, like the paper under it** (TE189) — in Dark Mode its "Type"
-    /// placeholder was white on the white page.
+    /// The typing box is drawn light, like the paper under it; following Dark Mode would put its
+    /// "Type" placeholder white on the white page.
     @Test func theTypingBoxIsLightInDarkMode() async throws {
         let pdf = try await letter()
         let fill = pdf.fill
@@ -340,9 +337,9 @@ extension PDFFixtures {
 
     // MARK: VoiceOver
 
-    /// **VoiceOver reads and presses every field and item on screen** — through the reader, which
-    /// lists the overlay among its children once the overlay is an element; each widget as its kind, named, with its value and
-    /// whether it takes one; each item by what it is; and where Tab is.
+    /// VoiceOver reads and presses every field and item on screen, through the reader, which lists
+    /// the overlay among its children: each widget as its kind, named, with its value and whether it
+    /// takes one; each item by what it is; and where Tab is.
     @Test func voiceOverReadsAndPressesEveryFieldAndItem() async throws {
         let pdf = try await form()
         let fill = pdf.fill
@@ -371,7 +368,7 @@ extension PDFFixtures {
         let plan = elements.filter { ($0.accessibilityLabel() ?? "").hasPrefix("plan, ") }
         #expect(plan.count == 3 && plan.allSatisfy { $0.accessibilityRole() == .radioButton })
         #expect(byLabel["country"]?.accessibilityRole() == .popUpButton)
-        // A signature field is a button that signs (TE164), not a dimmed one that does nothing.
+        // A signature field is a button that signs, not a dimmed one that does nothing.
         let signature = try #require(byLabel["signature"])
         #expect(signature.accessibilityRole() == .button && signature.isAccessibilityEnabled(), "the signature field reads dimmed")
         #expect(signature.accessibilityHelp() == EditorPDFForm.signFieldHint)
@@ -426,7 +423,7 @@ extension PDFFixtures {
                 "VoiceOver still lists Fill & Sign with it off")
     }
 
-    /// **A field is named by the description its form gives it**, else by the last part of its name.
+    /// A field is named by the description its form gives it, else by the last part of its name.
     @Test func fieldsAreNamedByTheirFormsDescriptions() async throws {
         let file = path("Described.pdf")
         try PDFFixtures.writeDescribedForm(file)
@@ -441,8 +438,8 @@ extension PDFFixtures {
 
     // MARK: Saved signatures (decisions BD, BE)
 
-    /// **Saved drawn signatures are told apart** — by their number among the drawn ones of their
-    /// kind, newest first, and their pen — in the palette's flyout, its Delete submenu and on the page.
+    /// Saved drawn signatures are told apart by their number among the drawn ones of their kind
+    /// (newest first) and by their pen, in the palette's flyout, its Delete submenu and on the page.
     @Test func drawnSignaturesAreToldApartByNumberAndPen() throws {
         let store = EditorPDFSignatureStore(defaults: ScratchDefaults("EditorPDFFillKeyboardTests.names"))
         let fill = EditorPDFFillSign(store: store)
@@ -462,7 +459,7 @@ extension PDFFixtures {
         #expect(onPage.spokenName(among: store.saved) == "Drawn signature 2, bold pen")
     }
 
-    /// **Delete a Saved Signature asks first, and Return keeps it** — Cancel is the alert's default.
+    /// Delete a Saved Signature asks first; Esc cancels and no key deletes.
     @Test func deletingASavedSignatureAsksFirst() throws {
         let store = EditorPDFSignatureStore(defaults: ScratchDefaults("EditorPDFFillKeyboardTests.delete"))
         let fill = EditorPDFFillSign(store: store)
@@ -492,8 +489,8 @@ extension PDFFixtures {
 
     // MARK: Add Signature (decision BC)
 
-    /// **Add Signature opens on Type, the caret in the name field** — on Draw, as it opened, the
-    /// keyboard had no way to Type without the Mac's Keyboard navigation setting.
+    /// Add Signature opens on Type, the caret in the name field. Opening on Draw would leave the
+    /// keyboard no way to Type without the Mac's Keyboard navigation setting.
     @Test func addSignatureOpensOnTypeWithTheCaretInTheName() async throws {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: ScratchDefaults("EditorPDFFillKeyboardTests.sheet")))
         let host = NSHostingView(rootView: EditorPDFAddSignatureSheet(fill: fill, kind: .signature))
@@ -519,7 +516,7 @@ extension PDFFixtures {
 
     // MARK: The menu bar (decision AZ)
 
-    /// **File ▸ Fill & Sign Tool holds the palette's tools**, greyed until Fill & Sign is on, each
+    /// File ▸ Fill & Sign Tool holds the palette's tools, greyed until Fill & Sign is on, each
     /// ticked as its tool is lit. Choosing one is driven in the app host
     /// (`PDFMenuBarTests.theToolMenuChoosesWhatThePaletteDoes`), where a menu item fires.
     @Test func theToolMenuHoldsThePalettesTools() async throws {
@@ -531,7 +528,7 @@ extension PDFFixtures {
             menu.update()
             return menu
         }
-        // A tick reads "[on] " — the Check Mark line's own title starts with ✓.
+        // A tick reads "[on] ", since the Check Mark line's own title starts with ✓.
         func line(_ item: NSMenuItem) -> String {
             let title = (item.state == .on ? "[on] " : "") + (item.isSeparatorItem ? "—" : item.title)
             return item.isEnabled || item.isSeparatorItem ? title : "(\(title))"
@@ -539,7 +536,8 @@ extension PDFFixtures {
         func toolLines() throws -> [String] {
             try #require(menu().items.first { $0.title == EditorPDFFillToolMenu.title }?.submenu).items.map(line)
         }
-        // Every line a tool or a choice — a submenu's own line reads live whatever its lines say.
+        // Only lines that are a tool or a choice: a submenu's own line reads live whatever its
+        // lines say.
         func leaves(_ menu: NSMenu) -> [NSMenuItem] {
             menu.update()
             return menu.items.flatMap { $0.submenu.map(leaves) ?? ($0.isSeparatorItem ? [] : [$0]) }
@@ -549,7 +547,7 @@ extension PDFFixtures {
         #expect(leaves(offMenu).count > 15 && live.isEmpty, "live with Fill & Sign off: \(live)")
         fill.toggle()
         let lines = try toolLines()
-        // Replace greyed: the file has a fillable form (decision AV).
+        // Replace greyed: the file has a fillable form.
         #expect(lines == ["[on] Form Fields", "Select", "Text", "(Replace)", "Date", "—", "✓  Check Mark", "✗  Cross", "•  Dot", "—",
                           "Signature", "Initials", "—", "Ink", "Text Size"], "\(lines)")
         fill.armed = .mark(.cross)

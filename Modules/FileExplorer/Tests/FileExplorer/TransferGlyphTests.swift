@@ -8,9 +8,8 @@ import AppKit
         // Direction-unresolved copy stays the universal duplicate glyph: menus that name their
         // target in text, and "remaining", which resolves each item its own way.
         #expect(TransferGlyph.copy == "doc.on.doc")
-        // Fixed-direction copy points at the pane it targets. This used to return `copy` — the
-        // Differences header now fixes its primary to left-to-right and sheds the destination
-        // name first when narrow, so direction has to survive in the icon.
+        // Fixed-direction copy points at the pane it targets: the Differences header sheds the
+        // destination name first when narrow, so direction has to survive in the icon.
         #expect(TransferGlyph.copy(toRight: true) == "arrow.right")
         #expect(TransferGlyph.copy(toRight: false) == "arrow.left")
 
@@ -22,7 +21,7 @@ import AppKit
     }
 
     @Test func testFixedDirectionCopyAndMoveAgreeOnDirection() {
-        // The modifier changes the VERB, never the direction: a bare arrow for copy and the same
+        // The modifier changes the verb, never the direction: a bare arrow for copy and the same
         // arrow boxed for move. A pair that disagreed would make ⇧ look like it also flipped sides.
         for toRight in [true, false] {
             let side = toRight ? "right" : "left"

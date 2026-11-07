@@ -1,38 +1,27 @@
 import AppKit
 import SwiftUI
 
-/// **Which undo stack ⌘Z reaches while Edit shows a document.**
+/// Which undo stack ⌘Z reaches while Edit shows a document.
 ///
-/// AppKit answers Edit ▸ Undo and ⌘Z through the window. `NSWindow` handles `undo:` for any first
-/// responder that does not. For a text view that allows undo it undoes — and titles the menu item
-/// from — the stack the text view's DELEGATE returns from `undoManager(for:)`; overriding the view's
-/// own `undoManager` property changes nothing. For anything else it undoes its OWN stack (measured
-/// 2026-10-16: a plain view, and editable Preview's text view, whose `allowsUndo` is off, both reach
-/// the window's stack despite overriding `undoManager`).
-/// In this app the window's own stack is `FileSyncManager`'s, the file operations'
-/// (`ContentView`'s `.rewireUndoManager`).
+/// `NSWindow` handles `undo:` for any first responder that doesn't. For a text view that allows
+/// undo it uses, and titles the menu from, the stack the view's delegate returns from
+/// `undoManager(for:)`; overriding the view's own `undoManager` changes nothing. For anything else
+/// it undoes its own stack, which in this app is the file operations' (`FileSyncManager`, via
+/// `ContentView`'s `.rewireUndoManager`).
 ///
-/// **The rule:** while Edit shows a document, ⌘Z acts on the document's stack when the first
-/// responder is the window itself, the document's text view, its find or replace fields, or the
-/// read-only Preview; on the file operations' only when the file pane or another control has the
-/// keyboard. Other workspaces mount none of this.
+/// The rule: while Edit shows a document, ⌘Z acts on the document's stack when the first responder
+/// is the window, the document's text view, its find or replace fields, or read-only Preview; on
+/// the file operations' only when the file pane or another control has the keyboard. AppKit's own
+/// resolution is kept where it reaches the document; elsewhere the responder answers `undo:` and
+/// `redo:` itself (``EditorUndoCommands``), so the Edit menu always names the step ⌘Z will take.
+/// Not `windowWillReturnUndoManager`: SwiftUI owns that delegate, and the window's stack must stay
+/// the file operations' everywhere.
 ///
-/// **AppKit's own resolution is kept wherever it can reach the document** — Source's text view, and
-/// the find bar's fields through the scroll view around them — and everywhere else the responder
-/// answers `undo:` and `redo:` itself, titling the item from the same stack it acts on
-/// (``EditorUndoCommands``). Either way the Edit menu names the step ⌘Z will take. Not the window
-/// delegate's `windowWillReturnUndoManager`: SwiftUI owns that delegate, and the window's undo
-/// manager is what `FileSyncManager` is wired to, so it must stay the file operations' everywhere.
-///
-/// **Nothing has the keyboard (UND-1, UND-2)** — see ``EditorUndoAnchor``.
-///
-/// **The find bar (UND-3).** Its fields' editor answers with a cell undo manager that undoes the
-/// field's own typing and then forwards to the responders above the field — up through the scroll
-/// view the find bar lives in, to the window. Measured 2026-10-16: ⌘Z with the caret in the Find
-/// field undid a stand-in file operation and left the document's edit. The scroll view now names
-/// the document's stack (``EditorDocumentScrollView``), so the forwarding stops there.
+/// The find bar's field editor undoes the field's own typing, then forwards up the responder
+/// chain; ``EditorDocumentScrollView`` names the document's stack so the forwarding stops there
+/// instead of reaching the window. When nothing has the keyboard, see ``EditorUndoAnchor``.
 
-/// The scroll view a document's text view and its find bar sit in — Source's, and editable
+/// The scroll view a document's text view and its find bar sit in, Source's and editable
 /// Preview's.
 final class EditorDocumentScrollView: NSScrollView {
 
@@ -40,31 +29,25 @@ final class EditorDocumentScrollView: NSScrollView {
     /// must not keep a closed document's history alive.
     weak var documentUndoManager: UndoManager?
 
-    /// **The document's, for every responder inside**: the text view names the same one through its
-    /// delegate already; the find bar's fields reach it once their own typing is undone.
+    /// The document's stack, for every responder inside: the text view names it through its
+    /// delegate already, and the find bar's fields reach it once their own typing is undone.
     override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
 }
 
 // MARK: - Nothing has the keyboard (UND-1, UND-2)
 
-/// **Keeps the window from being left as first responder while Edit shows a document** — mounted
-/// beside the document, never seen and never clicked.
+/// Keeps the window from being left as first responder while Edit shows a document. Mounted beside
+/// the document, never seen and never clicked.
 ///
-/// Left as first responder, the window undoes its OWN stack, the file operations'. Two ordinary
-/// states left it there, measured 2026-10-16, each undoing a stand-in move and leaving the edit:
+/// Left as first responder, the window undoes the file operations' stack, so ⌘Z would undo a move
+/// instead of the typing. Two ordinary states leave it there: a mode switch (each mode builds its
+/// own text view, and the one with the keyboard goes away), and read-only Preview, which has no
+/// text view at all.
 ///
-/// - **A mode switch** (UND-1). Source, Split and Preview each build their own text view, and the
-///   one that had the keyboard goes with the arm it was in. Type, ⌃⌘3 to see the render, ⌘Z — and
-///   the last file operation in Browse was undone instead of the typing.
-/// - **Read-only Preview** (UND-2). It has no text view at all, so a box ticked there went on the
-///   document's stack while its ⌘Z went to the file operations'.
-///
-/// So whenever the window holds the keyboard, the document's text view takes it — Source's, or
-/// editable Preview's where Preview is all there is — and where there is none (read-only Preview, a
-/// refusal) the anchor takes it itself and answers ⌘Z with the document's stack. A text view
-/// that arrives while the anchor holds it takes it over. **Nothing that has the keyboard is ever
-/// moved off it**: the file pane, the rail's filter, the naming row keep it, and ⌘Z there is
-/// theirs — the file operations', where that is what they hold.
+/// So whenever the window holds the keyboard, the document's text view takes it, and where there
+/// is none (read-only Preview, a refusal) the anchor takes it and answers ⌘Z with the document's
+/// stack. A text view arriving while the anchor holds it takes over. **Never** moves the keyboard
+/// off something that has it: the file pane, the rail's filter and the naming row keep theirs.
 struct EditorUndoAnchor: NSViewRepresentable {
 
     /// The open document's stack.
@@ -93,9 +76,8 @@ final class EditorUndoAnchorView: NSView, NSUserInterfaceValidations {
 
     override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
 
-    /// **⌘Z and ⇧⌘Z answered here, on the document's stack.** The window would answer them for a
-    /// first responder that does not, and for a plain view it undid its OWN stack, whatever
-    /// ``undoManager`` said (measured 2026-10-16).
+    /// ⌘Z and ⇧⌘Z answered here, on the document's stack. Otherwise the window answers them, and
+    /// for a plain view it undoes its own stack whatever ``undoManager`` says.
     @objc func undo(_ sender: Any?) { documentUndoManager?.undo() }
     @objc func redo(_ sender: Any?) { documentUndoManager?.redo() }
 
@@ -127,8 +109,8 @@ final class EditorUndoAnchorView: NSView, NSUserInterfaceValidations {
         super.viewDidMoveToWindow()
         guard let window, observation == nil else { return }
         Self.anchors.setObject(self, forKey: window)
-        // `firstResponder` is observable (measured): the moment the window is left holding the
-        // keyboard — the view that had it torn down by a mode switch — is the moment to act.
+        // `firstResponder` is KVO-observable: act the moment the window is left holding the
+        // keyboard, as when a mode switch tears down the view that had it.
         observation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] window, _ in
             MainActor.assumeIsolated {
                 guard window.firstResponder == nil || window.firstResponder === window else { return }
@@ -137,22 +119,22 @@ final class EditorUndoAnchorView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    /// A document text view has come into `window` — the new Source view a mode switch built, or
-    /// Preview's. It takes the keyboard if nobody holds it, or only this anchor does.
+    /// A document text view has come into `window`, such as the new Source view a mode switch built.
+    /// It takes the keyboard if nobody holds it, or only this anchor does.
     static func textViewArrived(in window: NSWindow?) {
         guard let window else { return }
         anchors.object(forKey: window)?.claimSoon()
     }
 
-    /// **A turn later**, so the switch that triggered it has finished: the old text view gone, the
-    /// new one in the window and in the handle. Asked again then, so a field SwiftUI focused in the
-    /// meantime — the naming row, Go to Line — is left alone.
+    /// A turn later, so the triggering switch has finished: old text view gone, new one in the
+    /// window and the handle. Re-checked then, so a field SwiftUI focused meanwhile (the naming row,
+    /// Go to Line) is left alone.
     func claimSoon() {
         DispatchQueue.main.async { [weak self] in self?.claimIfNobodyHasTheKeyboard() }
     }
 
-    /// The keyboard to the document's text view, or to this anchor where there is none — when the
-    /// window holds it, or this anchor does and a text view has since arrived.
+    /// Gives the keyboard to the document's text view, or to this anchor where there is none, when
+    /// the window holds it, or this anchor does and a text view has since arrived.
     func claimIfNobodyHasTheKeyboard() {
         guard let window else { return }
         let holder = window.firstResponder
@@ -165,8 +147,8 @@ final class EditorUndoAnchorView: NSView, NSUserInterfaceValidations {
     }
 
     /// The document's text view in this window: Source's (also Split's), else editable Preview's.
-    /// A text view a mode switch let go of can still be alive — undo actions hold the views they
-    /// were made in — so only one in this window counts.
+    /// A text view a mode switch let go of can still be alive (undo actions hold their views), so
+    /// only one in this window counts.
     private var documentTextView: NSTextView? {
         guard let window, let handle else { return nil }
         for candidate in [handle.textView, handle.splitPreview] {
@@ -184,7 +166,7 @@ enum EditorUndoCommands {
     static let redo = Selector(("redo:"))
 
     /// The item's answer, or `nil` when it is neither Undo nor Redo. `alsoWhen` enables both
-    /// whatever the stack holds — editable Preview's composition, which they commit (UND-8).
+    /// whatever the stack holds, for editable Preview's composition, which they commit.
     @MainActor
     static func validate(_ item: any NSValidatedUserInterfaceItem, on manager: UndoManager?,
                          alsoWhen extra: Bool = false) -> Bool? {
@@ -201,15 +183,14 @@ enum EditorUndoCommands {
     }
 }
 
-/// **The stack Edit ▸ Undo acts on when sent to a responder** — this file's rule, as AppKit applies
-/// it, for whoever must know before sending: the run lock greys Undo only when it would step the
-/// file operations' stack, and Edit's typing undo goes on (`RunUndoGate`, Banner Room CF).
+/// The stack Edit ▸ Undo acts on when sent to a responder, this file's rule as AppKit applies it,
+/// for whoever must know before sending: the run lock greys Undo only when it would step the file
+/// operations' stack, so typing undo in Edit goes on (`RunUndoGate`).
 public enum UndoStackReached {
 
-    /// A responder that answers `undo:` itself — the anchor, Fill & Sign's overlay, editable
-    /// Preview — acts on the stack it names. The window acts on a text view's when one that allows
-    /// undo has the keyboard: the stack its delegate returns, else the window's. For anything else
-    /// it acts on its own.
+    /// A responder that answers `undo:` itself (the anchor, Fill & Sign's overlay, editable Preview)
+    /// acts on the stack it names. The window acts on a text view's when one that allows undo has
+    /// the keyboard: the stack its delegate returns, else the window's. Otherwise its own.
     @MainActor
     public static func stack(for target: Any?) -> UndoManager? {
         guard let window = target as? NSWindow else { return (target as? NSResponder)?.undoManager }
@@ -219,7 +200,7 @@ public enum UndoStackReached {
         return window.undoManager
     }
 
-    /// The responder `action` reaches from `window`'s keyboard holder, up the chain — what
+    /// The responder `action` reaches from `window`'s keyboard holder, up the chain: what
     /// `NSApp.target(forAction:)` answers for the key window.
     @MainActor
     public static func target(of action: Selector, in window: NSWindow) -> NSResponder? {

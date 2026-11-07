@@ -5,13 +5,11 @@ import Testing
 import Design
 import Sync
 
-/// **A run that stops being cancellable loses its Stop and ⌘. while it is on screen** (L7).
-///
-/// A copy, move or merge whose work is done and whose undo is still being armed calls
-/// `markFinishing`, and the capsule went on offering Stop and ⌘. for the rest of the run: it read
-/// `isCancellable` once, when the run's entry was built, while everything else in it is re-read
-/// every tick. Driven through a real window's key-equivalent pass, as `ProgressCapsuleCancelKeyTests`
-/// drives the capsule itself — here through `RunCapsuleHost`, which is where the stale read was.
+/// A run that stops being cancellable loses its Stop and ⌘. while it is on screen. A copy, move or
+/// merge whose work is done and whose undo is still being armed calls `markFinishing`, so
+/// `RunCapsuleHost` must re-read `isCancellable` every tick, not once when the run's entry is
+/// built. Driven through a real window's key-equivalent pass, as `ProgressCapsuleCancelKeyTests`
+/// drives the capsule itself.
 @MainActor
 @Suite(.serialized) struct RunCapsuleFinishingTests {
 

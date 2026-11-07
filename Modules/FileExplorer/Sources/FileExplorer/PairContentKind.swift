@@ -4,34 +4,30 @@ import UniformTypeIdentifiers
 
 /// Whether the Edit workspace opens this path, and as what.
 ///
-/// **A public window onto an internal answer, and the point is that the answer is not re-derived.**
-/// ``PairContentKind`` is internal to this package, so the Info inspector (Dashboard) and the File
-/// menu (MacApp) cannot see it — and each of them needs the very gate the row context menu already
-/// applies in ``SharedFileMenuItems/openInEditor(_:delegate:)``. An extension list re-typed in
-/// either of those modules is a list that drifts, and the cost of drift here is a door that offers
-/// a file the editor then refuses, or withholds one it would have opened. `textExtensions` stays
-/// the single table; this is the only way out of the package.
+/// A public window onto ``PairContentKind``, which is internal, so the Info inspector (Dashboard)
+/// and the File menu (MacApp) ask the same gate the row menu applies in
+/// ``SharedFileMenuItems/openInEditor(_:delegate:)``. A re-typed extension list would drift, and
+/// a door would offer a file the editor refuses, or withhold one it would open.
 ///
-/// Pure and I/O-free, exactly like the classification under it: it reads the path's extension and
-/// nothing else, so it is safe inside a `body` or a menu item's `disabled(…)`.
+/// Pure and I/O-free: it reads the path's extension and nothing else, so it is safe inside a
+/// `body` or a menu item's `disabled(…)`.
 ///
-/// **It cannot tell a folder from a file**, having no disk to ask — a directory named `notes.md`
-/// answers true here. Every caller that can have a directory in hand tests that itself, the way
-/// the row menu's `!singleNode.isDirectory` does.
+/// **It can't tell a folder from a file**: a directory named `notes.md` answers true. A caller that
+/// can hold a directory tests that itself, as the row menu's `!singleNode.isDirectory` does.
 public enum EditableText {
     /// Whether ``EditorRail`` would list this file and the editor would load it.
     public static func isText(path: String) -> Bool {
         PairContentKind.classify(path: path) == .text
     }
 
-    /// Whether the editor opens this file as a read-only PDF — ``EditorPDFDocument`` rather than
-    /// the text document. The host routes on it before any text read is attempted.
+    /// Whether the editor opens this file as a read-only PDF (``EditorPDFDocument``, not the text
+    /// document). The host routes on it before any text read is attempted.
     public static func isPDF(path: String) -> Bool {
         PairContentKind.classify(path: path) == .pdf
     }
 
-    /// **Whether "Open in Edit" is offered for this file**: text, which opens writable, or a PDF,
-    /// which opens read-only. The gate every door asks — ⌘O, the row menu, the preview's button,
+    /// Whether "Open in Edit" is offered for this file: text, which opens writable, or a PDF,
+    /// which opens read-only. The gate every door asks: ⌘O, the row menu, the preview's button,
     /// a click in Edit's pane, the inspector, row dimming, a Compare difference row and a duplicate
     /// copy. ``isText(path:)`` keeps meaning "text", for the questions only text answers.
     public static func opensInEdit(path: String) -> Bool {
@@ -39,7 +35,7 @@ public enum EditableText {
         return kind == .text || kind == .pdf
     }
 
-    /// The extensions themselves, lowercased — for the one reader that cannot ask per path:
+    /// The extensions themselves, lowercased, for the one reader that can't ask per path:
     /// `ExternalOpenClaimTests`, which checks that every one of them is a kind of text macOS
     /// recognises (and so is offered by the app's `public.text` claim in Finder's Open With), or is
     /// one of the few the claim's comment in `project.yml` names as not offered.
@@ -48,80 +44,62 @@ public enum EditableText {
 
 /// What kind of viewer a compared pair gets.
 ///
-/// **Not the same question `FileTypeGlyph.classify` answers, and that is why it is a second
-/// type.** That one names a *medium* for a row's icon — audio, video, archive, presentation — and
-/// has ten cases because a list wants ten distinguishable shapes. This one names a *pair viewer*,
-/// and there are only as many cases as there are viewers built. A PDF and a Word document are two
-/// mediums and one answer here (`.other`, until something can page a `.docx`), while a `.txt` and
-/// a `.md` are one medium there and one answer here.
+/// Not `FileTypeGlyph.classify`'s question: that names a medium for a row's icon, with a shape per
+/// medium. This names a pair viewer, with only as many cases as there are viewers built; a `.docx`
+/// is `.other` here until something can page it.
 ///
-/// **`.other` is the honest majority and is not a failure.** Every kind falls back to two
-/// independent Quick Look panes, which is what phase 1 shipped for everything — still the whole
-/// win over a 40pt thumbnail. What a typed viewer adds is synchronised scrolling and the visual
-/// diff modes, and those are only worth building where the format has a page or a canvas to
-/// synchronise.
+/// `.other` is the honest majority, not a failure: two independent Quick Look panes. A typed
+/// viewer adds synchronised scrolling and the visual diff modes, worth building only where the
+/// format has a page or a canvas to synchronise.
 enum PairContentKind: String, Equatable, CaseIterable {
     /// Two `PDFView`s, page- and scroll-synchronised, with the pixel diff modes.
     case pdf
     /// Two scroll-hosted image views, zoom-synchronised, with the pixel diff modes.
     case image
-    /// A bounded, encoding-tolerant text read and a side-by-side diff (phase 3).
+    /// A bounded, encoding-tolerant text read and a side-by-side diff.
     case text
     /// Two independent Quick Look panes, and a caption saying they do not scroll together.
     case other
 
     /// Pure classification by lowercased path extension.
     ///
-    /// **An explicit extension list for text, in the style `FileTypeGlyph.classify` documents**: no
-    /// `UTType` umbrella means "a file whose bytes are lines a person reads". `.public.text`
-    /// conformance would pull in every source format, `.json`, `.xml` — which is fine, they ARE
-    /// diffable — but it also pulls in `.rtf` and `.webarchive`, which are not lines at all and
-    /// would render as one long line of markup. So the list is written down, and everything else
-    /// takes `.other`, where a Quick Look pane renders it correctly.
+    /// Text is an explicit extension list, as in `FileTypeGlyph.classify`: no `UTType` umbrella
+    /// means "lines a person reads". `public.text` conformance would also pull in `.rtf` and
+    /// `.webarchive`, which would render as one long line of markup. Everything else takes
+    /// `.other`, where Quick Look renders it correctly.
     ///
-    /// PDF and image go through `UTType` conformance, which is metadata-only and does no I/O: those
-    /// two families are genuinely open-ended (`heic`, `arw`, `cr3` and whatever a camera ships
-    /// next), and a hand-written list of them is the thing that silently stops covering a format.
+    /// PDF and image go through `UTType` conformance, metadata-only with no I/O, because those
+    /// families are open-ended (`heic`, `arw`, `cr3`, the next camera's) and a hand-written list
+    /// would silently stop covering a format.
     nonisolated static func classify(ext: String) -> PairContentKind {
         let ext = ext.lowercased()
         guard !ext.isEmpty else { return .other }
         if Self.textExtensions.contains(ext) { return .text }
         guard let type = UTType(filenameExtension: ext), type.isDeclared else { return .other }
         if type.conforms(to: .pdf) { return .pdf }
-        // **Conforming to `.image` is not the same as being decodable, and `.svg` is the proof.**
-        // `public.svg-image` conforms to `public.image` and ImageIO has no codec for it, so the
-        // typed viewer this once returned mounted two image views over nil, with no caption and a
-        // difference mode that spun for ever — while `.other`, the answer it displaced, would have
-        // rendered both sides through Quick Look, which reads SVG perfectly well.
+        // Conforming to `.image` is not being decodable: `public.svg-image` conforms but ImageIO
+        // has no codec for it, so the image viewer would show two empty views and a difference
+        // mode that never finishes, while Quick Look under `.other` renders SVG well.
         if type.conforms(to: .image) { return imageIOCanDecode(type) ? .image : .other }
         return .other
     }
 
     /// Whether ImageIO can actually turn this type into a raster.
     ///
-    /// **Asked of the framework, not written down here**, for the reason the `.image` branch exists
-    /// at all: the decodable set is open-ended (`heic`, `arw`, `cr3`, whatever a camera ships next)
-    /// and a hand-kept list of it is the thing that silently stops covering a format. This asks the
-    /// one component whose answer actually governs — `PagePairRaster.renderImage` is a
-    /// `CGImageSource` — so the classification and the renderer cannot disagree.
+    /// Asked of the framework, not listed here, because the decodable set is open-ended. ImageIO is
+    /// the component that governs (`PagePairRaster.renderImage` is a `CGImageSource`), so the
+    /// classification and the renderer can't disagree.
     static func imageIOCanDecode(_ type: UTType) -> Bool {
         canDecode(type, listing: decodableImageTypes, resolved: decodableImageUTTypes)
     }
 
     /// The rule itself, against a listing supplied rather than read from the framework.
     ///
-    /// **A parameter so the umbrella guard in ``decodableTypes(in:)`` is reachable at all.**
-    /// Measured on this machine, `CGImageSourceCopyTypeIdentifiers` returns 62 identifiers and
-    /// `public.image` is not among them — so against the real listing that guard can never fire,
-    /// and deleting it passes every test there is. A defensive half no test can fail is one this
-    /// repo has been bitten by before; the listing is an argument here, and the guard is asserted
-    /// against one that does name the umbrella.
+    /// The listing is a parameter so the umbrella guard in ``decodableTypes(in:)`` can be tested:
+    /// the real `CGImageSourceCopyTypeIdentifiers` doesn't name `public.image`, so against it the
+    /// guard never fires. Tests pass a listing that does.
     ///
     /// - Parameters:
-    ///   - listing: the identifiers a decoder is claimed for, matched by name first.
-    ///   - resolved: the same listing as concrete types, for a type ImageIO lists only under a
-    ///     broader one it also declares (some RAW families). Passed in already built, because this
-    ///     is called from a `body` — see ``decodableImageUTTypes``.
     static func canDecode(_ type: UTType, listing: Set<String>, resolved: [UTType]) -> Bool {
         if listing.contains(type.identifier) { return true }
         return resolved.contains { type.conforms(to: $0) }
@@ -129,27 +107,23 @@ enum PairContentKind: String, Equatable, CaseIterable {
 
     /// A listing of identifiers as concrete `UTType`s, with any umbrella dropped.
     ///
-    /// **`public.image` is the one that matters and it is dropped deliberately.** It is the type
-    /// every image conforms to, so a listing naming it would answer "decodable" for all of them —
-    /// including `public.svg-image`, which ImageIO cannot decode and which this whole branch exists
-    /// to keep out of the image viewer.
+    /// `public.image` is dropped deliberately: every image conforms to it, so a listing naming it
+    /// would call all of them decodable, including `public.svg-image`, which ImageIO can't decode.
     static func decodableTypes(in listing: Set<String>) -> [UTType] {
         listing.compactMap { UTType($0) }.filter { $0 != .image }
     }
 
-    /// The identifiers `CGImageSourceCopyTypeIdentifiers` reports, read once. A framework-wide
-    /// constant for the life of the process — it enumerates installed codecs, which do not change
-    /// under a running app.
+    /// The identifiers `CGImageSourceCopyTypeIdentifiers` reports, read once: it enumerates
+    /// installed codecs, which don't change under a running app.
     private static let decodableImageTypes: Set<String> = {
         Set(CGImageSourceCopyTypeIdentifiers() as? [String] ?? [])
     }()
 
     /// The same list as resolved `UTType`s, built once rather than per call.
     ///
-    /// **`classify` runs inside a `body`.** `FilePairCompareView.kind` is a computed property that
-    /// classifies both paths on every render, and the conformance walk is the branch a type ImageIO
-    /// does not list by name takes — SVG on every frame, and every RAW subtype. Rebuilding 62
-    /// `UTType`s from their identifiers there is work whose answer never changes.
+    /// `classify` runs from view code (the rail's rows, menu items' `disabled(…)`), and the
+    /// conformance walk is the path for any type ImageIO doesn't list by name, such as SVG and RAW
+    /// subtypes. Rebuilding every `UTType` there would be work whose answer never changes.
     private static let decodableImageUTTypes: [UTType] = decodableTypes(in: decodableImageTypes)
 
     static func classify(path: String) -> PairContentKind {
@@ -169,10 +143,9 @@ enum PairContentKind: String, Equatable, CaseIterable {
 
     /// The extensions the editor offers a rendered preview for.
     ///
-    /// **A subset of ``textExtensions``, and spelled out rather than inferred**, for the same
-    /// reason that set is: this decides whether a control appears, and a UTI umbrella would quietly
-    /// pull in whatever the system decides conforms to `public.plain-text` on a given machine.
-    /// Both members are already text kinds — this only asks a second question about them.
+    /// A subset of ``textExtensions``, spelled out for that set's reason: this decides whether a
+    /// control appears, and a UTI umbrella would pull in whatever conforms to `public.plain-text`
+    /// on a given machine.
     static let markdownExtensions: Set<String> = ["md", "markdown"]
 
     /// Whether this file is Markdown, and therefore has something to preview.
@@ -184,10 +157,9 @@ enum PairContentKind: String, Equatable, CaseIterable {
     /// has no canvas to synchronise and the other synchronises by line, in its own pane.
     var hasSyncedViewer: Bool { self == .pdf || self == .image }
 
-    /// Whether the pixel diff modes (swipe, onion, difference) apply. Same set as
-    /// ``hasSyncedViewer`` today — they need a raster of the same region on both sides, which is
-    /// exactly what a synced viewer is — but a separate member, because a future kind could get one
-    /// without the other and a shared `Bool` would make that unwriteable.
+    /// Whether the pixel diff modes (swipe, onion, difference) apply. The same set as
+    /// ``hasSyncedViewer`` today, since both need a raster of one region on each side, but separate
+    /// so a future kind can have one without the other.
     var hasPixelModes: Bool { self == .pdf || self == .image }
 
     /// The caption a pane wears when nothing synchronises it, so the surface never pretends. nil

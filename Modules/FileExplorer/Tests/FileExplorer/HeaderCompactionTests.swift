@@ -18,8 +18,8 @@ import Testing
 
     @Test func testDestinationNamesAreShedAfterEverythingElse() {
         // Verify and Review name no destination, so both are gone before either transfer button
-        // gives up a word — the property that makes this ladder the inverse of the old
-        // truncationMode(.middle), which ate the destination out of the widest button first.
+        // gives up a word; the widest button never loses its destination first, as a middle
+        // truncation would make it.
         #expect(HeaderCompaction.foldVerify < .shortReverse)
         #expect(HeaderCompaction.foldReview < .shortReverse)
         // And the primary's destination outlives the reverse's and the filter's.
@@ -30,26 +30,24 @@ import Testing
     // MARK: Labels
 
     @Test func testBothVerbsAreSpelledOutWhileTheDestinationFits() {
-        // The pair a user actually compares. Copy used to be the unmarked default and carried no
-        // verb at all; both are spelled out now, so telling them apart needs no prior knowledge of
-        // the convention and the ⇧ flip is one swapped word.
+        // The pair a user compares. Both verbs are spelled out, so telling them apart needs no
+        // prior knowledge of a convention and the ⇧ flip is one swapped word.
         #expect(BulkActionLabel.text(count: 17, destination: "Dropbox", isMove: false) == "Copy 17 to Dropbox")
         #expect(BulkActionLabel.text(count: 17, destination: "Dropbox", isMove: true) == "Move 17 to Dropbox")
     }
 
     @Test func testCopyShedsItsVerbWithTheDestinationButMoveNever() {
         // The narrow rungs, where the ladder has already taken the destination. Copy's verb goes
-        // with it — a bare count is what that rung has always shown, and this change is not
-        // allowed to make narrow windows compact any earlier than they already do. Move's verb
-        // stays at every width: it is the one word saying the source will not survive.
+        // with it: a bare count keeps narrow windows from compacting any earlier. Move's verb stays
+        // at every width: it is the one word saying the source will not survive.
         #expect(BulkActionLabel.text(count: 4, destination: nil, isMove: false) == "4")
         #expect(BulkActionLabel.text(count: 4, destination: nil, isMove: true) == "Move 4")
     }
 
-    /// The mutation this file exists to catch: if `text` ever spells Copy out at the narrow rung
-    /// too, the row grows at exactly the widths that had no room to begin with, and (i) has
-    /// silently become (ii). Asserting the LENGTHS rather than the strings is what makes the
-    /// intent — "the shed label is never longer than the one it replaced" — the checked property.
+    /// The mutation this file exists to catch: if `text` spelled Copy out at the narrow rung too,
+    /// the row would grow at exactly the widths that had no room to begin with. Asserting the
+    /// lengths rather than the strings makes the intent, "the shed label is never longer than a
+    /// bare count", the checked property.
     @Test func testShedCopyLabelIsNoLongerThanBeforeTheVerbExisted() {
         let shed = BulkActionLabel.text(count: 560, destination: nil, isMove: false)
         let named = BulkActionLabel.text(count: 560, destination: "Dropbox", isMove: false)
@@ -59,7 +57,7 @@ import Testing
     }
 
     @Test func testHelpAlwaysNamesTheVerbAndDestination() {
-        // The label may shed words; the explanation may not — that is what makes the terse label
+        // The label may shed words; the explanation may not. That is what makes the terse label
         // safe on a destructive action.
         #expect(BulkActionLabel.help(count: 17, destination: "Dropbox", isMove: false)
                 == "Copy 17 items to Dropbox")
@@ -69,8 +67,8 @@ import Testing
 
     @Test func testReverseKeepsItsDestinationAtEveryWidthWhenItIsTheMajority() {
         // The one thing a fixed left-to-right primary cannot tell you is that the loudest button
-        // is pointing away from most of the work. So when the reverse IS the bulk, its destination
-        // survives every rung — including the ones past `shortReverse`.
+        // points away from most of the work. So when the reverse is the bulk, its destination
+        // survives every rung, including the ones past `shortReverse`.
         for compaction in HeaderCompaction.allCases {
             #expect(BulkActionLabel.reverseNamesDestination(reverseIsMajority: true,
                                                             compaction: compaction),
@@ -93,10 +91,10 @@ import Testing
         #expect(!BulkActionLabel.primaryNamesDestination(compaction: .shortPrimary))
     }
 
-    /// The view's ladder is a hand-maintained mirror of the enum — `ViewThatFits` treats a `ForEach`
-    /// as one child, so the rows cannot be looped and a new rung has to be added in two places. Add
-    /// it to the enum only and the header silently never renders it, while every test above still
-    /// passes because they only ever ask the enum.
+    /// The view's ladder is a hand-maintained mirror of the enum: `ViewThatFits` treats a `ForEach`
+    /// as one child, so the rows cannot be looped and a new rung has to be added in two places.
+    /// Added to the enum only, the header would silently never render it while every test above
+    /// still passed.
     @Test func testTheViewRendersEveryCompactionRung() {
         #expect(DifferencesView.renderedCompactionLadder == HeaderCompaction.allCases,
                 "HeaderCompaction.allCases and the ViewThatFits ladder in DifferencesView have drifted")

@@ -3,8 +3,8 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The rules that put the rail's outline back where it was — and that stop it moving under the
-/// reader's hand once it is there.
+/// The rules that put the rail's outline back where it was, and stop it moving under the reader
+/// once it is there.
 @Suite struct EditorOutlineScrollTests {
 
     private func outline(_ lines: [Int]) -> [MarkdownOutlineEntry] {
@@ -18,9 +18,8 @@ import Design
         #expect(target == 40)
     }
 
-    /// **The remembered value is a source line, and source lines move.** Typing above a heading
-    /// renumbers it and deleting one removes it outright, so the exact id is often gone by the time
-    /// anyone comes back — landing near where they were beats refusing to move.
+    /// The remembered value is a source line, and edits renumber or remove lines, so a missing
+    /// heading resolves to the nearest survivor rather than refusing to move.
     @Test func aRememberedHeadingThatHasGoneResolvesToTheNearestSurvivor() {
         #expect(EditorOutlineScroll.restoreTarget(remembered: 40,
                                                   outline: outline([1, 20, 44, 90])) == 44)
@@ -28,8 +27,8 @@ import Design
                                                   outline: outline([1, 20, 90])) == 20)
     }
 
-    /// Equidistant, the earlier line wins: it keeps the section the reader was looking at on screen
-    /// rather than starting them below it.
+    /// Equidistant, the earlier line wins, keeping the reader's section on screen rather than
+    /// starting them below it.
     @Test func anAnchorBetweenTwoHeadingsTakesTheOneAbove() {
         #expect(EditorOutlineScroll.restoreTarget(remembered: 30,
                                                   outline: outline([20, 40])) == 20)
@@ -42,9 +41,8 @@ import Design
 
     // MARK: The caret's heading, when the anchor would hide it
 
-    /// His decision, in one function: the remembered anchor opens the list, unless it would leave
-    /// the heading the caret is in past the fold — then that wins. A marked row nobody can see is
-    /// the failure the mark exists to prevent.
+    /// The remembered anchor opens the list unless it would leave the caret's heading past the
+    /// fold; then the caret's heading wins, since a marked row nobody can see is no use.
     @Test func aCaretHeadingBelowTheFoldBeatsTheRememberedAnchor() {
         let rows = outline([2, 4, 6, 8, 10, 12, 14, 16, 18, 20])
         // Anchored at the top, five rows on screen, caret in the last heading — off the fold.
@@ -52,9 +50,8 @@ import Design
                                                   outline: rows, rowsThatFit: 5) == 20)
     }
 
-    /// **Above the fold counts too**, which the range check gets for free and a naive "is it further
-    /// down than the anchor" test would not: coming back to an anchor deep in a long document with
-    /// the caret in the first heading leaves the mark off the TOP of the list.
+    /// Off the top counts too: an anchor deep in a long document with the caret in the first
+    /// heading hides the mark above the list. A naive "further down than the anchor" check misses it.
     @Test func aCaretHeadingAboveTheAnchorAlsoWins() {
         let rows = outline([2, 4, 6, 8, 10, 12, 14, 16, 18, 20])
         #expect(EditorOutlineScroll.openingTarget(remembered: 18, current: 2,
@@ -67,16 +64,14 @@ import Design
                                                   outline: rows, rowsThatFit: 5) == 2)
     }
 
-    /// `nil` is a real answer from `MarkdownOutline.currentEntry` — text above the first heading is
-    /// in no section — and it is not a reason to move anything.
+    /// `nil` from `MarkdownOutline.currentEntry` (text above the first heading) moves nothing.
     @Test func aCaretInNoSectionLeavesTheAnchorAlone() {
         let rows = outline([2, 4, 6])
         #expect(EditorOutlineScroll.openingTarget(remembered: 4, current: nil,
                                                   outline: rows, rowsThatFit: 1) == 4)
     }
 
-    /// A document nobody has scrolled still gets the rule: the list would start at the top, so a
-    /// caret past the fold is still a mark nobody can see.
+    /// With no anchor the list starts at the top, so a caret past the fold still moves it.
     @Test func withNoAnchorTheListStillOpensOnACaretPastTheFold() {
         let rows = outline([2, 4, 6, 8, 10, 12])
         #expect(EditorOutlineScroll.openingTarget(remembered: nil, current: 12,
@@ -87,9 +82,8 @@ import Design
 
     // MARK: How many rows are on screen
 
-    /// **Floored, and never below one.** A half-visible row at the bottom is not one anybody is
-    /// reading, so rounding up would call a heading visible with half of it under the edge — and
-    /// that is the only question this number is asked.
+    /// Floored, and never below one: rounding up would call a half-hidden heading at the bottom
+    /// visible.
     @Test func theRowCountFloorsAndNeverReturnsZero() {
         let scale: CGFloat = 1
         let row = EditorOutlineScroll.rowHeight(scale: scale)
@@ -97,8 +91,7 @@ import Design
         #expect(EditorOutlineScroll.rowsThatFit(height: 0, scale: scale) == 1)
     }
 
-    /// The same eight rows at every text size, which is what makes it a count of rows rather than
-    /// of points — the mistake the outline's old cap was written to avoid.
+    /// The same eight rows at every text size, so it counts rows, not points.
     @Test func theRowCountHoldsItsRowsAcrossTheTextRange() {
         for scale in FontSize.allCases.map(\.scale) {
             let height = EditorOutlineScroll.rowHeight(scale: scale) * 8
@@ -113,9 +106,8 @@ import Design
         #expect(EditorOutlineScroll.recordsAnchor(path: "/a/one.md", outlineIsEmpty: false, top: 20))
     }
 
-    /// The reports that are not the reader's doing. A list between a file opening and its parse
-    /// returning is reporting about rows that belong to nothing, and there is nothing to key an
-    /// anchor by without a path.
+    /// Reports that aren't the reader's doing: rows between a file opening and its parse
+    /// returning belong to nothing, and without a path there is nothing to key an anchor by.
     @Test func aReportThatIsNotTheReadersDoingIsNotRecorded() {
         #expect(!EditorOutlineScroll.recordsAnchor(path: nil, outlineIsEmpty: false, top: 20))
         #expect(!EditorOutlineScroll.recordsAnchor(path: "/a/one.md", outlineIsEmpty: true, top: 20))

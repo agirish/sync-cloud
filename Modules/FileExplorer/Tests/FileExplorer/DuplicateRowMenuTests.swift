@@ -5,19 +5,16 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **A duplicate copy's row menu: "Open in Edit", then "Compare with Keeper".**
+/// A duplicate copy's row menu: "Open in Edit", then "Compare with Keeper".
 ///
-/// The row itself is the keeper-pick button, so its context menu is the one place on it that adds
-/// no gesture — which is why the hand-off to Edit lives there and nowhere else on the row. Four
-/// rows matter, and they are the four this suite is built around: a text copy (both items), the
-/// text KEEPER (Open in Edit alone — the kept copy is the one you most want to open), a non-text
-/// copy (Compare alone), and a non-text keeper (no menu at all, rather than an empty one).
+/// The row is the keeper-pick button, so its context menu is the one place that adds no gesture,
+/// and the hand-off to Edit lives there. Four rows matter: a text copy (both items), the text
+/// keeper (Open in Edit alone, since the kept copy is the one to open), a non-text copy (Compare
+/// alone), and a non-text keeper (no menu at all, not an empty one).
 ///
-/// **The menus are READ, not inferred.** `NSHostingView.menu(for:)` answers a right-click with the
-/// real `NSMenu` SwiftUI builds for whatever sits under the event — measured here: a row with
-/// `.contextMenu { Button("A") }` answers `["A"]`, a bare row answers nil. So a hosted card can be
-/// swept top to bottom and each row's menu read by its item TITLES, in order, which is a stronger
-/// claim than any predicate: it fails if the item is gated right and never drawn, drawn in the
+/// The menus are read, not inferred: `NSHostingView.menu(for:)` answers a right-click with the real
+/// `NSMenu` SwiftUI builds under the event, or nil for a bare row. Sweeping a hosted card and
+/// reading each row's item titles fails if an item is gated right but never drawn, drawn in the
 /// wrong place, or drawn on a row that should have none.
 @MainActor
 @Suite struct DuplicateRowMenuTests {
@@ -29,7 +26,7 @@ import Testing
                       uniqueItemCount: 0, depth: 2, isRecommendedKeeper: keeper)
     }
 
-    /// A two-copy group, keeper first — so the first row a top-to-bottom sweep meets is the keeper's.
+    /// A two-copy group, keeper first, so a top-to-bottom sweep meets the keeper's row first.
     private static func card(_ names: (String, String), isDirectory: Bool = false,
                              onOpenInEditor: ((String) -> Void)? = { _ in },
                              onCompare: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in })
@@ -49,7 +46,7 @@ import Testing
 
     // MARK: Which rows offer what
 
-    /// **The four rows, by the rules the menu is built from.**
+    /// The four rows, by the rules the menu is built from.
     @Test func openInEditIsOfferedOnEveryTextRowAndCompareOnlyOffTheKeeper() {
         let text = Self.card(("notes.md", "notes.md"))
         #expect(text.card.offersOpenInEditor(text.other), "a text copy does not offer Open in Edit")
@@ -58,8 +55,7 @@ import Testing
         #expect(text.card.offersCompareWithKeeper(text.other))
         #expect(!text.card.offersCompareWithKeeper(text.keeper), "the keeper offers to compare with itself")
 
-        // A kind Edit refuses — the baseline was a PDF until Edit read PDFs (Phase 2), flipped on
-        // purpose; a PDF now offers it, below.
+        // A kind Edit refuses. A PDF, which Edit reads, offers it (below).
         let docx = Self.card(("report.docx", "report.docx"))
         #expect(!docx.card.offersOpenInEditor(docx.other), "a .docx copy offers the editor")
         #expect(!docx.card.offersOpenInEditor(docx.keeper), "a .docx keeper offers the editor")
@@ -69,16 +65,15 @@ import Testing
         #expect(pdf.card.offersOpenInEditor(pdf.other), "a PDF copy does not offer Open in Edit — Edit reads PDFs")
         #expect(pdf.card.offersOpenInEditor(pdf.keeper), "a PDF keeper does not offer Open in Edit")
 
-        // …and whether the row carries a menu at all follows from those two, not a third rule.
+        // Whether the row carries a menu at all follows from those two, not a third rule.
         #expect(text.card.hasRowMenu(text.keeper) && text.card.hasRowMenu(text.other))
         #expect(pdf.card.hasRowMenu(pdf.keeper) && pdf.card.hasRowMenu(pdf.other))
         #expect(docx.card.hasRowMenu(docx.other))
         #expect(!docx.card.hasRowMenu(docx.keeper), "a keeper row Edit cannot open is given an empty menu")
     }
 
-    /// **Two things that are never "a text file", whatever the name says.** A folder group whose
-    /// copies are called `notes.md` is two folders; and a host with no editor (nil hand-off) offers
-    /// nothing rather than an item that does nothing.
+    /// A folder group whose copies are called `notes.md` is two folders, not text files; and a host
+    /// with no editor (nil hand-off) offers nothing rather than an item that does nothing.
     @Test func aFolderGroupAndAHostWithNoEditorOfferNoOpenInEdit() {
         let folders = Self.card(("notes.md", "notes.md"), isDirectory: true)
         #expect(!folders.card.offersOpenInEditor(folders.keeper), "a FOLDER named notes.md offers Edit")
@@ -91,9 +86,8 @@ import Testing
         #expect(!noEditor.card.hasRowMenu(noEditor.keeper))
     }
 
-    /// **The item hands over the copy's PATH, to the card's hand-off** — not the name, not the
-    /// keeper's path from a row that is not the keeper. The item's action is this named function;
-    /// `theMenuItemIsWiredToTheNamedActionAndTheMenuIsGated` pins that the Button really calls it.
+    /// The item hands the card's hand-off this row's own path, not its name or the keeper's path.
+    /// `theMenuItemIsWiredToTheNamedActionAndTheMenuIsGated` pins that the Button calls this action.
     @Test func theItemHandsTheRowsOwnPathToTheHandOff() {
         final class Box { var paths: [String] = [] }
         let box = Box()
@@ -106,17 +100,13 @@ import Testing
 
     // MARK: What is drawn
 
-    /// **Each row's menu as SwiftUI actually builds it, top to bottom.**
-    ///
-    /// Text group: the keeper's row answers Open in Edit alone; the other row answers Open in Edit
-    /// ABOVE Compare with Keeper. `.docx` group — a kind Edit refuses; it was a PDF until Edit read
-    /// PDFs: the keeper's row answers nothing at all, and the other
-    /// row answers Compare alone. Both cards are the same shape, so the text card is the positive
-    /// control for the `.docx` keeper — the sweep reaches the keeper's row, and finds a menu there only
-    /// when one belongs.
+    /// Each row's menu as SwiftUI builds it, top to bottom. Text group: the keeper's row has Open in
+    /// Edit alone, the other row Open in Edit above Compare with Keeper. `.docx` group (a kind Edit
+    /// refuses): the keeper's row has nothing, the other Compare alone. The cards share a shape, so
+    /// the text card shows the sweep does reach the keeper's row.
     @Test func eachRowDrawsItsOwnMenuInOrder() {
-        // One sweep per card: each is a few hundred hosted right-clicks, and on a loaded machine
-        // the main actor they queue on is shared with every other UI suite in the package.
+        // One sweep per card: each is a few hundred hosted right-clicks on a main actor shared
+        // with every other UI suite in the package.
         let textRows = Self.drawnMenuRows(Self.card(("notes.md", "notes.md")).card)
         let refusedRows = Self.drawnMenuRows(Self.card(("report.docx", "report.docx")).card)
 
@@ -126,8 +116,8 @@ import Testing
         let refused = refusedRows.map(\.titles)
         #expect(refused == [["Compare with Keeper"]], ".docx rows drew \(refused)")
 
-        // Where the keeper's row is: the first menu the text sweep met, and the .docx sweep met none
-        // there. Read as positions, so a menu that moved rows cannot pass as the right count.
+        // The keeper's row is where the text sweep met its first menu and the .docx sweep met
+        // none. Read as positions, so a menu on the wrong row can't pass on count alone.
         if let keeperRow = textRows.first?.y, let otherRow = textRows.last?.y,
            let refusedOther = refusedRows.first?.y {
             #expect(keeperRow < otherRow)
@@ -138,12 +128,10 @@ import Testing
         }
     }
 
-    /// **The card's own source, sliced to the parts a render cannot tell apart.**
-    ///
-    /// The drawn test above sees menus; it cannot see WHICH closure a menu item calls when clicked,
-    /// and it cannot see a bare `.contextMenu` that happens to build nothing today. So: the item's
-    /// Button is built on the named action, and the row attaches its menu only through `RowMenu`,
-    /// gated on `hasRowMenu` — in both of `copyRow`'s branches, and nowhere else in the card.
+    /// The card's source, for what a render can't see: which closure an item calls, and a bare
+    /// `.contextMenu` that happens to build nothing today. The Button uses the named action, and
+    /// the row attaches its menu only through `RowMenu`, gated on `hasRowMenu`, in both of
+    /// `copyRow`'s branches and nowhere else.
     @Test func theMenuItemIsWiredToTheNamedActionAndTheMenuIsGated() throws {
         let source = try Self.cardSource()
         let menuStart = try #require(source.range(of: "func rowMenu(_ copy: DuplicateCopy)"),

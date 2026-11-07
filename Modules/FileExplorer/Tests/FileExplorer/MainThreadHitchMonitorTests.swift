@@ -2,19 +2,12 @@ import CoreFoundation
 import Testing
 @testable import FileExplorer
 
-/// Pins `MainThreadHitchMonitor`'s timing rule — which is the only thing that makes it worth more
-/// than the two metrics it replaces.
+/// Pins `MainThreadHitchMonitor`'s timing rule: time is counted only between waking and going back
+/// to sleep. A held button with nothing happening is the run loop asleep, so it can't be counted; a
+/// clock stamped from an input event (mouse-down, a gesture's end) would measure the user's finger
+/// instead of the app.
 ///
-/// Both predecessors measured the user's finger while looking like they measured the app. `[click]`
-/// stamped from mouse-down inside `NSTableView`'s tracking loop; `[render]` moved the stamp to the
-/// tap gesture's `onEnded` and claimed to start "after the button is already up", and across twenty
-/// real clicks the two agreed to within 0.2ms. Neither had a test, and neither could have had one
-/// while its clock hung off an input event.
-///
-/// So the rule here is driven directly, with an injected clock — no run loop, no events, nothing to
-/// race. The claim under test is precise: **time is counted only between waking and going back to
-/// sleep.** A held button with nothing happening is the run loop asleep, so it cannot be counted,
-/// and that is exactly the property the old metrics lacked.
+/// The rule is driven directly with an injected clock: no run loop, no events, nothing to race.
 @MainActor
 @Suite struct MainThreadHitchMonitorTests {
 
@@ -22,8 +15,8 @@ import Testing
 
     // MARK: The property both predecessors lacked
 
-    /// **The regression test for the whole idea.** A long wait — a button held down, a user reading
-    /// the screen — must contribute nothing, however long it lasts.
+    /// A long wait, such as a button held down or a user reading the screen, must contribute
+    /// nothing, however long it lasts.
     @Test("Time spent asleep is never counted, however long the wait")
     func sleepIsNotWork() {
         fresh()
@@ -38,8 +31,8 @@ import Testing
         #expect(MainThreadHitchMonitor.worst == 0)
     }
 
-    /// The converse, and the mutation check for the test above: a genuinely busy turn IS counted.
-    /// Without this, a monitor that reported nothing at all would pass `sleepIsNotWork`.
+    /// The converse: a busy turn is counted. Without this, a monitor that reported nothing at all
+    /// would pass `sleepIsNotWork`.
     @Test("A turn longer than the threshold is reported with its true duration")
     func busyTurnIsReported() {
         fresh()
@@ -75,8 +68,8 @@ import Testing
     @Test("Worst and total accumulate across turns, and short turns don't pollute them")
     func accumulatesAcrossTurns() {
         fresh()
-        // The third turn is deliberately under `threshold`; expressed relative to the constant so
-        // that retuning the threshold cannot silently turn this into a four-hitch expectation.
+        // The third turn is under `threshold`, expressed relative to the constant so retuning the
+        // threshold can't silently turn this into a four-hitch expectation.
         let short = MainThreadHitchMonitor.threshold / 2
         for (start, end) in [(500.0, 500.2), (501.0, 501.9), (502.0, 502.0 + short), (503.0, 503.3)] {
             MainThreadHitchMonitor.note(.afterWaiting, at: start)
@@ -88,9 +81,8 @@ import Testing
         #expect(abs(MainThreadHitchMonitor.totalHitchTime - 1.4) < 0.001)
     }
 
-    /// `.exit` ends a turn too — a nested tracking loop (the very thing `.commonModes` is registered
-    /// for) exits without a `beforeWaiting`, and dropping that turn would hide the work done inside
-    /// the loop this monitor exists to see through.
+    /// `.exit` ends a turn too: a nested tracking loop (what `.commonModes` is registered for)
+    /// exits without a `beforeWaiting`, and dropping that turn would hide the work done inside it.
     @Test("Exiting a nested run loop closes the turn as well")
     func exitClosesTheTurn() {
         fresh()
@@ -100,8 +92,8 @@ import Testing
         #expect(MainThreadHitchMonitor.hitchCount == 1)
     }
 
-    /// A second `beforeWaiting` with no intervening wake must not re-report the same turn — the run
-    /// loop emits observers per mode, so duplicates are ordinary rather than exceptional.
+    /// A second `beforeWaiting` with no wake between must not re-report the same turn: the run loop
+    /// calls observers per mode, so duplicates are ordinary.
     @Test("A turn is reported once, not once per observer callback")
     func turnIsReportedOnce() {
         fresh()
@@ -114,10 +106,10 @@ import Testing
 
     // MARK: The end of the turn
 
-    /// **The turn ends at the last end-of-turn observer.** Core Animation commits at order
-    /// 2,000,000, after an order-0 observer has already seen `beforeWaiting`; the layout and drawing
-    /// in that commit are the turn's work too. Here the order-0 edge comes 5 ms in and the commit
-    /// runs to 400 ms: closed at the early edge, this turn was a 5 ms non-event.
+    /// The turn ends at the last end-of-turn observer. Core Animation commits at order 2,000,000,
+    /// after an order-0 observer has seen `beforeWaiting`, and the layout and drawing in that
+    /// commit are the turn's work too. Here the order-0 edge comes 5 ms in and the commit runs to
+    /// 400 ms; closed at the early edge, the turn would be a 5 ms non-event.
     @Test("Layout and drawing after the order-0 observer count as the turn's work")
     func theCommitCountsAsWork() {
         fresh()
@@ -140,8 +132,8 @@ import Testing
         #expect(abs((hitch ?? 0) - 0.6) < 0.001)
     }
 
-    /// Both spans, the CPU time and the app's state, in one line — the CPU figure is what tells a
-    /// starved main thread (CPU well under the span) from a working one.
+    /// Both spans, the CPU time and the app's state, in one line. The CPU figure tells a starved
+    /// main thread (CPU well under the span) from a working one.
     @Test("A hitch line gives both spans, CPU time and the app's state")
     func theHitchLineSaysEverything() {
         let line = MainThreadHitchMonitor.hitchLine(elapsed: 0.8123, ownWork: 0.1204, cpu: 0.05,
@@ -167,9 +159,8 @@ import Testing
 
     // MARK: The clock
 
-    /// Monotonic, so a system clock adjustment mid-measurement cannot produce a negative or absurd
-    /// hitch. Asserted rather than assumed because the shim is hand-rolled to avoid pulling
-    /// QuartzCore into this module.
+    /// Monotonic, so a system clock adjustment mid-measurement can't produce a negative or absurd
+    /// hitch. Asserted because the shim is hand-rolled to keep QuartzCore out of this module.
     @Test("The clock advances monotonically")
     func clockIsMonotonic() {
         let a = CACurrentMediaTimeShim()

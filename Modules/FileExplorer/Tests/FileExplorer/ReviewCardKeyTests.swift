@@ -4,28 +4,18 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// `ReviewCardView`'s ⌫-skip, exercised through a real window's responder chain — the same
-/// harness as `FilingWalkthroughCardKeyTests` (borrowed in turn from
-/// `DifferencesTableBindingTests`).
+/// `ReviewCardView`'s ⏎-primary and ⌫-skip, the two keys that move or drop a row, exercised
+/// through a real window's responder chain (the same harness as `FilingWalkthroughCardKeyTests`).
 ///
-/// Covers the two keys that move or drop a row: ⌫-skip and ⏎-primary.
+/// `onKeyPress` doesn't filter modifiers for its handler, on any overload, so without an explicit
+/// `press.isPlainKeystroke` check ⌘⌫ (Finder's "delete immediately", "delete to start of line" in
+/// text) and ⌥⌫ (delete word) would skip the item, which no back-step can revisit.
 ///
-/// `onKeyPress` does NOT filter modifiers for its handler, on ANY overload — so without an
-/// explicit `press.isPlainKeystroke` check, ⌘⌫ (Finder's "delete immediately", and "delete to
-/// start of line" in text land) and ⌥⌫ (delete word) SKIP the current item, which no back-step
-/// can revisit. That is the same modifier-blindness `FilingWalkthroughCard`'s first `.onKeyPress`
-/// cut shipped; this suite is the donor-file half of that fix.
-///
-/// **The ⏎ tests below were written red, and three separate defects made them so.** The card's ⏎
-/// was the single-key `onKeyPress(.return)` overload, whose doc-comment reputation here (and in
-/// `KeyPress.isPlainKeystroke`'s own doc) was "matches unmodified presses only" — asserted, never
-/// measured. Measured on this harness it: (1) never matched the numeric keypad's Enter at all
-/// (keyCode 76 sends U+0003, not U+000D), (2) ran the primary copy for ⌘⏎ and ⇧⏎, and (3) fired
-/// on key-repeat — a held ⏎ produced FOUR `onPrimary` calls, and `isActing` closes only when the
-/// host's async outcome lands. The handler is now the `keys: [.return, .keypadEnter], phases:
-/// .down` form with the same guard ⌫ carries. Nothing here reads the single-key overload's
-/// behaviour any more; the ␣ and esc handlers still use it and are still unguarded (neither moves
-/// bytes).
+/// The single-key `onKeyPress(.return)` overload is not "unmodified presses only". On this
+/// harness it never matches the keypad's Enter (keyCode 76 sends U+0003, not U+000D), runs for ⌘⏎
+/// and ⇧⏎, and fires on key-repeat, while `isActing` closes only when the host's async outcome
+/// lands. So ⏎ uses the `keys: [.return, .keypadEnter], phases: .down` form with ⌫'s guard. The ␣
+/// and esc handlers still use the single-key overload, unguarded; neither moves bytes.
 @MainActor
 @Suite(.serialized) struct ReviewCardKeyTests {
 
@@ -113,13 +103,11 @@ import Sync
         send(window, keyCode: 36, characters: "\r", modifiers: modifiers, isARepeat: isARepeat)
     }
 
-    /// **The keypad's Enter is a different character.** keyCode 76, `NSEnterCharacter` (U+0003),
-    /// never U+000D — and, like the arrows, it always carries `.numericPad` and `.function`.
-    /// Measured on this harness through a probe view: the main row's ⏎ is delivered to
-    /// `onKeyPress` as `KeyEquivalent("\r")` with `press.modifiers` rawValue 0; the keypad's is
-    /// delivered as `KeyEquivalent("\u{3}")` with rawValue 96. A handler keyed on `.return`
-    /// therefore never sees it. Caller modifiers are UNIONED with the intrinsic pair, so
-    /// `.command` here is the ⌘-keypad-Enter AppKit would really deliver.
+    /// The keypad's Enter is a different character: keyCode 76, `NSEnterCharacter` (U+0003), never
+    /// U+000D, and like the arrows it always carries `.numericPad` and `.function`. `onKeyPress`
+    /// gets it as `KeyEquivalent("\u{3}")` with modifiers rawValue 96 (the main row's ⏎ is "\r",
+    /// rawValue 0), so a handler keyed on `.return` never sees it. Caller modifiers are unioned
+    /// with the intrinsic pair, so `.command` here is the ⌘-keypad-Enter AppKit really delivers.
     private static let keypadEnterIntrinsicFlags: NSEvent.ModifierFlags = [.numericPad, .function]
 
     private func sendKeypadEnter(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
@@ -130,9 +118,8 @@ import Sync
 
     // MARK: ⏎ — both keycaps
 
-    /// **Both Enter keys copy.** The card's hint row advertises ⏎ for the primary action and a
-    /// full-size keyboard has two keycaps that say so; before this, the keypad's did nothing at
-    /// all, silently, on a card whose whole job is one decision per row.
+    /// Both Enter keys copy: the hint row advertises ⏎ for the primary action, and a full-size
+    /// keyboard has two keycaps that say so.
     @Test func bothEnterKeysRunThePrimaryAction() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
@@ -151,10 +138,9 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
-    /// **A held Enter copies one item, from either keycap.** The primary is a real file copy; the
-    /// `isActing` gate closes only once the host's async outcome lands, so auto-repeat at ~15
-    /// events a second can launch several copies of the same row before it does. `.down`-only is
-    /// what actually prevents that — the same rule ⌫ already carries.
+    /// A held Enter copies one item, from either keycap. The primary is a real file copy and the
+    /// `isActing` gate closes only once the host's async outcome lands, so auto-repeat could launch
+    /// several copies of the row first; `.down`-only prevents that, as it does for ⌫.
     @Test func aHeldEnterCopiesExactlyOneItem() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
@@ -170,18 +156,18 @@ import Sync
         #expect(recorder.primaries == 1,
                 "a held keypad Enter produced \(recorder.primaries) copies in total — auto-repeat is re-copying the row")
 
-        // The honesty control: fresh presses of BOTH keycaps still arrive, so the readings above
-        // are the phase filter working rather than the harness dropping events.
+        // Honesty control: fresh presses of both keycaps still arrive, so the readings above are
+        // the phase filter working, not the harness dropping events.
         sendReturn(window)
         sendKeypadEnter(window)
         #expect(recorder.primaries == 3, "fresh presses stopped arriving: \(recorder.primaries)")
     }
 
-    /// **A modified Enter is not the primary action, from either keycap.** ⌘⏎ and ⇧⏎ are
-    /// "open"/"extend" chords all over macOS and ⌥⏎ is "open in a new window" — none is the plain
-    /// keystroke the hint row advertises, and the primary moves real bytes. The guard has to be
-    /// `isPlainKeystroke` (⌘⌥⌃⇧ only): every keypad Enter arrives with `.numericPad` and
-    /// `.function` set, so `modifiers.isEmpty` would refuse the key outright.
+    /// A modified Enter is not the primary action, from either keycap. ⌘⏎ and ⇧⏎ are
+    /// "open"/"extend" chords across macOS and ⌥⏎ is "open in a new window": none is the plain
+    /// keystroke the hint row advertises, and the primary moves real bytes. The guard must be
+    /// `isPlainKeystroke` (⌘⌥⌃⇧ only): every keypad Enter carries `.numericPad` and `.function`,
+    /// so `modifiers.isEmpty` would refuse the key outright.
     @Test func aModifiedEnterCopiesNothing() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
@@ -212,8 +198,8 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
-    /// **A modified ⌫ is not a skip.** The positive control (plain ⌫ really skips) is what keeps
-    /// the modified readings from passing against a card that never wired its handler.
+    /// A modified ⌫ is not a skip. The positive control (plain ⌫ skips) keeps the modified readings
+    /// from passing against a card that never wired its handler.
     @Test func aModifiedDeleteSkipsNothing() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
@@ -236,9 +222,8 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
-    /// **→ does not skip here**, though the Rules walkthrough takes it. In Compare → means "to the
-    /// right pane" (⌘→ copies there) and a skip cannot be taken back, so a → pressed out of that
-    /// habit must not spend a row. The positive control, a plain ⌫ afterwards, is what keeps the
+    /// → doesn't skip here, though the Rules walkthrough takes it: in Compare → means "to the right
+    /// pane" (⌘→ copies there), and a skip can't be taken back. The plain ⌫ afterwards keeps the
     /// arrow's silence from passing against a card that never got focus.
     @Test func rightArrowDoesNotSkip() async throws {
         let recorder = Recorder()
@@ -256,11 +241,9 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
-    /// **Caps Lock is not a chord.** `.capsLock` rides on EVERY event while the lock is engaged,
-    /// so a guard written as `press.modifiers.isEmpty` takes ⌫-skip away entirely from anyone who
-    /// left it on — silently, with the hint row still advertising the key. Measured on this
-    /// harness: `delete` sent with `[.capsLock]` arrives as `SwiftUI.EventModifiers` rawValue 1,
-    /// `isEmpty == false`. Only the four INTENT modifiers (⌘⌥⌃⇧) may refuse the skip.
+    /// Caps Lock is not a chord. `.capsLock` rides on every event while the lock is engaged (it
+    /// arrives as `EventModifiers` rawValue 1), so a `press.modifiers.isEmpty` guard would silently
+    /// take ⌫-skip away from anyone who left it on. Only ⌘⌥⌃⇧ may refuse the skip.
     @Test func capsLockDoesNotDisableTheSkipKey() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
@@ -276,8 +259,8 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
-    /// The held-key rule the handler's `.down`-only phases promise, proven here rather than
-    /// assumed from the walkthrough card's twin: a held ⌫ skips exactly ONE row.
+    /// The held-key rule the handler's `.down`-only phases promise, proven here rather than assumed
+    /// from the walkthrough card's twin: a held ⌫ skips exactly one row.
     @Test func aHeldDeleteSkipsExactlyOneRow() async throws {
         let recorder = Recorder()
         let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
@@ -289,7 +272,7 @@ import Sync
         #expect(recorder.skips == 1,
                 "a held ⌫ produced \(recorder.skips) skips — auto-repeat is mass-skipping the queue")
 
-        // The honesty control: fresh presses still arrive, so the single skip above is the phase
+        // Honesty control: fresh presses still arrive, so the single skip above is the phase
         // filter working, not the harness dropping events after the first.
         for _ in 0..<3 { sendDelete(window) }
         #expect(recorder.skips == 4, "fresh presses stopped arriving: \(recorder.skips)")
@@ -297,7 +280,7 @@ import Sync
 
     // MARK: The premise the `focused` guard rests on
 
-    /// A focus target that is unambiguously a DESCENDANT of the handler's own view.
+    /// The probe's focus targets: the handler's own view, and two of its descendants.
     private enum ProbeSpot: Hashable { case anchor, button, plainFocusable }
 
     /// What the probe below saw. A reference type: the closures escape into SwiftUI's update.
@@ -307,10 +290,9 @@ import Sync
         /// Every `@FocusState` transition the probe observed, so a "focus never moved" run is
         /// distinguishable from "focus moved and the handler fired anyway".
         var focusMoves: [ProbeSpot?] = []
-        /// The seam that moves focus. A `@FocusState` cannot be written from outside the view,
-        /// and driving it through an `onChange(of:)` on a plain captured `var` does NOT work —
-        /// the view never re-renders, so the change is never observed. That was the first cut of
-        /// this probe and it reported a false negative: focus stayed on the anchor throughout.
+        /// The seam that moves focus. A `@FocusState` can't be written from outside the view, and
+        /// driving it through `onChange(of:)` on a plain captured `var` doesn't work: the view never
+        /// re-renders, so the change is never observed.
         var setFocus: ((ProbeSpot?) -> Void)?
     }
 
@@ -323,8 +305,8 @@ import Sync
         var body: some View {
             VStack {
                 Text("the card")
-                // A real `Button`, like the cards' Skip / Preview / Verify, and a plain
-                // focusable view beside it — the two ways a descendant can hold focus.
+                // A real `Button`, like the cards' Skip / Preview / Verify, and a plain focusable
+                // view beside it: the two ways a descendant can hold focus.
                 Button("Skip") {}
                     .focusable(true)
                     .focused($spot, equals: .button)
@@ -347,31 +329,23 @@ import Sync
         }
     }
 
-    /// **`.onKeyPress` fires for a key delivered anywhere in its SUBTREE — including while a
-    /// DESCENDANT holds focus and the handler's own `focused` reads false.**
+    /// `.onKeyPress` fires for a key delivered anywhere in its subtree, even while a descendant
+    /// holds focus and the handler's own `focused` reads false.
     ///
-    /// This is the premise `ReviewCardView`'s and `FilingWalkthroughCard`'s `guard … focused`
-    /// rests on, and until 2026-08-21 it was asserted rather than measured: the walkthrough's
-    /// comment called it "UNVERIFIABLE under `swift test`", and on that reading the guard looked
-    /// like complexity on a false premise — which is exactly why `ReviewCardView` shipped without
-    /// it while its twin had it. It is verifiable. Only the ROUTE is not: in the app Full Keyboard
-    /// Access is what makes a `Button` focusable, and `NSApp` is **nil** in this test process
-    /// (measured — so `isFullKeyboardAccessEnabled` cannot even be read, let alone set). Driving
-    /// the `@FocusState` directly reproduces the state FKA would produce, which is what the guard
-    /// actually keys on.
+    /// This is the premise `ReviewCardView`'s and `FilingWalkthroughCard`'s `guard … focused` rests
+    /// on. In the app, Full Keyboard Access is what makes a `Button` focusable, and `NSApp` is nil
+    /// in this test process (so `isFullKeyboardAccessEnabled` can't be read or set); driving the
+    /// `@FocusState` directly reproduces the state FKA would, which is what the guard keys on.
     ///
-    /// Both descendant kinds are pressed, because a `Button` and a plain `.focusable()` view are
-    /// different focus citizens on macOS and only one of them is what FKA promotes.
-    ///
-    /// Without this, the two cards' `focused` terms have no test that says what they buy: every
-    /// other test in this suite and in `FilingWalkthroughCardKeyTests` runs with the card itself
-    /// focused, where the term is a no-op.
+    /// Both descendant kinds are pressed: a `Button` and a plain `.focusable()` view are different
+    /// focus citizens on macOS, and only one is what FKA promotes. Every other test here and in
+    /// `FilingWalkthroughCardKeyTests` runs with the card itself focused, where the term is a no-op.
     @Test func anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant() async {
         let recorder = ProbeRecorder()
         let (window, hostView) = host(AncestorHandlerProbe(recorder: recorder))
         guard await waitForCardFocus(in: window) else { return }
 
-        // The positive control: with the ANCHOR focused the handler runs and sees `focused` true.
+        // Positive control: with the anchor focused the handler runs and sees `focused` true.
         sendReturn(window)
         #expect(recorder.ancestorSawAnchorFocused == [true], """
                 the anchor never received ⏎ (\(recorder.ancestorSawAnchorFocused)) — the readings \
@@ -402,19 +376,15 @@ import Sync
         }
     }
 
-    /// **Both decision cards guard their byte-moving keys on `focused`, and they say so in the
-    /// same words.**
+    /// Both decision cards guard their byte-moving keys on `focused`, in the same words.
     ///
-    /// The behavioural half is above; this is the half that pins it to the two real handlers.
-    /// It cannot be behavioural on the shipped cards: their `@FocusState` is private and none of
-    /// their descendants carries a `.focused()` binding a test could write, so there is no way to
-    /// put the real card into the descendant-focused state from out here. A structural check is
-    /// what is left — and this file's own history is the argument for having one: `ReviewCardView`
-    /// and `FilingWalkthroughCard` are twins whose handlers have now diverged twice (the modifier
-    /// filter, then this), each time silently, each time on the card that moves bytes.
+    /// The behavioural half is above; this pins it to the two real handlers. It can't be
+    /// behavioural on the shipped cards: their `@FocusState` is private and no descendant carries a
+    /// `.focused()` binding a test could write. `ReviewCardView` and `FilingWalkthroughCard` are
+    /// twins whose handlers can silently drift apart, so a structural check holds them together.
     ///
-    /// Byte-moving keys only. esc is deliberately ungated on both cards — cancelling from a
-    /// focused button is what esc means there anyway — and ␣ (Quick Look) moves nothing.
+    /// Byte-moving keys only. esc is ungated on both cards (cancelling from a focused button is
+    /// what esc means there anyway), and ␣ (Quick Look) moves nothing.
     @Test func bothDecisionCardsGuardTheirByteMovingKeysOnFocus() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // …/Tests/FileExplorer
@@ -457,24 +427,20 @@ import Sync
 
     // MARK: Focus recovery
 
-    /// **The hatch that has to come with the `focused` guard**, and the half of it this process can
-    /// actually prove.
+    /// The recovery that has to come with the `focused` guard, in the half this process can prove.
     ///
-    /// Adding `focused` to ⏎ and ⌫ (this session) made a card that has lost key focus a card whose
-    /// advertised keys silently do nothing. The routes back are a click on the card body and a
-    /// click on its own Quick Look / Verify buttons, all three of which now call `reclaimFocus()` —
-    /// a `Task { @MainActor in focused = true }`, one turn later.
+    /// With `focused` on ⏎ and ⌫, a card that has lost key focus has advertised keys that silently
+    /// do nothing. The routes back are a click on the card body or on its own Quick Look / Verify
+    /// buttons, all of which call `reclaimFocus()`: a `Task { @MainActor in focused = true }`, one
+    /// turn later.
     ///
-    /// **The click itself is not reachable from here**, and that is stated rather than worked
-    /// around: a synthesized `leftMouseDown`/`leftMouseUp` through `window.sendEvent` does not
-    /// drive SwiftUI's tap gesture in this headless host — written and measured, the card kept its
-    /// dead keys. So this drives the same one-turn deferred claim through `focusNudge`, the host
-    /// route that IS reachable, and what it pins is the MECHANISM: that a deferred `focused = true`
-    /// really does bring ⏎ back after focus has moved away. That the three affordances call it is
-    /// pinned separately, by scan, below.
+    /// The click isn't reachable here: a synthesized `leftMouseDown`/`leftMouseUp` through
+    /// `window.sendEvent` doesn't drive SwiftUI's tap gesture in this headless host. So this drives
+    /// the same deferred claim through `focusNudge` and pins the mechanism, that a deferred
+    /// `focused = true` brings ⏎ back after focus moved away. The scan below pins that the three
+    /// affordances call it.
     ///
-    /// The middle step is what stops this passing vacuously — ⏎ is proved DEAD first, so a green
-    /// cannot come from focus never having left.
+    /// ⏎ is proved dead first, so a green can't come from focus never having left.
     @MainActor
     @Test func aDeferredFocusClaimTakesTheCardsKeysBackAfterFocusMovedAway() async throws {
         let recorder = Recorder()
@@ -504,18 +470,14 @@ import Sync
                 "a deferred focus claim did not give the card's keys back — ⏎ is still dead")
     }
 
-    /// **Every affordance on the card that can take key focus away from it calls `reclaimFocus()`.**
+    /// Every affordance on the card that can take key focus away from it calls `reclaimFocus()`.
     ///
-    /// A scan, and weak on purpose-built evidence — it reads the source, so it cannot see whether
-    /// the call works, only whether it is there. The test above carries the mechanism. What this
-    /// one catches is the asymmetry that produced the defect: `FilingWalkthroughCard` was given the
-    /// `focused` guard AND the recovery (`recoveringFocus`, `onTapGesture`); this card, the one the
-    /// guard was copied from, was given only the guard — so a Quick Look or a Verify left ⏎ and ⌫
-    /// dead with their keycaps still on screen and no way back but a click on the table.
+    /// A source scan, so it sees whether the call is there, not whether it works; the test above
+    /// carries the mechanism. Without the call, a Quick Look or a Verify leaves ⏎ and ⌫ dead with
+    /// their keycaps still on screen.
     ///
-    /// Anchored on the two buttons by name rather than on a count of `reclaimFocus` calls: a count
-    /// passes when a NEW focus-taking button is added without one, which is the next way this
-    /// regresses.
+    /// Anchored on the two buttons by name rather than a count of `reclaimFocus` calls: a count
+    /// passes when a new focus-taking button is added without one.
     @Test func theCardsOwnAffordancesAllPutKeyFocusBack() throws {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -527,8 +489,8 @@ import Sync
         // painted.
         #expect(source.contains(".contentShape(Rectangle())\n        .onTapGesture { reclaimFocus() }"),
                 "the card body no longer takes focus back on a tap")
-        // The two buttons that leave the ITEM alone, so `.task(id: item.id)`'s claim never fires
-        // for them. (File and Skip do change the item, and are covered by that claim.)
+        // The two buttons that leave the item alone, so `.task(id: item.id)`'s claim never fires
+        // for them. (File and Skip change the item, and that claim covers them.)
         for button in ["Quick Look", "Verify"] {
             let label = "Label(\"\(button)\""
             let idx = try #require(source.range(of: label)?.lowerBound,

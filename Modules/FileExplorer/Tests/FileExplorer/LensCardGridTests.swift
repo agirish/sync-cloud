@@ -3,19 +3,17 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The card grid the renames and duplicates lenses share — his ask, twice: "a grid of cards when
-/// the window is wide, cards below each other in all other cases", and then "can we redesign it to
-/// be like card grids?".
+/// The card grid the renames and duplicates lenses share: cards in a grid when the window is wide,
+/// stacked otherwise.
 ///
-/// The arithmetic is the part that can be silently wrong. A column count one too high does not
-/// crash or draw badly enough to notice in a screenshot; it just truncates every name on the
-/// screen whose whole job is showing names.
+/// The arithmetic is the part that can be silently wrong. A column count one too high doesn't crash
+/// or look broken in a screenshot; it just truncates every name on a screen whose job is showing
+/// names.
 @Suite struct LensCardGridTests {
 
-    /// **The ordinary case is one column for the renames card**, and it has to be: the app's own
-    /// window floor is 810pt wide and the Organize lens gets a fraction of it, so a rule that
-    /// reached two columns too eagerly would make the narrow pane — the one this lens is usually
-    /// read in — the broken one.
+    /// The ordinary case is one column for the renames card: the window floor is 810pt and the
+    /// Organize lens gets a fraction of it, so a rule reaching two columns too eagerly would break
+    /// the narrow pane this lens is usually read in.
     @Test func aNarrowPaneStaysASingleColumn() {
         let renames = RenamePassLens.minimumCardWidth
         #expect(LensCardGrid.columns(forWidth: 320, minimumCardWidth: renames) == 1)
@@ -23,9 +21,9 @@ import Testing
         #expect(LensCardGrid.columns(forWidth: 600, minimumCardWidth: renames) == 1)
     }
 
-    /// The threshold itself, from both sides — the assertion that fails if the padding allowance
-    /// or the gutter term is dropped from the fit. Two cards need two minimums plus one gutter
-    /// plus the list's own insets; a pixel under that is still one column.
+    /// The threshold from both sides: two cards need two minimums, one gutter and the list's own
+    /// insets, and a pixel under that is still one column. Fails if the padding allowance or the
+    /// gutter term is dropped from the fit.
     @Test func theSecondColumnArrivesExactlyWhenTwoCardsFit() {
         for minimum: CGFloat in [220, 340] {
             let needed = minimum * 2 + LensCardGrid.gutter + LensCardGrid.listHorizontalPadding
@@ -34,8 +32,8 @@ import Testing
         }
     }
 
-    /// The duplicates lens is a `ScrollView` with its own padding, not the renames `List`, and it
-    /// passes that padding — one shared constant under-counted its usable width by 8–16pt.
+    /// The duplicates lens is a `ScrollView` with its own padding, not the renames `List`, and
+    /// passes that padding; one shared constant would under-count its usable width by 8–16pt.
     @Test func aCallerCanSupplyItsOwnContainerPadding() {
         let minimum: CGFloat = 250
         // Exactly wide enough for two tiles once only the ScrollView's 24pt of padding is taken.
@@ -60,9 +58,9 @@ import Testing
         #expect(LensCardGrid.maximumColumns == 3)
     }
 
-    /// **A `GeometryReader` reports 0 on its first pass**, and a proposal can be infinite. Either
-    /// one divided into a column count gives nonsense — 0 columns renders nothing at all, and the
-    /// chunker would then divide by zero.
+    /// A `GeometryReader` reports 0 on its first pass, and a proposal can be infinite. Either one
+    /// divided into a column count gives nonsense: 0 columns renders nothing, and the chunker would
+    /// divide by zero.
     @Test func aDegenerateWidthFallsBackToOneColumn() {
         let minimum = RenamePassLens.minimumCardWidth
         #expect(LensCardGrid.columns(forWidth: 0, minimumCardWidth: minimum) == 1)
@@ -101,9 +99,9 @@ import Testing
 
     // MARK: Full-width rows
 
-    /// **An expanded card takes a row to itself, and the tiling resumes after it.** This is why the
-    /// division cannot be a plain chunk: the buffer has to flush at the full-width item and start
-    /// again after it, or the row following one would carry four cards in a three-wide grid.
+    /// An expanded card takes a row to itself, and the tiling resumes after it. So the division
+    /// can't be a plain chunk: the buffer flushes at the full-width item and restarts after it, or
+    /// the row after one would carry four cards in a three-wide grid.
     @Test func aFullWidthItemBreaksTheRowAndStartsANewOne() {
         let rows = LensCardGrid.rows(Array(0..<7), columns: 3, spansFullWidth: { $0 == 4 })
         #expect(rows.map { $0 } == [[0, 1, 2], [3], [4], [5, 6]])
@@ -134,20 +132,17 @@ import Testing
 
     private struct Card: Identifiable, Equatable { let id: String }
 
-    /// **Row ids must be unique across the WHOLE list, not within one section.**
+    /// Row ids must be unique across the whole list, not within one section.
     ///
-    /// This is the defect his screenshots caught. Every section's rows were numbered from zero, so
-    /// a `LazyVStack` — which identifies its children across the whole stack, not per `ForEach` —
-    /// saw several children claiming to be row 0, and reused cells against the wrong content:
-    /// "to merge" rendered the tiles of "to decide", two sections drew blank, and the list only
-    /// filled in as scrolling forced a rebuild. His report: "tiles only show up when scrolling
-    /// down."
+    /// A `LazyVStack` identifies its children across the whole stack, not per `ForEach`. Rows
+    /// numbered from zero in every section would claim the same ids, and the stack would reuse
+    /// cells against the wrong content: one section drawing another's tiles, sections drawing blank
+    /// until scrolling forced a rebuild. Concatenating the sections is the test, because that is
+    /// what the stack does.
     ///
-    /// Concatenating the sections is the test, because concatenating them is what the stack does.
-    ///
-    /// **Not pinned, stated:** that the views call `identifiedRows` at all. Reverting either lens
-    /// to an index-keyed `ForEach` reproduces the reported defect with this green. Binding it needs
-    /// a test that mounts the lens and reads back cell contents; nothing cheaper does.
+    /// Not pinned: that the views call `identifiedRows` at all. Reverting either lens to an
+    /// index-keyed `ForEach` would break the grid with this green; catching that needs a test that
+    /// mounts the lens and reads back cell contents.
     @Test func rowIdsAreUniqueAcrossEverySectionOfAList() {
         let sections = [(0..<7).map { Card(id: "decide\($0)") },
                         (0..<4).map { Card(id: "merge\($0)") },
@@ -156,7 +151,7 @@ import Testing
         #expect(ids.count > 3, "a positive control: there are rows to collide")
         #expect(Set(ids).count == ids.count, "duplicate row ids: \(ids)")
 
-        // The index-based scheme this replaced, for contrast: three sections all starting at 0.
+        // An index-based scheme, for contrast: three sections all starting at 0.
         let byIndex = sections.flatMap { LensCardGrid.rows($0, columns: 3).indices.map { $0 } }
         #expect(Set(byIndex).count < byIndex.count,
                 "a positive control: row indices really do collide across sections")

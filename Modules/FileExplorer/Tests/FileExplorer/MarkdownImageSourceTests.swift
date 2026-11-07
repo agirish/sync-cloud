@@ -4,9 +4,8 @@ import Foundation
 
 /// Which image sources the preview will draw, and which it refuses.
 ///
-/// **The refusals are the point.** Drawing a local file is the easy half; the rules that matter are
-/// the ones that stop the preview fetching a URL or materialising a cloud placeholder because
-/// somebody opened a note.
+/// The refusals are the point. Drawing a local file is the easy half; the rules that matter stop
+/// the preview fetching a URL or materialising a cloud placeholder because somebody opened a note.
 @Suite struct MarkdownImageSourceTests {
 
     private func temporaryFolder() throws -> String {
@@ -33,7 +32,7 @@ import Foundation
         #expect(resolve("shot.png", in: folder) == .local(path))
     }
 
-    /// A path written the way Markdown writes one with a space in it. Left encoded, this reports
+    /// A path written the way Markdown writes one with a space in it. Left encoded, it would report
     /// "not found" about a file that is right there.
     @Test func aPercentEncodedPathIsDecoded() throws {
         let folder = try temporaryFolder()
@@ -80,8 +79,8 @@ import Foundation
         #expect(resolve("dir", in: folder) == .refused("Not found."))
     }
 
-    /// A relative path with nothing to be relative to is a refusal rather than a guess at the
-    /// process's working directory — a folder the user has never heard of.
+    /// A relative path with nothing to be relative to is refused rather than resolved against the
+    /// process's working directory, a folder the user has never heard of.
     @Test func aRelativePathWithNoFolderIsRefused() {
         #expect(resolve("shot.png", in: nil) == .refused("Nothing to resolve this path against."))
         #expect(resolve("shot.png", in: "") == .refused("Nothing to resolve this path against."))
@@ -101,8 +100,8 @@ import Foundation
         #expect(reason.hasPrefix("Too large to draw"), "the refusal read \(reason)")
     }
 
-    /// An absolute path is taken as written — an image kept somewhere central rather than beside
-    /// the note is still a local file.
+    /// An absolute path is taken as written: an image kept somewhere central rather than beside the
+    /// note is still a local file.
     @Test func anAbsolutePathIsUsedAsIs() throws {
         let folder = try temporaryFolder()
         let path = try write("abs.png", in: folder)

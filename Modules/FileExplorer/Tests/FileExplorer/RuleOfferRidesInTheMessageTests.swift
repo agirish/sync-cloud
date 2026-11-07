@@ -3,10 +3,9 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **To File's rule offer rides in the "Filed …" result message** (Banner Room, CB). It was inserted
-/// above the cards after a move, so the next card's "File here" slid down under the pointer by the
-/// offer's height. Now the message carries "Save as rule…", which opens the full offer; ignored, the
-/// offer leaves with the message, and the cards never move for it.
+/// To File's rule offer rides in the "Filed …" result message, whose "Save as rule…" opens the full
+/// offer; ignored, the offer leaves with the message. Inserted above the cards instead, it would
+/// slide the next card's "File here" down under the pointer.
 @MainActor
 @Suite struct RuleOfferRidesInTheMessageTests {
 
@@ -53,8 +52,8 @@ import Testing
         #expect(session.pendingRuleOffer == nil)
     }
 
-    /// The cards never move for it: nothing in the To File list inserts the offer any more, and the
-    /// only place it is drawn is the panel the message's button opens.
+    /// The cards never move for it: nothing in the To File list inserts the offer, and it is drawn
+    /// only in the panel the message's button opens.
     @Test func theCardsNoLongerHaveTheOfferInsertedAboveThem() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

@@ -3,17 +3,16 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// Pins that resolving a row's fonts once per pane draws exactly what resolving them per row did.
+/// Pins that resolving a row's fonts once per pane draws exactly what resolving them per row would.
 ///
-/// `PaneRowFonts` exists purely to cut layers out of the per-row modifier chain — the thing a main
-/// thread sample showed owning ~50% of a click. It is worth nothing if it also changes what the
-/// rows look like, and a font regression is the kind that no functional test notices and every user
-/// does. So each font is asserted against the exact `ScaledFont` specification the call site it
-/// replaced used to pass.
+/// `PaneRowFonts` exists to cut layers out of the per-row modifier chain, which dominates a click's
+/// main-thread time. It is worth nothing if it changes what rows look like, and a font regression
+/// is one no functional test notices and every user does. So each font is asserted against the
+/// `ScaledFont` specification its call site would pass.
 ///
-/// The scale-1 cases are the load-bearing ones: `ScaledFont.resolved(scale:)` short-circuits there
-/// and hands back the very `Font` value the old call site built, so at the default text size this
-/// is not "equivalent", it is *identical*.
+/// The scale-1 cases matter most: `ScaledFont.resolved(scale:)` short-circuits there and hands back
+/// the very `Font` value the call site would build, so at the default text size this is identical,
+/// not just equivalent.
 @Suite struct PaneRowFontsTests {
 
     // MARK: Default size — must be the identical Font, not merely a similar one
@@ -37,8 +36,8 @@ import Design
     // MARK: Other sizes — must match what scaledFont would have resolved
 
     /// Every non-default size, against `ScaledFont`'s own resolution of the same specification.
-    /// This is what makes the type a *relocation* of the existing rule rather than a second copy of
-    /// it that can drift.
+    /// This makes the type a relocation of the existing rule rather than a second copy that can
+    /// drift.
     @Test("A scaled row font matches ScaledFont's resolution of the same specification",
           arguments: [FontSize.small, .medium, .large, .extraLarge])
     func scaledMatchesScaledFont(size: FontSize) {
@@ -52,9 +51,9 @@ import Design
         #expect(fonts.chevron == ScaledFont.caption2.weight(.semibold).resolved(scale: scale))
     }
 
-    /// The mutation check. Every assertion above would still pass if `PaneRowFonts` ignored its
-    /// `scale` argument entirely and always returned the default fonts — because the scale-1 cases
-    /// dominate and `.medium` IS scale 1. So the setting has to be shown to actually reach the rows.
+    /// Every assertion above would still pass if `PaneRowFonts` ignored its `scale` argument and
+    /// always returned the default fonts, because `.medium` is scale 1. So the setting has to be
+    /// shown to reach the rows.
     @Test("A larger text size genuinely produces different fonts")
     func scaleIsNotIgnored() {
         let base = PaneRowFonts(scale: 1)
@@ -65,9 +64,9 @@ import Design
         #expect(base.differenceBadge != large.differenceBadge)
     }
 
-    /// The badge glyphs start below `FontSize.legibilityFloor`, and the floor exists so shrinking
-    /// never makes them illegible. Asserted here because the floor lives in `ScaledFont` and this
-    /// type is now the thing that decides what a badge is drawn at.
+    /// The badge glyphs start below `FontSize.legibilityFloor`, which keeps shrinking from making
+    /// them illegible. Asserted here because the floor lives in `ScaledFont` and this type decides
+    /// what a badge is drawn at.
     @Test("Shrinking honours the legibility floor the badges rely on")
     func smallSizeHonoursTheFloor() {
         let small = PaneRowFonts(scale: FontSize.small.scale)

@@ -3,9 +3,9 @@ import AppKit
 import SwiftUI
 @testable import FileExplorer
 
-/// **Opening a Contents result, end to end** (RD38): the real workspace, the real scan of a real
-/// folder, ↩ in the filter's field — a genuine `keyDown`, the one input a test window takes — and
-/// then the text view itself: the match selected, and the find bar up holding the word.
+/// Opening a Contents result, end to end: the real workspace scanning a real folder, ↩ in the
+/// filter's field (a genuine `keyDown`, the one input a test window takes), then the text view
+/// itself, with the match selected and the find bar up holding the word.
 ///
 /// Two arrivals, because they take different roads: from the empty page the file's text view is
 /// built in the same update as the request (which is why the request waits a turn), and from
@@ -52,10 +52,9 @@ import SwiftUI
         return Mounted(window: window, host: host, model: model)
     }
 
-    /// Lets the main actor run until `done` — through `LayoutPumpWait`, whose floor of passes is
-    /// what a congested main actor needs: the search's settle and its results are main-actor jobs,
-    /// and a full-package run hands out fewer turns per second, not fewer turns
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
+    /// Lets the main actor run until `done`, through `LayoutPumpWait`'s floor of passes: the
+    /// search's settle and results are main-actor jobs, and a loaded run hands out fewer turns per
+    /// second, not fewer turns (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     @discardableResult
     private func spin(_ window: NSWindow, until done: () -> Bool) async -> Int {
         await LayoutPumpWait.pump(window, upTo: 15, until: done).pumps
@@ -67,8 +66,8 @@ import SwiftUI
         return nil
     }
 
-    /// ↩ in the filter's field. **The field is given the keys in the same breath**, because text
-    /// focus is arbitrated process-wide and any other suite's field can take it in between
+    /// ↩ in the filter's field, given the keys in the same breath as focus: text focus is
+    /// arbitrated process-wide, and another suite's field can take it in between
     /// (`docs/flaky-tests.md`, "Text-field focus is arbitrated process-wide").
     private func pressReturn(in window: NSWindow) throws {
         let field = try #require(Self.editableField(in: window.contentView), "no filter field mounted")
@@ -139,8 +138,8 @@ import SwiftUI
         _ = mounted
     }
 
-    /// **In Preview there is no text to select**, so the caret's anchor goes to the match — where
-    /// Source puts the caret when it is switched to.
+    /// In Preview there is no text to select, so the caret's anchor goes to the match, where Source
+    /// puts the caret when switched to.
     @Test func inPreviewTheCaretIsLeftAtTheMatch() async throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -156,9 +155,9 @@ import SwiftUI
         #expect(document.caretAnchors.offset(for: note.path) == 15)
     }
 
-    /// **A PDF result opens with its find holding the word and searching** — from a text file, where
-    /// the workspace has no PDF until the host hands it one; the hand-off has to be heard by the
-    /// workspace, not by the text body the PDF replaces.
+    /// A PDF result opens with its find holding the word and searching, from a text file: the
+    /// workspace has no PDF until the host hands it one, so the workspace must hear the hand-off,
+    /// not the text body the PDF replaces.
     @Test func aPDFResultOpensWithItsFindSearchingForTheWord() async throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -202,9 +201,8 @@ import SwiftUI
         await spin(window) { model.firstResult != nil && model.textPhase != .searching(.init()) }
         try #require(model.firstResult?.hit.kind == .pdf, "no PDF result to open")
         try pressReturn(in: window)
-        // Paced by the PDFKit lane the open and each page's search queue in, not by seconds: on CI
-        // a 15 s spin ran out with page two still queued and one of the two matches counted (run
-        // 40216946771), and others read 0 matches after 150–210 s (40229669567). See `LaneWait`.
+        // Paced by the PDFKit lane the open and each page's search queue in, not by seconds: under
+        // load a seconds budget runs out with pages still queued. See `LaneWait`.
         let (searched, passes) = await LaneWait.pump(window) { pdf.find.isShown && pdf.find.phase == .done }
         try #require(searched, "the find never finished (\(passes) lane passes, \(pdf.find.matches.count) matches so far)")
         #expect(pdf.path == paper.path)

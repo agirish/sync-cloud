@@ -2,39 +2,28 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins the pane's download watch — the sequence, not just its parts.
+/// Pins the pane's download watch, the sequence as well as its parts. Every
+/// `CloudOnlyBadgeCache.forget` bumps the memo's generation and invalidates every in-flight badge
+/// stat in both panes, so a download must forget exactly once.
 ///
-/// The watch used to be run by the ROW (ten one-second probes) and, for a download started from
-/// the preview column's button, by the COLUMN as well (twenty at 1.5 s) — for the same request.
-/// Each preceded its poll with `CloudOnlyBadgeCache.forget`, and every forget bumps the memo's
-/// generation, which invalidates every in-flight badge stat in BOTH panes. That is verbatim the
-/// harm the pane-scoped request payload was added to remove, so "exactly one forget per download"
-/// is the property worth a test rather than a comment.
-///
-/// `.serialized` because the memo is process-wide static state and these tests write it. Their
-/// fixtures all live under `/iCloud`, which no other suite touches — a reset here must never be a
-/// whole-table wipe, or it would reach into a suite running in parallel.
+/// `.serialized` because the memo is process-wide static state and these tests write it. Fixtures
+/// live under `/iCloud`, which no other suite touches; a reset here must never wipe the whole
+/// table, or it would reach into a suite running in parallel.
 @Suite(.serialized) struct CloudDownloadWatchTests {
 
     private static let path = "/iCloud/big.mov"
 
-    /// Arming a watch drops the memo's pre-download answer, and does it SYNCHRONOUSLY — no await
-    /// between `begin` returning and the entry being gone.
-    ///
-    /// That is the whole of the ordering guarantee. The forget used to be the first line of the
-    /// watch task, which made "the memo is clear by the time anyone reads it again" rest on the
-    /// main actor draining equal-priority jobs in FIFO order — true in practice, guaranteed
-    /// nowhere — while `begin` had already published `requests`, re-keying the badge task of the
-    /// row showing that file. A row that re-read the memo in that window got the pre-download
-    /// "cloud-only" answer straight back out of cache. Asserted with no `await` at all, because a
-    /// suspension point here would be the test admitting the property it is checking.
+    /// Arming a watch drops the memo's pre-download answer synchronously, with no await between
+    /// `begin` returning and the entry being gone. `begin` publishes `requests`, re-keying the
+    /// row's badge task; a forget left to the watch task would rest on main-actor job order, and a
+    /// row re-reading in between would get "cloud-only" back from cache. No `await` in the test,
+    /// since a suspension would concede the property.
     @MainActor
     @Test func arrivingAtAWatchForgetsThePathSynchronously() {
         CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
         CloudOnlyBadgeCache.record(Self.path, isCloudOnly: true)
-        // The watch puts the entry straight back, so the assertion below fails if the forget was
-        // the task's doing rather than `begin`'s — a `nil` here means the memo was cleared before
-        // the task had run at all, which is the claim.
+        // The watch puts the entry straight back, so a `nil` below means `begin` cleared the memo
+        // before the task ran, and a forget done by the task would fail.
         let watch = PaneDownloadWatch { request, _ in
             CloudOnlyBadgeCache.record(request.path, isCloudOnly: true)
             return false
@@ -45,12 +34,10 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(Self.path) == nil)
     }
 
-    /// ONE forget per download: `begin` does it, and nothing after it does it again.
-    ///
-    /// Asserted per path rather than off a global invalidation counter, which cannot be read
-    /// reliably: the memo is process-wide and every mounted pane suite running in parallel bumps
-    /// it on republish. The injected watch writes the entry back — the row recycling mid-download —
-    /// so a second forget anywhere in the sequence leaves the entry missing at the end.
+    /// One forget per download: `begin` does it and nothing after it does it again. Asserted per
+    /// path, not off the global invalidation counter, which parallel pane suites bump on republish.
+    /// The injected watch writes the entry back (a row recycling mid-download), so a second forget
+    /// anywhere leaves it missing at the end.
     @MainActor
     @Test func nothingAfterTheArmingForgetsThePathAgain() async {
         CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
@@ -68,9 +55,9 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(Self.path) == true)
     }
 
-    /// The real watch forgets nothing itself — the arming already did, and a second forget is two
-    /// generation bumps for one download, which invalidates every in-flight badge stat in both
-    /// panes. Driven straight at `CloudDownloadPoll.watch` so the split is pinned on both sides.
+    /// The real watch forgets nothing itself; the arming already did, and a second forget would
+    /// invalidate every in-flight badge stat in both panes again. Driven straight at
+    /// `CloudDownloadPoll.watch` so the split is pinned from both sides.
     @MainActor
     @Test func thePollingWatchItselfForgetsNothing() async {
         CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
@@ -114,11 +101,9 @@ import Foundation
         #expect(dropsLatch)
     }
 
-    /// The exhaustion path's missing guard, as a test: the user clicks Download, the attempts run
-    /// out, and before this watch finishes they click Download on the SAME file again — which
-    /// cancels this task and re-arms the latch with a fresh request for the identical path. A
-    /// guard that compared paths would let this finishing watch clear the latch the new one just
-    /// took, killing a watch that had barely started.
+    /// Download, attempts run out, and Download on the same file again before this watch finishes:
+    /// the latch now holds a fresh request for the same path. A guard comparing paths would let the
+    /// finishing watch clear the new one's latch.
     @MainActor
     @Test func aSupersededWatchDoesNotDropTheNewRequestsLatch() async {
         CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
@@ -145,9 +130,8 @@ import Foundation
 
     // MARK: - The poll itself
 
-    /// It stops at the first probe that says the content is local — a watch that kept polling
-    /// after the answer arrived would hold the latch (and the "Downloading…" caption) for the rest
-    /// of its budget.
+    /// It stops at the first probe that says the content is local; one that kept polling would
+    /// hold the latch (and the "Downloading…" caption) for the rest of its budget.
     @Test func thePollStopsAtTheFirstLanding() async {
         let probes = Probes()
         let landed = await CloudDownloadPoll.run(path: Self.path, attempts: 10, interval: .zero,
@@ -168,12 +152,9 @@ import Foundation
         #expect(await probes.count == 4)
     }
 
-    /// A path that cannot be statted is not a landing.
-    ///
-    /// `lstat` reports "not dataless" and "not there" through the same failure, and the poll used to
-    /// read a bare `false` as YES — so a file deleted mid-download counted as materialized, and the
-    /// watch recorded local content for a path with no file behind it. The probe answers nil for
-    /// that now, the poll keeps going, and a run of nothing but nils ends having observed nothing.
+    /// A path that can't be statted is not a landing. `lstat` fails the same way for "not dataless"
+    /// and "not there", so the probe answers nil and the poll keeps going; otherwise a file deleted
+    /// mid-download would count as materialized.
     @Test func aProbeThatCannotAnswerIsNotALanding() async {
         let probes = Probes()
         let landed = await CloudDownloadPoll.run(path: Self.path, attempts: 3, interval: .zero,
@@ -183,13 +164,10 @@ import Foundation
         #expect(await probes.count == 3, "the poll gave up instead of trying again")
     }
 
-    /// And the real probe answers nil for a path that is not there — the production default, not an
-    /// injected stand-in, because that mapping is the whole of this fix.
-    ///
-    /// Nothing is seeded into the memo first: the arming forget that used to clear a seed lives in
-    /// `PaneDownloadWatch.begin` now, and this drives `watch` directly. The assertion is unchanged
-    /// in force — a poll that read "cannot stat" as a landing would `record(false)` here, which is
-    /// not `nil`.
+    /// The real probe answers nil for a missing path: the production default, since that mapping is
+    /// what's under test. Nothing is seeded, as the arming forget lives in `PaneDownloadWatch.begin`
+    /// and this drives `watch` directly; a poll that read "can't stat" as landed would
+    /// `record(false)`.
     @MainActor
     @Test func aVanishedPathLeavesNothingInTheMemo() async {
         let gone = "/iCloud/vanished-\(UUID().uuidString).mov"
@@ -203,8 +181,8 @@ import Foundation
                 "the watch recorded an answer about a path with no file behind it")
     }
 
-    /// Cancellation reports no landing rather than a false one. The interval is a minute: without
-    /// the cancellation this test could not finish, which is the assertion behind the assertion.
+    /// Cancellation reports no landing rather than a false one. The interval is a minute, so the
+    /// test finishes only if cancellation works.
     @Test func aCancelledPollReportsNoLanding() async {
         let task = Task {
             await CloudDownloadPoll.run(path: Self.path, attempts: 10, interval: .seconds(60),
@@ -217,23 +195,15 @@ import Foundation
 
     // MARK: - The row's badge, one layer above the memo
 
-    /// A badge resolution superseded while its stat was out hands the row NOTHING to write.
+    /// A badge resolution superseded while its stat was out hands the row nothing to write. As in
+    /// the app: the arming re-stat is out with the pre-download `true`, the watch concludes,
+    /// `.task(id:)` cancels this resolution, and the stat resumes anyway, because
+    /// `Task.detached { … }.value` neither inherits cancellation nor throws. Without the guard the
+    /// stale `true` could land after the replacement's `false`, badging a local file as cloud-only.
     ///
-    /// The memo grew two guards for this race and the row sat above both of them, assigning
-    /// whatever came back. Staged exactly as the app reaches it: the arming re-stat is out carrying
-    /// the pre-download `true`, the watch concludes, `.task(id:)` re-keys and cancels this
-    /// resolution — and the stat resumes anyway, because `Task.detached { … }.value` neither
-    /// inherits cancellation nor throws. The replacement task writes the memo's `false`; which of
-    /// the two lands last is unconstrained, so the badge could go on claiming cloud-only for a file
-    /// that had already arrived.
-    ///
-    /// The suspension is a continuation rather than a sleep for that same reason: a `Task.sleep`
-    /// throws the instant the task is cancelled and unwinds BEFORE the write, which would stage the
-    /// opposite of the defect and pass without the guard.
-    ///
-    /// The memo does end up holding `true` for this path, and that is correct — nothing invalidated
-    /// it here, so the memo's own guards have no reason to decline. The staleness this test is
-    /// about is the row's, which is why the assertion is on what the row is handed.
+    /// A continuation, not a sleep: `Task.sleep` throws on cancel and unwinds before the write, so
+    /// the test would pass without the guard. The memo itself ends up `true` here, correctly, since
+    /// nothing invalidated it; the assertion is on what the row is handed.
     @MainActor
     @Test func aSupersededBadgeResolutionIsNotWritten() async {
         let path = "/iCloud/superseded-\(UUID().uuidString).mov"
@@ -256,12 +226,9 @@ import Foundation
                 "a superseded badge resolution handed back an answer for the row to write")
     }
 
-    /// The guard declines a superseded answer and NOTHING else — a live resolution still follows
-    /// the memo, including the `false` a concluding watch has just recorded.
-    ///
-    /// Without this, a resolution that never writes at all (`guard false`) passes the test above.
-    /// The stat must also not be consulted: a memo hit is what makes the post-download re-read
-    /// cheap, and it is the answer the badge is meant to follow.
+    /// The guard declines only a superseded answer: a live resolution still follows the memo,
+    /// including the `false` a concluding watch just recorded, without a stat. Without this, a
+    /// resolution that never writes (`guard false`) would pass the test above.
     @MainActor
     @Test func aLiveBadgeResolutionFollowsTheMemo() async {
         let path = "/iCloud/landed-\(UUID().uuidString).mov"
@@ -278,8 +245,7 @@ import Foundation
         #expect(!statted.fired, "a memoized answer was re-statted")
     }
 
-    /// A directory resolves `false` without statting — the branch the row used to run inline, kept
-    /// so the extraction cannot have quietly started charging folders for an `lstat`.
+    /// A directory resolves `false` without statting, so folders never pay for an `lstat`.
     @MainActor
     @Test func aDirectoryResolvesUnbadgedWithoutStatting() async {
         let statted = Marker()
@@ -299,11 +265,9 @@ import Foundation
         var fired = false
     }
 
-    /// A stat suspension the test controls, and one a CANCELLED task still resumes from.
-    ///
-    /// That last part is the whole fixture. The real stat is `Task.detached { lstat }.value`, which
-    /// does not inherit its caller's cancellation and cannot throw, so it comes back and carries on
-    /// into the write. A continuation resumed from outside is the same shape; `Task.sleep` is not.
+    /// A stat suspension the test controls, which a cancelled task still resumes from. That matches
+    /// the real stat, `Task.detached { lstat }.value`, which ignores the caller's cancellation and
+    /// can't throw; `Task.sleep` would not.
     @MainActor private final class StatGate {
         private var continuation: CheckedContinuation<Void, Never>?
         private(set) var isWaiting = false
@@ -321,17 +285,10 @@ import Foundation
         }
     }
 
-    /// Yields until `condition` holds or the deadline passes. Returns whether it held, so the
-    /// caller asserts on the answer rather than assuming it.
-    ///
-    /// Generous, because it waits for something to HAPPEN rather than bounding an absence: the
-    /// watch task is main-actor isolated and in a full parallel run this repo has measured deferred
-    /// main-actor work landing 13 s late.
-    ///
-    /// The generosity is not what carries it — **seconds do not convert to polls at any fixed
-    /// rate**, so a longer deadline buys nothing on a starved main actor. `LayoutPumpWait.poll`'s
-    /// floor is what does: the wait gives up only once the deadline has passed AND `pumpFloor`
-    /// polls have been made. See `docs/flaky-tests.md`, mechanism 2.
+    /// Yields until `condition` holds or the deadline passes, and returns whether it held. What
+    /// carries it under load is `LayoutPumpWait.poll`'s floor, not the deadline: it gives up only
+    /// after the deadline and `pumpFloor` polls (`docs/flaky-tests.md`, "Fixed pumps and fixed
+    /// sleeps").
     @MainActor
     private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
         await LayoutPumpWait.poll(upTo: seconds, until: condition).held

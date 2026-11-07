@@ -5,34 +5,31 @@ import Sync
 
 /// One destination the palette can route to.
 ///
-/// **A value, not a closure**, and that is the whole reason this feature is testable. The palette's
-/// predecessor in this codebase — the pane search field's ↩ — shipped its routing *inverted*, and
-/// nothing caught it: the decision lived in three lines inside an `onSubmit`, which cannot be fired
-/// from a unit test and is attached to a SwiftUI `Button` that is not an `NSControl`. It only became
-/// testable once the decision was pulled out into a pure function returning a value
-/// (``PaneSearchSubmit``). This is the same shape, one size up: ``PaletteRouter`` turns a query into
-/// rows carrying routes, a test asserts the routes, and the host's only job is to *apply* one.
+/// A value, not a closure, so routing is testable: a decision inside an `onSubmit` on a SwiftUI
+/// `Button` can't be fired from a unit test (the pane search's ↩ became testable only once it was
+/// pulled out into ``PaneSearchSubmit``). ``PaletteRouter`` turns a query into rows carrying routes,
+/// a test asserts the routes, and the host's only job is to apply one.
 public enum PaletteRoute: Equatable, Sendable {
 
-    /// The Browse workspace — one tree, full width, nothing proposing anything.
+    /// The Browse workspace: one tree, full width, nothing proposing anything.
     case browse
-    /// The Compare workspace — two trees side by side.
+    /// The Compare workspace: two trees side by side.
     case compare
-    /// The Edit workspace — one open text file, the app's only writable surface.
+    /// The Edit workspace: one open text file, the app's only writable surface.
     ///
-    /// Carries no folder, for the reason Browse does not: the editor lists whatever folder the
-    /// sidebar has selected, and the `.folder` route is already how the palette moves that.
+    /// Carries no folder, like Browse: the editor lists whatever folder the sidebar has selected,
+    /// and the `.folder` route already moves that.
     case editor
 
     /// Organize, at this rail item (`nil` is the overview), optionally re-aimed at a folder.
     ///
-    /// The scope is an **absolute path**, or nil to leave the current aim alone. It is not folded
-    /// into a separate `.folder` route because "organize income tax" is one request, not two: a
-    /// route that only switched workspace would land you on Organize still answering about wherever
-    /// you were, which is the same silent-loss ``OrganizeScope`` was built to stop.
+    /// The scope is an **absolute path**, or nil to leave the current aim alone. Not a separate
+    /// `.folder` route, because "organize income tax" is one request: a route that only switched
+    /// workspace would leave Organize answering about wherever you were, the silent loss
+    /// ``OrganizeScope`` exists to stop.
     case organize(lens: OrganizeLens?, scope: String?)
 
-    /// Everything that is this person's — the gather ⌘↩ opens from the pane search.
+    /// Everything that is this person's: the gather ⌘↩ opens from the pane search.
     case person(id: String)
 
     /// Point the single source at this provider.
@@ -41,63 +38,54 @@ public enum PaletteRoute: Equatable, Sendable {
     /// Reveal this folder in the source browser, without re-aiming Organize.
     case folder(path: String)
 
-    /// Point the aimed pane at another source **and land on this folder** — ROADMAP v4 §3's
-    /// deferred half of Go to Folder, shipped as RD7.
+    /// Point the aimed pane at another source **and land on this folder**: Go to Folder across
+    /// sources.
     ///
-    /// **A case of its own rather than a `.folder` with a provider bolted on**, for two reasons
-    /// that are both about the host rather than about this module. `.folder` already has callers
-    /// (`folderRows`, and the same-source arm of ``PaletteRouter/pathRow(query:index:probe:)``)
-    /// whose whole premise is that the pane is already aimed at the right source, so widening it
-    /// would make every one of them say something it does not mean. And the host's `switch` is
-    /// exhaustive with no `default:` — pinned by `everyRouteCaseIsHandledWithoutADefaultArm` — so a
-    /// distinct case is what makes the compiler ask the one site that has to think about this.
+    /// A case of its own, not a `.folder` with a provider added. `.folder`'s callers (`folderRows`,
+    /// and the same-source arm of ``PaletteRouter/pathRow(query:index:probe:)``) assume the pane is
+    /// already aimed at the right source. And the host's `switch` has no `default:` (pinned by
+    /// `everyRouteCaseIsHandledWithoutADefaultArm`), so a distinct case makes the compiler ask the
+    /// one site that has to handle it.
     ///
-    /// The provider arrives as its **id, a plain string**, exactly as ``settings(tab:)`` carries a
-    /// tab: `FileExplorer` cannot see the settings model, so a provider crosses the wall as data
-    /// (``PaletteProvider``) and leaves the same way. An id the settings no longer know is
-    /// therefore representable, and the host says so out loud rather than switching to nothing.
+    /// The provider arrives as its id, a plain string, as ``settings(tab:)`` carries a tab:
+    /// `FileExplorer` can't see the settings model, so a provider crosses as data
+    /// (``PaletteProvider``). An id the settings no longer know is representable, and the host says
+    /// so rather than switching to nothing.
     ///
-    /// `path` is **absolute** — it is the path the user typed, standardized by `PalettePath` — and
-    /// the host relativizes it against the *named* source's root, never the pane's current one.
+    /// `path` is **absolute** (the typed path, standardized by `PalettePath`), and the host
+    /// relativizes it against the named source's root, never the pane's current one.
     case folderInSource(providerId: String, path: String)
 
     /// A named action, run or opened.
     case action(PaletteAction)
 
-    /// Settings, opened on one named tab — the raw value of `SettingsView.SettingsTab`, followed by
-    /// `/` and a page's raw value when the row was matched through a word on that page.
+    /// Settings, opened on one named tab: the raw value of `SettingsView.SettingsTab`, plus `/` and a
+    /// page's raw value when the row was matched through a word on that page.
     ///
-    /// **A string, not the enum, because the enum is in a package this one cannot see.**
-    /// `FileExplorer` and `Settings` are siblings, so the tab arrives here as data
-    /// (``PaletteSettingsTab``, injected on the index) and leaves the same way; the host turns it
-    /// back into a case with `SettingsTab(rawValue:)`. A raw value that no longer names a tab is
-    /// therefore possible in principle, and the host says so out loud rather than opening the
-    /// wrong page — the same treatment `.person` gets for an id the registry has dropped.
+    /// A string, not the enum, because the enum is in the sibling `Settings` package, which this one
+    /// can't see. The tab arrives as data (``PaletteSettingsTab``, injected on the index) and the
+    /// host turns it back with `SettingsTab(rawValue:)`. A raw value that names no tab is possible,
+    /// and the host says so rather than opening the wrong page, as `.person` does for a dropped id.
     ///
-    /// Distinct from `.action(.settings)`, which opens **the tab you were last on**. Two requests,
-    /// two destinations: "take me to Appearance" and "put Settings back where I left it" are not
-    /// the same thing, so neither row is a duplicate of the other.
+    /// Distinct from `.action(.settings)`, which opens the tab you were last on: "take me to
+    /// Appearance" and "put Settings back where I left it" are different requests.
     case settings(tab: String)
 }
 
 /// The actions the palette can run.
 ///
-/// Deliberately **only things that already exist as a menu item or a header control.** A palette is
-/// a second way to reach what is there; inventing an action reachable *only* here would put a verb
-/// in the app that nothing on screen can teach you.
+/// Only things that already exist as a menu item or a header control. A palette is a second way to
+/// reach what is there; an action reachable only here would be a verb nothing on screen teaches.
 ///
-/// **None of them is conditional, and one of them used to pretend to be.** `PaletteIndex` carried a
-/// `canChooseFolder` flag gating "Choose Folder…", and every production call site passed `true`,
-/// because the open panel behind it is always available — a field that looks like it varies and
-/// cannot, with a test exercising a value the app never sends. Availability that is real is carried
-/// per row, in ``PaletteRow/unavailable``, with the reason attached.
+/// None is conditional. Availability that really varies is carried per row, in
+/// ``PaletteRow/unavailable``, with the reason attached.
 public enum PaletteAction: String, CaseIterable, Sendable {
     case rescan
     case newFolder
     case chooseFolder
     case findInPane
-    /// §5.10's palette route: the shape question about the folder you are standing in — the row
-    /// menu's "Check This Folder's Shape", aimed at the pane's current folder instead of a row.
+    /// The shape question about the folder you are standing in: the row menu's "Check This
+    /// Folder's Shape", aimed at the pane's current folder instead of a row.
     case restructureThisFolder
     case settings
     case shortcuts
@@ -109,10 +97,8 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .newFolder: return "New Folder…"
         case .chooseFolder: return "Choose Folder…"
         case .findInPane: return "Find in Pane…"
-        // The row context menu's exact words — one action wears one name wherever it appears,
-        // and the row menu (a real menu item) is what makes this palette entry lawful. The
-        // roadmap drafted "Restructure This Folder" for this seat; two names for one verb was
-        // the kind of drift the palette law exists to prevent.
+        // The row context menu's exact words: one action wears one name wherever it appears, and
+        // the row menu (a real menu item) is what makes this palette entry lawful.
         case .restructureThisFolder: return "Check This Folder’s Shape"
         case .settings: return "Settings…"
         case .shortcuts: return "Keyboard Shortcuts"
@@ -133,11 +119,9 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         }
     }
 
-    /// Extra words a query may use for this action that its title does not contain.
-    ///
-    /// The palette exists because *a user who thinks "rename" has no target for the thought* — so
-    /// the vocabulary has to be the user's, not the menu's. Kept here rather than in the matcher so
-    /// each action owns its own synonyms.
+    /// Extra words a query may use for this action that its title doesn't contain. The palette is
+    /// for a user who thinks "rename" and has no target for the thought, so the vocabulary is the
+    /// user's, not the menu's. Kept here so each action owns its synonyms.
     var keywords: [String] {
         switch self {
         case .rescan: return ["scan", "refresh", "reload"]
@@ -156,28 +140,23 @@ public enum PaletteAction: String, CaseIterable, Sendable {
 
 /// The palette's sections, in the order they are shown.
 ///
-/// **"Places" rather than "Workspaces"**, because most of the places are not workspaces: of the
-/// nine, five are rail items *inside* Organize and a sixth is Organize's own overview. Calling the
-/// group Workspaces would have made the lenses look like a different kind of thing from the bar's
-/// segments, when routing to them is exactly the same act — and the lenses are the reason this item
-/// got more valuable than it was when written.
+/// "Places", not "Workspaces": most places are not workspaces (of the nine, five are rail items
+/// inside Organize and a sixth is its overview), and routing to a lens is the same act as routing
+/// to a bar segment, so they belong under one name.
 public enum PaletteGroup: String, CaseIterable, Sendable {
     case places = "Places"
     case people = "People"
     case folders = "Folders"
     case sources = "Sources"
     case actions = "Actions"
-    /// The Settings tabs. **Last, and it is the tie-break only** — a group's position is decided
-    /// by its own best row (see ``PaletteRouter/sorted(_:)``), so an exact hit on "Appearance"
-    /// still opens the list. What this rank settles is where Settings sits among groups that
-    /// scored the *same*, and there it belongs behind the places and the files: a query that
+    /// The Settings tabs. Last, but only as the tie-break: a group's position is decided by its own
+    /// best row (see ``PaletteRouter/sorted(_:)``), so an exact hit on "Appearance" still leads.
+    /// Among groups that scored the same, Settings belongs behind places and files: a query that
     /// answers both a folder and a preferences page nearly always means the folder.
     ///
-    /// **That tie is real and measured, not a theoretical one.** A folder named `People` scores 400
-    /// against a Settings row's 396 and wins on score alone; the same folder five levels deep
-    /// takes a depth penalty to exactly 396 and is separated *only* by this rank. So moving this
-    /// case earlier in `allCases` would put a preferences page above the folder somebody was
-    /// looking for — `aFolderNamedLikeATabKeepsItsLead` is what fails if it moves.
+    /// The tie is real: a folder named `People` five levels deep takes a depth penalty to exactly
+    /// a Settings row's 396, and only this rank separates them. Moving this case earlier in
+    /// `allCases` fails `aFolderNamedLikeATabKeepsItsLead`.
     case settings = "Settings"
 
     /// Ties are broken in this order, which is also the order the sections are drawn in.
@@ -189,24 +168,22 @@ public struct PaletteRow: Identifiable, Equatable, Sendable {
     public let id: String
     public let group: PaletteGroup
     public let title: String
-    /// The second line — what this row *is*, or where it goes. nil draws a single-line row.
+    /// The second line: what this row is, or where it goes. nil draws a single-line row.
     public let detail: String?
     public let symbol: String
     public let route: PaletteRoute
 
-    /// Why this row cannot be chosen, or nil.
+    /// Why this row can't be chosen, or nil.
     ///
-    /// **A reason, not a Bool, and the row is kept rather than dropped.** An unmounted source that
-    /// simply vanished from the results teaches the user that the palette does not know about it;
-    /// the same row, dimmed and reading "Not mounted", answers the question they actually asked.
-    /// This is stated as a requirement in ROADMAP 14 and it is the one thing a filtered list gets
-    /// wrong by default.
+    /// A reason, not a Bool, and the row is kept rather than dropped. An unmounted source that
+    /// vanished from the results would teach that the palette doesn't know it; the same row, dimmed
+    /// and reading "Not mounted", answers the question asked.
     public let unavailable: String?
 
     public var isAvailable: Bool { unavailable == nil }
 
-    /// How well this row matched — the sort key, kept on the row so a test can assert the ORDER
-    /// rather than only the membership.
+    /// How well this row matched: the sort key, kept on the row so a test can assert the order, not
+    /// only the membership.
     public let score: Int
 
     public init(id: String, group: PaletteGroup, title: String, detail: String? = nil,
@@ -231,9 +208,8 @@ public struct PaletteProvider: Equatable, Sendable {
     /// Whether its folder is actually there. False keeps the row and dims it.
     public let isMounted: Bool
     public let isCurrent: Bool
-    /// Where this source lives, tilde-expanded. **Only Go to Folder reads it**, to decide which
-    /// source a typed path is inside — the rest of the palette never names a source by its path,
-    /// which is why this arrived late rather than being here from the start.
+    /// Where this source lives, tilde-expanded. Only Go to Folder reads it, to decide which source
+    /// a typed path is inside; the rest of the palette never names a source by its path.
     public let root: String
 
     public init(id: String, name: String, isMounted: Bool, isCurrent: Bool, root: String = "") {
@@ -247,14 +223,13 @@ public struct PaletteProvider: Equatable, Sendable {
 
 /// A Settings tab, as the palette needs it.
 ///
-/// Injected rather than known, for the reason ``PaletteRoute/settings(tab:)`` records: the tabs
-/// live in the `Settings` package, which this one does not depend on. `MacApp` maps
-/// `SettingsTabDigest` onto this — a one-line `map` whose only failure mode (mapping a subset) is
-/// what `SyncCloudTests` pins.
+    /// Injected rather than known, for the reason ``PaletteRoute/settings(tab:)`` gives: the tabs
+    /// live in the `Settings` package, which this one doesn't depend on. `MacApp` maps
+    /// `SettingsTabDigest` onto this; `SyncCloudTests` pins that the map drops no tab.
 public struct PaletteSettingsTab: Equatable, Sendable {
     /// `SettingsTab.rawValue`, carried into the route unchanged.
     public let id: String
-    /// The rail's name for the tab — "Appearance", "Sources".
+    /// The rail's name for the tab: "Appearance", "Sources".
     public let name: String
     /// One line saying what is on it, drawn as the row's second line.
     public let detail: String
@@ -262,14 +237,13 @@ public struct PaletteSettingsTab: Equatable, Sendable {
 
     /// Every word that should reach this tab: the titles and keywords of the controls on it.
     ///
-    /// **It is a whole tab's worth of vocabulary behind ONE row**, and that is the design. The
-    /// alternative was a row per control — 53 of them — which put four rows on screen that all
-    /// open the same page and still could not scroll to the control, because the Settings sheet
-    /// lands on a tab and not on a row. Folding the words in keeps `glass` and `sk-ant` and
-    /// `node_modules` answerable while the list stays at ten.
+    /// A whole tab's vocabulary behind one row, by design. A row per control would put several rows
+    /// on screen that open the same page, and still couldn't scroll to the control, because the
+    /// Settings sheet lands on a tab. Folding the words in keeps `glass`, `sk-ant` and
+    /// `node_modules` answerable while the list stays at one row per tab.
     ///
-    /// It is why a Settings row is often matched by text it does not display. That is what
-    /// ``detail`` is for: the row cannot bold what is not in it, so it says what is on the tab.
+    /// So a Settings row is often matched by text it doesn't display. That is what ``detail`` is
+    /// for: the row can't bold what isn't in it, so it says what is on the tab.
     public let vocabulary: [String]
 
     /// The pages each word of ``vocabulary`` is on, for a tab with pages: lowercased word to the
@@ -328,64 +302,58 @@ public struct PaletteSettingsTab: Equatable, Sendable {
 
 /// Everything the router may read, snapshotted.
 ///
-/// A plain `Sendable` value rather than the manager, so the routing table is a **function** of
-/// state that a test can write down in full. Nothing here is optional-for-convenience: each field
-/// is something a row's presence, wording or availability genuinely depends on.
+/// A plain `Sendable` value rather than the manager, so the routing table is a function of state a
+/// test can write down in full. Nothing is optional for convenience: each field is something a
+/// row's presence, wording or availability depends on.
 public struct PaletteIndex: Equatable, Sendable {
     public var providers: [PaletteProvider]
     /// The absolute root of the source Organize and the rail are pointed at, if there is one.
     public var providerRoot: String?
     /// Folders under `providerRoot`, **relative**, from the folder profile the survey built.
     public var folders: [String]
-    /// The leading segment every entry of `folders` shares — the survey anchor's position inside
+    /// The leading segment every entry of `folders` shares: the survey anchor's position inside
     /// the source root, i.e. the source's `openAt`. Empty when the two are the same folder.
     ///
-    /// **It is here so the ranker can subtract it**, and that is not cosmetic. A source's root is
-    /// the account above its documents tree, so every key now begins `Documents` (`My Drive
-    /// Documents` on Drive) — and ``PaletteRouter/rankedFolders(matching:in:)`` scores the path with
-    /// its slashes flattened to spaces. Typing `doc` therefore scored an identical prefix match on
-    /// all ~3,013 surveyed folders, and the Folders group answered six alphabetically-arbitrary rows
-    /// instead of the folders whose names contain "doc". `documents`, `my`, `drive` and every
-    /// substring of them behaved the same way.
+    /// The ranker subtracts it. A source's root is the account above its documents tree, so every
+    /// key begins `Documents` (`My Drive Documents` on Drive), and
+    /// ``PaletteRouter/rankedFolders(matching:in:)`` scores the path with slashes as spaces. Left in,
+    /// typing `doc`, `my` or `drive` would prefix-match every surveyed folder and the group would
+    /// show arbitrary rows instead of the folders whose names match.
     ///
     /// Set it from ``PaletteIndex/folderPrefix(profileRoot:providerRoot:)`` and from nothing else.
     public var folderPrefix: String
-    /// Recently focused folders, most recent first, relative — the empty-query state.
+    /// Recently focused folders, most recent first, relative: the empty-query state.
     public var recentFolders: [String]
-    /// Folders the user has pinned, relative. ROADMAP 14 asks the Folders group for "recent and
-    /// pinned paths"; they are two lists rather than one because they are two different claims —
-    /// *where you just were* and *where you keep going back to* — and a row labelled "Recent" for a
-    /// folder you pinned months ago would be the wrong one.
+    /// Folders the user has pinned, relative. Two lists, not one, because they are two claims,
+    /// where you just were and where you keep going back to, and a "Recent" label on a folder pinned
+    /// months ago would be wrong.
     public var pinnedFolders: [String]
 
     /// Why no folder under this source can be reached right now, or nil.
     ///
-    /// Set when the provider **root** did not answer — an external drive asleep, a network mount
-    /// down. That takes out every recent and every pin at once, and the empty-query landing IS that
-    /// list, so dropping them silently makes ⌘K open blank and "I have no recents"
-    /// indistinguishable from "my drive is not awake". The rows are kept and marked instead, which
-    /// is what this palette already does for an unmounted source.
+    /// Set when the provider root didn't answer (an external drive asleep, a network mount down).
+    /// That takes out every recent and pin at once, and the empty-query landing is that list, so
+    /// dropping them would open ⌘K blank and make "no recents" look like "drive not awake". The rows
+    /// are kept and marked instead, as for an unmounted source.
     ///
-    /// **It marks every folder row, not only the remembered ones.** `folders` comes from the survey
-    /// profile held in memory, which answers a typed query whether or not the disk is awake — so
-    /// scoping this to recents and pins meant ⌘K opened saying "Not available" and then, the moment
-    /// anything was typed, offered the same tree as live destinations. One root, one answer.
+    /// It marks every folder row, not only the remembered ones: `folders` comes from the in-memory
+    /// survey profile, which answers a typed query whether or not the disk is awake, so typing
+    /// would otherwise offer the same tree as live destinations. One root, one answer.
     public var foldersUnavailable: String?
-    /// This user's home directory, for expanding a typed `~`. Carried on the index rather than read
-    /// from `NSHomeDirectory()` inside the rule, so a test can resolve `~` against a fixture.
+    /// This user's home directory, for expanding a typed `~`. On the index rather than read from
+    /// `NSHomeDirectory()` inside the rule, so a test can resolve `~` against a fixture.
     public var home: String
     public var people: [Person]
     /// The registry, when there is one. Person routing is phrase-first and longest-wins; the
     /// palette must not hand-roll a second matcher (see ``PaletteRouter/personRow(for:index:)``).
     public var registry: PersonRegistry?
-    /// True while a scan is running — the one thing that makes Rescan unavailable rather than absent.
+    /// True while a scan is running: the one thing that makes Rescan unavailable rather than absent.
     public var isScanning: Bool
-    /// Whether a document survey exists for a person gather to read. Without one the offer is a
-    /// button that does nothing, which is what the gather's own failure path had to be taught to say.
+    /// Whether a document survey exists for a person gather to read. Without one the offer would be
+    /// a button that does nothing.
     public var hasSurvey: Bool
-    /// The Settings tabs, in the rail's order. Empty offers no Settings rows at all, which is what
-    /// every fixture that predates them gets — so a test written for the folder rules is not made
-    /// to reason about a preferences page it never mentioned.
+    /// The Settings tabs, in the rail's order. Empty offers no Settings rows, the default, so a test
+    /// about the folder rules needn't reason about preferences pages it never mentions.
     public var settingsTabs: [PaletteSettingsTab]
 
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
@@ -417,50 +385,38 @@ public struct PaletteIndex: Equatable, Sendable {
 
 public extension PaletteIndex {
 
-    /// The folder list for a survey profile, **or empty when that profile is about a different
-    /// tree**.
+    /// The folder list for a survey profile, or empty when that profile is about a different
+    /// tree.
     ///
-    /// Extracted and pure because the host got it wrong in a way only the installed app showed:
-    /// it compared `FolderProfile.root` against the provider root *unexpanded*, and the profile
-    /// stores `~/Documents` while the provider root is expanded — so on the real tree the palette
-    /// logged "25 rows from **0 folders**" with 3,013 folders surveyed, and every folder query and
-    /// the whole "organize <folder>" lede silently answered nothing. Neither the routing tests (which
-    /// are handed folders) nor the render tests could see it; the app's own log line did.
+    /// Containment, with the keys re-based onto the provider root. The keys are relative to the
+    /// profile's root, but every path the index joins them with (recents, pins, typed paths) is
+    /// relative to the provider root. A profile is surveyed over the source's anchor, which sits
+    /// inside the root, so the two bases differ by the source's `openAt` and the keys must carry it.
     ///
-    /// **Containment, and the keys are re-based onto the provider root.** The keys are relative to
-    /// the profile's root, and every path in the index it joins — recents, pins, typed paths — is
-    /// relative to the *provider* root. Those were the same folder until a source gained a root
-    /// above its documents tree; now a profile is surveyed over the source's ANCHOR, which sits
-    /// inside the root, so the two bases differ by exactly the source's `openAt` and the keys have
-    /// to carry it.
+    /// Getting this wrong is silent: the palette would show rows from 0 folders, and every folder
+    /// query and "organize <folder>" would answer nothing, with no routing or render test noticing.
+    /// So it compares expanded paths by containment, not equality, and re-bases here rather than at
+    /// the call site, where a second copy of the rule could drift.
     ///
-    /// Getting this wrong is silent, and has been once: comparing the two roots unexpanded made the
-    /// palette log "25 rows from **0 folders**" with 3,013 folders surveyed, and every folder query
-    /// and the whole "organize &lt;folder&gt;" lede answered nothing. An equality test would fail
-    /// exactly that way again the moment a root widened, which is why this is containment — and why
-    /// the re-basing happens here rather than at the call site, where a second copy of the rule
-    /// could drift from the one the routes are built against.
-    ///
-    /// A profile rooted OUTSIDE the provider root still yields nothing: its keys name paths that do
-    /// not exist under this source, and a folder that cannot be named is not a destination.
+    /// A profile rooted outside the provider root still yields nothing: its keys name paths that
+    /// don't exist under this source.
     static func folders(profileRoot: String?, providerRoot: String, keys: [String]) -> [String] {
         guard let prefix = folderPrefix(profileRoot: profileRoot, providerRoot: providerRoot) else {
             return []
         }
-        // `.` is the profile root itself, which is where the rail already opens — not a destination.
+        // `.` is the profile root itself, where the rail already opens: not a destination.
         return keys.filter { !$0.isEmpty && $0 != "." }
             .map { PathBoundary.joinRelative(prefix, $0) }
     }
 
-    /// The segment `folders(profileRoot:providerRoot:keys:)` prepends to every key — the survey
-    /// anchor's position inside the source root, which is the source's `openAt`. Nil on exactly the
+    /// The segment `folders(profileRoot:providerRoot:keys:)` prepends to every key: the survey
+    /// anchor's position inside the source root, i.e. the source's `openAt`. Nil on exactly the
     /// inputs that make `folders` empty.
     ///
-    /// **This exists so the ranker can score what the key means rather than where it lives, and it
-    /// is the same computation rather than a second copy of it** — `folders` is written in terms of
-    /// it. Carried onto the index as `PaletteIndex.folderPrefix` and stripped back off in
-    /// ``PaletteRouter/rankedFolders(matching:in:)``; see that method for what goes wrong without
-    /// it. `theIndexedFoldersAllCarryTheIndexPrefix` binds the two so neither can drift.
+    /// Lets the ranker score what a key means rather than where it lives. The same computation
+    /// `folders` is written in terms of, carried onto the index as `PaletteIndex.folderPrefix` and
+    /// stripped off in ``PaletteRouter/rankedFolders(matching:in:)`` (see it for why).
+    /// `theIndexedFoldersAllCarryTheIndexPrefix` binds the two so neither can drift.
     static func folderPrefix(profileRoot: String?, providerRoot: String) -> String? {
         let profile = (profileRoot as NSString?)?.expandingTildeInPath ?? ""
         let provider = (providerRoot as NSString).expandingTildeInPath
@@ -471,13 +427,12 @@ public extension PaletteIndex {
 
 // MARK: - Places
 
-/// A destination in the app's own vocabulary: the three workspaces that are not Organize, and
+/// A destination in the app's own vocabulary: the three workspaces that aren't Organize, and
 /// Organize's rail.
 ///
-/// Spelled out rather than derived from `Workspace`, which lives in `MacApp` — a target that is in
-/// **no SPM package**, so a routing table written there is reachable by no `swift test`. That is not
-/// a workaround: the palette's whole risk is a routing table that is wrong in a way nobody can see,
-/// and the host's job is reduced to mapping these cases onto its own selection type.
+/// Spelled out rather than derived from `Workspace`, which lives in `MacApp`, a target in no SPM
+/// package, so a routing table there could be reached by no `swift test`. The host only maps these
+/// cases onto its own selection type.
 enum PalettePlace: CaseIterable {
     case browse
     case compare
@@ -485,22 +440,17 @@ enum PalettePlace: CaseIterable {
     case organizeOverview
     case lens(OrganizeLens)
 
-    /// Hand-written, because the associated-value case rules out the synthesized conformance —
-    /// which makes this the one place a new case can be added to the enum and silently never
-    /// offered. `CommandPaletteTests.everyPlaceIsOfferedByTheHandWrittenAllCases` counts what this
-    /// list produces against what the type can build, for exactly that reason.
+    /// Hand-written, because the associated-value case rules out the synthesized conformance, which
+    /// makes this the one place a new case could be added and never offered.
+    /// `CommandPaletteTests.everyPlaceIsOfferedByTheHandWrittenAllCases` counts what this list
+    /// produces against what the type can build.
     static var allCases: [PalettePlace] {
         [.browse, .compare, .organizeOverview]
-            // `railItems`, not `allCases`: the folded Names lens is not a place any more, and
-            // offering "Organize ▸ Names" beside "Organize ▸ Renames" was two rows for one
-            // landing. Its search vocabulary lives on the Renames place now.
+            // `railItems`, not `allCases`: the folded Names lens isn't a place, and offering it
+            // beside Renames would be two rows for one landing. Its vocabulary is on Renames.
             //
-            // **Storage arrives through this map and no longer as a hand-written case**, which is
-            // an improvement and not merely a tidy-up. The hand-written `.storage` place answered
-            // `takesAFolder == false` — it grouped with Browse, Compare and Editor in discarding
-            // scope, because "Storage analyses whatever the pane is on". As a derived lens place it
-            // takes a folder like every other lens, so "storage Legal" now analyses `Legal`
-            // instead of silently ignoring the word.
+            // Storage comes through this map like every other lens, so it takes a folder:
+            // "storage Legal" analyses `Legal` rather than ignoring the word.
             + OrganizeLens.railItems.map(PalettePlace.lens) + [.editor]
     }
 
@@ -516,20 +466,17 @@ enum PalettePlace: CaseIterable {
 
     /// The words a query may use to reach this place, beyond its title.
     ///
-    /// `"file"` and `"filing"` reach To File because that is what the app calls the act everywhere
-    /// else; `"rename"` reaches Names because ROADMAP 14's founding example is a user who thinks
-    /// "rename" and has nothing to aim at — folding Rename into a conditional chip took its
-    /// destination off the bar, and this is where it comes back.
+    /// `"file"` and `"filing"` reach To File because that is what the app calls the act elsewhere;
+    /// `"rename"` reaches Renames for the user who thinks "rename" and has nothing to aim at, since
+    /// Rename has no destination on the bar.
     var keywords: [String] {
         switch self {
-        // "files" and "finder" are the words someone reaches for when they want to go and look
-        // at their files rather than have the app tell them something about them — which is the
-        // whole distinction Browse exists to carry.
+        // "files" and "finder" are the words for going to look at your files rather than having
+        // the app tell you something about them, the distinction Browse exists to carry.
         case .browse: return ["browse", "files", "finder", "folders", "move", "look"]
         case .compare: return ["diff", "differences", "sync", "compare"]
-        // "note" and "write" are what someone reaches for when the thing they want is to put
-        // words in a file, which is not a word any other place here answers to. The PDF words
-        // (TE196) are for the other half of Edit: a PDF opens, is filled in and is signed there.
+        // "note" and "write" are for putting words in a file, which no other place answers to.
+        // The PDF words are for Edit's other half: a PDF opens, is filled in and signed there.
         case .editor: return ["edit", "editor", "text", "write", "note", "notes", "markdown",
                               "pdf", "pdfs", "sign", "signature", "fill"]
         case .organizeOverview: return ["organize", "tidy", "all"]
@@ -539,10 +486,8 @@ enum PalettePlace: CaseIterable {
                                       "folders", "names", "risky", "illegal", "characters"]
         case .lens(.restructure): return ["organize", "restructure", "structure", "shape", "habits"]
         case .lens(.rules): return ["organize", "rules", "automations", "automatic", "learned"]
-        // **The hand-written Storage place's vocabulary, relocated whole.** `space`, `disk` and
-        // `size` are what someone reaches for who wants to know where their storage went, and they
-        // had nowhere else to land once that place was deleted — dropping them would have made the
-        // fold a silent loss of three working queries.
+        // `space`, `disk` and `size` are what someone reaches for who wants to know where their
+        // storage went.
         case .lens(.storage): return ["organize", "storage", "space", "disk", "size", "large",
                                       "reclaim", "treemap"]
         }
@@ -578,13 +523,9 @@ enum PalettePlace: CaseIterable {
         }
     }
 
-    /// This place, optionally re-aimed at a folder. Only Organize can carry a scope: Compare has
-    /// two trees, and Browse and Editor have no *subject* to re-aim — both show wherever the pane
-    /// already is, and the existing `.folder` route is how the palette moves the pane there.
-    ///
-    /// **Storage used to be in that list and is not any more.** It was excluded on the grounds that
-    /// it "analyses whatever the pane is on"; as a lens it honours Organize's scope like the rest,
-    /// by re-analysing at the scope root.
+    /// This place, optionally re-aimed at a folder. Only Organize, its lenses included, can carry a
+    /// scope: Compare has two trees, and Browse and Editor have no subject to re-aim. Both show
+    /// wherever the pane already is, and the `.folder` route is how the palette moves the pane.
     func route(scope: String?) -> PaletteRoute {
         switch self {
         case .browse: return .browse
@@ -608,12 +549,11 @@ extension PalettePlace: Equatable {}
 
 // MARK: - Matching
 
-/// How well a candidate answers a query — **ordered, and the order is the ranking**.
+/// How well a candidate answers a query: ordered, and the order is the ranking.
 ///
-/// Four tiers rather than a similarity score: a palette's job is to put the thing you meant first,
-/// and "the whole title" beating "the start of a word" beating "somewhere in the middle" is the
-/// whole of what anyone can predict about it. A continuous score would be unpredictable in exactly
-/// the cases where being wrong costs a keystroke.
+/// Tiers rather than a similarity score: the whole title beats the start of a word, which beats
+/// somewhere in the middle, and that is all anyone can predict about a palette. A continuous score
+/// would be unpredictable exactly where being wrong costs a keystroke.
 enum PaletteMatch: Int, Comparable {
     case none = 0
     case substring = 1
@@ -628,16 +568,15 @@ enum PaletteMatch: Int, Comparable {
 
 /// The palette's routing table: a query and a snapshot in, ranked rows out.
 ///
-/// Every decision the palette makes is here, and it is pure. See ``PaletteRoute`` for why that is
-/// the point rather than a style.
+/// Every decision the palette makes is here, and it is pure. See ``PaletteRoute`` for why that
+/// matters.
 public enum PaletteRouter {
 
     /// Rows for a query, best first.
     /// - Parameter probe: what is at a typed path, for **Go to Folder**. `nil` means the caller
-    ///   cannot answer that — no path row is offered rather than one being offered on faith. It is
-    ///   injected because this is the only thing in the whole router that touches the disk, and it
-    ///   runs on the keystroke path: `PalettePath` says what bounds it, and
-    ///   `theHostGivesTheRouterARealPathProbe` is what stops the app quietly passing `nil`.
+    ///   can't answer, and no path row is offered on faith. Injected because it is the router's only
+    ///   disk access and runs on the keystroke path: `PalettePath` says what bounds it, and
+    ///   `theHostGivesTheRouterARealPathProbe` stops the app quietly passing `nil`.
     public static func rows(query: String, index: PaletteIndex,
                             probe: PalettePathProbe? = nil) -> [PaletteRow] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -653,33 +592,23 @@ public enum PaletteRouter {
         rows.append(contentsOf: actionRows(query: trimmed, index: index))
         rows.append(contentsOf: settingsRows(query: trimmed, index: index))
 
-        // **No de-duplication pass, and that is measured rather than assumed.** One was written
-        // here — keep the best-scoring copy of each id — on the reasoning that "organize legal"
-        // reaches Organize through both the verb parse and the plain place match. It does, but as
-        // two *different* rows with two different ids and two different destinations ("Organize ▸
-        // Legal" and "Organize"), which is not a duplicate: every builder above mints at most one
-        // row per id, so the pass could never fire. Mutating it to keep the WORST copy changed no
-        // test, which is what an inert guard looks like. `aDestinationIsNeverListedTwice` pins the
-        // property directly instead, where a future builder that did collide would fail.
+        // No de-duplication pass: every builder above mints at most one row per id, so one could
+        // never fire. "organize legal" reaches Organize twice, but as two rows with different ids
+        // and destinations ("Organize ▸ Legal" and "Organize"). `aDestinationIsNeverListedTwice`
+        // pins the property, so a builder that did collide would fail.
         return sorted(rows)
     }
 
-    /// Best first, **and each group in one run.**
+    /// Best first, and each group in one run.
     ///
-    /// Groups are ordered by their own best row, then every row of that group follows before the
-    /// next group starts; within a group it is score, then title, so the list is fully
-    /// deterministic — a palette whose rows shuffled between identical queries would be unusable.
+    /// Groups are ordered by their own best row, and each group's rows follow before the next
+    /// starts; within a group by score, then title, so the list is fully deterministic. A flat score
+    /// sort would repeat headers, since `PaletteResultsList` emits one wherever the group changes and
+    /// a group's rows spread across the score range: short queries would show the same heading
+    /// several times.
     ///
-    /// **A flat score sort is what this replaces, and it was wrong in a way only a render could
-    /// show.** `PaletteResultsList` emits a header wherever the group changes, so a flat sort put
-    /// the same header on screen several times: measured over the fixture, `"s"` produced *Places,
-    /// Actions, Sources, Actions, Places, Actions, Folders* — five groups in seven headings. It is
-    /// not a rare tie either; nearly every one- and two-letter query did it, because a group's rows
-    /// are spread across the whole score range and the group rank was only a tie-break.
-    ///
-    /// Ordering by the group's best row keeps what the flat sort was for: whatever matched best is
-    /// still the first row on screen, and `PaletteSelection` still walks the array, so ↑/↓ still
-    /// move the way the eye does. What changes is that the rest of that group comes with it.
+    /// The best match is still the first row, and `PaletteSelection` still walks the array, so ↑/↓
+    /// move the way the eye does; the rest of that group just comes with it.
     static func sorted(_ rows: [PaletteRow]) -> [PaletteRow] {
         let byGroup = Dictionary(grouping: rows, by: \.group)
         return PaletteGroup.allCases
@@ -700,17 +629,14 @@ public enum PaletteRouter {
 
     // MARK: The lede — "organize income tax", "duplicates in Legal"
 
-    /// Rows for a query that names a place **and then a folder**.
+    /// Rows for a query that names a place and then a folder: the palette's lede.
     ///
-    /// This is what ROADMAP 14 calls the lede, and it is the one thing a filtered list of nouns
-    /// cannot do: "organize income tax" is a verb and an object, and answering it with the Organize
-    /// row alone drops the object silently — you land on Organize still answering about wherever you
-    /// happened to be.
+    /// "organize income tax" is a verb and an object, and answering it with the Organize row alone
+    /// drops the object silently: you'd land on Organize still answering about wherever you were.
     ///
-    /// The parse is deliberately blunt: take the **longest leading run of words** that names a place,
-    /// and treat the rest as a folder. No grammar, no stop-word list beyond the connectives below,
-    /// because everything it could get wrong it gets wrong into an ordinary place row, which is
-    /// already in the results.
+    /// The parse is deliberately blunt: take the **longest leading run of words** that names a
+    /// place, and treat the rest as a folder. No grammar, no stop-word list beyond the connectives
+    /// below, because anything it gets wrong falls back to an ordinary place row, already listed.
     static func verbRows(query: String, index: PaletteIndex) -> [PaletteRow] {
         guard let (place, rest) = splitVerb(query), place.takesAFolder, !rest.isEmpty,
               let root = index.providerRoot, !root.isEmpty else { return [] }
@@ -724,37 +650,31 @@ public enum PaletteRouter {
                 detail: "Point Organize at \(folder.path)",
                 symbol: place.symbol,
                 route: place.route(scope: absolute),
-                // **The third builder that names a path under the root, and the one the first fix
-                // for this missed.** `scope` is a folder under `providerRoot` exactly as
-                // `folderRows`' path is, so a root that did not answer cannot deliver it either:
-                // running it writes an Organize scope for a folder that is not there, moves the
-                // workspace, and reveals nothing. Marked here for the same reason and with the same
-                // string. `everyPathBearingRouteIsRefusedWhenTheRootIsAsleep` walks all three.
+                // `scope` is a folder under `providerRoot`, as `folderRows`' path is, so a root
+                // that didn't answer can't deliver it either: running it would write a scope for a
+                // folder that isn't there, move the workspace and reveal nothing. Same mark, same
+                // string; `everyPathBearingRouteIsRefusedWhenTheRootIsAsleep` walks all three.
                 unavailable: index.foldersUnavailable,
-                // **Scored above a bare place match on purpose.** A query that named a verb AND an
-                // object asked for both; putting the object-less row first would answer half of it.
+                // Above a bare place match: a query naming a verb and an object asked for both,
+                // and the object-less row first would answer half of it.
                 score: 900 + folder.score)
         }
     }
 
-    /// The longest leading run of words naming a place, and what is left.
-    ///
-    /// Connectives between the two halves are dropped — "duplicates **in** Legal" is the same
-    /// request as "duplicates Legal" — and only there, so a folder genuinely called "In Progress"
-    /// still matches by its own name.
+    /// The longest leading run of words naming a place, and what is left. Connectives between the
+    /// halves are dropped ("duplicates **in** Legal" means "duplicates Legal"), and only there, so a
+    /// folder called "In Progress" still matches by its own name.
     static func splitVerb(_ query: String) -> (PalettePlace, String)? {
         let words = query.split(separator: " ").map(String.init)
         guard words.count >= 2 else { return nil }
         var found: (PalettePlace, String)?
-        // **Longest first — and today that direction is unobservable**, which is worth saying rather
-        // than leaving it to look load-bearing: reversing it fails no test, because no two-word place
-        // name in the vocabulary has a first word that is itself a place name ("to file" is the only
-        // two-word entry, and bare "to" reaches nothing). It stays longest-first because the day a
-        // second one is added whose head already matches, shortest-first routes to the wrong lens
-        // with the object still attached — wrong, and invisible.
+        // Longest first. No current two-word place name starts with a word that is itself a place
+        // ("to file" is the only one, and bare "to" reaches nothing), so reversing this fails no
+        // test today; but add one whose head matches and shortest-first would route to the wrong
+        // lens, object attached, invisibly.
         //
-        // The multi-word scan itself is *not* inert: a single-word parse loses "to file legal"
-        // outright, which `aTwoWordPlaceNameIsFoundBeforeItsFirstWordCanMisfire` asserts.
+        // The multi-word scan itself matters: a single-word parse loses "to file legal", which
+        // `aTwoWordPlaceNameIsFoundBeforeItsFirstWordCanMisfire` asserts.
         for count in stride(from: min(words.count - 1, 3), through: 1, by: -1) {
             let head = words.prefix(count).joined(separator: " ").lowercased()
             guard let place = PalettePlace.allCases.first(where: { place in
@@ -786,17 +706,14 @@ public enum PaletteRouter {
 
     /// The person a query names, if it names exactly one.
     ///
-    /// **Delegated to ``PersonSearchOffer``, and that is not laziness.** The registry's matcher is
-    /// phrase-first and longest-wins — "Daughter Father" resolves to Daughter alone, and a query naming
-    /// two people resolves to neither, because picking one arbitrarily is the over-attribution this
-    /// household's names invite. A second matcher here would disagree with the pane search's offer
-    /// on exactly the names that are hard, and the two would then answer the same question
-    /// differently depending on which field you typed into.
+    /// Delegated to ``PersonSearchOffer`` so the palette and the pane search can't disagree. The
+    /// registry's matcher is phrase-first and longest-wins: "Daughter Father" resolves to Daughter
+    /// alone, and a query naming two people resolves to neither rather than over-attributing. A
+    /// second matcher would differ on exactly the hard names.
     ///
-    /// "daughter's files" works without any possessive handling of its own: `PersonRegistry.words`
-    /// splits on non-alphanumerics, so the apostrophe and the trailing noun fall out of the phrase
-    /// match. That is worth stating because the temptation is to add a stripper, and a second
-    /// tokenizer is exactly what the paragraph above rules out.
+    /// "daughter's files" needs no possessive handling: `PersonRegistry.words` splits on
+    /// non-alphanumerics, so the apostrophe and trailing noun fall out of the phrase match. Don't
+    /// add a stripper; a second tokenizer is what this rules out.
     static func personRow(for query: String, index: PaletteIndex) -> PaletteRow? {
         guard let registry = index.registry,
               let person = PersonSearchOffer.person(matching: query, registry: registry)
@@ -809,12 +726,11 @@ public enum PaletteRouter {
                 ?? "Gathers across the whole source",
             symbol: "person.crop.circle",
             route: .person(id: person.id),
-            // Named, and said out loud rather than hidden: the roster can outlive the survey it was
-            // built beside, and an offer whose accept does nothing is the "nothing happened" this
-            // whole family of features exists to remove.
+            // Named, not hidden: the roster can outlive the survey it was built beside, and an
+            // offer whose accept does nothing is the "nothing happened" this feature removes.
             unavailable: index.hasSurvey ? nil : "No document survey on this Mac yet",
-            // Above a plain folder match: a query that resolves to exactly one person is a much
-            // more specific claim than a substring hit on a folder name.
+            // Above a plain folder match: resolving to exactly one person is a much more specific
+            // claim than a substring hit on a folder name.
             score: 850)
     }
 
@@ -830,19 +746,13 @@ public enum PaletteRouter {
     /// The leaf is tried first and scores higher: `Finance/US/Income Tax` is "Income Tax" to the
     /// person typing, and ranking by the full path would put every folder under `Income` above it.
     ///
-    /// **The path is scored below the source's landing folder, not below its root**, which is what
-    /// `index.folderPrefix` is subtracted for. A source's root is now the account above its
-    /// documents tree, so every key carries the same leading `Documents` — and with the slashes
-    /// flattened to spaces for scoring, that made `doc` a prefix match on every surveyed folder at
-    /// an identical score. Subtracting the shared segment restores the ranking this had before
-    /// sources gained a root: a folder is scored on the part of its path that distinguishes it.
+    /// The path is scored below the source's landing folder (`index.folderPrefix` is subtracted).
+    /// Every key carries the same leading `Documents`, and with slashes scored as spaces `doc` would
+    /// prefix-match every folder at an identical score. A folder is scored on the part of its path
+    /// that distinguishes it, so the landing folder's own name is not a query.
     ///
-    /// The consequence is deliberate and was chosen: **the landing folder's own name stops being a
-    /// query**. Typing `documents` no longer matches everything under it, which is exactly what it
-    /// did before the split too — the survey anchor was `.` then, and `.` is filtered out.
-    ///
-    /// `path` on the result stays the WHOLE key, because that is what the route is built from and
-    /// what the row's detail line shows. Only the scoring string is trimmed.
+    /// `path` on the result stays the whole key, since the route and the detail line use it. Only
+    /// the scoring string is trimmed.
     static func rankedFolders(matching query: String, in index: PaletteIndex) -> [RankedFolder] {
         var ranked: [RankedFolder] = []
         for folder in index.folders where !folder.isEmpty && folder != "." {
@@ -851,24 +761,21 @@ public enum PaletteRouter {
             let pathMatch = match(distinguishing.replacingOccurrences(of: "/", with: " "), query)
             let combined = max(score(leafMatch), score(pathMatch) - 20)
             guard combined > 0 else { continue }
-            // Shallower folders win ties: `Legal` beats `Archive/2019/Legal` for the query "legal",
-            // because the top-level one is the folder that name means to the tree. Measured on the
-            // trimmed path for the same reason it is scored there — depth below the landing folder
-            // is the depth the person navigating sees.
+            // Shallower folders win ties: `Legal` beats `Archive/2019/Legal` for "legal", since the
+            // top-level one is what that name means to the tree. Depth is measured on the trimmed
+            // path, the depth the person navigating sees.
             let depth = distinguishing.count { $0 == "/" }
             ranked.append(RankedFolder(path: folder, score: combined - depth))
         }
         return ranked.sorted { $0.score != $1.score ? $0.score > $1.score : $0.path < $1.path }
     }
 
-    /// `folder` with a leading `prefix` component removed — the part of the path that distinguishes
+    /// `folder` with a leading `prefix` component removed: the part of the path that distinguishes
     /// it from its siblings under the survey anchor.
     ///
-    /// **Only on a component boundary.** A plain `hasPrefix` would take `Documents` off
-    /// `Documentsly/Q4` and leave `y/Q4`, which is not a path at all and would rank as one; the
-    /// same trap `PaletteIndex.folders` guards on the absolute side. A folder that is not under the
-    /// prefix is returned whole rather than dropped — it is still a real destination, and scoring it
-    /// on its full path is the honest answer for one the shared segment says nothing about.
+    /// Only on a component boundary: a plain `hasPrefix` would turn `Documentsly/Q4` into `y/Q4`,
+    /// the trap `PaletteIndex.folders` guards on the absolute side. A folder not under the prefix is
+    /// returned whole rather than dropped; it is still a real destination.
     static func below(_ prefix: String, _ folder: String) -> String {
         guard !prefix.isEmpty, folder.hasPrefix(prefix + "/") else { return folder }
         return String(folder.dropFirst(prefix.count + 1))
@@ -876,130 +783,93 @@ public enum PaletteRouter {
 
     // MARK: Go to Folder — a typed path
 
-    /// The one row a typed path produces, or nil when the query is not a path at all.
+    /// The one row a typed path produces, or nil when the query isn't a path at all.
     ///
-    /// **Always exactly one row, and often a refusal.** The user has said precisely where they mean,
-    /// so there is nothing to rank — and the cases where the palette cannot take them there are the
-    /// point of the feature rather than an edge of it: a path that resolves to nothing, or to a
-    /// folder outside every source, is a question this surface can answer, and answering it is
-    /// strictly better than the empty list a path query used to produce.
+    /// Always exactly one row, and often a refusal. The user said precisely where they mean, so
+    /// there is nothing to rank, and a path that resolves to nothing or lies outside every source
+    /// gets an answer rather than an empty list.
     ///
-    /// **Three refusals, not four, since RD7.** A path inside another *configured and mounted*
-    /// source is a navigation the app can perform, so it is a live row routing to
-    /// ``PaletteRoute/folderInSource(providerId:path:)``; the branch below carries why the other
-    /// three stay refusals.
+    /// A path inside another configured, mounted source is a navigation the app can perform, so it
+    /// is a live row routing to ``PaletteRoute/folderInSource(providerId:path:)``. The other three
+    /// cases are refusals; the branch below says why.
     ///
-    /// The order of the checks is `PalettePath`'s stall guard — everything answerable from the
-    /// index first, the disk last and only inside the aimed source, once that source has answered.
+    /// The checks run in `PalettePath`'s stall-guard order: everything the index can answer first,
+    /// the disk last and only inside the aimed source, once that source has answered.
     ///
     /// **The route on a refusal is not a destination.** It is the typed path, because a refusal is
-    /// reached before anything knows whether that path names a folder, a file, or nothing at all —
-    /// `PaletteSelection.chosen` is what stops it being run, the same way it stops an unmounted
-    /// source's row. Read `unavailable` before reading `route` on any row from here.
+    /// reached before anything knows whether that path names a folder, a file or nothing;
+    /// `PaletteSelection.chosen` stops it being run, as for an unmounted source's row. Read
+    /// `unavailable` before `route` on any row from here.
     static func pathRow(query: String, index: PaletteIndex,
                         probe: PalettePathProbe?) -> PaletteRow? {
         guard PalettePath.looksLikeAPath(query), let probe else { return nil }
         let typed = PalettePath.absolute(query, home: index.home)
-        // Refusals first, each stated without the disk being asked. `id` is the typed path rather
-        // than the destination, so a refusal and the row it becomes once the path is fixed are the
-        // same row rather than two — the highlight does not jump as you type.
-        // **The reasons are sized against the 320pt floor, and that was rendered rather than
-        // guessed.** `PaletteResultsList` draws the reason `.fixedSize()`, so it never truncates and
-        // always wins its row: measured 2026-08-19 at 320pt, the longest of these then ("In Dropbox
-        // — switch source first", 32 characters) left the title intact and squeezed the path detail
-        // to `/Us…Legal`, and a long title degraded to `Some Very…` with the reason still whole.
-        // That is the right way round for a refusal — the reason is what the row is *for*, and the
-        // path is still sitting in the field above it — but a reason much longer than that one
-        // starts eating the folder name, which is the half that says WHICH folder was refused.
+        // Refusals first, each stated without asking the disk. `id` is the typed path rather than
+        // the destination, so a refusal and the row it becomes once the path is fixed are the same
+        // row, and the highlight doesn't jump as you type.
         //
-        // **RD7 retired the longest of them**, so the budget the measurement set is now slack
-        // rather than tight: the survivors are "No folder at that path" (22) and "<Source> is not
-        // mounted", whose length is a source's display name plus 16. Nothing here got wider — the
-        // 32-character measurement is kept because it is the number a new reason has to come in
-        // under, not because a string of that length is still drawn.
+        // Keep reasons short: `PaletteResultsList` draws the reason `.fixedSize()`, so it never
+        // truncates and squeezes the path detail instead. At the 320pt floor a 32-character reason
+        // still left the title intact; much longer starts eating the folder name, the half that
+        // says which folder was refused. New reasons should come in under 32 characters.
         //
-        // `unknown` marks the one refusal that is a claim about *existence*. The other two are
-        // refusals about reachability — the folder is very probably there, in a source that is not
-        // mounted or not configured at all — and badging those with a question mark says the app
-        // does not know whether the folder exists, which is a different and wronger thing to say.
+        // `unknown` marks the one refusal that is a claim about existence. The other two are about
+        // reachability (the folder is probably there, in a source not mounted or not configured),
+        // and a question mark would wrongly say the app doesn't know whether it exists.
         func refusal(_ reason: String, unknown: Bool = false) -> PaletteRow {
             PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed), detail: typed,
                        symbol: unknown ? "folder.badge.questionmark" : "folder",
                        route: .folder(path: typed),
                        unavailable: reason, score: pathRowScore)
         }
-        // **Deliverable is decided against `providerRoot`, which is the root the reveal will
-        // actually relativize against** — not against the owning provider's `isCurrent` flag.
+        // Deliverable is decided against `providerRoot`, the root the reveal relativizes against,
+        // not the owning provider's `isCurrent` flag.
         //
-        // **Nested sources are what make those two different, and they are ordinary.** `~/Documents`
-        // and `~/Documents/Clients` are both perfectly reasonable things to configure, and
-        // `PalettePath.owner` deliberately answers with the innermost — it has to, or a path deep
-        // inside the inner one would be handed to the outer. So with the pane aimed at `~/Documents`
-        // and a path typed inside `Clients`, the owner is a provider that is NOT current, and the
-        // old check refused a folder the pane on screen can show perfectly well ("In Clients —
-        // switch source first"). Two sources pointed at the same folder do the same thing, which
-        // `SettingsManager` allows for a re-pointed account.
-        //
-        // Asking `providerRoot` cannot drift from the route, because it *is* the value the route is
-        // applied with. **RD7 did not retire this check, it changed what getting it wrong costs**:
-        // deciding on `isCurrent` would now hand a folder the pane is already showing to
-        // `.folderInSource` and re-point the pane at a nested source it never needed to leave —
-        // a silent, visible source switch instead of a visible refusal. (An earlier version of this
-        // comment blamed the `enabledProviders` /
-        // `availableProviders` split instead — disable the source a pane is showing, the reasoning
-        // went, and it leaves the list while the pane keeps it. **That is not reachable**:
-        // `onChange(of: settings.enabledProviders)` re-points any pane whose provider was switched
-        // off. It survives only in the corner where `enabledProviders` goes *empty* — every
-        // discovered source disabled, which `canDisable` refuses to do but a source disappearing
-        // afterwards can still produce — where `resolvedProviderSelection` returns nil and the panes
-        // keep their ids. Reachable, but not the case worth naming.)
+        // Nested sources make those differ, and they are ordinary: `~/Documents` and
+        // `~/Documents/Clients` can both be configured, and `PalettePath.owner` answers with the
+        // innermost. With the pane on `~/Documents` and a path inside `Clients`, the owner isn't
+        // current, yet the pane can show the folder. Two sources on one folder (allowed by
+        // `SettingsManager` for a re-pointed account) do the same. Deciding on `isCurrent` would
+        // hand that folder to `.folderInSource` and silently switch the pane to a source it never
+        // needed to leave. `providerRoot` can't drift from the route: it is the value the route is
+        // applied with.
         guard PathBoundary.contains(typed, under: index.providerRoot ?? "") else {
             guard let owner = PalettePath.owner(of: typed, in: index.providers) else {
-                // The commonest refusal by far, and the one worth being plain about: this palette
-                // can only show folders inside a source, because a pane IS a source.
+                // The commonest refusal: this palette can only show folders inside a source,
+                // because a pane is a source.
                 return refusal("Not in any source")
             }
             guard owner.isMounted else { return refusal("\(owner.name) is not mounted") }
-            // **RD7: the row that named the fix now IS the fix.** Until 2026-09-06 this refused
-            // with "In Dropbox — switch source first" — a row that told the user what to do and
-            // then made them do it by hand. The deferral was never about the wording: switching
-            // means suppressing the provider change's own navigation reset (the counter
-            // `adoptProviderForTab` arms) and driving the reload, or the pane lands at the source
-            // root with the typed folder silently dropped. The host does that now, so this is a
-            // live row with `unavailable` nil — which is what lets `PaletteSelection.chosen`
-            // return it at all.
+            // A live row: the host switches the pane to the owning source and lands on the folder.
+            // It must suppress the provider change's own navigation reset (the counter
+            // `adoptProviderForTab` arms) and drive the reload, or the pane lands at the source
+            // root with the typed folder dropped. `unavailable` is nil, which is what lets
+            // `PaletteSelection.chosen` return it.
             //
-            // **The three other refusals stay refusals, and each for a reason this one does not
-            // have.** "Not in any source" is a true statement about the *configuration* — there is
-            // no source to switch to, so there is no navigation to perform. "<Source> is not
-            // mounted" (above) names a source that cannot be shown at all. "No folder at that
-            // path" is a claim about existence, made only inside the aimed source.
+            // The other three stay refusals, each for a reason this one lacks. "Not in any source"
+            // is about the configuration: there is no source to switch to. "<Source> is not
+            // mounted" names a source that can't be shown. "No folder at that path" is a claim
+            // about existence, made only inside the aimed source.
             //
-            // **The disk is still not asked here**, and that is the stall guard rather than an
-            // omission: `theDiskIsNeverAskedAboutAPathOutsideTheAimedSource` holds the ordering, and
-            // a `stat` inside a source the pane is *not* showing has no `foldersUnavailable`
-            // standing in front of it the way the aimed root does. So this row is offered without
-            // knowing whether the folder is there, and the host probes once — on ↩, off the
-            // keystroke path — and refuses out loud rather than switching to a folder that is gone.
+            // The disk is not asked here, by the stall guard: a `stat` inside a source the pane
+            // isn't showing has no `foldersUnavailable` in front of it as the aimed root does
+            // (`theDiskIsNeverAskedAboutAPathOutsideTheAimedSource` holds the order). So the row is
+            // offered without knowing the folder is there, and the host probes once on ↩, off the
+            // keystroke path, and refuses out loud rather than switching to a folder that is gone.
             //
-            // **The wording, and why the detail is the bare path.** The title carries the verb and
-            // the source because the row's whole content is that the pane will change sources; the
-            // leaf is not lost with it, because `PaletteResultsList` truncates a detail containing
-            // a `/` in the MIDDLE precisely so the leaf survives. Appending anything to the path —
-            // "· switches this pane", say — moves the leaf into the middle and hands it to the
-            // truncator, which is the half that says WHICH folder. The ↩ affordance the roadmap
-            // card wanted is already drawn: the list puts a `↩` on the selected row, and a live row
-            // gets one where a refusal gets its reason instead.
+            // The title carries the verb and the source, since the row's content is that the pane
+            // changes source. The detail is the bare path because `PaletteResultsList` truncates a
+            // detail containing `/` in the middle so the leaf survives; appending anything would
+            // move the leaf into the middle. The list already draws `↩` on a live selected row.
             return PaletteRow(id: "path.\(typed)", group: .folders,
                               title: "Open in \(owner.name)", detail: typed,
                               symbol: "folder",
                               route: .folderInSource(providerId: owner.id, path: typed),
                               score: pathRowScore)
         }
-        // **The aimed root itself did not answer.** Every remembered folder is already marked with
-        // this exact reason (`foldersUnavailable`), so a typed path under the same root says the
-        // same thing — and probing a child of a root that did not answer is precisely the stall
-        // this whole ordering exists to avoid.
+        // The aimed root itself didn't answer. Every remembered folder already carries this reason
+        // (`foldersUnavailable`), so a typed path under the same root says the same, and probing a
+        // child of a root that didn't answer is the stall this ordering exists to avoid.
         if let asleep = index.foldersUnavailable { return refusal(asleep) }
         switch probe(typed) {
         case .missing:
@@ -1009,9 +879,9 @@ public enum PaletteRouter {
                               detail: typed, symbol: "folder", route: .folder(path: typed),
                               score: pathRowScore)
         case .file:
-            // A pasted path is usually a file's — that is what a Finder copy puts on the clipboard.
-            // Its enclosing folder is the destination, the way ⇧⌘G accepts a file, and the row says
-            // so rather than silently going somewhere the user did not type.
+            // A pasted path is usually a file's: that is what a Finder copy puts on the clipboard.
+            // Its enclosing folder is the destination, as ⇧⌘G accepts a file, and the row says so
+            // rather than silently going somewhere the user didn't type.
             let parent = (typed as NSString).deletingLastPathComponent
             return PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(parent),
                               detail: "Enclosing folder of \(leaf(typed))", symbol: "folder",
@@ -1019,8 +889,8 @@ public enum PaletteRouter {
         }
     }
 
-    /// Above every other folder row. A typed path is the most specific claim a query can make —
-    /// nothing was inferred from it — so it leads, and `initialIndex` puts ↩ on it.
+    /// Above every other folder row. A typed path is the most specific claim a query can make
+    /// (nothing was inferred from it), so it leads, and `initialIndex` puts ↩ on it.
     static let pathRowScore = 1_100
 
     static func folderRows(query: String, index: PaletteIndex) -> [PaletteRow] {
@@ -1030,10 +900,10 @@ public enum PaletteRouter {
                        title: leaf(folder.path), detail: folder.path,
                        symbol: "folder",
                        route: .folder(path: (root as NSString).appendingPathComponent(folder.path)),
-                       // **The same mark the landing carries, for the same root.** These come from
-                       // the survey profile in memory, so they answer a query perfectly well with
-                       // the drive asleep — and offering them as live while the empty-query landing
-                       // says "Not available" is one surface making two claims about one disk.
+                       // The landing's mark, for the same root. These come from the in-memory
+                       // survey profile and answer a query with the drive asleep; offering them
+                       // live while the landing says "Not available" would make two claims about
+                       // one disk.
                        unavailable: index.foldersUnavailable,
                        score: folder.score)
         }
@@ -1054,9 +924,8 @@ public enum PaletteRouter {
                    detail: provider.isCurrent ? "The current source" : "Re-aim this workspace",
                    symbol: "externaldrive",
                    route: .provider(id: provider.id),
-                   // ROADMAP 14 names this case specifically: an unmounted source is shown
-                   // disabled WITH ITS REASON, not hidden. Hiding it teaches that the palette does
-                   // not know about the drive; this answers the question that was asked.
+                   // An unmounted source is shown disabled with its reason, not hidden: hiding it
+                   // would teach that the palette doesn't know the drive.
                    unavailable: provider.isMounted ? nil : "Not mounted",
                    score: score)
     }
@@ -1082,33 +951,24 @@ public enum PaletteRouter {
 
     // MARK: Settings
 
-    /// One row per Settings tab, matched on its **name and its whole vocabulary**.
-    ///
-    /// Two candidates rather than one, and the second is penalised:
+    /// One row per Settings tab, matched on its **name and its whole vocabulary**. Two candidates,
+    /// the second penalised:
     ///
     /// - the row's own **title** and the tab **name**, at full score. `"Settings ▸ Appearance"`
-    ///   carries the prefix, which is what makes typing `settings` list every tab — the same shape
-    ///   `organize` already has, where the overview and all six lenses answer the parent word.
-    /// - every word in ``PaletteSettingsTab/vocabulary``, at `score - 20`, the same penalty
+    ///   carries the prefix, so typing `settings` lists every tab, as `organize` lists the overview
+    ///   and every lens.
+    /// - every word in ``PaletteSettingsTab/vocabulary``, at `score - 20`, the penalty
     ///   ``rankedFolders(matching:in:)`` puts on a path match under a leaf match.
     ///
-    /// **The penalty is load-bearing, and the case that shows it is real.** Readability's
-    /// "Size & spacing" deliberately keeps the keyword `appearance`, because the tab moved out of
-    /// Appearance and people still look for it there. Without the penalty the query `appearance`
-    /// scores Readability's keyword hit at whatever tier it lands on and Appearance's own name at
-    /// `.exact`, and they are only ordered correctly by luck; with it, a vocabulary hit can never
-    /// reach the tier above it — 20 exceeds the largest position decrement below, and the tiers
-    /// are 100 apart.
+    /// The penalty matters: without it, a tab that only lists a word in its vocabulary could order
+    /// against the tab named by that word by luck. With it, a vocabulary hit can never reach the
+    /// tier above: 20 exceeds the largest position decrement, and the tiers are 100 apart.
     ///
-    /// The decrement itself keeps the **rail's order** among tabs that matched equally well, which
-    /// is what `settings` produces: ten rows all matched by the same prefix, listed as the rail
-    /// lists them rather than alphabetically. `index.settingsTabs` arrives in rail order and this
-    /// is the only thing that preserves it.
+    /// The decrement keeps the rail's order among tabs that matched equally well, as `settings`
+    /// produces. `index.settingsTabs` arrives in rail order and this is the only thing preserving it.
     ///
-    /// Cost, measured against a 3013-folder index — his real tree: `rows` already takes ~16ms and
-    /// this adds ~1.1ms of it (+7%), for ~370 vocabulary words. Recorded rather than optimised,
-    /// because the 93% is where the time is; `rows` is read twice per keystroke, so the figure to
-    /// hold against a future change to either is ~34ms per keystroke, not ~17.
+    /// Cost: about 1 ms of the ~16 ms `rows` takes over a 3,000-folder tree, and `rows` runs twice
+    /// per keystroke.
     static func settingsRows(query: String, index: PaletteIndex) -> [PaletteRow] {
         index.settingsTabs.enumerated().compactMap { offset, tab in
             let title = settingsTitle(tab)
@@ -1125,54 +985,41 @@ public enum PaletteRouter {
         }
     }
 
-    /// How far a vocabulary match scores below a name match. The same shape
-    /// ``rankedFolders(matching:in:)`` uses for a path match under a leaf match.
+    /// How far a vocabulary match scores below a name match, as in
+    /// ``rankedFolders(matching:in:)`` for a path match under a leaf match.
     static let vocabularyPenalty = 20
 
-    /// The largest position decrement a Settings row may take, and it is **derived from the
-    /// penalty rather than picked**.
+    /// The largest position decrement a Settings row may take, derived from the penalty.
     ///
-    /// The ordering above only holds while every decrement is strictly smaller than the smallest
-    /// gap between two distinct outcomes. Those outcomes are the four tiers at full score
-    /// (100/200/300/400) and the same four penalised (80/180/280/380), so the smallest gap is
-    /// `vocabularyPenalty` itself — 380 against 400 — and a decrement of `penalty - 1` is the
-    /// largest that cannot cross it.
+    /// The ordering holds only while every decrement is smaller than the smallest gap between two
+    /// outcomes: the four tiers at full score (100–400) and penalised (80–380), so the gap is
+    /// `vocabularyPenalty` itself, and `penalty - 1` is the largest decrement that can't cross it.
     ///
-    /// **Clamped rather than asserted.** Ten tabs are comfortably inside it today and the comment
-    /// above said so, which is exactly the kind of invariant that is true until a release adds an
-    /// eleventh, and a twenty-first, and nothing fails — the rows would simply start outranking
-    /// each other by where they sit in the rail. Past the clamp, tabs tie and fall back to the
-    /// title, which is a worse order but never a wrong one.
+    /// Clamped rather than asserted, so adding tabs never lets rows outrank each other by rail
+    /// position. Past the clamp, tabs tie and fall back to the title: a worse order, never a wrong
+    /// one.
     static let maxPositionDecrement = vocabularyPenalty - 1
 
-    /// `"Settings ▸ Appearance"` — the same separator `PalettePlace` draws for Organize's lenses,
-    /// because a Settings tab is a page inside a thing exactly as a lens is, and two spellings for
-    /// one relationship would say they were different.
+    /// `"Settings ▸ Appearance"`: the separator `PalettePlace` draws for Organize's lenses, since a
+    /// Settings tab is a page inside a thing exactly as a lens is.
     ///
-    /// **The prefix restates the group header, and it stays anyway.** Under a `SETTINGS` heading a
-    /// row reading "Settings ▸ Appearance" says Settings twice, and at the 320pt floor those eleven
-    /// characters are about a quarter of the ~215pt the text is given — a real cost, and the reason
-    /// dropping them was considered. What decides it is that **the header scrolls away and the row
-    /// does not**: `GoToResultsPanel.listMaxHeight` is 420pt against a two-line row of ~44pt, so
-    /// nine rows are visible and the ten tabs do not fit under their own heading. A row left reading
-    /// only "Appearance", scrolled past its header, is indistinguishable from a folder of that name.
-    /// `PalettePlace` prefixes its lenses for the same reason, and there the header is `Places`, so
-    /// the redundancy here is the price of a row that names its own destination rather than an
-    /// oversight.
+    /// The prefix repeats the group header and stays anyway: the header scrolls away and the row
+    /// doesn't. `GoToResultsPanel.listMaxHeight` shows about nine two-line rows, so the tabs
+    /// can't all sit under their heading, and a row reading only "Appearance" past its header
+    /// looks like a folder of that name. That is worth the width it costs at the 320pt floor.
     static func settingsTitle(_ tab: PaletteSettingsTab) -> String { "Settings ▸ \(tab.name)" }
 
     // MARK: The empty query
 
-    /// What the palette shows before anything is typed: **where you have been, then where you can
-    /// go.** Recents lead because the commonest reason to open a palette is to go back to the folder
-    /// you were just in, and a list that led with nine fixed destinations would bury it.
+    /// What the palette shows before anything is typed: where you have been, then where you can
+    /// go. Recents lead because the commonest reason to open a palette is to go back to the
+    /// folder you were just in.
     static func emptyQueryRows(index: PaletteIndex) -> [PaletteRow] {
         var rows: [PaletteRow] = []
         if let root = index.providerRoot, !root.isEmpty {
-            // Favorites above recent: a favorite is a standing choice and a recent is an accident
-            // of where you happened to walk, so the standing one leads. Each says WHICH it is,
-            // because labelling a folder favorited months ago as "Recent" is the wrong claim about
-            // it. "Favorite", not "Pinned": "pin" belongs to tabs (decided 2026-08-24).
+            // Favorites above recent: a favorite is a standing choice, a recent an accident of
+            // where you walked. Each says which it is. "Favorite", not "Pinned": "pin" belongs to
+            // tabs.
             let listed = index.pinnedFolders.prefix(4).map { ($0, "Favorite", "star.fill") }
                 + index.recentFolders.prefix(4).map { ($0, "Recent", "clock.arrow.circlepath") }
             for (offset, entry) in listed.enumerated()
@@ -1181,9 +1028,9 @@ public enum PaletteRouter {
                     id: "folder.\(entry.0)", group: .folders, title: leaf(entry.0),
                     detail: "\(entry.1) · \(entry.0)", symbol: entry.2,
                     route: .folder(path: (root as NSString).appendingPathComponent(entry.0)),
-                    // Kept and marked rather than dropped when the root is asleep — see
-                    // `foldersUnavailable`. ↑↓ skip these and ↩ refuses them, so a row that
-                    // cannot deliver is never run.
+                    // Kept and marked rather than dropped when the root is asleep (see
+                    // `foldersUnavailable`). ↑↓ skip these and ↩ refuses them, so a row that
+                    // can't deliver is never run.
                     unavailable: index.foldersUnavailable,
                     score: 1_000 - offset))
             }
@@ -1199,11 +1046,9 @@ public enum PaletteRouter {
         for (offset, action) in PaletteAction.allCases.enumerated() {
             rows.append(actionRow(action, index: index, score: 700 - offset))
         }
-        // **The Settings tabs are deliberately NOT here.** They would be ten more rows on a
-        // landing whose whole job is "where you have been, then where you can go" — nearly
-        // doubling it, and pushing the recents that lead it off the opening. `Settings…` is
-        // already in the actions above and is the honest empty-query answer: somebody who has not
-        // typed anything has not named a tab. They appear the moment a query does.
+        // No Settings tabs here: nine more rows would nearly double the landing and push the
+        // recents off it. `Settings…` is already among the actions, and someone who has typed
+        // nothing hasn't named a tab. They appear as soon as a query does.
         return sorted(rows)
     }
 
@@ -1211,18 +1056,16 @@ public enum PaletteRouter {
 
     static func leaf(_ path: String) -> String { (path as NSString).lastPathComponent }
 
-    /// A tier, comparing case- and diacritic-insensitively.
-    ///
-    /// `range(of:options:)` rather than a hand-rolled scan: it is the only correct way to compare
-    /// user-typed text against folder names that carry accents, and it is measurably faster than a
-    /// hand-rolled substring search over a list this size.
+    /// A tier, comparing case- and diacritic-insensitively. `range(of:options:)` because it is the
+    /// correct way to compare typed text with accented folder names, and faster than a hand-rolled
+    /// scan over a list this size.
     static func match(_ candidate: String, _ query: String) -> PaletteMatch {
         let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
         guard !query.isEmpty, !candidate.isEmpty else { return .none }
         if candidate.compare(query, options: options) == .orderedSame { return .exact }
         guard let found = candidate.range(of: query, options: options) else { return .none }
         if found.lowerBound == candidate.startIndex { return .prefix }
-        // A word boundary immediately before the hit — "Income **Tax**" for "tax".
+        // A word boundary immediately before the hit: "Income **Tax**" for "tax".
         let before = candidate[candidate.index(before: found.lowerBound)]
         return before == " " || before == "-" || before == "_" ? .wordPrefix : .substring
     }
@@ -1231,13 +1074,12 @@ public enum PaletteRouter {
         candidates.reduce(PaletteMatch.none) { Swift.max($0, match($1, query)) }
     }
 
-    /// The range `match` decided by — the same lookup with the same options, exposed so the row
-    /// can emphasize exactly what matched. **This is the one matcher**: a second tokenizer for
-    /// display would disagree with the ranking in precisely the cases that matter (case folds,
-    /// diacritics), which is the known two-tokenizers failure mode.
+    /// The range `match` decided by: the same lookup with the same options, so the row can
+    /// emphasize exactly what matched. This is the one matcher: a second tokenizer for display
+    /// would disagree with the ranking on case folds and diacritics.
     ///
-    /// nil when the string does not contain the query — a row matched through its keywords or a
-    /// verb parse draws no emphasis, which is honest: the visible text did not match.
+    /// nil when the string doesn't contain the query: a row matched through its keywords or a verb
+    /// parse draws no emphasis, because the visible text didn't match.
     static func matchRange(_ candidate: String, _ query: String) -> Range<String.Index>? {
         guard !query.isEmpty, !candidate.isEmpty else { return nil }
         return candidate.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
@@ -1260,33 +1102,26 @@ public enum PaletteRouter {
 
 /// What ↑, ↓ and ↩ do inside the palette.
 ///
-/// **Extracted for the same reason ``PaletteRoute`` is a value.** The field's key handling and its
-/// `onSubmit` are unreachable from a unit test, and this is precisely where the last routing bug of
-/// this shape lived: three lines in a submit handler that nothing could exercise. The rules are here
-/// and the view calls them.
+/// Extracted for the same reason ``PaletteRoute`` is a value: the field's key handling and its
+/// `onSubmit` are unreachable from a unit test. The rules are here and the view calls them.
 public enum PaletteSelection {
 
-    /// Where a freshly-computed list starts: **the first row that can actually be chosen.**
-    ///
-    /// Not simply row 0. Unavailable rows are deliberately kept in the list — an unmounted source
-    /// says so rather than vanishing — and a list that opened with the highlight sitting on one
-    /// would make ↩ do nothing, which reads as the palette being broken rather than as the source
-    /// being unmounted.
+    /// Where a freshly computed list starts: the first row that can actually be chosen. Not
+    /// simply row 0: unavailable rows stay in the list, and a highlight opening on one would make ↩
+    /// do nothing, which reads as the palette being broken.
     public static func initialIndex(in rows: [PaletteRow]) -> Int? {
         rows.firstIndex(where: \.isAvailable)
     }
 
-    /// Where ↑ / ↓ land, **skipping unavailable rows and wrapping at the ends**.
-    ///
-    /// Wrapping because a palette is a short list you are meant to spin through, and stopping dead
-    /// at the last row costs a second keystroke to get back to the top. Returns nil when nothing in
-    /// the list can be chosen at all, so the caller never highlights an inert row.
+    /// Where ↑ / ↓ land, skipping unavailable rows and wrapping at the ends: a palette is a
+    /// short list you spin through, and stopping at the last row costs a keystroke back. Returns
+    /// nil when nothing can be chosen, so the caller never highlights an inert row.
     public static func moved(from current: Int?, by step: Int, in rows: [PaletteRow]) -> Int? {
         let choosable = rows.indices.filter { rows[$0].isAvailable }
         guard !choosable.isEmpty else { return nil }
         guard let current, let position = choosable.firstIndex(of: current) else {
-            // Coming from nowhere (or from a row that is no longer choosable): ↓ takes the first,
-            // ↑ takes the last.
+            // Coming from nowhere, or from a row no longer choosable: ↓ takes the first, ↑ the
+            // last.
             return step >= 0 ? choosable.first : choosable.last
         }
         let next = (position + step % choosable.count + choosable.count) % choosable.count

@@ -2,24 +2,22 @@ import Foundation
 import cmark_gfm
 import cmark_gfm_extensions
 
-/// **Where a line of a Markdown buffer sits, as the preview's own parser reads it** — the question
-/// Return, Tab, a pasted link and a dropped image each ask before they write anything (TE54–TE56).
+/// Where a line of a Markdown buffer sits, as the preview's own parser reads it: what Return, Tab,
+/// a pasted link and a dropped image each ask before they write anything.
 ///
-/// **The parser, not a pattern.** "Is this a list item?" has a long tail: a `- ` inside a fenced
-/// block, in an indented code block, inside raw HTML, in the front matter; a `- ` that cannot start
-/// a list because it would interrupt a paragraph while empty; `- - -`, which is a rule. Each is a
-/// rule CommonMark already states and `MarkdownBlocks` already obeys, so this asks the same parser
-/// with the same options rather than restating any of it.
+/// The parser, not a pattern. "Is this a list item?" has a long tail: a `- ` in a fenced or
+/// indented code block, raw HTML or the front matter; an empty `- ` that can't interrupt a
+/// paragraph; `- - -`, which is a rule. CommonMark states each rule and `MarkdownBlocks` obeys it,
+/// so this asks the same parser with the same options rather than restating any of it.
 ///
-/// **cmark itself, not swift-markdown's tree**, because this runs on a keystroke. swift-markdown
-/// parses with cmark and then converts every node into Swift values — measured 2026-10-04 on a
-/// 100 KB note in a debug build, 41ms against cmark's 3ms. Only the buffer up to the end of the line
+/// cmark itself, not swift-markdown's tree, because this runs on a keystroke and converting every
+/// node into Swift values costs over ten times the parse. Only the buffer up to the end of the line
 /// asked about is parsed: nothing below a line changes what opens on it.
 enum MarkdownSourceContext {
 
     /// What holds a line.
     enum Block: Equatable {
-        /// Inside the YAML block at the top — see ``MarkdownFrontMatter``.
+        /// Inside the YAML block at the top (see ``MarkdownFrontMatter``).
         case frontMatter
         /// Inside a fenced or indented code block, its fences included.
         case code
@@ -33,25 +31,25 @@ enum MarkdownSourceContext {
 
     /// A list item that opens on the line asked about, with the two neighbours Tab and ⇧Tab need.
     struct ListItem: Equatable {
-        /// The 1-based line the item opens on — the line asked about, in the file's numbering.
+        /// The 1-based line the item opens on: the line asked about, in the file's numbering.
         var line: Int
-        /// The 1-based line of the item before it in the same list — or, when it opens a list of
-        /// its own, of the last item of a list directly before it — `nil` when there is neither.
+        /// The 1-based line of the item before it in the same list, or, when it opens a list of
+        /// its own, of the last item of a list directly before it; `nil` when there is neither.
         var previousSiblingLine: Int?
         /// The 1-based line of the item whose content holds this item's list, `nil` at the top.
         var parentItemLine: Int?
-        /// Whether it is its own list's first item — whatever list comes before that one, which
-        /// ``previousSiblingLine`` reaches into. A list's first number is its start (LST-11).
+        /// Whether it is its own list's first item, whatever list comes before that one (which
+        /// ``previousSiblingLine`` reaches into). A list's first number is its start.
         var opensItsList = false
     }
 
     /// What holds the line containing UTF-16 offset `location`.
     ///
-    /// - Parameter asIfWritten: read the line as though a word followed what is on it. **For an
-    ///   item with nothing after its marker**, which CommonMark reads by a different rule — an empty
-    ///   item may not interrupt a paragraph, so the `  - ` that Tab makes under `- a`, before
-    ///   anything is typed, is paragraph text until a word arrives. Return and ⇧Tab are asked about
-    ///   that line exactly then, and mean the item it is about to be.
+    /// - Parameter asIfWritten: read the line as though a word followed what is on it. For an item
+    ///   with nothing after its marker, which CommonMark reads by a different rule: an empty item
+    ///   may not interrupt a paragraph, so the `  - ` Tab makes under `- a` is paragraph text until
+    ///   a word arrives. Return and ⇧Tab ask about that line exactly then, and mean the item it is
+    ///   about to be.
     static func block(at location: Int, in ns: NSString, asIfWritten: Bool = false,
                       body known: (line: Int, offset: Int)? = nil) -> Block {
         let line = MarkdownSourceLines.line(containing: location, in: ns)
@@ -72,24 +70,24 @@ enum MarkdownSourceContext {
         }
     }
 
-    /// **The list item a Return at the end of `location`'s line would carry on, and what of it lies
-    /// BELOW that line** — which ``block(at:in:asIfWritten:body:)`` cannot say, parsing nothing below.
+    /// The list item a Return at the end of `location`'s line would carry on, and what of it lies
+    /// below that line, which ``block(at:in:asIfWritten:body:)`` can't say, parsing nothing below.
     ///
     /// A Return is only "at the end of an item" when the item ends there: `- Preheat the oven to`
-    /// with `  200 degrees` under it is the middle of one, and a marker there would split its
-    /// sentence into two items. So the parse runs on to the next line with anything on it — enough,
-    /// because whether a line belongs to an item is settled by that line and the ones above it.
+    /// over `  200 degrees` is the middle of one, and a marker there would split its sentence. So the
+    /// parse runs on to the next non-blank line, which is enough: whether a line belongs to an item
+    /// is settled by that line and the ones above it.
     struct ItemAtLineEnd: Equatable {
         /// The 1-based line asked about, in the file's numbering.
         var line: Int
-        /// The 1-based line the innermost item holding it opens on — `line` itself, or above it for
+        /// The 1-based line the innermost item holding it opens on: `line` itself, or above it for
         /// the item's second line, a lazy line or a later paragraph of it.
         var itemLine: Int
         var below: Below
-        /// Whether the item is in a list inside another item — a sub-list's.
+        /// Whether the item is in a sub-list, a list inside another item.
         var nested = false
-        /// Where the item's marker is on the line it opens on, in UTF-8 bytes from the line's start
-        /// — past the line's first marker when the line opens an item inside another (`- 2.`).
+        /// Where the item's marker is on the line it opens on, in UTF-8 bytes from the line's start:
+        /// past the line's first marker when the line opens an item inside another (`- 2.`).
         var markerOffset = 0
 
         enum Below: Equatable {
@@ -97,12 +95,12 @@ enum MarkdownSourceContext {
             case nothing
             /// The item's first child item, opening on this 1-based line.
             case child(Int)
-            /// More of the item — its words carrying on, a paragraph, a block: the line is inside it.
+            /// More of the item (its words carrying on, a paragraph, a block): the line is inside it.
             case more
         }
     }
 
-    /// `nil` when the line is not the words of a list item — code, raw HTML, the front matter, a
+    /// `nil` when the line is not the words of a list item: code, raw HTML, the front matter, a
     /// quote or a table inside the item, or no item at all.
     static func itemAtLineEnd(at location: Int, in ns: NSString, asIfWritten: Bool = false) -> ItemAtLineEnd? {
         let line = MarkdownSourceLines.line(containing: location, in: ns)
@@ -161,19 +159,18 @@ enum MarkdownSourceContext {
         }
     }
 
-    /// **Where an image dropped or pasted at `location` goes so that it splits no block** (TE56),
-    /// and how many columns it is indented to stay in the list item it lands in.
+    /// Where an image dropped or pasted at `location` goes so that it splits no block, and how many
+    /// columns it is indented to stay in the list item it lands in.
     ///
-    /// On a blank line, right there. On a line with anything on it, after the block that line is
-    /// in — a paragraph, a heading, a whole table, a whole quote — never inside it: a drop between a
-    /// table's `|`s cut it in two and left the rows below as a paragraph of pipes, and one in a
-    /// heading's words made half of them body text. In a list item the image stays in the item, at
-    /// its words' column, so the items after it stay where they were.
+    /// On a blank line, right there. Otherwise after the block that line is in (a paragraph, a
+    /// heading, a whole table, a whole quote), never inside it: a drop between a table's `|`s would
+    /// cut it in two, and one in a heading would turn half its words into body text. In a list item
+    /// the image stays in the item, at its words' column, so the items after it stay put.
     ///
-    /// **`nil` for a written line no image may break**: in code, raw HTML or the front matter, or a
-    /// line no block holds — a link definition, the closing line of an HTML comment. A blank line in
-    /// one of those is the caller's to ask about, of the text with the image in it: the blank lines
-    /// it adds end some of them and not others.
+    /// `nil` for a written line no image may break: in code, raw HTML or the front matter, or a line
+    /// no block holds (a link definition, the closing line of an HTML comment). A blank line in one
+    /// of those is the caller's to ask about, of the text with the image in it: the blank lines it
+    /// adds end some of them and not others.
     static func imageSpot(at location: Int, in ns: NSString) -> (location: Int, indent: Int)? {
         let line = MarkdownSourceLines.line(containing: location, in: ns)
         let body = MarkdownFrontMatter.bodyStart(in: ns)
@@ -222,9 +219,9 @@ enum MarkdownSourceContext {
             let target = chain.first { cmark_node_get_type($0) == CMARK_NODE_BLOCK_QUOTE }
                 ?? chain.first { String(cString: cmark_node_get_type_string($0)) == "table" }
                 ?? leaf
-            // Its last WRITTEN line — clipped above whatever opens next, and back over blank lines:
-            // a setext heading's end is reported one line past its underline, which is a blank line
-            // as often as it is the next block's first.
+            // Its last written line: clipped above whatever opens next, and back over blank lines,
+            // since a setext heading's end is reported one line past its underline, which is a
+            // blank line as often as the next block's first.
             var end = Int(cmark_node_get_end_line(target))
             var node: UnsafeMutablePointer<cmark_node>? = target
             while let current = node, current != root {
@@ -238,16 +235,8 @@ enum MarkdownSourceContext {
         }
     }
 
-    /// **The table holding `location`'s line, as the preview's parser reads it** — its header's
-    /// line and its last row's — or `nil` where cmark draws no table: in a code block however it is
-    /// fenced or indented, in front matter or raw HTML, or on lines that only look like a table
-    /// (TBL-7). The Table menu's own reading of the rows stays ``MarkdownTables``'; this says
-    /// whether there is a table at all, and where it ends (TBL-3, TBL-9).
-    ///
-    /// Parsed down to the last line before a blank one, not to the end of the note: a table ends at
-    /// a blank line at the latest, and nothing below a line changes what holds it.
-    /// Counts the parses ``tableLines(at:in:)`` makes while a test has bound it (TBL-19) — a
-    /// task-local, so tests running beside it in other tasks cannot add to the count.
+    /// Counts the parses ``tableLines(at:in:)`` makes while a test has bound it. Task-local, so
+    /// tests running beside it in other tasks can't add to the count.
     final class ParseCount: @unchecked Sendable {
         private let lock = NSLock()
         private var value = 0
@@ -256,6 +245,14 @@ enum MarkdownSourceContext {
     }
     @TaskLocal static var tableParses: ParseCount?
 
+    /// The table holding `location`'s line, as the preview's parser reads it (its header's line and
+    /// its last row's), or `nil` where cmark draws no table: in a code block however it is fenced
+    /// or indented, in front matter or raw HTML, or on lines that only look like a table. The Table
+    /// menu's own reading of the rows stays ``MarkdownTables``'; this says whether there is a table
+    /// at all, and where it ends.
+    ///
+    /// Parsed down to the last line before a blank one, not to the end of the note: a table ends at
+    /// a blank line at the latest, and nothing below a line changes what holds it.
     static func tableLines(at location: Int, in ns: NSString)
         -> (first: MarkdownSourceLines.Line, last: MarkdownSourceLines.Line)? {
         func isBlank(_ line: MarkdownSourceLines.Line) -> Bool {
@@ -280,9 +277,9 @@ enum MarkdownSourceContext {
         let lines = bytes.withUnsafeMutableBufferPointer { buffer -> (start: Int, end: Int, number: Int)? in
             guard let root = parse(buffer) else { return nil }
             defer { cmark_node_free(root) }
-            // The line asked about, numbered from the document's last line — which cmark reports —
-            // rather than by counting every line above it again: that count cost as much as the
-            // parse on a long note (TBL-19, measured 2026-10-16: 58 of 118 ms at 3.5 MB).
+            // The line asked about, numbered back from the document's last line, which cmark
+            // reports, rather than by counting every line above it again, which on a long note
+            // costs about as much as the parse.
             let number = Int(cmark_node_get_end_line(root)) - below
             guard let table = chain(holding: number, in: root).last(where: {
                 String(cString: cmark_node_get_type_string($0)) == "table"
@@ -302,7 +299,7 @@ enum MarkdownSourceContext {
     }
 
     /// Whether `location` is somewhere a Markdown edit must leave alone: the front matter, a code
-    /// block, or raw HTML. What TE55 and TE56 ask before they write a link into the text.
+    /// block, or raw HTML. What a pasted link and a dropped image ask before they write.
     static func isLiteral(at location: Int, in ns: NSString) -> Bool {
         switch block(at: location, in: ns) {
         case .frontMatter, .code, .html: return true
@@ -310,23 +307,23 @@ enum MarkdownSourceContext {
         }
     }
 
-    /// **The lines that belong to the item opening on `location`'s line, as the parser says** —
-    /// its children, its continuation text, a lazy line, a fenced block inside it.
+    /// The lines that belong to the item opening on `location`'s line, as the parser says: its
+    /// children, its continuation text, a lazy line, a fenced block inside it.
     ///
-    /// The whole body is parsed, because the answer is BELOW the line. Asked by Tab and ⇧Tab
-    /// alone, which move every one of these lines and nothing past them: a note indented under a
-    /// list but outside its last item stays where it is, and a child after a lazy line goes along.
+    /// The whole body is parsed, because the answer is below the line. Asked by Tab and ⇧Tab alone,
+    /// which move every one of these lines and nothing past them: a note indented under a list but
+    /// outside its last item stays where it is, and a child after a lazy line goes along.
     struct ItemExtent {
-        /// The item's last line, 1-based in the file's numbering — its opening line when it is one line.
+        /// The item's last line, 1-based in the file's numbering (its opening line, if only one).
         var lastLine: Int
-        /// Lines whose characters past the item's edge are CONTENT, kept byte for byte: a fenced
+        /// Lines whose characters past the item's edge are content, kept byte for byte: a fenced
         /// block's code, raw HTML. A tab there is the file's, not indentation.
         var verbatimLines = IndexSet()
         /// Lines of an indented code block: four columns of their whitespace are the block's
         /// indentation, and the rest is code.
         var indentedCodeLines = IndexSet()
-        /// The whole body's ``leaves(in:body:)``, read off the same parse — what a move is held to,
-        /// and one parse of the document fewer per Tab.
+        /// The whole body's ``leaves(in:body:)``, read off the same parse: what a move is held to,
+        /// with one parse of the document fewer per Tab.
         var leaves: [Leaf] = []
     }
 
@@ -337,8 +334,8 @@ enum MarkdownSourceContext {
         guard line.content.location >= body.offset else { return nil }
         let bodyLine = MarkdownSourceLines.lineCount(utf8: Array(ns.substring(with: NSRange(
             location: body.offset, length: NSMaxRange(line.content) - body.offset)).utf8))
-        // An empty item read as though a word followed its marker — see `block(at:in:asIfWritten:)`.
-        // The word goes at the end of its line, so no line moves.
+        // An empty item read as though a word followed its marker; see
+        // `block(at:in:asIfWritten:body:)`. The word goes at the end of its line, so no line moves.
         let text = asIfWritten
             ? ns.replacingCharacters(in: NSRange(location: NSMaxRange(line.content), length: 0), with: "x") as NSString
             : ns
@@ -346,11 +343,11 @@ enum MarkdownSourceContext {
         return bytes.withUnsafeMutableBufferPointer { buffer -> ItemExtent? in
             guard let root = parse(buffer) else { return nil }
             defer { cmark_node_free(root) }
-            // The OUTERMOST item opening on the line: Tab moves the whole line, and everything
+            // The outermost item opening on the line: Tab moves the whole line and everything
             // under it.
             var node: UnsafeMutablePointer<cmark_node>? = root
             var item: UnsafeMutablePointer<cmark_node>?
-            // From the LAST child back: a setext heading's end line is reported one past its
+            // From the last child back: a setext heading's end line is reported one past its
             // underline, so walked from the front it would claim the line the next block opens on.
             descend: while let current = node {
                 var child = cmark_node_last_child(current)
@@ -378,8 +375,8 @@ enum MarkdownSourceContext {
     }
 
     /// Sorts the lines under `node` into ``ItemExtent``'s two kinds. A fenced block's content is
-    /// its lines between the fences — its last line too when no closing fence is there, which is
-    /// read off the text for every fence in ONE walk down the lines.
+    /// its lines between the fences, its last line too when no closing fence is there, which is
+    /// read off the text for every fence in one walk down the lines.
     private static func classifyLines(under node: UnsafeMutablePointer<cmark_node>, offset: Int,
                                       into extent: inout ItemExtent, in text: NSString) {
         var fences: [(start: Int, end: Int, character: CChar, length: Int)] = []
@@ -442,9 +439,9 @@ enum MarkdownSourceContext {
         var text: String
     }
 
-    /// **Every leaf block of the body and every list item, in order** — what Tab and ⇧Tab hold their
+    /// Every leaf block of the body and every list item, in order: what Tab and ⇧Tab hold their
     /// result to. A move is accepted only when the document still reads as the same blocks with the
-    /// same words and code, the moved item's own one level deeper or shallower and nothing else changed.
+    /// same words and code, the moved item's one level deeper or shallower, and nothing else changed.
     static func leaves(in ns: NSString, body known: (line: Int, offset: Int)? = nil) -> [Leaf] {
         let body = known ?? MarkdownFrontMatter.bodyStart(in: ns)
         var bytes = Array(ns.substring(from: body.offset).utf8)
@@ -464,10 +461,10 @@ enum MarkdownSourceContext {
                     let type = cmark_node_get_type(current)
                     let line = Int(cmark_node_get_start_line(current)) + bodyLine - 1
                     if type == CMARK_NODE_ITEM {
-                        // **Every item is counted where it opens, at its depth**, empty or not —
-                        // or an empty one's nesting would be the one thing a move could change
-                        // unseen. Counted as itself, not as a leaf, so an empty item that GAINS a
-                        // child (Tab on the item under it) is still the same item.
+                        // Every item is counted where it opens, at its depth, empty or not, or an
+                        // empty one's nesting could change unseen. Counted as itself, not as a leaf,
+                        // so an empty item that gains a child (Tab on the item under it) is still
+                        // the same item.
                         leaves.append(Leaf(line: line, depth: depth + 1, kind: type.rawValue, text: ""))
                         walk(current, depth: depth + 1)
                     } else if cmark_node_first_child(current) == nil || !isBlock(cmark_node_first_child(current)!) {
@@ -504,14 +501,13 @@ enum MarkdownSourceContext {
         return text
     }
 
-    /// **What the reader sees of `text`, character by character, with the styles each is drawn in**
-    /// — emphasis, strong, strikethrough, code, raw HTML — and LINKS left out: a link's words are
-    /// read as words, so a paragraph reads the same with some of them made a link as without.
+    /// What the reader sees of `text`, character by character, with the styles each is drawn in
+    /// (emphasis, strong, strikethrough, code, raw HTML), links left out: a link's words read as
+    /// words, so a paragraph reads the same with some of them made a link as without.
     ///
-    /// What TE55 holds a link to before it writes one (review IMG-7, 2026-10-15). A selection that
-    /// cuts through an emphasis run — `Note:** read` out of `**Note:** read` — made
-    /// `**[Note:** read](url)`, which the parser reads as two literal asterisks and a link: the bold
-    /// gone, the markers on show. Asking the parser covers every delimiter rule at once, where a
+    /// What a link paste is held to before it writes one: a selection that cuts through an emphasis
+    /// run (`Note:** read` out of `**Note:** read`) would make `**[Note:** read](url)`, the bold
+    /// gone and the markers on show. Asking the parser covers every delimiter rule at once, where a
     /// count of `*`, `_` and `~` would have to restate flanking.
     ///
     /// Each block opens with a marker of its kind, so a change in which block holds the words is a
@@ -558,29 +554,26 @@ enum MarkdownSourceContext {
         case text
         /// Nothing on it but spaces and tabs.
         case blank
-        /// The front matter, code — fenced or indented, its fences included — raw HTML, or a
+        /// The front matter, code (fenced or indented, its fences included), raw HTML, or a
         /// divider: Markdown that is not prose, which a line verb must leave byte for byte.
         case literal
-        /// An indented line that carries on a list item opened above it — its words, or a
-        /// paragraph of it — which a list verb leaves to the item (FMT-7).
+        /// An indented line that carries on a list item opened above it (its words, or a paragraph
+        /// of it), which a list verb leaves to the item.
         case continuation
-        /// The words of a setext heading — `Title` over `=====` — at `level`, with the content
-        /// range of its underline's line (FMT-13).
+        /// The words of a setext heading (`Title` over `=====`) at `level`, with the content range
+        /// of its underline's line.
         case setext(level: Int, underline: NSRange)
         /// A setext heading's underline: part of its heading, not a line of its own.
         case underline
-        /// A row of a table — words to a line verb, which the table's own rule guards (TE76), but
-        /// not prose an inline verb may wrap across (FMT-10).
+        /// A row of a table: words to a line verb, which the table's own rule guards, but not prose
+        /// an inline verb may wrap across.
         case tableRow
     }
 
-    /// **The role of each of `lines`** — ranges into `ns`, as `MarkdownEdits.lineRanges` gives them.
-    ///
-    /// Line verbs rewrote every non-blank line they covered, whatever it was (FMT-6): Body over a
-    /// section stripped the `# ` from a shell comment in its code block, and ⌘A then Numbered List
-    /// turned the front matter into list items and a divider into an empty one. The parser says
-    /// which lines are prose; only the buffer down to the line after the last one is parsed, and
-    /// not at all when nothing on or above the lines could make one of them anything but prose.
+    /// The role of each of `lines` (ranges into `ns`, as `MarkdownEdits.lineRanges` gives them), so
+    /// a line verb rewrites only prose: not the `# ` of a shell comment in a code block, nor front
+    /// matter or a divider. Only the buffer down to the line after the last one is parsed, and not
+    /// at all when nothing on or above the lines could make one of them anything but prose.
     static func roles(of lines: [NSRange], in ns: NSString) -> [LineRole] {
         func blank(_ range: NSRange) -> Bool {
             ns.substring(with: range).allSatisfy { $0 == " " || $0 == "\t" }
@@ -610,8 +603,8 @@ enum MarkdownSourceContext {
                 if role == .text, chain.contains(where: { String(cString: cmark_node_get_type_string($0)) == "table" }) {
                     return .tableRow
                 }
-                // A setext heading: one line of words over its underline (FMT-13). A heading whose
-                // words run over several lines is left as words.
+                // A setext heading: one line of words over its underline. A heading whose words run
+                // over several lines is left as words.
                 if role == .text, let heading = chain.last(where: { cmark_node_get_type($0) == CMARK_NODE_HEADING }) {
                     let text = ns.substring(with: range)
                     let start = Int(cmark_node_get_start_line(heading))
@@ -625,7 +618,7 @@ enum MarkdownSourceContext {
                     }
                 }
                 // Inside an item that opened above, and indented past its quote markers: the item's.
-                // A lazy line — not indented — is left as words, which Bullets completes a list with.
+                // A lazy line, not indented, is left as words, which Bullets completes a list with.
                 if role == .text, let item = chain.last(where: { cmark_node_get_type($0) == CMARK_NODE_ITEM }),
                    Int(cmark_node_get_start_line(item)) != number, isIndented(ns.substring(with: range)) {
                     return .continuation
@@ -648,7 +641,7 @@ enum MarkdownSourceContext {
         return lead.count <= 3 ? rest.dropFirst(lead.count) : rest
     }
 
-    /// Whether `line` opens with an ATX heading's marker — one to six `#` and a space, or nothing.
+    /// Whether `line` opens with an ATX heading's marker: one to six `#`, then a space or nothing.
     private static func isATX(_ line: String) -> Bool {
         let text = blockText(line)
         let hashes = text.prefix { $0 == "#" }.count
@@ -678,8 +671,8 @@ enum MarkdownSourceContext {
     }
 
     /// Whether anything from the top of `ns` to `end` could make a line in `start…end` other than
-    /// prose: front matter, a fence or raw HTML anywhere above, or a line that is not plain words —
-    /// indented, or opening with a marker, a divider's or an underline's character.
+    /// prose: front matter, a fence or raw HTML anywhere above, or a line that is not plain words
+    /// (indented, or opening with a marker, a divider's or an underline's character).
     private static func needsParse(from start: Int, to end: Int, in ns: NSString, bodyOffset: Int) -> Bool {
         if bodyOffset > 0 { return true }
         let above = NSRange(location: 0, length: end)
@@ -704,7 +697,7 @@ enum MarkdownSourceContext {
         return false
     }
 
-    /// How many line ends the parser counts in `range` — `\n`, `\r\n` or a lone `\r`.
+    /// How many line ends the parser counts in `range`: `\n`, `\r\n` or a lone `\r`.
     private static func terminators(in range: NSRange, of ns: NSString) -> Int {
         var count = 0
         var index = range.location
@@ -723,8 +716,8 @@ enum MarkdownSourceContext {
 
     // MARK: - The parse
 
-    /// **The preview's parser, configured as the preview configures it** — swift-markdown 0.8's
-    /// `CommonMarkConverter.parseString`: `TABLE_SPANS`, `SMART`, `SOURCEPOS`, and the table,
+    /// The preview's parser, configured as the preview configures it (swift-markdown 0.8's
+    /// `CommonMarkConverter.parseString`): `TABLE_SPANS`, `SMART`, `SOURCEPOS`, and the table,
     /// strikethrough and tasklist extensions. Lines here are the preview's lines.
     private static func parse(_ buffer: UnsafeMutableBufferPointer<UInt8>) -> UnsafeMutablePointer<cmark_node>? {
         cmark_gfm_core_extensions_ensure_registered()
@@ -744,8 +737,8 @@ enum MarkdownSourceContext {
         return cmark_parser_finish(parser)
     }
 
-    /// Walks down the blocks that hold `line` — the LAST child at each level, because nothing was
-    /// parsed below it — and reads the answer off that chain.
+    /// Walks down the blocks that hold `line` (the last child at each level, because nothing was
+    /// parsed below it) and reads the answer off that chain.
     private static func classify(_ line: Int, in root: UnsafeMutablePointer<cmark_node>,
                                  bodyStartLine: Int, lineIsBlank: Bool) -> Block {
         let chain = chain(holding: line, in: root)
@@ -753,17 +746,16 @@ enum MarkdownSourceContext {
         if types.contains(CMARK_NODE_CODE_BLOCK) { return .code }
         if types.contains(CMARK_NODE_HTML_BLOCK) { return .html }
         // cmark reports an HTML block that closes on its own end condition (`-->`, `</pre>`) as
-        // ending one line short — so the closing line, last in what was parsed, is still its.
-        // **Never a blank line**: one after `</details>`, the last in what was parsed, is reported
-        // the same way, and it is the line that ENDS that block.
+        // ending one line short, so the closing line, last in what was parsed, is still its. Never
+        // a blank line: one after `</details>` is reported the same way, and it ends that block.
         if chain.isEmpty, !lineIsBlank, let last = cmark_node_last_child(root),
            cmark_node_get_type(last) == CMARK_NODE_HTML_BLOCK,
            Int(cmark_node_get_end_line(last)) == line - 1 {
             return .html
         }
-        // A quoted item opens on this line too, but its line starts `> ` — and every caller reads
+        // A quoted item opens on this line too, but its line starts `> `, and every caller reads
         // the line with `MarkdownListLine.parse` first, which takes only whitespace before a
-        // marker, so a quoted list is never one these edits rewrite.
+        // marker, so these edits never rewrite a quoted list.
         guard let item = chain.last(where: {
             cmark_node_get_type($0) == CMARK_NODE_ITEM && Int(cmark_node_get_start_line($0)) == line
         }) else { return .other }
@@ -785,7 +777,7 @@ enum MarkdownSourceContext {
                                   parentItemLine: parent, opensItsList: cmark_node_previous(item) == nil))
     }
 
-    /// The blocks that hold `line`, outermost first — walked from the LAST child back at each
+    /// The blocks that hold `line`, outermost first, walked from the last child back at each
     /// level: a setext heading's end line is reported one past its underline, so from the front it
     /// would claim the line the next block opens on.
     private static func chain(holding line: Int, in root: UnsafeMutablePointer<cmark_node>)
@@ -814,12 +806,11 @@ enum MarkdownSourceContext {
     }
 }
 
-/// **Lines as the parser counts them: `\n`, `\r\n` or a lone `\r` ends one, and nothing else does.**
+/// Lines as the parser counts them: `\n`, `\r\n` or a lone `\r` ends one, and nothing else does.
 ///
 /// `NSString.lineRange(for:)` also breaks at U+2028, U+2029 and U+0085, which cmark reads as
-/// ordinary characters — so a line number from one and a range from the other would name different
-/// lines in any note holding one of those. Everything here that turns a parser line into a range of
-/// the buffer goes through this instead.
+/// ordinary characters, so a line number from one and a range from the other would name different
+/// lines in a note holding one. Everything that turns a parser line into a buffer range uses this.
 enum MarkdownSourceLines {
 
     struct Line: Equatable {
@@ -867,9 +858,9 @@ enum MarkdownSourceLines {
 
     /// The line before `line`, or `nil` when `line` is the first.
     ///
-    /// **Found from the START of the terminator before it**, which in a Windows file is two
-    /// characters back: one back is the `\n` of a `\r\n`, and the "line" holding it is the empty
-    /// gap between the two — every neighbour Tab looked up in a CRLF file came back blank.
+    /// Found from the start of the terminator before it, two characters back in a CRLF file: one
+    /// back is the `\n` of a `\r\n`, and the "line" holding it would be the empty gap between the
+    /// two.
     static func line(before line: Line, in ns: NSString) -> Line? {
         guard line.content.location > 0 else { return nil }
         var end = line.content.location - 1
@@ -877,7 +868,7 @@ enum MarkdownSourceLines {
         return self.line(containing: end, in: ns)
     }
 
-    /// How many lines the parser sees in `bytes` — the line number of the last one.
+    /// How many lines the parser sees in `bytes`: the line number of the last one.
     static func lineCount(utf8 bytes: [UInt8]) -> Int {
         var count = 1
         var index = 0
@@ -893,8 +884,8 @@ enum MarkdownSourceLines {
         return count
     }
 
-    /// The line `target` lines above `line` (`target < number`), walking up from it — the
-    /// neighbours the parser names are almost always close by, so this is not a walk from the top.
+    /// Line number `target`, walked up to from `line`, which is line `number` (`target <= number`).
+    /// The neighbours the parser names are almost always close by, so this beats a walk from the top.
     static func line(_ target: Int, from line: Line, number: Int, in ns: NSString) -> Line? {
         guard target >= 1, target <= number else { return nil }
         var current = line

@@ -3,19 +3,16 @@ import Foundation
 
 /// The one place each lens's explanation and safety contract is written.
 ///
-/// Both surfaces that show it read from here — the pre-scan `EmptyStateView` and, for Organize,
-/// ``FilingSetupCard``. That is the whole point of extracting them: the two are the same
-/// explanation shown at different moments, and prose duplicated across two call sites drifts in
-/// one of them. The safety line especially, which is the sentence that tells someone whether a
-/// lens can move or delete their files.
+/// Both surfaces that show it read from here, the pre-scan `EmptyStateView` and, for Organize,
+/// ``FilingSetupCard``, so the prose can't drift between them. That matters most for the safety
+/// line, which tells someone whether a lens can move or delete their files.
 ///
-/// Provider- and folder-specific wording is passed in rather than baked in, so every surface
-/// naming the lens says "in iCloud" about the same folder rather than something more generic.
+/// Provider and folder names are passed in, so every surface naming the lens says "in iCloud" about
+/// the same folder.
 enum LensIntros {
 
-    /// Named for the FOCUSED FOLDER, not the provider: the duplicate scan hashes the folder
-    /// you are standing on (`duplicateScanRoot`), and a title promising the provider for a
-    /// folder-scoped scan is the same too-wide claim the clean state used to make.
+    /// Named for the focused folder, not the provider: the duplicate scan hashes the folder you
+    /// are standing on (`duplicateScanRoot`), so naming the provider would claim too wide a scope.
     static func duplicates(targetName: String) -> LensIntro {
         LensIntro(
             icon: "wand.and.stars",
@@ -25,39 +22,31 @@ enum LensIntros {
         )
     }
 
-    /// Named for the PROVIDER, deliberately: the rename detectors read the provider-wide
-    /// taxonomy, so "in <folder>" here would promise a narrower answer than the one given.
+    /// Named for the provider: the rename detectors read the provider-wide taxonomy, so
+    /// "in <folder>" would promise a narrower answer than the one given.
     static func renames(providerName: String?) -> LensIntro {
         LensIntro(
             icon: "folder.badge.gearshape",
             title: "Check names across \(providerName ?? "this provider")",
-            // Three categories in two lines. The long form named each one twice over
-            // ("provider-hostile names that break sync", "folders that have drifted from their
-            // own numbering") and ran to three, which is a full line taller than every other
-            // lens's header and the reason their triggers stopped lining up.
+            // Three categories in two lines: a third line puts this card's trigger below every
+            // other lens's (`everyLensTriggerLandsAtTheSameHeight`).
             //
-            // **Files, not folders, in the last clause.** It said "folders whose numbering has
-            // drifted" — but a `RenamePlan` is only *identified* by a folder; every step it holds
-            // renames a file inside it, and the sample row two lines below this card has always
-            // shown `1. Jan 2011.pdf → 01. Jan 2011.pdf`. The words and the samples disagreed.
+            // "Files" in the last clause, because a `RenamePlan` is identified by a folder but every
+            // step renames a file inside it, as the sample rows show.
             //
-            // **"Won't store cleanly", not "this provider can't store".** An iCloud or folder
-            // source has no naming rules of its own and still fills the to-fix section, because
-            // `NameNormalizer`'s invisible-hazard layer runs on every provider. The umbrella also
-            // has to stay SHORT: naming both classes explicitly ("rejects or any cloud would
-            // mangle") ran this to three lines and put the trigger 15pt below every other lens's
-            // — `everyLensTriggerLandsAtTheSameHeight` allows 2, and caught it.
+            // "Won't store cleanly", not "this provider can't store": an iCloud or folder source has
+            // no naming rules of its own and still fills the to-fix section, because
+            // `NameNormalizer`'s invisible-hazard layer runs on every provider.
             message: "Find names worth changing — ones that won’t store cleanly, files that ignore their folder’s convention, and files whose numbering has drifted.",
             safety: "Nothing is renamed without your say-so, and every rename is undoable."
         )
     }
 
-    /// `documentsRead` false adds RD11's one line: this lens gets better once the documents have
-    /// been read, and the overview is where that is offered.
+    /// `documentsRead` false adds one line: this lens gets better once the documents have been
+    /// read, and Organize's overview is where that is offered.
     ///
-    /// **A sentence, not a second button.** The offer lives on Organize's overview and starting a
-    /// three-hour pass from inside a lens that is about to scan would be two long jobs one click
-    /// apart. The line says where to go and what it buys, and stops.
+    /// A sentence, not a second button: starting a three-hour pass from a lens about to scan would
+    /// put two long jobs one click apart. The line says where to go and what it buys.
     static func organize(scanTargetName: String, documentsRead: Bool = true) -> LensIntro {
         let extra = documentsRead ? ""
             : " It goes on names and folder shapes for now — reading your documents, offered on "
@@ -80,36 +69,29 @@ enum LensIntros {
         )
     }
 
-    /// Named for the PROVIDER, like Renames: the detectors compare families of sibling folders
-    /// across the surveyed tree, not within the folder you happen to stand on.
+    /// Named for the provider, like Renames: the detectors compare families of sibling folders
+    /// across the surveyed tree, not within the folder you stand on.
     ///
-    /// Its safety line is the odd one out and says so plainly — **Restructure cannot touch a
-    /// file at all.** It reports where the tree disagrees with itself and stops there (see
-    /// ``RestructureLens`` for why the fix is a separate surface with its own invariants). Since
-    /// §5.5 the lens's cards DO reach actions that move things — a reviewed plan's Apply, the
-    /// scaffold, the removal sheet — so the safety line promises the review gate, not
-    /// read-onlyness: a "nothing is renamed or moved" sentence over a surface that renames and
-    /// moves is the one kind of safety copy worse than none.
+    /// The lens's cards reach actions that move things (a reviewed plan's Apply, the scaffold, the
+    /// removal sheet), so the safety line promises the review gate, not read-onlyness. Safety copy
+    /// that denies what the surface does is worse than none.
     static func restructure(providerName: String?) -> LensIntro {
         LensIntro(
             icon: "square.stack.3d.up",
             title: "Compare folder shapes across \(providerName ?? "this provider")",
             message: "Find families of sibling folders that were set up differently at different times — the same kind of folder, organized four ways.",
-            // ONE line — the setup cards share a header budget (two lines of message, one of
-            // safety), and `everyLensTriggerLandsAtTheSameHeight` measures it in pixels.
-            // One line, by measurement: the setup cards' triggers share a height, and a safety
-            // sentence that wraps puts this card's a full line below the rail's others
-            // (`everyLensTriggerLandsAtTheSameHeight`). Scoped to a PLAN's landing on purpose —
-            // a scaffold is recorded without a chain anchor, so the ledger undo cannot see it,
-            // and the old "every landing is … undoable" promised a post-quit undo it lacks.
+            // One line: the setup cards share a header budget (two lines of message, one of
+            // safety), measured by `everyLensTriggerLandsAtTheSameHeight`. Scoped to a plan's
+            // landing because a scaffold is recorded without a chain anchor, so the ledger undo
+            // can't see it; promising every landing is undoable would claim a post-quit undo the
+            // scaffold lacks.
             safety: "Changes go through a plan you review, and a plan’s landing can be undone."
         )
     }
 
-    /// Named for the PROVIDER: a rule is written once and steers every scan of the tree, not one
-    /// folder's. Rules is the lens with no scan of its own — the trigger writes the first rule —
-    /// so its safety line is about what a rule can do once it exists, which is the thing someone
-    /// is actually deciding on this screen.
+    /// Named for the provider: a rule steers every scan of the tree, not one folder's. Rules has no
+    /// scan of its own (the trigger writes the first rule), so its safety line says what a rule can
+    /// do once it exists, which is what someone decides on this screen.
     static func rules(providerName: String?) -> LensIntro {
         LensIntro(
             icon: AutomationsGlyph.lens,
@@ -119,13 +101,9 @@ enum LensIntros {
         )
     }
 
-    /// Every lens's intro, so "does each one state a safety contract?" can be asked of the whole
-    /// set rather than of a list someone remembered to extend.
-    ///
-    /// A hand-written array in the test file was what this replaces, and it had exactly the blind
-    /// spot that shape always has: a lens added here but not there is a lens with no contract and
-    /// a green suite. The arguments are stand-ins — the tests that care about interpolation call
-    /// the functions directly.
+    /// Every lens's intro, so "does each one state a safety contract?" is asked of the whole set
+    /// rather than a list in a test file that a new lens could miss. The arguments are stand-ins;
+    /// tests that care about interpolation call the functions directly.
     static var all: [(name: String, intro: LensIntro)] {
         [("Duplicates", duplicates(targetName: "Family")),
          ("Organize", organize(scanTargetName: "TODO")),

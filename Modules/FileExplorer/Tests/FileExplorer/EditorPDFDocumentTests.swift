@@ -43,13 +43,12 @@ enum PDFFixtures {
     }
 }
 
-/// **Counts `PDFDocument(url:)` per path, process-wide** — by replacing `-[PDFDocument
-/// initWithURL:]` with a counting trampoline the first time it is asked, for the whole test
-/// process. Behaviour is unchanged: the original runs with the same arguments. Counted per PATH, so
-/// a sibling suite opening its own files in parallel never moves another test's count.
+/// Counts `PDFDocument(url:)` per path, process-wide, by swapping `-[PDFDocument initWithURL:]` for
+/// a counting trampoline on first use; the original still runs with the same arguments. Per path,
+/// so a sibling suite opening its own files in parallel never moves another test's count.
 ///
 /// The trampoline passes raw pointers, never objects: an `init` consumes `self` and returns +1,
-/// which a Swift closure of objects cannot say, so ARC is kept out of it entirely.
+/// which a Swift closure of objects can't express, so ARC is kept out of it entirely.
 enum PDFURLOpens {
     private static let counts = OSAllocatedUnfairLock(initialState: [String: Int]())
 
@@ -73,13 +72,13 @@ enum PDFURLOpens {
     }()
 }
 
-/// **The read-only PDF model Edit shows instead of a text document** — `EditorPDFDocument`.
+/// `EditorPDFDocument`, the read-only PDF model Edit shows instead of a text document.
 ///
-/// Serialized, because these open through `PDFKitSerialAccess`'s one lane (Phase 0's lesson: lane
-/// work in parallel suites starves sibling waits). **Every wait is bounded in lane TURNS, not
-/// seconds** (`docs/flaky-tests.md`, "The wait that hangs instead of failing"): in a full-package
-/// run the lane is queued behind other suites' holds for minutes, which is congestion, not a
-/// failure — while a load that never comes still fails, after its turns, naming what it waited for.
+/// Serialized, because these open through `PDFKitSerialAccess`'s one lane, and lane work in
+/// parallel suites starves sibling waits. Every wait is bounded in lane turns, not seconds
+/// (`docs/flaky-tests.md`, "The wait that hangs instead of failing"): in a full-package run the
+/// lane can queue behind other suites for minutes, which is congestion, not failure, while a load
+/// that never comes still fails after its turns, naming what it waited for.
 @MainActor
 @Suite(.serialized) final class EditorPDFDocumentTests {
 
@@ -96,8 +95,8 @@ enum PDFURLOpens {
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// Waits until `done` holds, a lane turn and a short main-actor pause at a time — bounded, and a
-    /// labeled failure rather than a hang when it never does.
+    /// Waits until `done` holds, a lane turn and a short main-actor pause at a time; bounded, so it
+    /// fails with a label instead of hanging.
     @discardableResult
     private func wait(_ label: String, turns: Int = 1000, until done: () -> Bool) async -> Bool {
         for _ in 0..<turns {
@@ -152,8 +151,7 @@ enum PDFURLOpens {
         #expect(pdf.facts?.paperFact(page: 1) == "A4, 8.26 × 11.69 in")
     }
 
-    /// **Bytes that are not a PDF are refused, not shown as text** — the mockup's "PDFKit couldn't
-    /// read this file", with no document handed to any view.
+    /// Bytes that aren't a PDF are refused, not shown as text, and no document reaches any view.
     @Test func anUnreadableFileIsRefused() async throws {
         let file = path("broken.pdf")
         try Data("not a pdf at all".utf8).write(to: URL(fileURLWithPath: file))
@@ -164,8 +162,8 @@ enum PDFURLOpens {
         #expect(lines.last == "Editor could not open \(file) — \(EditorPDFDocument.unreadableReason)")
     }
 
-    /// **A cloud-only PDF is never parsed in place** — `PDFDocument(url:)` would download it on the
-    /// lane's thread. It is refused at once, in the text path's words, for the fetch-then-open path.
+    /// A cloud-only PDF is never parsed in place, since `PDFDocument(url:)` would download it on the
+    /// lane's thread. It is refused at once, in the text path's words, for fetch-then-open.
     @Test func aCloudOnlyFileIsRefusedWithoutAParse() async {
         let file = path("cloud.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -181,7 +179,7 @@ enum PDFURLOpens {
 
     // MARK: Locked
 
-    /// **A locked PDF waits for its password, which is used once and kept nowhere.**
+    /// A locked PDF waits for its password, which is used once and kept nowhere, not even the log.
     @Test func aLockedPDFUnlocksWithItsPasswordAndNeverLogsIt() async {
         let file = path("locked.pdf")
         let secret = "correct-horse-\(UUID().uuidString.prefix(6))"
@@ -202,9 +200,9 @@ enum PDFURLOpens {
                 "a password reached the log: \(lines)")
     }
 
-    /// **A file that changed on disk while a password was tried is not called a wrong password**
-    /// (TE160): the attempt was on the old file, so the card says the file changed and asks again
-    /// — and a wrong password says so in the file's own name (TE186).
+    /// A file that changed on disk while a password was tried is not called a wrong password: the
+    /// attempt was on the old file, so the card says the file changed and asks again. A wrong
+    /// password names the file.
     @Test func aFileThatChangesWhileUnlockingIsNotAWrongPassword() async throws {
         let file = path("Statement.pdf")
         let secret = "s-\(UUID().uuidString.prefix(6))"
@@ -257,7 +255,7 @@ enum PDFURLOpens {
         #expect(pdf.document?.documentURL?.path == second)
     }
 
-    /// **Close lets the document go** — the decoded pages of a long scan with it.
+    /// Close lets the document go, and the decoded pages of a long scan with it.
     @Test func closeReleasesTheDocument() async {
         let file = path("long.pdf")
         PDFFixtures.write(file, pages: 6)
@@ -275,7 +273,7 @@ enum PDFURLOpens {
 
     // MARK: The disk watch
 
-    /// **A change on disk reloads through the lane on the page the reader was on.**
+    /// A change on disk reloads through the lane, on the page the reader was on.
     @Test func aChangeOnDiskReloadsAndKeepsThePage() async throws {
         let file = path("growing.pdf")
         PDFFixtures.write(file, pages: 5)
@@ -296,9 +294,9 @@ enum PDFURLOpens {
         #expect(lines.last == "Editor reloaded \(file) (PDF, 6 pages) — changed elsewhere; kept page 4")
     }
 
-    /// **A new revision of a file evicted while open is not read** — reading it would download it,
-    /// in the lane — as the text watch leaves an evicted text file alone. The reader keeps what it
-    /// showed. (The settle is long so only the direct look below can reload.)
+    /// A new revision of a file evicted while open is not read, since reading would download it in
+    /// the lane; the text watch leaves an evicted file alone the same way. The reader keeps what it
+    /// showed. The settle is long so only the direct look below can reload.
     @Test func aChangeToAFileEvictedWhileOpenIsNotDownloadedToShowIt() async throws {
         final class Flag { var cloudOnly = false }
         let flag = Flag()
@@ -313,26 +311,25 @@ enum PDFURLOpens {
         let returned = pdf.loadsReturned
         pdf.look()
         #expect(pdf.facts?.pageCount == 5)
-        // Back on disk, the same look reads it — and that is the only load that returns. A load the
-        // evicted look had started would be withdrawn by this one and still return, ahead of it in
-        // the lane, so the count decides the absence rather than a pump that may beat the load.
+        // Back on disk, the same look reads it, and that must be the only load that returns. A load
+        // the evicted look started would be withdrawn by this one yet still return ahead of it, so
+        // the count proves the absence where a pump might beat the load.
         flag.cloudOnly = false
         let phase = await loaded(pdf) { pdf.look() }
         #expect(phase == .open && pdf.facts?.pageCount == 6)
         #expect(pdf.loadsReturned == returned + 1, "the look at the evicted file started a load")
     }
 
-    /// **A refusal that only said what happened says what to do next** — one moved or deleted from
-    /// under the reader. The damaged file's card has its own buttons, and so, since TE96, does a
-    /// file still in the cloud: its Download is the next step, so no sentence sends the reader to
-    /// another pane for it.
+    /// A file moved or deleted from under the reader gets a next step, not just what happened. The
+    /// damaged file's card and the cloud file's card (with its Download) have their own buttons, so
+    /// they get no sentence sending the reader to another pane.
     @Test func aRefusalSaysWhatToDoNext() {
         #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.notDownloadedReason) == nil)
         #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.goneReason)?.contains("Browse") == true)
         #expect(EditorPDFBody.nextStep(for: EditorPDFDocument.unreadableReason) == nil)
     }
 
-    /// **The text probe reads the front and a spread to the end**, each page once, and never past it.
+    /// The text probe reads the front and a spread to the end, each page once, and never past it.
     @Test func theTextProbeReadsTheFrontAndASpreadToTheEnd() {
         #expect(EditorPDFFacts.textProbe(pageCount: 0) == [])
         #expect(EditorPDFFacts.textProbe(pageCount: 1) == [0])
@@ -353,8 +350,8 @@ enum PDFURLOpens {
 
     // MARK: The lane
 
-    /// **The open is in the lane**: with the lane held, the model stays loading and no document
-    /// reaches it; released, it opens. A parse anywhere else would have opened behind the hold.
+    /// The open is in the lane: with the lane held, the model stays loading and no document reaches
+    /// it; released, it opens. A parse anywhere else would open behind the hold.
     @Test func theOpenWaitsForTheLane() async throws {
         let file = path("held.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -364,9 +361,9 @@ enum PDFURLOpens {
         try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
 
         pdf.open(path: file, log: { _ in })
-        // The control: the same file parsed OFF the lane, to completion — so the model has had at
-        // least as long as an off-lane parse needs, plus main-actor turns to apply it, before its
-        // absence is believed. A bare sleep would be a guess that shrinks as the machine slows.
+        // Control: the same file parsed off the lane, to completion, so the model has had at least
+        // that long plus main-actor turns before its absence is believed. A bare sleep would be a
+        // guess that shrinks as the machine slows.
         let control = await Task.detached { PDFDocument(url: URL(fileURLWithPath: file))?.pageCount }.value
         #expect(control == 2, "fixture: the file does not parse even off the lane")
         for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(5)) }
@@ -378,9 +375,9 @@ enum PDFURLOpens {
         #expect(pdf.phase == .open)
     }
 
-    /// **An open overtaken before its turn is never parsed** — the column preview's ticket. Arrowing
-    /// through a folder of PDFs in Edit's pane would otherwise queue a parse per file passed over,
-    /// each ahead of the one the reader stopped on.
+    /// An open overtaken before its turn is never parsed (the column preview's ticket). Otherwise
+    /// arrowing through a folder of PDFs queues a parse per file passed over, each ahead of the one
+    /// the reader stopped on.
     @Test func anOpenOvertakenBeforeItsTurnIsSkipped() async throws {
         let passed = path("passed-over.pdf"), stopped = path("stopped-on.pdf")
         PDFFixtures.write(passed, pages: 3)
@@ -399,11 +396,10 @@ enum PDFURLOpens {
         #expect(pdf.path == stopped && pdf.facts?.pageCount == 1)
     }
 
-    /// **A PDF's header draws no location line** — the text header's "in Finance" or "iCloud ›
-    /// Documents › …" crumbs (asked 2026-10-17: "it doesn't make sense"). Its second row says what
-    /// the file is; the name's right-click menu is the way to where it lives. Read over the
-    /// header's own body and its second row's, which close the file, so the text header's location
-    /// line is untouched by this.
+    /// A PDF's header draws none of the text header's location crumbs ("in Finance", "iCloud ›
+    /// Documents › …"): its second row says what the file is, and the name's right-click menu leads
+    /// to where it lives. Reads the header's body and its second row's, which end the file, so the
+    /// text header keeps its location line.
     @Test func thePDFHeaderDrawsNoLocationLine() throws {
         let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         let start = try #require(card.range(of: "struct EditorPDFHeader<Trailing: View>: View {"))
@@ -412,16 +408,15 @@ enum PDFURLOpens {
         let header = String(card[start.upperBound..<card.endIndex])
         #expect(!header.contains("EditorLocationLabel"), "the PDF header draws the location crumbs again")
         #expect(!header.contains("EditorDocumentLocation"), "the PDF header takes a location again")
-        // The name's menu is the Files list's own since TE112, Reveal in Browse first among its ways out.
+        // The name's menu is the Files list's own, Reveal in Browse first among its ways out.
         #expect(header.contains("EditorRailRowMenu(path: path,"), "the PDF's name lost its way to where it lives")
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(workspace.contains("EditorLocationLabel(location: location"), "the TEXT header lost its location line too")
     }
 
-    /// **The reader counts its skips on itself, never on the column preview's counter.**
-    /// `PDFPreviewMountedTests` asserts that counter does not move across a held lane; this suite
-    /// withdraws opens on purpose, so counting there turned the preview's test red whenever the two
-    /// ran together — the first CI run with Edit's reader on main (2026-10-17).
+    /// The reader counts its skips on itself, never on the column preview's counter.
+    /// `PDFPreviewMountedTests` asserts that counter doesn't move across a held lane, and this
+    /// suite withdraws opens on purpose, so sharing it would turn that test red whenever both run.
     @Test func theReaderNeverCountsOnThePreviewsSkipCounter() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFDocument.swift")
         // Absence only: that the reader still counts its own is held by the `== 1` test above.
@@ -429,8 +424,8 @@ enum PDFURLOpens {
                 "Edit's reader counts its withdrawn opens on the column preview's process-wide counter")
     }
 
-    /// **A load that comes back after the PDF was closed is dropped** — latest request wins, and a
-    /// close is a request. Otherwise a slow open would put a document back after the × was pressed.
+    /// A load that comes back after the PDF was closed is dropped: latest request wins, and a close
+    /// is a request. Otherwise a slow open would put a document back after × was pressed.
     @Test func aLoadThatLandsAfterCloseIsDropped() async throws {
         let file = path("closed-early.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -441,13 +436,13 @@ enum PDFURLOpens {
         pdf.open(path: file, log: { _ in })
         pdf.close()
         hold.release()
-        // Waited for by its RETURN, not by a guess: the load comes back and is dropped.
+        // Waited for by its return, not a guess: the load comes back and is dropped.
         await wait("the load from before the close to come back") { pdf.loadsReturned >= 1 }
         #expect(pdf.document == nil && pdf.path == nil && pdf.facts == nil,
                 "a load from before the close was assigned after it")
     }
 
-    /// **Never two parses at once**, with the model's open queued behind another parse.
+    /// Never two parses at once, with the model's open queued behind another parse.
     @Test func everyParseTakesItsTurnInTheLane() async {
         let file = path("lane.pdf"), other = path("other.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -461,11 +456,11 @@ enum PDFURLOpens {
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
     }
 
-    /// **An open parses the file ONCE** — the protection the tools need is read off the document
-    /// it opened, not by handing the URL to `PDFToolkit.encryptionState(of:)`, which opens it again
-    /// in the lane everyone else waits on. Counted at `PDFDocument(url:)` itself, so a second parse
-    /// inside the toolkit counts too. A file with no form: one WITH fields is listed by the toolkit's
-    /// own open as well (``EditorPDFForm/read(_:url:)``).
+    /// An open parses the file once: the tools' protection state is read off the opened document,
+    /// not by `PDFToolkit.encryptionState(of:)`, which would open it again in the shared lane.
+    /// Counted at `PDFDocument(url:)`, so a parse inside the toolkit counts too. The file has no
+    /// form: one with fields is also read by the toolkit's own open
+    /// (``EditorPDFForm/read(_:url:)``).
     @Test func anOpenParsesTheFileOnce() async {
         let file = path("once.pdf")
         PDFFixtures.writeRestricted(file)
@@ -478,9 +473,8 @@ enum PDFURLOpens {
         #expect(PDFURLOpens.count(file) - before == 1, "the open parsed \(file) more than once")
     }
 
-    /// **A pane menu's probe parses the file ONCE too** — `EditorPDFToolEngine.probe(_:)`, which
-    /// runs before a PDF Tools item opens anything, reads the protection off its own document by
-    /// the same rule, not by a second open inside `PDFToolkit.encryptionState(of:)`.
+    /// A pane menu's probe (`EditorPDFToolEngine.probe(_:)`, run before a PDF Tools item opens
+    /// anything) also parses once, reading the protection off its own document.
     @Test func aPaneProbeParsesTheFileOnce() async {
         let file = path("probe.pdf")
         PDFFixtures.writeRestricted(file, pages: 2)
@@ -490,9 +484,9 @@ enum PDFURLOpens {
         #expect(PDFURLOpens.count(file) - before == 1, "the probe parsed \(file) more than once")
     }
 
-    /// **The local rule answers as the toolkit does** — on a plain, a restricted and a locked file,
-    /// both through a real open and through the rule itself. What keeps ``EditorPDFDocument/
-    /// encryption(of:)`` honest if pdf-toolkit's rule ever moves.
+    /// The local rule answers as the toolkit does on a plain, a restricted and a locked file, both
+    /// through a real open and through the rule itself, so ``EditorPDFDocument/encryption(of:)``
+    /// stays honest if pdf-toolkit's rule moves.
     @Test(arguments: ["plain", "restricted", "locked"])
     func theToolsLearnTheProtectionTheToolkitWould(_ kind: String) async {
         let file = path("\(kind).pdf")
@@ -532,8 +526,8 @@ enum PDFURLOpens {
         return nil
     }
 
-    /// **Page fits a whole page** — both shapes, as `PDFPreviewMountedTests` measures the preview:
-    /// the page's drawn size in the view's own coordinates, not the scale that produced it.
+    /// Page fit shows a whole page, in both shapes. Measured as `PDFPreviewMountedTests` measures
+    /// the preview: the drawn size in the view's coordinates, not the scale that produced it.
     @Test(arguments: [CGSize(width: 820, height: 600), CGSize(width: 420, height: 900)])
     func pageFitShowsAWholePage(size: CGSize) async throws {
         let file = path("fit.pdf")
@@ -556,7 +550,7 @@ enum PDFURLOpens {
                 "the page does not fill either dimension — it is not fitted")
     }
 
-    /// **Width fills the width** — and lets the height run on, which is what makes it not Page.
+    /// Width fit fills the width and lets the height run on, which is what sets it apart from Page.
     @Test func widthFitFillsTheWidth() async throws {
         let file = path("width.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -579,8 +573,8 @@ enum PDFURLOpens {
 
     // MARK: The workspace
 
-    /// **While a PDF is open, the document card draws pages and no text surface at all** — the
-    /// `EditorTextView` a save could be typed into is not mounted.
+    /// While a PDF is open the document card draws pages and no text surface: no `EditorTextView`
+    /// that a save could be typed into is mounted.
     @Test func theWorkspaceDrawsPagesAndNoTextSurface() async throws {
         let file = path("card.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -600,9 +594,8 @@ enum PDFURLOpens {
 
     // MARK: Words and rules
 
-    /// Row 2's paper (decided 2026-10-19): the name and the inches with a comma, since "·" is the
-    /// row's own separator — and the name alone once the inches are shed, or nothing for a paper
-    /// with no name.
+    /// Row 2's paper: name and inches joined by a comma, since "·" is the row's own separator; the
+    /// name alone once the inches are shed, or nothing for a paper with no name.
     @Test func paperFacts() {
         #expect(EditorPDFFacts.paperFact(CGSize(width: 612, height: 792)) == "Letter, 8.5 × 11 in")
         #expect(EditorPDFFacts.paperFact(CGSize(width: 792, height: 612)) == "Letter, 11 × 8.5 in")
@@ -621,16 +614,16 @@ enum PDFURLOpens {
         #expect(EditorPDFCapsule.page(typed: "99999999999999999999", pageCount: 10) == 9)
         #expect(EditorPDFCapsule.page(typed: "３", pageCount: 10) == 2)
         #expect(EditorPDFCapsule.page(typed: "", pageCount: 10) == nil)
-        // Decimal digits only: "٣" is 3, but "十二" (twelve) and "Ⅻ" are numbers, not digits — read
-        // one at a time "十二" went to page 102, the last page here.
+        // Decimal digits only: "٣" is 3, but "十二" (twelve) and "Ⅻ" are numbers, not digits. Read
+        // one character at a time, "十二" would go to page 102.
         #expect(EditorPDFCapsule.page(typed: "٣", pageCount: 200) == 2)
         #expect(EditorPDFCapsule.page(typed: "十二", pageCount: 200) == nil)
         #expect(EditorPDFCapsule.page(typed: "ⅩⅡ", pageCount: 200) == nil)
         #expect(EditorPDFCapsule.page(typed: "1万", pageCount: 200) == 0)
     }
 
-    /// **Return in the page field hands the keyboard back to the pages** — after ⌃⌘L, ⌥← and ⌥→
-    /// did nothing and ⌘+ changed the whole app's text size, the field still holding the caret.
+    /// Return in the page field (reached by ⌃⌘L) hands the keyboard back to the pages. Left in the
+    /// field, ⌥← and ⌥→ do nothing and ⌘+ changes the whole app's text size.
     @Test func goingToATypedPageGivesThePagesTheKeyboard() throws {
         let state = EditorPDFViewState(defaults: ScratchDefaults("EditorPDFGoToPage"))
         let focus = state.focusRequest
@@ -648,8 +641,8 @@ enum PDFURLOpens {
         #expect(source.contains(".onExitCommand {"))
     }
 
-    /// **Row 2 says paper, size and text, and no version** — the version is in the tooltip on
-    /// "PDF", after the note that Edit never changes the file (decided 2026-10-19).
+    /// Row 2 says paper, size and text, but no version: that is in the tooltip on "PDF", after the
+    /// note that Edit never changes the file.
     @Test func rowTwoSaysPaperSizeAndTextAndKeepsTheVersionForTheTooltip() {
         let facts = EditorPDFFacts(pageCount: 3, pageSizes: Array(repeating: PDFFixtures.letter, count: 3),
                                    majorVersion: 1, minorVersion: 7, fileSize: "184 KB", hasText: true)

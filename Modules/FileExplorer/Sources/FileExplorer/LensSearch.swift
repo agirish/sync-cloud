@@ -4,26 +4,21 @@ import Sync
 
 // MARK: - Per-lens token grammars
 //
-// Search in a lens workspace is a FILTER over what a lens already has on screen — never a disk walk.
-// Each lens gets the same shape (structured tokens where they parse, plain substring on everything
-// else, built on Design's shared `TokenQuery` core) but its OWN token table.
+// Search in a lens workspace filters what the lens already has on screen; it never walks the disk.
+// Each lens has the same shape (structured tokens where they parse, substring on the rest, built
+// on Design's `TokenQuery`) but its own token table.
 //
-// The rule that shapes all of this: a lens only ever declares a token it can actually bind. The
-// rename backlog has no size on a `RenamePlan`, so `>5mb` has nothing to answer — and so it simply
-// does not have that token, its parser doesn't recognize one, and its placeholder never mentions
-// one. There are no struck-through "understood but useless" chips anywhere.
-//
-// The accepted consequence: the grammar is deliberately NOT uniform. A token learned in Duplicates
-// is not necessarily a token in Filing. The per-lens placeholder is what teaches each vocabulary,
-// which is why `LensSearch.placeholder(for:)` is one string per lens rather than one shared one —
-// and why it is a `switch` over `WorkspaceLensKind` rather than a count anybody has to keep.
+// A lens declares only tokens it can bind: a `RenamePlan` has no size, so the rename backlog has
+// no `>5mb`, its parser doesn't recognise one and its placeholder never mentions one. So the
+// grammar is not uniform across lenses, and each lens's placeholder teaches its own vocabulary
+// (`LensSearch.placeholder(for:)`, a `switch` over `WorkspaceLensKind`).
 
-/// The one place the Organize lenses answer `kind:` for a FILE, so they can't disagree about what
-/// `image` covers. An exact extension match, or one of the shared class aliases from
-/// `DifferenceSearch.kindClasses` — the same table Compare uses.
+/// The one place the Organize lenses answer `kind:` for a file, so they can't disagree about what
+/// `image` covers: an exact extension, or a class alias from `DifferenceSearch.kindClasses`, the
+/// table Compare uses.
 ///
-/// Automations deliberately does NOT route through here: a rule matches a *kind*, not a file, so
-/// its `kind:` binds to `FileKind` instead (see `AutomationSearch`).
+/// Automations doesn't use this: a rule matches a kind, not a file, so its `kind:` binds to
+/// `FileKind` (see `AutomationSearch`).
 enum LensKind {
     static func matches(_ kind: String, fileName: String) -> Bool {
         let ext = (fileName as NSString).pathExtension.lowercased()
@@ -41,9 +36,8 @@ enum LensKind {
     }
 }
 
-/// The vocabulary each lens advertises. This is the ONLY thing teaching the user which tokens bind
-/// where, so each string must name exactly the tokens its lens declares — never a token it would
-/// silently treat as free text.
+/// The vocabulary each lens advertises, the only thing teaching which tokens bind where. Each
+/// string must name exactly its lens's tokens, never one it would treat as free text.
 enum LensSearch {
     static func placeholder(for lens: WorkspaceLensKind) -> String {
         switch lens {
@@ -54,8 +48,7 @@ enum LensSearch {
         }
     }
 
-    /// The search toggle's tooltip and accessibility label — names what THIS lens searches, since
-    /// that differs per lens.
+    /// The search toggle's tooltip and accessibility label, naming what this lens searches.
     static func help(for lens: WorkspaceLensKind) -> String {
         switch lens {
         case .duplicates: return "Search duplicate groups by name, kind, or size"
@@ -70,18 +63,12 @@ enum LensSearch {
 
 /// Organize ▸ the rename backlog. Filters `renamePlans`.
 ///
-/// **The thinnest grammar here, and deliberately.** A row is a *folder*, and what you look for is
-/// a folder — "PG&E", "2021", "HDFC". There is no confidence to filter by, no kind (a plan spans
-/// whatever extensions the folder holds), and no size. So this is free text over the folder path
-/// and the names inside it, with no token grammar at all, and the placeholder never suggests one.
+/// No token grammar at all: a row is a folder, with no confidence, kind (a plan spans whatever
+/// extensions the folder holds) or size to filter by. Free text over the folder path and the file
+/// names inside it, since the file you are looking for is often a name like `9829custbill…`.
 ///
-/// It answers for the **to-fix rows too** (the `RiskyName` overload below), which is what retired
-/// `RiskyNameSearch` — a `kind:` / `is:folder` grammar that only the standalone rename lens ever
-/// offered. Those tokens are gone rather than hidden; if the to-fix rows ever want them back, they
-/// belong here, on the one grammar the list actually uses.
-///
-/// Matching the file names too is what makes it useful rather than decorative: 129 folders is a lot
-/// to scroll, and the file you are actually looking for is `9829custbill…`.
+/// It answers for the to-fix rows too (the `RiskyName` overload below). Any tokens those rows
+/// ever need belong here, on the one grammar the list uses.
 enum RenameBacklogSearch {
 
     static func matches(_ query: String, _ plan: RenamePlan) -> Bool {
@@ -95,18 +82,11 @@ enum RenameBacklogSearch {
         return plan.skips.contains { $0.fileName.range(of: text, options: .caseInsensitive) != nil }
     }
 
-    /// The same free text over a **risky name**, because the backlog's list holds those too.
+    /// The same free text over a risky name, because the backlog's list holds those too
+    /// (`RenamePassLens.toFixSection`). Left unfiltered, one list would answer one query two ways.
     ///
-    /// The fold put the "to fix" rows at the head of this list (`RenamePassLens.toFixSection`) and
-    /// left them unfiltered, on the argument that applying the backlog's grammar to a name would
-    /// hide fixes behind a query about something else. There is no grammar to misapply: this search
-    /// has no tokens at all — it is free text over the folder and the names inside it, and a name
-    /// is precisely what a risky row carries. Unfiltered, one list answered one query two ways
-    /// (three plans, and all five fixes) under a header counting a third thing.
-    ///
-    /// **The `reason` is deliberately not matched**, though the row shows it: the plan half does
-    /// not match its steps' reasons either, and a query that found rows by their explanation in one
-    /// half of a list and not the other would be worse than either rule on its own.
+    /// The `reason` isn't matched, though the row shows it: the plan half doesn't match its steps'
+    /// reasons either, and a list that matched explanations in one half only would be worse.
     static func matches(_ query: String, _ risky: RiskyName) -> Bool {
         let text = query.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return true }
@@ -120,12 +100,12 @@ enum RenameBacklogSearch {
 
 /// The Filing search. Filters `filingSuggestions`, upstream of the confidence grouping.
 ///
-/// `confidence:` binds to the tier the card actually SHOWS (`FilingConfidenceTier`), not to the
-/// raw destination confidence — a suggestion with no candidate at all displays under "Needs your
-/// pick", so that's what `confidence:low` must mean.
+/// `confidence:` binds to the tier the card shows (`FilingConfidenceTier`), not the raw
+/// confidence: a suggestion with no candidate shows under "Needs your pick", so `confidence:low`
+/// must find it.
 ///
-/// `to:` matches only the BEST destination — the one the card is offering. Matching any candidate
-/// would surface a file under `to:Invoices` while its card offered Receipts.
+/// `to:` matches only the best destination, the one the card offers. Matching any candidate would
+/// show a file under `to:Invoices` while its card offered Receipts.
 enum FilingSearch {
 
     struct Query: Equatable {
@@ -172,8 +152,8 @@ enum FilingSearch {
             if lower.hasPrefix("confidence:"), let tier = parseTier(String(lower.dropFirst("confidence:".count))) {
                 confidence = tier; return true
             }
-            // `to:` keeps the ORIGINAL casing of the word — folder names are matched
-            // case-insensitively anyway, but the chip should read back what was typed.
+            // `to:` keeps the word's original casing: matching ignores case, but the chip should
+            // read back what was typed.
             if lower.hasPrefix("to:") {
                 let folder = String(word.dropFirst("to:".count))
                 if !folder.isEmpty { destination = folder; return true }
@@ -184,8 +164,8 @@ enum FilingSearch {
                      confidence: confidence, destination: destination, text: text)
     }
 
-    /// The tier words. "low" and "needs" both reach the "Needs your pick" tier, since that's the
-    /// label on screen — a user reading the section header shouldn't have to guess it's "low".
+    /// The tier words. "low" and "needs" both reach the "Needs your pick" tier, so someone reading
+    /// the section header needn't guess it's "low".
     private static func parseTier(_ word: String) -> FilingConfidenceTier? {
         switch word {
         case "high": return .high
@@ -229,18 +209,14 @@ enum FilingSearch {
 
 /// The Automations search. Filters `automationRules`.
 ///
-/// `kind:` binds to `FileKind` — the coarse family a rule can actually test (`image`, `pdf`,
-/// `video`, `audio`, `archive`, `document`) — because a RULE matches a kind rather than being a
-/// file with an extension. `kind:jpg` is therefore free text here even though it's a real token in
-/// Duplicates; that asymmetry is the per-lens-honesty rule doing its job, and the placeholder
-/// advertises `kind:pdf` accordingly.
+/// `kind:` binds to `FileKind`, the coarse family a rule can test (`image`, `pdf`, `video`,
+/// `audio`, `archive`, `document`), because a rule matches a kind rather than being a file. So
+/// `kind:jpg` is free text here though it's a token in Duplicates, and the placeholder advertises
+/// `kind:pdf`.
 ///
-/// Free text matches the rule's NAME as well as its `summary`. The spec expected `summary` alone
-/// to cover it — "the prebuilt one-liner folding name + conditions + destination". It does not:
-/// `AutomationRule.summary` is built from the conditions and the destination template and never
-/// reads `self.name`, so a rule named "Invoices" whose conditions say `text contains "bill"` would
-/// be invisible to a search for `invoice`. Matching name ∪ summary is what actually delivers the
-/// intended "find it by name, by condition, or by where it files".
+/// Free text matches the rule's name as well as its `summary`, because `AutomationRule.summary`
+/// never reads the name: a rule named "Invoices" testing `text contains "bill"` would otherwise be
+/// invisible to a search for `invoice`.
 enum AutomationSearch {
 
     struct Query: Equatable {
@@ -299,12 +275,10 @@ enum AutomationSearch {
 /// The Storage search. Filters the report's three ranked FILE lists (largest / stale / reclaim
 /// candidates).
 ///
-/// The treemap is deliberately NOT filtered. It is a part-of-whole picture of the scanned tree,
-/// and drawing it from a subset would misstate every proportion in it — "Photos is 60% of this
-/// folder" would silently start meaning "60% of what survived your query". Its areas are folders
-/// besides, which no `kind:` can match, and its synthetic "Files"/"Other" buckets carry empty
-/// paths, so a path filter would drop them for reasons a reader could never see. The lists answer
-/// the query; the map keeps telling the truth about the whole.
+/// The treemap is not filtered. It is a part-of-whole picture, and drawn from a subset every
+/// proportion would silently mean "of what survived your query". Its areas are also folders, which
+/// no `kind:` matches, and its synthetic "Files"/"Other" buckets have empty paths that a path
+/// filter would drop invisibly.
 enum StorageSearch {
 
     struct Query: Equatable {

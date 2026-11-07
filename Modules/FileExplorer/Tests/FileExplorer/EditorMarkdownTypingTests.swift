@@ -6,18 +6,18 @@ import cmark_gfm
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// TE54–TE56 through the real text view and the real coordinator: the key reaching the delegate,
-/// the paste reaching the subclass, what one ⌘Z takes back — and every door that must still do
-/// what it always did.
+/// Markdown typing (list keys, link and image paste, image drop) through the real text view and
+/// coordinator: the key reaching the delegate, the paste reaching the subclass, what one ⌘Z takes
+/// back, and every door that must still do what it always did.
 ///
-/// **Driven directly, not through SwiftUI**, for `PlainTextEditorBridgeTests`' reason: mounting the
-/// representable in this process segfaults. `doCommand(by:)` is the path a key takes to the
-/// delegate; the paste is handed a private pasteboard, so the test never touches the clipboard.
+/// Driven directly, not through SwiftUI, because mounting the representable in this process
+/// segfaults (see `PlainTextEditorBridgeTests`). `doCommand(by:)` is a key's path to the delegate;
+/// the paste gets a private pasteboard, so the test never touches the clipboard.
 @MainActor
 @Suite(.serialized) struct EditorMarkdownTypingTests {
 
     /// What the rig hears back. `text` is the document's own buffer, which follows the storage the
-    /// view is built around (TE67.0) — so asserting it is asserting the document heard the edit.
+    /// view is built around, so asserting it asserts the document heard the edit.
     @MainActor
     final class Box {
         let buffer = EditorBuffer()
@@ -54,7 +54,7 @@ import FileExplorerTestSupport
         view.isRichText = false
         view.importsGraphics = false
         view.allowsUndo = true
-        // Every substitution off, as `makeNSView` has them — or the machine's own settings decide
+        // Every substitution off, as `makeNSView` has them, or the machine's own settings decide
         // what a typed quote or dash becomes here.
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
@@ -77,8 +77,8 @@ import FileExplorerTestSupport
         return Rig(view: view, coordinator: coordinator, undo: undo, box: box, window: window)
     }
 
-    /// One turn of the run loop — what separates two keystrokes, and closes the undo group of the
-    /// first. Without it every edit in a test is one group and "one ⌘Z" proves nothing.
+    /// One turn of the run loop, which separates two keystrokes and closes the first's undo group.
+    /// Without it every edit in a test is one group and "one ⌘Z" proves nothing.
     private func spin() { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
 
     private func type(_ text: String, in rig: Rig) {
@@ -102,8 +102,8 @@ import FileExplorerTestSupport
 
     // MARK: - The view
 
-    /// **`makeNSView` builds the subclass, and it still runs on TextKit 2** — the engine
-    /// `EditorTextSettings` explains the editor must not drop off.
+    /// `makeNSView` builds the subclass, still on TextKit 2, which `EditorTextSettings` explains
+    /// the editor must not drop off.
     @Test func theFactoryBuildsTheSubclassOnTextKit2() {
         let scroll = EditorTextView.scrollableTextView()
         let view = scroll.documentView as? EditorTextView
@@ -113,9 +113,8 @@ import FileExplorerTestSupport
 
     // MARK: - TE54 Return
 
-    /// **Return and the marker it adds are ONE undo step, and never part of the typing before
-    /// them** — so one ⌘Z after Return always lands back on the item's line as it was, whatever was
-    /// pressed before it.
+    /// Return and the marker it adds are one undo step, never part of the typing before them, so
+    /// one ⌘Z after Return always lands back on the item's line as it was.
     @Test func returnCarriesTheListOnAndOneUndoTakesItBack() {
         let rig = rig("- eggs\n- milk")
         type("s", in: rig)
@@ -133,8 +132,8 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- eggs\n- milk", "the typing before Return was not its own step")
     }
 
-    /// The case the review measured: **Return as the first edit**, nothing typed before it. One ⌘Z
-    /// is the whole Return, as above — not the marker with the line break left behind, nor more.
+    /// Return as the first edit, nothing typed before it: one ⌘Z is the whole Return, not the
+    /// marker with the line break left behind, nor more.
     @Test func returnWithNothingTypedBeforeItIsOneStepToo() {
         let rig = rig("- milk")
         press(returnKey, in: rig)
@@ -144,9 +143,9 @@ import FileExplorerTestSupport
         #expect(!rig.undo.canUndo, "something else was recorded with it")
     }
 
-    /// **Return on an empty item ends the list for real**: the marker comes off and the Return goes
-    /// in, so the line it was on is the blank line between the list and what is typed next — a
-    /// paragraph of its own, not more of the last item. One ⌘Z puts the item back.
+    /// Return on an empty item ends the list for real: the marker comes off and the Return goes in,
+    /// so its line is the blank line between the list and a new paragraph, not more of the last
+    /// item. One ⌘Z puts the item back.
     @Test func returnOnAnEmptyItemEndsTheListAndUndoPutsTheMarkerBack() {
         let rig = rig("- eggs\n- ")
         press(returnKey, in: rig)
@@ -165,8 +164,8 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- eggs\n- ")
     }
 
-    /// **An empty sub-item ends its sub-list and keeps the caret in the item above** — indented to
-    /// it, so what is typed is a paragraph of that item and the sub-items after stay its own.
+    /// An empty sub-item ends its sub-list and keeps the caret in the item above, indented to it,
+    /// so what is typed is a paragraph of that item and the sub-items after stay its own.
     @Test func returnOnAnEmptySubItemStaysInTheItemAbove() {
         let rig = rig("- a\n  - \n  - b")
         rig.view.setSelectedRange(NSRange(location: 8, length: 0))
@@ -178,9 +177,9 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- a\n  - \n  - b")
     }
 
-    /// **Return on an empty item with more of the list below** ends the list there with a line to
-    /// type on and a blank line under it, so what is typed is a paragraph and `3. Bake` stays an
-    /// item. One ⌘Z puts the item back.
+    /// Return on an empty item with more of the list below ends the list there, with a line to type
+    /// on and a blank line under it, so what is typed is a paragraph and `3. Bake` stays an item.
+    /// One ⌘Z puts the item back.
     @Test func returnOnAnEmptyItemMidListLeavesALineToTypeOn() {
         let rig = rig("1. Preheat\n2. \n3. Bake")
         rig.view.setSelectedRange(NSRange(location: 14, length: 0))
@@ -200,10 +199,9 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "1. Preheat\n2. \n3. Bake")
     }
 
-    /// **Return at the end of an item with a sub-list never turns the item into a heading** (found
-    /// 2026-10-09). The sub-list's own opening, empty, straight under the item's words: an empty
-    /// item cannot interrupt a paragraph, so `  - ` there was a setext underline and `- item` read
-    /// as a heading until something was typed — and stayed one if nothing was. It is a Return.
+    /// Return at the end of an item with a sub-list never turns the item into a heading. An empty
+    /// item can't interrupt a paragraph, so an empty `  - ` straight under the item's words would
+    /// be a setext underline and make `- item` a heading. It is a plain Return.
     @Test func returnAboveASubListLeavesTheItemItsWords() {
         let rig = rig("- item\n  - sub")
         rig.view.setSelectedRange(NSRange(location: 6, length: 0))
@@ -217,7 +215,7 @@ import FileExplorerTestSupport
                 "\(rig.view.string.debugDescription) reads \(kinds)")
     }
 
-    /// …and above a TASK sub-list it still carries on as the first sub-item: an empty box is an
+    /// …and above a task sub-list it still carries on as the first sub-item: an empty box is an
     /// item as written, so nothing above it changes.
     @Test func returnAboveATaskSubListCarriesItOn() {
         let rig = rig("- item\n  - [x] sub")
@@ -229,16 +227,15 @@ import FileExplorerTestSupport
         #expect(rig.box.text == rig.view.string)
     }
 
-    /// **Return in the middle of an item is a Return** — at the end of a line its words carry on from.
+    /// Return in the middle of an item is a Return, at the end of a line its words carry on from.
     @Test func returnMidItemIsAReturn() {
         let rig = rig("- Preheat the oven to\n  200 degrees")
         rig.view.setSelectedRange(NSRange(location: 20, length: 0))
         #expect(!rig.coordinator.textView(rig.view, doCommandBy: returnKey))
     }
 
-    /// **Return on the blank line under a list is a Return, and what is typed there is a paragraph**
-    /// (LST-1). It wrote `- ` on the blank line, so what was typed there was one more item of the list
-    /// — and over a paragraph rather than a heading, that paragraph went into the new item too.
+    /// Return on the blank line under a list is a Return, and what is typed there is a paragraph,
+    /// not one more item of the list (which would also swallow a paragraph below it).
     @Test func returnOnTheBlankLineUnderAListIsAReturn() {
         let rig = rig("- milk\n- eggs\n\n## Next")
         rig.view.setSelectedRange(NSRange(location: 14, length: 0))
@@ -252,7 +249,7 @@ import FileExplorerTestSupport
         #expect(leaves.contains { $0.text == "Then" && $0.depth == 0 }, "\(rig.view.string.debugDescription) reads \(leaves)")
     }
 
-    /// **Each door that must leave Return alone**, by what reaches the buffer: a plain newline.
+    /// Each door that must leave Return alone, by what reaches the buffer: a plain newline.
     @Test(arguments: ["off", "plain text", "read-only", "composing", "selection", "mid-item"])
     func returnIsAReturnWhereTheRuleDoesNotApply(_ why: String) {
         let rig = rig("- eggs", markdown: why != "plain text", editable: why != "read-only")
@@ -277,10 +274,8 @@ import FileExplorerTestSupport
         var value: Int { lock.withLock { count } }
     }
 
-    /// **One key reads the list once in an LF file** (LST-14, 2026-10-15). Return and Tab measured
-    /// the buffer, converted a CRLF file to LF, and measured again — in an LF file too, where the
-    /// conversion changed nothing and the second reading, a parse or two of the whole document, was
-    /// the first again. In a CRLF file it is still measured on the LF text it writes into.
+    /// One key reads the list once in an LF file: each read parses the whole document, and only a
+    /// CRLF file, converted to LF first, needs a second read of the LF text it writes into.
     @Test(arguments: [("- a\n- b", 7, "Return", 1), ("- a\r\n- b", 8, "Return", 2),
                       ("- a\n- b", 7, "Tab", 1), ("- a\r\n- b", 8, "Tab", 2)])
     func oneKeyReadsTheListOnceInAnLFFile(_ text: String, _ caret: Int, _ key: String, _ reads: Int) {
@@ -295,7 +290,7 @@ import FileExplorerTestSupport
         #expect(count.value == reads, "\(key) in \(text.debugDescription) read the list \(count.value) times")
     }
 
-    /// A Return key event, as the window hands one to the text view — ⇧ held or not.
+    /// A Return key event, as the window hands one to the text view, ⇧ held or not.
     private func returnKeyEvent(shift: Bool, in rig: Rig) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? .shift : [],
                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rig.window.windowNumber,
@@ -303,10 +298,9 @@ import FileExplorerTestSupport
                          isARepeat: false, keyCode: 36)!
     }
 
-    /// **⌃Return writes a plain line break in a Markdown file, never U+2028** (LST-6, 2026-10-15).
-    /// AppKit's `insertLineBreak:` writes a LINE SEPARATOR — a new line on screen and none to
-    /// Markdown, so `- eggs`, ⌃Return, `- milk` was one item reading "eggs - milk". In a plain-text
-    /// file the key is still AppKit's own.
+    /// ⌃Return writes a plain line break in a Markdown file, never U+2028: AppKit's
+    /// `insertLineBreak:` writes a line separator, a new line on screen but none to Markdown, so
+    /// two items would read as one. In a plain-text file the key is still AppKit's own.
     @Test func controlReturnWritesAPlainLineBreak() {
         let lineBreak = #selector(NSResponder.insertLineBreak(_:))
         let rig = rig("- eggs")
@@ -318,9 +312,9 @@ import FileExplorerTestSupport
         #expect(!plain.coordinator.textView(plain.view, doCommandBy: lineBreak), "a .txt file's ⌃Return was taken")
     }
 
-    /// **⇧Return is a plain Return in a list** (LST-7, 2026-10-15), as it is a line break in Preview.
-    /// AppKit sends it as `insertNewline:`, so it carried the list on. Driven by a real key event: the
-    /// command carries none, and the ⇧ is read off the key the view is handling.
+    /// ⇧Return is a plain Return in a list, as it is a line break in Preview. AppKit sends it as
+    /// `insertNewline:`, which would carry the list on, so the ⇧ is read off the key the view is
+    /// handling; hence a real key event.
     @Test func shiftReturnIsAPlainReturnInAList() {
         let rig = rig("- eggs")
         rig.view.keyDown(with: returnKeyEvent(shift: true, in: rig))
@@ -341,8 +335,8 @@ import FileExplorerTestSupport
         press(tabKey, in: rig)
         #expect(rig.view.string == "- a\n  - b")
         #expect(rig.view.selectedRange() == NSRange(location: 9, length: 0))
-        // **The host hears where the caret went** — the status line's Ln/Col and the format bar's
-        // lit state are derived from this, so a stale report is a stale bar.
+        // The host hears where the caret went: the status line's Ln/Col and the format bar's lit
+        // state derive from it, so a stale report is a stale bar.
         #expect(rig.box.selections.last == rig.view.selectedRange())
         press(backtabKey, in: rig)
         #expect(rig.view.string == "- a\n- b")
@@ -352,9 +346,8 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- a\n- b")
     }
 
-    /// **Tab on a triple-clicked item moves it** (LST-2). The selection ran past the line's break, so
-    /// the text view's own Tab replaced the item with a tab, and the item under it nested under the
-    /// one above: `- milk\n\t- bread`.
+    /// Tab on a triple-clicked item moves it. The selection runs past the line's break, so the text
+    /// view's own Tab would replace the item with a tab.
     @Test func tabOnATripleClickedItemMovesIt() {
         let rig = rig("- milk\n- eggs\n- bread")
         rig.view.setSelectedRange(NSRange(location: 7, length: 7))
@@ -366,9 +359,8 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- milk\n- eggs\n- bread")
     }
 
-    /// **Several selections are the key's own** (LST-15) — a column selection over two items is a
-    /// selection over several lines. Tab moved the first range's item alone and dropped the second
-    /// range; the delegate now declines, as the paste does with several selections.
+    /// Several selections are the key's own: a column selection over two items is a selection over
+    /// several lines, so the delegate declines rather than move only the first, as the paste does.
     @Test func tabOverSeveralSelectionsIsTheKeysOwn() {
         let rig = rig("- a\n- b\n- c")
         rig.view.selectedRanges = [NSValue(range: NSRange(location: 6, length: 1)),
@@ -381,7 +373,7 @@ import FileExplorerTestSupport
         #expect(rig.view.selectedRanges.count == 2)
     }
 
-    /// The first item has nothing to nest under: the key is taken, and nothing changes — no tab
+    /// The first item has nothing to nest under: the key is taken and nothing changes, so no tab
     /// character lands in the list.
     @Test func tabOnTheFirstItemChangesNothing() {
         let rig = rig("- a")
@@ -389,8 +381,8 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "- a")
     }
 
-    /// **Outside a list, Tab and ⇧Tab are what they always were** — the delegate declines, and the
-    /// text view's own Tab inserts a tab.
+    /// Outside a list, Tab and ⇧Tab are what they always were: the delegate declines, and the text
+    /// view's own Tab inserts a tab.
     @Test func tabOutsideAListIsATab() {
         let rig = rig("plain words")
         #expect(!rig.coordinator.textView(rig.view, doCommandBy: tabKey))
@@ -399,7 +391,7 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "plain words\t")
     }
 
-    /// **Each door that must leave Tab and ⇧Tab alone** — the same doors as Return's.
+    /// Each door that must leave Tab and ⇧Tab alone, the same doors as Return's.
     @Test(arguments: ["off", "read-only", "composing"])
     func tabIsTheKeysOwnWhereTheRuleDoesNotApply(_ why: String) {
         let rig = rig("- a\n- b", editable: why != "read-only")
@@ -444,7 +436,7 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "See the long-ferment version for a weekend.")
     }
 
-    /// **Every other paste is AppKit's** — the handler declines, and `paste(_:)` goes on to `super`.
+    /// Every other paste is AppKit's: the handler declines, and `paste(_:)` goes on to `super`.
     @Test(arguments: ["no selection", "not an address", "plain text file", "read-only", "a file"])
     func everyOtherPasteIsAppKits(_ why: String) {
         let rig = rig("See the words", markdown: why != "plain text file", editable: why != "read-only")
@@ -454,7 +446,7 @@ import FileExplorerTestSupport
             case "not an address": board.setString("just words", forType: .string)
             case "a file":
                 // What Finder puts on the clipboard for a copied file: its URL, and its name. Not
-                // an image, which would be copied in — see `anImageFileCopiedInFinderIsCopiedIn`.
+                // an image, which would be copied in (see `anImageFileCopiedInFinderIsCopiedIn`).
                 board.writeObjects([URL(fileURLWithPath: "/tmp/https:/x.txt") as NSURL])
                 board.setString("https://example.com", forType: .string)
             default: board.setString("https://example.com", forType: .string)
@@ -465,7 +457,7 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "See the words")
     }
 
-    /// **Several selections are AppKit's paste** — it replaces the first and deletes the rest, and
+    /// Several selections are AppKit's paste, which replaces the first and deletes the rest;
     /// neither edit here has an answer for the rest.
     @Test func severalSelectionsAreAppKitsPaste() {
         let rig = rig("one two three")
@@ -477,8 +469,8 @@ import FileExplorerTestSupport
         #expect(!rig.coordinator.handlePaste(from: board, in: rig.view))
     }
 
-    /// **An address put on the clipboard as a URL alone**, with no text beside it, is the same one
-    /// address — and is linked.
+    /// An address on the clipboard as a URL alone, with no text beside it, is the same address and
+    /// is linked.
     @Test func aURLWithNoTextBesideItLinksToo() {
         let rig = rig("See the docs")
         rig.view.setSelectedRange(NSRange(location: 4, length: 8))
@@ -491,9 +483,9 @@ import FileExplorerTestSupport
 
     // MARK: - TE57 the heading jump is not replayed
 
-    /// **A text view rebuilt by a mode switch takes the standing heading jump as already made**, as
-    /// it takes the find request — or every Source ↔ Split switch put the caret back on the last
-    /// heading chosen, over wherever it had gone since.
+    /// A text view rebuilt by a mode switch takes the standing heading jump as already made, as it
+    /// does the find request, or every Source ↔ Split switch would put the caret back on the last
+    /// heading chosen.
     @Test func aRebuiltTextViewDoesNotReplayTheLastHeadingJump() {
         let request = EditorScrollRequest(line: 12, token: 7)
         let editor = PlainTextEditor(source: EditorSourceStorage(text: "x"), isEditable: true, fontScale: 1, documentID: "/a.md",
@@ -533,7 +525,7 @@ import FileExplorerTestSupport
         #expect(FileManager.default.fileExists(atPath: file), "undo deleted the image")
     }
 
-    /// A TIFF on the clipboard — what some apps copy — is written as a PNG too.
+    /// A TIFF on the clipboard, which some apps copy, is written as a PNG too.
     @Test func aTIFFOnTheClipboardIsWrittenAsPNG() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let rig = rig("x", importer: note)
@@ -546,9 +538,8 @@ import FileExplorerTestSupport
         #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47]), "not a PNG")
     }
 
-    /// **A JPEG or HEIC picture on the clipboard is saved as it came**, byte for byte (review
-    /// IMG-4) — a photo re-encoded as PNG came out several times larger in a synced folder. TIFF,
-    /// above, still becomes PNG.
+    /// A JPEG or HEIC picture on the clipboard is saved as it came, byte for byte, since re-encoded
+    /// as PNG a photo grows several times larger in a synced folder. TIFF still becomes PNG.
     @Test func aPastedJPEGOrHEICIsSavedAsItCame() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let rig = rig("x", importer: note)
@@ -566,8 +557,8 @@ import FileExplorerTestSupport
         #expect(PlainTextEditor.Coordinator.pastedImage(on: other) == .data(heic, extension: "heic"))
     }
 
-    /// **The Help says which pictures keep their format** — and no longer that every pasted image
-    /// is saved as a PNG (review IMG-9: an image file copied in Finder never was).
+    /// Help says which pictures keep their format, not that every pasted image is saved as a PNG
+    /// (an image file copied in Finder never is).
     @Test func theHelpSaysWhichPastedPicturesKeepTheirFormat() throws {
         let images = try EditRepoFile.helpParagraph("To put a picture in a Markdown note")
         #expect(images.contains("is copied as it is"))
@@ -577,8 +568,8 @@ import FileExplorerTestSupport
         #expect(kept == ["png", "jpg", "heic", "gif", "webp"], "the Help names five formats")
     }
 
-    /// **Image data with text beside it pastes the text**, as it always did — a file copied in
-    /// Finder is its name plus its icon, and the icon is not what anybody meant.
+    /// Image data with text beside it pastes the text: a file copied in Finder is its name plus its
+    /// icon, and the icon is not what anybody meant.
     @Test func imageDataWithTextIsATextPaste() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let rig = rig("x", importer: note)
@@ -591,8 +582,8 @@ import FileExplorerTestSupport
         #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
     }
 
-    /// **An image file copied in Finder is copied in** — its name comes along as text, and the
-    /// name is not what anybody meant. The file is copied, never moved.
+    /// An image file copied in Finder is copied in, not its name, which comes along as text. The
+    /// file is copied, never moved.
     @Test func anImageFileCopiedInFinderIsCopiedIn() throws {
         let note = try TestTextFiles.write("x", named: "Pasta.md")
         let source = try TestTextFiles.write("", named: "IMG_4120.png")
@@ -610,8 +601,8 @@ import FileExplorerTestSupport
                                                   + "/Images/Pasta-1.png"))
     }
 
-    /// **Where no image may go, an image file copied in Finder pastes its name**, as it always did
-    /// — not a refusal, and nothing written.
+    /// Where no image may go, an image file copied in Finder pastes its name, not a refusal, and
+    /// nothing is written.
     @Test func anImageFileCopiedIntoCodePastesItsName() throws {
         let note = try TestTextFiles.write("x", named: "Pasta.md")
         let source = try TestTextFiles.write("", named: "IMG_4125.png")
@@ -627,8 +618,8 @@ import FileExplorerTestSupport
         #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
     }
 
-    /// **A drop on a written line of raw HTML is refused** before anything is written — it would
-    /// cut the tag in two.
+    /// A drop on a written line of raw HTML is refused before anything is written: it would cut the
+    /// tag in two.
     @Test func aDropOnAnHTMLLineIsRefused() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let source = try TestTextFiles.write("", named: "IMG_4126.png")
@@ -639,8 +630,8 @@ import FileExplorerTestSupport
         #expect(!FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images"))
     }
 
-    /// **A picture copied in a browser** — image data with its address beside it as a URL, and no
-    /// text — is the picture, written as a PNG.
+    /// A picture copied in a browser (image data with its address as a URL, and no text) is the
+    /// picture, written as a PNG.
     @Test func aPictureCopiedInABrowserIsThePicture() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let rig = rig("x", importer: note)
@@ -654,9 +645,9 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "x\n\n![](Images/Note-1.png)")
     }
 
-    /// **…and still the picture over selected words** (review IMG-2): its address linked the words
-    /// to it, and no picture was saved. The words go, as any paste over a selection takes them.
-    /// An address alone on the clipboard still links them — `aURLWithNoTextBesideItLinksToo`.
+    /// …and still the picture over selected words, not a link to its address. The words go, as any
+    /// paste over a selection takes them. An address alone still links them
+    /// (`aURLWithNoTextBesideItLinksToo`).
     @Test func aPictureCopiedInABrowserOverWordsIsStillThePicture() throws {
         let note = try TestTextFiles.write("See the docs", named: "Note.md")
         let rig = rig("See the docs", importer: note)
@@ -671,7 +662,7 @@ import FileExplorerTestSupport
         #expect(FileManager.default.fileExists(atPath: (note as NSString).deletingLastPathComponent + "/Images/Note-1.png"))
     }
 
-    /// **The Help says a browser's picture is the picture**, words selected or not.
+    /// Help says a browser's picture is the picture, words selected or not.
     @Test func theHelpSaysABrowsersPictureIsThePicture() throws {
         let links = try EditRepoFile.helpParagraph("Select some words and paste a web address")
         #expect(links.contains("a picture copied in a browser carries its address too, and pastes as the picture"))
@@ -712,7 +703,7 @@ import FileExplorerTestSupport
         #expect(FileManager.default.fileExists(atPath: source), "the dropped file was moved")
     }
 
-    /// **A drop lands after the block it falls in**, never inside it — here, a table row.
+    /// A drop lands after the block it falls in, never inside it; here, a table row.
     @Test func aDropInATableGoesAfterTheTable() throws {
         let text = "| a | b |\n|---|---|\n| 1 | 2 |\n\nafter"
         let note = try TestTextFiles.write(text, named: "Pasta.md")
@@ -723,8 +714,8 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "| a | b |\n|---|---|\n| 1 | 2 |\n\n![](Images/Pasta-1.png)\n\nafter")
     }
 
-    /// **A blank line inside a code block is code** — refused before anything is written, though the
-    /// drop point itself is a blank line; and a blank line after raw HTML is not, and takes the image.
+    /// A blank line inside a code block is code, so a drop there is refused before anything is
+    /// written; a blank line after raw HTML is not, and takes the image.
     @Test func aBlankLineIsLiteralOnlyWhereTheImageWouldBe() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let source = try TestTextFiles.write("", named: "IMG_4122.png")
@@ -773,8 +764,8 @@ import FileExplorerTestSupport
         func resetSpringLoading() {}
     }
 
-    /// **A handled drop puts the caret in the text**, as AppKit's own drop does — so the next ⌘Z
-    /// is the editor's, taking the link back, and not the window's, which is the file operations'.
+    /// A handled drop puts the caret in the text, as AppKit's own drop does, so the next ⌘Z is the
+    /// editor's, taking the link back, not the window's, which is the file operations'.
     @Test func aHandledDropPutsTheCaretInTheText() throws {
         let note = try TestTextFiles.write("one\n\ntwo", named: "Pasta.md")
         let source = try TestTextFiles.write("", named: "IMG_4123.png")
@@ -795,7 +786,7 @@ import FileExplorerTestSupport
         #expect(rig.view.string == "one\n\ntwo")
     }
 
-    /// **A refused drop is rejected** — `false` back to AppKit, the text untouched, the host told.
+    /// A refused drop is rejected: `false` back to AppKit, the text untouched, the host told.
     @Test func aRefusedDropIsRejected() throws {
         let note = try TestTextFiles.write("```\ncode", named: "Pasta.md")
         let source = try TestTextFiles.write("", named: "IMG_4124.png")
@@ -808,8 +799,8 @@ import FileExplorerTestSupport
         #expect(rig.box.reports.count == 1)
     }
 
-    /// **A drag that started in this view is text being moved**, never a file — the handler is
-    /// not asked, whatever the pasteboard holds.
+    /// A drag that started in this view is text being moved, never a file: the handler isn't asked,
+    /// whatever the pasteboard holds.
     @Test func aDragFromTheViewItselfIsNotAnImageDrop() throws {
         final class Spy: EditorTextViewHandling {
             var drops = 0
@@ -830,9 +821,9 @@ import FileExplorerTestSupport
         #expect(spy.drops == 1, "the positive control: a drag from elsewhere is asked about")
     }
 
-    /// **What the editor is handed, from where it is built** — `PlainTextEditor` forwards Continue
-    /// Lists, the Markdown flag and the importer on every pass, and the workspace hands them in, the
-    /// heading menu its jump, and a jump in Preview moves the caret.
+    /// What the editor is handed, from where it is built: `PlainTextEditor` forwards Continue
+    /// Lists, the Markdown flag and the importer on every pass; the workspace hands them in and the
+    /// heading menu its jump; and a jump in Preview moves the caret.
     @Test func theSettingsAreHandedInFromTheWorkspace() throws {
         let editor = try EditorFormatBarTests.source("PlainTextEditor.swift")
         for forwarded in ["context.coordinator.continuesLists = continuesLists",
@@ -853,7 +844,7 @@ import FileExplorerTestSupport
         let modeSwitch = try EditorFormatBarTests.slice(workspace, from: ".onChange(of: mode) { _, _ in",
                                                         to: "\n            }\n")
         #expect(modeSwitch.contains("previewScrollRequest = EditorScrollRequest(line: caret.line, token: scrollToken)"))
-        // A file just opened is parsed at once — its heading is not 150ms behind its counts.
+        // A file just opened is parsed at once, so its heading isn't 150ms behind its counts.
         #expect(workspace.contains("if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }"))
     }
 
@@ -863,8 +854,8 @@ import FileExplorerTestSupport
         #expect(rig.coordinator.handleDrop(imageFiles: ["/tmp/a.png"], at: 0, in: rig.view) == .notMine)
     }
 
-    /// **All or nothing**: a PDF among the photos makes the whole drop AppKit's — which inserts the
-    /// paths, as a drop of files always has here (measured 2026-10-04).
+    /// All or nothing: a PDF among the photos makes the whole drop AppKit's, which inserts the
+    /// paths, as a drop of files does here.
     @Test func onlyAnAllImageDropIsAnImageDrop() {
         func board(_ paths: [String]) -> NSPasteboard {
             pasteboard { $0.writeObjects(paths.map { URL(fileURLWithPath: $0) as NSURL }) }

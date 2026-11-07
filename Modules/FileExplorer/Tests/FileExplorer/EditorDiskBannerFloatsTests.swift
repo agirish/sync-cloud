@@ -3,14 +3,10 @@ import SwiftUI
 import AppKit
 @testable import FileExplorer
 
-/// **The disk banner floats over the text's foot** (TE210, his call CC, 2026-10-25): it was a row
-/// above the text, so the format bar and every line jumped down when a change from elsewhere was
-/// noticed. Now nothing under it moves, and the text view gains room to scroll its last lines clear
-/// of it — in Source and in editable Preview, the two text views it can stand over.
-///
-/// **The read-only note floats with it** (2026-10-26): a file that turned unreadable mid-session
-/// put a row above the text and pushed everything down. It stands over the foot too, above the
-/// banner when both are up.
+/// The disk banner floats over the text's foot, so nothing under it moves when a change from
+/// elsewhere is noticed, and the text view gains room to scroll its last lines clear of it. Covers
+/// Source and editable Preview, the two text views it can stand over. The read-only note for a file
+/// that turned unreadable floats there too, above the banner when both are up.
 @MainActor
 @Suite(.serialized) struct EditorDiskBannerFloatsTests {
 
@@ -97,12 +93,10 @@ import AppKit
         #expect(without.bottomInset == 0, "\(mode): room under the last line with no banner")
     }
 
-    /// **The read-only note moves nothing either, and stacks with the banner**: the text view stays
-    /// where it is with the note up, alone or above the banner, and the room under the last line
-    /// grows by the note's height when both stand.
-    ///
-    /// Source and Split: a read-only Preview has no text view to keep still. The format bar over
-    /// this Markdown note stays, greyed — it leaving moved the text up as the row once moved it down.
+    /// The read-only note moves nothing either, alone or above the banner, and with both up the
+    /// room under the last line grows by the note's height. Source and Split only: a read-only
+    /// Preview has no text view to keep still. The format bar stays, greyed, since removing it
+    /// would move the text.
     @Test(arguments: [EditorMode.edit, .split])
     func theReadOnlyNoteFloatsAndStacksWithTheBanner(mode: EditorMode) async throws {
         let file = try scratchFile("note.md")
@@ -121,8 +115,8 @@ import AppKit
                 "\(mode): the stack left no more room than the banner alone (\(both.bottomInset) vs \(banner.bottomInset))")
     }
 
-    /// **Only a file that turned read-only under the document keeps its bar** — one opened read-only
-    /// never had one — and becoming readable again, or another file, ends it.
+    /// Only a file that turned read-only under the document keeps its bar (one opened read-only
+    /// never had one); becoming readable again, or opening another file, ends it.
     @Test func theDocumentSaysWhenItTurnedReadOnlyInPlace() throws {
         let file = try scratchFile("note.md")
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
@@ -147,7 +141,7 @@ import AppKit
         #expect(EditorWorkspaceView.diskBannerInset(bannerHeight: 40, isShown: false) == 0)
     }
 
-    /// **Set only when it changes, and only the bottom** — the top is whatever the scroll view had.
+    /// Set only when it changes, and only the bottom: the top stays whatever the scroll view had.
     @Test func applyingTheInsetLeavesTheTopAlone() {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         PlainTextEditor.applyBottomInset(0, to: scroll)

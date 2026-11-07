@@ -4,7 +4,7 @@ import Testing
 @testable import FileExplorer
 
 /// The one rule behind the row menu's Download item and File ▸ Download, and Keep Downloaded's tick
-/// over a selection — pure, so each term can be flipped on its own.
+/// over a selection. Pure, so each term can be flipped on its own.
 @Suite struct CloudDownloadOfferTests {
 
     private static func file(_ path: String) -> FileNode {
@@ -28,8 +28,8 @@ import Testing
         #expect(o?.title == "Download")
     }
 
-    /// A file already here, or one whose badge has not answered yet, is offered nothing — and a
-    /// cloud location alone does not make a FILE downloadable.
+    /// A file already here, or one whose badge hasn't answered yet, is offered nothing, and a
+    /// cloud location alone doesn't make a file downloadable.
     @Test func aFileThatIsNotKnownCloudOnlyIsOfferedNothing() {
         #expect(Self.offer([Self.file("/cloud/a.pdf")]) == nil)
         #expect(Self.offer([Self.file("/cloud/a.pdf")], unknown: ["/cloud/a.pdf"]) == nil)
@@ -145,7 +145,7 @@ import Testing
         #expect(log.downloads == [.all(files: [a.id], folders: [f.id])])
     }
 
-    /// One file pinned is that file's own Download, so its badge watch runs — and a pinned file
+    /// One file pinned is that file's own Download, so its badge watch runs, and a pinned file
     /// already on this Mac has nothing to fetch.
     @Test func oneFilePinnedIsItsDownloadAndALocalOneFetchesNothing() async {
         #expect(await run(true, [a], states: [a.id: .off], cloudOnly: [a.id]).downloads
@@ -153,8 +153,8 @@ import Testing
         #expect(await run(true, [a], states: [a.id: .off]).downloads.isEmpty)
     }
 
-    /// Unticking removes only the items' own pins — a folder's pin above is not this item's to
-    /// remove — and downloads nothing.
+    /// Unticking removes only the items' own pins, not a folder's pin above, and downloads
+    /// nothing.
     @Test func untickingRemovesOnlyOwnPinsAndFetchesNothing() async {
         let log = await run(false, [a, b, kid], states: [a.id: .on, b.id: .off, kid.id: .inherited(fromFolder: "/i/K")])
         #expect(log.pins.map(\.1) == [a.id])
@@ -176,7 +176,7 @@ import Testing
         #expect(!log.onMain.contains(true), "a read or a pin ran on the main thread: \(log.onMain)")
     }
 
-    /// **The click measures from the home it is handed** — the menu's `cloudHome`, the one its tick
+    /// The click measures from the home it is handed: the menu's `cloudHome`, the one its tick
     /// was read from. Below a scratch home's iCloud Drive the item is pinnable; measured from the
     /// real home, the same path is in no iCloud folder and nothing would be pinned.
     @Test func theClickMeasuresFromTheHomeItIsHanded() async throws {

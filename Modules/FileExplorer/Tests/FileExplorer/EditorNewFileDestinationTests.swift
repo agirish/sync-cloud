@@ -3,16 +3,15 @@ import Foundation
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **The ＋ and the naming row name where the file will go** — Notes, when the host says the pane's
-/// folder is no place for one (the app's `EditorNewFileFolder`) — and **the rail's ＋ is ⌘N**, so it
+/// The ＋ and the naming row name where the file will go (Notes, when the app's
+/// `EditorNewFileFolder` says the pane's folder is no place for one), and the rail's ＋ is ⌘N, so it
 /// takes the pane there first, as the header's does.
 @MainActor
 @Suite struct EditorNewFileDestinationTests {
 
-    /// The label is the host's word when it gives one, the folder's otherwise; the folder's own name
-    /// is unchanged, because the rail heading says what the list shows. Mutations:
-    /// `newFileFolderLabel` returning `folderName` fails the first; ignoring an empty override fails
-    /// the third; `folderName` reading the override fails the last.
+    /// The label is the host's word when it gives one, the folder's otherwise; `folderName` is
+    /// unchanged, because the rail heading says what the list shows. Fails if the label returns
+    /// `folderName`, an empty override is honoured, or `folderName` reads the override.
     @Test func thePlusNamesNotesOverThePanesFolder() {
         #expect(EditorWorkspaceView.fixture(folder: "/", newFileFolderName: "Notes").newFileFolderLabel == "Notes")
         #expect(EditorWorkspaceView.fixture(folder: "/n/Downloads").newFileFolderLabel == "Downloads")
@@ -20,11 +19,10 @@ import FileExplorerTestSupport
         #expect(EditorWorkspaceView.fixture(folder: "/n/Downloads", newFileFolderName: "Notes").folderName == "Downloads")
     }
 
-    /// Scanned: a SwiftUI `Button`'s action and tooltip can't be read from a hosted tree here (see
-    /// `EditorHeaderDoorsTests`). Read with comments dropped and whitespace collapsed, so prose
-    /// cannot satisfy a check and a reflow cannot fail one. Mutations: the rail's ＋ back on
-    /// `isNaming = true`, the workspace not passing either value, or a site still naming
-    /// `folderName` each fail a line.
+    /// A source scan, since a SwiftUI `Button`'s action and tooltip can't be read from a hosted
+    /// tree (see `EditorHeaderDoorsTests`). Comments are dropped and whitespace collapsed, so prose
+    /// can't satisfy a check and a reflow can't fail one. Fails if the rail's ＋ sets
+    /// `isNaming = true`, the workspace drops either value, or a site still names `folderName`.
     @Test func everyPlusAndNamingRowNamesTheDestination() throws {
         let workspace = try Self.source("EditorWorkspaceView.swift")
         #expect(workspace.contains("onNewTextFile: onNewTextFile, newFileFolderName: newFileFolderName,"),

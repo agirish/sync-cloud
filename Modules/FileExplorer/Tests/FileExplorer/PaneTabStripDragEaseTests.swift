@@ -3,14 +3,11 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// **A dragged pane tab rides the pointer** (speed audit 14).
-///
-/// The 0.16 s ease keyed on the drag offset was meant for the neighbours stepping aside, and it
-/// eased the dragged tab's own offset as well — four places, since the strip restates both drag
-/// animations outside the lens host for Frosted and Clear — so the tab trailed the pointer for the
-/// whole drag. `PaneTabStrip.dragEase(holding:)` is the one rule; this pins the rule and that all
-/// four sites ask it with the right question. Driving a real `DragGesture` needs the event
-/// machinery, and a test that did would be pinning SwiftUI's gesture rather than this choice.
+/// A dragged pane tab rides the pointer. The 0.16 s ease on the drag offset is for the neighbours
+/// stepping aside; on the dragged tab it would make the tab trail the pointer. The drag animates
+/// at four sites (the strip restates both drag animations outside the lens host for Frosted and
+/// Clear), and `PaneTabStrip.dragEase(holding:)` is the one rule: this pins the rule and that all
+/// four sites ask it the right question. A real `DragGesture` would pin SwiftUI's gesture instead.
 @Suite struct PaneTabStripDragEaseTests {
 
     private static func stripSource() throws -> String {
@@ -22,16 +19,16 @@ import Testing
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    /// Held: no ease. Not held — a neighbour, or any chip once the drop clears the drag — the ease.
+    /// Held: no ease. Not held (a neighbour, or any chip once the drop clears the drag): the ease.
     @Test func theHeldChipIsNotEasedAndEverythingElseIs() {
         #expect(PaneTabStrip.dragEase(holding: true) == nil, "the held chip is eased, so it trails the pointer")
         #expect(PaneTabStrip.dragEase(holding: false) == .easeOut(duration: 0.16),
                 "the neighbours and the settle lost their ease")
     }
 
-    /// Each chip asks whether IT is the held one; the lens host asks whether the LENS is on the held
-    /// one — the active chip. Asking "is any chip held" would snap the lens ahead of the active chip
-    /// while another is dragged past it and the active one eases aside.
+    /// Each chip asks whether it is the held one; the lens host asks whether the lens is on the
+    /// held one, the active chip. Asking "is any chip held" would snap the lens ahead of the active
+    /// chip while another is dragged past it and the active one eases aside.
     @Test func allFourSitesAskTheRuleTheRightQuestion() throws {
         // Whitespace collapsed, so a modifier spread over two lines reads as one.
         let code = try Self.stripSource().split(whereSeparator: \.isWhitespace).joined(separator: " ")

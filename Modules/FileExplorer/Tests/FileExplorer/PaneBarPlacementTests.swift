@@ -14,10 +14,9 @@ import CoreGraphics
     }
 
     @Test func testGlobalOffsetDoesNotShiftTheThreshold() {
-        // Regression for the premature flip: rows report in GLOBAL (window) coordinates, so a list
-        // sitting 210pt below the window top must not flip 210pt early. The 5th row of an 11-row
-        // list (visual bottom ≈ 190 in a 430pt viewport) stays at the bottom; a row visually inside
-        // the covered zone still flips.
+        // Rows report in global (window) coordinates, so a list sitting 210pt below the window top
+        // must not flip 210pt early. The 5th row of an 11-row list (visual bottom ≈ 190 in a 430pt
+        // viewport) stays at the bottom; a row visually inside the covered zone still flips.
         let p = makePlacement(viewport: 430)
         p.viewportGlobalMinY = 210
         p.rowBottoms = ["/5": 210 + 190]
@@ -34,8 +33,8 @@ import CoreGraphics
     }
 
     @Test func testRowAboveTheBarKeepsTheBarAtBottom() {
-        // The old flat 72pt band flipped here prematurely: 530 is inside 600-72 territory but the
-        // real 64pt bar (covering below 536) does NOT overlap a row ending at 530.
+        // 530 is above the measured 64pt bar (which covers below 536), so a wider fixed band would
+        // flip here too early.
         let p = makePlacement()
         p.rowBottoms = ["/a": 530]
         #expect(p.resolveAtTop(selection: ["/a"]) == false)
@@ -101,41 +100,41 @@ import CoreGraphics
     // MARK: Only ON-SCREEN rows count
 
     /// `rowBottoms` also carries rows the List laid out past the fold. A selected row down there is
-    /// invisible, so a bottom bar covers nothing of it — flipping to the top on its behalf just
-    /// moves the bar over rows the user CAN see.
+    /// invisible, so a bottom bar covers nothing of it; flipping to the top would just put the bar
+    /// over rows the user can see.
     @Test func testRowBelowTheViewportDoesNotFlipTheBar() {
         let p = makePlacement()
         p.rowBottoms = ["/a": 900]      // viewport is 600 — well past the fold
         #expect(p.resolveAtTop(selection: ["/a"]) == false)
     }
 
-    /// The same case inside a multi-selection: one off-screen sibling must not drag the bar over
-    /// the selected row that IS on screen and uncovered.
+    /// The same case in a multi-selection: one off-screen sibling must not drag the bar over the
+    /// selected row that is on screen and uncovered.
     @Test func testOffscreenSiblingDoesNotFlipOverTheVisibleRow() {
         let p = makePlacement()
         p.rowBottoms = ["/visible": 40, "/offscreen": 3000]
         #expect(p.resolveAtTop(selection: ["/visible", "/offscreen"]) == false)
     }
 
-    /// A row exactly at the viewport's bottom edge is still on screen, and a bottom bar does cover
-    /// it — the clamp must not exclude the boundary row it exists to protect.
+    /// A row exactly at the viewport's bottom edge is still on screen, and a bottom bar covers it:
+    /// the clamp must not exclude the boundary row it exists to protect.
     @Test func testRowExactlyAtTheViewportEdgeStillCounts() {
         let p = makePlacement()
         p.rowBottoms = ["/a": 600]
         #expect(p.resolveAtTop(selection: ["/a"]) == true)
     }
 
-    /// A pane shorter than the bar is covered end to end at EITHER edge, so there is no placement
-    /// that reveals anything: stay at the resting bottom. Previously `coveredFrom` went negative
-    /// and every row read as covered, pinning the bar to the top of a tiny pane permanently.
+    /// A pane shorter than the bar is covered end to end at either edge, so no placement reveals
+    /// anything: stay at the resting bottom. A negative `coveredFrom` would read every row as
+    /// covered and pin the bar to the top of a tiny pane.
     @Test func testPaneShorterThanTheBarStaysAtTheBottom() {
         let p = makePlacement(viewport: 50, coverage: 64)
         p.rowBottoms = ["/a": 10]
         #expect(p.resolveAtTop(selection: ["/a"]) == false)
     }
 
-    /// The global-origin subtraction has to happen before the on-screen clamp, not after — a list
-    /// offset down the window must not make every one of its rows look "past the fold".
+    /// The global-origin subtraction has to happen before the on-screen clamp: a list offset down
+    /// the window must not make every one of its rows look past the fold.
     @Test func testOnScreenClampIsAppliedInViewportSpace() {
         let p = makePlacement(viewport: 430)
         p.viewportGlobalMinY = 210

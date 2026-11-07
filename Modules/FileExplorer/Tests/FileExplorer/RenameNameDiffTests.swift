@@ -5,16 +5,14 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// What changes in a rename, marked — his report on the Renames lens: "very dry and blah".
-///
-/// `1. Jan 31 2021.pdf → 01. Jan 31 2021.pdf` is eighteen characters of which one is new, and the
-/// lens showed both names whole and left the reader to find it. Every case below is a rename this
-/// pass actually makes.
+/// What changes in a rename, marked. `1. Jan 31 2021.pdf → 01. Jan 31 2021.pdf` has one new
+/// character in eighteen, and two whole names leave the reader to find it. Every case below is a
+/// rename the pass really makes.
 @MainActor
 @Suite struct RenameNameDiffTests {
 
-    /// **The padded ordinal — the case in his screenshot.** One inserted character, nothing
-    /// removed, and the head is empty because the change is at the very front.
+    /// The padded ordinal, the commonest case: one inserted character, nothing removed, and an
+    /// empty head because the change is at the very front.
     @Test func aPaddedOrdinalIsOneInsertedCharacter() {
         let parts = RenameNameDiff.parts(current: "1. Jan 31 2021.pdf",
                                          proposed: "01. Jan 31 2021.pdf")
@@ -25,7 +23,7 @@ import Testing
         #expect(!parts.isEmpty)
     }
 
-    /// A stripped vendor prefix — the mirror case: something goes, nothing arrives.
+    /// A stripped vendor prefix, the mirror case: something goes, nothing arrives.
     @Test func aStrippedPrefixIsARemovalWithNoInsertion() {
         let parts = RenameNameDiff.parts(current: "9829custbill.pdf", proposed: "custbill.pdf")
         #expect(parts.prefix == "")
@@ -34,8 +32,8 @@ import Testing
         #expect(parts.suffix == "custbill.pdf")
     }
 
-    /// A substitution in the middle keeps both shared ends — the head and the tail are what make
-    /// the marked run small enough to be worth marking.
+    /// A middle substitution keeps both shared ends, which keep the marked run small enough to be
+    /// worth marking.
     @Test func aMiddleSubstitutionKeepsBothSharedEnds() {
         let parts = RenameNameDiff.parts(current: "Report_final_v2.pdf",
                                          proposed: "Report-final-v2.pdf")
@@ -43,15 +41,15 @@ import Testing
         #expect(parts.removed == "_final_")
         #expect(parts.inserted == "-final-")
         #expect(parts.suffix == "v2.pdf")
-        // Reassembling each side returns the name it came from — the property that makes the
-        // three runs safe to render as one string.
+        // Each side reassembles to the name it came from, so the three runs are safe to render as
+        // one string.
         #expect(parts.prefix + parts.removed + parts.suffix == "Report_final_v2.pdf")
         #expect(parts.prefix + parts.inserted + parts.suffix == "Report-final-v2.pdf")
     }
 
-    /// **The overlap trap.** Walking the tail inward without stopping at the head counts the same
-    /// character on both sides and yields a negative middle — `aa` → `aaa` is the smallest case,
-    /// and it crashes rather than misdraws, so it is worth a test of its own.
+    /// The overlap trap: walking the tail inward without stopping at the head counts a character on
+    /// both sides and yields a negative middle. `aa` → `aaa` is the smallest case, and it crashes
+    /// rather than misdraws.
     @Test func aRepeatedCharacterDoesNotCountItselfTwice() {
         let grown = RenameNameDiff.parts(current: "aa.pdf", proposed: "aaa.pdf")
         #expect(grown.prefix + grown.removed + grown.suffix == "aa.pdf")
@@ -72,9 +70,9 @@ import Testing
         #expect(parts.prefix == "same.pdf")
     }
 
-    /// **Grapheme clusters, not scalars.** Splitting inside one would tint half an accent or half
-    /// a flag; Swift's `Character` is what a reader calls a character, and comparison is
-    /// canonical, so a decomposed name off an older disk matches a composed one.
+    /// Grapheme clusters, not scalars: splitting inside one would tint half an accent or half a
+    /// flag. `Character` comparison is canonical, so a decomposed name off an older disk matches a
+    /// composed one.
     @Test func theSplitNeverLandsInsideACharacter() {
         let parts = RenameNameDiff.parts(current: "café 1.pdf", proposed: "café 01.pdf")
         #expect(parts.inserted == "0")
@@ -90,8 +88,7 @@ import Testing
 
     // MARK: It reaches the pixels
 
-    /// **The marked run is drawn, and the two sides mark different things.** A label that tinted
-    /// nothing would leave the lens exactly as dry as it was.
+    /// The marked run is drawn, and the two sides mark different things.
     @Test func theChangedRunIsPaintedAndTheTwoSidesDiffer() throws {
         let parts = RenameNameDiff.parts(current: "1. Jan 31 2021.pdf",
                                          proposed: "01. Jan 31 2021.pdf")
@@ -106,19 +103,14 @@ import Testing
                 "the two sides show different text and mark different runs")
     }
 
-    /// **The mark is isolated, not merely different.** Comparing a marked render against an
-    /// unmarked one passes on any incidental difference — the first version of this did exactly
-    /// that, and stripping the colour and the weight from the changed run left it green, because
-    /// the two arms still differed in which part carried `.secondary`.
-    ///
-    /// The fix is to hold the DISPLAYED STRING identical across the two arms. Parts that
-    /// reassemble to the same name, one with a middle run to mark and one without, draw the same
-    /// characters at the same widths — so every differing pixel is the mark itself.
+    /// The mark itself is drawn, not merely some difference. Both arms show the same string, one
+    /// with a middle run to mark and one without, so they draw the same characters at the same
+    /// widths and every differing pixel is the mark. Stripping the changed run's colour and weight
+    /// must fail it.
     @Test func theChangedRunIsMarkedOnBothSides() throws {
         let real = RenameNameDiff.parts(current: "Report OLDNAME final.pdf",
                                         proposed: "Report NEWNAME final.pdf")
-        // `NAME` is shared, so the runs are the three letters before it — which is the rule
-        // working, and exactly the kind of thing an eye cannot do unaided on a list of rows.
+        // `NAME` is shared, so the runs are the three letters before it.
         #expect(real.removed == "OLD" && real.inserted == "NEW",
                 "a positive control: this pair really does have a middle run on both sides")
 
@@ -145,15 +137,15 @@ import Testing
         #expect(RestructureRender.differingPixels(markedProposed, plainProposed) > 30,
                 "and so is what arrives")
 
-        // The two sides mark in different colours, so a reader can tell a loss from a gain
-        // without reading either name.
+        // The sides mark in different colours, so a reader tells a loss from a gain without
+        // reading either name.
         #expect(RestructureRender.successPixels(markedProposed) > 0,
                 "an insertion is green")
         #expect(RestructureRender.successPixels(markedCurrent) == 0,
                 "a removal is not")
     }
 
-    /// A name with nothing to mark carries no tint — the marking is the change, not the row.
+    /// A name with nothing to mark carries no tint: the marking is the change, not the row.
     @Test func anUnchangedNameCarriesNoTintAtAll() throws {
         let parts = RenameNameDiff.parts(current: "01. report.pdf", proposed: "01. report.pdf")
         let rep = try #require(RestructureRender.raster(
@@ -171,9 +163,8 @@ import Testing
                    proposedName: proposed, kind: .tidied, reason: reason)
     }
 
-    /// **The shared edit is the banner's whole claim**, and it holds only when every step really
-    /// makes it — a banner that summarised a folder whose renames differ would be exactly the
-    /// invented number this codebase keeps out of its surfaces.
+    /// The shared edit is the banner's whole claim, and holds only when every step makes it: a
+    /// banner summarising a folder whose renames differ would be inventing a fact.
     @Test func aUniformPassSharesOneEdit() throws {
         let steps = [Self.step("1. Jan 31 2021.pdf", "01. Jan 31 2021.pdf"),
                      Self.step("2. Feb 15 2021.pdf", "02. Feb 15 2021.pdf"),
@@ -194,17 +185,16 @@ import Testing
         #expect(RenamePlanSummary.sharedReason(steps) == nil,
                 "and with two different reasons the banner states neither")
 
-        // The reasons are independent of the edits: a folder can make one edit for two stated
-        // reasons, and the banner then shows the pattern with no sentence rather than picking.
+        // Reasons are independent of edits: one edit for two stated reasons shows the pattern
+        // with no sentence rather than picking one.
         let oneEditTwoReasons = [Self.step("1. a.pdf", "01. a.pdf", reason: "Padded."),
                                  Self.step("2. b.pdf", "02. b.pdf", reason: "Renumbered.")]
         #expect(RenamePlanSummary.sharedEdit(oneEditTwoReasons) != nil)
         #expect(RenamePlanSummary.sharedReason(oneEditTwoReasons) == nil)
     }
 
-    /// **Position is part of the edit.** Two steps that both insert `0` — one at the front, one
-    /// before the extension — are not making the same change, and a pattern claiming they were
-    /// would say nothing about where it applies.
+    /// Position is part of the edit: inserting `0` at the front and before the extension are
+    /// different changes, and one pattern for both would say nothing about where it applies.
     @Test func thesamRunAtADifferentPlaceIsADifferentEdit() {
         let steps = [Self.step("1. report.pdf", "01. report.pdf"),
                      Self.step("report 1.pdf", "report 01.pdf")]
@@ -225,8 +215,8 @@ import Testing
         #expect(RenamePlanSummary.sharedReason([]) == nil)
     }
 
-    /// The pattern is built from a real name in the folder, not composed — and it carries a
-    /// little of the shared tail so the reader can see where the edit lands.
+    /// The pattern is built from a real name in the folder, with a little of the shared tail so the
+    /// reader sees where the edit lands.
     @Test func thePatternComesFromARealNameAndShowsWhereItLands() throws {
         let steps = [Self.step("1. Jan 31 2021.pdf", "01. Jan 31 2021.pdf")]
         let edit = try #require(RenamePlanSummary.sharedEdit(steps))
@@ -234,28 +224,23 @@ import Testing
         #expect(pattern.before == "1. ")
         #expect(pattern.after == "01. ")
 
-        // An edit that is not at the start gets no pattern: the two fragments alone would not
-        // say which part of the name they are about.
+        // An edit not at the start gets no pattern: the fragments alone wouldn't say which part of
+        // the name they're about.
         let midway = RenamePlanSummary.SharedEdit(removed: "_", inserted: "-", atStart: false)
         #expect(RenamePlanSummary.pattern(for: midway, sample: steps[0]) == nil)
     }
 
     // MARK: The two columns
 
-    /// **The columns divide the card, they are not sized to the names.** His first report on this
-    /// card was the spacing between them — and content-sized columns have no fixed spacing at all:
-    /// the After column begins wherever the longest current name ends, which is a different x on
-    /// every card and a different x again after a rename lands.
+    /// The table as a card holds it: pinned to the leading edge, free to fill. The tests below
+    /// check that the columns divide the card rather than fit the names, or the After column would
+    /// start at a different x on every card. Widening the card moves an even split's edge to the
+    /// new midpoint, and the "After" heading and inserted runs are the only green, so the leftmost
+    /// success pixel is that edge.
     ///
-    /// The discriminator is what happens when the card gets wider. An even split moves the After
-    /// column's left edge to the new midpoint; content-sized columns leave it where the names put
-    /// it. The card's "After" heading and its inserted runs are the only green on the surface, so
-    /// the leftmost success pixel *is* that edge.
-    /// The table as a card holds it: pinned to the leading edge, free to fill.
-    ///
-    /// `RestructureRender.raster` centres what it draws, which is invisible while the table fills
-    /// its frame and decisive once the cap stops it — a capped 600pt table centred in a 1,200pt
-    /// frame puts its midpoint at 600, exactly where an uncapped one would be.
+    /// `RestructureRender.raster` centres what it draws, which matters once the cap stops the
+    /// table: a capped 600pt table centred in a 1,200pt frame has its midpoint where an uncapped
+    /// one would.
     private static func leading(_ table: RenameColumnsTable) -> some View {
         HStack(spacing: 0) { table; Spacer(minLength: 0) }
     }
@@ -271,8 +256,8 @@ import Testing
                     "a positive control: the table is drawn at \(width)pt")
             let edge = try #require(RestructureRender.leftmostSuccessFraction(rep),
                                     "the After column is tinted, so it can be located")
-            // Half the width, give or take the grid's own gutter. Content-sized columns put this
-            // at 0.27 of the width at 520pt — measured, by the mutation that removes the frames.
+            // Half the width, give or take the grid's gutter. Content-sized columns (the frames
+            // removed) put it at 0.27 of 520pt.
             #expect(abs(edge - 0.5) < 0.08, "at \(width)pt the After column began at \(edge)")
         }
     }
@@ -286,7 +271,7 @@ import Testing
             Self.leading(RenameColumnsTable(steps: steps)),
             width: width, height: 44))
         let edge = try #require(RestructureRender.leftmostSuccessFraction(rep))
-        // Half of the capped measure, as a fraction of the doubled frame — a quarter, not a half.
+        // Half the capped measure, as a fraction of the doubled frame: a quarter, not a half.
         #expect(abs(edge - 0.25) < 0.08, "the columns spread to \(edge) of a \(width)pt frame")
     }
 }

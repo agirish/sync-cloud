@@ -6,22 +6,16 @@ import Sync
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **Open in Edit on a differences row, as the menu DRAWS it (TE31).**
+/// Open in Edit on a differences row, as the menu draws it. `DifferenceRowMenuTests` pins which
+/// sides `editableSides` returns; this checks the menu applies that list, where the items land, and
+/// that a row offering nothing gains no stray item. So the menu is hosted and read back.
 ///
-/// `DifferenceRowMenuTests` pins which sides `editableSides` returns. What it cannot see is whether
-/// the menu applies that list, where the items land, and whether a row that offers nothing still
-/// gains a stray divider — a `@ViewBuilder` branch that never builds and one that builds in the
-/// wrong place both read the same in a source file. So the menu is hosted and read back.
+/// As in `OpenInEditorVerbTests.theDrawnMenuPutsOpenInEditAboveGetInfo`: in a `VStack` each
+/// `Button` becomes one focus-ring view, so the rings in y order are the drawn items, and a
+/// `Divider` has none. Items are recognised by width, since the hosted rows carry no readable text.
 ///
-/// **The technique is `OpenInEditorVerbTests.theDrawnMenuPutsOpenInEditAboveGetInfo`'s**: hosted
-/// in a `VStack`, each `Button` becomes one focus-ring view at its own y, so the focus rings in y
-/// order ARE the drawn items in order, and a `Divider` has none. A row is recognised by its width —
-/// its label's intrinsic width — because the hosted rows carry no readable text.
-///
-/// **Every claim is relative, never a pixel count.** The same menu over the same row shape with a
-/// `.docx` in place of a `.md` draws every item except the editor's with an identical label, so the
-/// text row's drawing must be the `.docx` row's with exactly the editor items spliced in. The
-/// baseline was a PDF until Edit read PDFs (Phase 2); a PDF row now draws the editor items too.
+/// Every claim is relative, never a pixel count: a `.docx` row (a kind Edit refuses) draws the same
+/// menu minus the editor items, so a text row must be that menu with the editor items spliced in.
 /// Nothing here is machine-pinned.
 @MainActor
 @Suite struct DifferenceRowMenuDrawnTests {
@@ -56,9 +50,8 @@ import FileExplorerTestSupport
                                     height: 80).first?.width ?? 0
     }
 
-    /// **Directly under Compare…, ahead of Get Info, one per side.** The two-sided text row draws
-    /// the `.docx` row's menu — a kind Edit refuses — with the two editor items spliced in at index
-    /// 1 — after Compare…, before the first Get Info — and nothing else moved, added or lost.
+    /// One editor item per side, directly under Compare… and ahead of Get Info: the two-sided text
+    /// row draws the `.docx` row's menu with the two items spliced in at index 1, nothing else moved.
     @Test func aTextRowDrawsOpenInEditPerSideBetweenCompareAndGetInfo() throws {
         let left = editorWidth("iCloud"), right = editorWidth("Dropbox")
         #expect(left > 0 && right > 0, "an editor item drew nothing on its own")
@@ -66,8 +59,8 @@ import FileExplorerTestSupport
 
         let refused = drawn(row(.differentDates, name: "report.docx"))
         let text = drawn(row(.differentDates, name: "notes.md"))
-        // The premise: Compare… leads both menus, and neither editor width is anywhere in the
-        // .docx menu — otherwise a splice match could be a coincidence of widths.
+        // The premise: neither editor width appears in the .docx menu, or a splice match could be
+        // a coincidence of widths.
         #expect(refused.count >= 9, "the .docx row's menu drew \(refused.count) items — the baseline is wrong")
         #expect(!refused.contains(left) && !refused.contains(right), "the .docx row's menu draws an editor item")
 
@@ -77,7 +70,7 @@ import FileExplorerTestSupport
                 "the text row's menu is not the .docx row's with Open in Edit (iCloud, Dropbox) at index 1: \(text) vs \(refused)")
     }
 
-    /// **A PDF row draws the text row's editor items, in the same place** — Edit opens it read-only.
+    /// A PDF row draws the text row's editor items in the same place; Edit opens it read-only.
     @Test func aPDFRowDrawsOpenInEditPerSideBetweenCompareAndGetInfo() {
         let refused = drawn(row(.differentDates, name: "report.docx"))
         var expected = refused
@@ -88,8 +81,8 @@ import FileExplorerTestSupport
                 "a PDF row only on iCloud should lead with Open in Edit (iCloud)")
     }
 
-    /// **A row missing on one side offers ONE item, and it leads the menu** — there is no
-    /// Compare… on a one-sided row, so Open in Edit is the first thing drawn.
+    /// A row missing on one side offers one item, and it leads the menu: a one-sided row has no
+    /// Compare….
     @Test func aOneSidedTextRowDrawsOneEditorItemFirst() {
         let refused = drawn(row(.missingOnRight, name: "report.docx"))
         let text = drawn(row(.missingOnRight, name: "notes.md"))
@@ -102,18 +95,17 @@ import FileExplorerTestSupport
         #expect(!onlyRight.contains(editorWidth("iCloud")), "the missing side is offered to the editor")
     }
 
-    /// **A folder named like a text file draws exactly the menu it drew with no editor at all.**
-    /// Equality with the editor-less build is what rules out a stray empty group: an extra item
-    /// would add a width, and a divider on its own draws nothing to compare — which is why the
-    /// divider is also pinned by the source order in `DifferenceRowMenuOrderScanTests`.
+    /// A folder named like a text file draws exactly the editor-less menu, which rules out a stray
+    /// item. A lone divider draws nothing to compare, so `DifferenceRowMenuOrderScanTests` pins the
+    /// divider in source.
     @Test func aFolderRowDrawsNoEditorItem() {
         let folder = row(.missingOnRight, name: "notes.md", enclosedItemCount: 4, leftIsDirectory: true)
         #expect(drawn(folder) == drawn(folder, offersEditor: false),
                 "a folder row named notes.md draws an Open in Edit item")
     }
 
-    /// **A host that wires no editor gets no editor items** — the same rule `onQuickLook` follows,
-    /// and the one every test constructing `DifferencesView` without the argument relies on.
+    /// A host that wires no editor gets no editor items, the rule `onQuickLook` follows and every
+    /// test building `DifferencesView` without the argument relies on.
     @Test func aHostWithNoEditorDrawsNoEditorItem() {
         let text = row(.differentDates, name: "notes.md")
         #expect(drawn(text, offersEditor: false) == drawn(row(.differentDates, name: "report.docx")),
@@ -129,15 +121,12 @@ import FileExplorerTestSupport
     }
 }
 
-/// **The menu's source, for the two things a drawing cannot show: dividers and the action.**
-///
-/// A `Divider` has no focus ring, so the drawn tests above cannot tell a menu with the editor
-/// group's divider from one without — and a closure's argument is not drawn at all.
-/// `onOpenInEditor(side.paneName)` would draw identically and hand the editor a name.
+/// The menu's source, for what a drawing can't show: dividers, which have no focus ring, and the
+/// action's argument. `onOpenInEditor(side.paneName)` would draw identically and hand the editor a
+/// name.
 @Suite struct DifferenceRowMenuOrderScanTests {
 
-    /// `DifferenceInspectionMenu`'s body — its own braces, matched (``SwiftBlockScan``), where it
-    /// was the text up to the next top-level MARK.
+    /// `DifferenceInspectionMenu`'s body, by its own matched braces (``SwiftBlockScan``).
     private static func menuBody() throws -> String {
         try SwiftBlockScan.block(opening: "struct DifferenceInspectionMenu: View {", in: try viewSource())
     }
@@ -151,15 +140,12 @@ import FileExplorerTestSupport
         return text
     }
 
-    /// Compare…, its divider, the editor group, ITS divider, then Get Info — in that order, with
-    /// the editor group's divider inside its own `if` so a row that offers nothing draws no
-    /// separator of its own.
+    /// Compare…, its divider, the editor group, its divider, then Get Info, with the group's
+    /// divider inside its own `if` so a row offering nothing draws no extra separator.
     ///
-    /// **About structure, not indentation** (2026-09-26): every snippet is matched
-    /// whitespace-normalised (``SwiftBlockScan/normalized(_:)``), and "the divider is inside the
-    /// gate" is read off the gate's own braces — the `if`'s last statement is `Divider()` — where
-    /// it was the exact text `"\n            Divider()\n        }\n"`, which re-indenting the
-    /// menu, or one blank line, turned red with the divider exactly where it belongs.
+    /// About structure, not indentation: snippets are matched whitespace-normalised
+    /// (``SwiftBlockScan/normalized(_:)``), and "inside the gate" is read off the gate's own braces
+    /// (its last statement is `Divider()`), so re-indenting or a blank line can't turn it red.
     @Test func openInEditSitsBetweenCompareAndGetInfoWithItsOwnDivider() throws {
         let raw = try Self.menuBody()
         let body = SwiftBlockScan.normalized(raw)
@@ -171,18 +157,17 @@ import FileExplorerTestSupport
                                   "the per-side Open in Edit label is gone or reworded")
         let getInfo = try #require(find("Label(\"Get Info (\\(side.paneName))\""), "Get Info is gone")
         // `#require`, not `#expect`: the slice below traps on an inverted range, and a trap takes
-        // the whole test process — and every drawn test still running beside it — down with it.
+        // down the whole test process.
         try #require(compare.lowerBound < gate.lowerBound && gate.lowerBound < editor.lowerBound
                      && editor.upperBound <= getInfo.lowerBound,
                      "Open in Edit no longer sits between Compare… and Get Info")
-        // The group's divider is between its item and Get Info — i.e. inside the gate.
+        // The group's divider is between its item and Get Info.
         let between = body[editor.upperBound..<getInfo.lowerBound]
         #expect(between.contains("Divider()"), "the editor group has no divider before Get Info")
         #expect(between.components(separatedBy: "Divider()").count == 2,
                 "more than one divider between Open in Edit and Get Info")
-        // …and INSIDE the gate: the divider is the gate's last statement. Moved out past the
-        // gate's closing brace it still sits between the two labels — and draws a second
-        // separator under Compare… on every row that offers no editor.
+        // …and inside the gate, as its last statement. Past the gate's closing brace it would still
+        // sit between the labels, but draw a second separator on every row offering no editor.
         let gateBody = SwiftBlockScan.normalized(
             try SwiftBlockScan.block(opening: "if let onOpenInEditor, !editable.isEmpty {", in: raw))
         #expect(gateBody.hasSuffix("Divider()"),
@@ -193,18 +178,17 @@ import FileExplorerTestSupport
                 "the editor group no longer asks editableSides which sides it may offer")
     }
 
-    /// The item hands over the side's PATH.
+    /// The item hands over the side's path.
     @Test func openInEditHandsTheEditorTheSidesPath() throws {
         let body = SwiftBlockScan.normalized(try Self.menuBody())
         #expect(body.contains("onOpenInEditor(side.path)"), "Open in Edit does not hand over the side's path")
     }
 
-    /// **The review table's menu gains the items too**, because both menus build the one view —
-    /// and the view is handed the host's closure rather than one of its own.
+    /// The review table's menu has the items too: both menus build the one view, and it is handed
+    /// the host's closure rather than one of its own.
     @Test func bothRowMenusBuildTheInspectionItemsWithTheHostsEditor() throws {
         let source = try Self.viewSource()
-        // Each member's own braces, where they were a 400-character window and "up to the next
-        // `private func` or doc comment at four spaces".
+        // Each member by its own braces.
         let wrapperBody = SwiftBlockScan.normalized(try SwiftBlockScan.block(
             opening: "private func inspectionMenuItems(for difference: FileDifference) -> some View {", in: source))
         #expect(wrapperBody.contains("DifferenceInspectionMenu(")
@@ -219,13 +203,12 @@ import FileExplorerTestSupport
     }
 }
 
-/// **A block's own braces, and code compared without its layout** — for the scans above.
+/// A block's own braces, and code compared without its layout, for the scans above.
 ///
 /// The app target's `TestSupport.swift` has the full reader (`declarationBody`, `CodeText`,
-/// `CallArguments`); this module cannot see it, so this is the part these scans need: a lexer
-/// that knows comments and string literals (escapes, `\(…)` interpolations, `"""`, `#"…"#`), a
-/// brace matcher over it, and a normaliser that drops whitespace outside strings except between
-/// two word characters. Keep it in step with that one if either learns something.
+/// `CallArguments`), which this module can't see. This is the part these scans need: a lexer that
+/// knows comments and string literals (escapes, `\(…)`, `"""`, `#"…"#`), a brace matcher over it,
+/// and a whitespace normaliser. Keep the two in step.
 private enum SwiftBlockScan {
     enum Kind { case code, string, comment }
 

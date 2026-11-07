@@ -5,29 +5,16 @@ import Design
 @testable import FileExplorer
 @testable import Sync
 
-/// The invisible-column slots behind the Duplicates group header. The model's one claim: a
-/// slot is exactly wide enough for the widest member of its vocabulary — derived by measuring,
-/// so no verb can overflow its slot and break the columns downstream of it.
-///
-/// **A third slot, and the render suite that measured it, used to live here.** It sized the
-/// match-type badge, which went when the list was sectioned by match type: a badge reading
-/// "Versions" under a heading reading *Versions* is the heading once per card. What did not go is
-/// the predicate the badge shared with the severity stripe — see
-/// `onlyTheMajorityKindMayGoWithoutSeverity` below, which is the surviving half of a test that
-/// used to be about badge vocabulary.
+/// The invisible-column slots behind the Duplicates group header. A slot is exactly as wide as the
+/// widest member of its vocabulary, measured, so no verb can overflow it and break the columns
+/// after it. Also the severity predicate the cards share.
 @MainActor
 @Suite struct DuplicateGroupColumnsTests {
 
-    /// **`identical` is the only kind allowed to carry no severity, and this is still load-bearing
-    /// after the badge went.** `DuplicateGroupCard.severity` reads `DuplicateMatchStyle.badgeLabel`
-    /// — nil means "the majority kind", which draws no stripe and no wash. A new kind returning nil
-    /// would silently join the majority: no stripe, no wash, and nothing to distinguish it in a
-    /// list where it needs a human. The badge that once made that visible is gone, so this scan is
-    /// now the only thing that would catch it.
-    ///
-    /// **Swept over `Kind.allCases`, not over a list written here** — the previous version compared
-    /// one hand-copied array against another, so a new case left both stale together and the test
-    /// green: an "every X does Y" scan that cannot see the X it is missing.
+    /// `identical` is the only kind allowed no severity. `DuplicateGroupCard.severity` reads
+    /// `DuplicateMatchStyle.badgeLabel`, where nil means the majority kind: no stripe, no wash. A
+    /// new kind returning nil would silently join it, with nothing to mark it as needing a person.
+    /// Swept over `Kind.allCases`, not a list written here, so a new case can't be missed.
     @Test func onlyTheMajorityKindMayGoWithoutSeverity() {
         for kind in DuplicateMatchType.Kind.allCases {
             let type = Self.sample(of: kind)
@@ -36,15 +23,13 @@ import Design
                         "\(kind) reports no severity — it would draw with the majority's weight, unstriped and unwashed, in a section that exists because it needs a person")
             }
         }
-        // The positive control: the predicate really does separate the kinds, rather than
-        // answering nil (or non-nil) for everything, which would make the loop above vacuous.
+        // The control: the predicate really separates the kinds, or the loop above is vacuous.
         #expect(DuplicateMatchStyle.badgeLabel(.identical) == nil)
         #expect(DuplicateMatchStyle.badgeLabel(.versions) != nil)
     }
 
-    /// One `DuplicateMatchType` per `Kind`, exhaustively — the switch is the point, because it is
-    /// what stops compiling when a case is added, which is how this stays honest without anyone
-    /// remembering to come back here.
+    /// One `DuplicateMatchType` per `Kind`. The exhaustive switch stops compiling when a case is
+    /// added, so this can't go stale unnoticed.
     static func sample(of kind: DuplicateMatchType.Kind) -> DuplicateMatchType {
         switch kind {
         case .identical: return .identical

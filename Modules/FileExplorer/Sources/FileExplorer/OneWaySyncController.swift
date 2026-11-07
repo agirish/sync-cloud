@@ -5,16 +5,16 @@ import Foundation
 import Sync
 import UserNotifications
 
-/// What one-way sync's pill in Compare's differences bar says (ED): the first rung that applies (the page's ladder).
+/// What one-way sync's pill in Compare's differences bar says: the first rung of the ladder that applies.
 public enum OneWaySyncLadder: Equatable, Sendable {
     case stopped(String)
     case needsYou(Int)
     case paused(since: Date)
     case syncing(String)
-    /// FV: the folder watcher saw this many items change since the last sync, which it only suggests.
+    /// The folder watcher saw this many items change since the last sync; it only suggests a sync.
     case changes(Int, since: Date)
-    /// FV: FSEvents couldn't say what changed since the last sync (its history lost, a synced
-    /// folder itself moved), so a number would claim more than it knows.
+    /// FSEvents couldn't say what changed since the last sync (its history lost, a synced folder
+    /// itself moved), so a number would claim more than it knows.
     case changesMayBeWaiting(since: Date)
     case upToDate(asOf: Date, skipped: Int)
     case syncedByAnotherMac(lastSync: Date?)
@@ -123,10 +123,9 @@ public struct OneWaySyncSetupDraft: Sendable {
     public var problem: String?
 }
 
-/// **RD67's manual Sync Now** — the one place the app drives one-way sync from: setup and its
-/// first run, *Sync Now*, the answers to Now's rows, Settings' controls, and what the toolbar,
-/// the Compare strip and the panes say about it. No automatic trigger yet (step 4): a pass runs
-/// only when asked.
+/// The manual Sync Now: the one place the app drives one-way sync from. Setup and its first run,
+/// *Sync Now*, the answers to Now's rows, Settings' controls, and what the toolbar, the Compare
+/// strip and the panes say about it. No automatic trigger: a pass runs only when asked.
 ///
 /// The work itself is `Sync`'s (`OneWaySyncRun`, `OneWaySyncAnswers`), off the main thread; this
 /// holds the saved state as last read, the lock, the watcher that tells the Dropbox gate what is
@@ -148,7 +147,7 @@ public final class OneWaySyncController: ObservableObject {
     /// The last pass's look: what Now's sheets read until a fresher one.
     @Published public private(set) var lastLook: OneWaySyncLook?
     /// What Now lists as skipped: the last look's, or until a pass looks, what the record knows
-    /// Dropbox refused (ES).
+    /// Dropbox refused.
     public var skippedCount: Int { lastLook?.skipped.count ?? record?.refused.count ?? 0 }
     @Published public var sheet: OneWaySyncSheet?
     /// Where `sheet` opens.
@@ -165,8 +164,8 @@ public final class OneWaySyncController: ObservableObject {
     private var lock: OneWaySyncProcessLock?
     private var watcher: FolderWatcher?
     private var arrivals = OneWaySyncArrivals()
-    /// FV: what changed in the synced folders since the last completed sync, and the watcher on
-    /// both sides that feeds it (its own replay history, so a relaunch catches up).
+    /// What changed in the synced folders since the last completed sync, and the watcher on both
+    /// sides that feeds it (its own replay history, so a relaunch catches up).
     public let changes: OneWaySyncChangeCount
     @Published public private(set) var changeTally = OneWaySyncChangeCount.Tally()
     private var changesWatcher: FolderWatcher?
@@ -253,7 +252,7 @@ public final class OneWaySyncController: ObservableObject {
         self.firstRun = record == nil ? nil : firstRun
     }
 
-    /// The two folders setup opens on (EE): Compare's panes, when one shows iCloud and the other
+    /// The two folders setup opens on: Compare's panes, when one shows iCloud and the other
     /// Dropbox. Set by whoever opens setup; nil falls back to iCloud Drive ▸ Documents and
     /// Dropbox ▸ Documents.
     public var setupPrefill: (iCloud: URL, dropbox: URL)?
@@ -381,10 +380,10 @@ public final class OneWaySyncController: ObservableObject {
         self.watcher = watcher
     }
 
-    /// FV: a watcher on the synced folders on both sides, replaying what changed while SyncCloud
-    /// was closed, whose batches the change count judges against the record. A suggestion only:
-    /// nothing syncs because of it (step 4 makes it the trigger). Added folders replay from the
-    /// stored history; a folder no longer synced stops; the others' streams are left alone.
+    /// A watcher on the synced folders on both sides, replaying what changed while SyncCloud was
+    /// closed, whose batches the change count judges against the record. A suggestion only:
+    /// nothing syncs because of it. Added folders replay from the stored history; a folder no
+    /// longer synced stops; the others' streams are left alone.
     func watchChanges() {
         guard refusal == nil, let scope = changeScope else {
             changesWatcher?.stop()
@@ -606,7 +605,7 @@ public final class OneWaySyncController: ObservableObject {
         return nil
     }
 
-    /// Waits for the Dropbox gate (DI): running five minutes since it started or the Mac woke, and
+    /// Waits for the Dropbox gate: running five minutes since it started or the Mac woke, and
     /// nothing still arriving. False, with its row raised, when it stops the sync or is cancelled.
     private func dropboxCaughtUp(dropboxParent: String) async -> Bool {
         var said: String?
@@ -706,8 +705,8 @@ public final class OneWaySyncController: ObservableObject {
         noteRemovedSpace(holding: removed)
     }
 
-    /// DF: SyncCloud Removed past a tenth of this Mac's free space says so once; back under, the
-    /// row goes.
+    /// SyncCloud Removed past a tenth of this Mac's free space says so once; back under, the row
+    /// goes.
     func noteRemovedSpace(holding removed: Int64) {
         let free = (try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
             .volumeAvailableCapacityForImportantUsage ?? 0
@@ -1035,7 +1034,7 @@ public final class OneWaySyncController: ObservableObject {
             iCloud: draft.iCloud, dropbox: draft.dropbox)
     }
 
-    /// The first run's preview (CZ): what Start would do. Offloaded files aren't downloaded for it.
+    /// The first run's preview: what Start would do. Offloaded files aren't downloaded for it.
     public func preview(_ draft: OneWaySyncSetupDraft, folders: [String], settings: OneWaySyncSettings) async -> OneWaySyncLook? {
         guard let record = firstRunRecord(draft, folders: folders) else { return nil }
         let places = OneWaySyncPlaces(iCloudParent: draft.iCloudParent, dropboxParent: draft.dropboxParent,

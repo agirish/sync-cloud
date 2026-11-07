@@ -4,13 +4,10 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// ⌘← / ⌘→ / ⇧⌘← / ⇧⌘→ — **the rule that decides when the chord means the differences selection.**
-///
-/// These were a `.onKeyPress` inside the Table until v4.2, so "does this chord apply?" was answered
-/// by where key focus sat. As a menu item there is no focus to ask, and the replacement answer is
-/// `lastSelectionSurface` — the arbiter Space already uses to tell a differences selection from a
-/// pane one. Every axis below flips the answer; an axis no test can flip is one the view could stop
-/// passing correctly without anything failing.
+/// ⌘← / ⌘→ / ⇧⌘← / ⇧⌘→: the rule that decides when the chord means the differences selection. As
+/// menu items they have no key focus to ask, so `lastSelectionSurface` answers, the arbiter Space
+/// already uses to tell a differences selection from a pane one. Every axis below flips the answer;
+/// an axis no test can flip is one the view could stop passing correctly with nothing failing.
 @Suite struct TransferShortcutRuleTests {
 
     /// The available case, from which each test below removes exactly one thing.
@@ -30,17 +27,17 @@ import Design
         #expect(!Self.available(selectionCount: 0))
     }
 
-    /// **The gate that replaces focus, and the reason this rule exists at all.** Both panes and the
-    /// table can hold a selection at once. With the panes holding it, ⌘→ must not transfer rows the
-    /// user stopped meaning — the pane action bar's own Copy is what they want then.
+    /// The gate that stands in for focus. Both panes and the table can hold a selection at once;
+    /// with the panes holding it, ⌘→ must not transfer rows the user stopped meaning, since the
+    /// pane action bar's own Copy is what they want then.
     @Test(arguments: [SelectionSurface.pane, nil])
     func aSelectionBelongingToThePanesWithholdsIt(surface: SelectionSurface?) {
         #expect(!Self.available(surface: surface),
                 "the table's chord fired for a selection owned by \(String(describing: surface))")
     }
 
-    /// A review session owns the keyboard while it runs — its card reads plain ⌫ and ↩, one
-    /// modifier away from these.
+    /// A review session owns the keyboard while it runs: its card reads plain ⌫ and ↩, one modifier
+    /// away from these.
     @Test func aRunningReviewWithholdsIt() {
         #expect(!Self.available(sessionActive: true))
     }
@@ -59,8 +56,8 @@ import Design
 /// The four chords, and the one place they are written down.
 @Suite struct TransferChordTests {
 
-    /// The badge on the header button and the menu item's key equivalent must be one value — the
-    /// badge hand-built its string until v4.2 and could disagree with the handler silently.
+    /// The badge on the header button and the menu item's key equivalent must be one value, or the
+    /// badge could silently disagree with the handler.
     @Test(arguments: [(false, false, "⌘←"), (true, false, "⌘→"),
                       (false, true, "⇧⌘←"), (true, true, "⇧⌘→")])
     func eachTransferDisplaysItsChord(spec: (toRight: Bool, isMove: Bool, expected: String)) {
@@ -68,7 +65,7 @@ import Design
     }
 
     /// The arrows are function-key code points, so without an explicit glyph the keycap renders an
-    /// unprintable box rather than nothing — a defect that looks like a font problem.
+    /// unprintable box, a defect that looks like a font problem.
     @Test func theArrowsAreDrawableGlyphs() {
         for chord in [AppChord.transfer(toRight: true, isMove: false),
                       AppChord.transfer(toRight: false, isMove: false)] {
@@ -78,12 +75,10 @@ import Design
     }
 }
 
-/// What a directional transfer acts on — **and, mostly, what it must never act on.**
-///
-/// `transferItems` is two lines, and it is its own named rule for one reason: the resolver beside it
-/// (``DifferenceActionTargets``) falls back to the WHOLE filtered set when a selection resolves to
-/// nothing, which is right for a header button and catastrophic for a chord. These tests exist so
-/// that "these look the same, unify them" fails instead of shipping.
+/// What a directional transfer acts on, and mostly what it must never act on. `transferItems` is
+/// its own rule because the resolver beside it (``DifferenceActionTargets``) falls back to the
+/// whole filtered set when a selection resolves to nothing: right for a header button, catastrophic
+/// for a chord. These tests make "these look the same, unify them" fail.
 @Suite struct TransferItemsRuleTests {
 
     static func row(_ path: String, _ action: FileDifference.SyncAction,
@@ -103,8 +98,8 @@ import Design
                 "took \(items.map(\.relativePath)) — the other direction or an unselected row came along")
     }
 
-    /// **The property that makes this a separate rule.** A selection whose ids are no longer in the
-    /// rows — a rescan mints fresh UUIDs — must yield NOTHING, not the whole list.
+    /// The property that makes this a separate rule: a selection whose ids are no longer in the
+    /// rows (a rescan mints fresh UUIDs) must yield nothing, not the whole list.
     @Test func aSelectionThatMatchesNoRowTakesNothingAtAll() {
         let rows = [Self.row("a.txt", .copyToRight), Self.row("b.txt", .copyToRight)]
         let items = DifferencesShortcutRules.transferItems(
@@ -123,9 +118,9 @@ import Design
                                                         direction: .copyToRight).isEmpty)
     }
 
-    /// The rows the chord is handed are the CURRENT ones, so a value that changed under it is the
-    /// value it acts on. Written as the two answers over one selection, because that is the whole
-    /// difference between resolving at publish time and at fire time.
+    /// The rows the chord is handed are the current ones, so a value that changed under it is the
+    /// value it acts on. Two answers over one selection: the difference between resolving at
+    /// publish time and at fire time.
     @Test func theRowsHandedInAreTheOnesActedOn() {
         let id = UUID()
         let asPublished = [Self.row("a.txt", .copyToRight, id: id)]
@@ -139,13 +134,10 @@ import Design
                 "the row now copies the other way, so ⌘→ must find nothing to do with it")
     }
 
-    /// **The chord resolves its rows at fire time, and the parameter that let it not to is gone.**
-    ///
-    /// A rule extracted for testability is one revert from being unused, and the four tests above
-    /// stay green whether or not anything calls `transferItems`. `DifferencesView` is a SwiftUI
-    /// `View` with `@State` that nothing can construct, so the wiring is checked at source level,
-    /// with the habits that keep such a scan honest: name the file, fail if it cannot be read, and
-    /// assert the strings whose presence IS the regression.
+    /// The chord resolves its rows at fire time, through `transferItems`; the tests above stay
+    /// green whether or not anything calls it. `DifferencesView` is a `View` with `@State` that
+    /// nothing can construct, so the wiring is checked at source level: name the file, fail if it
+    /// can't be read, and assert the strings whose presence is the regression.
     @Test func theChordTakesNoSnapshotOfTheRows() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -154,7 +146,8 @@ import Design
                                   "cannot read DifferencesView.swift — every check below would be vacuous")
         try #require(source.count > 5_000, "DifferencesView.swift is implausibly short")
 
-        // The regression, exactly as it shipped: the rows closed over from `body`'s local.
+        // The rows must not be closed over from `body`'s local: a focused value isn't re-armed
+        // while a menu is open.
         #expect(!source.contains("keyboardCopy(direction: direction, isMove: isMove, in: sorted)"),
                 "the transfer chord closes over `sorted` again — a focused value is not re-armed while a menu is open")
         #expect(!source.contains("in sorted: [FileDifference]"),

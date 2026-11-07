@@ -4,8 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.1's blast radius, once a draft makes it knowable: the tertiary-grey sentence becomes three
-/// chips carrying the numbers the plan actually derived (proposal O6).
+/// The blast radius once a draft makes it knowable: the tertiary-grey sentence becomes chips
+/// carrying the numbers the plan derived.
 @MainActor
 @Suite struct RestructureRadiusChipsTests {
 
@@ -15,8 +15,8 @@ import Testing
                             family: "Finance/US/Income Tax", kind: .shape, actions: actions)
     }
 
-    /// **Derived, never pasted** — the roadmap's rule for these numbers, and the whole reason the
-    /// host builds the info from the manifest rather than the card estimating from the finding.
+    /// Derived, never pasted: the host builds the info from the manifest rather than the card
+    /// estimating from the finding.
     @Test func theCountsComeFromTheManifest() {
         let info = LensWorkspaceView.plannedInfo(of: Self.manifest([
             .init(action: .renameDir, src: "F/2013/Federal", dst: "F/2013/Forms",
@@ -26,8 +26,7 @@ import Testing
             .init(action: .keep, src: "F/2013/Transcripts"),
         ]))
         // Three, not four: `keep` rows are the manifest's signature block, and counting them
-        // overstates "Review N operations" — main's own round-4 finding, which this helper has
-        // to inherit rather than reintroduce.
+        // would overstate "Review N operations".
         #expect(info.operations == 3)
         #expect(info.renames == 1)
         #expect(info.merges == 1, "one source folder is drained")
@@ -41,11 +40,9 @@ import Testing
         ])).summary, "the sentence and the chips read one ledger")
     }
 
-    /// **A whole-folder carry is its own word, in the chips and in the sentence alike.**
-    ///
-    /// Folding it into "renames" made a card read `1 rename` directly above
-    /// `0 renames · 1 folder carried whole` — the ledger sentence one line below prints it as its
-    /// own clause, and the chips are supposed to be that sentence's numbers.
+    /// A whole-folder carry is its own word, in the chips and the sentence alike: the ledger
+    /// sentence a line below prints it as its own clause, and the chips are that sentence's
+    /// numbers, so folding it into "renames" would make the two disagree.
     @Test func aWholeFolderCarryIsCarriedNotRenamed() {
         let manifest = Self.manifest([
             .init(action: .moveDir, src: "Work/Badge", dst: "Work/Acme/Badge",
@@ -83,10 +80,9 @@ import Testing
                     == ["1 rename", "1 folder carried", "1 merge", "1 file moves"])
     }
 
-    /// Only the chip that moves files takes the warm tint — that is the one irreversible-feeling
-    /// number on the card, and tinting all three would say nothing.
-    /// The warm tint marks the chips whose numbers are FILES leaving where they are — a moved
-    /// file and a carried folder both do that; a rename and a merge count folders.
+    /// The warm tint marks the chips whose numbers are files leaving where they are: a moved file
+    /// and a carried folder both do; a rename and a merge count folders. Tinting every chip would
+    /// say nothing.
     @Test func onlyTheFileMovingChipsAreWarm() {
         let full = PlannedPlanInfo(operations: 9, summary: "s",
                                    renames: 3, carried: 1, merges: 2, filesMove: 41)
@@ -105,9 +101,8 @@ import Testing
                       .init(vocabulary: ["b"], members: ["2016"])])) != nil)
     }
 
-    /// **The whole feature can be unwired at the host and every test above still passes** — the
-    /// derivation is a static function and the render smoke builds its own value, so nothing
-    /// connected the two. This is the connection.
+    /// Pins the host's wiring: the derivation is a static function and the render test builds its
+    /// own value, so unwiring the host would pass every test above.
     @Test func theHostBuildsEveryCardsInfoFromTheSharedDerivation() throws {
         let host = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
@@ -117,14 +112,14 @@ import Testing
             encoding: .utf8)
         #expect(host.contains("(key.findingId, Self.plannedInfo(of: draft.manifest))"),
                 "every drafted card's chips come from the one derivation")
-        // Exactly one construction of the value in the whole host — the shared derivation.
-        // A second one is how the chips and the sentence start disagreeing again.
+        // Exactly one construction of the value in the host, the shared derivation; a second
+        // would let the chips and the sentence disagree.
         #expect(host.components(separatedBy: "PlannedPlanInfo(").count - 1 == 1,
                 "the card's info is built in one place")
     }
 
-    /// The chips replace the sentence rather than joining it — two statements of one cost, one of
-    /// them vaguer, is how they start disagreeing.
+    /// The chips replace the sentence rather than join it: two statements of one cost, one vaguer,
+    /// would come to disagree.
     @Test func theCardShowsChipsOrTheSentenceNeverBoth() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -136,8 +131,8 @@ import Testing
                 "the sentence is the fallback branch, not a sibling")
     }
 
-    /// **The chips are drawn.** With a `fittingSize` closer this passed with the whole chip row
-    /// deleted, so the drafted card is compared against the same card with no draft.
+    /// The chips are drawn: the drafted card is compared against the same card with no draft, so
+    /// deleting the chip row fails.
     @Test func aDraftedCardRendersItsChips() throws {
         let finding = StructureFinding(
             family: "Finance/US/Income Tax",

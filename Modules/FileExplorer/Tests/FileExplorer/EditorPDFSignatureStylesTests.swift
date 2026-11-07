@@ -5,9 +5,9 @@ import PDFToolkitCore
 @testable import FileExplorer
 import EventsTestSupport
 
-/// **Signature Styles (TE88–TE94)**: a typed signature's face, a drawn one's pen, the font of placed
-/// text, all changeable after placing with the palette's Aa tool — and the saved signatures from
-/// before them still there.
+/// Signature Styles: a typed signature's face, a drawn one's pen, the font of placed text, all
+/// changeable after placing with the palette's Aa tool, and signatures saved without them still
+/// read.
 @MainActor
 @Suite(.serialized) final class EditorPDFSignatureStylesTests {
 
@@ -51,9 +51,9 @@ import EventsTestSupport
 
     // MARK: Saved signatures from before
 
-    /// **Signatures saved before faces and pens are all still there**, as Snell Roundhand and Medium
-    /// — the JSON a 6.0 build before this wrote, typed and drawn — and one saved with a face this
-    /// build doesn't know comes back as Snell rather than taking the rest down with it.
+    /// Signatures saved without a face or pen, typed and drawn, decode as Snell Roundhand and
+    /// Medium, and one saved with a face this build doesn't know comes back as Snell rather than
+    /// failing the whole list.
     @Test func signaturesSavedBeforeStylesDecodeAsSnellAndMedium() throws {
         let typedID = UUID(), drawnID = UUID(), laterID = UUID()
         let json = """
@@ -75,7 +75,7 @@ import EventsTestSupport
 
     // MARK: What Save writes
 
-    /// **The copy is drawn in the item's face, font and pen** — what the toolkit is handed.
+    /// The copy is drawn in the item's face, font and pen, as handed to the toolkit.
     @Test func theToolkitIsHandedTheFaceTheFontAndThePen() {
         let typed = EditorPDFFillItem(page: 0, rect: CGRect(x: 10, y: 10, width: 200, height: 40),
                                       content: .signature(EditorPDFSignature(kind: .signature, look: .typed("Ada"), face: .savoye)),
@@ -105,8 +105,8 @@ import EventsTestSupport
         #expect(EditorPDFPen.medium.widthFraction < EditorPDFPen.bold.widthFraction)
     }
 
-    /// **Every face is one the Mac has** — under its own name, not a stand-in — and SignPainter,
-    /// which saves garbled on a form, is not offered (decision AT).
+    /// Every face is one the Mac has, under its own name, not a stand-in, and SignPainter, which
+    /// saves garbled on a form, is not offered.
     @Test func everyFaceIsInstalledAndSignPainterIsNotOffered() {
         #expect(EditorPDFSignatureFace.allCases.count == 7)
         #expect(!EditorPDFSignatureFace.allCases.map(\.postScriptName).contains { $0.hasPrefix("SignPainter") })
@@ -116,7 +116,7 @@ import EventsTestSupport
         #expect(NSFont(name: "Charter-Roman", size: 12) != nil)
     }
 
-    /// **A filled copy carries the face** — the toolkit embeds it, so the person it goes to sees it.
+    /// A filled copy carries the face: the toolkit embeds it, so the person it goes to sees it.
     @Test func aFilledCopyEmbedsTheFace() throws {
         let file = folder + "/Plain.pdf"
         PDFFixtures.write(file, pages: 1)
@@ -131,8 +131,8 @@ import EventsTestSupport
 
     // MARK: Placing
 
-    /// **Every face is placed at the width Snell Roundhand takes** (TE88), so Zapfino's loops don't
-    /// make it a bigger signature.
+    /// Every face is placed at the width Snell Roundhand takes, so Zapfino's loops don't make it a
+    /// bigger signature.
     @Test func everyFaceIsPlacedAtOneWidth() throws {
         let fill = fill()
         let snell = try place(fill, EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan")))
@@ -148,8 +148,8 @@ import EventsTestSupport
         #expect(zapfino.fontSize < EditorPDFFillSign.signatureFontSize)
     }
 
-    /// **A mark keeps the system font**, whatever the next text's font is, and the Aa tool has
-    /// nothing for it.
+    /// A mark keeps the system font, whatever the next text's font is, and the Aa tool has nothing
+    /// for it.
     @Test func aMarkKeepsTheSystemFont() throws {
         let fill = fill()
         fill.setTextFont(.handwritten)
@@ -159,7 +159,7 @@ import EventsTestSupport
         #expect(mark.font == .sans && mark.isMark)
         #expect(fill.styleTarget == .mark)
         #expect(EditorPDFFillFlyouts.style(for: fill).items.isEmpty)
-        // A mark's right-click menu: its ink, and Delete (TE140).
+        // A mark's right-click menu: its ink, and Delete.
         #expect(EditorPDFFillFlyouts.itemMenu(for: fill).items.map(\.title) == ["Ink", "", "Delete"])
         fill.armed = .date
         let date = try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0))
@@ -168,9 +168,9 @@ import EventsTestSupport
 
     // MARK: The Aa tool
 
-    /// **Text's font, from the Aa flyout** (TE93): five fonts, each drawn in itself, the current one
-    /// ticked; choosing one sets the selected text's — refitted to its words — and the next text's,
-    /// in one ⌘Z step.
+    /// Text's font, from the Aa flyout: five fonts, each drawn in itself, the current one ticked;
+    /// choosing one sets the selected text's (refitted to its words) and the next text's, in one ⌘Z
+    /// step.
     @Test func theStyleFlyoutSetsTheSelectedTextsFontAndTheNext() throws {
         let fill = fill()
         let id = try placeText(fill)
@@ -201,8 +201,8 @@ import EventsTestSupport
         #expect(fill.items.first { $0.id == serif }?.font == .serif)
     }
 
-    /// **A typed signature gets the seven faces, each in its own words** (TE92), kept at the width it
-    /// was placed at; a saved one changes in the store too, and ⌘Z puts both back (decision AS).
+    /// A typed signature gets the seven faces, each in its own words, kept at the width it was
+    /// placed at; a saved one changes in the store too, and ⌘Z puts both back.
     @Test func restylingASavedTypedSignatureChangesTheSavedOneAndUndoesAsOne() throws {
         let fill = fill()
         let saved = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
@@ -229,7 +229,7 @@ import EventsTestSupport
             EditorPDFFillItem.measure("Alex Morgan", fontSize: item.fontSize, script: true, font: item.toolkitFont).width
         }
         #expect(abs(width(restyled) - width(placed)) < 2, "the new face changed the signature's width")
-        // Undo names what changed (TE121): the face.
+        // Undo names what changed: the face.
         #expect(fill.undoManager.undoActionName == "Face")
 
         fill.undoManager.undo()
@@ -240,8 +240,8 @@ import EventsTestSupport
         #expect(fill.store.saved.first { $0.id == saved.id }?.face == .zapfino, "redo did not restyle the saved one again")
     }
 
-    /// **A signature placed without saving changes on the page only** — no line about the saved one,
-    /// and the store is not touched.
+    /// A signature placed without saving changes on the page only: no line about the saved one, and
+    /// the store is not touched.
     @Test func anUnsavedSignatureChangesOnThePageOnly() throws {
         let fill = fill()
         let other = EditorPDFSignature(kind: .signature, look: .typed("Sam Reed"))
@@ -254,7 +254,7 @@ import EventsTestSupport
         #expect(fill.store.saved == [other], "a signature never saved reached the store")
     }
 
-    /// **A drawn signature gets the three pens** (TE92) — the saved one too, in one ⌘Z step.
+    /// A drawn signature gets the three pens, the saved one too, in one ⌘Z step.
     @Test func aDrawnSignatureGetsThePens() throws {
         let fill = fill()
         let drawn = EditorPDFSignature(kind: .initials, look: .drawn(strokes: [[.zero, CGPoint(x: 1, y: 1)]], aspect: 2))
@@ -276,9 +276,9 @@ import EventsTestSupport
         #expect(fill.items.first { $0.id == placed.id }?.signature?.pen == .medium && fill.store.saved.first?.pen == .medium)
     }
 
-    /// **A typed signature's right-click menu is Face ▸ and Ink ▸, then Delete** (TE92, TE140) — the
-    /// Face submenu holds the Aa flyout's faces, without the heading its name already says, and with
-    /// the line that the saved one changes too.
+    /// A typed signature's right-click menu is Face ▸ and Ink ▸, then Delete. The Face submenu holds
+    /// the Aa flyout's faces, without the heading its name already says, and with the line that the
+    /// saved one changes too.
     @Test func anItemsRightClickMenuIsItsStylesThenDelete() throws {
         let fill = fill()
         let saved = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
@@ -300,9 +300,9 @@ import EventsTestSupport
         #expect(!fill.items.contains { $0.id == placed.id })
     }
 
-    /// **Placed text's right-click menu** (TE140): Edit Text, then Font ▸, Text Size ▸ and Ink ▸, then
-    /// Delete — each submenu's lines doing what the palette's tool does, and Edit Text starting the
-    /// typing a double-click starts. A drawn signature gets Pen ▸ and Ink ▸.
+    /// Placed text's right-click menu: Edit Text, then Font ▸, Text Size ▸ and Ink ▸, then Delete,
+    /// each submenu's lines doing what the palette's tool does, and Edit Text starting the typing a
+    /// double-click starts. A drawn signature gets Pen ▸ and Ink ▸.
     @Test func placedTextsRightClickMenuEditsStylesSizesAndInks() throws {
         let fill = fill()
         let id = try placeText(fill)
@@ -332,9 +332,9 @@ import EventsTestSupport
 
     // MARK: The sheet's pieces
 
-    /// **Add makes the initials too, in the signature's face** (TE94) — only while none are saved,
-    /// and only when the signature is saved — and its ink becomes the next item's, without
-    /// recolouring the selected one (TE89).
+    /// Add makes the initials too, in the signature's face, only while none are saved and only when
+    /// the signature is saved; its ink becomes the next item's, without recolouring the selected
+    /// one.
     @Test func addingATypedSignatureCanMakeItsInitials() throws {
         let fill = fill()
         let selected = try placeText(fill)
@@ -358,8 +358,8 @@ import EventsTestSupport
         #expect(fresh.store.saved(.initials).isEmpty)
     }
 
-    /// **Smoothing keeps where a stroke starts and ends, and takes out the jitter** (TE91); a dot and
-    /// a dash are left as drawn.
+    /// Smoothing keeps where a stroke starts and ends, and takes out the jitter; a dot and a dash are
+    /// left as drawn.
     @Test func smoothingKeepsTheEndsAndTakesOutTheJitter() throws {
         let jitter = (0...60).map { CGPoint(x: CGFloat($0) * 4, y: 50 + ($0 % 2 == 0 ? 3 : -3)) }
         let smooth = try #require(EditorPDFSignature.smoothed([jitter]).first)
@@ -378,8 +378,7 @@ import EventsTestSupport
         #expect(EditorPDFSignature.initials(of: "") == "")
     }
 
-    /// **The pad draws in the chosen ink and pen** (TE89, TE90) — black is black, and Bold is wider
-    /// than Fine.
+    /// The pad draws in the chosen ink and pen: black is black, and Bold is wider than Fine.
     @Test func thePadDrawsInTheChosenInkAndPen() throws {
         func render(_ ink: EditorPDFFillColor, _ pen: EditorPDFPen) throws -> (blue: Int, dark: Int) {
             let pad = EditorPDFSignaturePad.PadView(frame: CGRect(x: 0, y: 0, width: 200, height: 100))

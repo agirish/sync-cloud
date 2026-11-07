@@ -1,18 +1,16 @@
 import SwiftUI
 import Sync
 
-/// The file preview as the window's Info inspector draws it (TE317 C): the picture alone, over the
+/// The file preview as the window's Info inspector draws it: the picture alone, over the
 /// inspector's own details, which list the name, kind and dates.
 ///
-/// **Its downloads are the host's `InspectorDownloads`, not its own state.** The preview is taken
-/// down whenever the inspector shows something else — a folder, several items, the picture folded
-/// away — and a "Downloading…" kept in `@State` died with it: back on the file, the inspector
-/// offered Download again while the pane was still fetching it. See `InspectorDownloads`.
+/// Its downloads live in the host's `InspectorDownloads`, not in `@State`: the preview is taken down
+/// whenever the inspector shows something else, and a "Downloading…" kept here would die with it,
+/// so back on the file the inspector would offer Download again mid-fetch.
 ///
-/// Rebuilt — a fresh probe, a fresh renderer — when the file changes on disk (its modification
-/// date moves with the next tree publish) and when a watch of it ends, so a saved or signed file and
-/// a download that landed both show what is on disk now. Quick Look and PDFKit keep what they first
-/// read for a URL they already have.
+/// Rebuilt (a fresh probe and renderer) when the file changes on disk and when a watch of it ends,
+/// so a saved or signed file and a landed download show what is on disk now. Quick Look and PDFKit
+/// keep what they first read for a URL they already have.
 public struct InspectorFilePreview: View {
     let item: ColumnPreviewItem
     let modified: Date?
@@ -58,17 +56,16 @@ public struct InspectorFilePreview: View {
     }
 }
 
-/// The Info inspector's downloads (TE318 review), kept by the host so they outlive the preview.
+/// The Info inspector's downloads, kept by the host so they outlive the preview.
 ///
-/// It follows every download request on its channel to the end of its watch: "Downloading…" from
-/// the request, cleared by the `.cloudDownloadWatchEnded` the watching pane posts — by `requestID`,
-/// never path, so a repeat Download's old watch does not clear the new one. Each ended watch counts
-/// against its file, and the preview rebuilds on the count: a file that landed after the inspector
-/// had already given up on it (`unheardDeadline`) is still looked at again.
+/// Follows every download request on its channel to the end of its watch: "Downloading…" from the
+/// request, cleared by the `.cloudDownloadWatchEnded` the watching pane posts, matched by
+/// `requestID`, never path, so a repeat Download's old watch can't clear the new one. Each ended
+/// watch counts against its file and the preview rebuilds on the count, so a file that lands after
+/// `unheardDeadline` is still looked at again.
 ///
-/// **One watch per download.** The pane that posted the request runs it, as for its own rows. Only a
-/// request whose pane is not on screen to hear it is watched here (`watchUnheard`), with the same
-/// watch, which says when it ends on the same channel.
+/// One watch per download: the pane that posted the request runs it. Only a request whose pane
+/// isn't on screen is watched here (`watchUnheard`), with the same watch and channel.
 @MainActor
 public final class InspectorDownloads: ObservableObject {
     @Published private var awaiting: [String: CloudDownloadRequest] = [:]
@@ -79,10 +76,9 @@ public final class InspectorDownloads: ObservableObject {
     private var deadlines: [String: Task<Void, Never>] = [:]
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
-    /// How long "Downloading…" waits for a watch that never says it ended — a whole watch and one
-    /// interval more. Reached only when the watching pane is taken down mid-watch, since a request
-    /// with no pane to hear it is watched here. A backstop, not a watch: it polls nothing, and it
-    /// counts as an ending, so the file is looked at again.
+    /// How long "Downloading…" waits for a watch that never says it ended: a whole watch and one
+    /// interval more. Reached only when the watching pane is taken down mid-watch. A backstop that
+    /// polls nothing; it counts as an ending, so the file is looked at again.
     nonisolated public static let unheardDeadline = CloudDownloadPoll.interval * (CloudDownloadPoll.attempts + 1)
 
     /// - Parameters:
@@ -97,7 +93,7 @@ public final class InspectorDownloads: ObservableObject {
         self.channel = channel
         self.deadline = deadline
         self.watch = watch
-        // `queue: nil`: delivered on the posting thread, which is the main actor for every poster —
+        // `queue: nil` delivers on the posting thread, which is the main actor for every poster:
         // the verb and the watch are both `@MainActor`.
         observers.append(channel.addObserver(forName: .cloudDownloadRequested, object: nil, queue: nil) {
             [weak self] note in

@@ -2,8 +2,8 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// Covers FileContextMenu.resolvedSelection: right-clicking acts on the whole multi-selection
-/// only when the clicked node is part of it; otherwise it acts on just the clicked node.
+/// `FileContextMenu.resolvedSelection`: a right-click acts on the whole multi-selection only when
+/// the clicked node is part of it; otherwise on the clicked node alone.
 @Suite struct ContextMenuSelectionTests {
 
     private let tree = [
@@ -38,17 +38,10 @@ import Sync
         #expect(nodes.map(\.id) == ["/root/dir/c.txt"])
     }
 
-    /// A selection spanning a folder AND something inside it resolves to the folder alone.
-    ///
-    /// This is the assertion the whole trailing `.pruneNestedNodes()` exists for: without it a
-    /// context-menu Copy/Move/Delete hands the handler a superset, so the confirmation names and
-    /// counts children that the single operation on their parent already covers.
-    ///
-    /// It lived in `PaneDropLogicTests` (via `PaneDropLogic.dragNodes`, which wrapped this call)
-    /// until cross-pane drag & drop was removed in `4d55246` — and every other test here uses a
-    /// FLAT selection, so deleting that suite left the prune on this still-live path unpinned.
-    /// Its sibling on the delete path is `PaneTreeSelectedNodesTests` over in Sync: two separate
-    /// helpers applying the same prune, and neither may drift.
+    /// A selection spanning a folder and something inside it resolves to the folder alone, the
+    /// reason for the trailing `.pruneNestedNodes()`. Without it Copy/Move/Delete would hand the
+    /// handler a superset, and the confirmation would count children their parent already covers.
+    /// The delete path's twin is `PaneTreeSelectedNodesTests` in Sync; neither prune may drift.
     @Test func testFolderAndDescendantPruneToTheFolder() {
         let dir = tree[2]
         let nodes = FileContextMenu.resolvedSelection(
@@ -57,7 +50,7 @@ import Sync
     }
 
     /// The prune is about ancestry, not path-prefix spelling: a sibling whose path merely starts
-    /// with the folder's characters is NOT inside it and must survive.
+    /// with the folder's characters is not inside it and survives.
     @Test func testPrefixTwinIsNotTreatedAsNested() {
         let twin = FileNode(id: "/root/dir2", name: "dir2", isDirectory: true)
         let nodes = FileContextMenu.resolvedSelection(

@@ -5,16 +5,11 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// A plain click on a column row must select it.
-///
-/// The Columns row leaves selection to its `List`, exactly as the tree presentation does — and in
-/// Columns that does not hold. One instrumented session logged 42 column taps against 8 selections:
-/// the tap handler ran (the column navigated, and `[columns]` lines prove it) while the row never
-/// highlighted. So the tap commits a plain click's selection itself.
-///
-/// The rule it must not break is the one `dba5cd3` restored: ⌘- and ⇧-click belong to the List, and
-/// assigning on every tap regardless of modifiers is what flattened every multi-selection back to
-/// one row, leaving Copy/Move/Delete unable to act on more than one item.
+/// A plain click on a column row must select it. In Columns the `List` doesn't reliably commit a
+/// click's selection (the tap handler runs and the column navigates, but the row isn't
+/// highlighted), so the tap commits a plain click itself. ⌘- and ⇧-click stay the List's:
+/// assigning on every tap would flatten a multi-selection to one row, and Copy, Move and Delete
+/// could act on only one item.
 @Suite struct ColumnTapSelectionTests {
 
     /// The gate the tap handler applies before it touches `selection`.
@@ -34,11 +29,10 @@ import Sync
         #expect(!PaneViewMode.clickNavigates(modifiers: [.shift, .option]))
     }
 
-    /// ⌃ is the secondary click, not a plain one. It reaches the tap handler and the background
-    /// deselect recognizer alike — macOS delivers control-click as a button-1 event carrying
-    /// `.control` — so admitting it meant the contextual menu opened while the same gesture
-    /// committed a selection, cleared the other pane, and (on empty space) closed every column to
-    /// the right of the one clicked in.
+    /// ⌃ is the secondary click, not a plain one. macOS delivers control-click as a button-1 event
+    /// carrying `.control`, so it reaches the tap handler and the background deselect recognizer;
+    /// admitted, the context menu would open while the same gesture selected, cleared the other pane
+    /// and, on empty space, closed every column to the right.
     @Test func testAControlClickIsSecondaryAndBelongsToTheContextMenu() {
         #expect(!PaneViewMode.clickNavigates(modifiers: [.control]))
         #expect(!PaneViewMode.clickNavigates(modifiers: [.control, .option]))
@@ -87,11 +81,9 @@ import Sync
         return PaneTree(side: .left, version: 1, nodes: nodes)
     }
 
-    /// The pane plus the observation that makes it re-render — `PaneColumnsView` takes bindings, so
-    /// a bare `Binding(get:set:)` over the box updates the box and nothing else: the view never
-    /// learns the value moved, and the columns never open. A wrapper that OBSERVES the box is what
-    /// makes the drill visible, and without it every drill assertion here would fail for a reason
-    /// that has nothing to do with the pane.
+    /// The pane plus the observation that makes it re-render. `PaneColumnsView` takes bindings, and a
+    /// bare `Binding(get:set:)` over the box would update the box without the view learning of it,
+    /// so the columns would never open.
     private struct Harness: View {
         @ObservedObject var box: Box
         let tree: PaneTree
@@ -153,8 +145,8 @@ import Sync
         return found
     }
 
-    /// The pane genuinely materialises its columns — without this every assertion here could pass
-    /// against a window that rendered nothing.
+    /// The pane really materialises its columns, so nothing here passes against a window that
+    /// rendered nothing.
     @Test func testTheColumnsPaneMountsAndDrills() {
         let box = Box()
         let window = mount(box)
@@ -166,8 +158,8 @@ import Sync
         #expect(tables(window.contentView!).count == 2, "drilling should open a second column")
     }
 
-    /// A click replaces the whole selection rather than adding to it — the pane's selection is a
-    /// flat `Set<String>` shared across columns, and a plain click means "just this row".
+    /// A click replaces the whole selection rather than adding to it: the selection is a flat
+    /// `Set<String>` shared across columns, and a plain click means "just this row".
     @Test func testTheTapsWriteReplacesRatherThanExtends() {
         let box = Box()
         box.selection = ["\(Self.root)/folder0", "\(Self.root)/folder1"]

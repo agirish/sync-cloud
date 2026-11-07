@@ -4,14 +4,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// A click no longer makes every row's context menu walk the tree (CP9).
-///
-/// SwiftUI builds a row's context menu with the row, so `FileContextMenu`'s body runs for every
-/// visible row on every click — in both panes, because each pane's menus also take the other
-/// pane's selection. Those bodies used to walk the tree. `menuNodes` now answers a row outside the
-/// selection from the row itself, and `PaneSelectionResolver` walks once per selection for the
-/// rows inside it and for the other pane's. The rules are pinned here as plain functions, and the
-/// last case renders a real menu for every row to show that the bodies share the walks.
+/// A click doesn't make every row's context menu walk the tree. SwiftUI builds a row's menu with
+/// the row, so `FileContextMenu`'s body runs for every visible row on every click, in both panes.
+/// `menuNodes` answers a row outside the selection from the row itself, and `PaneSelectionResolver`
+/// walks once per selection. The last case renders a real menu per row to show they share walks.
 @MainActor
 @Suite struct ContextMenuWalkTests {
 
@@ -30,10 +26,9 @@ import Sync
         rows.flatMap { [$0] + allRows($0.children ?? []) }
     }
 
-    /// **A row outside the selection is answered from the row: nothing walks.** Probed with a tree
-    /// that carries the row's stamp but none of its nodes, so no walk could return the row — getting
-    /// it back means none ran. A row stamped by another publish, or by the other pane, is not this
-    /// tree's, so it DOES walk and gets what a walk always gave it: here nothing, since it is absent.
+    /// A row outside the selection is answered from the row: nothing walks. The probe tree carries
+    /// the row's stamp but none of its nodes, so getting the row back means no walk ran. A row from
+    /// another publish or the other pane does walk, and here finds nothing.
     @Test func aRowOutsideTheSelectionIsAnsweredFromTheRow() {
         let node = FileNode(id: "/r/a.txt", name: "a.txt", isDirectory: false)
         let probe = PaneTree(side: .left, version: 7, nodes: [], rows: [])
@@ -52,10 +47,9 @@ import Sync
         #expect(resolver.walks == 0, "a row outside the selection never reaches the resolver")
     }
 
-    /// **The same answers as before, for every row and every kind of selection.** `menuNodes` is a
-    /// faster route to `resolvedSelection`'s answer, never a different one: checked for every row of
-    /// a nested tree against no selection, one row, two, a folder together with something inside it
-    /// (which prunes to the folder), and selections naming a row that has gone.
+    /// `menuNodes` is a faster route to `resolvedSelection`'s answer, never a different one:
+    /// checked for every row of a nested tree against empty, single, multiple, nested (which
+    /// prunes to the folder) and stale selections.
     @Test func menuNodesAnswersExactlyAsResolvedSelectionDoes() {
         let tree = PaneTree(side: .left, version: 1, nodes: Self.nodes)
         let rows = Self.allRows(tree.rows)
@@ -76,10 +70,9 @@ import Sync
         }
     }
 
-    /// **Two nodes at one path answer with the same path.** iCloud's linked Documents appear under
-    /// `~` and inside iCloud Drive at one id (`isCoveredElsewhere` on the second). The walk stops at
-    /// the first; a row answers with itself. Either way the menu names one path, and every verb acts
-    /// by path — which is the equivalence that matters, and all this can promise.
+    /// Two nodes at one path answer with that path. iCloud's linked Documents appear under `~` and
+    /// inside iCloud Drive at one id (`isCoveredElsewhere` on the second); the walk stops at the
+    /// first, a row answers with itself. Every verb acts by path, so that is the equivalence.
     @Test func aPathListedTwiceAnswersWithThatPath() {
         let real = FileNode(id: "/u/Documents", name: "Documents", isDirectory: true, children: [])
         let linked = FileNode(id: "/u/Documents", name: "Documents", isDirectory: true,
@@ -94,9 +87,8 @@ import Sync
         }
     }
 
-    /// **One walk per selection, however many rows ask.** Every row builds its menu on every render;
-    /// only the selected ones reach the resolver, and they share its walk. A new selection walks
-    /// again, and so does a republished tree — a render that changes neither walks nothing.
+    /// One walk per selection, however many rows ask: only selected rows reach the resolver, and
+    /// they share its walk. A new selection or a republished tree walks again; nothing else does.
     @Test func aSelectionIsWalkedOncePerTreeAndSelection() {
         var tree = PaneTree(side: .left, version: 1, nodes: Self.nodes)
         let resolver = PaneSelectionResolver()
@@ -117,11 +109,9 @@ import Sync
         #expect(resolver.walks == 3, "a republished tree is walked afresh")
     }
 
-    /// **A new selection of the same size is resolved afresh.** One resolver across two clicks — `a`
-    /// then `b`, same tree, one file each — must answer `b`'s menu with `b`. Every other case here
-    /// changes the selection's size or the tree's version as well, so a memo keyed on anything short
-    /// of the whole selection (its count, a subset test) would pass them all and hand `b`'s menu
-    /// `a` — whose Delete would then trash the file the user clicked away from.
+    /// A new selection of the same size is resolved afresh: after `a`, `b`'s menu answers `b`. A
+    /// memo keyed on less than the whole selection (its count, a subset test) would pass every
+    /// other case and hand `b`'s menu `a`, whose Delete would trash the file clicked away from.
     @Test func aSameSizedSelectionIsResolvedAfresh() throws {
         let tree = PaneTree(side: .left, version: 1, nodes: Self.nodes)
         let rows = Self.allRows(tree.rows)
@@ -138,10 +128,9 @@ import Sync
                 == ["/r/b.txt", "/r/dir/c.txt"])
     }
 
-    /// **An emptied selection lets its entry go.** An entry holds nodes, and a node its subtree: kept
-    /// after the selection that made it, it would keep a tree the pane has replaced alive. The other
-    /// pane's goes when it is asked about empty, the pane's own when a menu is built with nothing
-    /// selected — and either way the next selection walks afresh, which is how this can tell.
+    /// An emptied selection lets its entry go, since an entry's nodes would keep a replaced tree
+    /// alive. The other pane's goes when asked about empty, the pane's own when a menu is built with
+    /// nothing selected; the next selection walking afresh is how this tells.
     @Test func anEmptiedSelectionLetsItsEntryGo() {
         let left = PaneTree(side: .left, version: 1, nodes: Self.nodes)
         let right = PaneTree(side: .right, version: 1, nodes: Self.nodes)
@@ -158,10 +147,9 @@ import Sync
         #expect(resolver.walks == 4, "the pane's own entry outlived its empty selection")
     }
 
-    /// **Favorites does what its label said.** The label is read when the menu is built — with the
-    /// row, a render or more before the click — so the click toggles only while the folder is still
-    /// in the state the label described. An "Add" made stale by the sidebar adding the folder must
-    /// not take it back out, and a stale "Remove" must not put it back.
+    /// Favorites does what its label said. The label is read when the menu is built, a render or
+    /// more before the click, so the click toggles only if the folder is still in that state: a
+    /// stale "Add" must not remove it, and a stale "Remove" must not add it back.
     @Test func aFavoritesClickFollowsItsLabel() {
         #expect(FileContextMenu.favoriteLabelStillHolds(labelSaidFavorite: false, isFavoriteNow: false))
         #expect(FileContextMenu.favoriteLabelStillHolds(labelSaidFavorite: true, isFavoriteNow: true))
@@ -171,11 +159,10 @@ import Sync
                 "a stale Remove would add it back")
     }
 
-    /// **The panes hand every menu the ONE resolver they keep.** A fresh resolver per menu still
-    /// answers correctly — which is exactly why nothing else here would notice one — but it walks per
-    /// row again, the whole cost CP9 removed. A source scan, because the menus' bodies do not run in
-    /// a test window (see `renderMenus`): the pane keeps one as `@State`, hands it to the Tree's
-    /// menus and to the Columns view, and the Columns view hands it to its own.
+    /// The panes hand every menu the one resolver they keep. A fresh resolver per menu answers
+    /// correctly but walks per row again, so nothing else here would notice. A source scan, since
+    /// menu bodies don't run in a test window (see `renderMenus`): the pane's `@State` resolver goes
+    /// to the Tree's menus and the Columns view, which hands it to its own.
     @Test func everyMenuIsHandedThePanesResolver() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -198,9 +185,8 @@ import Sync
                 "a menu is being built with a resolver of its own")
     }
 
-    /// **Each pane's selection keeps its own entry.** Every row's menu asks about both — its own
-    /// pane's selection, and the other pane's for the cross-pane items — so one shared entry would
-    /// have the two evict each other on every row, which is exactly the per-row walk this removes.
+    /// Each pane's selection keeps its own entry. Every row's menu asks about both panes'
+    /// selections, so one shared entry would have them evict each other on every row.
     @Test func eachPanesSelectionKeepsItsOwnEntry() {
         let left = PaneTree(side: .left, version: 1, nodes: Self.nodes)
         let right = PaneTree(side: .right, version: 1, nodes: Self.nodes)
@@ -233,14 +219,10 @@ import Sync
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
-    /// Renders one real `FileContextMenu` per row, as a pane's rows each carry one, and lays them
-    /// out so every body runs.
-    ///
-    /// Hosted directly, the way `OpenInEditorVerbTests` hosts one to read its items, because a
-    /// mounted pane cannot show this: in a test window — even one ordered in, invisible — the
-    /// `.contextMenu` closure runs for every row but SwiftUI runs the menu's BODY for none (checked
-    /// 2026-09-27). In the app it runs for every visible row, inside the row's `NSHostingView.layout`
-    /// on each click; that is the sample CP9 was measured from.
+    /// Renders one real `FileContextMenu` per row and lays them out so every body runs. Hosted
+    /// directly, as `OpenInEditorVerbTests` does, because in a test window SwiftUI runs a row's
+    /// `.contextMenu` closure but never the menu's body. In the app the body runs for every visible
+    /// row on each click.
     private func renderMenus(_ rows: [PaneRow], selection: Set<String>, tree: PaneTree,
                              otherTree: PaneTree, otherSelection: Set<String>,
                              resolver: PaneSelectionResolver) {
@@ -257,10 +239,9 @@ import Sync
         host.layoutSubtreeIfNeeded()
     }
 
-    /// **Every row's menu, rendered: the rows share the walks.** Six menus look at the other pane's
-    /// one selected file — for "Copy '…' from Right" — and it is resolved once, not six times. Two
-    /// selected rows then cost one walk between them while the other pane's answer is remembered,
-    /// and moving the selection costs one more. Nothing here walks per row.
+    /// Every row's menu, rendered, shares the walks. Six menus look at the other pane's selected
+    /// file (for "Copy '…' from Right") and it resolves once. Two selected rows then cost one walk,
+    /// and moving the selection one more. Nothing walks per row.
     @Test func everyRowsMenuSharesTheWalks() {
         let left = PaneTree(side: .left, version: 1, nodes: Self.nodes)
         let right = PaneTree(side: .right, version: 1, nodes: [

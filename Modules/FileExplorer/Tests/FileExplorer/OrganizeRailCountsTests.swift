@@ -2,16 +2,13 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// `LensWorkspaceView.RailCounts` — the six scoped counts, resolved once per render.
+/// `LensWorkspaceView.RailCounts`: the six scoped counts, resolved once per render. Each is a
+/// filtering pass with path math over lists that reach hundreds of duplicate groups and over a
+/// thousand rename plans, in a header that re-renders on every manager publish, hover and defaults
+/// change, so the width arithmetic and the rail items share one set.
 ///
-/// It exists because scoping turned six `Array.count` reads into six filtering passes with path
-/// math in the predicate, over lists that reach 722 duplicate groups and 1,192 rename plans on the
-/// real profile — and they were being run **twice over**, once for the width arithmetic and once
-/// per rail item. Twelve scoped passes per render of a header that re-renders on every manager
-/// publish, hover and defaults change.
-///
-/// What is testable here is the part that would silently go wrong: the mapping from lens to number,
-/// and the badge arithmetic the rail's width reservation depends on.
+/// Tested here: the mapping from lens to number, and the badge arithmetic the rail's width
+/// reservation depends on.
 @Suite struct OrganizeRailCountsTests {
 
     static let counts = LensWorkspaceView.RailCounts(
@@ -23,9 +20,8 @@ import Foundation
         let c = Self.counts
         #expect(c[.toFile] == 24)
         #expect(c[.duplicates] == 722)
-        // Renames' badge counts its whole list — folder rows AND the to-fix rows the Names fold
-        // moved in (P10). 126 folders + 3 names, and `names` is still a stored count even though
-        // the lens it was named for is retired; the distinct addends prove the sum is a sum.
+        // Renames' badge counts its whole list: folder rows and the risky-name to-fix rows. 126
+        // folders + 3 names (`names` is its own stored count); distinct addends prove the sum.
         #expect(c[.renames] == 126 + 3)
         #expect(c[.restructure] == 2)
         #expect(c[.rules] == 8)
@@ -34,13 +30,11 @@ import Foundation
     }
 
     @Test func badgeAnswersForTheItemsThatWouldDrawOne() {
-        // These are what `OrganizeRailMetrics` sizes the rail from, so a wrong answer here
-        // mis-measures it and truncates the lens's own controls — the failure
-        // `OrganizeRailMetrics` exists to prevent. **The VALUE, not a count of them**: a badge is
-        // as wide as its digits, and charging a flat figure per badge is what let row 1 overrun.
+        // `OrganizeRailMetrics` sizes the rail from these, so a wrong answer truncates the lens's
+        // own controls. The value, not a count of them: a badge is as wide as its digits, and a
+        // flat figure per badge would let row 1 overrun.
         //
-        // Four, not five: `.rules` never carries a badge (`carriesBadge` is false), because eight
-        // rules is a configuration you keep rather than a result a scan turned up.
+        // Four: `.rules` and `.storage` never carry a badge (`carriesBadge` is false).
         #expect(OrganizeLens.allCases.count { Self.counts.badge($0) != nil } == 4)
         // And each one carries its own list's size rather than some shared truthy marker.
         for lens in OrganizeLens.allCases where lens.carriesBadge {
@@ -49,7 +43,7 @@ import Foundation
     }
 
     @Test func aZeroDrawsNoBadge() {
-        // The surviving half of the chips' argument: absent at zero, never a greyed "0".
+        // Absent at zero, never a greyed "0".
         let none = LensWorkspaceView.RailCounts()
         #expect(OrganizeLens.allCases.allSatisfy { none.badge($0) == nil })
         let one = LensWorkspaceView.RailCounts(toFile: 1)
@@ -71,20 +65,15 @@ import Foundation
         #expect(OrganizeLens.allCases.allSatisfy { d[$0] == 0 })
     }
 
-    /// **"Clean" on the folded item vouches for BOTH of its lists.** The badge sums
-    /// `renames + names` (the subscript above), and the two halves are filled by different
-    /// passes — rename plans by the filing walk, risky names by `detectRiskyNames`, which that
-    /// walk runs only when a name ruleset is supplied. So the folded item is scanned only when
-    /// both halves ran; one half alone must read "not scanned", never "nothing here".
+    /// "Clean" on Renames vouches for both of its lists. The badge sums `renames + names`, filled
+    /// by different passes: rename plans by the filing walk, risky names by `detectRiskyNames`,
+    /// which that walk runs only with a name ruleset. One half alone reads "not scanned", never
+    /// "nothing here". Only "both halves ran", which can underclaim but never overclaim, passes all
+    /// four.
     ///
-    /// The two half-fixtures discriminate the candidate rules: under "the rename half ran" the
-    /// first passes and the second fails; under "either half ran" both fail; only "both halves
-    /// ran" — the rule that can underclaim but never overclaim — answers all four.
-    ///
-    /// A half-run fold is not a corner: the filing walk publishes the rename plans and the risky
-    /// names before it sets `hasSuggestedFiling`, so every scan passes through this cell and a
-    /// cancel leaves it there. `OrganizeOverviewWiringTests` pins that the overview card answers
-    /// the cell the same way this badge does.
+    /// Every scan passes through this half-run state, since the walk publishes both lists before it
+    /// sets `hasSuggestedFiling`, and a cancel leaves it there. `OrganizeOverviewWiringTests` pins
+    /// that the overview card answers it the same way.
     @Test func theFoldedItemIsNotCleanUntilBothHalvesHaveRun() {
         var counts = LensWorkspaceView.RailCounts()
         counts.scanned = [.renames]      // filing walk ran without a name ruleset
@@ -102,16 +91,10 @@ import Foundation
         #expect(counts.state(.renames) == .reporting(3))
     }
 
-    /// **The backlog's readout counts the same list its badge does.**
-    ///
-    /// `126 + 3` is the badge's number, and the readout's denominator was the bare `renames` field:
-    /// one screen with a badge saying 129, a readout saying "of 126", and a list holding both kinds
-    /// of row. The subscript is what makes them one number, so the readout has to go through it.
-    ///
-    /// Source-level, because the numerals themselves are a `Text` in a header that no test can read
-    /// back — pixels can see that a readout is there, never what it says. `LensHeaderReadoutTests`
-    /// covers the *rows* half of the same fix by render; this is the denominator half, and the two
-    /// together are why a source scan is worth having here rather than being the whole story.
+    /// The backlog's readout counts the same list its badge does, through the subscript, or the
+    /// badge says 129 beside a readout saying "of 126". Source-level, because the numerals are a
+    /// `Text` in a header no test can read back. `LensHeaderReadoutTests` covers the rows half by
+    /// render; this is the denominator half.
     @Test func theBacklogReadoutUsesTheFoldedTotal() throws {
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {",

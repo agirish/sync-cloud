@@ -1,7 +1,7 @@
 import Foundation
 @testable import FileExplorer
 
-// **The tests write buffers as `String`s**; the edits take the text view's `NSString` storage, so
+// The tests write buffers as `String`s while the edits take the text view's `NSString` storage, so
 // these overloads live here rather than in the shipped code.
 
 extension MarkdownSplice {
@@ -27,8 +27,8 @@ extension MarkdownListEdits {
     }
 }
 
-/// **Files outside this package that Edit's paste and drop make claims in** — the app's wiring and
-/// its Help, under `MacApp/`, which no package test otherwise reads. Read from this file's own path.
+/// Files outside this package that Edit's paste and drop make claims in: the app's wiring and its
+/// Help, under `MacApp/`, which no package test otherwise reads. Found from this file's own path.
 enum EditRepoFile {
     static func text(_ relative: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)

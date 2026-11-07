@@ -1,31 +1,28 @@
 import Foundation
 import Observation
 
-/// Runs a menu's cloud reads — Download's `lstat`, Keep Downloaded's `getxattr`s, the File Provider
-/// domain of `~/Desktop` and `~/Documents` — off the main thread, and waits for them only so long.
+/// Runs a menu's cloud reads (Download's `lstat`, Keep Downloaded's `getxattr`s, the File Provider
+/// domain of `~/Desktop` and `~/Documents`) off the main thread, and waits for them only so long.
 ///
-/// **Why.** Those reads land inside a File Provider domain, and a wedged provider holds them:
-/// `xattr -l ~/Documents` blocked for more than 8 s on 2026-07-30, which is why the Details sidebar
-/// reads off main (`DetailsMetadataCache`). The row menu asks them on the main thread while it is
-/// being built — measured 2026-10-28 on macOS 27: not with every row render, but at a row's first
-/// right-click, before the menu appears, and from then on whenever that row renders again. On a
-/// wedged provider a right-click froze the app.
+/// Those reads land inside a File Provider domain, and a wedged provider can hold them for seconds
+/// (the reason the Details sidebar reads off main, `DetailsMetadataCache`). The row menu asks them
+/// on the main thread while it is built, at a row's first right-click and whenever that row renders
+/// again, so on a wedged provider an unbounded read would freeze the app.
 ///
-/// **A bounded wait rather than a memo**, so the menu shows exactly what it showed before: the
-/// answer as of the moment it is built, read fresh. A healthy read answers in microseconds and the
-/// wait never shows. Only a read that outlives `deadline` changes anything: the menu is built
-/// without the items that needed it, which is the truth — nothing could be found out — where the
-/// app used to hang.
+/// A bounded wait rather than a memo, so the menu shows the answer as of the moment it is built. A
+/// healthy read answers in microseconds and the wait never shows; a read that outlives `deadline`
+/// builds the menu without the items that needed it, which is the truth: nothing could be found
+/// out.
 ///
-/// **One stuck read stops every later one.** It is left to finish on its own, and until it does,
-/// `run` answers nil at once without starting another, so a wedge costs one `deadline` and one
-/// thread rather than one of each per menu. Every provider shares `fileproviderd`, so a wedge in one
-/// is rarely a wedge in one alone, and a local row never needs a read to answer. When the stuck read
-/// returns, `recoveries` moves, and every menu built without its answer is built again.
+/// One stuck read stops every later one: it is left to finish, and until it does `run` answers nil
+/// at once, so a wedge costs one `deadline` and one thread, not one of each per menu. Every
+/// provider shares `fileproviderd`, so a wedge is rarely in one provider alone, and a local row
+/// never needs a read. When the stuck read returns, `recoveries` moves and every menu built without
+/// its answer is built again.
 ///
-/// Its own queue, never the cooperative pool (`DetailsMetadataCache.ioQueue` has the reason). Serial,
-/// because no more than one read is ever outstanding: the caller waits for each, and none starts
-/// while one is stuck. User-interactive, because the main thread is what waits on it.
+/// Its own queue, never the cooperative pool (`DetailsMetadataCache.ioQueue` has the reason).
+/// Serial, because at most one read is ever outstanding. User-interactive, because the main thread
+/// is what waits on it.
 @MainActor @Observable
 final class BoundedCloudRead {
     /// The one every menu shares. 200 ms, under the 250 ms at which macOS counts a hang.
@@ -59,7 +56,7 @@ final class BoundedCloudRead {
             done.signal()
         }
         if done.wait(timeout: .now() + deadline) == .success { return slot.value }
-        // Timed out — unless the read landed between the wait giving up and here.
+        // Timed out, unless the read landed between the wait giving up and here.
         if let value = slot.abandon() { return value }
         isStuck = true
         _ = recoveries

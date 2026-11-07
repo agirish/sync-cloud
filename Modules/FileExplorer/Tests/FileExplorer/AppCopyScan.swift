@@ -1,14 +1,13 @@
 import Foundation
 
-/// **The app's words, read from every source file at once** — `MacApp/` and every package's
-/// `Sources/` — for the copy rules that hold app-wide: curly apostrophes and quotes and US spelling
-/// (TE129, ST16, ST17) and Title Case in menus (TE126, BR9). The rules began as scans of Edit's
-/// files and Help; strings everywhere else drifted past them.
+/// The app's words, read from every source file at once (`MacApp/` and every package's
+/// `Sources/`), for the copy rules that hold app-wide: curly apostrophes and quotes, US spelling,
+/// and Title Case in menus and on buttons.
 ///
 /// Comments (`//` and `/* */`) are stripped first, string-aware, so a URL in a string survives and
-/// a quoted string in a comment does not count. Log statements are skipped — their words are read
-/// by us, not by the person using the app — and what is left that is still not the person's to
-/// read is named in ``exemptions``, each with its reason.
+/// a quoted string in a comment doesn't count. Log statements are skipped, since their words are
+/// read by us, not the person using the app; anything else not meant for that person is named in
+/// ``exemptions``, each with its reason.
 enum AppCopyScan {
 
     struct Literal {
@@ -20,10 +19,10 @@ enum AppCopyScan {
         var fileName: String { (path as NSString).lastPathComponent }
     }
 
-    /// A string the scans must leave alone: in `file` — a path from the repository root, since one
-    /// file name can be two files (`FilingClassifier.swift` is in `MacApp` and in Sync) — any
-    /// flagged literal that contains `contains`, or every one in the file, where `contains` is
-    /// empty. A whole-file exemption hides whatever is written there next, so prefer a fragment.
+    /// A string the scans must leave alone: in `file` (a path from the repository root, since one
+    /// file name can be two files), any flagged literal that contains `contains`, or every one in
+    /// the file when `contains` is empty. A whole-file exemption hides whatever is written there
+    /// next, so prefer a fragment.
     struct Exemption {
         let file: String
         let contains: String
@@ -37,10 +36,10 @@ enum AppCopyScan {
     // MARK: The rules
 
     /// A straight apostrophe inside a word ("can't"), after a plural ("files' names"), or after an
-    /// interpolation ("\(name)'s") — where the character before it is the interpolation's `)`.
+    /// interpolation ("\(name)'s"), where the character before it is the interpolation's `)`.
     static let straightApostrophe = try! NSRegularExpression(
         pattern: #"[A-Za-z]'[A-Za-z]|[a-z]'(?=[\s.,;:!?)—–"])|\)'[A-Za-z]"#)
-    /// An escaped straight double quote — `\"` after an even run of backslashes.
+    /// An escaped straight double quote: `\"` after an even run of backslashes.
     static let straightQuote = try! NSRegularExpression(pattern: #"(?<!\\)(?:\\\\)*\\""#)
     /// British spellings, as whole words, any case. ("towards" is not one: US English writes it
     /// too.)
@@ -88,7 +87,7 @@ enum AppCopyScan {
     }
 
     /// The literals a person reads that break `rule`, outside log statements and outside
-    /// `exemptions`. `sentencesOnly` keeps to literals with a space in them — for the quote rule,
+    /// `exemptions`. `sentencesOnly` keeps to literals with a space in them, for the quote rule,
     /// where a key or a JSON fragment would drown it. The apostrophe and spelling rules read every
     /// literal: a lone "person's" is a word on screen, and the only space-less straight
     /// apostrophes in the app are date formats (`"yyyy-MM-dd'T'HH"`), exempt by name.
@@ -104,7 +103,7 @@ enum AppCopyScan {
         }
     }
 
-    /// The exemptions in `list` that no longer cover anything `rule` flags — stale, so they would
+    /// The exemptions in `list` that no longer cover anything `rule` flags: stale, so they would
     /// hide the next string written there.
     static func staleExemptions(_ list: [Exemption], rule: NSRegularExpression,
                                 sentencesOnly: Bool = true) throws -> [Exemption] {
@@ -196,12 +195,12 @@ enum AppCopyScan {
     // MARK: Title Case in menus
 
     /// Words Title Case leaves lowercase after the first: articles, conjunctions and the short
-    /// prepositions — "Find Duplicates of This", "Copy to…", as the menu bar writes them.
+    /// prepositions: "Find Duplicates of This", "Copy to…", as the menu bar writes them.
     static let minorWords: Set<String> = ["a", "an", "and", "as", "at", "but", "by", "for", "from", "in",
                                           "into", "nor", "of", "on", "onto", "or", "the", "to", "via", "with", "vs"]
 
     /// Whether `title` (a literal's body) is in Title Case. An interpolation is a word of its own
-    /// that is — but not the end of one written beside it: "famil\(…)" is a lowercase word, so the
+    /// that is, but not the end of one written beside it: "famil\(…)" is a lowercase word, so the
     /// interpolation is set apart with spaces. A name whose capital comes second (iCloud, macOS) is
     /// capitalized as it is spelled.
     static func isTitleCase(_ title: String) -> Bool {
@@ -218,11 +217,11 @@ enum AppCopyScan {
     /// Menu items whose titles a person reads that are not in Title Case: the titles of `Button`,
     /// `Toggle`, `Label` and `Menu` written inside a `.contextMenu`, a `Menu`, a `CommandMenu` or
     /// `CommandGroup`, a type whose name ends in a menu or command word (the menu bar's content
-    /// views — not `CommandPalettePanel…`, which only starts with one) or conforming to `Commands`,
+    /// views, not `CommandPalettePanel…`, which only starts with one) or conforming to `Commands`,
     /// or a function or property named for a menu; inside those, a `Text` in a `label:` closure
     /// (`Button {} label: { Text("…") }`) and a `Text` tagged as a picker's option; and every
     /// `NSMenuItem(title:)` or other `…MenuItem(title:)`. A title is the first argument's literal,
-    /// or each branch of a ternary there — not a literal handed to a function that builds one, nor
+    /// or each branch of a ternary there; not a literal handed to a function that builds one, nor
     /// one held in a constant.
     static func menuTitleViolations(exemptions: [Exemption]) throws -> [Literal] {
         try sourceFiles().flatMap { menuTitleViolations(in: $0.code, path: $0.path) }
@@ -260,14 +259,12 @@ enum AppCopyScan {
 
     // MARK: Title Case on buttons
 
-    /// Buttons whose titles a person reads that are not in Title Case, anywhere in the app — Setup's
-    /// were made so (ST18), and Organize's cards, Restructure's and Duplicates' verbs and the rule
-    /// offer's Not Now followed (2026-10-26). A title is the first argument's literal of a
-    /// `Button(`, or each branch of a ternary there; the first literal of a `Label(` or `Text(` in
-    /// a button's label — the trailing closure of a `Button(action:)`, or its `label:` closure; and
-    /// a title handed to one of the app's own button builders, ``buttonTitleArguments``. Not a
-    /// `Toggle`, a `Link` or a `DisclosureGroup`: their words are sentence case. Multi-word literals
-    /// only, as the menu scan reads them.
+    /// Buttons whose titles a person reads that are not in Title Case, anywhere in the app. A title
+    /// is the first argument's literal of a `Button(`, or each branch of a ternary there; the first
+    /// literal of a `Label(` or `Text(` in a button's label (the trailing closure of a
+    /// `Button(action:)`, or its `label:` closure); and a title handed to one of the app's own
+    /// button builders, ``buttonTitleArguments``. Not a `Toggle`, a `Link` or a `DisclosureGroup`:
+    /// their words are sentence case. Multi-word literals only, as the menu scan reads them.
     static func buttonTitleViolations(exemptions: [Exemption]) throws -> [Literal] {
         try sourceFiles().flatMap { buttonTitleViolations(in: $0.code, path: $0.path) }
             .filter { literal in !exemptions.contains { $0.covers(literal) } }
@@ -404,9 +401,8 @@ enum AppCopyScan {
     }
 
     /// Words on a line that mark it as a log statement; a call they open runs on until its
-    /// parentheses close. **Whole tokens only**: as substrings, "log(" matched
-    /// `.confirmationDialog(`, `ProgressDialog(` and `.backlog(`, and the titles written there went
-    /// unread as if they were log lines.
+    /// parentheses close. Whole tokens only: as a substring, "log(" would match
+    /// `.confirmationDialog(` and `.backlog(` and skip the titles written there.
     static let logMarker = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z0-9_])(?:Logger\.|logger\.|log\(|logError|logMessage|logLine)"#)
 
@@ -495,7 +491,7 @@ enum AppCopyScan {
         return b.count
     }
 
-    /// `code` with its `//` and `/* */` comments blanked — newlines kept, so line numbers hold.
+    /// `code` with its `//` and `/* */` comments blanked, newlines kept so line numbers hold.
     static func strippedComments(_ code: String) -> String {
         let b = Array(code.utf8)
         var out: [UInt8] = []
@@ -552,7 +548,7 @@ enum AppCopyScan {
     private static let nsMenuItem = try! NSRegularExpression(pattern:
         #"\b\w*MenuItem\s*\(\s*title:\s*(?=")|addItem\s*\(\s*withTitle:\s*(?=")"#)
 
-    /// Each opener's start, and where its bracket — the one the match ends on — opens.
+    /// Each opener's start, and where its bracket (the one the match ends on) opens.
     private static func menuOpeners(in b: [UInt8]) -> [(opener: Int, body: Int)] {
         let text = String(decoding: b, as: UTF8.self)
         return menuOpener.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
@@ -563,7 +559,7 @@ enum AppCopyScan {
         }
     }
 
-    /// The close of the bracket at `start`, and of the trailing closure after it if one follows —
+    /// The close of the bracket at `start`, and of the trailing closure after it if one follows, so
     /// `Menu("Title") { … }` reads through to the content.
     private static func menuSpanEnd(_ b: [UInt8], from start: Int) -> Int {
         var end = closingBracket(b, from: start)
@@ -619,8 +615,8 @@ enum AppCopyScan {
         }
     }
 
-    /// The literals at the top level of the first argument after `start` — one, or a ternary's
-    /// two — unless that argument is labelled (`role:`, `action:`, `systemImage:` and the like).
+    /// The literals at the top level of the first argument after `start` (one, or a ternary's
+    /// two), unless that argument is labelled (`role:`, `action:`, `systemImage:` and the like).
     private static func firstArgumentTitles(_ b: [UInt8], from start: Int) -> [(Int, String)] {
         var i = start
         while i < b.count, b[i] == UInt8(ascii: " ") || b[i] == newline { i += 1 }

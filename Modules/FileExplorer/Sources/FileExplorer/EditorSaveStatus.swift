@@ -1,29 +1,25 @@
 import Design
 /// What the editor's header says about the document's relationship to the file.
 ///
-/// **A value rather than two computed properties on the view**, because the three states are one
-/// question asked twice — once for the words and once for the dot — and a view that resolved them
-/// separately could say "saved" beside a lit dot. It is also the only way to test the rule: the
-/// header itself needs a whole workspace around it to render.
+/// A value rather than two computed properties on the view, because the words and the dot answer
+/// one question, and resolving them separately could say "saved" beside a lit dot. It is also what
+/// makes the rule testable: the header needs a whole workspace to render.
 enum EditorSaveStatus: Equatable {
     /// Nothing can be written, so nothing is pending. A lossy decode, mostly.
     case readOnly
-    /// The buffer is ahead of the file — from the keystroke until the debounce elapses and the
-    /// write returns. **A real state, not a courtesy:** it is the window in which a crash costs
-    /// something, and saying "saved" through it would be a claim the app cannot support.
+    /// The buffer is ahead of the file, from the keystroke until the debounce elapses and the write
+    /// returns. A real state: a crash in this window loses work, so "saved" would be untrue.
     case unsaved
     /// The file matches the buffer.
     case saved
     /// Autosave has stopped and is not going to write until somebody settles it.
     case stopped(String)
-    /// The buffer is ahead of the file **and autosave is switched off for it**, so nothing is
-    /// coming to write it. Distinct from ``unsaved`` because the two ask different things of the
-    /// reader: one resolves itself in about two seconds, and this one waits for ⌘S.
+    /// The buffer is ahead of the file and autosave is off for it, so nothing is coming to write
+    /// it. Distinct from ``unsaved``, which resolves itself in about two seconds; this waits for ⌘S.
     case heldUnsaved
 
-    /// **A stop outranks dirtiness, and read-only outranks both.** A stopped document is dirty by
-    /// definition — that is the only reason a stop is interesting — so reporting "unsaved" there
-    /// would be the same fact in the less useful of its two spellings.
+    /// A stop outranks dirtiness, and read-only outranks both: a stopped document is dirty by
+    /// definition, so "unsaved" would say the same thing less usefully.
     static func resolve(isReadOnly: Bool, isDirty: Bool, stopped: String?,
                         autosaveOff: Bool = false) -> EditorSaveStatus {
         if isReadOnly { return .readOnly }
@@ -32,22 +28,15 @@ enum EditorSaveStatus: Equatable {
         return autosaveOff ? .heldUnsaved : .unsaved
     }
 
-    /// The word the header shows, or `nil` when there is nothing worth saying.
+    /// The word the header shows, or `nil` when there is nothing worth saying. A word appears only
+    /// where it changes what the reader must do:
     ///
-    /// **Optional, and that is the whole design of this line.** The header used to end in a word at
-    /// all times — `saved` while nothing was happening, `unsaved` for the two seconds after a
-    /// keystroke — which put a label on the two states that need no label and made the two that do
-    /// look like more of the same. A word appears here only where it changes what the reader must
-    /// do about it:
-    ///
-    /// - **`saved`** is gone. It was reassurance nobody should take on trust: the header said it
-    ///   whether or not anything had ever been written. The dot going out is the evidence.
-    /// - **`unsaved`** is gone *for the ordinary case*. Autosave is coming in about two seconds, so
-    ///   the dot is the whole story and a word implies a decision that is not being asked for.
-    /// - **`unsaved — ⌘S`** stays, because autosave is switched off for this file and the reader is
-    ///   now the one who has to act.
-    /// - **A stop** stays, because it is exceptional and the reason is what settles it.
-    /// - **`read only`** stays, because saving is not on offer at all.
+    /// - `saved`: no word. The dot going out is the evidence.
+    /// - `unsaved`: no word in the ordinary case; autosave comes in about two seconds, and the dot
+    ///   says it.
+    /// - `unsaved — ⌘S`: autosave is off for this file, so the reader has to act.
+    /// - A stop: exceptional, and its reason is what settles it.
+    /// - `read only`: saving isn't on offer at all.
     var word: String? {
         switch self {
         case .readOnly: return "read only"
@@ -57,8 +46,8 @@ enum EditorSaveStatus: Equatable {
         }
     }
 
-    /// Whether the dot beside the file name is drawn at all. **Off for `saved` and for `readOnly`**
-    /// — one because there is nothing pending, the other because there never will be.
+    /// Whether the dot beside the file name is drawn at all: off for `saved`, with nothing pending,
+    /// and for `readOnly`, where nothing ever will be.
     var showsDot: Bool {
         switch self {
         case .saved, .readOnly: return false
@@ -73,12 +62,9 @@ enum EditorSaveStatus: Equatable {
         return false
     }
 
-    /// **What VoiceOver calls the dot — the header's and the rail's alike (ED10)**: a stop is "Not
-    /// saving", the ordinary pending write "Not saved yet". The rail said "Unsaved" for both, so a
-    /// stopped autosave read there as the two seconds of an ordinary keystroke.
-    ///
-    /// **A held file says what its header's word says** (EP3) — "unsaved — ⌘S", which is to say
-    /// nothing is coming to write it. "Not saved yet" promised an autosave that is off for it.
+    /// What VoiceOver calls the dot, the header's and the rail's alike: a stop is "Not saving", an
+    /// ordinary pending write "Not saved yet", so the two don't sound alike. A held file says, as
+    /// its header's word does, that ⌘S saves it; "Not saved yet" would promise an autosave.
     var dotName: String {
         switch self {
         case .stopped: return "Not saving"

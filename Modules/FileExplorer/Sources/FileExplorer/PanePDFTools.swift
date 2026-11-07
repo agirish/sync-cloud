@@ -11,11 +11,11 @@ public struct PanePDFToolHost {
     /// A copy landed at this path: the panes showing its folder re-read. A batch calls it once per
     /// folder it wrote into, not once per copy.
     public var didWrite: (String) -> Void
-    /// The banner's Open — the copy in Edit.
+    /// The banner's Open: the copy in Edit.
     public var open: (String) -> Void
-    /// The banner's Reveal in Browse — the one copy, or a batch's copies.
+    /// The banner's Reveal in Browse: the one copy, or a batch's copies.
     public var reveal: ([String]) -> Void
-    /// Download, for a file only in the cloud now (TE185) — Edit's own.
+    /// Download, for a file now only in the cloud: Edit's own.
     public var download: (String) -> Void
 
     public init(didWrite: @escaping (String) -> Void = { _ in },
@@ -29,39 +29,36 @@ public struct PanePDFToolHost {
     }
 }
 
-/// **The PDF tools, run from a pane's row menu** — one window-level owner for whichever run the
-/// menu started last.
+/// The PDF tools, run from a pane's row menu: one window-level owner for the run the menu started
+/// last.
 ///
-/// **One file is Edit's own ``EditorPDFTools``**, a fresh instance attached to the row's path
-/// rather than to an open document: the same refusals, the same fidelity confirmation, the same
-/// sheets, the same copy writer and the same banner, so a Compress from Browse and a Compress
-/// from Edit's Tools menu are one code path. What the document's load reads before Edit's menu
-/// is offered — the page count and the protection — is read here the same way, in the lane, before
-/// any sheet opens.
+/// One file is Edit's own ``EditorPDFTools``, attached to the row's path instead of an open
+/// document, so a Compress from Browse and one from Edit's Tools menu share one code path (refusals,
+/// fidelity confirmation, sheets, copy writer, banner). The page count and protection are read in
+/// the lane before any sheet opens, as Edit's document load reads them.
 ///
-/// **Several files are an ``EditorPDFBatch``.** One run at a time across both: a second request
-/// while one is in flight is refused in the running one's banner, as Edit refuses one.
+/// Several files are an ``EditorPDFBatch``. One run at a time across both: a second request while
+/// one is in flight is refused in the running one's banner, as in Edit.
 @MainActor
 public final class PanePDFTools: ObservableObject {
 
     public enum Current {
         case single(EditorPDFTools)
         case batch(EditorPDFBatch)
-        /// Combine several into one, or split one into several (TE294).
+        /// Combine several into one, or split one into several.
         case combineSplit(EditorPDFCombineSplit)
     }
 
-    /// The run the window shows — its sheet, its progress, its banner.
+    /// The run the window shows: its sheet, its progress, its banner.
     @Published public private(set) var current: Current?
     /// Set by the window before each request.
     public var host = PanePDFToolHost()
-    /// Between a request and its lane read — a second request then is refused too.
+    /// Between a request and its lane read, when a second request is refused too.
     private var preparing = false
-    /// The request's own work — the lane read and, for Rotate, the run. Kept so a test can await
-    /// it; nothing in the app does.
+    /// The request's own work: the lane read and, for Rotate, the run. Kept so a test can await it.
     private(set) var work: Task<Void, Never>?
-    /// Whether a file's bytes are still only in the cloud, asked again when the request is made —
-    /// a test's to answer.
+    /// Whether a file's bytes are still only in the cloud, asked again at request time. Injectable
+    /// for tests.
     var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
 
     public init() {}
@@ -69,24 +66,22 @@ public final class PanePDFTools: ObservableObject {
     public var isBusy: Bool {
         if preparing { return true }
         switch current {
-        // A sheet that is up and not yet run counts: the menu bar's File ▸ PDF Tools stays live
-        // over it, and a second request replaced `current` — taking the sheet, and the password
-        // half-typed into it, down with it.
+        // A sheet that is up and not yet run counts: File ▸ PDF Tools stays live over it, and a
+        // second request would replace `current`, taking down the sheet and any half-typed password.
         case .single(let tools): return tools.running != nil || tools.sheet != nil
-        // A batch's sheet is up from the request until its run starts; the run itself is in the
-        // capsule (CH).
+        // A batch's sheet is up from the request until its run starts; the run itself shows in
+        // the capsule.
         case .batch(let batch): return batch.isRunning || batch.showsSheet
         case .combineSplit(let run): return run.isRunning || run.showsSheet || run.isPreparing
         case nil: return false
         }
     }
 
-    /// **⌘Q asks about a pane's run too**, as it asks about the open PDF's — a batch part-way, a
-    /// Compress in its lane, or a sheet with a password half-typed was ended with no question.
-    /// It only asks, as the open PDF's question does: a later question in the quit can still keep
-    /// the app running, and the run must still be there if it does. The quit itself ends it; copies
-    /// already written stay, a copy part-written is a staged file the orphan sweep takes, and the
-    /// originals are untouched.
+    /// ⌘Q asks about a pane's run too, as about the open PDF's: a batch part-way, a Compress in its
+    /// lane, or a sheet with a half-typed password. It only asks: a later question in the quit can
+    /// still keep the app running, and the run must survive that. The quit itself ends it; written
+    /// copies stay, a part-written one is a staged file the orphan sweep takes, and the originals are
+    /// untouched.
     public func mayQuit() -> Bool {
         guard isBusy else { return true }
         let go = confirmQuit()
@@ -95,7 +90,7 @@ public final class PanePDFTools: ObservableObject {
         return go
     }
 
-    /// Asks whether to quit over a run — a native alert in the app, a canned answer in a test.
+    /// Asks whether to quit over a run: a native alert in the app, a canned answer in a test.
     var confirmQuit: @MainActor () -> Bool = { PanePDFTools.confirmQuitWithAlert() }
 
     static let quitQuestion = (title: "Stop PDF Tools and quit?",
@@ -103,13 +98,13 @@ public final class PanePDFTools: ObservableObject {
                                    + "Quitting stops it; copies it has already written stay. The original files are unchanged either way.",
                                go: "Stop and Quit")
 
-    /// Esc cancels and Return does nothing, as in the open PDF's (TE184).
+    /// Esc cancels and Return does nothing, as in the open PDF's.
     static func quitAlert() -> NSAlert { EditorPDFTools.leaveAlert(quitQuestion) }
 
     static func confirmQuitWithAlert() -> Bool { quitAlert().runModal() == .alertFirstButtonReturn }
 
-    /// The request a row's menu made, over `paths` — one file, or several for the three tools
-    /// that run over several. `writer` names the workspace in the log ("PDF Tools in Browse").
+    /// The request a row's menu made, over `paths`: one file, or several for the tools that run
+    /// over several. `writer` names the workspace in the log ("PDF Tools in Browse").
     public func start(_ request: PDFToolRequest, paths: [String], writer: String) {
         guard !paths.isEmpty, paths.count == 1 || request.runsOnSeveral else { return }
         guard !isBusy else {
@@ -161,8 +156,7 @@ public final class PanePDFTools: ObservableObject {
         tools.host = EditorPDFToolHost(didWrite: host.didWrite, open: host.open, reveal: { host.reveal([$0]) },
                                        download: host.download)
         current = .single(tools)
-        // Evicted since the menu was built: PDFKit opening the placeholder would download it,
-        // which nobody asked for.
+        // Evicted since the menu was built: PDFKit opening the placeholder would download it.
         if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
             tools.banner = EditorPDFToolBanner(
                 message: EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent),
@@ -180,10 +174,9 @@ public final class PanePDFTools: ObservableObject {
         }
     }
 
-    /// Attaches the file as the lane read it, then raises the sheet the request names — or says,
-    /// in the banner, why the request no longer fits the file. The menu read the protection from
-    /// CoreGraphics when it was built; the file may have changed since, and this is the answer that
-    /// decides.
+    /// Attaches the file as the lane read it, then raises the sheet the request names, or says in
+    /// the banner why the request no longer fits. The menu's CoreGraphics read may be stale; this
+    /// answer decides.
     static func offer(_ request: PDFToolRequest, on tools: EditorPDFTools, path: String,
                       probe: EditorPDFToolEngine.Probe) {
         let name = (path as NSString).lastPathComponent
@@ -220,18 +213,18 @@ public final class PanePDFTools: ObservableObject {
 
     // MARK: From a request (TE294)
 
-    /// **A whole tool, asked for with its options already chosen** — by an Ask Claude card, with
-    /// no menu, no sheet and no alert. The same probe, the same instance kind and the same run as a
-    /// menu's, on ``current``, so it is busy, in the capsule and asked about at ⌘Q like any other.
+    /// A whole tool with its options already chosen, from an Ask Claude card: no menu, sheet or
+    /// alert. The same probe and run as a menu's, on ``current``, so it is busy, in the capsule and
+    /// asked about at ⌘Q like any other.
     ///
-    /// What the menu's ``offer(_:on:path:probe:)`` refuses is refused here too, in its words: the
-    /// run itself does not check a file's protection. `expecting` is the stamp the asker read: a
-    /// file that changed since is refused, in words that promise no reload. `allow` answers the
-    /// form question the alert would have asked — whether the loss the run found is the one the
-    /// asker showed. The copy goes into `folder` when given, else beside the original.
+    /// What ``offer(_:on:path:probe:)`` refuses is refused here too, in its words, since the run
+    /// itself doesn't check protection. `expecting` is the stamp the asker read; a file changed
+    /// since is refused, in words that promise no reload. `allow` answers the alert's question:
+    /// whether the loss the run found is the one the asker showed. The copy goes into `folder` when
+    /// given, else beside the original.
     ///
-    /// The ending never reaches ``PanePDFSingleLayer``: it goes to `completion`. A menu request
-    /// while this runs is refused in the pane, as it is during any run.
+    /// The ending goes to `completion`, never ``PanePDFSingleLayer``. A menu request meanwhile is
+    /// refused in the pane, as during any run.
     public func startFromChat(_ tool: EditorPDFTool, path: String, folder: String? = nil,
                               expecting: EditorFileStore.Stamp?, writer: String,
                               allow: @escaping @MainActor (OutputFidelityWarning) -> Bool,
@@ -275,7 +268,7 @@ public final class PanePDFTools: ObservableObject {
         }
     }
 
-    /// **Several files, one whole-file tool** — a batch asked for by a request, as
+    /// Several files, one whole-file tool: a batch asked for by a request, as
     /// ``startFromChat(_:path:folder:expecting:writer:allow:completion:)`` is for one. `expecting`
     /// holds each file's stamp as the asker read it; `allow` answers the batch's one form question.
     public func startBatchFromChat(_ tool: EditorPDFBatchTool, paths: [String], folder: String? = nil,
@@ -313,10 +306,10 @@ public final class PanePDFTools: ObservableObject {
         }
     }
 
-    /// **Combine or Split, asked for by a request** — the menu's run with the sheet's choices
-    /// already made: Combine's files in their order under `name`, Split's parts starting at
-    /// `splitAt` (one-based). No sheet; the ending goes to `completion`. `expecting` holds each
-    /// file's stamp as the asker read it.
+    /// Combine or Split asked for by a request: the menu's run with the sheet's choices made
+    /// (Combine's files in order under `name`, Split's parts starting at one-based `splitAt`). No
+    /// sheet; the ending goes to `completion`. `expecting` holds each file's stamp as the asker read
+    /// it.
     public func startCombineSplitFromChat(_ job: EditorPDFCombineSplit.Job, name: String? = nil, splitAt: [Int] = [],
                                           folder: String? = nil,
                                           expecting: [String: EditorFileStore.Stamp], writer: String,
@@ -375,8 +368,8 @@ public final class PanePDFTools: ObservableObject {
                             detail: said?.detail, download: said?.download)
     }
 
-    /// What the menu's ``offer(_:on:path:probe:)`` refuses, for a whole tool on an attached file —
-    /// `nil` when it may run. Fill & Sign is Edit's alone: it is never asked for from a request.
+    /// What ``offer(_:on:path:probe:)`` refuses, for a whole tool on an attached file; `nil` when it
+    /// may run. Fill & Sign is Edit's alone, never run from a request.
     static func refusal(_ tool: EditorPDFTool, on tools: EditorPDFTools, name: String) -> String? {
         switch tool {
         case .rotate, .deletePages, .reorder, .extract, .compress, .arranged:
@@ -468,9 +461,8 @@ public final class PanePDFTools: ObservableObject {
         batch.host = host
         batch.isCloudOnly = isCloudOnly
         current = .batch(batch)
-        // Rotate asks nothing, so it opens no sheet: its run goes straight to the capsule (CH).
-        // Busy from now, not from its first turn — with no sheet up to say so, a second request in
-        // between would replace it.
+        // Rotate asks nothing, so it opens no sheet and runs straight into the capsule. Busy from
+        // now, not its first turn: with no sheet up, a second request in between would replace it.
         if case .rotate(let turns) = kind {
             preparing = true
             work = Task { @MainActor in
@@ -485,21 +477,17 @@ public final class PanePDFTools: ObservableObject {
 
 // MARK: - The window's half
 
-/// **Where a pane-launched run shows itself**: its sheet over the window, its progress at the foot
-/// of the window — the same ``EditorPDFToolSheetView`` and the same strip Edit's card draws — and
-/// its ending as the pane's result message (Banner Room, TE207): each banner the run sets is handed
-/// to `onResult` as a ``PaneToolResult`` and taken off the model, so the foot only ever shows a run
-/// in progress.
+/// Where a pane-launched run shows itself: its sheet over the window (Edit's own
+/// ``EditorPDFToolSheetView``), its progress in the toolbar's capsule, and its ending as the pane's
+/// result message. Each banner the run sets is handed to `onResult` as a ``PaneToolResult`` and
+/// taken off the model.
 ///
-/// **A real `.sheet`, not an entry in the window's overlay chain.** The chain is a priority list
-/// of full-window panels that yield to one another — Settings or Help opening covers whatever is
-/// below it, and that one comes back when they close. A tool's sheet must not yield: its run is in
-/// the lane, and its Cancel is the only way to stop it. A sheet is window-modal, so nothing can
-/// cover it mid-run, and it is what Edit already presents these exact views in, so they look the
-/// same from a pane as from Edit's Tools menu.
+/// A real `.sheet`, not an entry in the window's overlay chain, whose full-window panels yield to
+/// one another (Settings or Help covers what's below). A tool's sheet must not yield: its Cancel is
+/// the only way to stop a run in the lane. A sheet is window-modal, and it's what Edit presents
+/// these views in, so they look the same from a pane.
 ///
-/// **Save as PDF's progress stands above the tools' in the same column** (``PaneSaveAsPDFLayer``),
-/// so the two never draw over each other at the window's foot.
+/// Save as PDF's layer (``PaneSaveAsPDFLayer``) is stacked in the same column above the tools'.
 public struct PanePDFToolsPresenter: ViewModifier {
     let model: PanePDFTools
     let saveAsPDF: PaneSaveAsPDF?
@@ -526,8 +514,8 @@ public struct PanePDFToolsPresenter: ViewModifier {
     }
 }
 
-/// Observes the window's model — the window itself does not, so a run's progress re-renders this
-/// layer and nothing above it.
+/// Observes the window's model, which the window itself doesn't, so a run's progress re-renders
+/// this layer and nothing above it.
 struct PanePDFToolsLayer: View {
     @ObservedObject var model: PanePDFTools
     let accent: Color
@@ -549,7 +537,7 @@ struct PanePDFToolsLayer: View {
 
 struct PanePDFSingleLayer: View {
     @ObservedObject var tools: EditorPDFTools
-    /// The window's doors, which reveal a list — `tools.host` is Edit's, which reveals one path.
+    /// The window's doors, which reveal a list; `tools.host` is Edit's, which reveals one path.
     let host: PanePDFToolHost
     let accent: Color
     let onResult: (PaneToolResult) -> Void
@@ -558,12 +546,11 @@ struct PanePDFSingleLayer: View {
         // A stack rather than a `Group`: with nothing to say a `Group` is no view at all, and the
         // sheet below would have nothing to hang from.
         VStack(spacing: 0) {
-            // Nothing drawn here: a run in flight shows in the toolbar's capsule with its Stop (TE207,
-            // ``RunCapsuleHost``), and its ending is the pane's result message, handed over below.
+            // Nothing drawn here: a run in flight shows in the toolbar's capsule with its Stop
+            // (``RunCapsuleHost``), and its ending is the pane's result message, handed over below.
         }
-        // `initial`: a banner set before this layer mounted — a cloud-only file refused in the same
-        // turn the run was made — is handed over too. Cleared once handed, so a remount cannot
-        // post it twice.
+        // `initial`: a banner set before this layer mounted (a cloud-only file refused in the same
+        // turn) is handed over too. Cleared once handed, so a remount can't post it twice.
         .onChange(of: tools.banner, initial: true) { _, banner in
             guard let banner else { return }
             onResult(PaneToolResult(banner, host: host))
@@ -583,9 +570,9 @@ struct PanePDFBatchLayer: View {
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {
-        // A stack rather than a `Group`, for the sheet's sake — see ``PanePDFSingleLayer``. The sheet
-        // asks its question and closes; the run shows in the toolbar's capsule (CH), and its ending
-        // is the pane's result message.
+        // A stack rather than a `Group`, for the sheet's sake (see ``PanePDFSingleLayer``). The sheet
+        // asks its question and closes; the run shows in the toolbar's capsule, and its ending is the
+        // pane's result message.
         VStack(spacing: 0) {}
         .onChange(of: batch.banner, initial: true) { _, banner in
             guard let banner else { return }
@@ -596,7 +583,7 @@ struct PanePDFBatchLayer: View {
             Color.clear.sheet(isPresented: $batch.showsSheet) {
                 EditorPDFBatchSheet(batch: batch)
                     .padding(20)
-                    // A floor, not a fixed width — the tool sheets' own (TE134).
+                    // A floor, not a fixed width, like the tool sheets.
                     .frame(minWidth: EditorPDFBatchSheet.minWidth, idealWidth: EditorPDFBatchSheet.idealWidth)
                     // No `.accentedProminent()` here: a root tint draws every bordered button's
                     // words in the fill. The sheet's default button takes it itself.
@@ -606,8 +593,8 @@ struct PanePDFBatchLayer: View {
     }
 }
 
-/// Combine's and Split's sheet over the window, and their ending as the pane's result message — the
-/// batch's shape (``PanePDFBatchLayer``).
+/// Combine's and Split's sheet over the window, and their ending as the pane's result message, in
+/// the batch's shape (``PanePDFBatchLayer``).
 struct PanePDFCombineSplitLayer: View {
     @ObservedObject var run: EditorPDFCombineSplit
     let onResult: (PaneToolResult) -> Void
@@ -630,8 +617,8 @@ struct PanePDFCombineSplitLayer: View {
     }
 }
 
-/// A run's progress strip's backing at the window's foot — Edit's row draws on the card's own
-/// surface; here it floats over the panes, so it carries its own, at the scale's floating-card radius.
+/// A progress strip's backing at the window's foot. Edit's row draws on the card's surface; here
+/// it floats over the panes, so it carries its own, at the floating-card radius.
 struct PanePDFToolCard<Content: View>: View {
     @ViewBuilder let content: Content
 

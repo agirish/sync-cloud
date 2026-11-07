@@ -7,8 +7,8 @@ public enum DifferenceRowMenu {
     /// One side of a difference that actually exists on disk, ready for per-side
     /// menu items (Reveal in Finder, Quick Look, Copy Path).
     public struct Side: Equatable, Sendable {
-        /// Pane's provider display name, already disambiguated by `PaneProviderNames`
-        /// when both panes show the same provider — safe to use as a ForEach id.
+        /// The pane's provider display name, already disambiguated by `PaneProviderNames` when
+        /// both panes show the same provider, so it is safe as a ForEach id.
         public let paneName: String
         /// Absolute filesystem path of the item on this side.
         public let path: String
@@ -25,8 +25,8 @@ public enum DifferenceRowMenu {
         existing(for: difference, paneNames: paneNames).map(\.side)
     }
 
-    /// The sides that exist, each with the scan's answer to "is it a folder" — one walk, so the
-    /// editor's filter below cannot pair a side with the other side's fact.
+    /// The sides that exist, each with the scan's answer to "is it a folder", in one walk so the
+    /// editor's filter can't pair a side with the other side's fact.
     private static func existing(for difference: FileDifference,
                                  paneNames: PaneProviderNames) -> [(side: Side, isDirectory: Bool)] {
         var sides: [(side: Side, isDirectory: Bool)] = []
@@ -42,21 +42,15 @@ public enum DifferenceRowMenu {
     }
 
     /// The sides of a difference that "Open in Edit" is offered for, left first: the sides that
-    /// exist, narrowed to files the Edit workspace opens — text, writable, and PDFs, read-only.
+    /// exist, narrowed to files the Edit workspace opens (text, writable; PDFs, read-only).
     ///
-    /// **The same predicate every other door asks** — `EditableText.opensInEdit(path:)`, the gate
-    /// the pane row menu, the Info inspector and File ▸ Open in Edit apply — so this list cannot
-    /// offer a file the editor would then refuse, nor withhold a `.md` or a PDF the rail would list.
+    /// Asks `EditableText.opensInEdit(path:)`, the gate the pane row menu, the Info inspector and
+    /// File ▸ Open in Edit apply, so this list matches what the editor accepts.
     ///
-    /// **A folder side offers nothing, whatever it is called.** The gate cannot tell a folder from a
-    /// file (it has no disk to ask; a directory named `notes.md` answers true), and its own doc
-    /// leaves that test to every caller that can have a directory in hand. The row carries the
-    /// scan's answer for each side (`leftIsDirectory` / `rightIsDirectory`), so each side is asked
-    /// on its own: a folder named like text is refused whether or not it is empty, and a
-    /// folder-versus-file row still offers its FILE side. It asked `enclosedItemCount` until
-    /// 2026-09-25, which is `nil` for an empty folder and set on both sides of a mismatch — so an
-    /// empty folder called `notes.md` was offered, and the real text file opposite a non-empty
-    /// folder was withheld.
+    /// A folder side offers nothing, whatever it is called: the gate can't tell a folder from a
+    /// file (a directory named `notes.md` answers true). Each side is checked by the scan's own
+    /// `leftIsDirectory` / `rightIsDirectory`, so an empty folder named like text is refused and a
+    /// folder-versus-file row still offers its file side.
     public static func editableSides(for difference: FileDifference, paneNames: PaneProviderNames) -> [Side] {
         existing(for: difference, paneNames: paneNames)
             .filter { !$0.isDirectory && EditableText.opensInEdit(path: $0.side.path) }
@@ -64,22 +58,14 @@ public enum DifferenceRowMenu {
     }
 
     /// The directions a row's own Copy to … items offer, right first as the bulk menu orders them:
-    /// each direction whose source side exists.
+    /// each direction whose source side exists. Offered on every row, held or not, since these are
+    /// where a held row's "choose which to keep" is made, and any row is the user's to copy either
+    /// way.
     ///
-    /// **Every row, not only a held one** (owner decision 2026-10-25). These began as the one place
-    /// a HELD row's "choose which to keep" is made — every bulk run leaves it out, and ⌘← / ⌘→ and
-    /// the Review card copy only the way its guess points — and a row with a clear direction is as
-    /// much the user's to copy either way. So: both directions for a pair that exists on both sides
-    /// (two files, a folder against a file, a name conflict), only the existing side for a row
-    /// missing on one side.
-    ///
-    /// **A row held as `.sourceIsSymbolicLink` offers neither.** The side its suggestion copies
-    /// FROM is a link, and a copy from it would write the link, so `syncFile` refuses that way and
-    /// its note says why. The other way copies from the side that is not a link — that copy would
-    /// be a real one, over the link — and is left out too, by choice: replacing a link with a file
-    /// is not a decision this menu makes. The engine checks the link only for the side its
-    /// suggestion copies from, so the item re-checks the side the user picked when it fires
-    /// (`row(_:copiedTo:isSymbolicLink:)`).
+    /// A row held as `.sourceIsSymbolicLink` offers neither: copying from the link would write the
+    /// link, and copying the other way would replace a link with a file, which this menu doesn't
+    /// decide. The engine checks only the suggested source, so the item re-checks the side the
+    /// user picked when it fires (`row(_:copiedTo:isSymbolicLink:)`).
     public static func copyDirections(for difference: FileDifference) -> [FileDifference.SyncAction] {
         guard difference.heldBack != .sourceIsSymbolicLink else { return [] }
         var directions: [FileDifference.SyncAction] = []
@@ -88,11 +74,10 @@ public enum DifferenceRowMenu {
         return directions
     }
 
-    /// Why a Copy to … item that fired has nothing to do — the banner's words — or nil when it can
-    /// go ahead. The item is resolved when it FIRES, against the live row: a rescan since the menu
-    /// opened can have settled the pair (the row is gone) or found a link on the side it would copy
-    /// from (the direction is no longer offered). Both returned silently, so a click did nothing
-    /// and said nothing (review E10).
+    /// Why a Copy to … item that fired has nothing to do (the banner's words), or nil when it can
+    /// go ahead. Resolved when it fires, against the live row: a rescan since the menu opened can
+    /// have settled the pair or found a link on the source side, and a click must never do nothing
+    /// silently.
     public static func copyRefusal(for live: FileDifference?, direction: FileDifference.SyncAction) -> String? {
         guard let live else { return "Nothing was copied — that row is no longer in the list" }
         guard copyDirections(for: live).contains(direction) else {
@@ -102,13 +87,12 @@ public enum DifferenceRowMenu {
     }
 
     /// The note a Copy to … item hands `syncFile` for its prompts when the user picked the way
-    /// AGAINST the engine's suggestion, or nil (review E4).
+    /// against the engine's suggestion, or nil.
     ///
-    /// An unheld row of two files that differ by date always suggests copying the newer over the
-    /// older — a tie, a missing date or a folder on one side is held (`FileDifference.heldBack`)
-    /// — so the other way overwrites the newer file. The confirmation and the collision prompt
-    /// read as they do for any replace, which is the one thing this copy is not. Same sentence the
-    /// Review card shows for a newer destination (`ReviewCardModel.newerDestinationSentence`).
+    /// An unheld row of two files differing by date always suggests newer over older (ties,
+    /// missing dates and folders are held, `FileDifference.heldBack`), so the other way overwrites
+    /// the newer file, and the prompts must say so. The sentence is the Review card's
+    /// (`ReviewCardModel.newerDestinationSentence`).
     static func newerDestinationNote(for live: FileDifference, copiedTo direction: FileDifference.SyncAction,
                                      paneNames: PaneProviderNames) -> String? {
         guard direction != live.action, live.heldBack == nil, live.type == .differentDates,
@@ -118,10 +102,9 @@ public enum DifferenceRowMenu {
     }
 
     /// The row a Copy to … item hands `syncFile`: `live` redirected the chosen way
-    /// (`FileDifference.redirected(to:)`), and held as `.sourceIsSymbolicLink` when the side it now
-    /// copies FROM is a link — so `syncFile` refuses it with the reason it gives every link row,
-    /// rather than writing the link over the real file. `isSymbolicLink` is asked of that side's
-    /// path and must not follow a final link.
+    /// (`FileDifference.redirected(to:)`), and held as `.sourceIsSymbolicLink` when its new source
+    /// is a link, so `syncFile` refuses it rather than writing the link over the real file.
+    /// `isSymbolicLink` is asked of that side's path and must not follow a final link.
     public static func row(_ live: FileDifference, copiedTo direction: FileDifference.SyncAction,
                            isSymbolicLink: (String) -> Bool) -> FileDifference {
         let row = live.redirected(to: direction)
@@ -144,16 +127,13 @@ public enum DifferenceRowMenu {
         FileSyncManager.isIgnoredPath(difference.relativePath, ignored: ignoredPaths)
     }
 
-    /// Toggles the difference's ignore entry. The target is `relativePath` — the exact
-    /// value `FileSyncManager.applyFilters()` matches differences against, and the same
-    /// focal-point-relative form the tree panes' ignore produces — so ignoring here
-    /// removes the row from the list and strikes it through in both trees.
+    /// Toggles the difference's ignore entry, keyed on `relativePath`: the value
+    /// `FileSyncManager.applyFilters()` matches and the form the tree panes' ignore produces, so
+    /// ignoring here removes the row from the list and strikes it through in both trees.
     ///
-    /// The ignored/not decision uses the same effective predicate as `isIgnored(_:ignoredPaths:)`
-    /// (which drives the Ignore/Include label), so a row covered only by an ancestor folder
-    /// entry un-ignores instead of pointlessly inserting its own path. Un-ignoring removes
-    /// every covering entry — the exact path and any ancestor — so the row actually
-    /// reappears in comparisons.
+    /// Decides with the same predicate as `isIgnored(_:ignoredPaths:)`, which drives the label, so
+    /// a row covered by an ancestor entry un-ignores. Un-ignoring removes every covering entry,
+    /// the path and any ancestor, so the row really reappears.
     public static func toggledIgnoredPaths(for difference: FileDifference, ignoredPaths: Set<String>) -> Set<String> {
         let path = difference.relativePath
         if FileSyncManager.isIgnoredPath(path, ignored: ignoredPaths) {

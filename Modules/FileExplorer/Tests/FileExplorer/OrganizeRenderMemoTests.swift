@@ -4,16 +4,13 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// **The boxes that stop Organize recomputing the same answer on every publish.**
+/// The boxes that stop Organize recomputing the same answer on every publish.
 ///
-/// `LensWorkspaceView` is handed about thirty fresh closures by its parent, so it is never equal
-/// to itself and SwiftUI re-runs `body` on every publish the manager makes. Two things hang off
-/// that: the counts and lists `body` derives (``LensWorkspaceView/RenderMemo``), and the plan
-/// sheet's memoized disk view, which `LensWorkspaceView` was minting fresh — and therefore EMPTY
-/// — inside its `.sheet` content closure (``RestructurePlanSheet/TreeBox``).
-///
-/// The rule both must satisfy is the same one: serve the stored answer only while the inputs are
-/// identical, and never a stale one.
+/// `LensWorkspaceView` gets about thirty fresh closures from its parent, so it never equals itself
+/// and SwiftUI re-runs `body` on every publish. Two caches hang off that: the counts and lists
+/// `body` derives (``LensWorkspaceView/RenderMemo``), and the plan sheet's memoized disk view,
+/// which must outlive the `.sheet` content closure (``RestructurePlanSheet/TreeBox``). Both serve
+/// the stored answer only while the inputs are identical, never a stale one.
 @MainActor
 @Suite struct OrganizeRenderMemoTests {
 
@@ -32,13 +29,13 @@ import Testing
 
         #expect(count(["a", "b", "c"]) == 3)
         #expect(builds == 2, "a changed key must rebuild")
-        // And back again — one slot, so the previous answer is gone rather than kept.
+        // And back again: one slot, so the previous answer is gone rather than kept.
         #expect(count(["a", "b"]) == 2)
         #expect(builds == 3)
     }
 
-    /// A memo whose value is `nil` still counts as computed — `scopeFolderCount` answers `Int?`,
-    /// and "no scope, so no count" is an answer, not an empty slot to fill again every render.
+    /// A memo whose value is `nil` still counts as computed: `scopeFolderCount` answers `Int?`, and
+    /// "no scope, so no count" is an answer, not an empty slot to refill every render.
     @Test func aMemoHoldsAnOptionalNilAsAnAnswer() {
         let memo = LensWorkspaceView.RenderMemo<String, Int?>()
         var builds = 0
@@ -48,8 +45,8 @@ import Testing
         #expect(builds == 1)
     }
 
-    /// The keys the rail and the scope chip are memoised on really do change when the thing they
-    /// describe changes — a key that ignored one of its inputs would serve a stale badge.
+    /// The rail and scope-chip keys change when what they describe changes; a key that ignored one
+    /// of its inputs would serve a stale badge.
     @Test func theRailKeyMovesWithEveryListItCounts() {
         func key(suggestions: [FilingSuggestion] = [], rules: Int = 0,
                  scopes: [OrganizeScope?] = [nil], root: String = "~") -> LensWorkspaceView.RailCountsKey {
@@ -65,9 +62,9 @@ import Testing
         #expect(key(root: "~/Documents") != key())
     }
 
-    /// The scope chip's count is a walk of every folder in the profile, so its key has to carry
-    /// the folder set — a key of scope-and-root alone would serve last survey's number after a
-    /// re-derive, which is precisely when the count changes.
+    /// The scope chip's count walks every folder in the profile, so its key carries the folder set.
+    /// A key of scope and root alone would serve the last survey's number after a re-derive, which
+    /// is exactly when the count changes.
     @Test func theScopeFolderKeyMovesWithTheProfilesFolders() {
         func entry(_ path: String) -> FolderProfileEntry {
             FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
@@ -88,10 +85,8 @@ import Testing
 
     // MARK: TreeBox
 
-    /// **The cache has to survive a re-render, which is the entire defect.** `memoized()`'s cache
-    /// lives as long as the view VALUE, and the parent built a fresh one inside its `.sheet`
-    /// content closure on every publish — so the sheet's documented memoisation never once hit in
-    /// the app.
+    /// The cache must survive a re-render. `memoized()`'s cache lives as long as the view value, so
+    /// a view built fresh inside the `.sheet` closure on every publish would never hit.
     @Test func theTreeBoxHoldsOneViewPerSubject() {
         let box = RestructurePlanSheet.TreeBox()
         var builds = 0
@@ -115,12 +110,9 @@ import Testing
     }
 }
 
-/// **The wiring the boxes above only help if the sheet actually uses**, pinned by source scan.
-///
-/// The unit tests next door prove `TreeBox` and the frozen plan behave; they cannot prove the
-/// sheet reads them. These are the same kind of assertion as
-/// `thePlanSheetWiringGoesThroughPlanDiskRoot` — the shipped defect it guards was likewise a call
-/// site, not a rule.
+/// The sheet wiring the boxes above depend on, pinned by source scan. The unit tests prove
+/// `TreeBox` and the frozen plan behave; only these prove the sheet reads them, like
+/// `thePlanSheetWiringGoesThroughPlanDiskRoot` does for its call site.
 @Suite struct RestructureSheetWiringTests {
 
     private func source(_ name: String) throws -> String {
@@ -143,11 +135,9 @@ import Testing
         }
     }
 
-    /// The review is frozen for the DURATION of a landing, not merely after it.
-    ///
-    /// A landing publishes up to ~101 gated progress ticks and each one re-renders the sheet;
-    /// with only the after-the-fact freeze in place, every tick re-ran the planner against a tree
-    /// the executor was in the middle of moving.
+    /// The review is frozen for the whole of a landing, not only after it. A landing publishes up
+    /// to ~101 progress ticks, each re-rendering the sheet, and each would re-run the planner
+    /// against a tree the executor is in the middle of moving.
     @Test func theReviewIsFrozenWhileTheLandingRuns() throws {
         let sheet = try source("RestructurePlanSheet.swift")
         #expect(sheet.contains("let plan = landedPlan ?? applyingPlan ?? derived"),
@@ -178,14 +168,14 @@ import Testing
     }
 }
 
-/// **What the Restructure lens stopped doing on every render**, as rules that can be asserted
+/// Work the Restructure lens must not redo on every render, as rules that can be asserted
 /// without mounting it.
 @MainActor
 @Suite struct RestructureLensPerRenderTests {
 
-    /// The chips report a COUNT and used to get it by filtering, mapping and **sorting** the
-    /// ~609-entry dead-weight map — three times per render, once per class. Counting and listing
-    /// have to agree, or a chip is labelling a list it does not describe.
+    /// The chips report a count, which must agree with the list it labels; counting by filtering,
+    /// mapping and sorting the ~609-entry dead-weight map three times per render is the cost this
+    /// avoids.
     @Test func theCrowdingCountAgreesWithTheListItLabels() {
         let deadWeight: [String: DeadWeightClass] = [
             "A": .empty, "B": .empty, "C": .passThrough,
@@ -194,8 +184,8 @@ import Testing
         #expect(RestructureLens.crowdingCount(deadWeight, .empty) == 2)
         #expect(RestructureLens.crowdingCount(deadWeight, .passThrough) == 1)
         #expect(RestructureLens.crowdingCount(deadWeight, .singleFileLeaf) == 3)
-        // Against the list itself, class by class — the assertion that catches a count that has
-        // stopped reading the class it was asked about.
+        // Against the list itself, class by class: catches a count that stopped reading the class
+        // it was asked about.
         for weightClass in [DeadWeightClass.empty, .passThrough, .singleFileLeaf] {
             let listed = deadWeight.filter { $0.value == weightClass }.map(\.key).sorted()
             #expect(RestructureLens.crowdingCount(deadWeight, weightClass) == listed.count,
@@ -204,14 +194,10 @@ import Testing
         #expect(RestructureLens.crowdingCount([:], .empty) == 0)
     }
 
-    /// **The cached stamp formatters follow the system zone.**
-    ///
-    /// `landingPhrase` and `absolute` built two or three `DateFormatter`s per Applied card per
-    /// render; they are cached now. A cached formatter keeps whichever zone was current when it
-    /// was built, so a landing stamped this morning would read an hour out after a flight — the
-    /// one behaviour a fresh-per-call formatter had for free. Driven through the accessor rather
-    /// than by moving `NSTimeZone.default`, which is process-wide and would race every other
-    /// suite in the run.
+    /// The cached stamp formatters follow the system zone. A cached formatter keeps the zone
+    /// current when it was built, so after a flight a landing stamped this morning would read an
+    /// hour out. Driven through the accessor rather than by moving `NSTimeZone.default`, which is
+    /// process-wide and would race every other suite in the run.
     @Test func theStampFormattersFollowTheSystemZone() throws {
         let elsewhere = try #require([TimeZone(identifier: "Asia/Kolkata"),
                                       TimeZone(identifier: "America/Los_Angeles")]

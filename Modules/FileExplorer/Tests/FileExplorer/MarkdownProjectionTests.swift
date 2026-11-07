@@ -8,11 +8,10 @@ import EventsTestSupport
 /// The editable preview's projection: what it draws, and which source characters each drawn
 /// character came from.
 ///
-/// **The map is checked against the parser, not against itself.** The sentinel tests insert a
-/// character into the SOURCE at the offset the map gives, parse again, and require the new
-/// rendering to be the old one with that character at the expected place. A map that pointed one
-/// character off — into a `**`, past an escape, into a stripped indent — renders the sentinel
-/// somewhere else, or not at all.
+/// The map is checked against the parser, not against itself: the sentinel tests insert a
+/// character into the source at the mapped offset, parse again, and require the old rendering with
+/// that character at the expected place. A map one character off (into a `**`, past an escape, into
+/// a stripped indent) renders the sentinel somewhere else, or not at all.
 @Suite struct MarkdownProjectionTests {
 
     // MARK: Helpers
@@ -34,8 +33,8 @@ import EventsTestSupport
         p.segments.filter { $0.kind == .content && $0.rendered.length > 0 }.map { slice(p, $0.source) }
     }
 
-    /// §3.2's invariants: a gap-free rendered cover, increasing source ranges, and content whose
-    /// boundary map runs from the start of its source to the end.
+    /// The projection's invariants: a gap-free rendered cover, increasing source ranges, and
+    /// content whose boundary map runs from the start of its source to the end.
     private func checkInvariants(_ p: MarkdownProjection,
                                  sourceLocation: SourceLocation = #_sourceLocation) {
         var renderedCursor = 0
@@ -66,7 +65,7 @@ import EventsTestSupport
         #expect(renderedCursor == (p.renderedString as NSString).length,
                 "the cover stops short of the rendered string", sourceLocation: sourceLocation)
         // One paragraph per block, except where lines are the block's own: a second paragraph in a
-        // list item is a second bullet (review, 2026-10-09).
+        // list item would draw as a second bullet.
         for block in p.blocks {
             switch block.kind {
             case .codeBlock, .html, .table: continue
@@ -185,12 +184,9 @@ import EventsTestSupport
         checkSentinels(source)
     }
 
-    /// A backslash break does not advance the parser's line count. Every later line of the
-    /// paragraph is reported one too high, and the line straight after it past the end of the
-    /// line before.
-    /// **A `>` after four spaces is text, not a quote marker** — `a` then `    >b` reads "a >b" —
-    /// and skipping it with the markers lined the line up a unit late, so the paragraph was read-only
-    /// (review, 2026-10-09). In a quote, the line's own marker is still skipped.
+    /// A `>` after four spaces is text, not a quote marker: `a` then `    >b` reads "a >b". Skipped
+    /// with the markers, it would line the line up a unit late and make the paragraph read-only. In
+    /// a quote, the line's own marker is still skipped.
     ///
     /// Mutation: skip every `>` among the leading whitespace in `InlineLines.contentStart`.
     @Test func aGreaterThanAfterFourSpacesIsText() {
@@ -202,6 +198,9 @@ import EventsTestSupport
         #expect(checkSentinels(source) > 0)
     }
 
+    /// A backslash break does not advance the parser's line count. Every later line of the
+    /// paragraph is reported one too high, and the line straight after it past the end of the
+    /// line before.
     @Test func textAfterABackslashBreakIsMappedToItsRealLine() {
         let source = "foo\\\n   bar *em* x\\\nbaz\n  qux **b**"
         let p = project(source)
@@ -358,9 +357,9 @@ import EventsTestSupport
         checkSentinels(source)
     }
 
-    /// After a backslash break the parser counts a CRLF as one byte, as it counts every line ending,
-    /// so the next line's columns are not shifted by the `\r` (review, 2026-10-09: the paragraph
-    /// was read-only).
+    /// After a backslash break the parser counts a CRLF as one byte, as it counts every line
+    /// ending, so the next line's columns are not shifted by the `\r`; shifted, the paragraph goes
+    /// read-only.
     ///
     /// Mutation: count a grouped line's terminator at its length in `InlineLines.offset`.
     @Test func aBackslashBreakInACRLFFileMaps() {
@@ -384,8 +383,6 @@ import EventsTestSupport
     }
 
     /// The Code Block verb's empty block — a fence, an empty line, a fence — has its empty line to
-    /// type on.
-    /// The Code Block verb's empty block — a fence, an empty line, a fence — has its empty line to
     /// type on; so does a fence left open at the end of the file with a blank line after it, and an
     /// empty line in a quote, after its marker.
     @Test(arguments: [("```\n\n```", 4, "```\nx\n```"), ("before\n\n```\n", 12, "before\n\n```\nx"),
@@ -402,9 +399,9 @@ import EventsTestSupport
         #expect(application.source == typed)
     }
 
-    /// **A fenced block with no line inside offers nowhere to type** — its only lines are fences, and
-    /// a point on one wrote into the closing fence, or into the language name of a fence left open
-    /// at the end of the file (review, 2026-10-09). The re-read refused each; now nothing is built.
+    /// A fenced block with no line inside offers nowhere to type: its only lines are fences, and a
+    /// point on one would write into the closing fence, or into the language name of a fence left
+    /// open at the end of the file.
     ///
     /// Mutation: anchor an empty block at the line after its fence, whatever that line is.
     @Test(arguments: ["```\n```\n\nafter", "before\n\n```", "before\n\n```swift"])
@@ -426,8 +423,8 @@ import EventsTestSupport
         checkInvariants(p)
     }
 
-    /// **Indented code whose first line is a fence is still indented code** — read-only for that
-    /// reason, with its text as written — not a fence that failed to line up (review, 2026-10-09).
+    /// Indented code whose first line is a fence is still indented code, read-only for that reason
+    /// and with its text as written, not a fence that failed to line up.
     ///
     /// Mutation: decide a fence by its first character alone in `codeBlock`.
     @Test(arguments: ["para\n\n    ```foo\n    bar", "    ~~~\n    x", "- a\n\n      ```x\n      y"])
@@ -570,13 +567,12 @@ import EventsTestSupport
         #expect(readOnly == [.frontMatter, .html, .indentedCode])
     }
 
-    /// **Which corpus blocks are read-only, and why — every one pinned.** The sentinels skip a
-    /// read-only block, and the corpus test passes when one sentinel was checked anywhere, so a
-    /// construct that quietly stopped lining up — a CRLF backslash break did (review, 2026-10-09) —
-    /// passed both. Each entry: the blocks' reasons in order, then the read-only pieces inside
-    /// editable blocks.
+    /// Pins which corpus blocks are read-only, and why. The sentinels skip a read-only block, and
+    /// the corpus test passes once one sentinel is checked anywhere, so a construct that quietly
+    /// stopped lining up would pass both. Each entry: the blocks' reasons in order, then the
+    /// read-only pieces inside editable blocks.
     ///
-    /// Mutation: count a CRLF after a backslash break as two bytes (P6) — entry 11 turns read-only.
+    /// Mutation: count a CRLF after a backslash break as two bytes, and entry 11 turns read-only.
     @Test func everyCorpusBlockIsEditableOrReadOnlyAsPinned() {
         let expected: [(blocks: [PreviewReadOnlyReason?], pieces: [PreviewReadOnlyReason])] = [
             ([.frontMatter] + Array(repeating: nil, count: 14) + [.html, .indentedCode], []),
@@ -656,7 +652,7 @@ private enum MarkdownProjectionTestsSupport {
     }
 }
 
-/// TE67.5: how a table is laid out in the editable Preview.
+/// How a table is laid out in the editable Preview.
 @Suite struct MarkdownProjectionTableLayoutTests {
 
     // MARK: Table layout (TE67.5)
@@ -689,9 +685,9 @@ private enum MarkdownProjectionTestsSupport {
         #expect(style.tabStops[0].location > wide)
     }
 
-    /// **A tab inside a cell is drawn as a space** — drawn as itself it jumped to the next column's
-    /// stop, and the grid split the row at it, giving the table a column too many (review,
-    /// 2026-10-09). It still maps: what is typed beside it goes beside it in the file.
+    /// A tab inside a cell is drawn as a space: drawn as itself it would jump to the next column's
+    /// stop, and the grid would split the row there, a column too many. It still maps: what is
+    /// typed beside it goes beside it in the file.
     ///
     /// Mutation: draw a cell's tab as a tab in `MarkdownProjection`'s `drawn(_:inCell:)`.
     @Test func aTabInACellIsASpaceAndStillMaps() throws {
@@ -707,8 +703,8 @@ private enum MarkdownProjectionTestsSupport {
         #expect(application.source == "| a\tqb | `c\td` |\n|---|---|\n| x | y &#9; z |")
     }
 
-    /// **A `^` cell — a row span to the parser, drawn as nothing — offers nowhere to type**: a
-    /// point before the `^` made every keystroke `x^`, which is no span, and was refused. The cells
+    /// A `^` cell (a row span to the parser, drawn as nothing) offers nowhere to type: a point
+    /// before the `^` would make every keystroke `x^`, which is no span, and be refused. The cells
     /// around it still map.
     ///
     /// Mutation: give a cell that rendered nothing an insertion point whatever it holds.
@@ -730,8 +726,8 @@ private enum MarkdownProjectionTestsSupport {
         #expect(application.projection.renderedString == "a\tb\nx\ty\n\tzq")
     }
 
-    /// **An image in a cell is measured at the size it is drawn**, a placeholder labelled with its
-    /// alt: measured empty, the column was too narrow and the placeholder ran into the next one.
+    /// An image in a cell is measured at the size it is drawn, a placeholder labelled with its alt.
+    /// Measured empty, the column is too narrow and the placeholder runs into the next one.
     ///
     /// Mutation: leave the projection's image attachment without bounds.
     @MainActor
@@ -746,7 +742,7 @@ private enum MarkdownProjectionTestsSupport {
         #expect(edges[1] - edges[0] >= attachment.bounds.width)
     }
 
-    /// C28: a table that does not fit the column is read-only — drawn, and left to Source.
+    /// A table that does not fit the column is read-only: drawn, and left to Source.
     @Test func aTableWiderThanTheColumnIsReadOnly() {
         let source = "| a | b | c |\n|---|---|---|\n| some words here | more words here | and more |"
         let narrow = MarkdownProjection.project(source, style: .init(scale: 1, columnWidth: 120))
@@ -759,8 +755,8 @@ private enum MarkdownProjectionTestsSupport {
     }
 }
 
-/// What the adversarial review of Edit in Preview found in the projection (2026-10-09), each
-/// through the session a keystroke takes — the translator, the source, the re-read, the display.
+/// Edge cases of Edit in Preview's projection, each driven through the session a keystroke takes:
+/// the translator, the source, the re-read, the display.
 @MainActor
 @Suite struct MarkdownProjectionReviewTests {
 
@@ -792,9 +788,9 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: A fence opened on a list marker's line
 
-    /// **A fence on the marker's line: a new line of code gets the item's indent, not its marker.**
-    /// The prefix was what stood before the backticks, as written — `- ` — and every new line written
-    /// with it was a new list item, so Return in the code was refused.
+    /// A fence on a list marker's line: a new line of code gets the item's indent, not its marker.
+    /// Copying the prefix as written (`- `) would make every new line a new list item, so Return in
+    /// the code would be refused.
     ///
     /// Mutation: copy the fence line's prefix as written in `codeBlock`.
     @Test(arguments: [("- ```swift\n  let x = 1\n  ```", "  "),
@@ -823,9 +819,9 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: An empty block's line
 
-    /// **Return in a numbered list: the new, empty item is drawn as an item** — numbered, indented,
-    /// and the items after it numbered on from it. Its line is the next item's break, which had no
-    /// attributes, so the line had no list and TextKit counted the rest from 1 again.
+    /// Return in a numbered list draws the new, empty item as an item: numbered, indented, and the
+    /// items after it numbered on from it. Its line is the next item's break; without attributes
+    /// there it has no list, and TextKit counts the rest from 1 again.
     ///
     /// Mutation: give a block that rendered nothing no attributes in `endBlock`.
     @Test func anEmptyItemMadeByReturnIsNumberedAndTheListCountsOn() {
@@ -860,10 +856,10 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: Numbering after a break in an item
 
-    /// **An item after a second paragraph, a code block or a task is still numbered as the parser
-    /// numbers it.** TextKit counts only the unbroken run of paragraphs carrying the list, and each
-    /// of these sits between two items without it — `2.` was drawn `1.`. The read-only Preview drew
-    /// the parser's number. Read from the display as TextKit counts it, not from the projection.
+    /// An item after a second paragraph, a code block or a task is still numbered as the parser
+    /// numbers it, as in the read-only Preview. TextKit counts only the unbroken run of paragraphs
+    /// carrying the list, and each of these sits between two items without it, so `2.` could draw
+    /// as `1.`. Read from the display as TextKit counts it, not from the projection.
     ///
     /// Mutation: never start a new list in the ordered-list arm of `append`.
     @Test(arguments: ["1. a\n\n   more\n2. b\n3. c",
@@ -881,8 +877,8 @@ private enum MarkdownProjectionTestsSupport {
         #expect(drawn(session, at: rendered("c", in: session)).number == 3, "typed in \(String(reflecting: text))")
     }
 
-    /// Nested items do not break their parent's run — the item after them is one list with the one
-    /// before, as it always was, and typing in it is not a new list each time.
+    /// Nested items do not break their parent's run: the item after them is one list with the one
+    /// before, and typing in it is not a new list each time.
     @Test func anItemAfterANestedListStaysInItsList() {
         let (session, _) = session("3. a\n   1. x\n   2. y\n4. b")
         let a = drawn(session, at: 0), b = drawn(session, at: rendered("b", in: session))
@@ -893,9 +889,9 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: One block, one paragraph
 
-    /// **A newline inside one block's rendering made it two paragraphs — in a list, two bullets.**
-    /// Three ways in: a tag wrapping a line, an entity decoding to a newline, and a read-only item's
-    /// fallback text; and a U+2029 in the file, which the parser keeps and the text system ends a
+    /// A newline inside one block's rendering would make it two paragraphs, in a list two bullets.
+    /// The ways in: a tag wrapping a line, an entity decoding to a newline, a read-only item's
+    /// fallback text, and a U+2029 in the file, which the parser keeps and the text system ends a
     /// paragraph at.
     ///
     /// Mutation: render inline HTML's `rawHTML` as written; separately, compare an entity's decode
@@ -926,9 +922,9 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: A read-only task item
 
-    /// **A task item that cannot be edited here keeps its box, and the box still ticks** — as it did
-    /// in the read-only Preview, and as a box on any other item does: the tick is three characters
-    /// the translator checks by re-reading, whatever the words after it are.
+    /// A task item that cannot be edited here keeps its box, and the box still ticks, as in the
+    /// read-only Preview: the tick is three characters the translator checks by re-reading,
+    /// whatever the words after it are.
     ///
     /// Mutation: pass no `box` to `readOnlyBlock` from `listItem`.
     @Test func aReadOnlyTaskItemKeepsItsBoxAndTicks() throws {
@@ -944,9 +940,9 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: A table too wide to edit
 
-    /// **A table too wide for the column says so under the pointer**, as every other read-only
-    /// block does: the mark that gives the arrow and the tooltip was set before the table was found
-    /// too wide, and never after.
+    /// A table too wide for the column says so under the pointer, as every other read-only block
+    /// does. The mark that gives the arrow and tooltip must be set after the width check, not only
+    /// before it.
     ///
     /// Mutation: drop the `.previewReadOnly` mark from `layOutColumns`.
     @Test func aTableTooWideToEditCarriesTheReadOnlyMark() {
@@ -977,9 +973,8 @@ private enum MarkdownProjectionTestsSupport {
         for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
-    /// **VoiceOver reads an image's alt text, and a picture that cannot be shown leads with it** —
-    /// as the read-only Preview did; the editable one said "Image" for every picture, and
-    /// "Image — reason" for a missing one.
+    /// VoiceOver reads an image's alt text, and a picture that cannot be shown leads with it, as in
+    /// the read-only Preview, rather than "Image" or "Image — reason".
     ///
     /// Mutation: make the projection's image attachments plain `NSTextAttachment`s.
     @Test func anImageIsDescribedByItsAltText() async throws {
@@ -1062,10 +1057,9 @@ private enum MarkdownProjectionTestsSupport {
         return (fragments, { x, y in brightness(x, y) < 0.995 }, brightness)
     }
 
-    /// **A quote in a list item has its bar at the item's text, and a code block its band from
-    /// there** — both were drawn from the column's left edge, out under the bullets. Read from the
-    /// pixels: nothing drawn left of the item's text on those lines, and the bar and band where the
-    /// item's text starts.
+    /// A quote in a list item has its bar at the item's text, and a code block its band from there,
+    /// not from the column's left edge under the bullets. Read from the pixels: nothing drawn left
+    /// of the item's text on those lines, and the bar and band where the item's text starts.
     ///
     /// Mutation: draw the code band from the fragment's left edge; separately, give a quote's bar the
     /// list indent 0 in `quoteBars`.
@@ -1086,8 +1080,8 @@ private enum MarkdownProjectionTestsSupport {
         #expect(ink(480, codeMid), "the band runs on to the column's edge")
     }
 
-    /// **Nesting is drawn no deeper than the read-only Preview draws it** — six levels, then the
-    /// same inset — so a forwarded thread fifteen `>` deep keeps a column to read in.
+    /// Nesting is drawn no deeper than the read-only Preview draws it (six levels, then the same
+    /// inset), so a forwarded thread fifteen `>` deep keeps a column to read in.
     ///
     /// Mutation: drop `drawnDepth` from the quote term in `paragraphStyle`; separately, from
     /// `quoteBars`.
@@ -1106,8 +1100,9 @@ private enum MarkdownProjectionTestsSupport {
         #expect(fragments.first?.fragment.quoteBars.count == MarkdownBlockView.maxNestingDrawn)
     }
 
-    /// **A rule in a list item spans the column from the item's text**, not the column's whole width
-    /// from there — it ran past the edge by the indent. Again after the column changes.
+    /// A rule in a list item spans the column from the item's text, not the column's whole width
+    /// from there, which would run past the edge by the indent. Checked again after the column
+    /// changes.
     ///
     /// Mutation: size a rule to the whole column in `PreviewAttachments.dress(_:scale:columnWidth:)`.
     @Test func aRuleInAListItemFitsTheColumnFromItsIndent() throws {
@@ -1130,8 +1125,8 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: Smaller things
 
-    /// **A code span or a tag that wraps a line is read-only inside an editable paragraph, and says
-    /// so under the pointer** — the keystroke there was refused with no warning before it.
+    /// A code span or a tag that wraps a line is read-only inside an editable paragraph, and says
+    /// so under the pointer, so a refused keystroke there doesn't come without warning.
     ///
     /// Mutation: drop the mark `appendText` puts on a read-only segment.
     @Test func aReadOnlyPieceOfAParagraphCarriesTheMark() {
@@ -1147,9 +1142,8 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: The log
 
-    /// **A projection with parts read-only for want of a map says how many, and why** — one line,
-    /// counts only. Nothing said so before, and "Preview won't let me type here" had nothing in the
-    /// log to go on.
+    /// A projection with parts read-only for want of a map logs how many, and why: one line, counts
+    /// only, so "Preview won't let me type here" has something in the log to go on.
     ///
     /// Mutation: drop the `logReadOnly` call from `project(_:style:)`.
     @Test func readOnlyPartsAreCountedInTheLog() async {
@@ -1163,9 +1157,9 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: Parity with the read-only Preview's look
 
-    /// **A code block's language is drawn above it, and an HTML block has the code band** — as the
-    /// read-only Preview draws both. The language is drawn by the fragment, in room left above the
-    /// first line: it is in no rendered character, so nothing can type into it.
+    /// A code block's language is drawn above it, and an HTML block has the code band, as in the
+    /// read-only Preview. The fragment draws the language in room left above the first line: it is
+    /// in no rendered character, so nothing can type into it.
     ///
     /// Mutation: drop the language from `PreviewFragmentDelegate`; separately, the `html` tag from
     /// its band.
@@ -1197,12 +1191,11 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: The partial re-read
 
-    /// **An empty item's line keeps its list through a partial re-read.** Its line is the break
-    /// after it — outside the stretch re-read — and holds the list as it was. An edit that changed
-    /// only attributes above — a link's target — was taken to differ all the way to the stretch's
-    /// end, which then took a new list while that break kept the old: one list, split in two, and
-    /// TextKit numbering the empty item from 1 (seed 6880 of the reuse property test, once empty
-    /// items carried their list).
+    /// An empty item's line keeps its list through a partial re-read. Its line is the break after
+    /// it, outside the stretch re-read, and holds the list as it was. If an edit to attributes
+    /// above (a link's target) were taken to differ to the stretch's end, the stretch would take a
+    /// new list while that break kept the old: one list split in two, the empty item numbered from
+    /// 1.
     ///
     /// Mutation: measure the characters' suffix before the prefix is pulled back, in
     /// `PreviewAttributeShape.difference`.

@@ -2,18 +2,12 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **Deleting an automation rule is the one destructive control in this lens that nothing takes
-/// back**, and it was a single click in the same row as Edit and Preview.
+/// Deleting an automation rule asks first, because it is the one control in this lens nothing
+/// takes back: `removeAutomationRule` drops the rule and persists the list, while its conditions,
+/// template and order are hand-built work. Toggles, edits and filing are all undoable.
 ///
-/// Everything else here is reversible: a toggle re-toggles, an edit re-edits, and filing registers
-/// a move undo so ⌘Z reverts the whole run. `removeAutomationRule` drops the rule, persists the
-/// list, and leaves nothing to recover it from — while a rule's conditions, destination template
-/// and ordering are hand-built work.
-///
-/// A scan, and honest about its reach: it proves the Delete button routes through the pending-
-/// deletion state and that a confirmation dialog is wired to it. It cannot prove macOS presents
-/// that dialog — driving a `confirmationDialog` needs the real presentation machinery, and a test
-/// that mounted it would be pinning SwiftUI rather than this decision.
+/// A source scan: it proves Delete routes through the pending-deletion state and a confirmation
+/// dialog is wired to it, not that macOS presents the dialog, which would pin SwiftUI instead.
 @Suite struct AutomationRuleDeleteConfirmTests {
 
     private static func lensSource() throws -> String {
@@ -25,8 +19,8 @@ import Foundation
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    /// The card's Delete must ASK, not remove. Stated as both halves — what it does do and what it
-    /// no longer does — because either alone passes on a rename.
+    /// The card's Delete must ask, not remove. Both halves are asserted, because either alone
+    /// passes on a rename.
     @Test func theCardsDeleteButtonAsksBeforeRemoving() throws {
         let source = try Self.lensSource()
         #expect(source.contains("onDelete: { rulePendingDeletion = rule }"),

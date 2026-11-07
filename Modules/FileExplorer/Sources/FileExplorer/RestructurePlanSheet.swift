@@ -2,25 +2,20 @@ import Design
 import SwiftUI
 import Sync
 
-/// §5.4's plan surface: choose the target shape, edit the family mapping, watch the derived
-/// operations — and `Export plan`, which is this milestone's stopping point (the Apply that
-/// lands a manifest is §5.5's).
+/// The plan surface: choose the target shape, edit the family mapping, review the derived
+/// operations, then export the plan or apply it.
 ///
 /// The sheet owns no derivation logic: every operation it shows comes from
-/// ``RestructurePlanner`` on each edit, so what the review section lists IS what the exported
-/// manifest carries — there is no second implementation to drift.
+/// ``RestructurePlanner`` on each edit, so what the review lists is what the manifest carries.
 struct RestructurePlanSheet: View {
     let finding: StructureFinding
-    /// The parent the mapping's members are children of — **an input, not `finding.family`.**
-    ///
-    /// For a shape finding the two are the same. For a pair seeded through
-    /// ``RestructurePlanRoute/seededMapping(family:member:source:target:)`` the family is the
-    /// pair's *grandparent* and the single member is the folder they sit in, because the
-    /// mapping's unit is a child name inside a member. Reading `finding.family` here would have
-    /// pointed the planner one level too shallow on exactly those findings.
+    /// The parent the mapping's members are children of. An input, not `finding.family`: for a
+    /// pair seeded through ``RestructurePlanRoute/seededMapping(family:member:source:target:)``
+    /// the family is the pair's grandparent and the single member is the folder they sit in,
+    /// because the mapping's unit is a child name inside a member.
     let family: String
-    /// Every member of the family — scheme members, drift and shapeless alike: the mapping is
-    /// applied to all of them, and drift is the part that most needs housing.
+    /// Every member of the family, scheme members, drift and shapeless alike: the mapping
+    /// applies to all of them, and drift is the part that most needs housing.
     let members: [String]
     /// The tree as it stands now — disk-backed in the app, dictionary-backed in tests.
     let tree: RestructureTreeView
@@ -28,14 +23,12 @@ struct RestructurePlanSheet: View {
     let accent: Color
     /// A saved draft's rows, so *Review N operations* reopens the plan as it was left.
     var initialRows: [RestructureMapping.Row]?
-    /// The saved draft's full picker vocabulary — names the last session could choose from,
-    /// including ones no row uses. Without it a reopened draft rebuilt the vocabulary from the
-    /// rows' targets alone, so every unused choice vanished and "reopens the plan as it was
-    /// left" was false. nil (an older draft, or no draft) falls back to the rows' targets.
+    /// The saved draft's full picker vocabulary, including names no row uses, so a reopened
+    /// draft keeps its unused choices. nil (an older draft, or none) falls back to the rows'
+    /// targets.
     var initialVocabulary: [String]?
-    /// Writes the export file and saves the draft. The success case carries the file name the
-    /// STORE chose — the footer used to re-derive it from the same recipe, which is two copies
-    /// of a name that must match, and the copy in the store is the one on disk.
+    /// The outcome of writing the export file and draft. Success carries the file name the store
+    /// chose, the one on disk, so the footer never re-derives it.
     enum ExportResult: Equatable {
         case saved(filename: String)
         case failed(String)
@@ -43,29 +36,21 @@ struct RestructurePlanSheet: View {
     /// Writes the file and the draft; the vocabulary rides along so the draft can reopen with
     /// the same choices on its pickers.
     let onExport: (RestructureManifest, _ vocabulary: [String]) -> ExportResult
-    /// Keeps the plan as it stands when the sheet closes without landing or exporting — §5.4's
-    /// store table writes a draft "when the sheet closes with a plan". nil when the host keeps none.
-    ///
-    /// **Esc used to throw the mapping away.** The draft was saved only by Export, so a family
-    /// mapped by hand — and any Claude proposals accepted into it — was gone on one Esc, and the
-    /// next open started again from the seed.
+    /// Keeps the plan as it stands when the sheet closes without landing or exporting, so Esc
+    /// doesn't throw away a hand-made mapping. nil when the host keeps none.
     var onKeepDraft: ((RestructureManifest, _ vocabulary: [String]) -> Void)?
     /// Whether a saved draft is what this sheet opens on. Read once, when the sheet seeds — see
     /// `Baseline`.
     var hasSavedDraft: Bool = false
-    /// Removes the saved draft: *Discard Plan*, and a close after every row went back to keep.
-    ///
-    /// **Nothing could remove a draft except landing it.** Closing kept a changed plan, and a
-    /// plan set back to all-keep derived nothing, so closing kept nothing — leaving the old draft
-    /// and its *Review N operations* card standing over a plan the person had just undone.
+    /// Removes the saved draft: *Discard Plan*, and a close after every row went back to keep,
+    /// so an undone plan's card doesn't keep showing it as planned.
     var onDiscardDraft: (() -> Void)?
-    /// §5.5's landing: runs the eight-step apply and returns its outcome sentence — the summary
-    /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
-    /// offered, which hides the button rather than promising a landing that cannot run.
+    /// The landing: runs the eight-step apply and returns the summary on success or the
+    /// refusal. nil hides Apply rather than promising a landing that cannot run.
     var onApply: ((RestructureManifest) async -> ApplyResult)?
-    /// §5.6's paid pass — on the MAPPING, never on the apply. nil when the host has not wired a
-    /// transport; whether a key is stored is `refineOffered`'s separate question, the same split
-    /// the filing refine button documents.
+    /// The paid pass, on the mapping, never on the apply. nil when the host has wired no
+    /// transport; whether a key is stored is `refineOffered`'s separate question, as with the
+    /// filing refine button.
     var onRefineMapping: ((MappingRefineRequest) async -> FileSyncManager.MappingRefineOutcome)?
     /// Is a key stored — the offer/invitation branch (`filingCloudRefineAvailable`'s answer).
     var refineOffered: Bool = false
@@ -74,9 +59,8 @@ struct RestructurePlanSheet: View {
     var refineModelLabel: String = "Claude"
     /// Opens Settings on the key row — the invitation's action.
     var onConfigureRefine: (() -> Void)?
-    /// Where the landing has got to, while it runs — nil at every other moment. Fed straight
-    /// from the manager's published value, so the checklist below can only show stages the
-    /// engine actually reached.
+    /// Where the landing has got to while it runs, nil otherwise. Straight from the manager's
+    /// published value, so the checklist shows only stages the engine reached.
     var applyProgress: RestructureApplyProgress?
 
     /// What a landing came back with — the summary, or the sentence that refused it.
@@ -91,78 +75,51 @@ struct RestructurePlanSheet: View {
     /// Every distinct child name across the family, disk-cased — the rows' sources, and the
     /// spelling authority when a scheme's lowercased vocabulary becomes target names.
     @State private var allSources: [String] = []
-    /// Sibling families sharing this one's vocabulary (§5.4 step 2's pointer). Resolved once at
-    /// open — it walks every sibling's members, and the tree does not move under a modal sheet.
+    /// Sibling families sharing this one's vocabulary. Resolved once at open: it walks every
+    /// sibling's members, and the tree does not move under a modal sheet.
     @State private var parallelFamilies: [String] = []
-    /// The group laid out (proposal O17), resolved beside `parallelFamilies` and for the same
-    /// reason: it walks every sibling's members, and the tree does not move under a modal sheet.
+    /// The group laid out, resolved beside `parallelFamilies` for the same reason.
     @State private var groupTable: RestructurePlanner.FamilyGroupTable?
-    /// Collapsed by default. The pointer above it is the summary; the grid is what you open when
-    /// the summary is not enough, and a table that arrives expanded pushes the mapping — the
-    /// thing the sheet is for — below the fold on a family with twenty child names.
+    /// Collapsed by default: the pointer above is the summary, and an expanded table would push
+    /// the mapping below the fold on a family with many child names.
     @State private var groupTableOpen = false
-    /// Whether the mapping being edited covers the whole group (proposal O17).
-    ///
-    /// **Off by default, and switching it re-seeds the rows.** Turning it on widens the sources
-    /// to every child name across the group; turning it off narrows them back. Both directions
-    /// keep the targets already chosen for names that survive the change, because a user who
-    /// mapped six rows and then opened the group out did not ask to lose them.
+    /// Whether the mapping covers the whole group. Off by default; switching it re-seeds the
+    /// rows, widening the sources to every child name across the group or narrowing them back,
+    /// and keeps the targets already chosen for names that survive.
     @State private var planTogether = false
     /// Every target the user has chosen, by source name, across both widths of the mapping.
-    ///
-    /// `rows` is narrowed when the group toggle goes off, so reading the restored targets back
-    /// out of it loses whatever was typed for a name only a sibling family has — toggle off,
-    /// toggle on, and six chosen targets are gone with no undo. This remembers them instead.
+    /// `rows` narrows when the group toggle goes off, so without this a name only a sibling has
+    /// would lose its target on toggling off and on again.
     @State private var targetsBySource: [String: String] = [:]
     /// Manifest ids this sheet has already landed, so a retry after a partial group apply picks
     /// up where it stopped. See ``applyGroup(_:_:)``.
     @State private var alreadyLanded: Set<String> = []
-    /// The plans as they stood when Apply ran — **the sheet's whole content is a pure function of
-    /// the tree, and a successful landing changes the tree.**
-    ///
-    /// The pair-merge sheet has held its manifest for this reason since it was written; this one
-    /// did not, and re-derived on every render against a `.fromDisk` view rebuilt by the parent.
-    /// After a landing every mapping row's source has been renamed away, so nothing derives and
-    /// the review section read *"Every row is keep — nothing would change"* directly above a
-    /// footer reporting the landing that had just happened.
+    /// The plans as they stood when Apply ran. The sheet's content is a function of the tree,
+    /// and after a landing every row's source is renamed away, so re-deriving would show "nothing
+    /// would change" above a footer reporting the landing.
     @State private var landedPlan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>?
     @State private var landedGroup: [(family: String,
                                       result: Result<RestructureManifest,
                                                      RestructurePlanner.PlanRefusal>)]?
-    /// The plan as it stood when **Apply** was pressed, held for the whole landing.
-    ///
-    /// **A landing publishes up to ~101 progress ticks, and every one of them re-rendered this
-    /// sheet.** `landedPlan` is only set on success, so until then `plan` fell through to
-    /// `derived` — which re-ran the whole planner, disk listings and all, against a tree the
-    /// executor was in the middle of MOVING. So the sheet re-planned a hundred times during the
-    /// apply, on the main actor, each time against a half-moved tree, and the review section
-    /// above the progress checklist was describing whatever the derivation made of that.
-    ///
-    /// Frozen here instead, at the moment the button was pressed: the operations on screen are
-    /// the ones being applied, which is what the review claimed all along. Cleared on a refusal
-    /// so an edited mapping re-derives normally; superseded by `landedPlan` on success.
+    /// The plan as it stood when Apply was pressed, held for the whole landing. A landing
+    /// publishes up to ~101 progress ticks, each re-rendering the sheet; without this each would
+    /// re-run the planner on the main actor against a half-moved tree. Cleared on a refusal;
+    /// superseded by `landedPlan` on success.
     @State private var applyingPlan: Result<RestructureManifest,
                                             RestructurePlanner.PlanRefusal>?
     @State private var applyingGroup: [(family: String,
                                         result: Result<RestructureManifest,
                                                        RestructurePlanner.PlanRefusal>)]?
-    /// The tree view this presentation reads, captured ONCE.
+    /// The tree view this presentation reads, captured once. `memoized()`'s cache lives only as
+    /// long as the view value, and `LensWorkspaceView` rebuilds this sheet on every manager
+    /// publish, so the cache is held in `@State` for the presentation's life.
     ///
-    /// **`memoized()`'s cache lives as long as the view VALUE does, and the parent was building a
-    /// fresh one inside its `.sheet` content closure.** `LensWorkspaceView` observes the whole
-    /// `FileSyncManager`, so every publish re-ran that closure and minted an empty cache — the
-    /// memoisation the sheet was documented to have was, in the app, never once a hit. A box in
-    /// `@State` is what gives it the lifetime its doc always claimed.
-    ///
-    /// Keyed on the subject so a sheet re-presented on a different finding cannot inherit the
-    /// previous one's listings. The profile ROOT is deliberately not in the key: it is the tree's
-    /// own path, which a re-derive does not change (only the profile id does), and the sheet is
-    /// modal over the lens for its whole life.
+    /// Keyed on the subject, so a sheet re-presented on another finding cannot inherit its
+    /// listings. The profile root is not in the key: it doesn't change while the modal is up.
     @State private var treeBox = TreeBox()
 
-    /// Holds the memoized tree across renders. A reference type on purpose: `body` reads it, and
-    /// reading (or filling) a box is not a state change, so it cannot invalidate the view it is
-    /// being read from.
+    /// Holds the memoized tree across renders. A reference type on purpose: reading or filling
+    /// it from `body` is not a state change, so it cannot invalidate the view reading it.
     @MainActor
     final class TreeBox {
         private var key: String?
@@ -177,8 +134,7 @@ struct RestructurePlanSheet: View {
         }
     }
 
-    /// The tree every derivation in this sheet reads — the injected one, held for the life of the
-    /// presentation. See ``treeBox``.
+    /// The tree every derivation in this sheet reads, held for the presentation. See ``treeBox``.
     private var liveTree: RestructureTreeView {
         treeBox.view(key: "\(finding.id)|\(family)|\(members.joined(separator: ","))") { tree }
     }
@@ -207,22 +163,18 @@ struct RestructurePlanSheet: View {
     @State private var refineFailedText: String?
 
     var body: some View {
-        // Derived ONCE per render and handed down. The margin renders per row, and a version
-        // that re-derived inside it ran the whole planner — disk listings included — once per
-        // row per render; 24 rows made that a couple of hundred directory reads per keystroke.
-        // Frozen once a landing has happened — see `landedPlan`.
+        // Derived once per render and handed down: each derivation runs the planner with disk
+        // listings, and the per-row margin would otherwise re-run it per row. Frozen during and
+        // after a landing — see `applyingPlan` and `landedPlan`.
         let plan = landedPlan ?? applyingPlan ?? derived
-        // The group's per-family plans, derived once beside `plan` for exactly the reason above:
-        // `groupPlans` runs the planner once PER FAMILY, and it was being read from both the
-        // review block and the footer — six full planner runs per render on a three-family
-        // group, disk listings included, on every keystroke in the mapping filter.
+        // Likewise the group's plans: `groupPlans` runs the planner once per family, and both
+        // the review and the footer read it.
         let group = landedGroup ?? applyingGroup ?? (planTogether ? groupPlans : [])
         return VStack(alignment: .leading, spacing: 14) {
             header
-            // The editing surface locks as one piece — scheme radios, custom names, pickers
-            // and the refine section all go quiet while an apply runs and stay quiet once it
-            // lands. The review and footer manage their own states (`refineSection` handles
-            // its in-flight Stop itself; `locked` does not include `refining`).
+            // The editing surface locks as one piece while an apply runs and once it lands. The
+            // review and footer manage their own states; `refineSection` handles its own Stop,
+            // since `locked` does not include `refining`.
             Group {
                 shapeSection
                 mappingSection(plan)
@@ -240,26 +192,22 @@ struct RestructurePlanSheet: View {
         // The sibling walk, after the first frame — see `seedGroupPointer`.
         .task { seedGroupPointer() }
         .onChange(of: rows) {
-            // An edit after an export describes a NEW plan; the old outcome sentence would be
-            // claiming this one was exported. Guarded on applied as a belt to the editor
-            // lockdown's braces: clearing an APPLIED outcome un-retires the whole sheet —
-            // Done reverts to Cancel and Export re-arms over operations that already ran.
+            // An edit after an export describes a new plan, so the outcome sentence clears. Never
+            // an applied one, backing up the editor lock: clearing it would re-arm Export and
+            // Cancel over operations that already ran.
             guard !isApplied else { return }
             outcome = nil
         }
         .onChange(of: vocabulary) {
-            // A vocabulary edit is part of the draft an export saved (the picker choices ride
-            // in it), so the "Exported as …" sentence stops being true the moment it changes.
-            // An applied outcome stays: vocabulary edits cannot reach a landed plan.
+            // The picker choices ride in the exported draft, so "Exported as …" stops being true
+            // when they change. An applied outcome stays: vocabulary can't reach a landed plan.
             if case .exported = outcome { outcome = nil }
         }
     }
 
-    /// One seam for "this sheet is finished or busy": the whole editing surface reads it, not
-    /// just the footer buttons. Without it, any row edit after a successful Apply cleared the
-    /// outcome, un-retired the sheet, and re-armed Export — which then minted a "Planned, not
-    /// applied" draft over a reorganisation that had already landed; and edits mid-apply left
-    /// the footer's "Applied — …" summary above a derivation re-read from the edited rows.
+    /// One seam for "this sheet is finished or busy", read by the whole editing surface. An edit
+    /// after Apply would otherwise re-arm Export over a landed plan, and an edit mid-apply would
+    /// put the summary above a derivation of the edited rows.
     private var locked: Bool { applying || isApplied }
 
     // MARK: - Seeding
@@ -283,7 +231,7 @@ struct RestructurePlanSheet: View {
             }
             vocabulary = restored
         } else {
-            // Default keep on every row — the editor never guesses a mapping (§5.4 step 3).
+            // Default keep on every row: the editor never guesses a mapping.
             rows = Self.adjacentOrder(sources.map { RestructureMapping.Row(source: $0) })
         }
         let stamp = Self.stamp(Date())
@@ -294,15 +242,12 @@ struct RestructurePlanSheet: View {
 
     /// What the store already holds for this plan, as far as the sheet knows.
     ///
-    /// `rows` and `vocabulary` are what "the user changed nothing" is measured against — so a
-    /// sheet opened and closed untouched mints no draft (and no *Planned, not applied* card).
-    /// `hasDraft` is whether a saved draft exists now: the sheet opened on one, or an export here
-    /// saved one.
+    /// `rows` and `vocabulary` are what "the user changed nothing" is measured against, so a
+    /// sheet opened and closed untouched mints no draft. `hasDraft` is whether a saved draft
+    /// exists now: the sheet opened on one, or an export here saved one.
     ///
-    /// **An export moves all three.** It writes the draft, so the plan it wrote is the new "no
-    /// change", and the draft is the sheet's to drop. Held as "opened on a draft" alone, a plan
-    /// exported and then set back to all-keep closed with *nothing* — its rows matched the seed —
-    /// and offered no Discard Plan, so the draft and its card stood over a plan just undone.
+    /// An export moves all three: the plan it wrote is the new "no change", and its draft is the
+    /// sheet's to drop if every row goes back to keep.
     struct Baseline: Equatable {
         var rows: [RestructureMapping.Row]
         var vocabulary: [String]
@@ -328,11 +273,11 @@ struct RestructurePlanSheet: View {
 
     /// What closing now does to the saved plan.
     ///
-    /// Nothing when nothing changed since the store last matched the sheet (it opened, or an
-    /// export saved), or a landing or an export already kept the plan (a re-save would drop the
-    /// export's file name). Otherwise a change that derives a plan is kept; one that sets every
-    /// row back to keep removes the saved draft. Any other refusal leaves the store alone — a
-    /// half-finished mapping that clashes is not a request to throw the saved plan away.
+    /// Nothing when nothing changed since the store last matched the sheet, or a landing or
+    /// export already kept the plan (a re-save would drop the export's file name). Otherwise a
+    /// change that derives a plan is kept, and one setting every row back to keep removes the
+    /// draft. Any other refusal leaves the store alone: a half-finished clashing mapping is not
+    /// a request to throw the saved plan away.
     static func closeDisposition(
         plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
         rows: [RestructureMapping.Row], vocabulary: [String], baseline: Baseline,
@@ -347,10 +292,9 @@ struct RestructurePlanSheet: View {
         }
     }
 
-    /// Whether closing now drops an edit made since the saved plan: a change that clashes derives
-    /// no plan, so the close leaves the saved one as it was (``closeDisposition``) — under a
-    /// button reading Close, beside Help's promise that closing keeps a changed plan. The footer
-    /// says so before the click rather than after it.
+    /// Whether closing now drops an edit made since the saved plan: a clashing change derives no
+    /// plan, so the close keeps the saved one as it was (``closeDisposition``), despite Help's
+    /// promise that closing keeps a changed plan. The footer says so before the click.
     static func closeDropsEdit(
         plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
         rows: [RestructureMapping.Row], vocabulary: [String], baseline: Baseline,
@@ -364,10 +308,9 @@ struct RestructurePlanSheet: View {
     static let closeDropsEditSentence =
         "This change can’t be planned yet, so Close keeps the plan saved before."
 
-    /// The footer's close button. **Not "Cancel" when closing keeps a plan** — it read as a
-    /// discard over a close that saved the mapping. "Done" after a landing; "Close" whenever a
-    /// plan is or will be kept (a draft is saved, exported or landed in part, or about to be
-    /// kept); "Cancel" only when closing leaves no trace.
+    /// The footer's close button, never "Cancel" when closing keeps a plan, because it reads as a
+    /// discard. "Done" after a landing; "Close" whenever a plan is or will be kept (saved,
+    /// exported, landed in part, or about to be kept); "Cancel" only when closing leaves no trace.
     static func closeTitle(applied: Bool, disposition: CloseDisposition,
                            hasDraft: Bool, landedOrExported: Bool) -> String {
         if applied { return "Done" }
@@ -376,33 +319,20 @@ struct RestructurePlanSheet: View {
         return "Cancel"
     }
 
-    /// §5.4 step 2's sibling pointer and proposal O17's group table — **after the first frame,
-    /// not before it.**
+    /// The sibling pointer and group table, run from `.task` after the first frame. The walk
+    /// lists every sibling and every sibling's members, a few hundred directory reads on a big
+    /// parent, and what it yields is context, so the sheet shouldn't wait to paint for it.
     ///
-    /// This walk lists every sibling of the family AND every member of every sibling: on a parent
-    /// holding twenty families of fifteen members that is a few hundred directory reads. It sat
-    /// in `.onAppear` beside the row seeding, so the sheet did not paint until it finished, and
-    /// what it produces is a pointer and a collapsed table — context, not the thing the sheet is
-    /// for. Run from `.task` it costs the same and is paid where nobody is waiting on it.
+    /// Still on the main actor, by necessity: `RestructureTreeView` holds non-`Sendable`
+    /// closures over an unlocked cache, so it can't go to a detached task.
     ///
-    /// **Still on the main actor**, and that is a limitation rather than a choice:
-    /// `RestructureTreeView` is a box of non-`Sendable` closures over a cache with no lock, so
-    /// handing it to a detached task under strict concurrency is not something the type can
-    /// promise. What moved is WHEN, not WHERE.
-    ///
-    /// Guarded on `groupTable == nil && parallelFamilies.isEmpty` so a re-entered `.task` (a
-    /// SwiftUI update can restart one) does not re-walk a tree it has already read; the memoized
-    /// view would serve the listings from its cache anyway, and this saves even that.
-    ///
-    /// **It deliberately does not wait on `seed()`.** Nothing here reads `rows`, and the order in
-    /// which SwiftUI runs `.onAppear` and `.task` is not something to depend on — a guard that
-    /// assumed seeding had happened would silently produce no pointer at all on any build that
-    /// ran them the other way round.
+    /// The guard keeps a restarted `.task` from re-walking. It doesn't depend on `seed()`:
+    /// nothing here reads `rows`, and SwiftUI's order of `.onAppear` and `.task` is not
+    /// guaranteed.
     private func seedGroupPointer() {
         guard parallelFamilies.isEmpty, groupTable == nil else { return }
-        // Only for a family mapping. On a seeded pair `family` is the pair's grandparent, so
-        // this compared a folder the sheet is not planning and printed its name in a warning
-        // about "planning together" — a pointer at the wrong thing is worse than none.
+        // Only for a family mapping: on a seeded pair `family` is the pair's grandparent, a
+        // folder the sheet is not planning.
         guard !isSeededPair else { return }
         let siblings = RestructurePlanner.parallelFamilies(of: family, in: liveTree)
         guard !siblings.isEmpty else { return }
@@ -426,25 +356,20 @@ struct RestructurePlanSheet: View {
 
     // MARK: - Header
 
-    /// True when this sheet was opened on a PAIR seeded into one member rather than on a whole
-    /// family. The mapping machinery is the same; three affordances around it are not, because
-    /// they are all about reconciling siblings and there are no siblings here.
+    /// True when this sheet was opened on a pair seeded into one member rather than a whole
+    /// family. The affordances for reconciling siblings drop away, since there are none.
     private var isSeededPair: Bool { members.count == 1 }
 
-    /// What this sheet is planning, in one spelling — the header, the manifest's recorded family,
-    /// the refine request and the merge margins all read it. For a family mapping it is the
-    /// family; for a seeded pair it is the member's own path, because the family is that folder's
-    /// parent and can be the empty string.
+    /// What this sheet is planning, in one spelling, read by the header, the manifest's family,
+    /// the refine request and the merge margins. For a seeded pair it is the member's own path,
+    /// because the family is its parent and can be empty.
     private var planFamily: String { Self.headerPath(family: family, members: members) }
 
-    /// Above this many rows the filter appears. Twelve is where a list stops being scannable —
-    /// the flagship family has 24 — and below it a filter is a control that costs more than the
-    /// scrolling it saves.
+    /// Above this many rows the filter appears. Below it, scrolling is cheaper than a control.
     static let filterAppearsAbove = 12
 
-    /// How many rows would change something, out of how many there are. The editor's default is
-    /// keep, so "9 of 24 mapped" is the difference between a plan half-made and one deliberately
-    /// left mostly alone.
+    /// How many rows would change something, out of how many. The default is keep, so "9 of 24
+    /// mapped" tells a half-made plan from one deliberately left mostly alone.
     static func mappedCount(_ rows: [RestructureMapping.Row]) -> String {
         let mapped = rows.filter { row in
             guard let target = row.target else { return false }
@@ -453,35 +378,31 @@ struct RestructurePlanSheet: View {
         return "\(mapped) of \(rows.count) mapped — the rest keep their name"
     }
 
-    /// Whether a row survives the filter. Case- and punctuation-insensitive, because the names
-    /// this searches are exactly the ones that differ by punctuation: typing `w2` has to find
-    /// `Form W-2`, which is the pair the editor exists to reconcile.
+    /// Whether a row survives the filter. Case- and punctuation-insensitive, because the editor
+    /// reconciles names that differ by punctuation: `w2` has to find `Form W-2`.
     static func matches(_ source: String, filter: String) -> Bool {
         let needle = similarKey(filter)
         guard !needle.isEmpty else { return true }
         return similarKey(source).contains(needle)
     }
 
-    /// A name reduced to what makes two spellings the SAME name — lowercased, stripped of
-    /// everything but letters and digits, with a trailing plural folded away.
+    /// A name reduced to what makes two spellings the same name: lowercased, letters and digits
+    /// only, a trailing plural folded away.
     ///
-    /// Deliberately a plain tokenizer rather than a regex: Swift's `\b` is a Unicode word
-    /// boundary and NFC normalisation is implicit, so a regex here would answer differently for
-    /// composed and decomposed spellings of the same folder name.
+    /// A plain tokenizer, not a regex: Swift's `\b` is a Unicode word boundary with implicit NFC
+    /// normalisation, so a regex could answer differently for composed and decomposed names.
     static func similarKey(_ name: String) -> String {
         var key = name.lowercased().unicodeScalars
             .filter { CharacterSet.alphanumerics.contains($0) }
             .map(String.init).joined()
-        // Fold a trailing plural, but only when a real stem is left. `Bus` reduced to `bu`
-        // matched a folder actually called `Bu`, which is the fold inventing a pair rather than
-        // finding one — and this editor's whole job is deciding that two names are one.
+        // Fold a trailing plural only when a real stem is left, so `Bus` doesn't become `bu`
+        // and pair with a folder called `Bu`.
         if key.count >= 4, key.hasSuffix("s") { key.removeLast() }
         return key
     }
 
-    /// The rows in the order the editor shows them: near-identical names adjacent, so the choice
-    /// between `Payment` and `Payments` is made in one place instead of twelve rows apart.
-    /// Within a group and between groups the order is the disk's own, so nothing else moves.
+    /// The rows in the order the editor shows them: near-identical names adjacent, so `Payment`
+    /// and `Payments` are decided in one place. Otherwise the disk's order, so nothing else moves.
     static func adjacentOrder(_ rows: [RestructureMapping.Row]) -> [RestructureMapping.Row] {
         var firstSeen: [String: Int] = [:]
         for (index, row) in rows.enumerated() where firstSeen[similarKey(row.source)] == nil {
@@ -503,14 +424,10 @@ struct RestructurePlanSheet: View {
         return rows.contains { $0.source != row.source && similarKey($0.source) == key }
     }
 
-    /// The same question asked once for the whole list: the sources that HAVE such a neighbour.
-    ///
-    /// The per-row spelling above is O(rows) and the editor drew it per row — O(rows²) similar-key
-    /// reductions per render, on a family with 24 rows, per keystroke in the filter. One pass
-    /// gives the same answer: a source has a neighbour exactly when its key is shared with at
-    /// least one OTHER distinct source, which is what the per-row test's `$0.source != row.source`
-    /// means. (Two rows carrying the same source is a mapping the derivation refuses —
-    /// `duplicateMappingRows` — so counting distinct sources is not a narrower question.)
+    /// The same question asked once for the whole list: the sources that have such a neighbour.
+    /// One pass instead of the per-row form's O(rows²) per render. A source has a neighbour when
+    /// its key is shared with another distinct source; duplicate sources are refused by the
+    /// derivation (`duplicateMappingRows`), so this is the same answer.
     static func sourcesWithSimilarNeighbour(_ rows: [RestructureMapping.Row]) -> Set<String> {
         var sourcesByKey: [String: Set<String>] = [:]
         for row in rows { sourcesByKey[similarKey(row.source), default: []].insert(row.source) }
@@ -519,12 +436,8 @@ struct RestructurePlanSheet: View {
         return out
     }
 
-    /// "merges into `Forms` in N members", per source name — derived ONCE for the whole plan.
-    ///
-    /// The per-row version walked every action in the manifest to answer for one row: O(actions)
-    /// per visible row per render, which on the flagship family is the whole manifest re-scanned
-    /// two dozen times for every keystroke in the mapping filter. One pass over the actions builds
-    /// every row's answer, by exactly the same rule.
+    /// "merges into `Forms` in N members", per source name, derived once for the whole plan in
+    /// one pass over the actions rather than a manifest scan per visible row.
     static func mergeMembers(in plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
                              family: String) -> [String: Int] {
         guard case .success(let manifest) = plan else { return [:] }
@@ -540,12 +453,8 @@ struct RestructurePlanSheet: View {
         return members.mapValues(\.count)
     }
 
-    /// The folder this mapping runs over, as the header names it.
-    ///
-    /// A family mapping covers many members, so the family path is the subject. A **seeded pair**
-    /// has exactly one member — the folder the two names sit in — and the family is that folder's
-    /// parent, which for a top-level pair is the empty string. Naming the member's own path is
-    /// both more useful and the only spelling that is never blank.
+    /// The folder this mapping runs over, as the header names it: the family path, or for a
+    /// seeded pair (one member) the member's own path, since its family can be the empty string.
     static func headerPath(family: String, members: [String]) -> String {
         guard members.count == 1 else { return family }
         return (family as NSString).appendingPathComponent(members[0])
@@ -565,9 +474,7 @@ struct RestructurePlanSheet: View {
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
             if !parallelFamilies.isEmpty {
-                // §5.4 step 2's warning as a pointer: the 6 Aug fix was found by laying the
-                // sibling families side by side, and a plan for one alone can leave the others
-                // disagreeing with it.
+                // A plan for one family alone can leave its siblings disagreeing with it.
                 Text("Shares its vocabulary with \(parallelFamilies.joined(separator: ", ")) — "
                      + "a shape chosen here alone may leave them disagreeing. Worth planning "
                      + "together.")
@@ -595,13 +502,11 @@ struct RestructurePlanSheet: View {
     /// Every family the shared mapping covers — the subject first, then its parallels.
     private var groupFamilies: [String] { groupTable?.families ?? [family] }
 
-    /// Widen or narrow the mapping to the whole group (proposal O17), keeping every target
-    /// already chosen for a source that survives the change.
+    /// Widen or narrow the mapping to the whole group, keeping every target already chosen for
+    /// a source that survives the change.
     private func reseedForGroup(_ together: Bool) {
-        // **Clear the filter with the width.** The field only renders above
-        // `filterAppearsAbove` rows, so narrowing from 22 rows to 10 takes the control away while
-        // leaving the text applied — and if the typed name was one only a sibling carries, the
-        // mapping editor goes empty with nothing on screen to explain it or undo it.
+        // Clear the filter with the width: narrowing below `filterAppearsAbove` rows hides the
+        // field, and a filter left applied could empty the editor with nothing to undo it.
         filterText = ""
         let sources = together
             ? RestructurePlanner.groupSources(families: groupFamilies, in: liveTree)
@@ -612,21 +517,16 @@ struct RestructurePlanSheet: View {
         rows = widened.rows
     }
 
-    /// Re-cut the mapping to a different set of sources **without losing typed work**
-    /// (proposal O17).
-    ///
-    /// Narrowing drops rows, so reading the restored targets back out of `rows` on the way in
-    /// loses whatever was chosen for a name only a sibling family carries: toggle the group off,
-    /// toggle it on, and those targets are gone with no undo. The memory is what survives the
-    /// narrow pass, and it is keyed by source name because that is what a target is chosen
-    /// against — the family it came from is not part of the decision.
+    /// Re-cut the mapping to a different set of sources without losing typed work. Narrowing
+    /// drops rows, so the targets are remembered apart from `rows`, keyed by source name, which
+    /// is what a target is chosen against.
     static func rewidened(rows: [RestructureMapping.Row], to sources: [String],
                           remembering targets: [String: String])
         -> (rows: [RestructureMapping.Row], remembered: [String: String]) {
         var remembered = targets
         for row in rows {
-            // A row explicitly set back to keep FORGETS its target — otherwise "keep" could not
-            // be expressed for a source that leaves and comes back.
+            // A row set back to keep forgets its target, or "keep" couldn't be expressed for a
+            // source that leaves and comes back.
             if let target = row.target { remembered[row.source] = target }
             else { remembered[row.source] = nil }
         }
@@ -636,31 +536,23 @@ struct RestructurePlanSheet: View {
         return (adjacentOrder(rebuilt), remembered)
     }
 
-    /// The per-family plans a shared mapping derives (proposal O17).
-    ///
-    /// Derived here, in the same pass as `derived`, for the reason that property documents: a
-    /// version computing this per row ran the whole planner — disk listings included — once per
-    /// row per render.
+    /// The per-family plans a shared mapping derives. `body` reads it once per render, beside
+    /// `derived`, because each read runs the planner with disk listings for every family.
     private var groupPlans: [(family: String,
                               result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)] {
         RestructurePlanner.groupManifests(
             families: groupFamilies, mapping: RestructureMapping(rows: rows), kind: finding.kind,
             in: liveTree, profileId: profileId, manifestIdPrefix: manifestId, createdAt: createdAt,
-            // The subject family is planned over the members this sheet reviewed, not over
-            // whatever is on disk now — otherwise Apply lands operations on a member the
-            // exhaustive list above never named.
+            // The subject family is planned over the members this sheet reviewed, not whatever
+            // is on disk now, so Apply never touches a member the list never named.
             membersByFamily: [family: members])
     }
 
-    /// The disclosure's own line — **the number that decides whether opening the grid is worth
-    /// doing**, which is the only thing a collapsed table can usefully say.
+    /// The disclosure's line: the count that decides whether opening the grid is worth it. A
+    /// group that already agrees says so in words.
     ///
-    /// A group that already agrees says so rather than offering a grid under a count of zero: the
-    /// answer is the sentence, and the table below it would only confirm it row by row.
-    ///
-    /// `families` is never below 2: the table is built only when the subject has at least one
-    /// parallel sibling (`seedGroupPointer`), and it lists the subject too — so there is no
-    /// one-family wording to keep.
+    /// `families` is never below 2: the table exists only when the subject has a parallel
+    /// sibling (`seedGroupPointer`), and it lists the subject too.
     static func groupHeaderText(disagreements: Int, families: Int) -> String {
         guard disagreements > 0 else {
             return families == 2 ? "Both families already agree on every name"
@@ -672,11 +564,8 @@ struct RestructurePlanSheet: View {
             + (families == 2 ? "both" : "all \(families.formatted())")
     }
 
-    /// The group as a grid — §5.4 step 2's pointer, opened out (proposal O17).
-    ///
-    /// A `DisclosureGroup` rather than a permanent panel: the pointer's sentence is the summary,
-    /// and the grid is for when the summary is not enough. The header states the disagreement
-    /// count, which is the number that decides whether opening it is worth doing.
+    /// The group as a grid, the sibling pointer opened out. A `DisclosureGroup`, not a permanent
+    /// panel: the pointer's sentence is the summary, and the grid is for when that isn't enough.
     @ViewBuilder
     private func groupTableDisclosure(_ table: RestructurePlanner.FamilyGroupTable) -> some View {
         let apart = table.disagreements.count
@@ -699,10 +588,9 @@ struct RestructurePlanSheet: View {
                                 .foregroundStyle(row.isUniversal ? AnyShapeStyle(.secondary)
                                                                  : AnyShapeStyle(.primary))
                             ForEach(Array(row.presentIn.enumerated()), id: \.offset) { cell in
-                                // A tick or an em dash — present or not, nothing else. A count
-                                // here would invite reading weight into a name that either is
-                                // there or is not, and a "wrong" marker would be the planner
-                                // asserting a shape before the user has chosen one.
+                                // Present or not, nothing else: a count would suggest weight,
+                                // and a "wrong" marker would assert a shape before the user
+                                // chose one.
                                 Text(cell.element ? "✓" : "—")
                                     .scaledFont(.system(size: 10))
                                     .foregroundStyle(cell.element ? AnyShapeStyle(accent)
@@ -725,13 +613,11 @@ struct RestructurePlanSheet: View {
 
     @ViewBuilder
     private var shapeSection: some View {
-        // A pair carries no schemes — the detectors never set them — so on that route this
-        // section rendered its label over nothing but the free-text field. The field itself
-        // stays: naming a target the tree has not got is exactly what a rename needs.
+        // A pair carries no schemes, so its label says "name"; the free-text field stays,
+        // because naming a target the tree hasn't got is what a rename needs.
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel(isSeededPair ? "Target name" : "Target shape")
-            // Nothing pre-selected: neither recency nor majority is the authority — the 6 Aug
-            // fix went both ways at once, for a reason that existed nowhere in the tree.
+            // Nothing pre-selected: neither recency nor majority is the authority on the shape.
             ForEach(Array(finding.schemes.enumerated()), id: \.offset) { index, scheme in
                 schemeChoice(index: index, scheme: scheme)
             }
@@ -754,7 +640,7 @@ struct RestructurePlanSheet: View {
             }
             if !customName.trimmingCharacters(in: .whitespaces).isEmpty,
                !RestructurePlanner.isValidTargetName(customName) {
-                // Why Add is grey, said where the typing happens: a target is ONE folder name,
+                // Why Add is grey, said where the typing happens: a target is one folder name,
                 // and a path-shaped one would aim a rename outside the family.
                 Text("One folder name — no /, no :, no dot traversal.")
                     .scaledFont(.system(size: 10))
@@ -766,11 +652,9 @@ struct RestructurePlanSheet: View {
     private func schemeChoice(index: Int, scheme: StructureFinding.Scheme) -> some View {
         Button {
             chosenScheme = index
-            // The detector lowercases its vocabulary for comparison; target names take the
-            // disk-cased spelling the family actually uses — the scaffold's own casing rule.
-            // Typed names SURVIVE a scheme change. Replacing the vocabulary wholesale discarded
-            // whatever the user had added, silently, from every picker except the one row already
-            // pointing at it — losing input they cannot get back without retyping it.
+            // The detector lowercases its vocabulary; target names take the disk-cased spelling
+            // the family uses. Typed names survive a scheme change, so the user never has to
+            // retype them.
             let chosen = scheme.vocabulary.map { word in
                 allSources.first { $0.lowercased() == word } ?? word.localizedCapitalized
             }
@@ -807,8 +691,8 @@ struct RestructurePlanSheet: View {
         .accessibilityAddTraits(chosenScheme == index ? [.isSelected] : [])
     }
 
-    /// Whether `Add` can do anything — a name that is already in the vocabulary would be
-    /// swallowed silently, with the field left full and nothing said.
+    /// Whether `Add` can do anything; a name already in the vocabulary would be swallowed
+    /// silently.
     func canAddCustomName() -> Bool {
         let name = customName.trimmingCharacters(in: .whitespaces)
         return RestructurePlanner.isValidTargetName(name) && !vocabulary.contains(name)
@@ -816,11 +700,9 @@ struct RestructurePlanSheet: View {
 
     private func addCustomName() {
         let name = customName.trimmingCharacters(in: .whitespaces)
-        // The planner's own rule (one folder name, no separators or traversal), checked at the
-        // door: without it a typed "Tax/2024" or "../Shared" became a picker target, and the
-        // apply's bare path-append would have moved folders outside the family entirely. The
-        // derivation refuses such a target too — this guard keeps it out of the vocabulary,
-        // where every member's picker would offer it.
+        // The planner's rule (one folder name, no separators or traversal), checked at the door:
+        // a "Tax/2024" or "../Shared" target would move folders outside the family. The
+        // derivation refuses one too; this keeps it out of every picker.
         guard RestructurePlanner.isValidTargetName(name), !vocabulary.contains(name) else {
             return
         }
@@ -833,9 +715,8 @@ struct RestructurePlanSheet: View {
 
     private func mappingSection(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) -> some View {
-        // Both derived ONCE for the whole list rather than per row — see `mergeMembers` and
-        // `sourcesWithSimilarNeighbour`. Between them these were the two quadratic terms in this
-        // editor, and every keystroke in the filter below re-ran both for every visible row.
+        // Both derived once for the whole list, not per row, so a filter keystroke stays linear
+        // — see `mergeMembers` and `sourcesWithSimilarNeighbour`.
         let members = Self.mergeMembers(in: plan, family: family)
         let neighboured = Self.sourcesWithSimilarNeighbour(rows)
         return VStack(alignment: .leading, spacing: 6) {
@@ -850,10 +731,8 @@ struct RestructurePlanSheet: View {
                     .scaledFont(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            // 24 rows on the flagship family: past a dozen the list stops being scannable and
-            // the name you are looking for is the thing you cannot find. The filter narrows the
-            // VIEW only — `rows` stays canonical and complete, so the derived manifest below is
-            // identical with a filter active.
+            // Past a dozen rows the list stops being scannable. The filter narrows the view only:
+            // `rows` stays complete, so the derived manifest is the same with a filter active.
             if rows.count > Self.filterAppearsAbove {
                 HStack(spacing: 6) {
                     Image(systemName: "line.3.horizontal.decrease")
@@ -887,8 +766,7 @@ struct RestructurePlanSheet: View {
                 Text(row.wrappedValue.source)
                     .scaledFont(.system(size: 11, design: .monospaced))
                     .lineLimit(1)
-                // A quiet marker saying WHY this row has the neighbour it has — without it,
-                // adjacency is a reordering the reader cannot account for.
+                // A quiet marker saying why this row sits beside its neighbour.
                 if neighboured.contains(row.wrappedValue.source) {
                     Image(systemName: "link")
                         .scaledFont(.system(size: 8))
@@ -905,13 +783,13 @@ struct RestructurePlanSheet: View {
             }
             .labelsHidden()
             // The visible label is the source name to its left; VoiceOver needs the tie made
-            // explicit or this is an unnamed popup in a column of unnamed popups.
+            // explicit.
             .accessibilityLabel("Target for \(row.wrappedValue.source)")
             .help("Choose the name “\(row.wrappedValue.source)” becomes — Keep leaves it as it is")
             .scaledFont(.system(size: 11))
             .frame(width: 180)
             if let margin = margin(for: row.wrappedValue, members: members) {
-                // The cost of a choice, visible where it is made (§5.4 step 3).
+                // The cost of a choice, visible where it is made.
                 Text(margin)
                     .scaledFont(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -937,9 +815,9 @@ struct RestructurePlanSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 if refineOffered {
                     HStack(spacing: 10) {
-                        // The one live control while a refine is in flight: without it, Cancel
-                        // (held for the reason on the footer) left the whole sheet dead for the
-                        // transport's full 90 s timeout on a hung request.
+                        // The one live control while a refine is in flight, since the footer
+                        // holds Cancel; without it a hung request leaves the sheet dead for the
+                        // transport's 90 s timeout.
                         Button {
                             refining ? stopRefine() : runRefine()
                         } label: {
@@ -962,13 +840,12 @@ struct RestructurePlanSheet: View {
                             .help("Also send up to 5 file names from each folder, so the model can "
                                   + "see what’s inside. File contents are never sent.")
                     }
-                    // The itemised payload disclosure, at the button rather than behind it —
-                    // and the toggle's clause appears only when the toggle is on.
+                    // The itemised payload disclosure, at the button rather than behind it; the
+                    // toggle's clause appears only when the toggle is on.
                     Text(Self.payloadDisclosure(includesFileNames: includeFileSamples,
                                                 acrossGroup: planTogether))
-                        // Consent copy — what leaves the machine and who pays — so it is set to
-                        // be read: 11pt secondary, not the 10pt tertiary it was, the faintest
-                        // text on screen at about 1.9:1 (DS3).
+                        // Consent copy (what leaves the machine, who pays), so it is set to be
+                        // read: 11pt secondary, never the faint tertiary.
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -996,9 +873,8 @@ struct RestructurePlanSheet: View {
 
     @ViewBuilder
     private func proposalList(_ proposals: [MappingRefineProposal]) -> some View {
-        // Capped and scrollable like the mapping (210), the operations (150) and the preview
-        // (130). Twenty-four proposals of two to three wrapped lines each is the same unbounded
-        // growth that once pushed this sheet's footer off a short display.
+        // Capped and scrollable like the mapping, the operations and the preview, so many
+        // wrapped proposals can't push the footer off a short display.
         ScrollView { proposalRows(proposals) }
             .frame(maxHeight: 170)
     }
@@ -1022,15 +898,14 @@ struct RestructurePlanSheet: View {
                             .scaledFont(.system(size: 9.5))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        // §5.6's adjacency rule: a proposal that reverses another — or the
-                        // user's own row — is labelled, or a reviewer reads the pair as a bug.
+                        // A proposal that reverses another, or the user's own row, is labelled,
+                        // or a reviewer reads the pair as a bug.
                         if let note = MappingRefineProtocol.reversalNote(for: proposal,
                                                                          among: proposals,
                                                                          rows: rows) {
-                            // A warm CAPSULE, not warm text. Amber on 9.5pt body text is the
-                            // contrast trap this branch states as a rule twice and follows twice
-                            // elsewhere — the radius chip and the crowding tag both carry their
-                            // tint as a fill with `.secondary` text, and this is the same shape.
+                            // A warm capsule, not warm text: amber 9.5pt text fails contrast, so
+                            // the tint is a fill under `.secondary` text, like the radius chip
+                            // and the crowding tag.
                             Text(note)
                                 .scaledFont(.system(size: 9.5, weight: .semibold))
                                 .foregroundStyle(.secondary)
@@ -1043,8 +918,7 @@ struct RestructurePlanSheet: View {
                     if let accepted = acceptedTarget(of: proposal),
                        rows.first(where: { $0.source == proposal.source })?.target != accepted {
                         Button("Accept") { accept(proposal) }
-                            // Every proposal row says "Accept" — VoiceOver needs each to name
-                            // WHICH proposal it lands.
+                            // Every row says "Accept"; VoiceOver needs each to name its proposal.
                             .accessibilityLabel(
                                 "Accept for \(proposal.source): \(Self.proposalLine(proposal))")
                             .scaledFont(.system(size: 10.5, weight: .semibold))
@@ -1068,8 +942,8 @@ struct RestructurePlanSheet: View {
         }
     }
 
-    /// **No path to the disk that skips the manifest**: accepting edits the mapping row, the
-    /// derivation re-runs, and the review below is the same review it always was.
+    /// No path to the disk that skips the manifest: accepting edits the mapping row, and the
+    /// derivation and review re-run as for any edit.
     private func accept(_ proposal: MappingRefineProposal) {
         guard let target = acceptedTarget(of: proposal),
               let index = rows.firstIndex(where: { $0.source == proposal.source }) else { return }
@@ -1084,13 +958,12 @@ struct RestructurePlanSheet: View {
         let request = refineRequest()
         refining = true
         refineFailedText = nil
-        // A failed second run must not leave the FIRST run's proposals rendered under its own
-        // failure sentence — nothing would say which run they belong to.
+        // A failed run must not leave an earlier run's proposals under its failure sentence.
         proposals = nil
         refineTask = Task { @MainActor in
             let outcome = await onRefineMapping(request)
-            // Stopped by hand: `stopRefine` already wrote the honest sentence, and whatever
-            // the cancelled transport returned (usually `.unavailable`) must not replace it.
+            // Stopped by hand: `stopRefine` already wrote the sentence, and the cancelled
+            // transport's answer (usually `.unavailable`) must not replace it.
             guard !Task.isCancelled else { return }
             refining = false
             switch outcome {
@@ -1112,8 +985,7 @@ struct RestructurePlanSheet: View {
         refineTask?.cancel()
         refineTask = nil
         refining = false
-        // Honest about the money: cancellation stops the WAIT; a request already on the wire
-        // may still complete server-side and bill.
+        // Cancelling stops the wait; a request already sent may still complete and bill.
         refineFailedText = "Stopped — nothing was accepted. If the request had already gone "
             + "out, it may still bill."
     }
@@ -1135,9 +1007,8 @@ struct RestructurePlanSheet: View {
         }
         var vocabularies = finding.schemes.map(\.vocabulary)
         if !vocabulary.isEmpty { vocabularies.append(vocabulary) }
-        // `family`, NOT `planFamily`: every consumer reads a member as a child of the family,
-        // and `planFamily` is already `family/member` on a seeded pair — the prompt then
-        // described `Docs/Travel/Travel`, a path that does not exist.
+        // `family`, not `planFamily`: consumers read a member as a child of the family, and on
+        // a seeded pair `planFamily` is already `family/member`, which would double the member.
         // With the group on, `rows` holds every sibling family's child names too, so the hidden
         // check must read their members as well as this family's.
         let drawnFrom = planTogether
@@ -1150,13 +1021,11 @@ struct RestructurePlanSheet: View {
                                     sampleFileNames: samples, drawnFrom: drawnFrom)
     }
 
-    /// The disclosure sentence — itemised, with the toggle's clause present exactly when the
-    /// payload carries it, and the never-clause always (§5.6).
+    /// The disclosure sentence, itemised: the toggle's clause exactly when the payload carries
+    /// it, and the never-clause always.
     ///
-    /// **`acrossGroup` is not cosmetic.** With O17's group toggle on, `rows` carries child names
-    /// belonging to the sibling families too, and those names go out with the request. A sentence
-    /// saying "this family's" while three families' names leave the machine understates what the
-    /// user is agreeing to, which is the one thing a disclosure may not do.
+    /// `acrossGroup` is not cosmetic: with the group toggle on, `rows` carries the sibling
+    /// families' names too, and a disclosure must never understate what leaves the machine.
     static func payloadDisclosure(includesFileNames: Bool, acrossGroup: Bool = false) -> String {
         var sent = acrossGroup
             ? "Sends the folder paths, member names and candidate names of this family AND the "
@@ -1182,15 +1051,13 @@ struct RestructurePlanSheet: View {
             family: family, members: members,
             mapping: RestructureMapping(rows: rows), kind: finding.kind, in: liveTree,
             profileId: profileId, manifestId: manifestId, createdAt: createdAt,
-            // What the landing gets CALLED. For a seeded pair the family is the pair's
-            // grandparent — recording that would head the ledger card "Across the tree" for two
-            // folders inside one named parent.
+            // What the landing is called. For a seeded pair the family is the grandparent, which
+            // would head the ledger card "Across the tree" for folders inside one parent.
             recordedFamily: planFamily)
     }
 
-    /// What each family's own plan comes to (proposal O17). The subject's operations are listed
-    /// in full below; this is the group's shape at a glance, including any family whose plan
-    /// refuses — a group where one member cannot be planned is a thing to see, not to drop.
+    /// What each family's own plan comes to: the group at a glance, beside the subject's full
+    /// list. A family whose plan refuses is shown, not dropped.
     @ViewBuilder
     private func groupReview(
         _ plans: [(family: String,
@@ -1231,9 +1098,8 @@ struct RestructurePlanSheet: View {
         -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel("Derived operations")
-            // **Batch never skips the per-family review.** One shared mapping row can be right
-            // for this family and wrong for a sibling, and that is precisely what the group is
-            // for; so the counts below are per family, derived separately, before anything runs.
+            // A batch never skips the per-family review: one shared row can be right for this
+            // family and wrong for a sibling, so each family's counts are derived separately.
             if !group.isEmpty { groupReview(group) }
             switch plan {
             case .success(let manifest):
@@ -1253,9 +1119,8 @@ struct RestructurePlanSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 150)
-                // The operations say what runs; this says what it LEAVES. One member, because
-                // the mapping is applied to all of them identically and one worked example is
-                // what makes the shape legible — the list above is the exhaustive answer.
+                // The operations say what runs; this says what it leaves. One member is enough,
+                // since the mapping applies to all alike and the list above is exhaustive.
                 if let exemplar = Self.previewMember(of: manifest, family: family,
                                                     members: members),
                    let preview = RestructurePlanner.preview(member: exemplar, in: manifest,
@@ -1270,13 +1135,11 @@ struct RestructurePlanSheet: View {
         }
     }
 
-    /// Which member the before/after is drawn for: the first one the plan actually touches, in
-    /// the manifest's own order. A member the plan leaves alone would draw two identical columns
-    /// and teach nothing.
+    /// Which member the before/after is drawn for: the first one the plan touches, in manifest
+    /// order, since an untouched member would draw two identical columns.
     ///
-    /// A rule rather than a method, because a render comparison cannot see it: two sheets whose
-    /// plans differ also differ in their mapping rows and their operation list, so the images
-    /// differ whether or not the columns draw. `if true { return nil }` here passed one.
+    /// A static rule so a test can check it: a render comparison can't, because sheets with
+    /// different plans differ elsewhere too.
     static func previewMember(of manifest: RestructureManifest,
                               family: String, members: [String]) -> String? {
         for action in manifest.actions where action.action != .keep {
@@ -1296,10 +1159,9 @@ struct RestructurePlanSheet: View {
             Text("\((member as NSString).lastPathComponent) — before and after")
                 .scaledFont(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
-            // Capped and scrollable, like the mapping (210) and the operations (150) above it.
-            // A 17-child member draws 17 rows a side plus their notes, and the sheet has no
-            // outer ScrollView — at the largest text size the footer went off the display and
-            // the sheet could only be dismissed with Escape.
+            // Capped and scrollable, like the mapping and the operations: the sheet has no outer
+            // ScrollView, so a big member at the largest text size would push the footer off
+            // the display.
             ScrollView {
                 HStack(alignment: .top, spacing: 10) {
                     previewColumn("NOW", rows: preview.before)
@@ -1345,8 +1207,8 @@ struct RestructurePlanSheet: View {
         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.18)))
     }
 
-    /// What became of a row, in the after column's own words. nil for a folder the plan never
-    /// touched — an annotation on every row is an annotation nobody reads.
+    /// What became of a row, in the after column's words. nil for a folder the plan never
+    /// touched, so the notes that appear are worth reading.
     static func fateNote(_ fate: RestructurePlanner.RestructurePreview.Fate) -> String? {
         switch fate {
         case .renamedFrom(let old): return "was \(old)"
@@ -1405,9 +1267,9 @@ struct RestructurePlanSheet: View {
                     .help("Removes this saved plan, so its card no longer shows it as planned. "
                           + "Nothing moves, and an exported file stays where it is.")
             }
-            // Held while an apply or a paid refine is in flight: a close clicked mid-apply
-            // reads as *abort*, but the eight-step landing keeps running, and a refusal (or the
-            // paid proposals) would land in a torn-down view with no banner to catch it.
+            // Held while an apply or a paid refine is in flight: a close mid-apply reads as
+            // abort, but the landing keeps running, and its refusal or the paid proposals would
+            // arrive in a torn-down view.
             let disposition = Self.closeDisposition(
                 plan: plan, rows: rows, vocabulary: vocabulary, baseline: baseline,
                 landedOrExported: landedOrExported)
@@ -1424,17 +1286,10 @@ struct RestructurePlanSheet: View {
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.cancelAction)
                 .disabled(applying || refining)
-            // Export keeps ⏎ — the safe act stays the default one; landing a plan is a plain
-            // deliberate click, styled as the destructive act it is.
-            // Disabled once applied, like Apply itself: an export saves a draft, and a draft
-            // saved AFTER the landing would put "Planned, not applied" on a card about
-            // operations that just ran.
-            // **Exports the whole group when the group is what is being planned.** It used to
-            // export `derived` — the subject family alone — under a footer reading "Exported as
-            // … — nothing has been moved", so a user who ticked *Plan all 3 together* and took
-            // the safe route got a file, and a draft behind §5.7's *Planned, not applied* card,
-            // covering one family of three.
-            // No ellipsis (LN13): it writes the file and keeps the plan at once, with no panel.
+            // Export keeps ⏎, the safe act; landing is a deliberate click styled as destructive.
+            // Disabled once applied: a draft saved after the landing would mark operations that
+            // just ran as "Planned, not applied". Exports the whole group when the group is
+            // being planned. No ellipsis: it writes the file and keeps the plan at once.
             Button(group.isEmpty ? "Export Plan" : "Export \(group.count) Plans") {
                 if group.isEmpty { exportPlan(plan) } else { exportGroup(group) }
             }
@@ -1480,17 +1335,15 @@ struct RestructurePlanSheet: View {
         }
     }
 
-    /// §5.5's eight steps as they run. **The point is the order**: the inverse reaches disk
-    /// before anything moves, and the verify is a separate pass afterwards — the trust the
-    /// design paid for, previously invisible behind a button reading "Applying…".
+    /// The landing's eight steps as they run. The order is the point: the inverse reaches disk
+    /// before anything moves, and the verify is a separate pass afterwards.
     private func progressChecklist(_ progress: RestructureApplyProgress) -> some View {
         RestructureApplyChecklist(progress: progress, accent: accent)
     }
 }
 
-/// §5.5's eight steps as they run, for whichever sheet is landing. Extracted rather than left
-/// private to the plan sheet: a pair merge runs the same `applyPlan`, through the same inverse-
-/// first order, and showed none of it.
+/// The landing's eight steps as they run, for whichever sheet is landing: a pair merge runs
+/// the same `applyPlan` in the same inverse-first order.
 struct RestructureApplyChecklist: View {
     let progress: RestructureApplyProgress
     let accent: Color
@@ -1547,20 +1400,18 @@ extension RestructurePlanSheet {
 
     private func applyTitle(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
         -> String {
-        // `operationCount`, not `actions.count`: keeps are the signature block, and counting
-        // them read "Apply 14 operations" in red over one rename plus 13 keeps.
+        // `operationCount`, not `actions.count`: keeps are the signature block, not operations.
         let count = (try? plan.get())?.operationCount ?? 0
         return applying ? "Applying…" : "Apply \(count) Operation\(count == 1 ? "" : "s")"
     }
 
     private func apply(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
                        _ run: @escaping (RestructureManifest) async -> ApplyResult) {
-        // The button's .disabled only holds if SwiftUI re-rendered between a double-click's two
-        // clicks; this guard is what actually stops a second eight-step apply racing the first.
+        // `.disabled` holds only if SwiftUI re-rendered between a double-click's two clicks;
+        // this guard is what stops a second apply racing the first.
         guard !applying, let manifest = try? plan.get() else { return }
         applying = true
-        // Frozen for the DURATION, not just after it — see `applyingPlan`. Without this the
-        // landing's progress ticks re-derived the whole plan against a tree being moved.
+        // Frozen for the whole landing — see `applyingPlan`.
         applyingPlan = .success(manifest)
         Task { @MainActor in
             let result = await run(manifest)
@@ -1573,32 +1424,24 @@ extension RestructurePlanSheet {
                 applyingPlan = nil
                 outcome = .applied(summary)
             case .refused(let refusal):
-                // Nothing landed, so the sheet goes back to deriving from the mapping — a
-                // refusal is a sentence to read and edit against, not a frozen plan.
+                // Nothing landed, so the sheet derives from the mapping again, to edit against.
                 applyingPlan = nil
                 outcome = .failed(refusal)
             }
         }
     }
 
-    /// Land each family's plan in turn (proposal O17).
+    /// Land each family's plan in turn.
     ///
-    /// **Sequentially, and never in parallel.** Every landing re-derives the survey and replaces
-    /// the active profile, so two at once would have the second running against a profile the
-    /// first invalidated — and the engine's own operation guard would refuse it anyway, which is
-    /// a refusal the user would have to read rather than a design.
+    /// Sequentially, never in parallel: every landing re-derives the survey and replaces the
+    /// active profile, so a second at once would run against a profile the first invalidated.
     ///
-    /// **Stops at the first refusal.** The alternative is finishing the queue and reporting three
-    /// outcomes at once, which leaves the tree half-reorganised while the reader works out which
-    /// half. Everything that landed before the refusal stays landed and is in the ledger, each
-    /// under its own manifest id and each undoable on its own.
+    /// Stops at the first refusal, rather than leaving the tree half-reorganised in ways the
+    /// reader must untangle. What landed before it stays landed, each under its own manifest id
+    /// and undoable on its own.
     ///
-    /// **And the retry resumes rather than restarting.** A manifest lands once — `applyPlan`
-    /// refuses a repeat id — and the sheet's ids are stable for its whole lifetime, so a plain
-    /// re-press after fixing whatever refused walked straight back into the family that had
-    /// already succeeded and stopped there, reporting *"H-4 refused — the ledger already records
-    /// a landing of this plan"* about the one family that worked. `alreadyLanded` is why the
-    /// second press starts where the first one stopped.
+    /// A retry resumes rather than restarting: `applyPlan` refuses a repeat manifest id and the
+    /// sheet's ids are stable, so `alreadyLanded` skips the families that already succeeded.
     private func applyGroup(
         _ plans: [(family: String,
                    result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)],
@@ -1611,8 +1454,8 @@ extension RestructurePlanSheet {
             .filter { !alreadyLanded.contains($0.1.manifestId) }
         guard !landable.isEmpty else { return }
         applying = true
-        // The group's own freeze, for the reason `applyingPlan` gives: `groupPlans` runs the
-        // planner once PER FAMILY, so a progress tick re-derived every family in the group.
+        // The group's own freeze, for `applyingPlan`'s reason: `groupPlans` runs the planner
+        // once per family.
         applyingGroup = plans
         Task { @MainActor in
             var landed: [String] = []
@@ -1628,9 +1471,8 @@ extension RestructurePlanSheet {
                 if refusal != nil { break }
             }
             applying = false
-            // Whatever ran, the review freezes on the plans that ran it — including after a
-            // partial group apply, where the remaining families still need their reviewed
-            // operations on screen for the retry.
+            // The review freezes on these plans whatever ran, so after a partial apply the
+            // remaining families keep their reviewed operations on screen for the retry.
             landedGroup = plans
             applyingGroup = nil
             if let refusal {
@@ -1644,8 +1486,8 @@ extension RestructurePlanSheet {
         }
     }
 
-    /// Export every family's plan, one file each — the same shape the landing takes, so what is
-    /// on disk after Export matches what Apply would run.
+    /// Export every family's plan, one file each, the shape the landing takes, so the files
+    /// match what Apply would run.
     private func exportGroup(
         _ plans: [(family: String,
                    result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)]) {
@@ -1689,10 +1531,9 @@ extension RestructurePlanSheet {
             .textCase(.uppercase)
     }
 
-    /// "merges into `Forms` in 3 members" — how many members this row's choice makes a merge in,
-    /// read off the live derivation so the margin can never disagree with the review below.
-    /// Read off ``mergeMembers(in:family:)``, which is derived once per render — see there for
-    /// what this used to cost per row.
+    /// "merges into `Forms` in 3 members": how many members this row's choice makes a merge in,
+    /// read off ``mergeMembers(in:family:)`` (derived once per render), so the margin can never
+    /// disagree with the review below.
     private func margin(for row: RestructureMapping.Row, members: [String: Int]) -> String? {
         guard let target = row.target, target != row.source,
               let memberCount = members[row.source], memberCount > 0 else { return nil }
@@ -1701,12 +1542,12 @@ extension RestructurePlanSheet {
 
     // MARK: - Static rules (tested without the view)
 
-    /// The label a scheme wears in the chooser — what it IS, never a recommendation: *the largest
-    /// group* for the widest membership, *the most recent* derived from the members' year tokens,
-    /// never from scheme order (§5.4 step 1's audit note).
+    /// The label a scheme wears in the chooser: what it is, never a recommendation. *The largest
+    /// group* for the widest membership; *the most recent* from the members' year tokens, never
+    /// from scheme order.
     static func schemeLabel(index: Int, in finding: StructureFinding) -> String? {
-        // Labels exist to tell choices apart; a lone scheme is the only choice, and "the most
-        // recent" of one would be a recommendation wearing a description's words.
+        // Labels tell choices apart; on a lone scheme "the most recent" would read as a
+        // recommendation.
         guard finding.schemes.count > 1 else { return nil }
         var parts: [String] = []
         if index == 0 { parts.append("the largest group") }
@@ -1725,8 +1566,8 @@ extension RestructurePlanSheet {
         return newest.max { $0.1 < $1.1 }?.0
     }
 
-    /// True when the genuinely newest members are drift or shapeless — then there is no current
-    /// shape, and saying so is the true and useful answer (§5.4 step 1).
+    /// True when the newest members are drift or shapeless: then there is no current shape, and
+    /// the sheet says so.
     static func newestMembersAreDrift(_ finding: StructureFinding) -> Bool {
         let driftYears = (finding.drift + finding.shapeless).compactMap(maxYear(in:))
         let schemeYears = finding.schemes.flatMap(\.members).compactMap(maxYear(in:))
@@ -1753,14 +1594,12 @@ extension RestructurePlanSheet {
         return years.max()
     }
 
-    /// The review list, grouped the way §5.4 words it: renames one line each, a merge one line
-    /// per source-into-target with its file and folder counts, keeps by name — every line
-    /// prefixed by the member it happens in.
+    /// The review list: renames one line each, a merge one line per source-into-target with its
+    /// file and folder counts, keeps by name, every line prefixed by its member.
     static func operationLines(of manifest: RestructureManifest,
                                walkedFamily: String? = nil) -> [String] {
-        // The family the paths were WALKED from, which since `recordedFamily` is not always the
-        // one the manifest records: a seeded pair records the member's own path, so stripping
-        // that prefix yielded the child name where the member's was wanted.
+        // The family the paths were walked from, not always the recorded one: a seeded pair
+        // records the member's own path, and stripping that would yield the child name.
         let family = walkedFamily ?? manifest.family
         let familyPrefix = family.isEmpty ? "" : family + "/"
         func member(of path: String?) -> String {

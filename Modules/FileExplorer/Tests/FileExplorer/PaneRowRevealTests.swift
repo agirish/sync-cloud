@@ -5,14 +5,13 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// **A row the host selects on the user's behalf is brought into view** (TE47).
+/// A row the host selects on the user's behalf is brought into view.
 ///
-/// The open document is selected in the left pane — by Edit's rail, by every hand-off into Edit, by
-/// Reveal in Browse, by the header's "in <folder>", by ⌘N — and a selection is not a reveal: the
-/// search suite measured that on the shipped build (a hit 70 rows down selected at y = 2330 with
-/// the viewport showing 0…500). These tests measure ARRIVAL, the way that suite does — the row
-/// inside its `NSTableView`'s visible rectangle, and in Columns the column inside the stack's
-/// visible span — never a call returning.
+/// The open document is selected in the left pane (by Edit's rail, every hand-off into Edit, Reveal
+/// in Browse, the header's "in <folder>", ⌘N), and a selection is not a reveal: a row 70 down can
+/// be selected far below the viewport. These tests measure arrival, as the search suite does: the
+/// row inside its `NSTableView`'s visible rectangle, and in Columns the column inside the stack's
+/// visible span, never a call returning.
 ///
 /// Each case first establishes that its fixture could have failed: the row starts off screen, and
 /// selecting it alone (no reveal) leaves it there.
@@ -37,7 +36,7 @@ import Sync
         /// Every report the pane made (`onRowRevealed`), in order. Not published: recording one
         /// must not re-render the pane that made it.
         var answered: [PaneRowReveal] = []
-        /// Whether this host retires a reveal once it is answered, as the app does — on the next
+        /// Whether this host retires a reveal once it is answered, as the app does: on the next
         /// turn, after both of Columns' halves have acted in the same update.
         var retiresAnswered = false
 
@@ -49,8 +48,8 @@ import Sync
             }
         }
 
-        /// The host's act: the selection written, and a fresh reveal asked for it — for `path`
-        /// alone, or for the several rows a PDF batch's Reveal selects with it.
+        /// The host's act: the selection written, and a fresh reveal asked for it, for `path` alone
+        /// or for the several rows a PDF batch's Reveal selects with it.
         func reveal(_ path: String, selecting rows: Set<String>? = nil) {
             token &+= 1
             reveal = PaneRowReveal(path: path, token: token, selection: rows)
@@ -144,7 +143,8 @@ import Sync
         return found
     }
 
-    /// The table listing `folder`'s files — the one with `rowCount` rows — and the row's index in it.
+    /// The table listing `folder`'s files (the one with `rowCount` rows), and the row's index in
+    /// it.
     static func table(listing count: Int, in window: NSWindow) -> NSTableView? {
         tables(window.contentView!).first { $0.numberOfRows == count }
     }
@@ -171,17 +171,15 @@ import Sync
         return frame.minX >= clip.minX - 1 && frame.maxX <= clip.maxX + 1
     }
 
-    /// Pumps until a marker queued now — past both reveal attempts — has fired, then drains a
-    /// fixed number of real main-queue turns so a `scrollTo` issued by the last attempt has been
-    /// applied, and reports whether `condition` ever held on the way. How an ABSENCE is bounded by
-    /// the QUEUE rather than a clock (see `ColumnPreviewRevealTests.quiesceReveals`, the same shape).
+    /// Pumps until a marker queued now, past both reveal attempts, has fired, then drains a fixed
+    /// number of real main-queue turns so a `scrollTo` from the last attempt has been applied, and
+    /// reports whether `condition` ever held on the way. An absence is bounded by the queue, not a
+    /// clock (as in `ColumnPreviewRevealTests.quiesceReveals`).
     ///
-    /// **The marker firing is asserted, not assumed.** This returned whatever it had seen when the
-    /// pump's wall-clock ceiling ran out, so under full-suite load — where a main-actor turn has
-    /// been measured at seconds — a starved wait gave up BEFORE the reveal attempts had run, and a
-    /// negative control ("the row never came into view") passed for the machine's slowness rather
-    /// than for the code. The ceiling is now generous (it bounds a block queued ~0.55s out, not a
-    /// render chain), and a wait that still expires fails the test instead of passing it.
+    /// The marker firing is asserted, not assumed: under full-suite load a main-actor turn can take
+    /// seconds, and a wait that gave up before the reveal attempts ran would let a negative control
+    /// pass for the machine's slowness. The ceiling is generous (it bounds a block queued ~0.55s
+    /// out), and a wait that still expires fails the test.
     static func everHolds(_ window: NSWindow, _ condition: () -> Bool,
                           sourceLocation: SourceLocation = #_sourceLocation) async -> Bool {
         final class Marker { var fired = false }
@@ -206,14 +204,14 @@ import Sync
         return held || condition()
     }
 
-    /// Real main-queue turns an issued `scrollTo` is given to reach the clip after the marker —
-    /// `ColumnPreviewRevealTests.applyTurns`' figure and reasoning (measured at one; turns are the
-    /// unit that scales under load).
+    /// Real main-queue turns an issued `scrollTo` gets to reach the clip after the marker:
+    /// `ColumnPreviewRevealTests.applyTurns`' figure and reasoning (turns are the unit that scales
+    /// under load).
     static let applyTurns = 12
 
     // MARK: The rule
 
-    /// Only while the named row is the WHOLE selection — the rule both presentations ask.
+    /// Only while the named row is the whole selection: the rule both presentations ask.
     @Test func aRevealIsAnsweredOnlyWhileItsRowIsTheSelection() {
         let reveal = PaneRowReveal(path: "/r/a.md", token: 1)
         #expect(FileTreeView.revealsRow(reveal, selection: ["/r/a.md"]) == "/r/a.md")
@@ -224,8 +222,8 @@ import Sync
         #expect(FileTreeView.revealsRow(nil, selection: ["/r/a.md"]) == nil)
     }
 
-    /// **A reveal of several rows** — a PDF batch's copies — is answered while those rows are the
-    /// whole selection, and goes to its first; not to the first alone, nor to a set past it.
+    /// A reveal of several rows (a PDF batch's copies) is answered while those rows are the whole
+    /// selection, and goes to its first; not to the first alone, nor to a set past it.
     @Test func aRevealOfSeveralRowsIsAnsweredOnlyWhileTheyAreTheSelection() {
         let rows: Set<String> = ["/r/a.pdf", "/r/b.pdf", "/r/c.pdf"]
         let reveal = PaneRowReveal(path: "/r/a.pdf", token: 1, selection: rows)
@@ -268,14 +266,14 @@ import Sync
             Self.rowIsVisible(window, index: Self.targetIndex)
         }
         #expect(revealed.held, "the revealed row is still below the fold (\(revealed.pumps) pumps)")
-        // …and the host is told it was answered, once — which is what lets it retire the request.
+        // …and the host is told it was answered, once, which is what lets it retire the request.
         #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 },
                 "the pane reported \(mounted.box.answered.count) answers for one reveal")
     }
 
-    /// **Several rows selected on the user's behalf** — a PDF batch's copies, 140 to 143 of 150 —
-    /// are brought into view at the first, the row the reveal names. The control is the one-row
-    /// test's: selected, not revealed, they stay below the fold.
+    /// Several rows selected on the user's behalf (a PDF batch's copies, 140 to 143 of 150) are
+    /// brought into view at the first, the row the reveal names. The control is the one-row test's:
+    /// selected, not revealed, they stay below the fold.
     @Test func theTreeBringsTheFirstOfSeveralRevealedRowsIntoView() async throws {
         let mounted = Self.mount(.tree)
         let window = mounted.window
@@ -296,8 +294,8 @@ import Sync
         #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 })
     }
 
-    /// **Never fight the user.** A request for a row the user has since moved off is not answered
-    /// — nor reported as answered.
+    /// Never fight the user: a request for a row the user has since moved off is not answered, nor
+    /// reported as answered.
     @Test func theTreeIgnoresARevealForARowThatIsNotTheSelection() async throws {
         let mounted = Self.mount(.tree)
         let window = mounted.window
@@ -309,8 +307,8 @@ import Sync
         #expect(mounted.box.answered.isEmpty, "a reveal the pane refused was reported as answered")
     }
 
-    /// A pane that was not on screen when the reveal was asked for — Edit's pane folded behind the
-    /// rail, a workspace switch mounting it — answers it when it appears.
+    /// A pane that wasn't on screen when the reveal was asked for (Edit's pane folded behind the
+    /// rail, a workspace switch mounting it) answers it when it appears.
     @Test func theTreeAnswersAStandingRevealWhenItAppears() async throws {
         let box = Box()
         let target = Self.target(depth: 0)
@@ -324,11 +322,11 @@ import Sync
         #expect(box.answered == [box.reveal].compactMap { $0 }, "the appearance's answer was not reported")
     }
 
-    /// **Answered once** (TE47 review): a host that retires the reveal when told — as the app does
-    /// — gets a pane that, mounted again with the row still selected, does NOT scroll back to it.
-    /// Before, the reveal stood while its row was selected, and every appearance (Browse and back,
-    /// the pane collapsed and expanded) jumped the pane back to the document. The control is the
-    /// test above: the same mount with the reveal still standing does scroll.
+    /// Answered once: a host that retires the reveal when told, as the app does, gets a pane that,
+    /// mounted again with the row still selected, doesn't scroll back to it. Otherwise every
+    /// appearance (Browse and back, the pane collapsed and expanded) would jump the pane back to
+    /// the document. The control is the test above: the same mount with the reveal still standing
+    /// does scroll.
     @Test func theTreeDoesNotScrollBackToAnAnsweredRevealWhenItReappears() async throws {
         let box = Box()
         box.retiresAnswered = true
@@ -378,9 +376,9 @@ import Sync
                 "the column reported \(mounted.box.answered.count) answers for one reveal")
     }
 
-    /// **The column itself must be on screen**, or the row's scroll shows nothing. Four columns
-    /// deep in a 700pt pane, scrolled back to the first column: the reveal brings the deepest
-    /// column into view AND its row.
+    /// The column itself must be on screen, or the row's scroll shows nothing. Four columns deep in
+    /// a 700pt pane, scrolled back to the first column: the reveal brings the deepest column into
+    /// view, and its row.
     @Test("Columns: the revealed row's column is scrolled into view too")
     func theStackBringsTheRevealedColumnIntoView() async throws {
         let depth = 3
@@ -395,14 +393,12 @@ import Sync
         let content = stack.documentView?.frame.width ?? 0
         try #require(content > stack.contentView.bounds.width,
                      "the stack fits its \(stack.contentView.bounds.width)pt clip (\(content)pt) — a hidden column is impossible here")
-        // Select the row FIRST, then wait out the drill's own reveal and anything the selection
-        // set going, and only then put the stack back at its first column. So the control is
-        // "selected, and still off screen" — the selection is not what brings the column back —
-        // and it is read at once rather than over a window. An absence held over a window is what
-        // another suite's column-width commit can break (docs/flaky-tests.md, "Process-wide
-        // state, and suites running in parallel": `@AppStorage` notifies by key name, and the
-        // width driver reveals the deepest column in every pane alive). Measured: the windowed
-        // form of this control failed once in a full-package run and never under `--filter`.
+        // Select the row first, wait out the drill's own reveal and anything the selection set
+        // going, and only then put the stack back at its first column. So the control is "selected,
+        // and still off screen", read at once rather than over a window. An absence held over a
+        // window can be broken by another suite's column-width commit (`docs/flaky-tests.md`,
+        // "Process-wide state, and suites running in parallel": `@AppStorage` notifies by key name,
+        // and the width driver reveals the deepest column in every pane alive).
         let target = Self.target(depth: depth)
         mounted.box.selection = [target]
         _ = await Self.everHolds(window) { false }

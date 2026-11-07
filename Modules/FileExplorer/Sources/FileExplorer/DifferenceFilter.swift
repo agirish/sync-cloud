@@ -1,8 +1,8 @@
 import Foundation
 import Sync
 
-/// Filter for the differences list (by type / side). The selection is transient view
-/// @State — nothing persists it, so the cases need no stable serialized identity.
+/// Filter for the differences list, by type and side. Nothing persists the choice, so the cases
+/// need no stable serialized identity.
 public enum DifferenceFilter: CaseIterable {
     case all
     case missingOnLeft
@@ -10,13 +10,10 @@ public enum DifferenceFilter: CaseIterable {
     case changedCopyToRight
     case changedCopyToLeft
     case nameConflicts
-    /// The rows the last bulk transfer could not move.
-    ///
-    /// The odd one out, and deliberately so: every other case asks a question about the difference
-    /// itself, while this one asks what happened to it. That is why it needs `failedIDs` passed in
-    /// — the fact lives on the manager (`FileSyncManager.lastTransferFailures`), not on the row —
-    /// and why the header hides it at zero instead of offering a filter that can only ever be
-    /// empty. See ``TransferFailures``.
+    /// The rows the last bulk transfer could not move. The odd one out: it asks what happened to a
+    /// difference, not what it is, so it needs `failedIDs` from the manager
+    /// (`FileSyncManager.lastTransferFailures`), and the header hides it at zero. See
+    /// ``TransferFailures``.
     case failed
 
     /// User-facing label using the panes' provider names.
@@ -32,9 +29,8 @@ public enum DifferenceFilter: CaseIterable {
         }
     }
 
-    /// `failedIDs` has no default on purpose. A defaulted empty set would let a call site that
-    /// forgot it compile and answer "nothing failed" — which is the same answer the feature gives
-    /// when it is working, so the omission would be invisible.
+    /// `failedIDs` has no default on purpose: a call site that forgot it would compile and answer
+    /// "nothing failed", which looks exactly like the feature working.
     func matches(_ diff: FileDifference, failedIDs: Set<UUID>) -> Bool {
         switch self {
         case .all: return true
@@ -47,12 +43,9 @@ public enum DifferenceFilter: CaseIterable {
         }
     }
 
-    /// Whether this filter is worth offering right now.
-    ///
-    /// Only `.failed` is ever withheld, and only at zero: it names an event rather than a shape, so
-    /// outside the minutes after a partial run there is nothing for it to show. Every other case
-    /// stays listed at zero — "Name conflicts (0)" is an answer, and a menu whose entries come and
-    /// go is harder to use than one with zeroes in it.
+    /// Whether this filter is worth offering now. Only `.failed` is withheld, and only at zero,
+    /// since it names an event. Every other case stays listed at zero: "Name conflicts (0)" is an
+    /// answer, and a menu whose entries come and go is harder to use.
     func isOffered(failedCount: Int) -> Bool {
         self != .failed || failedCount > 0
     }

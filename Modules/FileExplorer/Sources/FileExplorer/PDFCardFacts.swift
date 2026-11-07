@@ -4,10 +4,10 @@ import PDFKit
 import PDFToolkitCore
 import Sync
 
-/// **What an Ask Claude PDF card says about a file before the click** (TE294 step 3): its pages,
-/// size and protection, how many form fields it has, whether its folder takes a new file, and what
-/// a given tool's copy would lose — in the words the tool's own sheet uses — with the stamp it was
-/// read at, which the run then holds the file to.
+/// What an Ask Claude PDF card says about a file before the click: its pages, size and protection,
+/// how many form fields it has, whether its folder takes a new file, and what a given tool's copy
+/// would lose, in the words the tool's own sheet uses. It carries the stamp it was read at, which
+/// the run then holds the file to.
 public struct PDFCardFacts: Equatable, Sendable {
     public enum Protection: String, Codable, Sendable {
         case none
@@ -42,8 +42,8 @@ public enum PDFCardFactsReader {
     /// The longest a card waits on the lane before saying "busy" rather than holding Claude's turn.
     public static let laneWait: Duration = .seconds(5)
 
-    /// **Reads `path` for a card that would run `tool`** — off the main thread, in one bounded
-    /// turn of the app's one PDF lane. Nothing reads a file only in the cloud: that would download it.
+    /// Reads `path` for a card that would run `tool`, off the main thread, in one bounded turn of
+    /// the app's one PDF lane. Nothing reads a file only in the cloud: that would download it.
     @MainActor
     public static func read(_ path: String, for tool: EditorPDFTool, timeout: Duration = laneWait,
                             isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) })
@@ -87,8 +87,8 @@ public enum PDFCardFactsReader {
                          droppedParts: PDFToolkit.droppedCatalogParts(in: document))
     }
 
-    /// **The tool's losses for this file, only those it has** — Compress's redraw always, since
-    /// every file has text to lose.
+    /// The tool's losses for this file, only those it has; Compress's redraw always, since every
+    /// file has text to lose.
     @MainActor
     static func losses(_ tool: EditorPDFTool, lane: LaneFacts) -> [String] {
         var said: [String] = []
@@ -108,7 +108,7 @@ public enum PDFCardFactsReader {
     public static let formStopsWorking = "Its fillable form won’t work in the copy."
     public static let restrictionsGo = "The copy won’t keep its owner’s editing restrictions."
 
-    /// **Runs `body` in the lane, or answers `nil` once `timeout` passes** — whichever comes first.
+    /// Runs `body` in the lane, or answers `nil` once `timeout` passes, whichever comes first.
     /// The lane itself can't be interrupted: a turn that has started runs to its end. Past the
     /// timeout the queued turn is cancelled, so when it comes it does nothing.
     static func bounded<T: Sendable>(_ timeout: Duration, _ body: @escaping @Sendable () -> T) async -> T? {
@@ -134,8 +134,8 @@ public enum PDFCardFactsReader {
     }
 }
 
-/// **Small pictures of a card's pages** (TE294 step 3) — the pages a tool acts on, with one either
-/// side, drawn in the lane and handed back as `CGImage`s: `NSImage` can't cross actors.
+/// Small pictures of a card's pages: the pages a tool acts on, with one either side, drawn in the
+/// lane and handed back as `CGImage`s, since `NSImage` can't cross actors.
 public enum PDFCardThumbnails {
     /// The pages a card draws for `pages` of `pageCount`: each one, with one page either side, and
     /// `nil` where a run of others is left out — so a 300-page file still fits a card.
@@ -188,8 +188,8 @@ public extension EditorPDFTool {
     static var cleanMetadataCleared: EditorPDFTool { .cleanMetadata(.cleared) }
 }
 
-/// **Pages typed on a card**, read as Edit's page-range sheet reads them — an en dash is a hyphen,
-/// "every page" can't be deleted — so a card and the sheet agree on what "3–5" means.
+/// Pages typed on a card, read as Edit's page-range sheet reads them (an en dash is a hyphen,
+/// "every page" can't be deleted), so a card and the sheet agree on what "3–5" means.
 @MainActor
 public enum PDFCardPages {
     /// Zero-based pages for Extract (in the order typed) or Delete, or the sheet's sentence for why not.
@@ -207,7 +207,7 @@ public struct PDFCardPagesProblem: Error, Equatable, Sendable {
     public let sentence: String
 }
 
-/// **The name a card's new file starts as** (TE294) — the menus' own naming, before the write. The
+/// The name a card's new file starts as: the menus' own naming, before the write. The
 /// keep-both rule may still add a number when a file of that name is there by then, so a card says
 /// it as the plan and the report says what was written.
 public enum PDFPlannedName {

@@ -6,9 +6,8 @@ import Sync
 /// The two pure values behind the Compare Copies surface: the facts strip, and the wording of the
 /// confirmation that destroys a file.
 ///
-/// Both exist because the alternative is a rule written inside a `body`, where nothing can hold it
-/// to its claims — the lesson `DuplicateRemovalPrompt` was extracted for, after the same-text
-/// group's careful vocabulary drifted into "redundant copy" at the point of no return.
+/// Both are values because a rule written inside a `body` can't be held to its claims, the same
+/// reason `DuplicateRemovalPrompt` exists: wording at the point of no return must not drift.
 @Suite struct CompareCopiesModelsTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_700_000_000)
@@ -46,10 +45,9 @@ import Sync
         #expect(f.summary == "Differs by location.")
     }
 
-    /// **The trap the whole `differs` rule exists for.** A byte count renders to three significant
-    /// figures, so two genuinely different sizes can print the same string. A strip that diffed
-    /// its own labels would call these equal at the top of a surface whose entire job is to say
-    /// whether two files are the same.
+    /// The trap the `differs` rule exists for: a byte count renders to three significant figures,
+    /// so two different sizes can print alike. A strip that diffed its own labels would call
+    /// these equal.
     @Test func twoSizesThatFormatAlikeAreStillFlaggedAsDiffering() throws {
         let f = facts(copy("/Users/x/Docs/A/r.pdf", size: 1_200_000),
                       copy("/Users/x/Docs/A/s.pdf", size: 1_200_400))
@@ -77,8 +75,8 @@ import Sync
         #expect(try row(f, .modified).differs == true)
     }
 
-    /// The location row states the FOLDER — the name is the row above it, and stating it twice is
-    /// what made the card's breadcrumb need a second line.
+    /// The location row states the folder only: the name is the row above, and repeating it
+    /// pushes the breadcrumb onto a second line.
     @Test func theLocationRowDropsTheFileNameAndKeepsTheScanRootCrumb() throws {
         let f = facts(copy("/Users/x/Docs/Legal/r.pdf"), copy("/Users/x/Docs/Legal/s.pdf"))
         #expect(try row(f, .location).left == "iCloud › Docs › Legal")
@@ -98,12 +96,9 @@ import Sync
         #expect(f.differingFields.contains(.pages) == false)
     }
 
-    /// …and a pending row must not let a pair read as identical either.
-    ///
-    /// **This is the sentence the bar actually says**, which is why it is asserted through
-    /// ``ComparePairFacts/summary`` rather than through a predicate nothing reads. A page count
-    /// still in flight leaves `differingFields` empty, and the absolute claim would then be made
-    /// at the one moment least is known about the pair.
+    /// …and a pending row must not let a pair read as identical either. Asserted through
+    /// ``ComparePairFacts/summary``, the sentence the bar says: a page count in flight leaves
+    /// `differingFields` empty, and the absolute claim would be made when least is known.
     @Test func aPendingPageRowDoesNotMakeAPairLookIdentical() {
         let pending = facts(copy("/Users/x/Docs/A/r.pdf"), copy("/Users/x/Docs/A/r.pdf"),
                             pages: (left: nil, right: nil))
@@ -136,8 +131,8 @@ import Sync
 
     // MARK: The summary line
 
-    /// The names differing is the PREMISE of a versions group, not a finding — so it stays a row
-    /// and stays out of the summary.
+    /// Differing names are the premise of a versions group, not a finding, so the name stays a row
+    /// and out of the summary.
     @Test func theSummaryIgnoresTheNameRow() {
         #expect(ComparePairFacts.summary(differing: [.name])
                     == "Every fact the scan recorded matches.")
@@ -157,8 +152,8 @@ import Sync
 
     // MARK: The confirmation's wording
 
-    /// The drift this type exists to prevent: a same-text pair has NOT been proved redundant, and
-    /// the last sentence before a delete must not say it has.
+    /// A same-text pair has not been proved redundant, and the last sentence before a delete must
+    /// not say it has.
     @Test func aSameTextPairIsNeverCalledRedundant() {
         let text = DuplicateComparePrompt.informativeText(
             kind: .sameText, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
@@ -178,8 +173,8 @@ import Sync
         #expect(text.contains("⌘Z"))
     }
 
-    /// Versions discard genuinely different content. Saying so is the whole difference between a
-    /// dedup and a deletion.
+    /// Trashing a version discards different content; saying so is the difference between a dedup
+    /// and a deletion.
     @Test func aVersionsPairSaysTheOtherCopyIsNotACopy() {
         let text = DuplicateComparePrompt.informativeText(
             kind: .versions, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
@@ -188,8 +183,8 @@ import Sync
         #expect(text.contains("not copies"))
     }
 
-    /// The budget means something only because the two interpolated names are bounded — otherwise
-    /// the cap would measure the data rather than the sentence.
+    /// The budget means something only because the interpolated names are bounded; otherwise it
+    /// would measure the data rather than the sentence.
     @Test func everyKindsInformativeLineFitsTheBudget() {
         let longName = String(repeating: "supercalifragilistic", count: 6) + ".pdf"
         for kind in DuplicateMatchType.Kind.allCases {
@@ -204,8 +199,8 @@ import Sync
         }
     }
 
-    /// Middle-truncation, because the END of a file name is what tells two copies apart —
-    /// "(1)" and the extension both live there.
+    /// Middle-truncation, because the end of a file name tells two copies apart: "(1)" and the
+    /// extension live there.
     @Test func aLongNameIsTruncatedInTheMiddleKeepingItsExtension() {
         let name = String(repeating: "a", count: 60) + " (1).pdf"
         let out = DuplicateComparePrompt.truncated(name)
@@ -234,9 +229,8 @@ import Sync
                 "an absent location left a stranded line: \(text)")
     }
 
-    /// **The doomed copy's location leads.** The dialog used to name only the survivor's path, so
-    /// a reader about to destroy one of two similarly-named copies could not see which folder was
-    /// losing it — the one fact the confirmation exists to establish.
+    /// The trashed copy and its folder come first: which folder loses the file is the one fact the
+    /// confirmation exists to establish, and two copies are often similarly named.
     @Test func theConfirmationNamesTheTrashedCopyAndItsFolderFirst() {
         let text = DuplicateComparePrompt.informativeText(
             kind: .identical,
@@ -256,8 +250,8 @@ import Sync
         #expect(text.contains("11.8 MB"))
     }
 
-    /// A location too long to print is shortened from the FRONT, so the trailing folders — the
-    /// part that differs between two copies — survive.
+    /// A location too long to print is shortened from the front, so the trailing folders, the
+    /// part that differs between two copies, survive.
     @Test func aLongLocationKeepsItsTail() {
         let long = "iCloud › " + (1...20).map { "Folder \($0)" }.joined(separator: " › ")
             + " › The Last One"
@@ -270,8 +264,7 @@ import Sync
 
     // MARK: The disabled reason    // MARK: The disabled reason
 
-    /// A greyed button with no reason reads as the app being broken — his report about the merge
-    /// card's inert radios, in a different control.
+    /// A greyed button with no reason reads as the app being broken, so a protected copy says why.
     @Test func aProtectedCopySpellsOutWhyItCannotBeTrashed() throws {
         let reason = try #require(DuplicateComparePrompt.disabledReason(copyIsProtected: true,
                                                                        copyName: "Report.pdf"))
@@ -283,10 +276,8 @@ import Sync
 
     // MARK: The trash button's title
 
-    /// **The label has to follow the keeper, not the kind.** A versions pair opens keeping the
-    /// newer revision, so the target is the older one and "Trash the Older Copy" is right — but
-    /// the keeper is the reader's to flip, and after a flip the same button destroys the NEWER
-    /// copy. It went on saying "older", naming the file it was keeping.
+    /// The label follows the keeper, not the kind. A versions pair opens keeping the newer
+    /// revision, but the reader can flip it, and then the same button trashes the newer copy.
     @Test func aVersionsTitleFollowsWhichCopyIsActuallyDoomed() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: true)
                 == "Trash the Older Copy")
@@ -301,10 +292,8 @@ import Sync
                 == "Trash the Other Copy")
     }
 
-    /// **The flip, driven the way the surface drives it.** This is the shape the bug actually
-    /// took: the copies never move, the KEEPER does — and the title has to follow it. Asking the
-    /// two copies directly is what the sheet does, so a title hardcoded in the view again would
-    /// leave this passing and the button lying.
+    /// The flip, driven the way the surface drives it: the copies stay put, the keeper moves, and
+    /// the title follows. The sheet asks with the two copies, as this does.
     @Test func flippingTheKeeperRenamesWhatTheButtonDestroys() {
         let older = copy("/x/Notes v1.md", modified: Self.noon)
         let newer = copy("/x/Notes v2.md", modified: Self.noon.addingTimeInterval(86_400))
@@ -354,11 +343,9 @@ import Sync
         .deletingLastPathComponent()   // …/FileExplorer
         .appendingPathComponent("Sources/FileExplorer")
 
-    /// **The other label that described the wrong thing**: the trash button read "Trash the older
-    /// copy" for every versions pair, from a `switch` inside the view — so flipping the keeper to
-    /// the older copy left it naming the file it was about to keep. The wording lives in
-    /// `DuplicateComparePrompt` now, and this is what stops it drifting back: the age words may
-    /// appear in exactly one source file, the one whose tests hold them to the pair's dates.
+    /// The trash button's age words may appear in one source file only, the home of
+    /// `DuplicateComparePrompt`, whose tests hold them to the pair's dates. A `switch` in the view
+    /// would go on naming the older copy after a flip made it the keeper.
     @Test func onlyThePromptSpellsTheTrashButtonsAgeWords() throws {
         let sources = Self.sourcesDir
         let fm = FileManager.default

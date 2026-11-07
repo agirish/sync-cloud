@@ -4,9 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Ask Claude's `differences` tool with `show: true` selects rows in Compare (TE261), and the table
-/// scrolls to them (TE295). It used to only select, so rows below the fold looked unselected and
-/// nothing seemed to happen.
+/// Ask Claude's `differences` tool with `show: true` selects rows in Compare and scrolls the table
+/// to them, so a selected row below the fold doesn't look like nothing happened.
 ///
 /// The mounted cases read the backing `NSTableView`'s visible rows rather than anything drawn:
 /// offscreen tables paint no cell text, but they do lay out and scroll. "The first selected row"
@@ -103,9 +102,9 @@ import Testing
         #expect(shown.row > 20)
     }
 
-    /// Collapsed to its bar, Compare has no table, and a request used to change nothing anyone
-    /// could see. It opens the bar, and the table that mounts shows the rows selected and scrolled
-    /// to. The collapsed table is confirmed absent first, so the pane opening is what drew it.
+    /// Collapsed to its bar, Compare has no table, so a request opens the bar and the table that
+    /// mounts shows the rows selected and scrolled to. The collapsed table is confirmed absent
+    /// first, so the pane opening is what drew it.
     ///
     /// The filter asked for is the one already showing, so the rows are current before the table
     /// exists and the reveal is due the moment it mounts — the case only `initial: true` answers.
@@ -246,9 +245,9 @@ import Testing
             AnyView(CollapsibleCompare(pane: $0, manager: manager, session: session, reviewStore: review))
         } ?? AnyView(DifferencesView(syncManager: manager, reviewStore: review, session: session))
         let host = NSHostingView(rootView: AnyView(compare.defaultAppStorage(store)))
-        // Held at its frame. By default the host sizes its window to the view, and Compare
-        // collapsed to its bar is a header strip: reopened, the table came back with no height
-        // and no visible rows, which read exactly like a reveal that never happened.
+        // Held at its frame. By default the host sizes its window to the view, and a collapsed
+        // Compare is a header strip, so the reopened table would have no height and no visible
+        // rows, which reads exactly like a reveal that never happened.
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 1000, height: 400)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],

@@ -4,8 +4,8 @@ import Design
 
 /// The rail's Outline tab for an open PDF: its bookmarks, the one at the current page marked.
 ///
-/// **Observes the reader's place, so the rail does not have to** — ``EditorPDFViewState`` moves on
-/// every page turn, and only this list and ``EditorPDFRailPages`` redraw for it.
+/// It observes the reader's place so the rail doesn't: ``EditorPDFViewState`` moves on every page
+/// turn, and only this list and ``EditorPDFRailPages`` should redraw for it.
 struct EditorPDFRailOutline: View {
     @ObservedObject var pdf: EditorPDFDocument
     @ObservedObject var view: EditorPDFViewState
@@ -25,9 +25,9 @@ struct EditorPDFRailOutline: View {
                               noun: .bookmark,
                               trailing: rail.pageLabels,
                               inert: rail.inert,
-                              // Esc: the keys back to the pages (TE154).
+                              // Esc gives the keys back to the pages.
                               onEscape: { view.requestFocus() })
-            // One list per PDF — see `EditorRailOutlineList`'s `topRow`.
+            // One list per PDF; see `EditorRailOutlineList`'s `topRow`.
             .id(pdf.path)
     }
 
@@ -36,8 +36,8 @@ struct EditorPDFRailOutline: View {
         bookmarks.indices.contains(row.id) ? bookmarks[row.id].pageIndex : nil
     }
 
-    /// **A click goes to the bookmark's own place on its page** (TE187) — its heading, at the top
-    /// of the view — or to the page's top when it names no place. It went to the top of the page.
+    /// A click goes to the bookmark's own place on its page, put at the top of the view, or to the
+    /// page's top when it names no place.
     static func go(to row: MarkdownOutlineEntry, in bookmarks: [EditorPDFOutlineEntry], view: EditorPDFViewState) {
         guard let page = page(for: row, in: bookmarks) else { return }
         view.requestPage(page)
@@ -45,21 +45,17 @@ struct EditorPDFRailOutline: View {
     }
 }
 
-/// The rail's Pages tab: the open PDF's pages as thumbnails, the current page ringed — in a grid of
-/// two columns or more as the side column widens, or one under another (``EditorPDFPagesLayout``).
+/// The rail's Pages tab: the open PDF's pages as thumbnails, the current page ringed, in a grid
+/// that widens with the side column or one under another (``EditorPDFPagesLayout``).
 ///
-/// **What is on screen is what is asked for.** Each cell reports itself as it comes and goes, and
-/// the set goes to ``EditorPDFThumbnails/show(_:)``, which renders those pages and a few either
-/// side through the PDFKit lane and lets go of the rest. A cell with no image yet is a blank page
-/// of the right shape, so a fast scroll shows paper, not a spinner per page.
+/// Each cell reports itself as it comes and goes, and ``EditorPDFThumbnails/show(_:)`` renders
+/// those pages and a few either side. A cell with no image yet is a blank page of the right shape,
+/// so a fast scroll shows paper, not spinners. The current page is ringed and brought into view
+/// when it leaves the list, unless the reader is scrolling the list.
 ///
-/// **The current page follows the reader**: ringed as the page view scrolls, and brought into view
-/// when it leaves the list's — unless the reader is the one scrolling the list.
-///
-/// **The tools' half (Phase 3)**: click selects and goes to the page, ⌘-click toggles, ⇧-click
-/// extends; a selection's context menu rotates, deletes or extracts it into a copy; and dragging a
-/// cell is a PENDING reorder — the cells move, each keeps its original number, and nothing is
-/// written until Save Reordered Copy. All of that state is ``EditorPDFTools``', not this view's.
+/// Click selects and goes to the page, ⌘-click toggles, ⇧-click extends; the context menu rotates,
+/// deletes or extracts into a copy. A drag is a pending reorder: cells keep their original numbers
+/// and nothing is written until Save Reordered Copy. That state is ``EditorPDFTools``'.
 struct EditorPDFRailPages: View {
     @ObservedObject var pdf: EditorPDFDocument
     @ObservedObject var view: EditorPDFViewState
@@ -70,11 +66,10 @@ struct EditorPDFRailPages: View {
     var railWidth: CGFloat = EditorLayoutMetrics.railWidth
 
     @State private var visible: Set<Int> = []
-    /// The grid takes keys once a page is clicked: Esc clears the selection — or with none, gives
-    /// the keys back to the pages — ⌘A selects every page
-    /// (through Edit ▸ Select All — ``EditorPDFPagesSelectAll``), Delete asks to leave the selection
-    /// out of a copy. A focus of its own, so these keys never
-    /// reach the grid while a field anywhere else is being typed in.
+    /// The grid takes keys once a page is clicked: Esc clears the selection (with none, gives the
+    /// keys back to the pages), ⌘A selects every page through Edit ▸ Select All
+    /// (``EditorPDFPagesSelectAll``), Delete asks to leave the selection out of a copy. A focus of
+    /// its own, so these keys never reach the grid while a field elsewhere is being typed in.
     @FocusState private var gridFocused: Bool
 
     private var columns: [GridItem] {
@@ -88,12 +83,12 @@ struct EditorPDFRailPages: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        // Shown in the pending order when there is one; ids are the ORIGINAL page,
-                        // so a cell is the same cell wherever it is dragged to.
+                        // In the pending order when there is one; ids are the original page, so a
+                        // cell stays the same cell wherever it is dragged.
                         ForEach(tools.arrangement ?? Array(0..<facts.pageCount), id: \.self) { index in
-                            // The shape the image will have — crop box, turned — so a row does not
-                            // change height when its thumbnail lands, which moved the grid under
-                            // the reader and threw the opening scroll off the current page.
+                            // The image's shape (crop box, turned), so a row keeps its height when
+                            // its thumbnail lands; otherwise the grid moves under the reader and the
+                            // opening scroll misses the current page.
                             cell(index, size: facts.shownSizes.indices.contains(index)
                                     ? facts.shownSizes[index] : CGSize(width: 612, height: 792))
                                 .id(index)
@@ -107,14 +102,13 @@ struct EditorPDFRailPages: View {
                 .focusable()
                 .focusEffectDisabled()
                 .focused($gridFocused)
-                // Esc clears a selection first, and with none hands the keys back to the pages (TE154).
+                // Esc clears a selection first, and with none hands the keys back to the pages.
                 .onKeyPress(.escape) {
                     if tools.selection.pages.isEmpty { view.requestFocus() } else { tools.clearSelection() }
                     return .handled
                 }
                 // ⌘A is Edit ▸ Select All's, which reads this while the grid has focus. Not an
-                // `.onKeyPress`: a menu key equivalent takes the key before a focused view sees it,
-                // so the handler that was here never ran.
+                // `.onKeyPress`: a menu key equivalent takes the key before a focused view sees it.
                 .focusedValue(\.pdfPagesSelectAll, EditorPDFPagesSelectAll { tools.selectAll() })
                 .onKeyPress(keys: [.delete, .deleteForward]) { _ in
                     tools.deleteSelectedPages() ? .handled : .ignored
@@ -129,12 +123,11 @@ struct EditorPDFRailPages: View {
                 // A reload (the file changed on disk) under cells that never left the screen.
                 .onChange(of: thumbnails.attachments) { _, _ in thumbnails.show(visible) }
             }
-            // The tab put away: nothing on screen, so nothing is asked for. What was drawn stays,
-            // within the cap, for the tab coming back.
+            // The tab put away: nothing is asked for. What was drawn stays, within the cap, for
+            // the tab coming back.
             .onDisappear { thumbnails.show([]) }
-            // **The size the cells draw at, asked for once a drag settles.** A drag crosses a size
-            // step a few times, and each crossing redraws every page held; the pause lets a drag
-            // ask once. The first ask, before anything is drawn, goes at once.
+            // The size the cells draw at, asked for once a drag settles: each size step crossed
+            // redraws every page held. The first ask, with nothing drawn, goes at once.
             .task(id: layout.renderEdge(railWidth: railWidth)) {
                 let edge = layout.renderEdge(railWidth: railWidth)
                 if !thumbnails.images.isEmpty {
@@ -153,8 +146,8 @@ struct EditorPDFRailPages: View {
         }
     }
 
-    /// What the tab says when there are no pages to draw — for a refused file, the card's own
-    /// reason, so the rail and the card say the same thing about it.
+    /// What the tab says with no pages to draw. For a refused file, the card's own reason, so the
+    /// rail and the card agree.
     static func caption(phase: EditorPDFDocument.Phase) -> String {
         switch phase {
         case .loading: return EditorPDFDocument.readingCaption
@@ -171,11 +164,8 @@ struct EditorPDFRailPages: View {
         let button = Button { tap(index) } label: {
             cellLabel(index, size: size, isCurrent: isCurrent, isSelected: isSelected)
         }
-        // The rail's own row wash, as every other row here wears — a bare `.plain` was the one
-        // control in the rail that gave no sign it could be clicked.
-        //
-        // `.filled` while selected, as the Text Files rows are: the cell already carries its wash,
-        // and a second one under the pointer doubled it.
+        // The rail's row wash, as every row here wears, so the cell looks clickable. `.filled`
+        // while selected, as the Text Files rows are, so the pointer doesn't add a second wash.
         .buttonStyle(.hoverAffordance(isSelected ? .filled : .row, tint: accent, shape: EditorFileRailView.rowShape))
         return withPageActions(button, index: index, size: size, isSelected: isSelected)
     }
@@ -195,14 +185,14 @@ struct EditorPDFRailPages: View {
             page(index, size: size)
                 .overlay {
                     // The current page's ring sits just inside the cell's rounded wash, at its
-                    // corner radius less the gap — square corners 4 pt out poked past the wash.
+                    // corner radius less the gap, so its corners don't poke past the wash.
                     RoundedRectangle(cornerRadius: isCurrent ? EditorPDFPagesLayout.currentRingRadius : 2)
                         .strokeBorder(isCurrent ? accent : Color.primary.opacity(0.15),
                                       lineWidth: isCurrent ? 3 : 0.5)
                         .padding(isCurrent ? -EditorPDFPagesLayout.currentRingOutset : 0)
                 }
-            // The ORIGINAL number, also while the pages are reordered — it is what the reader
-            // dragged, and the new order is written only on Save.
+            // The original number, also while reordered: it is what the reader dragged, and the
+            // new order is written only on Save.
             Text(String(index + 1))
                 .scaledFont(.system(size: 10, weight: isCurrent || isSelected ? .semibold : .regular))
                 .monospacedDigit()
@@ -231,7 +221,7 @@ struct EditorPDFRailPages: View {
             // Selected is the selection; the reader's place is said as a value, so the two read apart.
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityValue(view.visiblePages.contains(index) ? "Current page" : "")
-            // The reorder a drag makes, for VoiceOver — the same pending order, saved the same way.
+            // The reorder a drag makes, for VoiceOver: the same pending order, saved the same way.
             .accessibilityAction(named: "Move Earlier") { tools.step(index, by: -1) }
             .accessibilityAction(named: "Move Later") { tools.step(index, by: 1) }
     }
@@ -260,9 +250,9 @@ struct EditorPDFRailPages: View {
     }
 }
 
-/// What a dragged page carries: the document's drag token and the page — never its path, which a
-/// drop into another app's text field would paste — so a drop from another PDF, or text from
-/// anywhere, is not taken for a reorder.
+/// What a dragged page carries: the document's drag token and the page, never its path (another
+/// app's text field would paste it). The token keeps a drop from another PDF, or any text, from
+/// being taken for a reorder.
 enum EditorPDFPageDrag {
     static let prefix = "synccloud-pdf-page:"
 
@@ -277,8 +267,8 @@ enum EditorPDFPageDrag {
     }
 }
 
-/// **A selection's menu in the Pages tab** — each item writes a copy. Its own view so a test can
-/// host it: a row's `.contextMenu` body never runs offscreen.
+/// A selection's menu in the Pages tab; each item writes a copy. Its own view so a test can host
+/// it: a row's `.contextMenu` body never runs offscreen.
 struct EditorPDFPageMenu: View {
     @ObservedObject var tools: EditorPDFTools
     /// Zero-based, as shown.
@@ -308,27 +298,25 @@ struct EditorPDFPageMenu: View {
         Task { await tools.run(tool) }
     }
 
-    /// "Extract 3 Selected Pages…" — the Tools menu's noun for the same pages.
+    /// "Extract 3 Selected Pages…": the Tools menu's noun for the same pages.
     static func title(_ verb: String, _ pages: [Int]) -> String {
         pages.count == 1 ? "\(verb) Page \(pages[0] + 1)…" : "\(verb) \(pages.count) Selected Pages…"
     }
 
-    /// "Rotate 3 Selected Pages Left" — the pages named as Delete and Extract name them, beside them.
-    /// Not the Tools menu's words: there the pages name a submenu ("Rotate Page 5", "Rotate 3
-    /// Selected Pages") holding Rotate Left, Rotate Right and Rotate 180°. Flat here — this menu has
-    /// one target, that one two — so the submenu's name and the turn make one title, and the half
-    /// turn is passed as "by 180°" ("Rotate Page 5 by 180°"), so the page number and the angle never
-    /// sit side by side.
+    /// "Rotate 3 Selected Pages Left": pages named as Delete and Extract name them. The Tools menu
+    /// puts the turns in a submenu named for the pages; this menu is flat, so the two make one
+    /// title. The half turn is passed as "by 180°" so the page number and the angle never sit side
+    /// by side.
     static func rotateTitle(_ pages: [Int], _ way: String) -> String {
         pages.count == 1 ? "Rotate Page \(pages[0] + 1) \(way)" : "Rotate \(pages.count) Selected Pages \(way)"
     }
 
-    /// "2-4, 7" for the field, one-based and in the order given — the copy name's runs, with a
+    /// "2-4, 7" for the field, one-based and in the order given: the copy name's runs, with a
     /// hyphen the parser reads.
     static func rangeText(_ pages: [Int]) -> String { EditorPDFCopyName.runs(pages, dash: "-") }
 }
 
-/// **The pending reorder's bar**, above the pages: nothing is written until Save.
+/// The pending reorder's bar, above the pages: nothing is written until Save.
 struct EditorPDFReorderBar: View {
     @ObservedObject var tools: EditorPDFTools
 
@@ -358,11 +346,9 @@ struct EditorPDFReorderBar: View {
     }
 }
 
-/// **⌘A in the Pages tab** — published while the grid has focus, for Edit ▸ Select All to call.
-///
-/// The menu item owns ⌘A app-wide, and AppKit offers a key equivalent to the menu before a focused
-/// SwiftUI view's `.onKeyPress` sees it (measured 2026-10-17 in a standalone probe: the menu fired,
-/// the handler did not). So the grid tells the item what ⌘A means there instead.
+/// ⌘A in the Pages tab, published while the grid has focus for Edit ▸ Select All to call. The menu
+/// item owns ⌘A app-wide, and AppKit offers a key equivalent to the menu before a focused SwiftUI
+/// view's `.onKeyPress` sees it, so the grid tells the item what ⌘A means there.
 public struct EditorPDFPagesSelectAll {
     public let run: () -> Void
 

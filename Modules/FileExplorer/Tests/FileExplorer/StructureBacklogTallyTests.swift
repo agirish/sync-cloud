@@ -3,16 +3,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// What Restructure's card says its backlog is made of — and that it says it in the same words the
-/// lens uses on the findings themselves.
-///
-/// ## What this replaced
-///
-/// `scoped.prefix(3).map(\.headline)`: three findings off the front of an unsorted list, drawn as
-/// three monospaced lines. On the reference tree that was one `node_modules` subtree three times
-/// over, sixty characters of shared prefix apiece, and the only thing it established was that the
-/// list is not empty — which the `53 findings` pill beside it had already established. A sample
-/// that is `prefix(3)` of an unsorted list is not a sample; it is whatever sorts first.
+/// What Restructure's card says its backlog is made of, in the same words the lens uses on the
+/// findings themselves: a count per kind, not a sample. `prefix(3)` of an unsorted list is
+/// whatever sorts first, and says no more than the findings pill beside it.
 @Suite struct StructureBacklogTallyTests {
 
     private func finding(_ kind: FindingKind, _ n: Int) -> [StructureFinding] {
@@ -26,12 +19,10 @@ import Testing
         #expect(tally.counts[.deadWeight] == nil, "a kind with none is absent, not zero")
     }
 
-    /// **The kinds you can drive to zero come first.**
-    ///
-    /// Not biggest-first, which is what a summary of fifty-three otherwise wants to do.
-    /// `FindingKind.carriesPlan` exists one surface up for this exact reason — *a badge you cannot
-    /// drive to zero is a badge people stop reading* — and leading a breakdown with `31 Dead
-    /// weight`, which reports and offers no plan, buries the findings that have a button.
+    /// The kinds you can drive to zero come first, not the biggest. `FindingKind.carriesPlan`
+    /// exists one surface up for the same reason: a badge you can't drive to zero is one people
+    /// stop reading, and leading with `31 Dead weight`, which offers no plan, buries the findings
+    /// that have a button.
     @Test func actionableKindsLeadTheLine() {
         // Dead weight is much the largest and carries no plan; Echo is small and does.
         let tally = StructureBacklogTally(finding(.deadWeight, 40) + finding(.echoName, 2))
@@ -50,12 +41,9 @@ import Testing
                 == StructureBacklogTally(all).breakdown)
     }
 
-    /// **The words are the lens's own.**
-    ///
-    /// `RestructureLens.kindLabel` is the tag every finding wears on its card inside the lens, so a
-    /// summary naming the same kinds differently would read as a different measurement of a
-    /// different thing. The same rule `RenameBacklogTally` follows against `RenamePassLens.summary`,
-    /// and the same reason: two vocabularies for one fact is how they drift.
+    /// The words are the lens's own. `RestructureLens.kindLabel` is the tag every finding wears on
+    /// its card, so a summary naming the kinds differently would read as a different measurement.
+    /// `RenameBacklogTally` follows the same rule against `RenamePassLens.summary`.
     @Test func theBreakdownQuotesTheLensesOwnTags() {
         for kind in FindingKind.allCases {
             let line = StructureBacklogTally(finding(kind, 4)).breakdown

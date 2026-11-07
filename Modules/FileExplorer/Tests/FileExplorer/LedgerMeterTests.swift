@@ -1,9 +1,9 @@
 import Testing
 @testable import FileExplorer
 
-/// The ledger's reporting/clean split and the meter caption built from it. The derivation rule
-/// that could go wrong: `checksReporting` must count only `.findings` among the counted lenses —
-/// `clean` is a completed check (it fills a quiet segment), never a reporting one.
+/// The ledger's reporting/clean split and the meter caption built from it. The rule that could go
+/// wrong: `checksReporting` counts only `.findings`; `clean` is a completed check (it fills a quiet
+/// segment), never a reporting one.
 @Suite struct LedgerMeterTests {
 
     private func section(_ lens: OrganizeLens, _ state: OrganizeOverviewState) -> OrganizeOverviewSection {
@@ -11,8 +11,8 @@ import Testing
     }
 
     @Test func reportingCountsOnlyFindings() {
-        // No `.names` section: the folded lens is counted with its host (P10), so the
-        // ledger's world is the four countable rail items.
+        // No `.names` section: the folded lens is counted with its host, so the ledger's world is
+        // the four countable rail items.
         let ledger = OrganizeOverview.Ledger.derived(
             from: [section(.duplicates, .findings(count: 943, headline: "943 groups", examples: [])),
                    section(.renames, .findings(count: 132, headline: "132 folders", examples: [])),

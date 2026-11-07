@@ -22,12 +22,11 @@ import Sync
         return url.path
     }
 
-    /// Nothing is cloud-only unless a test says so — the real check is an `lstat` for a placeholder
+    /// Nothing is cloud-only unless a test says so: the real check is an `lstat` for a placeholder
     /// flag, which a temp directory can never produce.
     private let nothingIsCloudOnly: (String) -> Bool = { _ in false }
 
-    /// Text kinds and PDFs — the two Edit opens. A PDF was filtered out until the reader could open
-    /// one (Phase 1b); a photo still is.
+    /// Text kinds and PDFs, the two Edit opens, are listed; a photo is not.
     @Test func onlyTextKindsAndPDFsAreListed() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -43,10 +42,8 @@ import Sync
         #expect(rows.map(\.kind) == [.text, .text, .pdf, .text])
     }
 
-    /// **A folder of files Edit does not open is not an empty folder**, and the rail could not tell
-    /// the difference: a folder of photos and a folder with nothing in it both drew "No text files
-    /// in this folder". This is the count that separates them. (The fixture was two PDFs and a
-    /// `.docx` until PDFs were listed; a photo takes their place.)
+    /// A folder of files Edit doesn't open is not an empty folder: this count is what tells a
+    /// folder of photos from one with nothing in it.
     @Test func aFolderOfUnopenableFilesIsCountedRatherThanCalledEmpty() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -61,8 +58,8 @@ import Sync
                 "counted \(survey.otherFileCount as Int?) of the 3 files in the folder")
     }
 
-    /// Directories are not files, and counting them would put a second wrong answer where the
-    /// first one was — "none of the 4 files" over a folder holding three subfolders and one file.
+    /// Directories are not files: counting them would say "none of the 4 files" over a folder
+    /// holding three subfolders and one file.
     @Test func theOtherFileCountLeavesFoldersOut() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -92,8 +89,8 @@ import Sync
                                   isCloudOnly: nothingIsCloudOnly).otherFileCount == 2)
     }
 
-    /// **Not asked when the rail has rows**, which is what keeps the second pass off every folder
-    /// with a note in it — the caption is the only thing that reads this, and it is not on screen.
+    /// Not asked when the rail has rows, which keeps the second pass off every folder with a note
+    /// in it: only the empty caption reads this, and it isn't on screen then.
     @Test func theOtherFileCountIsNotAskedWhenTheRailListsSomething() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -107,9 +104,8 @@ import Sync
                 "the folder was walked a second time to answer a question nobody asked")
     }
 
-    /// A folder with genuinely nothing in it answers `0`, and a folder that could not be read
-    /// answers `nil`. **The difference is the point of the optional**: one is a fact about the
-    /// folder, the other is the absence of one.
+    /// A folder with nothing in it answers `0`, and a folder that couldn't be read answers `nil`:
+    /// one is a fact about the folder, the other the absence of one.
     @Test func nothingInItAndCouldNotReadItAreDifferentAnswers() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -126,7 +122,7 @@ import Sync
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
         try file("real.md", in: folder)
-        // A directory whose name ends in a text extension — the case a name-only filter passes.
+        // A directory whose name ends in a text extension: the case a name-only filter passes.
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("archive.md"),
                                                 withIntermediateDirectories: true)
 
@@ -159,8 +155,8 @@ import Sync
                 "the rail sorted by code points rather than the way a person reads numbers")
     }
 
-    /// **Listed and dim, never missing.** A file the editor cannot open is still a file in that
-    /// folder, and leaving it out reads as the rail being broken.
+    /// Listed and dim, never missing: a file the editor can't open is still a file in that folder,
+    /// and leaving it out reads as the rail being broken.
     @Test func aFileOverTheReadCapIsListedDimWithAReason() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -172,11 +168,9 @@ import Sync
         let huge = try #require(rows.first { $0.name == "huge.md" })
         let small = try #require(rows.first { $0.name == "small.md" })
         #expect(huge.isTooLarge && huge.isDimmed)
-        // The exact words, as the cloud-only sibling below pins its own. `!= nil` accepted any
-        // string at all, so the reason could have drifted to "x" — or, more likely, out of step
-        // with `EditorFileStore.refusal(for:)`, which it says it is worded to match.
-        // (Both numbers read 4.2 MB because the fixture is one byte over the cap; a real 40 MB file
-        // reads "40 MB; the limit is 4.2 MB". The words are what is pinned here, not the fixture.)
+        // The exact words, as the cloud-only sibling below pins its own, so the reason can't drift
+        // out of step with `EditorFileStore.refusal(for:)`, which it is worded to match. Both
+        // numbers read 4.2 MB because the fixture is one byte over the cap.
         #expect(huge.dimmedReason == "Too large to open in Edit — 4.2 MB, and Edit opens text files up to 4.2 MB.")
         #expect(!small.isDimmed && small.dimmedReason == nil)
     }
@@ -193,8 +187,8 @@ import Sync
         #expect(row.dimmedReason == "Not downloaded — there is nothing here to read yet.")
     }
 
-    /// The dim reasons are the cheap ones. Being binary is discovered by reading the file, so the
-    /// rail lists a `.txt` full of NULs as an ordinary row and the editor says so at open time.
+    /// The dim reasons are the cheap ones. Being binary is found by reading the file, so the rail
+    /// lists a `.txt` full of NULs as an ordinary row and the editor says so at open time.
     @Test func beingBinaryIsNotSomethingTheRailClaimsToKnow() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -235,8 +229,8 @@ import Sync
         #expect(EditorRail.filtered(three, matching: "recipes").map(\.name) == ["Récipes.md"])
     }
 
-    /// Somebody who has typed a space and stopped is mid-thought; answering "no files" to that is a
-    /// rail that appears to have emptied itself.
+    /// Somebody who has typed a space and stopped is mid-thought; answering "no files" would look
+    /// like the rail emptied itself.
     @Test func anEmptyOrBlankFilterIsNoFilter() {
         #expect(EditorRail.filtered(three, matching: "").count == 3)
         #expect(EditorRail.filtered(three, matching: "   ").count == 3)
@@ -246,8 +240,8 @@ import Sync
         #expect(EditorRail.filtered(three, matching: "zzz").isEmpty)
     }
 
-    /// The filter narrows what is drawn and never reorders it — the rail's Finder-like ordering is
-    /// decided in `entries(in:)` and a filter that re-sorted would make the list jump as you type.
+    /// The filter narrows what is drawn and never reorders it: the Finder-like order is decided in
+    /// `entries(in:)`, and a filter that re-sorted would make the list jump as you type.
     @Test func theFilterKeepsTheRailsOrder() {
         let ordered = EditorRail.filtered(three, matching: "e").map(\.name)
         #expect(ordered == three.filter { $0.name.localizedCaseInsensitiveContains("e") || $0.name.contains("é") }.map(\.name),

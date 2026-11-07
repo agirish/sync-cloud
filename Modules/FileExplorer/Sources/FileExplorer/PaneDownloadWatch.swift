@@ -1,61 +1,32 @@
 import Foundation
 
-/// Every download one pane is currently watching — **one watch per PATH, not one per pane**.
+/// Every download one pane is watching: one watch per path, not one per pane, so a second download
+/// in the same pane never cancels the first and leaves its file with a stale cloud-only badge.
 ///
-/// The pane used to hold a single latch, watched by a `.task(id: awaitingDownload?.requestID)`. That
-/// keyed the watch on the request, so a second download in the same pane — a different file, queued
-/// back to back from the row menu, which is an ordinary thing to do — changed the id and CANCELLED
-/// the first one. Request A's content then landed with nothing observing it: the memo still held the
-/// `true` its arming re-stat had recorded, so `cached()` served a stale cloud-only badge for a file
-/// that was on disk, until the next republish happened to clear it.
+/// - Two paths are two independent watches; neither may disturb the other.
+/// - The same path asked for twice is one live watch, and the newer request wins: the older is
+///   cancelled so one path is never polled twice. Cancelling bounds watches, not forgets: `begin`
+///   forgets every time, which is right, since a repeat request makes the memo stale again.
 ///
-/// Keyed by path rather than by request id, deliberately, because supersession is per FILE:
+/// The identity guard in `CloudDownloadPoll.watch` still decides, by `requestID`: a cancelled watch
+/// runs everything after its last `await`, and comparing ids stops it clearing the newer watch.
 ///
-/// - Two paths are two independent watches. Neither may disturb the other; that is the whole defect
-///   above.
-/// - The SAME path asked for twice is one live watch, and the newer request wins. What supersession
-///   bounds is WATCHES, not forgets: two of them would poll one path twice over, and the loser is
-///   the older — whose conclusion would otherwise arrive after the newer one had taken the slot and
-///   clear a watch that had barely started. Cancelling it keeps exactly one download per file being
-///   watched, which is the property the identity guard below then only has to defend rather than
-///   establish.
-///
-///   It does NOT bound the forgets, and it never did. `begin` forgets unconditionally, before it
-///   schedules anything, so a repeat Download costs a second `CloudOnlyBadgeCache.forget` and a
-///   second generation bump whatever cancellation does — and that is right, not a leak: the user
-///   asked again, so the memo's answer for that path genuinely is stale again. (This bullet used to
-///   claim the cancellation was what held it to one forget. That was already untrue when the forget
-///   was the watch task's first line — a task cancelled before its first resume still runs its body
-///   — so the COUNT has not changed here; only the argument for it has.)
-///
-/// The identity guard inside `CloudDownloadPoll.watch` still does the deciding, and still by
-/// `requestID`: a cancelled watch runs everything after its last `await`, so the superseded watch
-/// for a path reaches its conclusion after the new one has taken the slot, and comparing ids is what
-/// stops it clearing a watch that had barely started.
-///
-/// **A watch outlives its pane by at most `attempts × interval`.** The old `.task` was torn down
-/// with the view; these are detached from it. That is the bound and it is deliberate — everything a
-/// concluding watch does (record the landed answer into a process-wide memo, drop its own entry) is
-/// true regardless of which pane is on screen, and the alternative is the defect the pane-owned
-/// watch was introduced to fix: a watch whose lifetime is tied to a view that may never be realized
-/// at all.
+/// A watch outlives its pane by at most `attempts × interval`, by design: what a concluding watch
+/// does (record into a process-wide memo, drop its entry) holds whichever pane is on screen, and a
+/// watch tied to the view would die with a view that may never be realized.
 @MainActor
 final class PaneDownloadWatch: ObservableObject {
-    /// The live watches, by path. A dictionary rather than the object itself is what gets handed
-    /// down the view tree: a class reference compares identical on every render, so a subview given
-    /// one can be skipped by SwiftUI's diffing entirely, while a `[String: CloudDownloadRequest]` is
-    /// a value that changes when the watches do.
+    /// The live watches, by path. This value, not the object, is handed down the view tree: a class
+    /// reference compares identical on every render, so SwiftUI could skip a subview given one.
     @Published private(set) var requests: [String: CloudDownloadRequest] = [:]
 
     private var tasks: [String: Task<Void, Never>] = [:]
 
     /// One request's whole watch, `CloudDownloadPoll.watch` in the app.
     ///
-    /// Injectable for one property this class owns and that class does not: that superseding a path
-    /// CANCELS the watch it replaces. A leaked watch is invisible in `requests` — the new one has
-    /// already taken the slot — and it leaves no trace in the memo either: it forgot nothing (that
-    /// happens in `begin`) and, if it ever lands, it records the same answer the live watch will.
-    /// A watch that reports its own cancellation is what makes it observable at all.
+    /// Injectable so tests can see that superseding a path cancels the watch it replaces. A leaked
+    /// watch leaves no trace in `requests` or the memo, so only a watch that reports its own
+    /// cancellation makes it observable.
     typealias Watch = @MainActor (CloudDownloadRequest,
                                   @escaping @MainActor () -> CloudDownloadRequest?) async -> Bool
 
@@ -71,14 +42,9 @@ final class PaneDownloadWatch: ObservableObject {
     ///   that shows the download without watching it — the Info inspector's preview. `nil` says
     ///   nothing, for an owner nobody else follows (Compare Copies).
     ///
-    /// **The `forget` happens here, synchronously, before anything is published or scheduled.** It
-    /// used to be the first line of the watch task, which made "exactly one forget per download"
-    /// — the property the single-owner design exists for — depend on the main actor draining
-    /// equal-priority jobs in FIFO order: true in practice, guaranteed by nothing. Done here it is
-    /// a property of arming a watch, and it also closes a window the old order left open: arming
-    /// publishes `requests`, which re-keys the badge task of the row showing that file, and a row
-    /// that re-read the memo before the task's first line ran got the pre-download "cloud-only"
-    /// answer straight back out of cache.
+    /// The `forget` happens here, synchronously, before anything is published or scheduled. In the
+    /// watch task it would rely on the main actor's job order, and a row re-keyed by the published
+    /// `requests` could re-read the pre-download "cloud-only" answer from cache first.
     func begin(_ request: CloudDownloadRequest, announcingOn channel: NotificationCenter? = nil) {
         tasks[request.path]?.cancel()
         // On the way in, not the way out: the answer the memo holds is the pre-download one, and a
@@ -88,8 +54,8 @@ final class PaneDownloadWatch: ObservableObject {
         requests[request.path] = request
         tasks[request.path] = Task { [weak self] in
             guard let self else { return }
-            // The latch is read at the END, as it always was: what matters is which request holds
-            // this path *now*, after ten seconds in which the user may have asked for it again.
+            // The latch is read at the end: what matters is which request holds this path now,
+            // after a wait in which the user may have asked again.
             let concludes = await watch(request, { [weak self] in self?.requests[request.path] })
             guard concludes else { return }
             requests[request.path] = nil

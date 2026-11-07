@@ -4,13 +4,12 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The one failure mode `PaneTree`/`PaneRow` memoization can introduce is the worst one: a pane
-/// that silently STOPS updating, because a stale value compared equal to a fresh one. Every other
-/// test for it is value-level (`PaneTreeStampTests`) and would pass even if the view never
-/// re-rendered.
+/// The worst failure `PaneTree`/`PaneRow` memoization can introduce: a pane that silently stops
+/// updating because a stale value compared equal to a fresh one. The other tests for it are
+/// value-level (`PaneTreeStampTests`) and would pass even if the view never re-rendered.
 ///
-/// This hosts a real `FileTreeView` and asserts the rows AppKit actually laid out track a
-/// republish — the laid-out result, not the constant (the house rule).
+/// This hosts a real `FileTreeView` and asserts that the rows AppKit laid out track a republish:
+/// the laid-out result, not the constant.
 @MainActor
 @Suite struct PaneOutlineRepublishTests {
 
@@ -37,15 +36,11 @@ import Sync
         FileNode(id: "/root/\(name)", name: name, isDirectory: false)
     }
 
-    /// A channel of this suite's own, so the panes it mounts are deaf to every download post any
-    /// other suite makes.
-    ///
-    /// This suite has no interest in downloads at all — but a mounted `FileTreeView` subscribes to
-    /// `.cloudDownloadRequested` whether the test wants it or not, and on `.default` these left
-    /// panes accepted the `.left` posts `CloudDownloadWiringTests` makes to prove a RIGHT pane
-    /// ignores them. Their watches then ran `CloudOnlyBadgeCache.forget` on that suite's ghost
-    /// paths and failed its assertions with a message indistinguishable from a real routing defect.
-    /// See `docs/flaky-tests.md` mechanism 9.
+    /// A channel of this suite's own, so the panes it mounts are deaf to every other suite's
+    /// download posts. A mounted `FileTreeView` subscribes to `.cloudDownloadRequested` whether the
+    /// test wants it or not, and on `.default` these left panes would take the `.left` posts
+    /// `CloudDownloadWiringTests` makes and fail that suite. See `docs/flaky-tests.md`, "A mounted
+    /// view is a live subscriber, in every suite at once".
     private let downloads = NotificationCenter()
 
     private func view(_ tree: PaneTree) -> FileTreeView {
@@ -62,10 +57,9 @@ import Sync
         )
     }
 
-    /// Lays the view out in a window and returns the row count AppKit resolved. A `List` bridges
-    /// to `NSTableView`; without a window and a layout pass it has no rows at all, so the search
-    /// returning nil means "could not observe", which the caller treats as inconclusive rather
-    /// than as a pass.
+    /// Lays the view out in a window and returns the row count AppKit resolved. A `List` bridges to
+    /// `NSTableView`; without a window and a layout pass it has no rows, so nil means "couldn't
+    /// observe", which the caller treats as inconclusive, not as a pass.
     private func laidOutRowCount(_ root: FileTreeView) -> Int? {
         let host = NSHostingView(rootView: root)
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 600)
@@ -73,9 +67,9 @@ import Sync
                               backing: .buffered, defer: false)
         window.contentView = host
         // Dropped again before returning: the hosting view is the last reference to the SwiftUI
-        // graph, and the graph is what holds the pane's live notification subscription. Not
-        // `close()` — a `.titled` window is released on close, which over-releases this local and
-        // takes the process down with no verdict (mechanism 8).
+        // graph, which holds the pane's live notification subscription. Not `close()`: a `.titled`
+        // window is released on close, which over-releases this local and kills the process with no
+        // verdict (`docs/flaky-tests.md`, "The wait that hangs instead of failing").
         defer { window.contentView = nil }
         window.layoutIfNeeded()
         host.layoutSubtreeIfNeeded()
@@ -89,14 +83,13 @@ import Sync
         return findTable(host).map { $0.numberOfRows }
     }
 
-    /// A republished tree with different contents must reach the laid-out rows. If this ever
-    /// fails while `PaneTreeStampTests` still passes, the memoization is over-matching and the
-    /// pane has gone stale — the exact bug the stamp design risks.
+    /// A republished tree with different contents must reach the laid-out rows. If this fails while
+    /// `PaneTreeStampTests` passes, the memoization is over-matching and the pane has gone stale.
     @Test func testRepublishedTreeReachesTheLaidOutRows() throws {
         let one = PaneTree(side: .left, version: 1, nodes: [file("a")])
         guard let before = laidOutRowCount(view(one)) else {
-            // Headless AppKit did not materialize the table; assert nothing rather than pass
-            // vacuously. (Recorded as a skip so a green run never implies this ran.)
+            // Headless AppKit didn't materialize the table; recorded as a known issue rather than
+            // passing vacuously, so a green run never implies this ran.
             withKnownIssue("List did not bridge to an NSTableView in this environment") {
                 Issue.record("no NSTableView")
             }
@@ -109,8 +102,8 @@ import Sync
         #expect(after == 3)
     }
 
-    /// The pane must render its OWN tree, not the opposite pane's — a mix-up the types allow
-    /// (both sides are `PaneTree`) and that no value-level test can see.
+    /// The pane must render its own tree, not the opposite pane's: a mix-up the types allow (both
+    /// sides are `PaneTree`) and no value-level test can see.
     @Test func testPaneRendersItsOwnTreeNotTheOtherPanes() throws {
         let mine = PaneTree(side: .left, version: 1, nodes: [file("a"), file("b")])
         let theirs = PaneTree(side: .right, version: 1, nodes: [file("x")])
@@ -120,9 +113,9 @@ import Sync
             downloadChannel: downloads
         )
         guard let rows = laidOutRowCount(v) else {
-            // Same environment gate as the test above, and the same rule: a bare `return` here
-            // reported PASSED for a run in which nothing was measured — the vacuous-on-skip
-            // shape `ReviewFactsTests.skippedBecauseRoot` documents. Recorded, never silent.
+            // Same environment gate and rule as the test above: a bare `return` would report a pass
+            // in which nothing was measured (the shape `ReviewFactsTests.skippedBecauseRoot`
+            // documents).
             withKnownIssue("List did not bridge to an NSTableView in this environment") {
                 Issue.record("no NSTableView")
             }

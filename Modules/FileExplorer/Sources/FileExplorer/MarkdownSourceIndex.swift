@@ -2,14 +2,13 @@ import Foundation
 
 /// Where each line of a Markdown source starts, in the two units that disagree about it.
 ///
-/// **swift-markdown counts columns in UTF-8 bytes; `NSTextView` counts in UTF-16 units.** In
+/// swift-markdown counts columns in UTF-8 bytes; `NSTextView` counts in UTF-16 units. In
 /// `Café **naïve**` the parser puts `Strong` at column 7, because `"Café "` is six bytes, while the
 /// text view puts it at offset 5. Every position the editable preview maps from the parser into the
 /// buffer passes through ``utf16Offset(line:utf8Column:)``, so the conversion has one home.
 ///
-/// **Line endings are cmark's, not `components(separatedBy: "\n")`'s:** `\n`, `\r\n` and a lone `\r`
-/// each end a line. The parser numbers lines that way, so an index that split on `\n` alone would
-/// put every line of a classic-Mac file on line 1.
+/// Line endings are cmark's: `\n`, `\r\n` and a lone `\r` each end a line, as the parser numbers
+/// them; splitting on `\n` alone would put every line of a classic-Mac file on line 1.
 struct MarkdownSourceIndex: Sendable {
 
     struct Line: Equatable, Sendable {
@@ -28,7 +27,7 @@ struct MarkdownSourceIndex: Sendable {
     let lines: [Line]
 
     /// `string`'s UTF-16 units, copied in one go: a String bridged from a text view's storage hands
-    /// `utf16` over a unit at a time, which on a long note cost more than everything else here.
+    /// `utf16` over a unit at a time, which on a long note costs more than everything else here.
     static func units(of string: NSString, in range: NSRange? = nil) -> [UInt16] {
         let range = range ?? NSRange(location: 0, length: string.length)
         guard range.length > 0 else { return [] }
@@ -73,12 +72,11 @@ struct MarkdownSourceIndex: Sendable {
         return lines[number - 1]
     }
 
-    /// The UTF-16 offset of a parser position: a 1-based line and a 1-based **UTF-8 byte** column.
+    /// The UTF-16 offset of a parser position: a 1-based line and a 1-based UTF-8 byte column.
     ///
-    /// The column may run past the line's content into its terminator, but no further — the caller
-    /// asking about a column beyond that has a position this source does not contain, and `nil` says
-    /// so rather than clamping to somewhere it was never told to go. `nil` too for a column that
-    /// lands inside a multi-byte character.
+    /// The column may run past the line's content into its terminator, but no further: beyond that
+    /// is a position this source doesn't contain, and `nil` says so rather than clamping. `nil` too
+    /// for a column that lands inside a multi-byte character.
     func utf16Offset(line number: Int, utf8Column column: Int) -> Int? {
         guard let line = line(number), column >= 1 else { return nil }
         return advance(from: line.start, utf8Bytes: column - 1, limit: line.next)
@@ -125,9 +123,8 @@ struct MarkdownSourceIndex: Sendable {
     private static func isHighSurrogate(_ unit: UInt16) -> Bool { (0xD800...0xDBFF).contains(unit) }
 
     /// Bytes for the character starting at `offset`: a surrogate pair is one four-byte scalar, and
-    /// the only thing two units wide. A surrogate without its other half is one unit of three bytes
-    /// — the U+FFFD it becomes on its way to the parser — where it counted three bytes and stepped
-    /// two units, over the character after it (review, 2026-10-09).
+    /// the only thing two units wide. A lone surrogate is one unit of three bytes, the U+FFFD it
+    /// becomes on its way to the parser, so a walk must not step over the character after it.
     private static func utf8Width(at offset: Int, in units: [UInt16]) -> Int {
         let unit = units[offset]
         if unit < 0x80 { return 1 }

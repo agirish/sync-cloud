@@ -1,9 +1,9 @@
 import Testing
 @testable import FileExplorer
 
-/// TE287: a scope To File never read says so, rather than "Nothing in “Downloads”" or "Nothing
-/// loose to file" over a folder nobody looked at. Seen on his Mac: scoped to iCloud ▸ Downloads,
-/// twenty loose files, after a scan of Documents ▸ Finance.
+/// A scope To File never read says so, rather than "Nothing in “Downloads”" or "Nothing loose to
+/// file" over a folder nobody looked at: say, scoped to iCloud ▸ Downloads with loose files in it,
+/// after a scan of Documents ▸ Finance.
 @Suite struct FilingNotScannedHereTests {
 
     private func state(rows: Int = 0, suggestions: Int, scoped: Bool = true, scanned: Bool) -> LensWorkspaceView.FilingContentState {
@@ -12,12 +12,12 @@ import Testing
                                              scopeWasScanned: scanned)
     }
 
-    /// The screenshot's case: Finance's one card, none under Downloads.
+    /// That case: Finance's one card, none under Downloads.
     @Test func aScopeTheLastScanDidNotReadSaysItWasNotScanned() {
         #expect(state(suggestions: 1, scanned: false) == .notScannedHere)
     }
 
-    /// …and with nothing at all from the last scan, which would otherwise read "Nothing loose".
+    /// And with nothing at all from the last scan, which would otherwise read "Nothing loose".
     @Test func evenWhenTheLastScanFoundNothing() {
         #expect(state(suggestions: 0, scanned: false) == .notScannedHere)
     }

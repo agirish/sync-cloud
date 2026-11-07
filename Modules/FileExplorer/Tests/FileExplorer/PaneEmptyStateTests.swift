@@ -3,9 +3,9 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Coverage for the empty-pane placeholder classification: validity + enablement + tree
-/// emptiness + loading must map to distinct states, so a genuinely empty folder is never
-/// conflated with a misconfigured provider root (the old "empty or invalid" message).
+/// The empty-pane placeholder classification: validity, enablement, tree emptiness and loading must
+/// map to distinct states, so a genuinely empty folder is never conflated with a misconfigured
+/// provider root.
 @Suite struct PaneEmptyStateTests {
 
     private func classify(
@@ -25,15 +25,15 @@ import Sync
     }
 
     @Test func testNonEmptyTreeShowsNoPlaceholderRegardlessOfProblems() {
-        // Rows on screen always win — even stale validity or a disabled provider must not
-        // overlay a tree the user can still browse.
+        // Rows on screen always win: even stale validity or a disabled provider must not overlay a
+        // tree the user can still browse.
         #expect(classify(treeIsEmpty: false) == .none)
         #expect(classify(treeIsEmpty: false, isLoading: true) == .none)
         #expect(classify(treeIsEmpty: false, providerIsEnabled: false, rootIsValid: false) == .none)
     }
 
     @Test func testLoadingWinsOverEveryOtherState() {
-        // The scanning spinner must behave exactly as before the states were split.
+        // While the walk runs the pane shows the scanning state, whatever else is true.
         #expect(classify(isLoading: true) == .loading)
         #expect(classify(isLoading: true, providerIsEnabled: false) == .loading)
         #expect(classify(isLoading: true, rootIsValid: false) == .loading)
@@ -57,8 +57,8 @@ import Sync
     }
 }
 
-/// FileTreeView must derive its placeholder from the plumbed-in flags, and callers that
-/// don't plumb them (defaults) must classify like the pre-split view: valid and enabled.
+/// FileTreeView must derive its placeholder from the plumbed-in flags, and callers that don't plumb
+/// them must classify by the defaults: valid and enabled.
 @MainActor
 @Suite struct FileTreeViewEmptyStateTests {
 
@@ -110,7 +110,7 @@ import Sync
 
     @Test func testInvalidPlaceholderShowsProviderRootNotFocusedPath() {
         // Validity is root-scoped, so the offending path shown must be the root the user
-        // configures in Settings — not whatever subfolder the pane happens to focus.
+        // configures in Settings, not whatever subfolder the pane happens to focus.
         #expect(treeView(rootPathIsValid: false, rootPath: "/root").rootPath == "/root")
     }
 

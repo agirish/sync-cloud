@@ -4,42 +4,32 @@ import Design
 
 /// The pane's outline, as recursive `DisclosureGroup`s over an expansion set the pane owns.
 ///
-/// **Why this is not `OutlineGroup`.** It was, and the two draw the same thing —
-/// `OutlineGroup` in a `List` *is* nested `DisclosureGroup`s, which is why the label keeps every
-/// modifier it carried before (tag, context menu, row background, position probe) in the same
-/// position. What `OutlineGroup` does not have is any way to say “open the ancestors of this path”:
-/// it owns its expansion state privately, with no API to write it. Search has to reveal a hit, so
-/// the state has to be somewhere the search can reach — which is the whole of this change. A
-/// pane-side fold-all becomes possible for the same reason, and was not before.
+/// Not `OutlineGroup`, which draws the same nested `DisclosureGroup`s but keeps its expansion
+/// private, with no way to open a path's ancestors. Search must reveal a hit, and the pane can fold
+/// all, so the state lives where both can write it.
 ///
-/// **Identity is unchanged.** `ForEach` keys on `PaneRow.id`, which is the node's absolute path —
-/// exactly what `OutlineGroup` keyed on — so a republish keeps every row's expansion, selection and
-/// scroll position where it was. `PaneRow`'s own `==` is (side, version, path), so walking these
+/// `ForEach` keys on `PaneRow.id`, the node's absolute path, so a republish keeps each row's
+/// expansion, selection and scroll position. `PaneRow`'s `==` is (side, version, path), so walking
 /// rows never costs a deep `FileNode` comparison.
 ///
-/// **`nil` children and `[]` children still differ**, and must: the projection preserves `nil` for a
-/// leaf and `[]` for an empty directory, and that distinction is what decides whether a row gets a
-/// disclosure triangle at all. A leaf renders as a bare row here exactly as it did there.
+/// `nil` children (a leaf) and `[]` (an empty directory) must stay distinct: that decides whether a
+/// row gets a disclosure triangle.
 struct PaneOutlineRows<Row: View>: View {
     let rows: [PaneRow]
     /// The paths whose children are showing. Owned by the pane (so the search can write it), shared
     /// by every level of the recursion.
     @Binding var expanded: Set<String>
-    /// **Asks for a directory the walk did not read**, when one is opened here.
-    ///
-    /// The Columns presentation has had this since the node budget landed; the outline did not, and
-    /// the gap was invisible because it looks like an ordinary empty folder — past
+    /// Asks for a directory the walk did not read, when one is opened here. Past
     /// `FileSyncManager.paneNodeBudget` a directory arrives with `children: []` and `isUnexplored`,
-    /// which draws a disclosure triangle that opens onto nothing and stays that way for as long as
-    /// the pane is on that root. Same fix as the column's, at the moment the user asks: expanding
-    /// IS the request.
+    /// and would open onto nothing; as in Columns, expanding is the request.
     ///
     /// The second argument is `passive`: `true` only for the placeholder's `onAppear`, which fires
     /// on every scroll past, so the manager may hold back a folder it already found unreadable.
-    /// Opening a row passes `false` — a person asking again is a retry (`loadColumnChildren`).
+    /// Opening a row passes `false`: a person asking again is a retry (`loadColumnChildren`).
     let onNeedChildren: (String, Bool) -> Void
-    /// The pane's walk is running — during the shallow first paint every folder is unexplored, so
-    /// an opened empty folder says nothing rather than "Can’t be read". See ``placeholder(for:isLoading:graftsInFlight:)``.
+    /// The pane's walk is running. During the shallow first paint every folder is unexplored, so an
+    /// opened empty folder says nothing rather than "Can’t be read".
+    /// See ``placeholder(for:isLoading:graftsInFlight:)``.
     let isLoading: Bool
     /// Folders whose deferred listing is running right now: an opened one shows a spinner rather
     /// than "Can’t be read".
@@ -66,9 +56,8 @@ struct PaneOutlineRows<Row: View>: View {
                     if let caption = Self.placeholder(for: paneRow, isLoading: isLoading,
                                                       graftsInFlight: graftsInFlight) {
                         Self.placeholderRow(caption)
-                            // A folder opened from a restored expansion was never asked for — the
-                            // binding's setter asks only on a click. The column asks on appear for
-                            // the same reason, under the same rule.
+                            // A folder opened from a restored expansion was never asked for (the
+                            // setter asks only on a click), so ask on appear, as the column does.
                             .onAppear {
                                 if PaneColumnsView.asksForChildren(
                                     isLoading: isLoading,
@@ -90,26 +79,15 @@ struct PaneOutlineRows<Row: View>: View {
         }
     }
 
-    /// One row's disclosure state, projected out of the shared set.
-    ///
-    /// A computed `Binding` rather than per-row state: the set is the pane's, so a reveal written
-    /// into it opens the row on the next render whether or not that row is currently realized —
-    /// which is the point. `List` recycles rows freely, and a row that has never been on screen must
-    /// still come back open if the search opened it.
-    /// The expansion binding for one row, reachable from tests.
-    ///
-    /// `isExpanded` is private and called from the view body, so the decision it carries — that
-    /// opening an unread row IS the request for its contents — could otherwise only be checked by
-    /// mounting a `DisclosureGroup` and testing SwiftUI rather than this rule.
+    /// The expansion binding for one row, reachable from tests, so the rule that opening an unread
+    /// row requests its contents can be checked without mounting a `DisclosureGroup`.
     func expansionBindingForTesting(_ row: PaneRow) -> Binding<Bool> {
         isExpanded(row.node.id, isUnexplored: row.node.isUnexplored == true)
     }
 
-    /// **What an opened folder with nothing under it says (BR14).** The tree expanded onto nothing
-    /// for an empty folder and an unreadable one alike, where Columns says "Empty" or
-    /// "Can’t be read". This is the column's own rule (`PaneColumnsView.emptyCaption`), asked as
-    /// a column one level in — so the two presentations cannot word one state two ways. `nil` for
-    /// a folder with children, for a file, and while the pane's walk runs.
+    /// What an opened folder with nothing under it says: the column's own rule
+    /// (`PaneColumnsView.emptyCaption`) asked one level in, so the outline and Columns word one
+    /// state the same way. `nil` for a folder with children, for a file, and while the walk runs.
     static func placeholder(for row: PaneRow, isLoading: Bool,
                             graftsInFlight: Set<String>) -> PaneColumnsView.Caption? {
         guard let children = row.children, children.isEmpty else { return nil }
@@ -136,10 +114,12 @@ struct PaneOutlineRows<Row: View>: View {
         .allowsHitTesting(false)
     }
 
+    /// One row's disclosure state, projected from the pane's shared set rather than per-row state:
+    /// `List` recycles rows, and a row never on screen must still come back open if search opened it.
+    ///
     /// - Parameter isUnexplored: whether this row's children were never walked. Opening such a row
-    ///   is the request for them — see `onNeedChildren`. Asked on OPEN only: a request on close
-    ///   would fire on the way out of a folder somebody is done with, and the collapse animation is
-    ///   the worst moment to start a directory listing.
+    ///   is the request for them (see `onNeedChildren`). Asked on open only: on close it would start
+    ///   a listing mid-collapse, for a folder the user is done with.
     private func isExpanded(_ id: String, isUnexplored: Bool) -> Binding<Bool> {
         Binding(
             get: { expanded.contains(id) },

@@ -4,45 +4,22 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Who commits the action bar's edge, and why that makes `onBarEdgeFlip` unreachable from a test.
+/// Who commits the action bar's edge, and why a selection change never calls `onBarEdgeFlip`.
 ///
-/// This exists because "the `withAnimation` edge flip is ruled out" was recorded in
-/// `docs/columns-layout-loop.md` on the strength of a fixture that wires `onBarEdgeFlip` and never
-/// fires it. `ColumnsDisplayCycleTests.TwoPaneHarness` passes the callback exactly as `ContentView`
-/// does, so it reads as covered; instrumenting the closure shows it firing **zero** times across
-/// the two-pane provider switch. The 7-passes measurement there is real — it is just silent about
-/// this one path, and silence had been written down as a negative.
+/// `PaneBarPlacement.flipIfEdgeMoved` calls back only when `reresolveMovedEdge()` finds the
+/// committed `atTop` moved. The host commits synchronously from its own `body` (`ContentView`
+/// computes `placement.resolveAtTop(…)` on every render), so by the time a geometry callback runs
+/// the answer already agrees: a selection change can never produce a flip. Only geometry moving
+/// under an unchanged selection can, which in the app is a scroll, and a scroll doesn't re-render
+/// the host, because `PaneBarPlacement` is a plain class whose per-frame writes invalidate nothing.
+/// That asymmetry is deliberate: it stops the bar showing at one edge and hopping to the other.
 ///
-/// The mechanism, which is the part worth keeping:
-///
-/// `flipEdgeIfScrolledAcross` calls back only when `reresolveAtTop()` disagrees with the committed
-/// `atTop`. The host commits **synchronously from its own `body`** — `ContentView` computes
-/// `let barAtTop = placement.resolveAtTop(…)` on every render. So by the time a preference callback
-/// runs, the host has already committed the same answer and there is nothing left to disagree with:
-/// **a selection change can never produce a flip.** Only geometry moving under an *unchanged*
-/// selection can, which in the app is a scroll — and a scroll does not re-render the host, because
-/// `PaneBarPlacement` is a plain class whose per-frame writes invalidate nothing. That asymmetry is
-/// deliberate: it is what stops the bar showing at one edge and hopping to the other, and it makes
-/// the preference callback the only observer that notices a scroll.
-///
-/// In a fixture the asymmetry inverts, which is why no headless test can arm the path. Every lever
-/// available for moving geometry either re-renders the SwiftUI root — so the host's `resolveAtTop`
-/// commits first — or moves AppKit's clip view without re-driving SwiftUI's geometry preferences.
-/// Measured on a harness built specifically to arm it (two panes in Columns, a live `resolveAtTop`
-/// from the host, a bar overlay on the resolved edge, the selection on the lowest row the bar
-/// actually covers, six rounds of scroll + resize): zero flips.
-///
-/// So this suite does not try to produce a flip from a SELECTION. It pins what IS assertable — the
-/// edge really moves, and a fresh re-resolve then agrees with it, which is the exact condition the
-/// callback returns on — so the reason that path cannot be armed stays executable instead of being
-/// rediscovered a fourth time.
-///
-/// **A scroll in Columns CAN be armed now, and is.** Columns reads its rows' bottoms from each
-/// column's table (`ColumnListProbe`), which observes the column's clip — so moving the clip is a
-/// real scroll to it, re-resolves the edge, and calls back on a flip. The last two tests pin that,
-/// and that the bottoms are in the viewport's own space. The Tree's rows still report through
-/// SwiftUI's geometry preference, which moving a clip does not re-drive, so the paragraph above
-/// still holds for it.
+/// A fixture that passes `onBarEdgeFlip` (as `ColumnsDisplayCycleTests.TwoPaneHarness` does) isn't
+/// covering it. In the Tree no headless lever can arm the callback: moving geometry either
+/// re-renders the root, so the host commits first, or moves AppKit's clip view without re-driving
+/// SwiftUI's geometry preferences. Columns reads its rows' bottoms from each column's table
+/// (`ColumnListProbe`), which observes the clip, so a scroll there can be armed; the last two
+/// tests pin that.
 @MainActor
 @Suite struct PaneBarPlacementCommitTests {
 
@@ -73,7 +50,7 @@ import Sync
         @Published var tree: PaneTree
         @Published var selection: Set<String> = []
         @Published var browsePath = PaneBrowsePath()
-        /// What the host's action bar is acting on — the selection `resolveAtTop` reasons from.
+        /// What the host's action bar is acting on: the selection `resolveAtTop` reasons from.
         @Published var hostSelection: Set<String> = []
         init(tree: PaneTree) { self.tree = tree }
     }
@@ -91,8 +68,8 @@ import Sync
         return PaneTree(side: .left, version: 1, nodes: nodes)
     }
 
-    /// A pane whose host resolves the edge from its own `body` and mounts a bar on the result —
-    /// `ContentView`'s shape, and the thing `ColumnsDisplayCycleTests.TwoPaneHarness` omits.
+    /// A pane whose host resolves the edge from its own `body` and mounts a bar on the result:
+    /// `ContentView`'s shape, which `ColumnsDisplayCycleTests.TwoPaneHarness` omits.
     private struct Harness: View {
         @ObservedObject var box: Box
         let placement: PaneBarPlacement
@@ -132,9 +109,9 @@ import Sync
         }
     }
 
-    /// Mounted on this suite's own `NotificationCenter` — a mounted `FileTreeView` subscribes to
-    /// `.cloudDownloadRequested` regardless of whether it wants it. See `docs/flaky-tests.md`
-    /// mechanism 9.
+    /// Mounted on this suite's own `NotificationCenter`: a mounted `FileTreeView` subscribes to
+    /// `.cloudDownloadRequested` whether it wants it or not. See `docs/flaky-tests.md`, "A mounted
+    /// view is a live subscriber, in every suite at once".
     private func mount(_ box: Box, counter: Counter) -> (NSWindow, PaneBarPlacement) {
         let placement = PaneBarPlacement()
         let index = PaneChildrenIndex(tree: box.tree, treeRoot: Self.root)
@@ -158,25 +135,22 @@ import Sync
         }
     }
 
-    /// The bar's edge changes on a selection change, and it changes **without** a flip callback,
-    /// because the host committed it synchronously from `body`.
-    ///
-    /// Both halves are asserted. Without the first this would pass over a dormant path; without the
-    /// second it would not say what it is for.
+    /// The bar's edge changes on a selection change, without a flip callback, because the host
+    /// committed it synchronously from `body`. Both halves are asserted: without the first this
+    /// would pass over a dormant path, and without the second it wouldn't say what it is for.
     @Test func aSelectionChangeMovesTheEdgeWithoutAskingForAFlip() throws {
         let box = Box(tree: Self.tree(folders: 40))
         let counter = Counter()
         let (window, placement) = mount(box, counter: counter)
         // Drops the SwiftUI graph and the pane's live subscription rather than leaving it to ARC.
-        // Not `close()` — see `docs/flaky-tests.md` mechanism 8.
+        // Not `close()`: see `docs/flaky-tests.md`, "The wait that hangs instead of failing".
         defer { window.contentView = nil }
         pump(window, seconds: 0.3)
 
         #expect(placement.atTop == false, "nothing is selected yet, so the bar rests at the bottom")
 
-        // The lowest row inside the viewport — the one a bottom-docked bar would cover. Taken from
-        // live geometry rather than by index, so a density or font change cannot quietly move this
-        // off the band it aims at.
+        // The lowest row inside the viewport, the one a bottom-docked bar would cover. Taken from
+        // live geometry, not by index, so a density or font change can't move it off the band.
         let target = try #require(
             placement.rowBottoms
                 .filter { $0.value - placement.viewportGlobalMinY <= placement.viewportHeight }
@@ -194,16 +168,13 @@ import Sync
         // The edge really did move, so this is not a test of a dormant path…
         #expect(placement.atTop, "selecting a covered row must put the bar at the top")
 
-        // …and this is WHY no callback follows: a fresh resolve agrees with what the host already
-        // committed, which is exactly the condition `PaneBarPlacement.flipIfEdgeMoved` returns on
-        // (`reresolveMovedEdge()` answering false).
+        // …and this is why no callback follows: a fresh resolve agrees with what the host already
+        // committed, so `PaneBarPlacement.flipIfEdgeMoved` returns (`reresolveMovedEdge()` is
+        // false).
         //
-        // This is the load-bearing assertion, and the flip count below is not. Measured by
-        // instrumenting `flipEdgeIfScrolledAcross`: it is entered 3 times, passes its
-        // `placement`/`onBarEdgeFlip` guard all 3 times, and returns at the `!=` guard all 3 times —
-        // the resolve agreed. But mutating that guard away does **not** redden `flips == 0`, because
-        // the callback is dispatched with `DispatchQueue.main.async` and the block lands after the
-        // measured pump. So the count corroborates; the agreement is what proves it.
+        // This is the load-bearing assertion, not the flip count below: the callback is dispatched
+        // with `DispatchQueue.main.async` and lands after this synchronous pump, so `flips == 0`
+        // holds even if the agreement check is removed. The count only corroborates.
         #expect(placement.reresolveAtTop() == placement.atTop,
                 "a re-resolve must agree with the committed edge — that agreement is what makes the callback return")
         #expect(counter.flips == 0,
@@ -213,8 +184,8 @@ import Sync
     // MARK: - Columns: a scroll re-resolves the bar
 
     /// Suspends while the run loop runs, laying the window out a frame at a time. A synchronous
-    /// `CFRunLoopRunInMode` inside a `@MainActor` test never drains the main queue — where the flip
-    /// callback is dispatched — so the two tests below cannot use `pump(_:seconds:)`.
+    /// `CFRunLoopRunInMode` inside a `@MainActor` test never drains the main queue, where the flip
+    /// callback is dispatched, so the two tests below can't use `pump(_:seconds:)`.
     @discardableResult
     private func waitUntil(_ window: NSWindow, _ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
         let end = Date().addingTimeInterval(timeout)
@@ -236,11 +207,10 @@ import Sync
         return found.first
     }
 
-    /// **Columns' row bottoms are in the viewport's own space.** The first row ends about a row below
-    /// the viewport's top — read from the column's table by `ColumnListProbe`, measured against the
-    /// viewport the pane took from SwiftUI. A probe converting into any other space (the window's
-    /// bottom-up one, the clip's) would put it hundreds of points off, and the bar would flip early or
-    /// never; every other assertion about bottoms is relative and would not notice.
+    /// Columns' row bottoms are in the viewport's own space: the first row ends about a row below
+    /// the viewport's top. A probe converting into another space (the window's bottom-up one, the
+    /// clip's) would be hundreds of points off and the bar would flip early or never; every other
+    /// assertion about bottoms is relative and wouldn't notice.
     @Test func columnRowBottomsAreInTheViewportsSpace() async throws {
         let box = Box(tree: Self.tree(folders: 40))
         let (window, placement) = mount(box, counter: Counter())
@@ -252,9 +222,9 @@ import Sync
         #expect(below > 10 && below < 60, "the first row ends \(below)pt below the viewport's top, not about a row")
     }
 
-    /// **Scrolling a column flips the bar once** — the path this suite's premise said no headless test
-    /// could arm. The lowest visible row is selected, so the bar goes to the top; the column is then
-    /// scrolled until that row rises clear of the band, and the bar is asked back down exactly once.
+    /// Scrolling a column flips the bar once. The lowest visible row is selected, so the bar goes
+    /// to the top; the column then scrolls until that row rises clear of the band, and the bar is
+    /// asked back down exactly once.
     @Test func scrollingAColumnFlipsTheBarOnce() async throws {
         let box = Box(tree: Self.tree(folders: 40))
         let counter = Counter()

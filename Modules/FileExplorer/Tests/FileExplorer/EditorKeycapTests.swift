@@ -4,14 +4,12 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// **Edit's controls with a key show it while ⌥ is held** (TE194) — the format bar, Source /
-/// Preview / Split, "Line 48, Col 12", the PDF's page arrows, page number, zoom steps, find arrows
-/// and Close Find, the empty page's two buttons and Cancel under Compare…. Help and the shortcuts
-/// window said every control with a shortcut wears one; these did not.
-///
-/// Two things are checked: that the keys do not run into each other where the buttons sit close —
-/// measured, each key against the distance to its neighbour's centre — and that each control is
-/// wired, read off the code, because an offscreen host has no ⌥ to hold.
+/// Edit's controls with a key show it while ⌥ is held: the format bar, Source / Preview / Split,
+/// "Line 48, Col 12", the PDF's page arrows, page number, zoom steps, find arrows and Close Find,
+/// the empty page's two buttons and Cancel under Compare…, as Help promises. Checks that
+/// neighbouring keys don't run into each other (each key against the distance to its neighbour's
+/// centre), and that each control is wired, read off the code, because an offscreen host has no ⌥
+/// to hold.
 @MainActor
 @Suite struct EditorKeycapTests {
 
@@ -29,8 +27,8 @@ import Testing
 
     // MARK: Room
 
-    /// **B, I and S sit 27pt apart, and a full key is wider than that**: "⇧⌘X" ran over "⌘I". So
-    /// the bar wears the compact key, and every pair of neighbours with a chord clears.
+    /// B, I and S sit 27pt apart, closer than a full key is wide ("⇧⌘X" would run over "⌘I"), so
+    /// the bar wears the compact key and every pair of neighbours with a chord clears.
     @Test func theFormatBarsKeysClearEachOther() throws {
         let pitch = EditorFormatBar.box(at: 1) + EditorFormatBar.buttonGap
         let marks = [MarkupVerb.bold, .italic, .strikethrough].compactMap(EditorFormatBar.keycap)
@@ -99,8 +97,8 @@ import Testing
         #expect(!EditorFormatBar.caretIsInText(revealing: true), "no caret in a test host's key window")
     }
 
-    /// Every control the row named wears its key, above any `.disabled`, so a greyed one shows
-    /// none (`shortcutKeycap`'s ordering rule). Mutation: drop any one modifier and its line fails.
+    /// Every control listed wears its key, above any `.disabled`, so a greyed one shows none
+    /// (`shortcutKeycap`'s ordering rule). Dropping any one modifier fails its line.
     @Test func eachControlWearsItsKey() throws {
         func squashed(_ file: String) throws -> String {
             EditorAcrossPolishTests.squashed(try EditorAcrossPolishTests.source(file))

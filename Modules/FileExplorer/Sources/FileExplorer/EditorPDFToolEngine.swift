@@ -3,10 +3,9 @@ import PDFKit
 import PDFToolkitCore
 import Sync
 
-/// **A password the PDF tools carry, which never prints.** Wrapped so that no interpolation of a
-/// tool — in a log line, an assertion message, a `dump` — can spell it: its description is a
-/// placeholder, its mirror has no children, and the one way to the characters is ``reveal``,
-/// called at the toolkit's door.
+/// A password the PDF tools carry, which never prints. No interpolation of a tool (a log line, an
+/// assertion message, a `dump`) can spell it: its description is a placeholder, its mirror has no
+/// children, and the only way to the characters is ``reveal``, called at the toolkit's door.
 public struct EditorPDFSecret: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible,
                                CustomReflectable {
     private let value: String
@@ -20,7 +19,7 @@ public struct EditorPDFSecret: Sendable, Equatable, CustomStringConvertible, Cus
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
 
-/// How hard Compress works — a strength, or a size to come in under.
+/// How hard Compress works: a strength, or a size to come in under.
 public enum EditorPDFCompression: Equatable, Sendable {
     case quality(Double)
     case target(bytes: Int)
@@ -32,38 +31,34 @@ public enum EditorPDFCompression: Equatable, Sendable {
         ("Smallest File", "Some quality loss", 0.35),
     ]
 
-    /// A typed megabyte figure as bytes, floored at pdf-utils' 0.1 MB and clamped BEFORE it becomes
-    /// an `Int`, which traps on a figure past `Int.max`.
-    ///
-    /// **The ceiling is a terabyte, not pdf-utils' 500 MB**: the target is also what "already under
-    /// it" is measured against, and a 600 MB scan with "1000" typed was clamped to 500 MB and
-    /// rasterized at every rung instead of being told it already fits.
+    /// A typed megabyte figure as bytes, floored at pdf-utils' 0.1 MB and clamped before it becomes
+    /// an `Int`, which traps on a figure past `Int.max`. The ceiling is a terabyte, not pdf-utils'
+    /// 500 MB, because the target is also what "already under it" is measured against: a lower cap
+    /// would rasterize a big file that already fits.
     public static func bytes(megabytes: Double) -> Int {
         let clamped = megabytes.isFinite ? min(max(megabytes, 0.1), 1_000_000) : 0.1
         return Int((clamped * 1_000_000).rounded())
     }
 
-    /// The most a size target starts at, in megabytes — pdf-utils' default.
+    /// The most a size target starts at, in megabytes: pdf-utils' default.
     public static let startingCeiling = 2.0
 
-    /// **Compress's "Under [ ] MB", as the sheet opens** — about half the file, to one decimal
-    /// place, and never above 2 MB: always "2" left a file already under 2 MB with nothing to do
-    /// but "already under the 2 MB target — nothing was written". Not below the 0.1 MB floor
-    /// ``bytes(megabytes:)`` holds every target to. "2" when the size is not known.
+    /// Compress's "Under [ ] MB" as the sheet opens: about half the file, to one decimal place,
+    /// never above 2 MB nor below the 0.1 MB floor of ``bytes(megabytes:)``. A fixed "2" would leave
+    /// a file already under 2 MB nothing to do. "2" when the size is unknown.
     public static func startingTarget(forSize bytes: Int?) -> String {
         guard let bytes, bytes > 0 else { return figure(startingCeiling) }
         let half = (Double(bytes) / 2 / 1_000_000 * 10).rounded() / 10
         return figure(min(max(half, 0.1), startingCeiling))
     }
 
-    /// "0.7", "1.5", "2" — the field's figure, with no trailing ".0".
+    /// "0.7", "1.5", "2": the field's figure, with no trailing ".0".
     private static func figure(_ megabytes: Double) -> String {
         megabytes == megabytes.rounded() ? String(Int(megabytes)) : String(format: "%.1f", megabytes)
     }
 
-    /// **The line under the size field: what the size does, or why Save is greyed** (PD9) — read
-    /// from ``megabytes(_:)``, the rule the button greys by, so the two cannot disagree. Typing 0 or
-    /// clearing the field greyed Save with nothing said; the page-range sheet says why in red.
+    /// The line under the size field: what the size does, or why Save is greyed. Read from
+    /// ``megabytes(_:)``, the rule the button greys by, so the two can't disagree.
     static func targetCaption(_ typed: String) -> (text: String, isError: Bool) {
         if megabytes(typed) != nil { return ("Tries lower quality until the file fits.", false) }
         let trimmed = typed.trimmingCharacters(in: .whitespaces)
@@ -71,9 +66,9 @@ public enum EditorPDFCompression: Equatable, Sendable {
         return ("“\(trimmed)” isn’t a size — type a number of MB above 0, like 2.", true)
     }
 
-    /// A typed figure — "1.5", "2,5", "1,000", " 2 " — or `nil` for one that is not a positive
-    /// number. A comma is a decimal point only where it can be one: alone, with at most two digits
-    /// after it. "1,000" is a thousand, not one.
+    /// A typed figure ("1.5", "2,5", "1,000", " 2 "), or `nil` for one that isn't a positive
+    /// number. A comma is a decimal point only alone and with at most two digits after it, so
+    /// "1,000" is a thousand.
     public static func megabytes(_ typed: String) -> Double? {
         var text = typed.trimmingCharacters(in: .whitespaces)
         if text.contains(".") {
@@ -89,49 +84,45 @@ public enum EditorPDFCompression: Equatable, Sendable {
     }
 }
 
-/// **One of Edit's PDF tools, with what it needs.** Every one writes a NEW copy next to the
-/// original and never touches the original — see ``EditorPDFCopyWriter``.
+/// One of Edit's PDF tools, with what it needs. Every one writes a new copy next to the original
+/// and never touches the original; see ``EditorPDFCopyWriter``.
 public enum EditorPDFTool: Equatable, Sendable {
     /// Zero-based pages, turned `quarterTurns` × 90° clockwise.
     case rotate(pages: [Int], quarterTurns: Int)
     case deletePages([Int])
     /// The new order: a permutation of every zero-based page.
     case reorder([Int])
-    /// The pages to keep, in the order asked for — "3-5, 1" keeps 3, 4, 5, then 1.
+    /// The pages to keep, in the order asked for: "3-5, 1" keeps 3, 4, 5, then 1.
     case extract([Int])
     case compress(EditorPDFCompression)
     case cleanMetadata(PDFMetadataFields)
     case protect(restrictEditing: Bool, password: EditorPDFSecret)
     case removePassword(EditorPDFSecret)
-    /// What Fill & Sign placed, as the toolkit draws it — ``EditorPDFFillSign/save()`` — and the
-    /// zero-based pages then made pictures, so the words corrections cover there go (TE85).
-    /// `unlinksPatches` takes every link under a correction's patch out of the copy (FR56, decided
-    /// 2026-10-25), so it no longer opens the old address under the new words. `keepsComments`
-    /// keeps the file's own comments as comments rather than drawing them in (FR57, decided
-    /// 2026-10-25) — never with a page made a picture, or with a link under a patch to take out:
-    /// both passes would rewrite them.
+    /// What Fill & Sign placed, as the toolkit draws it (``EditorPDFFillSign/save()``), and the
+    /// zero-based pages then made pictures, so the words corrections cover there go.
+    /// `unlinksPatches` takes the links under correction patches out of the copy, so they don't
+    /// open the old address. `keepsComments` keeps the file's comments as comments rather than
+    /// drawing them in, but never with a page made a picture or a link to take out: both passes
+    /// would rewrite them.
     case fillAndSign([FillSignItem], pictures: [Int] = [], unlinksPatches: Bool = false, keepsComments: Bool = false)
-    /// **Fill & Sign on a file with its own form** (Phase 5c): the values typed into its fields, by
-    /// fully qualified name, and what was placed — filled in place by `fillFormData`, so the copy's
-    /// form stays fillable and the placed items become annotations rather than page content.
+    /// Fill & Sign on a file with its own form: the values typed into its fields, by fully
+    /// qualified name, and what was placed. Filled in place by `fillFormData`, so the copy's form
+    /// stays fillable and the placed items become annotations rather than page content.
     case fillForm(values: [String: FormFieldValue], items: [FillSignItem])
-    /// **Rotate or Delete Pages with a dragged order pending** — `then` on the original, its pages
-    /// then put in `order` (the Pages tab's arrangement, in the file's own page numbers): one copy
-    /// that does both. Made only by ``composing(_:arrangement:)``.
+    /// Rotate or Delete Pages with a dragged order pending: `then` on the original, its pages then
+    /// put in `order` (the Pages tab's arrangement, in the file's own page numbers), in one copy.
+    /// Made only by ``composing(_:arrangement:)``.
     indirect case arranged(order: [Int], then: EditorPDFTool)
 
-    /// **The tool a run performs while the reader has a page order pending** (decided 2026-10-18:
-    /// "use the new order"). Rotate and Delete Pages take the order along — the copy comes out in
-    /// the dragged order with the change applied.
-    ///
-    /// **Extract does not**: the pages typed ARE its order, page by page, so a pending one has
-    /// nothing left to say — and the Pages tab's prefill already lists a selection as it is shown.
-    /// Nothing else takes it either: the order stays pending for Save Reordered Copy.
+    /// The tool a run performs while a page order is pending. Rotate and Delete Pages take the
+    /// order along, so the copy comes out in the dragged order with the change applied. Extract
+    /// doesn't, since the pages typed are its order; nor does anything else, and the order stays
+    /// pending for Save Reordered Copy.
     static func composing(_ tool: EditorPDFTool, arrangement: [Int]?) -> EditorPDFTool {
         guard let arrangement else { return tool }
         switch tool {
         case .rotate, .deletePages:
-            // A delete that took every moved page leaves the rest in the file's order — a plain
+            // A delete that took every moved page leaves the rest in the file's order: a plain
             // delete, named as one, with no reorder to orphan a form.
             let order = EditorPDFToolEngine.order(arrangement, after: tool)
             return order == Array(order.indices) ? tool : .arranged(order: arrangement, then: tool)
@@ -155,9 +146,9 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
-    /// **The run in words, for a sentence that names it** — "Stop rotating the pages?", "Compressing
-    /// was cancelled". Lower case: a sentence that starts with it capitalises it
-    /// (``EditorPDFTools/Running``). A bare title read "Stop Rotate?" and "Protect cancelled".
+    /// The run in words, for a sentence that names it: "Stop rotating the pages?", "Compressing
+    /// was cancelled". Lower case; a sentence that starts with it capitalises it
+    /// (``EditorPDFTools/Running``).
     public var doing: String {
         switch self {
         case .rotate: return "rotating the pages"
@@ -183,7 +174,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
-    /// The leave question's sentence for a run still in flight — "The pages are still being rotated."
+    /// The leave question's sentence for a run still in flight: "The pages are still being rotated."
     public var stillRunning: String {
         switch self {
         case .rotate: return "The pages are still being rotated."
@@ -199,8 +190,8 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
-    /// **What the copy's name says was done** — the one table of these words. UI copy: the reader
-    /// meets them in Finder, so they are plain words rather than tool ids.
+    /// What the copy's name says was done, the one table of these words. Plain words, not tool ids,
+    /// because the reader meets them in Finder.
     public var suffix: String {
         switch self {
         case .rotate: return "rotated"
@@ -212,55 +203,49 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .cleanMetadata: return "metadata cleaned"
         case .protect: return "protected"
         case .removePassword: return "unlocked"
-        // "(signed)" when it carries a signature or initials, drawn or typed; "(corrected)" when it
-        // carries corrections and nothing else (TE84) — each is a patch and its words; "(filled)"
-        // otherwise (decided with the 5b mockups). The name follows the save button, which says
-        // Save Corrected Copy for corrections alone and Save Filled Copy for a mix (decided
-        // 2026-10-21: a mix was "(corrected)" under a Save Filled Copy button).
+        // "(signed)" with a signature or initials, drawn or typed; "(corrected)" with corrections
+        // and nothing else (each is a patch and its words); "(filled)" otherwise. It matches the
+        // save button: Save Corrected Copy for corrections alone, Save Filled Copy for a mix.
         case .fillAndSign(let items, _, _, _):
             if items.contains(where: Self.isSigned) { return "signed" }
             let patches = items.filter(\.isPatch).count
             return patches > 0 && items.count == 2 * patches ? "corrected" : "filled"
         case .fillForm(_, let items):
             return items.contains(where: Self.isSigned) ? "signed" : "filled"
-        // "Invoice (reordered, rotated).pdf" — the reorder's word, then the tool's.
+        // "Invoice (reordered, rotated).pdf": the reorder's word, then the tool's.
         case .arranged(_, let then): return "\(Self.reorder([]).suffix), \(then.suffix)"
         }
     }
 
-    /// Delete's word, by count — one word to a copy of a copy (``EditorPDFCopyName/withoutSuffix(_:_:)``).
+    /// Delete's word, by count. A copy of a copy keeps one word
+    /// (``EditorPDFCopyName/withoutSuffix(_:_:)``).
     static let pageRemoved = "page removed"
     static let pagesRemoved = "pages removed"
 
-    /// **How this tool damages a form — pdf-utils' choice per tool, copied rather than re-derived.**
-    /// Its tool views pass `.formFlattened` for Compress and Fill & Sign (`FillSignToolView`, which
-    /// redraws every page into a fresh context), and `.formOrphaned` for Extract, Reorder and
-    /// Remove password (which rebuilds pages into a fresh document); Rotate and Delete mutate the
-    /// document in place, Add password serializes it in place, and Metadata keeps a form-bearing
-    /// file on its in-place path — so none of those warns. None of these tools drops bookmarks, so
-    /// `checksBookmarks` is false for all of them, as it is there.
+    /// How this tool damages a form, copied from pdf-utils' choice per tool. Compress and Fill &
+    /// Sign redraw every page into a fresh context (`.formFlattened`); Extract, Reorder and Remove
+    /// Password rebuild pages into a fresh document (`.formOrphaned`). Rotate, Delete, Protect and
+    /// Clean Metadata on a form keep the document in place, so they don't warn. None drops
+    /// bookmarks, so `checksBookmarks` is false for all, as it is there.
     var formLoss: OutputFidelityWarning.Loss? {
         switch self {
         case .compress, .fillAndSign: return .formFlattened
         case .extract, .reorder, .removePassword: return .formOrphaned
         // Filled in place: the form, its widgets and everything else the file carries survive.
         case .rotate, .deletePages, .cleanMetadata, .protect, .fillForm: return nil
-        // The reorder step rebuilds the pages into a fresh document, as Reorder alone does — so a
+        // The reorder step rebuilds the pages into a fresh document, as Reorder alone does, so a
         // combined Rotate or Delete warns where either alone would not.
         case .arranged: return .formOrphaned
         }
     }
 
-    /// **Whether the copy loses the file's tags, layers and colour output intent** (decision BW) —
-    /// every tool whose copy is rebuilt or whose page tree changes. Rotate, Protect and filling a
-    /// form write the document in place and keep them, and so does Clean Metadata on a file with a
-    /// form, which it cleans in place (the toolkit's `writeMetadataData`).
+    /// Whether the copy loses the file's tags, layers and colour output intent: every tool whose
+    /// copy is rebuilt or whose page tree changes. Rotate, Protect, filling a form and Clean
+    /// Metadata on a form write in place and keep them.
     ///
-    /// **Not on macOS 26** (FR53). There PDFKit drops the catalog on every write, in place or not.
-    /// The toolkit carries four parts back onto an unencrypted copy — page labels, viewer settings,
-    /// language, attachments — but never tags, layers or colour output intent, and nothing at all
-    /// onto an encrypted one. So below 27 Rotate, Protect, filling a form and cleaning a form's
-    /// metadata lose the three parts this note names, and the sheet has to say so.
+    /// Not on macOS 26, where PDFKit drops the catalog on every write. The toolkit carries page
+    /// labels, viewer settings, language and attachments back onto an unencrypted copy, but never
+    /// tags, layers or output intent, so below 27 every tool loses those three.
     func dropsCatalogParts(fileHasForm: Bool,
                            osMajor: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) -> Bool {
         switch self {
@@ -271,40 +256,36 @@ public enum EditorPDFTool: Equatable, Sendable {
     }
 
     /// What Protect's copy loses on macOS 26 beyond the three parts every note names: the toolkit
-    /// skips its carry for encrypted output, so the four parts it carries elsewhere go too. Nil
-    /// from 27. Said whatever the file holds rather than naming only what it has — a deliberate
-    /// simplification: the sentence is true of every file, and reading the catalog for it would
-    /// be one more pass over a file the sheet has not opened.
+    /// skips its carry for encrypted output, so the other four go too. Nil from 27. Said whatever
+    /// the file holds, since it is true of every file and checking would cost another pass.
     static func protectedCopyNote(osMajor: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) -> String? {
         osMajor < 27 ? "On macOS 26 the protected copy won’t keep attached files, page labels, viewer settings or language." : nil
     }
 
-    /// **Whether the copy's bytes are serialized from a FRESH document rather than the loaded one**
-    /// — the question being whether a restricted original's encryption dictionary survives. It is
-    /// not "copies pages", which is the form question ``formLoss`` answers; the two differ.
+    /// Whether the copy is serialized from a fresh document rather than the loaded one, which
+    /// decides whether a restricted original's encryption survives. Not the same question as
+    /// ``formLoss``'s "copies pages".
     ///
-    /// - Extract and Reorder copy pages into a new `PDFDocument`; Compress draws them into a new
-    ///   `CGPDFContext`, and so does Fill & Sign; Remove Password rebuilds on purpose. None carries
-    ///   the original's encryption.
-    /// - Rotate and Delete mutate the LOADED document and serialize it, and PDFKit carries its
-    ///   encryption across (the toolkit's `removePasswordData` notes the same of an unlocked file).
-    ///   Both are refused on a restricted file in any case (`permissionsForbidEditing`).
+    /// - Extract, Reorder, Compress, Fill & Sign and Remove Password build a new document; none
+    ///   carries the original's encryption.
+    /// - Rotate and Delete serialize the loaded document, and PDFKit carries its encryption across.
+    ///   Both are refused on a restricted file anyway (`permissionsForbidEditing`).
     /// - Protect writes encryption of its own.
-    /// - Clean Metadata copies into a fresh document only for a file with no form — and it is never
-    ///   offered on an encrypted file (`metadataEncrypted`), so its answer here is never read.
+    /// - Clean Metadata is never offered on an encrypted file (`metadataEncrypted`), so its answer
+    ///   here is never read.
     var rebuildsDocument: Bool {
         switch self {
         case .extract, .reorder, .compress, .cleanMetadata, .removePassword, .fillAndSign: return true
         // `fillFormData` mutates the document opened from the file and serializes it, so a
-        // restricted original's encryption — and its restrictions — carry into the copy.
+        // restricted original's encryption and restrictions carry into the copy.
         case .rotate, .deletePages, .protect, .fillForm: return false
         // The reorder step comes last. (Its first step is refused on a restricted file anyway.)
         case .arranged: return true
         }
     }
 
-    /// What the log line says was done — **never a password**, which is why the two password tools
-    /// name only their style.
+    /// What the log line says was done. **Never a password**: the two password tools name only their
+    /// style.
     var logDetail: String {
         switch self {
         case .rotate(let pages, let turns):
@@ -318,8 +299,8 @@ public enum EditorPDFTool: Equatable, Sendable {
         case .protect(let restrict, _): return restrict ? "protect (restrict editing)" : "protect (lock to open)"
         case .removePassword: return "remove password"
         case .fillAndSign(let items, let pictures, let unlinks, let keeps):
-            // Counts only — the words and the strokes are the reader's, and never logged. A
-            // correction is two of the toolkit's items, its patch and its words: counted once.
+            // Counts only: the words and strokes are the reader's and never logged. A correction is
+            // two toolkit items, its patch and its words, counted once.
             let signatures = items.filter(Self.isSigned).count
             let corrections = items.filter(\.isPatch).count
             let others = items.count - 2 * corrections
@@ -343,7 +324,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
-    /// What the banner adds for a copy that also took the dragged order — "the new page order, with
+    /// What the banner adds for a copy that also took the dragged order: "the new page order, with
     /// page 2 turned 90° right". `nil` for every other tool, whose copy's name says it all.
     var arrangedDetail: String? {
         guard case .arranged(_, let then) = self else { return nil }
@@ -357,7 +338,7 @@ public enum EditorPDFTool: Equatable, Sendable {
         }
     }
 
-    /// A drawn signature, or words in the script face — a typed signature or initials. The Text
+    /// A drawn signature, or words in the script face (a typed signature or initials). The Text
     /// tool never draws in the script face.
     static func isSigned(_ item: FillSignItem) -> Bool {
         switch item.content {
@@ -374,7 +355,7 @@ enum EditorPDFCopyName {
     /// copy is called "extract" instead.
     static let longestPageLabel = 28
 
-    /// "page 3", "pages 2–4", "pages 3–5, 1" — runs collapsed, in the order asked for — or
+    /// "page 3", "pages 2–4", "pages 3–5, 1" (runs collapsed, in the order asked for), or
     /// "extract" when that would not fit a file name.
     static func extractSuffix(_ pages: [Int]) -> String {
         let label = pageList(pages)
@@ -387,7 +368,7 @@ enum EditorPDFCopyName {
         return (pages.count == 1 ? "page " : "pages ") + runs(pages, dash: "–")
     }
 
-    /// "3–5, 1" — one-based runs, in the order given. One loop for the copy's name (an en dash) and
+    /// "3–5, 1": one-based runs, in the order given. One loop for the copy's name (an en dash) and
     /// the page field's prefill (a hyphen, which `PageRangeParser` reads).
     static func runs(_ pages: [Int], dash: String) -> String {
         guard let first = pages.first else { return "" }
@@ -401,7 +382,7 @@ enum EditorPDFCopyName {
         return runs.joined(separator: ", ")
     }
 
-    /// Quarter turns as 0…3 — one rule for the refusal, the log and the toolkit's own arithmetic.
+    /// Quarter turns as 0…3: one rule for the refusal, the log and the toolkit's own arithmetic.
     static func quarterTurns(_ turns: Int) -> Int { ((turns % 4) + 4) % 4 }
 
     static func degrees(_ quarterTurns: Int) -> String {
@@ -415,31 +396,26 @@ enum EditorPDFCopyName {
 
     /// The longest name a copy takes: the volume's 255, less room for the keep-both rule's " 99".
     ///
-    /// **Counted in UTF-16 units of the DECOMPOSED name, because that is the name this writer sends.**
-    /// The volume's limit is 255 UTF-16 units of the name as written — measured 2026-10-17 on APFS:
-    /// 255 "é" written as they are succeed and 256 fail; 100 CJK characters (300 UTF-8 bytes)
-    /// succeed. But the path reaches `createNew` through `URL(fileURLWithPath:).path`
-    /// (`FileSyncManager.generateUniqueURL`), and that DECOMPOSES it — each "é" becomes e plus its
-    /// accent, two units — so through this path 127 "é" write and 128 fail. Counting the name as
-    /// typed would pass a name the write then refuses with ENAMETOOLONG.
+    /// Counted in UTF-16 units of the decomposed name, because that is what this writer sends.
+    /// APFS allows 255 UTF-16 units of the name as written, but the path reaches `createNew` through
+    /// `URL(fileURLWithPath:).path` (`FileSyncManager.generateUniqueURL`), which decomposes it: each
+    /// "é" becomes two units. Counting the name as typed would pass a name the write then refuses
+    /// with ENAMETOOLONG.
     static let longestName = 255 - 3
 
     static func nameLength(_ name: String) -> Int { name.decomposedStringWithCanonicalMapping.utf16.count }
 
-    /// `<base> (<suffix>).pdf` beside `original` — the base shortened, a whole character at a time,
-    /// when the name would pass ``longestName``: an original whose name was already near the limit
-    /// otherwise had no copy at all, since every name the keep-both rule tried was too long.
+    /// `<base> (<suffix>).pdf` beside `original`, the base shortened a whole character at a time
+    /// when the name would pass ``longestName``; otherwise a name already near the limit gets no
+    /// copy, since every name the keep-both rule tries is too long.
     ///
-    /// **A name that already says it is not told again** (TE190): signing "Lease (signed).pdf", or
-    /// "Lease (signed) 2.pdf", wants "Lease (signed).pdf", and the keep-both rule then takes the
-    /// next free number — rather than "Lease (signed) (signed).pdf".
+    /// A name that already says it isn't told again: signing "Lease (signed).pdf" or "Lease (signed)
+    /// 2.pdf" wants "Lease (signed).pdf", and the keep-both rule takes the next free number. A
+    /// Delete word taken off says "pages" whatever this run removed, since the file has now lost at
+    /// least two.
     ///
-    /// **A Delete word taken off says "pages", whatever this run removed** (F-E3): deleting one page
-    /// from "Lease (pages removed).pdf" has removed at least two from the file the name started as,
-    /// and "Lease (page removed).pdf" said one.
-    ///
-    /// `into` names another folder for the copy — one a request chose because the original's
-    /// cannot be written to. The name is the same either way.
+    /// `into` names another folder for the copy, one a request chose because the original's can't
+    /// be written to. The name is the same either way.
     static func firstChoice(for original: String, suffix: String, into: String? = nil) -> String {
         let folder = into ?? (original as NSString).deletingLastPathComponent
         let named = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -450,10 +426,9 @@ enum EditorPDFCopyName {
         return (folder as NSString).appendingPathComponent(base + tail)
     }
 
-    /// `base` without a closing " (<suffix>)" or " (<suffix>) N" — the word, and the keep-both
-    /// rule's number after it. Either spelling of Delete's word counts as the word: deleting one page
-    /// from "Lease (pages removed).pdf" wants "Lease (pages removed).pdf" again, not "… (pages
-    /// removed) (page removed).pdf".
+    /// `base` without a closing " (<suffix>)" or " (<suffix>) N": the word, and the keep-both
+    /// rule's number after it. Either spelling of Delete's word counts, so deleting one page from
+    /// "Lease (pages removed).pdf" wants that name again, not "… (pages removed) (page removed).pdf".
     static func withoutSuffix(_ base: String, _ suffix: String) -> String {
         var rest = Substring(base)
         if let space = rest.lastIndex(of: " "), case let number = rest[rest.index(after: space)...],
@@ -467,8 +442,8 @@ enum EditorPDFCopyName {
         return base
     }
 
-    /// The spellings `suffix` goes by: itself, and for Delete's word — alone or after the reorder's
-    /// ("reordered, page removed") — its other count.
+    /// The spellings `suffix` goes by: itself, and for Delete's word (alone or after the reorder's,
+    /// "reordered, page removed") its other count.
     static func spellings(_ suffix: String) -> [String] {
         let (one, many) = (EditorPDFTool.pageRemoved, EditorPDFTool.pagesRemoved)
         for (said, other) in [(one, many), (many, one)] where suffix == said || suffix.hasSuffix(", " + said) {
@@ -477,8 +452,8 @@ enum EditorPDFCopyName {
         return [suffix]
     }
 
-    /// `suffix` with Delete's word for one page made the word for several — alone or after the
-    /// reorder's — and any other suffix as it is.
+    /// `suffix` with Delete's word for one page made the word for several (alone or after the
+    /// reorder's), and any other suffix as it is.
     static func plural(_ suffix: String) -> String {
         let one = EditorPDFTool.pageRemoved
         guard suffix == one || suffix.hasSuffix(", " + one) else { return suffix }
@@ -486,14 +461,13 @@ enum EditorPDFCopyName {
     }
 }
 
-/// **Puts a tool's bytes on disk as a NEW file, and never over anything.**
+/// Puts a tool's bytes on disk as a new file, and **never over anything**.
 ///
-/// The name is `<base> (<suffix>).pdf` in the original's folder, and when that is taken, the app's
-/// one keep-both rule — `FileSyncManager.generateUniqueURL`, "name 2.pdf" — rather than
-/// pdf-toolkit's `uniqueURL`, so a copy made here is named the way every other copy SyncCloud makes
-/// is. The write is `EditorFileStore.createNew`: staged, flushed, then moved in with `RENAME_EXCL`,
-/// so a file that appears between the name being chosen and the write is refused by the kernel, not
-/// replaced. That refusal takes the next name — ``EditorImageImport``'s loop, bounded the same way.
+/// The name is `<base> (<suffix>).pdf` in the original's folder, else the app's one keep-both rule
+/// (`FileSyncManager.generateUniqueURL`, "name 2.pdf"), not pdf-toolkit's `uniqueURL`, so copies
+/// are named as every other SyncCloud copy is. `EditorFileStore.createNew` stages, flushes, then
+/// moves in with `RENAME_EXCL`, so a file that appears after the name was chosen is refused by the
+/// kernel, not replaced, and the next name is tried (``EditorImageImport``'s bounded loop).
 enum EditorPDFCopyWriter {
     struct EveryNameTaken: LocalizedError {
         var errorDescription: String? {
@@ -506,7 +480,7 @@ enum EditorPDFCopyWriter {
     /// Writes `data` beside `original` and returns the path it landed at.
     ///
     /// `chooseName` is the keep-both rule; a test hands in one that answers from a stale look at the
-    /// folder — the file that appears after the name was chosen, which only the write can refuse.
+    /// folder, so only the write can refuse the name.
     nonisolated static func write(
         _ data: Data, besides original: String, suffix: String,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
@@ -514,8 +488,8 @@ enum EditorPDFCopyWriter {
         try writeStamped(data, besides: original, suffix: suffix, chooseName: chooseName).path
     }
 
-    /// The same, with the stamp of the file it created — so a run cancelled while the copy was
-    /// being written can take back exactly that file, and nothing that has replaced it since.
+    /// The same, with the stamp of the file it created, so a run cancelled mid-write can take back
+    /// exactly that file and nothing that has replaced it since.
     nonisolated static func writeStamped(
         _ data: Data, besides original: String, suffix: String, into folder: String? = nil,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
@@ -524,8 +498,8 @@ enum EditorPDFCopyWriter {
                          chooseName: chooseName)
     }
 
-    /// The same write, at `wanted` or the keep-both rule's next free name after it — Save as PDF's
-    /// door, whose first choice is the original's own name with `.pdf` rather than a suffixed one.
+    /// The same write, at `wanted` or the keep-both rule's next free name after it: Save as PDF's
+    /// door, whose first choice is the original's own name with `.pdf`, not a suffixed one.
     nonisolated static func write(
         _ data: Data, wanting wanted: String,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
@@ -552,33 +526,31 @@ enum EditorPDFCopyWriter {
     }
 }
 
-/// **The PDF tools' half that runs in the PDFKit lane.**
+/// The PDF tools' half that runs in the PDFKit lane.
 ///
-/// pdf-toolkit's contract is that every call is synchronous, does its PDFKit work on the calling
-/// thread, and owns no queue — so every call here is made inside `PDFKitSerialAccess.perform`, the
-/// one lane every other parse in the process takes its turn on. Each one is handed the file's URL
-/// and opens its own `PDFDocument`; the reader's document is drawn on the main thread and is never
-/// passed in. Only the `…Data` functions are used: they return bytes and write nothing, and
-/// ``EditorPDFCopyWriter`` decides where the bytes go.
+/// pdf-toolkit's calls are synchronous, do their PDFKit work on the calling thread and own no
+/// queue, so every call here is made inside `PDFKitSerialAccess.perform`, the one lane every parse
+/// in the process takes turns on. Each call is handed the file's URL and opens its own
+/// `PDFDocument`; the reader's document, drawn on the main thread, is never passed in. Only the
+/// `…Data` functions are used, so ``EditorPDFCopyWriter`` decides where the bytes go.
 ///
-/// **Compress holds the lane for its whole run**, because it is one call. Thumbnails, find and a
-/// duplicate scan wait behind it — which is why it reports progress and can be cancelled between
-/// pages.
+/// Compress holds the lane for its whole run, so thumbnails, find and a duplicate scan wait behind
+/// it; that is why it reports progress and can be cancelled between pages.
 enum EditorPDFToolEngine {
 
     /// What a run produced, crossing back from the lane.
     enum Output: Sendable, Equatable {
-        /// New bytes to write, and a sentence the saved banner adds — what the copy could not do as
-        /// asked (Fill & Sign's comments, FR57). `comments` is what Fill & Sign's copy did with the
-        /// file's comments when asked to keep them — `nil` when it wasn't — for the log line.
+        /// New bytes to write, and a sentence the saved banner adds for what the copy couldn't do as
+        /// asked (Fill & Sign's comments). `comments` is what Fill & Sign did with the file's comments
+        /// when asked to keep them (`nil` when not asked), for the log line.
         case bytes(Data, note: String? = nil, comments: FillSignAnnotations? = nil)
         /// Compress came back with the source's own bytes: nothing was gained, so nothing is written.
         case noGain
     }
 
-    /// Called from the lane. `progress` reaches only Compress; `isCancelled` reaches Compress, and
-    /// a combined run between its two steps. `staging` is where a two-step run keeps its middle
-    /// bytes — a private folder, never the PDF's own.
+    /// Called from the lane. `progress` reaches only Compress; `isCancelled` reaches Compress and a
+    /// two-step run between its steps. `staging` is where a two-step run keeps its middle bytes: a
+    /// private folder, never the PDF's own.
     nonisolated static func output(of tool: EditorPDFTool, input: URL,
                                    staging: URL = FileManager.default.temporaryDirectory,
                                    fillAndSign: FillSigner = toolkitFillAndSign,
@@ -603,9 +575,9 @@ enum EditorPDFToolEngine {
                 data = try PDFToolkit.compressToTargetData(inputURL: input, targetBytes: bytes,
                                                            onProgress: progress, isCancelled: isCancelled)
             }
-            // Both calls hand back the source's own bytes when the rebuild is not worth it — under
-            // 5% saved, or bigger than the source. The count first: the bytes are read only when it
-            // matches, which a real saving never does.
+            // Both calls hand back the source's own bytes when the rebuild isn't worth it (under 5%
+            // saved, or bigger). The count first: the bytes are read only when it matches, which a
+            // real saving never does.
             if let size = EditorFileStore.stamp(ofPath: input.path)?.size, data.count == size,
                let original = try? Data(contentsOf: input), original == data {
                 return .noGain
@@ -620,12 +592,10 @@ enum EditorPDFToolEngine {
         case .removePassword(let password):
             return .bytes(try PDFToolkit.removePasswordData(inputURL: input, password: password.reveal()))
         case .fillAndSign(let items, let pictures, let unlinks, let keeps):
-            // **The comments kept only with no page made a picture, and no link under a patch to
-            // take out** (FR57, F1): both passes copy every page through PDFKit, which rewrites a
-            // kept comment — its `/NM` and its popup's `/Parent` go — and on macOS 26 drops the page
-            // labels and attached files; the picture pass also draws a picture page's own into it.
-            // The note card greys the choice then (`keepCommentsRefusal`); this holds it for any
-            // caller.
+            // Comments are kept only with no page made a picture and no link to take out: both
+            // passes copy every page through PDFKit, which rewrites a kept comment (its `/NM` and its
+            // popup's `/Parent` go) and on macOS 26 drops page labels and attached files. The note
+            // card greys the choice then (`keepCommentsRefusal`); this holds it for any caller.
             let patches = items.filter(\.isPatch)
             let unlinking = unlinks && hasLink(under: patches, in: input)
             let keep = keeps && pictures.isEmpty && !unlinking
@@ -639,9 +609,9 @@ enum EditorPDFToolEngine {
                 unlinking ? try removingLinks(under: patches, in: data, source: input) : data
             }
             guard !pictures.isEmpty else { return .bytes(try unlinked(filled), note: note, comments: comments) }
-            // **Then the chosen pages made pictures** (decision AK): the toolkit's redaction with
-            // no marks, rasterizing just those pages, so the words their patches cover go from the
-            // copy. It reads by URL, so the filled bytes are staged as `.arranged`'s are.
+            // Then the chosen pages made pictures: the toolkit's redaction with no marks,
+            // rasterizing just those pages, so the words their patches cover leave the copy. It
+            // reads by URL, so the filled bytes are staged as `.arranged`'s are.
             if isCancelled?() == true { throw CancellationError() }
             let folder = staging.appendingPathComponent("SyncCloud-pdf-tool-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -656,13 +626,10 @@ enum EditorPDFToolEngine {
         case .fillForm(let values, let items):
             return .bytes(try PDFToolkit.fillFormData(inputURL: input, values: values, items: items))
         case .arranged(let order, let then):
-            // **The tool first, on the original, then the reorder** — so Rotate and Delete keep
-            // their own refusals (a restricted file) and Delete its bookmark pruning, and the copy
-            // is what Save Reordered Copy would make of the tool's copy.
-            //
-            // The toolkit reads by URL, so the middle bytes go to a folder of this run's own under
-            // `staging` — never beside the PDF, where a sync or a listing would see them — and the
-            // folder goes on every way out. Both steps take this one lane turn.
+            // The tool first, on the original, then the reorder, so Rotate and Delete keep their
+            // refusals and Delete its bookmark pruning. The toolkit reads by URL, so the middle
+            // bytes go to this run's own folder under `staging`, never beside the PDF where a sync
+            // would see them, removed on every way out. Both steps take this one lane turn.
             guard case .bytes(let first, _, _) = try output(of: then, input: input, staging: staging,
                                                       progress: nil, isCancelled: nil)
             else { throw PDFOperationError.couldNotEncodeOutput }
@@ -676,15 +643,13 @@ enum EditorPDFToolEngine {
         }
     }
 
-    /// **The copy with every link under a patch taken out** (FR56) — a link whose hotspot reaches
-    /// under any part of one, as ``EditorPDFReplacePick/overLink`` sees it. The toolkit puts each
-    /// page's links back on the page it redraws, upright at the page's corner, so a patch's page
-    /// rect is mapped to the same display space through its source page's box first.
+    /// The copy with every link under a patch taken out, as ``EditorPDFReplacePick/overLink`` sees
+    /// it. The toolkit redraws each page upright at its corner, so a patch's rect is first mapped
+    /// to that display space through its source page's box.
     ///
-    /// PDFKit writes the copy again, and on macOS 26 a PDFKit write drops the catalog parts the
-    /// toolkit carried — page labels, viewer settings, language and attached files — which is why
-    /// it is a choice, off by default (``EditorPDFFillSign/unlinkHelp``). A copy with no link under
-    /// a patch is handed back as the toolkit wrote it.
+    /// PDFKit writes the copy again, and on macOS 26 that drops page labels, viewer settings,
+    /// language and attached files, which is why it is a choice, off by default
+    /// (``EditorPDFFillSign/unlinkHelp``). With no link under a patch, the copy is handed back as is.
     nonisolated static func removingLinks(under patches: [FillSignItem], in data: Data, source: URL) throws -> Data {
         guard !patches.isEmpty, let original = PDFDocument(url: source), let copy = PDFDocument(data: data)
         else { return data }
@@ -703,8 +668,8 @@ enum EditorPDFToolEngine {
         return written
     }
 
-    /// **Whether the source has a link under any of `patches`** — page space on both sides, as
-    /// ``EditorPDFCorrection/overLink`` sees it — so whether ``removingLinks(under:in:source:)``
+    /// Whether the source has a link under any of `patches` (page space on both sides, as
+    /// ``EditorPDFCorrection/overLink`` sees it), so whether ``removingLinks(under:in:source:)``
     /// would rewrite the copy. Read in the lane, as every engine read is.
     nonisolated static func hasLink(under patches: [FillSignItem], in source: URL) -> Bool {
         guard !patches.isEmpty, let original = PDFDocument(url: source) else { return false }
@@ -715,9 +680,8 @@ enum EditorPDFToolEngine {
         }
     }
 
-    /// `order` — a permutation of the ORIGINAL's pages — as it reads in `tool`'s copy: unchanged
-    /// for Rotate, which keeps every page where it was; for Delete, the survivors renumbered, in
-    /// the order the reader dragged them.
+    /// `order`, a permutation of the original's pages, as it reads in `tool`'s copy: unchanged for
+    /// Rotate; for Delete, the survivors renumbered in the order the reader dragged them.
     nonisolated static func order(_ order: [Int], after tool: EditorPDFTool) -> [Int] {
         guard case .deletePages(let pages) = tool else { return order }
         let gone = Set(pages)
@@ -726,7 +690,7 @@ enum EditorPDFToolEngine {
         return order.compactMap { at[$0] }
     }
 
-    /// Fill & Sign's flat save — the toolkit's `fillAndSignData` — and what it did with the comments.
+    /// Fill & Sign's flat save (the toolkit's `fillAndSignData`) and what it did with the comments.
     typealias FillSigner = @Sendable (URL, [FillSignItem], FillSignAnnotations) throws
         -> (data: Data, annotations: FillSignAnnotations)
 
@@ -738,13 +702,11 @@ enum EditorPDFToolEngine {
     /// The run, through the lane. `perform` takes a closure that cannot throw, so the outcome
     /// crosses back as a `Result`.
     ///
-    /// **`unchanged` is checked in the lane turn itself**, as the toolkit is about to read: a run
-    /// can wait a long while for its turn behind a duplicate scan or a pane's Compress, and a file
-    /// replaced in that wait was read afresh — Rotate turned the new file's page 2, Fill & Sign
-    /// put its items by the old pages' boxes. A file that no longer has that stamp throws
-    /// ``ChangedOnDisk`` and nothing is read. So is a file **evicted in that wait** — eviction keeps
-    /// the stamp, and the toolkit opening the placeholder would download it inside the lane:
-    /// ``CloudOnly``.
+    /// `unchanged` is checked in the lane turn itself, just before the toolkit reads: a run can
+    /// wait long behind a duplicate scan or a Compress, and a file replaced meanwhile would be
+    /// edited by the old file's facts. A changed stamp fails with ``ChangedOnDisk`` and nothing is
+    /// read. A file evicted meanwhile keeps its stamp, and opening it would download it inside the
+    /// lane, so it fails with ``CloudOnly``.
     static func run(_ tool: EditorPDFTool, input: URL,
                     staging: URL = FileManager.default.temporaryDirectory,
                     unchanged: (path: String, stamp: EditorFileStore.Stamp)? = nil,
@@ -766,15 +728,15 @@ enum EditorPDFToolEngine {
         }
     }
 
-    /// The file a run was asked about changed before its lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:fillAndSign:turnStarted:progress:isCancelled:)``.
+    /// The file changed before the run's lane turn came; see ``run(_:input:staging:unchanged:isCloudOnly:fillAndSign:turnStarted:progress:isCancelled:)``.
     struct ChangedOnDisk: Error {}
 
-    /// The file went cloud-only before the run's lane turn came — see ``run(_:input:staging:unchanged:isCloudOnly:fillAndSign:turnStarted:progress:isCancelled:)``.
+    /// The file went cloud-only before the run's lane turn came; see ``run(_:input:staging:unchanged:isCloudOnly:fillAndSign:turnStarted:progress:isCancelled:)``.
     struct CloudOnly: Error {}
 
-    /// What a run needs to know about a file before it offers anything — read in the lane the way
-    /// ``EditorPDFDocument``'s load reads it, for a run started from a pane's menu, where no
-    /// document was opened first.
+    /// What a run needs to know about a file before it offers anything, read in the lane as
+    /// ``EditorPDFDocument``'s load reads it, for a run started from a pane's menu with no document
+    /// open.
     enum Probe: Sendable, Equatable {
         case unreadable
         case facts(pageCount: Int, encryption: PDFEncryptionState, droppedParts: [PDFToolkit.DroppedCatalogPart] = [])
@@ -784,9 +746,9 @@ enum EditorPDFToolEngine {
         await PDFKitSerialAccess.perform { probeInLane(input) }
     }
 
-    /// Called from the lane. A file locked to open has no pages to count until it is unlocked —
-    /// Edit attaches it at zero pages too. The protection comes off the document just opened, as
-    /// Edit's open reads it, not from a second parse of the file.
+    /// Called from the lane. A file locked to open has no pages to count until unlocked (Edit
+    /// attaches it at zero pages too). The protection is read off the document just opened, not
+    /// from a second parse.
     nonisolated static func probeInLane(_ input: URL) -> Probe {
         guard let document = PDFDocument(url: input) else { return .unreadable }
         if document.isLocked { return .facts(pageCount: 0, encryption: .lockedToOpen) }
@@ -811,7 +773,7 @@ enum EditorPDFToolEngine {
         switch tool {
         case .rotate(let pages, let turns):
             if pages.isEmpty { return PDFOperationError.noPagesSelected.errorDescription }
-            // An empty turn hands the file back unchanged — a copy identical to its original.
+            // A full turn hands the file back unchanged: a copy identical to its original.
             if EditorPDFCopyName.quarterTurns(turns) == 0 { return "A full turn leaves every page as it is." }
             return outOfRange(pages, pageCount: pageCount)
         case .deletePages(let pages):
@@ -851,17 +813,14 @@ enum EditorPDFToolEngine {
 
     // MARK: The toolkit's refusals, in Edit's words
 
-    /// **What the reader is told when the toolkit refuses** — every `PDFOperationError`, in one
-    /// exhaustive switch so a case a new toolkit adds fails to build here rather than reaching the
-    /// banner unread. Most read as the toolkit words them. Those written for PDF Utils' windows do
-    /// not: `permissionsForbidEditing`, `encryptedInput` and `metadataEncrypted` send the reader to a
-    /// "Password Protect → Remove password" SyncCloud has no such menu for — a restricted file's
-    /// Rotate and Delete, from Edit and from a pane's batch, said so — and for a form being filled
-    /// the question is the owner's form-entry or comment permission; and `textOnRotatedPage` points
-    /// at a Fill & Sign that flattens, which in Edit is this very tool. `couldNotOpen` and
-    /// `incorrectPassword` read as PDF Utils words them, "Could not open PDF: X" (TE186).
+    /// What the reader is told when the toolkit refuses: every `PDFOperationError`, in one
+    /// exhaustive switch so a case a new toolkit adds fails to build here. Most read as the toolkit
+    /// words them. Those written for PDF Utils' windows are reworded: `permissionsForbidEditing`,
+    /// `encryptedInput` and `metadataEncrypted` point to a menu SyncCloud lacks (and a form being
+    /// filled is a question of form-entry permission), `textOnRotatedPage` points at a Fill & Sign
+    /// that flattens, and `couldNotOpen` and `incorrectPassword` would read "Could not open PDF: X".
     ///
-    /// `name` is the file the reader opened — the toolkit's URL names a link's target.
+    /// `name` is the file the reader opened; the toolkit's URL names a link's target.
     static func reason(_ error: PDFOperationError, tool: EditorPDFTool, name opened: String? = nil) -> String {
         switch error {
         case .couldNotOpen(let url):
@@ -886,7 +845,7 @@ enum EditorPDFToolEngine {
         case .metadataEncrypted:
             return "This PDF is password-protected, so its metadata can’t be cleaned. \(removePasswordStep)"
         case .formValueNotAccepted(let field, let value):
-            // The toolkit's words, but a paragraph typed into a field is not quoted whole.
+            // The toolkit's words, but a paragraph typed into a field isn't quoted whole.
             let shown = value.count > 40 ? value.prefix(40) + "…" : Substring(value)
             return "The field “\(field)” does not accept “\(shown)”."
         case .couldNotWrite, .outputMatchesInput, .invalidPageRange, .pageOutOfBounds,
@@ -900,13 +859,13 @@ enum EditorPDFToolEngine {
         }
     }
 
-    /// What to do about an owner's restriction — the one menu both Edit and the panes have.
+    /// What to do about an owner's restriction: the one menu both Edit and the panes have.
     static let removePasswordStep = "PDF Tools ▸ Remove Password… can write an unrestricted copy if you know the password."
     /// The same for a file whose owner only restricted it: Remove Password… asks for no password
-    /// there (TE167).
+    /// there.
     static let liftRestrictionsStep = "PDF Tools ▸ Remove Password… writes a copy without the restrictions."
     /// The same for an encrypted file Clean Metadata skips: it opens without a password, so
-    /// Remove Password… asks for none, and its copy is not encrypted (L11).
+    /// Remove Password… asks for none, and its copy isn't encrypted.
     static let decryptStep = "PDF Tools ▸ Remove Password… writes an unencrypted copy, which this tool can then use."
 
     /// A run's failure as the banner says it: the toolkit's refusal in Edit's words, anything else
@@ -916,9 +875,9 @@ enum EditorPDFToolEngine {
         return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    /// **The same failure as the log says it — with nothing the reader typed and no field's name.**
-    /// The form refusals carry both (`formValueNotAccepted` quotes the value), and the log keeps to
-    /// what Fill & Sign's log has always kept to: counts and the file.
+    /// The same failure as the log says it, **with nothing the reader typed and no field's name**:
+    /// the form refusals carry both (`formValueNotAccepted` quotes the value), and Fill & Sign's log
+    /// keeps to counts and the file.
     static func logReason(_ error: any Error, tool: EditorPDFTool, name: String? = nil) -> String {
         switch error as? PDFOperationError {
         case .formValueNotAccepted?: return "a field did not accept its value"

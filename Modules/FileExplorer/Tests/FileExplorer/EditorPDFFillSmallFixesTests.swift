@@ -6,11 +6,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// **Fill & Sign's small fixes (the 2026-10-21 Edit audit, TE165–TE193)** — the pill's and the
-/// palette's words, the leave question's count and buttons, Remove Password… on the refusals, a
-/// copy of a copy's name, a placed date's year, and Undo Stroke on the Draw pad. TE164 (signature
-/// fields by keyboard and VoiceOver) is in `EditorPDFFillKeyboardTests`, TE189 there too, TE191 in
-/// `EditorPDFFillPolishTests`.
+/// Fill & Sign's smaller rules: the pill's and the palette's words, the leave question's count and
+/// buttons, Remove Password… on the refusals, a copy of a copy's name, a placed date's year, and
+/// Undo Stroke on the Draw pad. Signature fields by keyboard and VoiceOver are in
+/// `EditorPDFFillKeyboardTests`.
 ///
 /// Serialized: the PDF tests open files in `PDFKitSerialAccess`'s one lane.
 @MainActor
@@ -36,7 +35,7 @@ import Sync
 
     // MARK: TE165 — the pill's count names the button
 
-    /// **The pill's count says the button's own words** — Save Corrected Copy with only corrections.
+    /// The pill's tooltip uses the button's own words: Save Corrected Copy with only corrections.
     @Test func thePillsCountNamesItsOwnButton() throws {
         let palette = try Self.source("EditorPDFFillPalette.swift")
         #expect(palette.contains(".help(\"Nothing is written until \\(fill.saveTitle) — the original stays as it is\")"))
@@ -45,8 +44,8 @@ import Sync
 
     // MARK: TE166 — the leave question
 
-    /// **The leave question counts as the pill does** — corrections apart from items — and says
-    /// "isn't" for one.
+    /// The leave question counts as the pill does, corrections apart from items, and says "isn't"
+    /// for one.
     @Test func theLeaveQuestionCountsAsThePillDoes() {
         func detail(fields: Int = 0, _ placed: [String] = []) -> String {
             EditorPDFFillSign.leaveQuestion(name: "Lease.pdf", fields: fields, placed: placed).detail
@@ -62,8 +61,8 @@ import Sync
                 == "Save the corrected copy of “Invoice.pdf”?")
     }
 
-    /// **The close alert's buttons** — shown top to bottom Save Filled Copy, Don't Save, Cancel;
-    /// Return saves, Esc cancels, Don't Save takes ⌘D and is destructive, and only it discards.
+    /// The close alert's buttons, shown top to bottom Save Filled Copy, Don't Save, Cancel: Return
+    /// saves, Esc cancels, Don't Save takes ⌘D and is destructive, and only it discards.
     @Test(arguments: [false, true])
     func theLeaveAlertHasTheCloseAlertsButtons(corrected: Bool) throws {
         let alert = EditorPDFFillSign.leaveAlert(name: "Lease.pdf", placed: ["1 item"], corrected: corrected)
@@ -87,8 +86,8 @@ import Sync
 
     // MARK: TE167 — Remove Password… on the refusals
 
-    /// **Each refusal offers Remove Password…** — Return on it, Esc on OK — unless a tool runs; and
-    /// a restricted file is told no password is needed.
+    /// Each refusal offers Remove Password… (Return on it, Esc on OK) unless a tool runs, and a
+    /// restricted file is told no password is needed.
     @Test func theRefusalsOfferRemovePassword() throws {
         for reason in [EditorPDFFillSign.restrictedReason, EditorPDFFillSign.nothingToFillReason, EditorPDFTools.lockedReason] {
             let alert = EditorPDFFillSign.refusalAlert(reason, offersRemovePassword: true)
@@ -112,7 +111,7 @@ import Sync
         #expect(!pageBanner.contains("if you know the password"), "\(pageBanner)")
     }
 
-    /// **A restricted file's Fill & Sign offers Remove Password…** — the file takes it and nothing
+    /// A restricted file's Fill & Sign offers Remove Password…, since the file takes it and nothing
     /// is running; with no PDF there is nothing to offer.
     @Test func aRestrictedFileOffersRemovePassword() async throws {
         let file = path("Statement.pdf")
@@ -145,7 +144,7 @@ import Sync
 
     // MARK: TE190 — a copy of a copy
 
-    /// **A name that already says the word is not told again** — the keep-both rule numbers it.
+    /// A name that already says the word doesn't get it again; the keep-both rule numbers it.
     @Test func aCopyOfACopyIsNumberedNotSuffixedTwice() {
         func first(_ name: String, _ suffix: String = "signed") -> String {
             (EditorPDFCopyName.firstChoice(for: "/a/" + name, suffix: suffix) as NSString).lastPathComponent
@@ -161,8 +160,8 @@ import Sync
         #expect(first("(signed).pdf") == "(signed) (signed).pdf")
         #expect(first("Invoice (reordered, rotated).pdf", "reordered, rotated") == "Invoice (reordered, rotated).pdf")
         #expect(first("Lease (pages removed) 3.pdf", "pages removed") == "Lease (pages removed).pdf")
-        // Delete's word by count is one word: either spelling is replaced, not told again (Y6) —
-        // and a word taken off says "pages", since the copy has lost more than this run's (F-E3).
+        // Delete's singular and plural are one word: either spelling is replaced, not repeated, and
+        // a replaced word says "pages", since the copy has lost more than this run's.
         let one = EditorPDFTool.deletePages([0]).suffix, two = EditorPDFTool.deletePages([0, 1]).suffix
         #expect((one, two) == ("page removed", "pages removed"))
         #expect(first("Lease.pdf", one) == "Lease (page removed).pdf", "one page off a file with no word")
@@ -180,8 +179,8 @@ import Sync
         #expect(first("Lease (unpages removed).pdf", one) == "Lease (unpages removed) (page removed).pdf")
     }
 
-    /// **On disk: signing "Lease (signed).pdf" writes "Lease (signed) 2.pdf", then "… 3.pdf"** —
-    /// the original is never written over.
+    /// On disk, signing "Lease (signed).pdf" writes "Lease (signed) 2.pdf", then "… 3.pdf"; the
+    /// original is never written over.
     @Test func signingASignedCopyTakesTheNextFreeNumber() throws {
         let original = path("Lease (signed).pdf")
         try Data("original".utf8).write(to: URL(fileURLWithPath: original))
@@ -194,7 +193,7 @@ import Sync
 
     // MARK: TE192 — a four-digit year
 
-    /// **Only a two-letter year widens** — outside quotes; "yyyy", "y" and quoted text stay.
+    /// Only a two-letter year widens, outside quotes; "yyyy", "y" and quoted text stay.
     @Test func onlyATwoDigitYearWidens() {
         let widen = EditorPDFFillSign.fourDigitYear
         #expect(widen("M/d/yy") == "M/d/yyyy")
@@ -206,8 +205,8 @@ import Sync
         #expect(widen("yyy") == "yyy")
     }
 
-    /// **"10/17/2026" in the US** — the short format, which gives "10/17/26", with its year widened;
-    /// another country keeps its own order.
+    /// "10/17/2026" in the US: the short format ("10/17/26") with its year widened; other countries
+    /// keep their own order.
     @Test func aPlacedDateHasAFourDigitYear() throws {
         let utc = try #require(TimeZone(identifier: "UTC"))
         let date = try #require(DateComponents(calendar: Calendar(identifier: .gregorian), timeZone: utc,
@@ -225,8 +224,8 @@ import Sync
 
     // MARK: TE193 — Undo Stroke
 
-    /// **⌘Z takes back the last stroke on Draw** — one at a time, and nothing once none is left.
-    /// The button's own state is read from the source: SwiftUI builds no accessibility tree for a
+    /// ⌘Z takes back the last stroke on Draw, one at a time, and nothing once none is left. The
+    /// button's own state is read from the source: SwiftUI builds no accessibility tree for a
     /// hosted view under `swift test`, so its buttons can't be found or pressed here.
     @Test func undoStrokeTakesBackTheLastStroke() async throws {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))

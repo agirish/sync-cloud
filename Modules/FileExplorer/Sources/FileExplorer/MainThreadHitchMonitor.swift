@@ -5,61 +5,30 @@ import Foundation
 
 /// Reports how long the main thread stays busy, by timing the run loop itself.
 ///
-/// **Why the pane needed a third attempt at this.** Two earlier click metrics both measured the
-/// user's finger rather than the app's work, and each looked convincing:
+/// A clock hung off an input event measures the user's finger: `NSTableView.mouseDown` runs its
+/// own tracking loop, so nothing stamped inside it can run until the button comes up. This one
+/// ignores events. Observers fire on waking (`afterWaiting`) and before sleeping (`beforeWaiting`),
+/// and the span between is main-thread work; a held button is the run loop waiting, so it can't
+/// inflate it. Only turns over `threshold` are reported, so the log isn't buried.
 ///
-/// - `[click]` stamps from the selection commit, which happens on mouse-DOWN inside
-///   `NSTableView`'s tracking loop, so it spans however long the button was held. `dfa74e4`
-///   caught that.
-/// - `[render]` was added to fix it, moving the stamp to the tap gesture's `onEnded` and reading it
-///   back on the next main-queue turn — "this stamp starts after the button is already up, so
-///   whatever it measures is work". That is false, and measurably so: across twenty clicks the two
-///   numbers agreed to within **0.2 ms**. `NSTableView.mouseDown` runs its own event-tracking loop,
-///   so a block enqueued from inside it cannot run until that loop exits — which is when the button
-///   comes up. Where the stamp is taken makes no difference; the interval is bounded below by the
-///   hold.
-///
-/// The common flaw is that both hang their clock off an INPUT EVENT. This one does not know
-/// events exist. A run-loop observer fires on the way into the wait (`beforeWaiting`) and on the
-/// way out of it (`afterWaiting`); the span between waking and going back to sleep is, by
-/// definition, main-thread work. Nothing a finger does can inflate it, because a held button is the
-/// run loop *waiting*.
-///
-/// Only turns over `threshold` are reported — a hitch is what the user feels, and logging every
-/// turn would bury the log the way the scroll trace nearly did.
-///
-/// **The turn ends at the LAST end-of-turn observer, not the first.** Core Animation's commit
-/// observer sits at order 2,000,000 in the same `beforeWaiting`/`exit` phase, and the layout and
-/// drawing a commit flushes run inside it. An order-0 end closed the turn before any of that, so
-/// it counted as idle. Both edges are observed: order 0 marks where the turn's own work stopped,
-/// the highest order closes it, and each `[hitch]` line gives both spans.
-///
-/// A stall long enough to want a stack is `MainThreadStallWatch`'s job, not this type's: this
-/// reports only after a turn ends, which a wedged turn never does.
+/// The turn ends at the last end-of-turn observer, not the first: Core Animation's commit observer
+/// (order 2,000,000, same phase) runs the layout and drawing it flushes, which an order-0 end
+/// would count as idle. Order 0 marks where the turn's own work stopped; each `[hitch]` line gives
+/// both spans. A wedged turn never ends, so wanting a stack is `MainThreadStallWatch`'s job.
 @MainActor
 public enum MainThreadHitchMonitor {
-    /// Turns longer than this earn their own line. One frame at 60 Hz.
-    ///
-    /// It started at 50ms — three dropped frames — on the reasoning that a hitch is what the user
-    /// feels. That reasoning was wrong in a way worth recording: a spike threshold is **blind to
-    /// sustained load**. Switching tabs, opening the customize sheet and opening Settings were all
-    /// reported as slow while this logged *nothing at all*, because forty consecutive 40ms turns
-    /// look exactly like an idle app to a 50ms trigger, and feel exactly like a 1.6s stall to a
-    /// person. `busyReportInterval` below is what actually catches that shape; this now only names
-    /// the individual offenders within it.
+    /// Turns longer than this get their own line: one frame at 60 Hz. A spike threshold is blind
+    /// to sustained load (forty 40 ms turns feel like a 1.6 s stall but trip no 50 ms trigger), so
+    /// `busyReportInterval` catches that shape and this names the worst turns within it.
     static let threshold: CFTimeInterval = 0.016
 
-    /// How often the duty-cycle line is emitted while the main thread is doing anything.
-    ///
-    /// This is the measurement that matters for "everything is mostly slow": not how long the
-    /// worst turn was, but what FRACTION of wall-clock time the main thread spent busy. An idle app
-    /// reports nothing; a responsive one a few percent; an app that feels sluggish will sit high
-    /// for the whole length of a transition, which is precisely the signature no single-turn
-    /// threshold can see.
+    /// How often the duty-cycle line is emitted while the main thread is doing anything: the
+    /// fraction of wall-clock time it spent busy, which shows a sluggish transition that no
+    /// single-turn threshold can see.
     static let busyReportInterval: CFTimeInterval = 1.0
 
-    /// Below this duty cycle the second is not worth a line — normal idling and the odd stray
-    /// timer, which would otherwise emit one line per second forever.
+    /// Below this duty cycle a second gets no line, so idling and stray timers don't log one line
+    /// per second forever.
     static let busyReportFloor: Double = 0.10
 
     private static var observer: CFRunLoopObserver?
@@ -80,9 +49,8 @@ public enum MainThreadHitchMonitor {
     /// The main thread's CPU time when the turn began. Read on the main thread, so it is the main
     /// thread's own: CPU well under the wall span means the thread was starved, close to it, working.
     private static var cpuBegan: CFTimeInterval?
-    /// When the current turn started. `nil` while the run loop is asleep, which is the state that
-    /// makes this immune to hold time: a pressed button with nothing happening is a sleeping run
-    /// loop, and a sleeping run loop is not timed.
+    /// When the current turn started; `nil` while the run loop sleeps. A held button with nothing
+    /// happening is a sleeping run loop, so hold time is never timed.
     private static var turnBegan: CFTimeInterval?
 
     /// Longest turn seen since the last `reset()`, and the running total — so a session can be
@@ -100,11 +68,8 @@ public enum MainThreadHitchMonitor {
     private static var windowTurns = 0
     private static var windowWorst: CFTimeInterval = 0
 
-    /// Arms the monitor when the diagnostic flag is set, and does nothing otherwise.
-    ///
-    /// The public entry point, and the gate lives HERE rather than at the call site so that
-    /// `PaneScrollTrace` — which owns the flag and the reasons it is off by default — stays
-    /// internal to this module. The app only has to say "if you are meant to be watching, watch".
+    /// Arms the monitor when the diagnostic flag is set, and does nothing otherwise. The gate lives
+    /// here, not at the call site, so `PaneScrollTrace`, which owns the flag, stays internal.
     public static func startIfEnabled() {
         guard PaneScrollTrace.isEnabled else { return }
         start()
@@ -128,12 +93,11 @@ public enum MainThreadHitchMonitor {
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), late, .commonModes)
         lateObserver = late
-        // `.commonModes`, not `.defaultMode`: the modal tracking loops this exists to see through —
-        // `NSTableView`'s mouse tracking above all — run in their own mode, and an observer
-        // registered only for the default mode would go quiet during exactly the work being hunted.
+        // `.commonModes`, not `.defaultMode`: modal tracking loops such as `NSTableView`'s run in
+        // their own mode, and a default-mode observer would go quiet during exactly that work.
         observer = obs
-        // .debug like every [hitch] line it announces: at Info level "armed" followed by silence
-        // read as a healthy main thread while the hitch reports were being level-dropped.
+        // .debug like the [hitch] lines: at Info, "armed" followed by level-dropped reports would
+        // read as a healthy main thread.
         Logger.shared.debug("[hitch] monitor armed (threshold \(Int(threshold * 1000))ms)")
     }
 
@@ -146,9 +110,7 @@ public enum MainThreadHitchMonitor {
         turnBegan = nil
     }
 
-    /// The rule, separated from the run loop so it can be driven directly in tests — the whole
-    /// point of this type is that its timing is honest, and a suite that could not feed it a
-    /// synthetic sequence of activities would be taking that on faith.
+    /// The rule, apart from the run loop so tests can feed it a synthetic sequence of activities.
     ///
     /// - Parameter edge: which end-of-turn observer a `beforeWaiting` or `exit` came from. Only
     ///   `.late` closes the turn; `.early` marks where its own work stopped.
@@ -192,13 +154,10 @@ public enum MainThreadHitchMonitor {
         }
     }
 
-    /// Folds one finished turn into the duty-cycle window, and closes the window when it is full.
-    ///
-    /// EVERY turn is counted here, including the sub-threshold ones — they are the whole point.
-    /// The window is closed on the first turn to finish after the interval elapses rather than on a
-    /// timer, so the reporting itself never wakes an idle main thread: an app doing nothing emits
-    /// nothing, and the last partial window before a quiet spell is simply carried into the next
-    /// busy one.
+    /// Folds one finished turn, sub-threshold ones included, into the duty-cycle window and closes
+    /// the window when it is full. The first turn to finish after the interval closes it, not a
+    /// timer, so reporting never wakes an idle main thread; a partial window before a quiet spell
+    /// carries into the next busy one.
     private static func accumulate(_ elapsed: CFTimeInterval, at now: CFTimeInterval) {
         guard let started = windowBegan else {
             windowBegan = now - elapsed

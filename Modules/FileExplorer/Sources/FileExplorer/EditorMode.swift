@@ -3,31 +3,19 @@ import Design
 
 /// What the editor column is showing.
 ///
-/// **Per window, and it survives opening another file** — which is the opposite of what this
-/// comment claimed while the code did the other thing. Somebody reading three notes in Preview
-/// wants the third to open in Preview too; making it a fact about each document would mean
-/// re-choosing on every click, which is the behaviour every editor on the platform declines to
-/// have. It is not persisted across launches: it describes a reading session, not a preference.
-///
-/// The one automatic change is narrowing — see ``resolved(_:isMarkdown:)``. Held on `ContentView`
-/// alongside the split fraction, because the workspace view is torn down on every tab switch.
+/// Per window, and it survives opening another file: someone reading notes in Preview wants the
+/// next one in Preview too. Not persisted across launches; it describes a reading session, not a
+/// preference. The one automatic change is narrowing (``resolved(_:isMarkdown:)``). Held on
+/// `ContentView` with the split fraction, because the workspace view is torn down on tab switches.
 public enum EditorMode: String, CaseIterable, Sendable {
     case edit
     case preview
     case split
 
-    /// **`.edit` is labelled "Source", not "Edit".** The case name says what the mode lets you
-    /// do; the label says which representation of the document you are looking at, which is the
-    /// question the other two segments answer and the only one that makes a three-way choice
-    /// coherent. It also settles a collision the capsule could not win: the app already has a
-    /// top-level `Edit` menu AND an `Edit` workspace (see `Workspace.title`, which weighed the
-    /// menu-bar clash and took the cost), so a segment reading "Edit" inside the Edit workspace
-    /// read as `Edit ▸ Edit`. Of the three, this is the one that could move — the menu is an
-    /// AppKit convention and the workspace is a decided argument.
-    ///
-    /// "Source" always has a referent: the capsule is drawn only for Markdown
-    /// (`EditorWorkspaceView`, gated on `document.isMarkdown`), so the word never appears over a
-    /// `.txt` where there is no rendered form for it to be the source OF.
+    /// `.edit` is labelled "Source", not "Edit": the label names which representation you are
+    /// looking at, as the other two do, and "Edit" inside the Edit workspace, under the Edit menu,
+    /// would read `Edit ▸ Edit` (`Workspace.title`). "Source" always has a referent: the capsule
+    /// is drawn only for Markdown (`EditorWorkspaceView`, gated on `document.isMarkdown`).
     public var title: String {
         switch self {
         case .edit: return "Source"
@@ -44,11 +32,9 @@ public enum EditorMode: String, CaseIterable, Sendable {
         }
     }
 
-    /// Text ▸ Source / Preview / Split's chord — ⌃⌘1/2/3, in the capsule's own order.
-    ///
-    /// Declared per case rather than derived from `allCases.firstIndex`, so a reordering of the
-    /// enum cannot silently move a chord onto a different mode: `AppChordTests` pins each display,
-    /// and the pin is only worth something if the mapping is written down.
+    /// Text ▸ Source / Preview / Split's chord: ⌃⌘1/2/3, in the capsule's order. Declared per case,
+    /// not derived from `allCases.firstIndex`, so reordering the enum can't move a chord onto
+    /// another mode (`AppChordTests` pins each).
     public var chord: AppChord {
         switch self {
         case .edit: return .editorSourceMode
@@ -57,11 +43,9 @@ public enum EditorMode: String, CaseIterable, Sendable {
         }
     }
 
-    /// The mode a document should open in, given what the file is.
-    ///
-    /// **A non-Markdown file is always `.edit`**, and this is the one place that decides it — the
-    /// capsule is hidden for those files, and a mode that survived a switch from a `.md` to a
-    /// `.txt` would leave the column showing a preview with no way to leave it.
+    /// The mode a document should open in, given what the file is. A non-Markdown file is always
+    /// `.edit`, decided here alone: the capsule is hidden for those files, so a preview carried
+    /// over from a `.md` would have no way out.
     public static func resolved(_ stored: EditorMode, isMarkdown: Bool) -> EditorMode {
         isMarkdown ? stored : .edit
     }
@@ -69,65 +53,39 @@ public enum EditorMode: String, CaseIterable, Sendable {
 
 /// The Source / Preview / Split capsule.
 ///
-/// Mirrors the workspace bar's geometry at rail scale — hand-drawn segments inside a container
-/// capsule, the selected one carrying the accent fill — for the reason the workspace bar is
-/// hand-drawn rather than a `Picker`: the native segmented control renders neutral inside this
-/// window's glass and ignores `.tint`, so a selected segment could never carry the app's accent.
+/// Hand-drawn segments in a container capsule, like the workspace bar, because the native
+/// segmented control renders neutral inside this window's glass and ignores `.tint`.
 ///
-/// **It sheds its words when the column is narrow**, the same bargain the workspace bar strikes and
-/// for the same reason. Re-measured 2026-08-31 across Small · Default · Large · Largest, the
-/// labelled capsule is **198 · 208 · 239 · 251pt** — against a document column whose guaranteed
-/// minimum is 260, which leaves no room for the file name it sits beside. Glyph-only it is
-/// **82 · 85 · 95 · 99**, which does. The names survive in the tooltip and the accessibility label,
-/// exactly as the workspace bar's do.
+/// It sheds its words when the column is narrow: labelled, it is about 200–250pt across the text
+/// sizes, against a 260pt minimum column that must also hold the file name; glyph-only, about
+/// 80–100pt. The names stay in the tooltip and accessibility label. At the 760pt window floor the
+/// words shed only at the top of the text range, which
+/// `EditorLayoutTests.theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange` pins.
 ///
-/// The labelled figures are 15–20pt above what they were when this segment read "Edit"
-/// (183 · 192 · 220 · 231), which is what the longer word costs. It buys a real corner and one
-/// worth knowing about: at the 760pt window floor the words now shed at the **top of the text
-/// range alone** — 135%, three points over a 368pt column — where "Edit" fitted. The glyph rung is
-/// untouched by the rename, so the ceiling that actually constrains this control did not move.
-/// `EditorLayoutTests.theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange` pins that
-/// boundary against the whole selectable range rather than the four named presets, because the
-/// slider stops between them.
+/// Expand's word shares this budget and is spent first: `EditorHeaderDoorsTests` holds that the
+/// capsule keeps its words wherever Expand keeps its own, at every size, and that no word is drawn
+/// over a cut name. Under glass the × takes 2pt more beside Expand
+/// (`ChromeGlass.clearance(rowSpacing:outset:)`). Widths are `NSHostingView.fittingSize` on the
+/// forced rung, as `EditorLayoutTests` measures; re-measure rather than trust prose.
 ///
-/// **Expand's word shares this budget and is spent first** (TE48). The worded Expand beside the
-/// capsule measures **63 · 67 · 79 · 83pt** against its 18pt glyph, re-measured 2026-10-03, so on
-/// the header's long-name sweep its word comes back over the whole name at **760 · 800 · 900 ·
-/// 940pt**, 40–60pt after the capsule's own (720 · 760 · 840 · 880, unchanged by the move: the glyph
-/// left the ＋ / Find capsule for a slot of the same width). Those are SOLID figures: under glass the
-/// × takes 2pt more room beside Expand (`ChromeGlass.clearance(rowSpacing:outset:)`), so each
-/// boundary sits 2pt wider. `EditorHeaderDoorsTests` prints them; what it holds is the order — the
-/// capsule keeps its words at some column where Expand has lost its own, at every size — and that
-/// no word is ever drawn over a cut name.
-///
-/// **The glyph figures used to be one number, and that was the bug, not a rounding.** Until the
-/// same date this read "96–110" and the rung actually measured 85 at all four sizes, because the
-/// symbols sat in a hard `13×13` frame; see ``CapsuleGlyph`` for what the frame is for and what it
-/// now scales by. Every number here is `NSHostingView.fittingSize` on the forced rung, which is
-/// what `EditorLayoutTests` measures — prose is not a measurement, so re-run it before editing it.
-///
-/// `ViewThatFits` rather than arithmetic, which is the opposite of `WorkspaceBarMetrics`' choice:
-/// that one is in a toolbar item, which is proposed its own ideal width rather than the window's,
-/// so it never sees the constraint. This is in an ordinary `HStack` that is handed a real width.
+/// `ViewThatFits`, not arithmetic as in `WorkspaceBarMetrics`: that one sits in a toolbar item,
+/// proposed its own ideal width, while this sits in an `HStack` handed a real width.
 struct EditorModeBar: View {
 
     @Binding var mode: EditorMode
-    /// The selected segment's fill, and its lens and hover — the deepened accent, so the white
-    /// label on it clears AA (`LiquidGlassHue.accentFillColor`).
+    /// The selected segment's fill, lens and hover: the deepened accent, so the white label on it
+    /// clears AA (`LiquidGlassHue.accentFillColor`).
     let accentFill: Color
     let onAccent: Color
-    /// Forces a rung. `nil` picks by width, which is what the hidden height reservation relies on.
-    ///
-    /// **The document header forces one too**, because it asks a different question from this
-    /// view's own `ViewThatFits`: not "does the capsule fit?" but "does the file's whole NAME still
-    /// fit beside the words?" — see `EditorWorkspaceView.nameRow`. The tests that measure each rung
-    /// force it for the reason they always have.
+    /// Forces a rung. `nil` picks by width, which the hidden height reservation relies on. The
+    /// document header forces one because it asks whether the file's whole name still fits beside
+    /// the words (`EditorWorkspaceView.nameRow`); tests force one to measure each rung.
     var forcedRung: Rung?
 
-    /// The two rungs, named so a test can ask for one rather than trying to provoke it.
+    /// The two rungs, named so a test can ask for one rather than provoke it.
     enum Rung { case labelled, glyphOnly }
 
-    /// The capsule's selection lens in Frosted and Clear — see `SelectionLens`.
+    /// The capsule's selection lens in Frosted and Clear (`SelectionLens`).
     static let lensChannel = SelectionLensChannel("editor.mode")
 
     var body: some View {
@@ -142,7 +100,7 @@ struct EditorModeBar: View {
     }
 
     /// The room between two segments, and a glyph-only segment's padding either side of its
-    /// glyph — what the keys over them must fit (TE194).
+    /// glyph: what the keycaps over them must fit.
     static let segmentGap: CGFloat = 3
     static let glyphSegmentPadding: CGFloat = 6
 
@@ -152,7 +110,7 @@ struct EditorModeBar: View {
                 segment(candidate, labelled: labelled)
             }
         }
-        // Frosted and Clear: one glass lens that glides between modes (RD46).
+        // Frosted and Clear: one glass lens that glides between modes.
         .selectionLensHost(Self.lensChannel, selected: mode, style: .fill(.capsule, color: accentFill))
         .padding(2)
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
@@ -170,11 +128,9 @@ struct EditorModeBar: View {
             HStack(spacing: 4) {
                 CapsuleGlyph(symbol: candidate.symbol)
                 if labelled {
-                    // **Semibold whether or not it is selected.** Weight changes width, so a
-                    // capsule that bolded only the selected segment measured two different widths
-                    // depending on which one that was — and the file name beside it shifted on
-                    // every click. The accent fill is what marks the selection; the weight was
-                    // saying the same thing twice and charging for it.
+                    // Semibold whether or not selected: weight changes width, so bolding only
+                    // the selected segment would shift the file name beside it on every click.
+                    // The accent fill marks the selection.
                     Text(candidate.title)
                         .scaledFont(.system(size: 10, weight: .semibold))
                 }
@@ -190,10 +146,9 @@ struct EditorModeBar: View {
         }
         // `.filled` for the chosen mode at Solid; under the lens, `.segment` (`SelectionLens`).
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
-        // ⌥ shows ⌃⌘1–3 (TE194) — compact, since the glyph-only segments sit closer than a full key.
+        // ⌥ shows ⌃⌘1–3, compact, since the glyph-only segments sit closer than a full key.
         .shortcutKeycap(candidate.chord.display, compact: true)
-        // Once the word is shed the glyph is the only thing naming the mode, so the name has to
-        // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
+        // Once the word is shed, the name lives in the tooltip and the accessibility label.
         .help(ShortcutHint.tooltip(candidate.title, candidate.chord.display))
         .accessibilityLabel(candidate.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -204,25 +159,13 @@ struct EditorModeBar: View {
 
 /// One segment's symbol, drawn inside a box that keeps the row a fixed width.
 ///
-/// **The box exists so the row does not resize as the selection moves through it.** These symbols
-/// draw at different natural widths — `pencil`, `eye` and `rectangle.split.2x1` on the Editor's
-/// capsule; four more on ``StorageSectionBar`` — and an unframed row would be a different width
-/// depending on which segment happened to be under the fill, shifting whatever sits beside it on
-/// every click. That goal is real and this keeps it.
+/// The symbols have different natural widths (`pencil`, `eye`, `rectangle.split.2x1` here, four
+/// more on ``StorageSectionBar``), so an unframed row would change width with the selection and
+/// shift whatever sits beside it.
 ///
-/// **What it did NOT keep was a hard `13`.** The frame was a literal, so although the glyph inside
-/// it was `.scaledFont`-ed and grew with Settings ▸ Text size, the box did not: measured
-/// 2026-08-31, the Editor's glyph-only rung was **85pt at Small, Default, Large and Largest alike**
-/// and Storage's was 113pt at all four — a control pinned at one size while the words beside it
-/// grew, and, because `.frame` does not clip, an enlarged glyph *overflowing* its box rather than
-/// being trimmed by it. The labelled rung scaled the whole time (186 → 217), which is exactly why
-/// this went unseen: the test that asked whether the capsule grows only ever measured that one.
-///
-/// So the box is `boxSize` *at the scale the glyph itself renders at* — and through
-/// `FontSize.scaledPointSize`, not a bare multiply, so the frame and its glyph track the type
-/// ramp's own knee curve rather than diverging the moment `pointSize` moves above `knee`. At
-/// today's 10pt they are the same number over the whole selectable range; the point is that they
-/// stay the same number if either constant changes.
+/// The box scales with the glyph, through the type ramp's knee curve, so it grows with Settings ▸
+/// Text size. A fixed box would pin the control at one size, and since `.frame` doesn't clip, an
+/// enlarged glyph would overflow it.
 struct CapsuleGlyph: View {
 
     let symbol: String
@@ -235,10 +178,8 @@ struct CapsuleGlyph: View {
     static let boxSize: CGFloat = 13
 
     /// The box at `scale`, in the same proportion to the glyph as `boxSize` is to `pointSize`.
-    ///
-    /// The arithmetic moved to ``Design/FontSize/scaledBox(_:basePoint:scale:)`` once the sweep
-    /// that followed this fix found the same shape in `SetupSheet` and Organize's pass-lens row.
-    /// Same expression, one copy — and the doc for the rule is where the reasoning now lives.
+    /// The rule lives in ``Design/FontSize/scaledBox(_:basePoint:scale:)``, shared with `SetupSheet`
+    /// and Organize's pass-lens row.
     static func box(at scale: CGFloat) -> CGFloat {
         FontSize.scaledBox(boxSize, basePoint: pointSize, scale: scale)
     }

@@ -4,11 +4,10 @@ import Testing
 
 /// ↑/↓ between the pages of a pair that differ.
 ///
-/// **The rule the whole suite is built around: the strip does not already know.** `pageStates` is
-/// filled by the raster refresh, which runs for the current page alone, so a fresh pair knows
-/// nothing and a stepper written against "the dots the strip has" would jump between the pages
-/// already looked at — the opposite of the question. Every plan below is therefore checked for
-/// what it EXAMINES, not just where it lands.
+/// The rule the suite is built around: the strip does not already know. `pageStates` is filled by
+/// the raster refresh, which runs for the current page alone, so a fresh pair knows nothing, and a
+/// stepper using only the strip's dots would jump between pages already looked at. Every plan is
+/// therefore checked for what it examines, not just where it lands.
 @Suite struct PageDifferenceStepperTests {
 
     // MARK: Order
@@ -50,21 +49,20 @@ import Testing
 
     // MARK: Planning
 
-    /// Known verdicts are consumed before anything is rendered — a reader who has walked a
-    /// document and comes back to step through it pays for no renders at all.
+    /// Known verdicts are used before anything is rendered: a reader who has walked a document and
+    /// comes back to step through it pays for no renders.
     @Test func aKnownDifferingPageIsJumpedToWithoutRendering() {
         let states: [Int: PageDiffState] = [1: .same, 2: .changed(fraction: 0.2)]
         #expect(PageDifferenceStepper.plan(from: 0, direction: 1, stripLength: 4, states: states)
                 == .jump(to: 2))
     }
 
-    /// **The ordering rule that makes the answer the NEXT difference rather than any difference.**
-    /// Page 1 has never been compared and page 2 is known to differ; jumping to 2 would skip over
-    /// a page that might differ too, answering a question the reader did not ask.
+    /// The answer is the next difference, not any difference. Page 1 has never been compared and
+    /// page 2 is known to differ; jumping to 2 would skip a page that might differ too.
     @Test func anUncomparedPageBeforeAKnownOneIsExaminedFirst() {
         let states: [Int: PageDiffState] = [2: .changed(fraction: 0.2)]
-        // Not [1, 3]: page 2 is a guaranteed stop, so page 3 is beyond the answer either way —
-        // and page 2 is carried as the destination for the case where page 1 turns out to match.
+        // Not [1, 3]: page 2 is a guaranteed stop, so page 3 is beyond the answer either way. Page
+        // 2 is carried as the destination in case page 1 matches.
         #expect(PageDifferenceStepper.plan(from: 0, direction: 1, stripLength: 4, states: states)
                 == .examine([1], thenJumpTo: 2))
     }
@@ -74,8 +72,8 @@ import Testing
                 == .examine([1, 2, 3], thenJumpTo: nil))
     }
 
-    /// Pending is not a verdict — a page mid-render must still be examined, or a search launched
-    /// while one was in flight would skip it for ever.
+    /// Pending is not a verdict: a page mid-render must still be examined, or a search launched
+    /// while it was in flight would skip it for ever.
     @Test func aPendingStateIsTreatedAsUnknown() {
         #expect(PageDifferenceStepper.plan(from: 0, direction: 1, stripLength: 3,
                                            states: [1: .pending])
@@ -93,7 +91,7 @@ import Testing
                 == .nothingToFind)
     }
 
-    /// **A press is a gesture, not a job.** One press renders at most `renderBudget` pages, so a
+    /// A press is a gesture, not a job. One press renders at most `renderBudget` pages, so a
     /// 300-page document pauses rather than wedging.
     @Test func onePressExaminesNoMoreThanItsBudget() {
         guard case .examine(let pages, let fallback) = PageDifferenceStepper.plan(
@@ -122,8 +120,8 @@ import Testing
 
     // MARK: The caption
 
-    /// **"of N compared", never "of N pages"**: only visited and searched pages have verdicts, and
-    /// a count phrased against the document's length would claim the whole of it was checked.
+    /// "of N compared", never "of N pages": only visited and searched pages have verdicts, and a
+    /// count phrased against the document's length would claim all of it was checked.
     @Test func theCaptionCountsWhatWasComparedRatherThanTheDocument() {
         let states: [Int: PageDiffState] = [0: .same, 1: .changed(fraction: 0.1), 2: .pending]
         #expect(PageDifferenceStepper.caption(states: states, stripLength: 40)
@@ -142,12 +140,12 @@ import Testing
 
 // MARK: - The fallback destination
 //
-// The case that made `thenJumpTo` exist: a plan that examined the uncompared pages before a known
-// difference and then forgot the known one ended the press on a key that did nothing.
+// `thenJumpTo` keeps a known difference that lies past the pages a press examines; without it a
+// press whose examined pages all match would end on a key that did nothing.
 extension PageDifferenceStepperTests {
 
-    /// Examining page 1 first is right; **dropping page 2 is not.** If page 1 matches, page 2 is
-    /// still the next difference, and the press has to land there.
+    /// Examining page 1 first is right; dropping page 2 is not. If page 1 matches, page 2 is still
+    /// the next difference, and the press must land there.
     @Test func aKnownDifferenceBeyondTheExaminedPagesIsCarriedAsTheDestination() {
         let plan = PageDifferenceStepper.plan(from: 0, direction: 1, stripLength: 6,
                                               states: [3: .changed(fraction: 0.3)])

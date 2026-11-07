@@ -2,21 +2,21 @@ import Design
 import SwiftUI
 import Sync
 
-/// Everything the pane bar's Filter button needs, handed over by the host as one value (RD70).
+/// Everything the pane bar's Filter button needs, handed over by the host as one value.
 ///
-/// `nil` on the header is a header with no Filter button — what every caller outside the app passes,
-/// and what keeps the bar, the ladder and the snapshots exactly as they were.
+/// `nil` on the header means no Filter button: what every caller outside the app passes, so the
+/// bar, the ladder and the snapshots are unchanged there.
 public struct PaneTypeFilterControl {
     /// This pane's filter. `nil` inside is "show everything".
     public var filter: Binding<PaneTypeFilter?>
-    /// The census the type list is built from — the pass's facts while a filter is on, the host's
+    /// The census the type list is built from: the pass's facts while a filter is on, the host's
     /// own count of the published tree while none is. `nil` until the first count lands.
     public var facts: PaneTypeFilterFacts?
     /// The folder the counts cover, for "46 files in Downloads and its folders".
     public var folderName: String
     /// The pane is still walking, so the counts can still grow.
     public var isListing: Bool
-    /// Compare only: copies this pane's filter to the other pane (FI).
+    /// Compare only: copies this pane's filter to the other pane.
     public var onUseOnBothPanes: (() -> Void)?
 
     public init(filter: Binding<PaneTypeFilter?>, facts: PaneTypeFilterFacts?, folderName: String,
@@ -30,7 +30,7 @@ public struct PaneTypeFilterControl {
 
     public var isOn: Bool { filter.wrappedValue != nil }
 
-    /// The button's tooltip, which says the state (TE281).
+    /// The button's tooltip, which says the state.
     public var help: String {
         guard let active = filter.wrappedValue else { return "Filter by Type" }
         return "Showing \(active.showingPhrase). Click to change."
@@ -40,7 +40,7 @@ public struct PaneTypeFilterControl {
     public var accessibilityValue: String { filter.wrappedValue?.summary ?? "Off" }
 }
 
-/// The type list a pane's Filter button opens (TE267–TE270, TE278).
+/// The type list a pane's Filter button opens.
 public struct PaneTypeFilterPopover: View {
     let control: PaneTypeFilterControl
     @State private var expanded: Set<FileTypeFamily> = []
@@ -170,7 +170,7 @@ public struct PaneTypeFilterPopover: View {
         .padding(.vertical, 10)
     }
 
-    /// What the counts could not cover (TE270).
+    /// What the counts could not cover.
     var footnote: String? {
         var parts: [String] = []
         if control.isListing { parts.append("Still listing, counts may grow.") }
@@ -258,7 +258,7 @@ struct PaneTypeFilterRow: View {
 }
 
 /// The type filter as menu items, for the ⋯ menu when the button folds away and for View ▸ Filter
-/// by Type (TE280): one checkmark per kind present, then Show All.
+/// by Type: one checkmark per kind present, then Show All.
 public struct PaneTypeFilterMenuItems: View {
     let control: PaneTypeFilterControl
 
@@ -281,9 +281,8 @@ public struct PaneTypeFilterMenuItems: View {
 }
 
 /// What a pane's rows need from its type filter: which folders hold matches, and the noun to count
-/// them in. Compared by the publish stamp and the filter, never by the dictionary — the counts are
-/// a function of exactly those two, and comparing thousands of entries per render is the cost
-/// `PaneTree` exists to avoid.
+/// them in. Compared by the publish stamp and the filter, never the dictionary: the counts follow
+/// from those two, and comparing thousands of entries per render is the cost `PaneTree` avoids.
 public struct PaneTypeFilterDecor: Equatable {
     public var stamp: Int
     public var filter: PaneTypeFilter
@@ -298,7 +297,7 @@ public struct PaneTypeFilterDecor: Equatable {
         self.emptyFolders = emptyFolders
     }
 
-    /// Whether a column with no rows is that way because of the filter (G10): a folder that held
+    /// Whether a column with no rows is that way because of the filter: a folder that held
     /// nothing before it is plainly empty, and "No matching files" would say the filter hid something.
     func hidesEverything(inFolder path: String) -> Bool {
         !emptyFolders.contains(path)
@@ -308,7 +307,7 @@ public struct PaneTypeFilterDecor: Equatable {
         lhs.stamp == rhs.stamp && lhs.filter == rhs.filter
     }
 
-    /// A closed folder's pill, or nil (TE269).
+    /// A closed folder's pill, or nil.
     func phrase(forFolder path: String) -> String? {
         guard let count = matchCounts[path], count > 0 else { return nil }
         return filter.countPhrase(count)

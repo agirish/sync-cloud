@@ -2,14 +2,10 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins the Filing card's destination "peek" (G6) — and above all its cancellation rule.
-///
-/// The card loads the count from `.task(id: dest.path)`, so "Try another" cancels the in-flight
-/// read and starts one for the new folder. But the listing itself runs in a `Task.detached`, which
-/// does NOT inherit cancellation: a slow cloud directory keeps going and can resolve after the new
-/// destination's read has already published its count. Without the post-await check the loser of
-/// that race writes last, and the card states a wrong item count for the folder it is showing —
-/// while the user is deciding whether to file into it.
+/// The Filing card's destination peek, and above all its cancellation rule. "Try another" cancels
+/// the `.task(id: dest.path)` read, but the listing runs in a `Task.detached`, which doesn't inherit
+/// cancellation. Without the post-await check a slow cloud listing could write last, and the card
+/// would show a wrong item count while the user decides whether to file there.
 @Suite struct DestinationPeekTests {
 
     /// A temp directory containing `visible` ordinary entries plus `hidden` dot-files.
@@ -49,14 +45,12 @@ import Foundation
         let path = try makeDirectory(visible: 3)
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        // Exactly the "Try another" race: this read's task is cancelled while the detached listing
-        // is still allowed to finish (detached work never sees the cancellation), so the count it
-        // produces is real — 3 — but it describes the destination the card has already left.
+        // The "Try another" race: the read is cancelled while the detached listing finishes, so
+        // its count is real (3) but describes a destination the card has left.
         let read = Task { await DestinationPeek.itemCount(atPath: path) }
         read.cancel()
 
-        // nil, NOT 3: a superseded read must publish nothing rather than overwrite the count that
-        // belongs to the destination now on screen.
+        // nil, not 3: a superseded read must not overwrite the count for the destination on screen.
         #expect(await read.value == nil)
     }
 }

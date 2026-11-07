@@ -1,36 +1,29 @@
 import Foundation
 import Sync
 
-/// Reading a file's text for the compare pane — bounded, and tolerant of what real files hold.
+/// Reading a file's text for the compare pane: bounded, and tolerant of what real files hold.
 ///
-/// **`String(contentsOf:)` is the thing this exists instead of.** It throws on invalid UTF-8, and
-/// a rotated or truncated log is exactly that: this app has already shipped a viewer that showed
-/// an error where a file's readable 99% was sitting on disk. Reading the bytes and decoding them
-/// leniently turns an unreadable file into a file with a few replacement characters in it, which
-/// is what the reader actually wants.
+/// It exists instead of `String(contentsOf:)`, which throws on invalid UTF-8, and a rotated or
+/// truncated log is exactly that: the viewer would show an error with the file's readable 99% on
+/// disk. Decoding the bytes leniently gives a file with a few replacement characters instead.
 ///
-/// **The dataless check comes first**, before the size read, before the open — the order
-/// `FileContentVerifier` documents. A cloud-only placeholder is a placeholder whatever else is
-/// true of it, and opening one is what makes the provider fetch the whole file.
+/// The dataless check comes first, before the size read and the open (the order
+/// `FileContentVerifier` documents): opening a cloud-only placeholder makes the provider fetch the
+/// whole file.
 enum BoundedTextRead {
 
-    /// The most a compare pane will read. A diff of two 40 MB logs is not a thing anyone looks at,
-    /// and the memory is two decoded strings plus the row model built from them.
+    /// The most a compare pane will read. Nobody reads a diff of two 40 MB logs, and the memory is
+    /// two decoded strings plus the row model built from them.
     static let maxBytes = 4 * 1024 * 1024
 
     /// How many bytes are sniffed for a NUL before the file is called binary. A text file's first
     /// kilobyte is text; a binary one almost always has a zero byte inside it.
     static let sniffBytes = 8 * 1024
 
-    /// The encoding the bytes were actually read as.
-    ///
-    /// **Carried rather than assumed, because the diff hides it.** Two files holding the same
-    /// words in different encodings are byte-for-byte different and diff here as IDENTICAL — the
-    /// comparison happens after decoding — so the one place that knows is the read, and it has to
-    /// say so or nobody can.
-    ///
-    /// Only encodings a byte-order mark names, which is the whole reason this is decidable: a BOM
-    /// is a fact about the file, not a guess about it.
+    /// The encoding the bytes were read as. Carried because the diff hides it: two files holding
+    /// the same words in different encodings differ byte for byte yet diff as identical (the
+    /// comparison is after decoding), so only the read can say so. Only encodings a byte-order mark
+    /// names, which is what makes this decidable: a BOM is a fact about the file, not a guess.
     enum TextEncoding: String, Equatable, Sendable, CaseIterable {
         case utf8 = "UTF-8"
         case utf8WithBOM = "UTF-8 with a BOM"
@@ -41,14 +34,14 @@ enum BoundedTextRead {
     }
 
     enum Outcome: Equatable {
-        /// Decoded. `lossy` is true when the bytes were not valid in `encoding` and replacement
-        /// characters were substituted — disclosed rather than hidden, because a diff of a lossily
-        /// decoded file can show a difference that is really two different invalid sequences.
+        /// Decoded. `lossy` is true when the bytes weren't valid in `encoding` and replacement
+        /// characters were substituted; disclosed, because a diff of a lossily decoded file can show
+        /// a difference that is really two different invalid sequences.
         case text(String, lossy: Bool, encoding: TextEncoding)
         case tooLarge(bytes: Int)
         case cloudOnly
-        /// A NUL turned up in the sniff: this is not lines, and rendering it as lines would show
-        /// the reader mojibake where Quick Look shows them their file.
+        /// A NUL turned up in the sniff: this isn't lines, and rendering it as lines would show
+        /// mojibake where Quick Look shows the file.
         case binary
         case unreadable
 
@@ -80,21 +73,18 @@ enum BoundedTextRead {
     /// Reads one side.
     ///
     /// `isCloudOnly` is injectable for the reason `FileContentVerifier.hashOutcome`'s is: a real
-    /// dataless file cannot be fabricated in a test, the flag is provider-set, and the cloud-only
-    /// branch is the one that must never open the file.
+    /// dataless file can't be fabricated in a test, and the cloud-only branch must never open the
+    /// file.
     ///
-    /// **There is deliberately no `FileManaging` seam here, and that is a decision rather than an
-    /// omission.** The protocol carries `attributesOfItem` but no `contents(atPath:)`, so a
-    /// manager parameter would route the stat through the seam and the BYTES through
-    /// `FileManager.default` — the size verdict and the read asked of two different filesystems,
-    /// which is the exact hazard `FileSyncManager+Duplicates` documents at its own `fileManager:`
-    /// call sites. One filesystem, named once.
+    /// No `FileManaging` seam, on purpose. The protocol has `attributesOfItem` but no
+    /// `contents(atPath:)`, so a manager parameter would ask the size and the bytes of two
+    /// different filesystems, the hazard `FileSyncManager+Duplicates` documents at its own
+    /// `fileManager:` call sites. One filesystem, named once.
     ///
-    /// **A link is read as the file it points to — all three questions, not just the read**
-    /// (TE206). `contents(atPath:)` follows a link and `lstat` and `attributesOfItem` do not, so
-    /// the dataless check and the size cap used to ask about the link itself, which is always local
-    /// and always tiny: a link to a cloud-only file was opened, downloading it, and a link to a
-    /// 40 MB log got past the cap.
+    /// A link is read as the file it points to, for all three questions. `contents(atPath:)`
+    /// follows a link but `lstat` and `attributesOfItem` don't, so asking them about the link
+    /// itself (always local, always tiny) would open, and so download, a link to a cloud-only file,
+    /// and let a link to a 40 MB log past the cap.
     static func read(path: String,
                      isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) })
         -> Outcome {
@@ -107,34 +97,29 @@ enum BoundedTextRead {
         let size = (attributes[.size] as? NSNumber)?.intValue ?? (attributes[.size] as? Int) ?? 0
         if size > maxBytes { return .tooLarge(bytes: size) }
         guard let data = FileManager.default.contents(atPath: path) else { return .unreadable }
-        // **The BOM is read BEFORE the NUL sniff, and that order is the fix.** Every ASCII
-        // character in a UTF-16 file is a byte pair with a zero in it, so the sniff called an
-        // ordinary text file binary and the pane told the reader "this is not text" over a file
-        // they can open in any editor — with no mention of the encoding, so there was nothing to
-        // act on either.
+        // The BOM is read before the NUL sniff: every ASCII character in a UTF-16 file is a byte
+        // pair with a zero in it, so the sniff would call an ordinary text file binary, with no
+        // mention of the encoding.
         if let mark = bom(of: data) {
             let body = data.dropFirst(mark.length)
-            // **Foundation drops a trailing partial code unit SILENTLY, and that is the whole
-            // reason this is not one line.** `String(data:encoding:.utf16LittleEndian)` over an
-            // odd number of bytes returns the whole units and says nothing — a truncated UTF-16
-            // log came back as clean text with its last character quietly missing, and a file
-            // holding one stray byte came back as the empty string. That is precisely the
-            // silent-loss failure this type exists to prevent, reached through a new door. So the
-            // remainder is measured here, the dropped bytes are marked the way the UTF-8 path
-            // marks them, and the read reports itself lossy.
+            // Foundation silently drops a trailing partial code unit:
+            // `String(data:encoding:.utf16LittleEndian)` over an odd number of bytes returns the
+            // whole units and says nothing, so a truncated log would lose its last character
+            // unannounced and one stray byte would read as the empty string. So the remainder is
+            // measured here, marked as the UTF-8 path marks bad bytes, and the read reports lossy.
             let whole = body.count - (body.count % mark.unit)
             if let decoded = String(data: body.prefix(whole), encoding: mark.cocoa) {
                 let truncated = whole != body.count
                 return .text(decoded + (truncated ? "\u{FFFD}" : ""),
                              lossy: truncated, encoding: mark.encoding)
             }
-            // A BOM that names an encoding the bytes then fail to be — an unpaired surrogate, say.
-            // Not text in that encoding and not worth guessing at another: fall through to the
-            // ordinary path below, which calls it binary if it holds NULs and decodes it if not.
+            // A BOM that names an encoding the bytes then fail to be (an unpaired surrogate, say).
+            // Not worth guessing at another: fall through to the ordinary path, which calls it
+            // binary if it holds NULs and decodes it if not.
         }
         if data.prefix(sniffBytes).contains(0) { return .binary }
         // Strict first, so an ordinary file is reported as exactly itself; lossy only as the
-        // fallback, and flagged when it happens.
+        // fallback, and flagged.
         if let exact = String(data: data, encoding: .utf8) {
             return .text(exact, lossy: false, encoding: .utf8)
         }
@@ -144,18 +129,16 @@ enum BoundedTextRead {
     /// The byte-order mark at the head of `data`: what it names, the `String.Encoding` to decode
     /// the rest with, how many bytes it occupies, and how wide one code unit is.
     ///
-    /// The unit width is carried because the caller needs it: Foundation silently drops a trailing
-    /// partial unit rather than reporting one, so "is the body a whole number of units" is a
-    /// question only the caller can ask, and only if it is told the width.
+    /// The unit width is carried because Foundation silently drops a trailing partial unit, so
+    /// only the caller can ask whether the body is a whole number of units.
     ///
-    /// **UTF-32 LE is tested before UTF-16 LE**, because `FF FE` — a whole UTF-16 LE BOM — is the
-    /// first half of UTF-32 LE's `FF FE 00 00`, and the shorter match would read a UTF-32 file as
-    /// UTF-16 whose every other character is a NUL.
+    /// UTF-32 LE is tested before UTF-16 LE: `FF FE`, a whole UTF-16 LE BOM, is the first half of
+    /// UTF-32 LE's `FF FE 00 00`, and the shorter match would read a UTF-32 file as UTF-16 with a
+    /// NUL in every other character.
     ///
-    /// **Only BOMs, deliberately.** A BOM-less UTF-16 file is detectable only by heuristic — the
-    /// alternating-zero pattern — and a heuristic that misfires renders a binary file as mojibake
-    /// in both panes, which is the exact harm `.binary` exists to prevent. A file that says what
-    /// it is gets decoded; one that does not keeps the conservative answer.
+    /// Only BOMs, on purpose. A BOM-less UTF-16 file is detectable only by heuristic (alternating
+    /// zeros), and one that misfires renders a binary file as mojibake in both panes, the harm
+    /// `.binary` exists to prevent.
     static func bom(of data: Data)
         -> (encoding: TextEncoding, cocoa: String.Encoding, length: Int, unit: Int)? {
         let head = Array(data.prefix(4))
@@ -173,10 +156,9 @@ enum BoundedTextRead {
     /// The one-line note when the two files were read as different encodings, or nil when they
     /// agree.
     ///
-    /// **The sibling of ``lineEndingNote(left:right:)``, and for the same reason.** The diff is
-    /// over decoded text, so an encoding difference is a real byte difference that shows up
-    /// nowhere in the rows — two files the reader would call "the same" here are not the same file
-    /// at all, and only this line says so.
+    /// The sibling of ``lineEndingNote(left:right:)``: the diff is over decoded text, so an
+    /// encoding difference is a real byte difference that shows nowhere in the rows, and only this
+    /// line says so.
     static func encodingNote(left: TextEncoding, right: TextEncoding) -> String? {
         guard left != right else { return nil }
         return "Encodings differ: \(left.rawValue) on the left, \(right.rawValue) on the right — "
@@ -184,16 +166,13 @@ enum BoundedTextRead {
             + "does not."
     }
 
-    /// Everything the notes list has to say about how these two files were READ, in order.
+    /// Everything the notes list says about how these two files were read, in order.
     ///
-    /// **A function, and internal, for the reason ``CompareCopiesSheet/trashTitle`` is one.** The
-    /// rules below are each tested where they live — and every one of them takes a left and a
-    /// right, so a call site that hands them over the wrong way round satisfies all of those tests
-    /// and tells the reader that the UTF-16 file is the UTF-8 one. Built inside a `Task.detached`
-    /// in a private view method, that call site could not be asserted at all; here it can.
-    ///
-    /// Order is part of it: what a side IS comes before how the two DIFFER, so a reader meets
-    /// "this one was decoded lossily" before "and they disagree about encoding".
+    /// A function, and internal, for the reason
+    /// ``DuplicateComparePrompt/trashTitle(kind:targetIsOlder:)`` is one: each rule below takes a
+    /// left and a right, so a call site that swapped them would pass every rule's test and call the
+    /// UTF-16 file the UTF-8 one. Inside a `Task.detached` in a view method it couldn't be
+    /// asserted; here it can. Order matters: what a side is comes before how the two differ.
     static func readingNotes(left: Outcome, right: Outcome) -> [String] {
         var notes: [String] = []
         if case .text(_, lossy: true, let encoding) = left {
@@ -214,10 +193,10 @@ enum BoundedTextRead {
 
     /// Splits text into lines with the line ending normalised away.
     ///
-    /// **CRLF against LF is a byte difference, not a content difference**, and a diff that showed
-    /// every line as changed because one file came off Windows would be reporting the encoding as
-    /// the finding. The difference is real and is reported — see ``lineEndingNote(left:right:)`` —
-    /// just not as a thousand changed lines.
+    /// CRLF against LF is a byte difference, not a content difference: a diff showing every line
+    /// changed because one file came off Windows would report the line endings as the finding.
+    /// The difference is reported by ``lineEndingNote(left:right:)``, not as a thousand changed
+    /// lines.
     static func lines(_ text: String) -> [String] {
         text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")

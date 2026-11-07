@@ -2,9 +2,9 @@ import Testing
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// Coverage for the icon cache's key derivation and key→UTType resolution — the pure logic
-/// that bounds the cache to one entry per distinct extension (files and directories keyed
-/// separately) so 14k-node trees never grow the cache past a handful of images.
+/// The icon cache's key derivation and key→UTType resolution: the pure logic that bounds the cache
+/// to one entry per distinct extension (files and directories keyed separately), so a tree of
+/// thousands of nodes never grows the cache past a handful of images.
 @Suite struct FileIconCacheTests {
 
     @Test func plainDirectoriesShareTheGenericKey() {

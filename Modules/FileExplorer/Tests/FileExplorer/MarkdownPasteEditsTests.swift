@@ -3,9 +3,8 @@ import Foundation
 import cmark_gfm
 @testable import FileExplorer
 
-/// TE55 (a web address pasted onto words) and TE56's text half (where an image's link goes), as
-/// pure edits — every case where the paste stays a plain paste is here as much as the one where it
-/// does not.
+/// A web address pasted onto words, and where a pasted image's link goes, as pure edits. Every case
+/// where the paste stays a plain paste is here as much as the ones where it doesn't.
 struct MarkdownPasteEditsTests {
 
     /// `"See «the long-ferment version» for"` → the buffer and the selection.
@@ -48,7 +47,7 @@ struct MarkdownPasteEditsTests {
         #expect(result.0 == "[word](\(pasted.trimmingCharacters(in: .whitespacesAndNewlines)))")
     }
 
-    /// **The spaces a drag took stay outside the link.**
+    /// The spaces a drag took stay outside the link.
     @Test func edgeWhitespaceStaysOutside() throws {
         #expect(try #require(paste("https://e.com", over: "a« word »b")).0 == "a [word](https://e.com) b")
     }
@@ -68,7 +67,7 @@ struct MarkdownPasteEditsTests {
         }
     }
 
-    /// **Spaces of every kind stay outside, scalar for scalar** — a no-break space from the web, an
+    /// Spaces of every kind stay outside, scalar for scalar: a no-break space from the web, an
     /// ideographic one between CJK words.
     @Test func everyKindOfEdgeSpaceIsKept() throws {
         #expect(try #require(paste("https://e.com", over: "«price\u{00A0}»list")).0 == "[price](https://e.com)\u{00A0}list")
@@ -76,8 +75,8 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://e.com", over: "a«\u{00A0}word»")).0 == "a\u{00A0}[word](https://e.com)")
     }
 
-    /// **A marker opening the line stays outside the link** — selecting a whole list line or
-    /// heading links its words, and the line is still a list item or a heading.
+    /// A marker opening the line stays outside the link: selecting a whole list line or heading
+    /// links its words, and the line is still a list item or a heading.
     @Test(arguments: [
         ("«- milk»", "- [milk](https://e.com)"),
         ("«1. milk»", "1. [milk](https://e.com)"),
@@ -90,7 +89,7 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://e.com", over: marked)).0 == after)
     }
 
-    /// **Every marker on the line, not the first**: a quoted list item stays a quoted list item —
+    /// Every marker on the line, not just the first: a quoted list item stays a quoted list item,
     /// and the preview still draws it as one. A heading's closing `#`s stay outside too.
     @Test(arguments: [
         ("«> - milk»", "> - [milk](https://e.com)"),
@@ -114,7 +113,7 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://e.com", over: "«- \u{301}abc»")).0 == "- [\u{301}abc](https://e.com)")
     }
 
-    /// **One address carrying another in its path or query is still one address.**
+    /// One address carrying another in its path or query is still one address.
     @Test(arguments: ["https://web.archive.org/web/2020/https://example.com/",
                       "https://www.google.com/url?q=https://example.com&sa=D"])
     func anAddressInsideAnAddressIsOne(_ pasted: String) throws {
@@ -140,7 +139,7 @@ struct MarkdownPasteEditsTests {
         ("", "«word»"),
         // Nothing selected.
         ("https://e.com", "wo«»rd"),
-        // The selection is itself an address — this is replacing one with another.
+        // The selection is itself an address: this would replace one with another.
         ("https://new.com", "«https://old.com»"),
         ("https://new.com", "«http://old.com/x»"),
         // Across a line, or only whitespace.
@@ -152,11 +151,11 @@ struct MarkdownPasteEditsTests {
         ("https://e.com", "«[a b»"),
         ("https://e.com", "«see [1]»"),
         ("https://e.com", "see `«foo bar` here»"),
-        // A backtick the selection holds alone — even parity before it, so only this rule refuses.
+        // A backtick the selection holds alone (even parity before it, so only this rule refuses).
         ("https://e.com", "«a `b» c`"),
         ("https://e.com", "«C:\\Temp\\»"),
-        // Already inside a link: its address — what Markup ▸ Link leaves selected for this very
-        // paste — its words, an image's source, a reference definition, an autolink.
+        // Already inside a link: its address (what Markup ▸ Link leaves selected for this very
+        // paste), its words, an image's source, a reference definition, an autolink.
         ("https://e.com/page", "See [the docs](«url») for more."),
         ("https://cdn.e.com/cat.png", "![a cat](«cat.png»)"),
         ("https://e.com", "[the «docs»](https://a.com)"),
@@ -196,8 +195,8 @@ struct MarkdownPasteEditsTests {
 
     // MARK: - Found by the review of TE55
 
-    /// **A line selected whole — a triple-click takes its line break — is linked**, the break kept
-    /// after the link. Before, the break made it a plain paste, which joined the two lines.
+    /// A line selected whole (a triple-click takes its line break) is linked, with the break kept
+    /// after the link; a plain paste would join the two lines.
     @Test(arguments: [
         ("«- milk\n»- eggs", "- [milk](https://e.com)\n- eggs"),
         ("«- milk\r\n»- eggs", "- [milk](https://e.com)\r\n- eggs"),
@@ -207,7 +206,7 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://e.com", over: marked)).0 == expected)
     }
 
-    /// **The line's markers stay outside the link wherever the selection starts** — after a quote's
+    /// The line's markers stay outside the link wherever the selection starts: after a quote's
     /// `> `, and part-way through a marker.
     @Test(arguments: [
         ("> «- milk»", "> - [milk](https://e.com)"),
@@ -221,8 +220,8 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://e.com", over: marked)).0 == expected)
     }
 
-    /// **A `|` in the address is escaped**, so a table cell is not cut at it — and GFM takes the
-    /// escape out before reading the link, as a backslash before punctuation does anywhere else.
+    /// A `|` in the address is escaped, so a table cell isn't cut at it, and GFM takes the escape
+    /// out before reading the link, as a backslash before punctuation does anywhere else.
     @Test func aPipeInTheAddressIsEscaped() throws {
         let address = "https://fonts.example.com/css?family=Roboto|Open+Sans"
         let table = try #require(paste(address, over: "| a | b |\n|---|---|\n| «milk» | 2 |")).0
@@ -262,10 +261,9 @@ struct MarkdownPasteEditsTests {
 
     // MARK: - Found by the 2026-10-15 review (IMG-7)
 
-    /// **Words that cut through an emphasis run are a plain paste** — `**[Note:** read](url)` reads
-    /// as two literal asterisks and a link, the bold gone (review IMG-7). Asked of the parser, so
-    /// every delimiter's own flanking rule decides it: a run cut at either end, intraword emphasis,
-    /// strikethrough.
+    /// Words that cut through an emphasis run are a plain paste: `**[Note:** read](url)` reads as
+    /// two literal asterisks and a link, the bold gone. Asked of the parser, so every delimiter's
+    /// own flanking rule decides it: a run cut at either end, intraword emphasis, strikethrough.
     @Test(arguments: ["**«Note:** read» this", "*«foo* bar»", "foo*«bar»*baz", "~~«gone~~ here»",
                       "«a **b» c**", "_«x_ y»"])
     func wordsThatCutThroughEmphasisAreAPlainPaste(_ marked: String) {
@@ -273,7 +271,7 @@ struct MarkdownPasteEditsTests {
     }
 
     /// The positive control: a whole run, words inside one, or underscores inside a word that were
-    /// never emphasis, are linked as ever — and the paragraph still reads as it did.
+    /// never emphasis are linked, and the paragraph still reads as it did.
     @Test(arguments: [
         ("**«Note:»** read", "**[Note:](https://e.com)** read"),
         ("«**bold** words»", "[**bold** words](https://e.com)"),
@@ -285,8 +283,8 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://e.com", over: marked)).0 == expected)
     }
 
-    /// **The Help says the link is made in Source** (review IMG-8): Preview pastes plain text, so
-    /// an address pasted over words there replaces them, and the Help said only "a Markdown file".
+    /// The Help says the link is made in Source: Preview pastes plain text, so an address pasted
+    /// over words there replaces them.
     @MainActor
     @Test func theHelpSaysALinkPasteIsSourcesOnly() throws {
         let links = try EditRepoFile.helpParagraph("Select some words and paste a web address")
@@ -335,8 +333,8 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(image(before)).0 == after)
     }
 
-    /// **The real check: the preview draws it as a picture** — an image paragraph, the only shape
-    /// `MarkdownBlocks` turns into one — with the text either side still its own paragraph.
+    /// The real check: the preview draws it as a picture, an image paragraph (the only shape
+    /// `MarkdownBlocks` turns into one), with the text either side still its own paragraph.
     @Test(arguments: ["foo|bar", "- list item|", "# Heading|\nText", "> quote|", "foo|", "foo\r\n|bar",
                       "- a\n  - b|\n  - c"])
     func thePreviewDrawsWhatWasInserted(_ marked: String) throws {
@@ -359,7 +357,7 @@ struct MarkdownPasteEditsTests {
         #expect(selection == NSRange(location: (result as NSString).length, length: 0))
     }
 
-    /// A selection is replaced, as any paste replaces it — and the image goes where the caret then
+    /// A selection is replaced, as any paste replaces it, and the image goes where the caret then
     /// is, by the same rule.
     @Test func aSelectionIsReplaced() throws {
         let text = "keep this, drop this\nand this line"
@@ -373,7 +371,7 @@ struct MarkdownPasteEditsTests {
         #expect(whole.applied(to: "one\ntwo\n\nthree") == "one\n\n![](Images/x-1.png)\n\nthree")
     }
 
-    /// **A written line no image may break gives no splice at all**: raw HTML, indented code, a code
+    /// A written line no image may break gives no splice at all: raw HTML, indented code, a code
     /// fence's own line, a link definition, the front matter.
     @Test(arguments: [
         "<p al‸ign=\"center\">\n  <img src=\"x.png\">\n</p>",
@@ -391,9 +389,9 @@ struct MarkdownPasteEditsTests {
                                               in: text) == nil, "\(marked.debugDescription)")
     }
 
-    /// **An image never splits the block it lands in** (review of TE56): a table stays one table,
-    /// a heading keeps its words, a quote stays whole — and in a list item, the image joins the item
-    /// at its words' column, so the items after it keep their nesting.
+    /// An image never splits the block it lands in: a table stays one table, a heading keeps its
+    /// words, a quote stays whole, and in a list item the image joins the item at its words'
+    /// column, so the items after it keep their nesting.
     @Test(arguments: [
         ("| a | b |\n|---|---|\n| 1‸ | 2 |\n| 3 | 4 |\n\nafter",
          "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\n![](Images/x-1.png)\n\nafter"),
@@ -406,7 +404,7 @@ struct MarkdownPasteEditsTests {
         // A blank line inside an item is the item's; after its last line it is not.
         ("- a\n‸\n  more", "- a\n\n  ![](Images/x-1.png)\n\n  more"),
         ("- a\n‸\n- b", "- a\n\n![](Images/x-1.png)\n\n- b"),
-        // A setext heading: after its underline, not after the line the next block opens on — nor
+        // A setext heading: after its underline, not after the line the next block opens on, nor
         // past the blank line cmark reports it ending on.
         ("Tit‸le\n=====\nText", "Title\n=====\n\n![](Images/x-1.png)\n\nText"),
         ("Tit‸le\n=====\n\nText", "Title\n=====\n\n![](Images/x-1.png)\n\nText"),
@@ -422,7 +420,7 @@ struct MarkdownPasteEditsTests {
                                                                 in: text as NSString))
         let result = splice.applied(to: text)
         #expect(result == expected)
-        // The rest of the document reads as it did — the same words, every item at its depth — and
+        // The rest of the document reads as it did (the same words, every item at its depth), and
         // the picture is one block of its own (an image paragraph has no words of its own).
         func shape(_ text: String) -> [String] {
             MarkdownSourceContext.leaves(in: text as NSString).compactMap { leaf in

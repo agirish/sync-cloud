@@ -4,8 +4,8 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// Page: Source's text on the system's text background — the column and its margins with
-/// Readable Line Length on, the whole editor without it — and the window left as it was outside.
+/// Page: Source's text on the system's text background (the column and its margins with Readable
+/// Line Length on, the whole editor without it), and the window left as it was outside.
 ///
 /// Switches are read on ``defaults``, a scratch suite of this test's own, for the reason
 /// `EditorReadableColumnTests` gives.
@@ -14,13 +14,13 @@ import Design
 
     private let defaults = ScratchDefaults("EditorPageTests")
 
-    /// **Off by default**, so nobody's editor changes colour on upgrade.
+    /// Off by default, so nobody's editor changes colour on upgrade.
     @Test func theSwitchIsOffByDefault() {
         #expect(EditorTextSettings.drawsPageDefault == false)
         #expect(EditorTextView().drawsPage == false)
     }
 
-    /// The page is the column plus the 14pt margin the text always keeps — and the whole view
+    /// The page is the column plus the 14pt margin the text always keeps, and the whole view
     /// wherever nothing caps the text.
     @Test func thePageIsTheColumnAndItsMargins() {
         let bounds = NSRect(x: 0, y: 0, width: 1000, height: 400)
@@ -62,9 +62,9 @@ import Design
         return try xs.map { try #require(rep.colorAt(x: Int($0 * scale), y: rep.pixelsHigh / 2)) }
     }
 
-    /// **With the cap on, the page is the column and its margins and nothing else**: opaque
-    /// white from one margin's edge to the other, the window's own (transparent) ground outside —
-    /// and with the switch off, the column too is the window's, so the assertion can fail.
+    /// With the cap on, the page is the column and its margins and nothing else: opaque white from
+    /// one margin's edge to the other, the window's own (transparent) ground outside. With the
+    /// switch off the column is the window's too, so the assertion can fail.
     @Test func inLightModeThePageIsWhiteAndOnlyTheColumn() throws {
         let rig = hosted(width: 1000, column: 720, appearance: .aqua)
         defer { withExtendedLifetime(rig.window) {} }
@@ -86,7 +86,7 @@ import Design
         #expect(off[0].alphaComponent < 0.05, "switched off, the column is still painted: \(off[0])")
     }
 
-    /// **In Dark Mode the page follows the appearance** — opaque and dark, not white.
+    /// In Dark Mode the page follows the appearance: opaque and dark, not white.
     @Test func inDarkModeThePageIsDark() throws {
         let rig = hosted(width: 1000, column: 720, appearance: .darkAqua)
         defer { withExtendedLifetime(rig.window) {} }
@@ -96,7 +96,7 @@ import Design
                 && c.blueComponent < 0.3, "the dark page is \(c)")
     }
 
-    /// **With no cap — Readable Line Length off, or Wrap Lines off — the page is the whole editor.**
+    /// With no cap (Readable Line Length off, or Wrap Lines off) the page is the whole editor.
     @Test(.machinePinned(.pixelSampling)) func withNoCapThePageSpansTheEditor() throws {
         for wraps in [true, false] {
             let rig = hosted(width: 1000, column: nil, wraps: wraps, appearance: .aqua)
@@ -111,7 +111,7 @@ import Design
         }
     }
 
-    /// **A resize moves the page with the column** — the margins grow, the page keeps the column.
+    /// A resize moves the page with the column: the margins grow, the page keeps the column.
     @Test func aResizeMovesThePageWithTheColumn() {
         let rig = hosted(width: 1000, column: 720, appearance: .aqua)
         defer { withExtendedLifetime(rig.window) {} }
@@ -129,7 +129,7 @@ import Design
     // MARK: Past the text's ends
 
     /// The pixels at `xs` (in the clip's points) in a 20pt strip `y` down the clip's bounds, as the
-    /// clip draws them — its own drawing and the text view's, as a rubber-band scroll shows them.
+    /// clip draws them: its own drawing and the text view's, as a rubber-band scroll shows them.
     private func pixels(of clip: NSClipView, y: CGFloat, at xs: [CGFloat]) throws -> [NSColor] {
         let rect = NSRect(x: clip.bounds.minX, y: y, width: clip.bounds.width, height: 20)
         let rep = try #require(clip.bitmapImageRepForCachingDisplay(in: rect))
@@ -138,21 +138,19 @@ import Design
         return try xs.map { try #require(rep.colorAt(x: Int(($0 - rect.minX) * scale), y: rep.pixelsHigh / 2)) }
     }
 
-    /// The clip with the text view hidden, so what is drawn is the clip's alone — what an elastic
-    /// scroll past either end, or typewriter scrolling's room, shows. Not the clip's bounds moved
-    /// off the text: outside a live scroll AppKit constrains them back onto the document — measured,
-    /// a `setBoundsOrigin` past the top landed on the text, and a text view moved down took the
-    /// bounds with it.
+    /// The clip with the text view hidden, so what is drawn is the clip's alone: what an elastic
+    /// scroll past either end, or typewriter scrolling's room, shows. Moving the clip's bounds off
+    /// the text doesn't work: outside a live scroll AppKit constrains them back onto the document.
     private func clipAlone(_ rig: (window: NSWindow, view: EditorTextView)) throws -> EditorDocumentClipView {
         let clip = try #require(rig.view.enclosingScrollView?.contentView as? EditorDocumentClipView)
         rig.view.isHidden = true
         return clip
     }
 
-    /// **Past either end the page goes on — the column and its margins, nothing else.** The clip
-    /// paints the band on its own, and the band runs the clip's full height whatever its bounds,
-    /// so an overscroll's strip above or below the text is page too. With the switch off the clip
-    /// paints nothing, so the assertion can fail.
+    /// Past either end the page goes on: the column and its margins, nothing else. The clip paints
+    /// the band on its own, the clip's full height whatever its bounds, so an overscroll's strip
+    /// above or below the text is page too. With the switch off the clip paints nothing, so the
+    /// assertion can fail.
     @Test func pastTheTextTheClipCarriesThePagesBand() throws {
         let rig = hosted(width: 1000, column: 720, appearance: .aqua)
         defer { withExtendedLifetime(rig.window) {} }
@@ -180,8 +178,8 @@ import Design
         #expect(off[0].alphaComponent < 0.05, "switched off, the clip still paints the page: \(off[0])")
     }
 
-    /// **With no cap the clip's page is edge to edge** — wrapped, and unwrapped too, where a
-    /// sideways overscroll shows the clip past the text's right end.
+    /// With no cap the clip's page is edge to edge, wrapped and unwrapped, where a sideways
+    /// overscroll shows the clip past the text's right end.
     @Test(.machinePinned(.pixelSampling)) func withNoCapTheClipsPageIsEdgeToEdge() throws {
         for wraps in [true, false] {
             let rig = hosted(width: 1000, column: nil, wraps: wraps, appearance: .aqua)
@@ -216,8 +214,8 @@ import Design
         return (host, found!)
     }
 
-    /// **The editor reads the switch and hands it to the text view** — never set is off, and a
-    /// flip under a mounted editor arrives through `updateNSView`.
+    /// The editor reads the switch and hands it to the text view: never set is off, and a flip under
+    /// a mounted editor arrives through `updateNSView`.
     @Test func theEditorAppliesTheSwitch() {
         defaults.removeObject(forKey: EditorTextSettings.drawsPageKey)
         let rig = mounted()

@@ -4,19 +4,13 @@ import SwiftUI
 
 /// One pane's tab strip: the 34pt row above its header.
 ///
-/// **It belongs to the pane, not to the window.** Browse draws one, Compare draws one per side and
-/// the Organize/Storage rail draws one at 220pt — all from the single `paneColumn` call site, so
-/// there is no plumbing to keep in step. In Browse it looks like window chrome only because there
-/// the pane *is* the window.
+/// It belongs to the pane, not the window: Browse draws one, Compare one per side, and the
+/// Organize/Storage rail one at 220pt, all from the single `paneColumn` call site. Drawn only when a
+/// pane holds a second tab (`PaneTabList.showsStrip`), Finder's rule; the caller checks, so at one
+/// tab the strip takes no space at all.
 ///
-/// Drawn only when a pane holds a second tab (`PaneTabList.showsStrip`), which is Finder's rule and
-/// what keeps an install that never opens one pixel-identical to the one before this shipped. The
-/// caller owns that check, because at one tab the strip should occupy no space at all rather than
-/// render empty.
-///
-/// This view is deliberately dumb: it takes rendered `Item`s and hands back ids. It never sees a
-/// `PaneTab`, a provider or a `FileSyncManager`, which is what lets it be rendered — and read back
-/// as pixels — from a test with no app around it.
+/// Deliberately dumb: it takes rendered `Item`s and hands back ids, never seeing a `PaneTab`, a
+/// provider or a `FileSyncManager`, so a test can render it and read its pixels with no app around.
 public struct PaneTabStrip: View {
 
     /// One chip's worth of rendered facts.
@@ -25,20 +19,18 @@ public struct PaneTabStrip: View {
         /// The leaf folder's name, already resolved (a tab at a provider root wears the source's
         /// name — see `PaneTab.displayName`).
         public let title: String
-        /// The provider's mark, as `ProviderLogo` takes it. **Load-bearing, not decoration:** two
-        /// tabs can both read "Documents" from different clouds, and the mark is the only thing on
-        /// the chip that tells them apart.
+        /// The provider's mark, as `ProviderLogo` takes it. Not decoration: two tabs can both read
+        /// "Documents" from different clouds, and the mark is what tells them apart.
         public let markImageName: String
         public let isActive: Bool
         /// Pinned to the leading end: wears a pin instead of a ✕, and never folds away behind the
         /// overflow count.
         public let isPinned: Bool
-        /// The full path, for the chip's tooltip — the strip's answer to "which Documents is this?"
-        /// for anyone who wants more than the mark.
+        /// The full path, for the chip's tooltip: which Documents this is.
         public let fullPath: String
         /// The source's display name ("iCloud Drive"), or nil when the source is gone. The mark's
-        /// words: `ProviderLogo` is hidden from VoiceOver, so without this the ear hears two
-        /// "Documents" chips where the eye sees two different clouds. See `spokenName(_:)`.
+        /// words: `ProviderLogo` is hidden from VoiceOver, so without this two "Documents" chips
+        /// from different clouds sound the same. See `spokenName(_:)`.
         public let sourceName: String?
 
         public init(id: UUID, title: String, markImageName: String, isActive: Bool,
@@ -53,15 +45,13 @@ public struct PaneTabStrip: View {
         }
     }
 
-    /// What VoiceOver reads for a chip: its title, then the source the mark stands for —
+    /// What VoiceOver reads for a chip: its title, then the source the mark stands for, as
     /// "Documents, iCloud Drive".
     ///
-    /// **The mark is the only thing on the chip that tells two same-named tabs apart** (see
-    /// `Item.markImageName`), and `ProviderLogo` hides itself from VoiceOver everywhere, which is
-    /// right for every other mark in the app and wrong here. So the chip says in words what the
-    /// mark says in pictures. The source is left off when the title already carries it — a tab at
-    /// a source root is titled with the source's name, and a colliding title is already qualified
-    /// "Documents — iCloud Drive" — so nothing is said twice.
+    /// `ProviderLogo` hides itself from VoiceOver, right for every other mark and wrong here, where
+    /// the mark tells same-named tabs apart (`Item.markImageName`). The source is left off when the
+    /// title already carries it: a tab at a source root, or a title qualified "Documents — iCloud
+    /// Drive".
     static func spokenName(_ item: Item) -> String {
         guard let source = item.sourceName, !source.isEmpty,
               item.title != source, !item.title.hasSuffix("— \(source)")
@@ -80,60 +70,52 @@ public struct PaneTabStrip: View {
     /// Pin or unpin this tab.
     let onSetPinned: (UUID, Bool) -> Void
     let onNew: () -> Void
-    /// Track the strip must keep clear at its LEADING and TRAILING edges.
+    /// Track the strip must keep clear at its leading and trailing edges.
     ///
-    /// **The seam controls sit on top of this row.** In Compare, ⇄ and 🔗 straddle the pane
-    /// boundary at the top of the panes region — measured against the shipping app, the left pane's
-    /// ＋ lands directly under ⇄ with about five points between them. The strip cannot see the
-    /// layout it is in, so the pane column passes the reserve; it is zero everywhere else, which is
-    /// Browse and the rail.
+    /// In Compare the seam controls (⇄, 🔗) straddle the pane boundary on top of this row, just
+    /// above the left pane's ＋. The strip can't see its layout, so the pane column passes the
+    /// reserve; it is zero in Browse and the rail.
     let leadingInset: CGFloat
     let trailingInset: CGFloat
-    /// The window's `LiquidGlassHue.accentColor` — the same colour the pane's rows wash their
-    /// selection in, which is the whole point of taking it as a parameter rather than reaching for
-    /// `Color.accentColor`: that one is the SYSTEM accent and ignores the app's chosen hue, so a
-    /// strip that used it drew a blue rule inside a green pane. Passed in rather than read from
-    /// `@AppStorage` so this view stays renderable from a test with no app around it.
+    /// The window's `LiquidGlassHue.accentColor`, the colour the pane's rows wash their selection
+    /// in. Never `Color.accentColor`, the system accent, which ignores the app's hue. Passed in, not
+    /// read from `@AppStorage`, so a test can render this view with no app around it.
     let accent: Color
-    /// Whether this pane is the one the action bar acts on. Feeds `PaneSelectionWash`, exactly as
-    /// the pane's rows do — see `chipGround`.
+    /// Whether this pane is the one the action bar acts on. Feeds `PaneSelectionWash`, as the
+    /// pane's rows do (see `chipGround`).
     let isActivePane: Bool
 
     @Environment(\.appFontScale) private var fontScale
 
-    /// Shared geometry for the active tab's ground and rule, so the marker TRAVELS along the strip
+    /// Shared geometry for the active tab's ground and rule, so the marker travels along the strip
     /// instead of being cut out under one chip and into the next.
     @Namespace private var activeMarker
 
-    /// One marker, one id. See `ContentView.workspaceMarkerID` — the workspace bar 40pt above does
-    /// the same thing, and the two bars now move alike.
+    /// One marker, one id. The workspace bar above does the same (`ContentView.workspaceMarkerID`),
+    /// so the two bars move alike.
     private static let activeMarkerID = "panetab.active.marker"
 
-    /// **The chip's outline, named once.** A chip stated this shape three times — the grey slab
-    /// under every tab, the accent wash under the live one, and the shape handed to
-    /// `HoverAffordanceStyle` for the hover wash. All three said `Radius.chip` and were correct,
-    /// but nothing held them together: the third was added by `153b5ae7` precisely because it had
-    /// been absent, taking `.segment`'s capsule default and rounding the wash's ends 8pt past the
-    /// slab. `DestinationPicker.rowOutline` is the same idiom for the same reason — see
-    /// `HoverAffordanceOutline`.
+    /// The chip's outline, named once: the grey slab under every tab, the accent wash under the
+    /// live one, and the hover wash handed to `HoverAffordanceStyle` all read it, so they can't
+    /// disagree. `DestinationRowShape` is the same idiom (see `HoverAffordanceOutline`).
     ///
-    /// The radius itself lives on the ladder, next to the gutter it has to agree with — see
-    /// `PaneTabStripLadder.chipRadius`. It reads `Radius.well`, not `Radius.chip`: the chip is
+    /// The radius lives on the ladder beside the gutter it must agree with
+    /// (`PaneTabStripLadder.chipRadius`): `Radius.well`, not `Radius.chip`, because the chip sits
     /// concentric inside the strip card, and `14 - 4` is 10.
     static let chipShape = HoverAffordanceShape.roundedRect(PaneTabStripLadder.chipRadius)
-    /// `chipShape`, drawable — the slab under every tab and the accent wash under the live one.
+    /// `chipShape`, drawable: the slab under every tab and the accent wash under the live one.
     static let chipOutline = chipShape.outline
 
-    /// Which chip the pointer is over — the ✕ shows on that one and on the active tab, and nowhere
-    /// else (v4.x roadmap companion §1's anatomy). Held here rather than per chip so only one can be lit.
+    /// Which chip the pointer is over: the ✕ shows on that one and on the active tab only. Held
+    /// here, not per chip, so only one can be lit.
     @State private var hoveredTab: UUID?
     /// The chip being dragged, and how far it has travelled. Held here so the dragged chip can be
     /// lifted above its neighbours while every other chip stays where it is.
     @State private var draggingTab: UUID?
     @State private var dragOffset: CGFloat = 0
-    /// True while a drag gesture is live. SwiftUI resets it however the drag ends — including a
-    /// cancel (the window losing key, a modal), which never calls `onEnded` and used to
-    /// leave the chip parked at its last offset.
+    /// True while a drag gesture is live. SwiftUI resets it however the drag ends, including a
+    /// cancel (the window losing key, a modal), which never calls `onEnded` and would leave the
+    /// chip parked at its last offset.
     @GestureState private var dragIsLive = false
 
     public init(items: [Item],
@@ -165,9 +147,8 @@ public struct PaneTabStrip: View {
     }
 
     public var body: some View {
-        // A strip with nothing in it is not a state the app can reach — `PaneTabList` is never
-        // empty — but this view is public and every rung below indexes into `items`. Drawing
-        // nothing beats trapping in a pane's body.
+        // Unreachable in the app (`PaneTabList` is never empty), but this view is public and every
+        // rung indexes into `items`: drawing nothing beats trapping in a pane's body.
         if items.isEmpty {
             EmptyView()
         } else {
@@ -175,28 +156,22 @@ public struct PaneTabStrip: View {
         }
     }
 
-    /// Which tab the marker is under — the only change that should move it.
+    /// Which tab the marker is under: the only change that should move it.
     private var activeTabID: PaneTabStrip.Item.ID? { items.first(where: \.isActive)?.id }
 
     private var stripBody: some View {
         GeometryReader { geo in
-            // **The ladder is offered what is actually free**, which is the pane's width less the
-            // strip's own gutters and the track the seam controls sit on — not `geo.size.width`.
-            //
-            // Measured: at the rail's 220pt the two 5pt gutters put the chip rung 10pt over
-            // budget, and since that rung sizes its chip to consume everything left, the overrun
-            // came out of the ONE element that has to survive there — the count of parked tabs was
-            // squeezed to nothing. The wider rungs hid it, because their slack sits in a flexible
-            // spacer that simply absorbed the error.
+            // The ladder is offered what is actually free: the width less the strip's gutters and
+            // the seam controls' track, not `geo.size.width`. At the rail's 220pt any overrun
+            // comes out of the chip rung's count of parked tabs, the one element that must survive.
             let layout = PaneTabStripLadder.layout(
                 available: geo.size.width - 2 * PaneTabStripLadder.stripGutter - leadingInset - trailingInset,
                 titles: items.map(\.title),
                 scale: fontScale)
             strip(layout)
                 .frame(width: geo.size.width, height: PaneTabStripLadder.stripHeight, alignment: .leading)
-                // Keyed on WHICH tab is active, not on `items`: the list also changes when a tab
-                // is opened, closed or renamed, and none of those should slide the marker. Reduce
-                // Motion keeps the marker and drops the travel.
+                // Keyed on which tab is active, not on `items`, so opening, closing or renaming a
+                // tab doesn't slide the marker. Reduce Motion keeps the marker and drops the travel.
                 .designAnimation(.easeOut(duration: 0.16), value: activeTabID)
         }
         .frame(height: PaneTabStripLadder.stripHeight)
@@ -212,48 +187,39 @@ public struct PaneTabStrip: View {
                     chip(item, width: layout.tabWidth, visible: shown)
                 }
             case .chip:
-                // The active tab keeps its name and gains the chevron: at the rail's width a row of
-                // chips would be marks with smears beside them, and the one thing that must survive
-                // is *which folder this pane is showing*.
+                // The active tab keeps its name and gains the chevron: at the rail's width, what
+                // must survive is which folder this pane shows.
                 activeChipMenu(width: layout.tabWidth)
             }
             if layout.showsOverflow {
                 switch layout.rung {
                 case .full, .compact:
-                    // The ONLY way to reach a folded-away tab, so it is a menu.
+                    // The only way to reach a folded-away tab, so it is a menu.
                     overflowMenu(hidden: hiddenItems(layout))
                 case .chip:
-                    // A count, not a second menu. The active chip beside it already lists every
-                    // tab — two controls that open the same list, 30pt apart, is one more than the
-                    // rail has room to explain, and the roadmap's chip rung asks for "a count for
-                    // the rest" rather than a second switcher.
+                    // A count, not a second menu: the active chip beside it already lists every tab.
                     overflowCount(layout.overflowCount)
                 }
             }
-            // The empty stretch, double-clickable — and it needs the `contentShape` to be hit at
-            // all, since an `HStack`'s spacer paints nothing.
+            // The empty stretch, double-clickable. It needs the `contentShape` to be hit at all,
+            // since it paints nothing.
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onNew() }
             newTabButton
         }
-        // Frosted and Clear: the active tab's marker as one glass lens that glides between chips
-        // (RD46). Solid keeps `activeMarkerLayer`'s 0.16 s slide.
+        // Frosted and Clear: the active tab's marker as one glass lens that glides between chips.
+        // Solid keeps `activeMarkerLayer`'s 0.16 s slide.
         .selectionLensHost(Self.lensChannel, selected: activeTabID, style: lensStyle)
-        // The drag's own animations, restated OUTSIDE the host so the lens rides them: each chip
-        // eases its drag offset and its settle after a drop, and the lens — drawn in the host's
-        // background — would otherwise jump to where a dragged active tab ends up while the chip
-        // glided there. Inside the chips these are unchanged. Only where a lens draws: out here
-        // they also catch what a drop changes with them — a compact rung re-windowed by the drop
-        // faded its chips in and out — and at Solid that change was instant, and stays so.
+        // The chips' drag animations, restated outside the host so the lens rides them; otherwise
+        // the lens, drawn in the host's background, jumps to where a dragged active tab lands while
+        // the chip glides there. Only where a lens draws: out here they would also fade a compact
+        // rung that a drop re-windows, which at Solid stays instant.
         //
-        // **Not while the lens's chip is held** (speed audit 14). Eased per pointer event, the held
-        // chip and the lens on it trailed the pointer by 0.16 s for the whole drag. The chip's own
-        // modifier below takes the ease off the chip, and that one is closer, so it wins; this one
-        // decides only the lens — unanimated while it sits on the held chip, so it moves with it,
-        // and eased while another chip is dragged past it, so it glides with its chip as that
-        // steps aside. The drop clears `draggingTab`, so the settle still eases here.
+        // Not while the lens's chip is held, or it trails the pointer. The chip's own modifier,
+        // closer, decides the chip; this decides only the lens: unanimated on the held chip, eased
+        // while another chip is dragged past it. The drop clears `draggingTab`, so the settle eases.
         .designAnimation(drawsLens ? Self.dragEase(holding: draggingTab != nil && draggingTab == activeTabID) : nil,
                          value: draggingTab)
         .designAnimation(drawsLens ? Self.dragEase(holding: draggingTab != nil && draggingTab == activeTabID) : nil,
@@ -266,25 +232,20 @@ public struct PaneTabStrip: View {
         Self.visible(items, slots: layout.visibleCount)
     }
 
-    /// Where a dragged tab would land: the index it is dropped at, given how far it has travelled.
+    /// How many tabs "Close Other Tabs" would close, keeping `item` and every pinned tab.
     ///
-    /// **One rule, two consumers** — the live preview (which chips step aside) and the drop itself.
-    /// They were separate arithmetic for one commit and could already disagree in two ways: a drag
-    /// across the pin line, which `PaneTabList.move` refuses but the preview happily animated, and a
-    /// drag past the last VISIBLE chip on the compact rung, which would have dropped the tab into
-    /// the folded-away region — where it looks, from the strip, like it vanished.
-    ///
-    /// Returns `from` when the drop is a no-op, so a caller can treat "no move" and "moved to where
-    /// it already was" identically.
-    /// How many tabs "Close Other Tabs" would actually close, keeping `item` and every pinned tab.
-    ///
-    /// A rule rather than a `count < 2` at the two call sites, because the answer is not the number
-    /// of tabs: pins survive the gesture, so a strip of three whose other two are pinned has nothing
-    /// to close. Both the menu item and the ⌥-✕ tooltip ask this same question.
+    /// Not the tab count: pins survive, so a strip of three whose other two are pinned has nothing
+    /// to close. The menu item and the ⌥-✕ tooltip both ask this.
     static func closableOthers(of item: Item, in items: [Item]) -> Int {
         items.filter { $0.id != item.id && !$0.isPinned }.count
     }
 
+    /// Where a dragged tab would land: the index it is dropped at, given how far it has travelled.
+    ///
+    /// One rule for the live preview (which chips step aside) and the drop, so they can't disagree
+    /// about a drag across the pin line (`PaneTabList.move` refuses it) or past the last visible
+    /// chip. Returns `from` when the drop is a no-op, so "no move" and "moved to where it already
+    /// was" read alike.
     static func dropIndex(from: Int, steps: Int, items: [Item], visible: [Item]) -> Int {
         guard items.indices.contains(from) else { return from }
         var to = min(max(0, from + steps), items.count - 1)
@@ -294,67 +255,44 @@ public struct PaneTabStrip: View {
         let pinnedRun = items.prefix { $0.isPinned }.count
         to = items[from].isPinned ? min(to, max(0, pinnedRun - 1)) : max(to, pinnedRun)
 
-        // Never past what is on screen: dragging a chip into the overflow is not a move anyone can
-        // see, and the chip would appear to disappear.
+        // Never past what is on screen: a chip dragged into the overflow would seem to vanish.
         //
-        // **The drawn indices are not necessarily contiguous**, which is what a `[first, last]`
-        // clamp alone quietly assumed. `visible(_:slots:)` draws the pinned PREFIX plus a WINDOW of
-        // the unpinned run, and once that window has scrolled off the head there is a folded-away
-        // gap between the two — so a clamp into the range still landed inside the gap. Measured:
-        // one pin and four unpinned tabs in three slots draw `[P, T3, T4]`, and dragging T3 left
-        // put it at index 1 or 2, both folded away; recomputing the window afterwards showed T3
-        // gone from the strip, which is the disappearance this guard is named for.
+        // The drawn indices need not be contiguous: `visible(_:slots:)` draws the pinned prefix
+        // plus a window of the unpinned run, with a folded-away gap between once the window has
+        // scrolled. One pin and four unpinned tabs in three slots draw `[P, T3, T4]`, and a range
+        // clamp alone would let T3 land at 1 or 2, both hidden. So the clamp is followed by a snap
+        // onto a drawn index, always back toward `from`: that only shortens the move, and can't
+        // re-cross the pin line.
         //
-        // So the range clamp is followed by a snap onto an index that is actually drawn, always
-        // BACK toward where the drag started. Back rather than on: moving the drop closer to `from`
-        // can only ever shorten the move, while snapping outward would carry the chip past a tab
-        // the user cannot see. It also cannot re-cross the pin line, because `from` is on the right
-        // side of it by construction.
-        //
-        // **What this does NOT promise, and it is worth being exact about it.** The guarantee is
-        // about the DROP INDEX: the tab lands somewhere a chip is currently drawn. It is not a
-        // promise that the chip is still drawn *afterwards*, because `visible(_:slots:)` re-derives
-        // its window from the ACTIVE tab and the move changes the order that window is taken from.
-        // Swept across pin counts, tab counts, slot counts and active positions: a legal drop can
-        // still leave the moved chip outside the new window — with no pins at all, three tabs in
-        // two slots, dragging the parked one past the active one is enough. That is the window's
-        // design rather than a hole in this rule (the tab is in the overflow menu, exactly as a
-        // newly opened tab would be), and closing it would mean anchoring the window on something
-        // other than the pane's own tab. Stated here so the next reader does not read the
-        // guarantee as the wider one; `aDropCannotLandInTheGapBetweenThePinsAndTheWindow` pins the
-        // half that is true and `aLegalDropStillLandsWhereItWasAimed` pins this half.
+        // This promises only that the drop index is a drawn chip's, not that the moved chip is
+        // still drawn afterwards: `visible(_:slots:)` re-derives its window from the active tab,
+        // so a legal drop can leave the tab in the overflow menu, as a newly opened tab would be.
+        // `aDropCannotLandInTheGapBetweenThePinsAndTheWindow` and
+        // `aLegalDropStillLandsWhereItWasAimed` pin the two halves.
         let shown = Set(visible.map(\.id))
         let drawn = items.indices.filter { shown.contains(items[$0].id) }
         if let first = drawn.first, let last = drawn.last, shown.contains(items[from].id) {
             to = min(max(to, first), last)
             if !drawn.contains(to) {
-                // The `?? from` cannot fire: `from` is itself drawn and lies on the far side of
-                // `to` from the range clamp, so each search always has at least that one candidate.
-                // It is there to keep this a total expression, not because it guards a case.
+                // The `?? from` can't fire (`from` is drawn, on the far side of `to`, so each search
+                // has a candidate); it keeps the expression total.
                 to = (to > from ? drawn.last { $0 <= to } : drawn.first { $0 >= to }) ?? from
             }
         }
         return min(max(0, to), items.count - 1)
     }
 
-    /// **The drag's ease, for a view that is or is not holding the dragged chip.** Nil while held:
-    /// the held chip rides the pointer, and an ease on its offset made it trail by 0.16 s on every
-    /// move (speed audit 14). Everything else — the neighbours stepping aside, and every chip's
-    /// settle once the drop clears `draggingTab` — eases. One rule for the chips' modifiers and the
-    /// lens host's restatement of them, which would otherwise ease the held chip from outside.
+    /// The drag's ease, for a view that is or is not holding the dragged chip. Nil while held, so
+    /// the held chip rides the pointer instead of trailing it. Everything else (the neighbours
+    /// stepping aside, every chip's settle once the drop clears `draggingTab`) eases. One rule for
+    /// the chips' modifiers and the lens host's restatement of them.
     static func dragEase(holding: Bool) -> Animation? {
         holding ? nil : .easeOut(duration: 0.16)
     }
 
-    /// How far a chip steps aside while another is dragged over it.
-    ///
-    /// One stride, in the direction that opens the gap — right for a chip the dragged tab has moved
-    /// in front of, left for one it has moved behind. Zero for everything outside the range the
-    /// drag currently spans, which is most of the strip.
-    ///
-    /// Static and priced from the same stride the drop index uses, so what the row shows during the
-    /// drag and where the tab actually lands cannot disagree — that mismatch is the whole failure
-    /// mode of a hand-drawn reorder.
+    /// How far a chip steps aside while another is dragged over it: one stride toward the gap for a
+    /// chip inside the range the drag spans, zero for the rest. Priced from the stride `dropIndex`
+    /// uses, so what the row shows and where the tab lands can't disagree.
     static func displacement(of item: Item, items: [Item], visible: [Item], dragging: UUID?,
                              offset: CGFloat, stride: CGFloat) -> CGFloat {
         guard let dragging, dragging != item.id, stride > 0,
@@ -369,13 +307,9 @@ public struct PaneTabStrip: View {
 
     /// Which chips are drawn when there is not room for all of them.
     ///
-    /// Two things always survive, and the order matters when they compete for the last slot:
-    /// **the pinned tabs**, which are pinned precisely so they stay reachable, and **the active
-    /// tab**, because a strip that folds away the pane's own tab describes somewhere else
-    /// entirely. Pinned first — an active tab folded away is still named by the header underneath
-    /// it, while a folded-away pin has nothing left to say it exists.
-    ///
-    /// Static so this can be tested; the window it picks is otherwise only visible in pixels.
+    /// The pinned tabs and the active tab always survive, pins first when they compete for the last
+    /// slot: a folded-away active tab is still named by the header below, while a folded-away pin
+    /// has nothing to say it exists. Static so the window can be tested without pixels.
     static func visible(_ items: [Item], slots: Int) -> [Item] {
         guard slots < items.count else { return items }
         guard slots > 0 else { return [] }
@@ -393,12 +327,9 @@ public struct PaneTabStrip: View {
         Self.hidden(from: items, showing: visible(layout))
     }
 
-    /// The folded-away tabs, **newest first** (roadmap Fig. 7).
-    ///
-    /// New tabs land at the trailing end, so list order puts the ones you just opened at the bottom
-    /// of a menu you only opened because the strip ran out of room — the wrong end for the tab you
-    /// are most likely reaching for. Static so the order can be tested: a menu's contents never
-    /// reach the bitmap, so this is the only way to see it at all.
+    /// The folded-away tabs, newest first. New tabs land at the trailing end, so list order would
+    /// put the tab you just opened at the bottom of the menu. Static so the order can be tested: a
+    /// menu's contents never reach the bitmap.
     static func hidden(from items: [Item], showing shown: [Item]) -> [Item] {
         let visible = Set(shown.map(\.id))
         return items.filter { !visible.contains($0.id) }.reversed()
@@ -416,17 +347,15 @@ public struct PaneTabStrip: View {
                     .scaledFont(PaneTabStripLadder.titleFont)
                     // The hidden mark's words — see `spokenName`.
                     .accessibilityLabel(Self.spokenName(item))
-                    // Middle truncation, because the ends of a folder name are what tell two of them
-                    // apart ("2023 Tax Return" / "2024 Tax Return" differ at the front; "Kaiser
-                    // 2024" / "Kaiser 2025" at the back). A tail ellipsis loses one of those.
+                    // Middle truncation: either end of a folder name can be what tells two apart
+                    // ("2023 Tax Return", "Kaiser 2025").
                     .truncationMode(.middle)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if item.isPinned {
-                    // **A pin instead of a ✕.** Pinning is protection from a stray click as much as
-                    // it is a position, so the pinned chip has no close button at all — Chrome and
-                    // Safari both drop it — and the glyph is what says why. It sits in the ✕'s slot
-                    // so the chip's width arithmetic is unchanged.
+                    // A pin instead of a ✕: pinning guards against a stray click, so a pinned chip
+                    // has no close button (as in Chrome and Safari) and the glyph says why. It
+                    // takes the ✕'s slot, so the chip's width is unchanged.
                     Image(systemName: "pin.fill")
                         .scaledFont(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -434,11 +363,9 @@ public struct PaneTabStrip: View {
                                height: PaneTabStripLadder.closeSide)
                         .help("Pinned — right-click to unpin")
                 } else if items.count > 1 {
-                    // **No ✕ on a lone tab.** The strip is normally hidden at one tab, but View ▸
-                    // Tab Bar keeps it — and there the close button would be a ✕ that closes the
-                    // WINDOW (there is no tab left to fall back to), which is a trap rather than a
-                    // shortcut. Finder draws none there either. Close Tab in the context menu is
-                    // disabled for the same reason and by the same count.
+                    // No ✕ on a lone tab: View ▸ Tab Bar can keep the strip at one tab, where a ✕
+                    // would close the window. Finder draws none either, and Close Tab in the
+                    // context menu is disabled by the same count.
                     closeButton(item)
                 }
             }
@@ -446,26 +373,18 @@ public struct PaneTabStrip: View {
             .frame(width: width, height: PaneTabStripLadder.tabHeight)
             .contentShape(Rectangle())
         }
-        // **The hue, and the chip's own outline.** `.segment`'s default hit shape is a CAPSULE,
-        // which went unnoticed while a parked chip had no ground of its own — the wash floated on
-        // the backdrop with nothing under it to disagree with. Now every chip is a 10pt rounded
-        // rect, so a capsule wash would round its ends past the slab underneath and bleed onto the
-        // backdrop at the corners. `chipOutline` is the same value the slab and the active wash are
-        // drawn from, so the three cannot answer differently.
+        // The hue, and the chip's own outline: `.segment`'s default is a capsule, which would round
+        // the hover wash past the chip's rounded-rect slab. The slab and the active wash are drawn
+        // from the same `chipShape`, so the three agree.
         .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: Self.chipShape))
         .background(alignment: .bottom) { chipGround(item) }
         .selectionLensStop(Self.lensChannel, id: item.id)
-        // **Drag to reorder** (roadmap Fig. 8, left — the half that costs nothing; dropping FILES
-        // on a tab is the other half and is deliberately not here).
-        //
-        // `simultaneousGesture` with a 6pt minimum, so a click still selects: the chip is a
-        // `Button`, and a drag gesture that consumed the press would take tab-switching with it.
-        // The drop index is arithmetic rather than a drop target — every chip on these two rungs is
-        // exactly `width` wide, so the index is the translation over one chip's stride, which needs
-        // no second view and cannot disagree with what is drawn.
-        // The dragged chip rides the pointer; every chip it has passed steps aside by one stride,
-        // so the GAP tracks the drop index rather than the row sitting still until you let go
-        // (roadmap Fig. 8, left).
+        // Drag to reorder (dropping files on a tab is deliberately not supported).
+        // `simultaneousGesture` with a 6pt minimum, so a click still selects: a drag that consumed
+        // the press would take tab-switching with it. The drop index is arithmetic, not a drop
+        // target: every chip on these rungs is `width` wide, so it is the translation over one
+        // stride. The dragged chip rides the pointer and each chip it passes steps aside by one
+        // stride, so the gap tracks the drop index.
         .offset(x: draggingTab == item.id
                 ? dragOffset
                 : Self.displacement(of: item, items: items, visible: visible, dragging: draggingTab,
@@ -490,17 +409,11 @@ public struct PaneTabStrip: View {
                     dragOffset = 0
                 }
         )
-        //
-        // **The held chip is not eased** (speed audit 14): it rides the pointer, and the ease meant
-        // for its neighbours made it trail behind by 0.16 s on every move. The drop clears
-        // `draggingTab` in the same change that zeroes the offset, so the held chip's settle into
-        // its new slot reads the ease again and still animates.
+        // The held chip is not eased, so it rides the pointer. The drop clears `draggingTab` in the
+        // same change that zeroes the offset, so its settle into the new slot still animates.
         .designAnimation(Self.dragEase(holding: draggingTab == item.id), value: draggingTab)
-        // The neighbours' step-aside, and the settle when the list re-orders under them.
-        //
-        // Both of these travel, so both honour Reduce Motion: the drag itself is the user's own
-        // movement, but chips sliding out of the way under it is the app's, and that is the half
-        // the setting asks for. Under it the reorder lands without the shuffle.
+        // The neighbours' step-aside, and the settle when the list re-orders under them. Both honour
+        // Reduce Motion: the drag is the user's movement, but chips sliding aside is the app's.
         .designAnimation(Self.dragEase(holding: draggingTab == item.id), value: dragOffset)
         // A cancelled drag: the gesture state reset without `onEnded`. Put the chip back.
         .onChange(of: dragIsLive) { _, live in
@@ -510,92 +423,64 @@ public struct PaneTabStrip: View {
             }
         }
         .onHover { hovering in
-            // Only ever clear the id this chip set: the pointer can enter the next chip before this
-            // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that
-            // just lit.
+            // Only clear the id this chip set: the pointer can enter the next chip before this one's
+            // exit arrives, and a `nil` then would blank the ✕ that just lit.
             if hovering { hoveredTab = item.id } else if hoveredTab == item.id { hoveredTab = nil }
         }
         .help(item.fullPath)
         .contextMenu { menu(for: item) }
     }
 
-    /// Every chip's ground, in three rungs: the grey slab **all** of them wear, the accent wash the
-    /// live one takes on top of it, and the 2pt accent rule under that.
+    /// Every chip's ground: the grey slab all of them wear, the accent wash the live one takes on
+    /// top, and the 2pt accent rule under that.
     ///
-    /// **The grey used to belong to the active tab alone**, and a parked chip was drawn on bare
-    /// backdrop. That is Finder's arrangement and it read as one tab with three labels floating
-    /// beside it — the parked chips had no edges, so a strip of five looked like a title with some
-    /// words after it rather than like five places to go. Giving every chip the slab makes the
-    /// TABS the constant and the accent the variable, which is the same division a list of rows
-    /// uses: the row is always there, the wash says which one you are on.
+    /// Every chip wears the slab so the tabs read as places to go, as list rows are always there
+    /// and the wash says which one you are on. The live wash is `PaneSelectionWash`, the rows' own
+    /// numbers, so a tab and a row say "selected" in one colour. A wash, not a solid fill, because
+    /// `ProviderLogo`'s multi-coloured mark and the `.primary` title can't be re-inked for contrast.
     ///
-    /// **The live tab's wash is `PaneSelectionWash`, and deliberately the very same numbers the
-    /// pane's rows use** (0.22 in the focused pane, 0.10 in the other). A tab and a row are both
-    /// answering "which one is selected" about the same pane, so a person reading the window learns
-    /// the colour once. Sharing the constant rather than copying the literals is what keeps them
-    /// from drifting apart the next time one of them is tuned.
-    ///
-    /// It is a WASH and not a solid fill for the reason a row's selection is: `ProviderLogo` puts a
-    /// real, multi-coloured cloud mark on this chip, and the chip's title is `.primary` ink. A
-    /// solid `AccentFill` ground would need both of them re-inked to clear contrast, and the mark
-    /// cannot be — Dropbox's blue is Dropbox's blue. At 0.22 the ink underneath is untouched.
-    ///
-    /// **The rule stays, on top of the wash.** It was removed on 2026-08-24 and put back the same
-    /// day, and the mistake is worth keeping: it went out alongside the provider capsule's focus
-    /// ring, on one argument covering both — an accent marker inside a pane whose cards now carry
-    /// an accent border (`ActivePaneMark`) is a second marker for a fact already stated. That
-    /// argument is true of the capsule ring and false of this rule, because **they mark different
-    /// facts**. The border says which PANE is focused; this says which TAB inside that pane's strip
-    /// is live — a question the border cannot answer and that has no other carrier here.
-    ///
-    /// It survives the wash for a narrower reason of its own: **the wash dims and the rule does
-    /// not.** In the unfocused pane the wash drops to 0.10, and 0.10 of accent over a grey slab is
-    /// a shade rather than a statement — so without the rule the inactive pane's strip would stop
-    /// answering "which tab" at exactly the moment the pane border stops answering "which pane".
-    /// That is the case the 2026-08-24 removal could not see, and it is now two markers with two
-    /// jobs rather than one stated twice.
+    /// The rule is not redundant with the pane's accent border (`ActivePaneMark`): the border says
+    /// which pane is focused, the rule which tab is live. And in the unfocused pane the wash dims to
+    /// a shade while the rule doesn't, so the strip still answers "which tab" there.
     @ViewBuilder
     private func chipGround(_ item: Item) -> some View {
         ZStack(alignment: .bottom) {
-            // The active chip's slab is part of what the lens replaces: drawn over the lens, it laid
-            // an 85% quaternary film across the active tab's glass and its rule. One slab in every
-            // state, so Solid's is the same view whichever tab is active.
+            // The active chip's slab is part of what the lens replaces: drawn over the lens, it would
+            // lay an 85% film across the active tab's glass and rule. One slab in every state, so
+            // Solid's is the same view whichever tab is active.
             SelectionLensGround(Self.chipOutline, isSelected: item.isActive,
                                 selected: .quaternary.opacity(0.85), unselected: .quaternary.opacity(0.85))
             if item.isActive { SelectionLensTodayMarker { activeMarkerLayer } }
         }
     }
 
-    /// The strip's selection lens in Frosted and Clear — see `SelectionLens`. One per strip: the
-    /// lens host is the strip's own row, so Compare's two strips never see each other's stops.
+    /// The strip's selection lens in Frosted and Clear (see `SelectionLens`). The host is the
+    /// strip's own row, so Compare's two strips never see each other's stops.
     static let lensChannel = SelectionLensChannel("pane.tabs")
 
     @Environment(\.selectionLensAppearance) private var lensAppearance
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    /// Whether the strip's lens draws — read out here, above the host, for the animations that
-    /// must enclose it.
+    /// Whether the strip's lens draws, read here above the host for the animations that must
+    /// enclose it.
     private var drawsLens: Bool {
         SelectionLensRule.material(for: lensAppearance, reduceTransparency: reduceTransparency) != .today
     }
 
-    /// The lens wears what `activeMarkerLayer` draws today: the chip's outline, the same wash —
-    /// dimmed in the unfocused pane exactly as the marker is — and the 2pt rule on top.
+    /// The lens wears what `activeMarkerLayer` draws: the chip's outline, the same wash (dimmed in
+    /// the unfocused pane, as the marker is) and the 2pt rule on top.
     private var lensStyle: SelectionLensStyle {
         SelectionLensStyle(shape: Self.chipShape, color: accent,
                            markerOpacity: PaneSelectionWash.opacity(isActivePane: isActivePane),
                            rule: .init(color: accent, height: 2, inset: PaneTabStripLadder.ruleInset))
     }
 
-    /// The live chip's half of `chipGround` — everything that TRAVELS when the active tab changes.
+    /// The live chip's half of `chipGround`: everything that travels when the active tab changes.
     ///
-    /// Wash and rule move together as one marker: they mark the same fact, and a rule that slid out
-    /// from under a wash that blinked would read as two markers disagreeing. The grey slab is
-    /// deliberately **not** in here — it is on every chip now, so it has nowhere to travel to.
-    ///
-    /// Both call sites are safe to share one id because they are mutually exclusive rungs —
-    /// `.full`/`.compact` draw chips, `.chip` draws the menu — so exactly one source for this id is
-    /// ever in the hierarchy. Two would be ambiguous and SwiftUI would say so.
+    /// Wash and rule move as one marker, since they mark one fact; the grey slab is on every chip,
+    /// so it stays out. The two call sites can share one id because their rungs are exclusive
+    /// (`.full` and `.compact` draw chips, `.chip` the menu), so only one source is ever in the
+    /// hierarchy.
     private var activeMarkerLayer: some View {
         ZStack(alignment: .bottom) {
             Self.chipOutline
@@ -612,10 +497,9 @@ public struct PaneTabStrip: View {
 
     private func closeButton(_ item: Item) -> some View {
         Button {
-            // ⌥ turns the ✕ into "close the others", which is also in the chip's context menu. Read
-            // at fire time from `NSEvent`: a modifier held while a button is clicked never reaches
-            // SwiftUI's action, and the alternative — a `.keyboardShortcut` per chip — would
-            // register one key equivalent per tab.
+            // ⌥ turns the ✕ into "close the others", also in the context menu. Read from `NSEvent`
+            // at fire time: a modifier held during a click never reaches SwiftUI's action, and a
+            // `.keyboardShortcut` per chip would register a key equivalent per tab.
             if NSEvent.modifierFlags.contains(.option) {
                 onCloseOthers(item.id)
             } else {
@@ -628,21 +512,18 @@ public struct PaneTabStrip: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.glyph))
-        // **On the active tab, and on the one under the pointer.** A row of chips each wearing a
-        // permanent ✕ reads as a row of things to dismiss rather than places to go — and the strip
-        // is mostly parked tabs. `opacity` rather than absence, so the title does not re-flow (and
-        // does not resize) as the pointer crosses the strip.
+        // On the active tab and the one under the pointer only: a permanent ✕ on every chip reads
+        // as things to dismiss. `opacity`, not absence, so the title doesn't re-flow as the pointer
+        // crosses the strip.
         .opacity(item.isActive || hoveredTab == item.id ? 1 : 0)
-        // The ⌥ half drops out of the tooltip when there is nothing for it to close — every other
-        // tab pinned — rather than promising a modifier that would do nothing.
+        // The ⌥ half drops out of the tooltip when every other tab is pinned, rather than
+        // promising a modifier that does nothing.
         .help(Self.closableOthers(of: item, in: items) > 0
               ? "Close this tab (⌥ to close the others)"
               : "Close this tab")
-        // **`.opacity(0)` hides a control from the eye and from nothing else.** Every parked tab
-        // was carrying an invisible, unnamed close button in the accessibility tree, so what a
-        // VoiceOver user walked through did not match what is drawn — and the name is needed for
-        // the visible half regardless, since `.help` is the accessibility help on macOS, not the
-        // name. The two lines are one decision: it is announced exactly when it is drawn.
+        // `.opacity(0)` hides a control from the eye only, so without this every parked tab carries
+        // an invisible close button for VoiceOver. Announced exactly when drawn, and named, since
+        // `.help` is the accessibility help on macOS, not the name.
         .accessibilityLabel("Close \(item.title)")
         .accessibilityHidden(!(item.isActive || hoveredTab == item.id))
     }
@@ -664,7 +545,7 @@ public struct PaneTabStrip: View {
         } label: {
             HStack(spacing: PaneTabStripLadder.contentGap) {
                 // `inAppKitLabel`: AppKit draws this label and ignores the frame around a resizable
-                // image, so a catalog mark came out at its native 512pt across the pane.
+                // image, so a catalog mark would come out at its native 512pt across the pane.
                 ProviderLogo(active.markImageName, size: PaneTabStripLadder.markSide, inAppKitLabel: true)
                 Text(active.title)
                     .scaledFont(PaneTabStripLadder.titleFont)
@@ -675,17 +556,13 @@ public struct PaneTabStrip: View {
             .padding(.horizontal, PaneTabStripLadder.tabPadding)
         }
         .menuStyle(.borderlessButton)
-        // **The system's indicator, and it has to be.** A `chevron.down` drawn in the label here
-        // renders as nothing: the borderless menu style lays its label out itself and dropped the
-        // trailing image — seen in a render, with the chip ending flush after its title and no
-        // affordance at all on the one rung whose whole job is to say "there are others". Rather
-        // than fight the chrome from outside (the house rule, and it loses here), the indicator is
-        // the system's. `theChipRungWearsAChevron` renders it back.
+        // The system's indicator: a `chevron.down` drawn in this label renders as nothing, because
+        // the borderless menu style lays the label out itself and drops trailing images.
+        // `theChipRungWearsAChevron` renders it back.
         .menuIndicator(.visible)
-        // **A cap, not a fill.** Sized to exactly the track left over, this row has zero slack, and
-        // the one compressible child — the count of parked tabs — is what gave way: it rendered
-        // clipped, then vanished. The chip takes what its name needs up to the cap and the spacer
-        // absorbs the rest, so the count always has its own room.
+        // A cap, not a fill: sized to exactly the track left over, the row has no slack and the
+        // count of parked tabs gives way. The chip takes what its name needs up to the cap and the
+        // spacer absorbs the rest, so the count keeps its room.
         .frame(maxWidth: max(0, width))
         .frame(height: PaneTabStripLadder.tabHeight)
         .fixedSize(horizontal: true, vertical: false)
@@ -695,7 +572,7 @@ public struct PaneTabStrip: View {
         .contextMenu { menu(for: active) }
     }
 
-    /// The chip rung's count of parked tabs — inert on purpose; the switcher is the chip's chevron.
+    /// The chip rung's count of parked tabs: inert on purpose, since the switcher is the chip's chevron.
     private func overflowCount(_ count: Int) -> some View {
         Text("\(count)")
             .scaledFont(PaneTabStripLadder.controlFont)
@@ -723,12 +600,10 @@ public struct PaneTabStrip: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`) — outside the
-        // menu, because AppKit paints nothing inside a borderless menu's label. AppKit also sizes
-        // the menu itself, ignoring the label's frame: measured 39.5 × 16pt, so the capsule grows
-        // 3pt past it, to 22pt — the ＋ beside it — rather than shrinking (the first version took
-        // the label's 26pt frame at its word and drew a 10pt sliver). Up and down only: the strip's
-        // 4pt gap left 1pt between a sideways-grown capsule and the last chip.
+        // Frosted and Clear: a glass capsule like every bar button (`ChromeGlass`), outside the
+        // menu, because AppKit paints nothing inside a borderless menu's label. AppKit sizes the
+        // menu itself (16pt tall, ignoring the label's frame), so the capsule grows 3pt to the ＋'s
+        // 22pt. Up and down only: grown sideways, it would all but touch the last chip.
         .chromeGlassGround(.capsule, horizontalOutset: 0, verticalOutset: 3)
         .help("\(hidden.count) more \(hidden.count == 1 ? "tab" : "tabs")")
     }
@@ -743,8 +618,8 @@ public struct PaneTabStrip: View {
         // Frosted and Clear: a glass circle with a round hover, like every bar button (`ChromeGlass`).
         .chromeGlassGlyphButton()
         .accessibilityLabel("New tab")
-        // "here", because ⌘T opens the CURRENT folder and the result is two tabs with the same
-        // name — so the control has to say what it did before it does it.
+        // "here", because ⌘T opens the current folder, giving two tabs with the same name, so the
+        // control says so first.
         .help("New tab here (⌘T)")
     }
 
@@ -754,10 +629,8 @@ public struct PaneTabStrip: View {
         Divider()
         Button("Close Tab") { onClose(item.id) }
             .disabled(items.count < 2)
-        // **Not `items.count < 2`.** Close Other Tabs keeps the pinned ones, so with three tabs of
-        // which the other two are pinned there is nothing for it to close — and a count-based gate
-        // leaves it enabled, doing nothing, on a menu whose other items all do something. Gated on
-        // whether a closable other exists, which is the same question the verb asks.
+        // Not `items.count < 2`: Close Other Tabs keeps pinned tabs, so it is gated on whether a
+        // closable other exists, the question the verb asks.
         Button("Close Other Tabs") { onCloseOthers(item.id) }
             .disabled(Self.closableOthers(of: item, in: items) == 0)
         Divider()

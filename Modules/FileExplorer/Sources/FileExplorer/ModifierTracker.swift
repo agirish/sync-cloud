@@ -18,9 +18,8 @@ final class ModifierTracker: ObservableObject {
     private struct MonitorBox: @unchecked Sendable { let value: Any }
 
     deinit {
-        // @StateObject teardown practically happens on the main thread, but deinit is
-        // nonisolated and nothing guarantees it — hop explicitly so the AppKit-main-thread-only
-        // removeMonitor is never called off-main.
+        // deinit is nonisolated, and nothing guarantees @StateObject teardown runs on main, so
+        // hop to the main actor: AppKit's removeMonitor is main-thread only.
         if let monitor = monitor {
             let box = MonitorBox(value: monitor)
             Task { @MainActor in NSEvent.removeMonitor(box.value) }
@@ -39,8 +38,8 @@ final class ModifierTracker: ObservableObject {
         flags.contains(.shift) || flags.contains(.command)
     }
 
-    /// One-shot read of the current keyboard state (e.g. at drop time), for callers that
-    /// don't need the published stream.
+    /// One-shot read of the current keyboard state (at drop time, say), for callers that don't
+    /// need the published stream.
     static var moveModifierHeld: Bool {
         isMoveModifier(NSEvent.modifierFlags)
     }

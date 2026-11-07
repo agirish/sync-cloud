@@ -4,13 +4,12 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The lens points at its own Help page (proposal O14). The book already explains the plan flow
-/// and why taking a landing back is not ⌘Z; the reader most in need of that page was the one
-/// least likely to go looking for it.
+/// The lens points at its own Help page, which explains the plan flow and why taking a landing
+/// back is not ⌘Z: the reader who most needs it is the least likely to go looking.
 @MainActor
 @Suite struct RestructureHelpPointerTests {
 
-    /// A glyph-only control needs a NAME as well as a tooltip — `.help` is the tooltip, and
+    /// A glyph-only control needs a name as well as a tooltip: `.help` is the tooltip, and
     /// VoiceOver reads the label.
     @Test func theAffordanceIsNamedAndDescribed() throws {
         let source = URL(fileURLWithPath: #filePath)
@@ -36,9 +35,8 @@ import Testing
         #expect(text.contains("if let onOpenHelp {"))
     }
 
-    /// Rendered with and without the handler — the strip lays out either way, **and the pointer
-    /// is visibly there in one and not the other.** A `fittingSize` closer here passed with the
-    /// whole overlay deleted, which is the mutation this exists to catch.
+    /// Rendered with and without the handler: the strip lays out either way, and the pointer is
+    /// visibly there in only one. Deleting the overlay must fail it.
     @Test func theStripRendersWithAndWithoutThePointer() throws {
         func lens(_ handler: (() -> Void)?) -> RestructureLens {
             RestructureLens(

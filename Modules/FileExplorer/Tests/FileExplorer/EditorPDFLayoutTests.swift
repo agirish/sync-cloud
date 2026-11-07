@@ -6,8 +6,8 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **Phase 5a: the reader's layouts, its fit for spreads, the zoom ladder, and whose keyboard it
-/// is** — measured on laid-out page views, as `EditorPDFDocumentTests` measures the fit.
+/// The reader's layouts, its fit for spreads, the zoom ladder, and whose keyboard it is, measured on
+/// laid-out page views as `EditorPDFDocumentTests` measures the fit.
 ///
 /// Serialized: every test lays out a `PDFView` on the main thread, and several hold a window key.
 @MainActor
@@ -35,8 +35,8 @@ import FileExplorerTestSupport
         return state
     }
 
-    /// The page view mounted the way the card mounts it, in a window of `size` — with the page
-    /// count the model sets when it hands the view a document.
+    /// The page view mounted the way the card mounts it, in a window of `size`, with the page count
+    /// the model sets when it hands the view a document.
     private func mount(_ document: PDFDocument, _ state: EditorPDFViewState,
                        size: CGSize = CGSize(width: 1000, height: 700)) async throws -> (NSWindow, ReaderPDFView) {
         state.pageCount = document.pageCount
@@ -68,8 +68,8 @@ import FileExplorerTestSupport
 
     // MARK: Layouts
 
-    /// **Each layout is the PDFKit mode it names**, and the cover is `displaysAsBook` only where
-    /// there are two pages to a row — on the mounted view, not just in the mapping.
+    /// Each layout is the PDFKit mode it names, and the cover is `displaysAsBook` only where there
+    /// are two pages to a row, on the mounted view as well as in the mapping.
     @Test(arguments: EditorPDFLayout.allCases)
     func eachLayoutSetsItsDisplayMode(layout: EditorPDFLayout) async throws {
         let expected: [EditorPDFLayout: PDFDisplayMode] = [.singlePage: .singlePage, .continuous: .singlePageContinuous,
@@ -85,8 +85,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The layout and the cover are remembered, under the named keys**, and a new view state —
-    /// the next launch's — reads them back. Continuous and no cover until something is chosen.
+    /// The layout and the cover are remembered under the named keys, and a new view state (the next
+    /// launch's) reads them back. Continuous and no cover until something is chosen.
     @Test func theLayoutAndTheCoverPersistAcrossARemount() {
         let first = EditorPDFViewState(defaults: defaults)
         #expect(first.layout == .continuous && first.layout == EditorPDFSettings.layoutDefault)
@@ -105,7 +105,7 @@ import FileExplorerTestSupport
         #expect(EditorPDFViewState(defaults: defaults).layout == .continuous)
     }
 
-    /// **A layout change keeps the page in view** — there and back.
+    /// A layout change keeps the page in view, there and back.
     @Test(arguments: [EditorPDFFit.page, .width])
     func thePageStaysPutAcrossALayoutChange(fit: EditorPDFFit) async throws {
         let doc = try document(pages: 40)
@@ -119,7 +119,7 @@ import FileExplorerTestSupport
         #expect(state.currentPage == target)
         for (layout, cover) in [(EditorPDFLayout.twoPagesContinuous, false), (.continuous, false), (.twoPages, true),
                                 (.singlePage, false), (.twoPagesContinuous, true), (.continuous, false)] {
-            // Through the view state, as the layout menu asks — the page view applies it on update.
+            // Through the view state, as the layout menu asks; the page view applies it on update.
             state.layout = layout
             state.coverSeparately = cover
             let applied = await LayoutPumpWait.pump(window, upTo: 10) {
@@ -135,7 +135,7 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The pairing** — 1–2, 3–4 without the cover, 1, 2–3, 4–5 with it; a last odd page alone.
+    /// The pairing: 1–2, 3–4 without the cover; 1, 2–3, 4–5 with it; a last odd page alone.
     @Test func spreadsPairAsPDFKitDrawsThem() {
         func s(_ page: Int, _ count: Int, twoUp: Bool = true, cover: Bool = false) -> ClosedRange<Int> {
             EditorPDFLayout.spread(containing: page, pageCount: count, twoUp: twoUp, coverSeparately: cover)
@@ -150,7 +150,7 @@ import FileExplorerTestSupport
         #expect(s(0, 0) == 0...0)
     }
 
-    /// **The pure pairing is PDFKit's own** — on a laid-out view, both ways round.
+    /// The pure pairing is PDFKit's own, on a laid-out view, both ways round.
     @Test func thePairingMatchesWhatPDFKitDraws() async throws {
         let doc = try document(pages: 7)
         for cover in [false, true] {
@@ -169,15 +169,15 @@ import FileExplorerTestSupport
 
     // MARK: Fit for spreads
 
-    /// **The spread's size** — widths and the gap added, the taller height — and the fits on it,
-    /// as pure functions. One page is the old rule's numbers exactly.
+    /// The spread's size (widths and the gap added, the taller height) and the fits on it, as pure
+    /// functions. One page gives the single-page fit's numbers exactly.
     @Test func theFitIsMeasuredOnTheSpread() {
         let letter = PDFFixtures.letter, a4 = CGSize(width: 595, height: 842)
         #expect(EditorPDFFit.spreadSize([letter], gap: 8) == letter)
         #expect(EditorPDFFit.spreadSize([letter, a4], gap: 8) == CGSize(width: 612 + 8 + 595, height: 842))
         #expect(EditorPDFFit.spreadSize([], gap: 8) == .zero)
         let view = CGSize(width: 1000, height: 700)
-        // One page: what the reader did before layouts existed.
+        // One page: the same as the single-page fit.
         #expect(EditorPDFFit.scale(.page, spreadSize: letter, viewSize: view, margin: 4)
                 == PDFPageFit.scale(pageSize: letter, viewSize: view))
         #expect(EditorPDFFit.scale(.width, spreadSize: letter, viewSize: view, margin: 4) == CGFloat(1000 - 8) / 612)
@@ -194,8 +194,8 @@ import FileExplorerTestSupport
         try drawn(pages.lowerBound, in: view).union(try drawn(pages.upperBound, in: view))
     }
 
-    /// **In Two Pages, Fit Width puts the PAIR across the view, and Fit Page keeps it whole** —
-    /// measured on what is drawn, in both two-page layouts.
+    /// In Two Pages, Fit Width puts the pair across the view and Fit Page keeps it whole, measured
+    /// on what is drawn, in both two-page layouts.
     @Test(arguments: [EditorPDFLayout.twoPages, .twoPagesContinuous])
     func pageAndWidthFitTheSpread(layout: EditorPDFLayout) async throws {
         let doc = try document(pages: 6)
@@ -218,7 +218,7 @@ import FileExplorerTestSupport
                 "Fit Page fills neither dimension: \(whole.size) in \(view.bounds.size)")
     }
 
-    /// **The cover shown separately is fitted alone in Two Pages** — and the 2–3 after it as a pair.
+    /// The cover shown separately is fitted alone in Two Pages, and the 2–3 after it as a pair.
     @Test func theCoverIsFittedAloneInTwoPages() async throws {
         let doc = try document(pages: 6)
         let state = state(.twoPages, cover: true)
@@ -236,8 +236,8 @@ import FileExplorerTestSupport
                 "2–3 drew \(pair.width)pt wide after the cover — the spread was not refitted")
     }
 
-    /// **In Two Pages, Continuous the cover is fitted as the pair beside it**, because every row
-    /// is drawn two pages wide: fitting the cover alone would draw 2–3 twice the view's width.
+    /// In Two Pages, Continuous the cover is fitted as the pair beside it, because every row is
+    /// drawn two pages wide: fitting the cover alone would draw 2–3 twice the view's width.
     @Test func continuousTwoPagesFitsTheCoverAsAPair() async throws {
         #expect(ReaderPDFView.fittedSpread(around: 0, pageCount: 6, layout: .twoPagesContinuous, coverSeparately: true) == 1...2)
         #expect(ReaderPDFView.fittedSpread(around: 0, pageCount: 6, layout: .twoPages, coverSeparately: true) == 0...0)
@@ -255,7 +255,7 @@ import FileExplorerTestSupport
         #expect(pair.width <= view.bounds.width + 0.5, "2–3 is \(pair.width)pt in a \(view.bounds.width)pt view")
     }
 
-    /// **A mixed letter-and-A4 spread fits on both pages' sizes.**
+    /// A mixed letter-and-A4 spread fits on both pages' sizes.
     @Test func aMixedSpreadFitsBothPages() async throws {
         let file = (folder as NSString).appendingPathComponent("mixed.pdf")
         var box = CGRect(origin: .zero, size: PDFFixtures.letter)
@@ -283,7 +283,7 @@ import FileExplorerTestSupport
     @Test func thePageFieldShowsAndTakesASpread() {
         #expect(EditorPDFCapsule.pageText(6...6) == "7")
         #expect(EditorPDFCapsule.pageText(5...6) == "6–7")
-        // The field's own spread sent back unchanged goes to its first page — the spread it is.
+        // The field's own spread sent back unchanged goes to its first page, the spread it is.
         #expect(EditorPDFCapsule.page(typed: "6–7", pageCount: 64) == 5)
         #expect(EditorPDFCapsule.page(typed: "7", pageCount: 64) == 6)
         #expect(EditorPDFCapsule.page(typed: "–", pageCount: 64) == nil)
@@ -292,7 +292,7 @@ import FileExplorerTestSupport
                 > EditorPDFCapsule.fieldWidth(pageCount: 64))
     }
 
-    /// **A typed page lands on the spread that holds it** — 7 with the cover separate is 6–7.
+    /// A typed page lands on the spread that holds it: 7 with the cover separate is 6–7.
     @Test func aTypedPageLandsOnItsSpread() async throws {
         let doc = try document(pages: 12)
         let state = state(.twoPages, cover: true)
@@ -306,8 +306,8 @@ import FileExplorerTestSupport
         #expect(view.visiblePages.map { doc.index(for: $0) } == [5, 6])
     }
 
-    /// **Row 2's paper is the page on screen's** — the status line's rule for a file of mixed
-    /// sizes, kept now the status line is gone: a spread names its first page's paper.
+    /// Row 2's paper is the page on screen's, for a file of mixed sizes: a spread names its first
+    /// page's paper.
     @Test func rowTwoNamesThePaperOfThePageOnScreen() throws {
         let sizes = [PDFFixtures.letter, CGSize(width: 595, height: 842), PDFFixtures.letter]
         let facts = EditorPDFFacts(pageCount: 3, pageSizes: sizes, majorVersion: 1, minorVersion: 7,
@@ -319,7 +319,8 @@ import FileExplorerTestSupport
                 "row 2 no longer reads the paper of the page on screen")
     }
 
-    /// **The view state's spread is what all three read**, and the Pages tab rings every page in it.
+    /// The view state's spread is what the field, row 2 and the rail read, and the Pages tab rings
+    /// every page in it.
     @Test func theVisiblePagesAreTheSpreadAndThePagesTabRingsThem() throws {
         let state = state(.twoPages, cover: true)
         state.pageCount = 64
@@ -333,7 +334,8 @@ import FileExplorerTestSupport
                 "the Pages tab rings one page, not the spread")
     }
 
-    /// **⌥← and ⌥→ turn a whole spread** — PDFKit's own previous and next, in both two-page layouts.
+    /// ⌥← and ⌥→ turn a whole spread, through PDFKit's own previous and next, in both two-page
+    /// layouts.
     @Test(arguments: [EditorPDFLayout.twoPages, .twoPagesContinuous])
     func theOptionArrowsTurnAWholeSpread(layout: EditorPDFLayout) async throws {
         let doc = try document(pages: 9)
@@ -361,7 +363,7 @@ import FileExplorerTestSupport
 
     // MARK: Find in two pages
 
-    /// **A match on the right-hand page is drawn there and counts as in sight** — the overlay maps
+    /// A match on the right-hand page is drawn there and counts as in sight: the overlay maps
     /// through `convert(_:from:)`, so a spread needs nothing of its own.
     @Test func aMatchOnTheRightHandPageIsHighlightedAndInSight() async throws {
         let doc = try document(pages: 4)
@@ -407,8 +409,8 @@ import FileExplorerTestSupport
         #expect(menu.items.first { $0.title == "Zoom In" }?.isEnabled == true)
     }
 
-    /// **A fit refits on resize; a preset lets the fit go and a resize leaves it.** A bare page
-    /// view as the window's content, so a resize of the window is a resize of the view.
+    /// A fit refits on resize; a preset lets the fit go and a resize leaves it. A bare page view is
+    /// the window's content, so a resize of the window is a resize of the view.
     @Test func aFitRefitsOnResizeAndAPresetHolds() throws {
         let doc = try document(pages: 3)
         let view = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
@@ -438,7 +440,7 @@ import FileExplorerTestSupport
         #expect(abs(view.scaleFactor - 1.5) < 0.001, "a preset was refitted by a resize: \(view.scaleFactor)")
     }
 
-    /// **A pinch is the reader's own scale**: the fit lets go and the label says the real value.
+    /// A pinch is the reader's own scale: the fit lets go and the label says the real value.
     @Test func aPinchLetsTheFitGo() async throws {
         let doc = try document(pages: 3)
         let state = state(.continuous)
@@ -460,7 +462,7 @@ import FileExplorerTestSupport
         #expect(EditorPDFZoom.label(fit: nil, scale: 1.3749) == "137%")
     }
 
-    /// **The menu** (mockup 15): the verbs on their chords, the fits, the presets, one tick.
+    /// The zoom menu: the verbs on their chords, the fits, the presets, one tick.
     @Test func theZoomMenuReadsAsTheMockupDoes() throws {
         let state = state()
         state.fit = nil
@@ -485,8 +487,8 @@ import FileExplorerTestSupport
         #expect(state.fit == .page)
     }
 
-    /// **The layouts' menu** (mockup 16): four, the one in use ticked, the cover greyed where there
-    /// is no spread for it to change.
+    /// The layouts' menu: four, the one in use ticked, the cover greyed where there is no spread
+    /// for it to change.
     @Test func theLayoutMenuGreysTheCoverInTheSinglePageLayouts() throws {
         let state = state(.twoPages, cover: true)
         var menu = EditorPDFLayoutMenu.menu(for: state)
@@ -504,9 +506,8 @@ import FileExplorerTestSupport
         #expect(state.layout == .twoPagesContinuous)
     }
 
-    /// **The capsule's view menu** (Phase 6a, mockup E): the zoom menu exactly as
-    /// `theZoomMenuReadsAsTheMockupDoes` reads it, then a separator and Page Layout ▸ — nothing
-    /// folded into the zoom part, nothing after.
+    /// The capsule's view menu: the zoom menu exactly as `theZoomMenuReadsAsTheMockupDoes` reads it,
+    /// then a separator and Page Layout ▸, with nothing folded into the zoom part and nothing after.
     @Test func theViewMenuIsTheZoomMenuThenPageLayout() throws {
         let state = state(.twoPages, cover: true)
         state.fit = nil
@@ -522,8 +523,8 @@ import FileExplorerTestSupport
         #expect(view.items.last?.isEnabled == true, "Page Layout is greyed")
     }
 
-    /// **5a's layout menu, as the view menu's Page Layout submenu** — `theLayoutMenuGreysTheCover…`'s
-    /// assertions, unchanged, read through the menu the capsule opens now that the button is gone.
+    /// The layout menu as the view menu's Page Layout submenu: `theLayoutMenuGreysTheCover…`'s
+    /// assertions, read through the menu the capsule opens.
     @Test func thePageLayoutSubmenuGreysTheCoverInTheSinglePageLayouts() throws {
         let state = state(.twoPages, cover: true)
         func submenu() throws -> NSMenu {
@@ -549,8 +550,8 @@ import FileExplorerTestSupport
 
     // MARK: Whose keyboard
 
-    /// **The pages have the keyboard when the reader — or a view inside it — is first responder
-    /// in the key window**, and lose it to any other view.
+    /// The pages have the keyboard when the reader, or a view inside it, is first responder in the
+    /// key window, and lose it to any other view.
     @Test func theFocusIsThePagesOwnAndFollowsTheFirstResponder() async throws {
         let doc = try document(pages: 3)
         let state = state()
@@ -580,7 +581,7 @@ import FileExplorerTestSupport
         window.makeFirstResponder(other)
         _ = await LayoutPumpWait.pump(window, upTo: 10) { !state.hasFocus }
         #expect(!state.hasFocus, "the field took the keyboard and the reader still claims it")
-        // A view INSIDE the reader taking it — where a click in the pages can put first responder.
+        // A view inside the reader taking it, where a click in the pages can put first responder.
         // The reader hears nothing of that itself; the window's first responder is watched.
         let inner = try #require(view.documentView)
         window.makeFirstResponder(other)
@@ -599,8 +600,8 @@ import FileExplorerTestSupport
     }
 }
 
-/// **A window that says it is key** — a test process has no app to activate, so no window there
-/// ever really becomes key; the reader asks `isKeyWindow`, and this answers it.
+/// A window that says it is key. A test process has no app to activate, so no window there ever
+/// really becomes key; the reader asks `isKeyWindow`, and this answers it.
 final class KeyableWindow: NSWindow {
     var isKey = true
     override var isKeyWindow: Bool { isKey }

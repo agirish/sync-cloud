@@ -5,13 +5,12 @@ import Design
 
 /// The toolbar's Go-to control in both of its states: the pill you click, and the field it becomes.
 ///
-/// One view rather than two, because the two states are one control morphing — the width animates
-/// between them, and a `ToolbarItem` that swapped one view for another would cross-fade instead.
+/// One view, not two, because the states are one control morphing: the width animates between
+/// them, where a `ToolbarItem` swapping views would cross-fade.
 public struct GoToFieldBar: View {
 
-    /// Closed, at the rung the row resolved for it; or open, at the width and placeholder the row
-    /// resolved for it. Both come out of `WorkspaceBarMetrics.styles` — the field does not get to
-    /// decide its own width, for the same reason the pill does not decide its own rung.
+    /// Closed at the rung the row resolved, or open at the width and placeholder it resolved. Both
+    /// come from `WorkspaceBarMetrics.styles`: the row, not the control, decides its size.
     public enum Mode: Equatable {
         case closed(CommandPaletteBarStyle)
         case open(GoToFieldLayout)
@@ -20,8 +19,8 @@ public struct GoToFieldBar: View {
     let mode: Mode
     @Binding var query: String
     let chord: String
-    /// Bumped by the host to claim the caret — on open, and again on ⌘K while already open, where
-    /// it also selects what is there so the next keystroke replaces it.
+    /// Bumped by the host to claim the caret: on open, and on ⌘K while open, where it also selects
+    /// the text so the next keystroke replaces it.
     let focusToken: Int
     let accent: Color
     let onOpen: () -> Void
@@ -47,12 +46,10 @@ public struct GoToFieldBar: View {
     @Environment(\.appFontScale) private var scale
 
     public var body: some View {
-        // **One root view for both states, and it has to be one.** Returning the pill from one
-        // branch and the field from another changes the toolbar item's content type, and measured
-        // in the app that leaves `NSToolbarItem.view` NIL after the field closes — the item stays
-        // in `NSToolbar.items`, still counts as visible, and draws nothing. The control vanished
-        // from the row on close and a resize did not bring it back. The conditional is a CHILD of
-        // a stable container now.
+        // One root view for both states, and it must stay one. Returning the pill from one branch
+        // and the field from the other changes the toolbar item's content type, which leaves
+        // `NSToolbarItem.view` nil after the field closes: the item still counts as visible but
+        // draws nothing, and a resize doesn't bring it back. Keep the switch inside the container.
         HStack(spacing: 0) {
             switch mode {
             case .closed(let style):
@@ -81,8 +78,8 @@ public struct GoToFieldBar: View {
         .padding(.horizontal, CommandPaletteBarMetrics.horizontalPadding)
         .padding(.vertical, CommandPaletteBarMetrics.verticalPadding)
         .frame(width: layout.width)
-        // The same resting wash as the pill it grew out of, with the accent ring saying the caret
-        // is here — the field is the one control on this row that holds keystrokes.
+        // The pill's resting wash, plus an accent ring saying the caret is here: the one control on
+        // this row that holds keystrokes.
         .background(
             Capsule()
                 .fill(.quaternary.opacity(0.5))
@@ -91,9 +88,8 @@ public struct GoToFieldBar: View {
         .accessibilityLabel("Go to")
     }
 
-    /// `esc` while the field is empty — the key that closes it — and a clear button once there is
-    /// something to clear, which is the more useful of the two at that point and the one the user
-    /// can reach with the mouse they are already holding.
+    /// The `esc` keycap while the field is empty (the key that closes it), and a clear button once
+    /// there is something to clear.
     @ViewBuilder private var trailing: some View {
         if query.isEmpty {
             ShortcutKeycap(GoToFieldMetrics.closeKeycap)
@@ -113,17 +109,11 @@ public struct GoToFieldBar: View {
 
 /// The field itself, in AppKit.
 ///
-/// **Not a SwiftUI `TextField`, and the reason was measured in this app rather than assumed**
-/// (ROADMAP v4 §7, 2026-08-18). A SwiftUI `TextField` in a `ToolbarItem` does materialise as a
-/// focusable AppKit control and does type — but `@FocusState` cannot put the caret in it, with the
-/// state owned by the field's own view or by the scene root. ⌘K is precisely that: focus claimed
-/// with no click to ride in on. Worse, a SwiftUI field focused behind SwiftUI's back is one
-/// re-render from losing the caret — with the root focus state still reading `false`, focus granted
-/// by a click was revoked inside two seconds and the typing that followed went nowhere.
-///
-/// With AppKit owning the field, ↑ ↓ ↩ esc arrive through the field editor's `doCommandBy` —
-/// verified in the same probe to deliver `moveUp:`, `moveDown:`, `insertNewline:` and
-/// `cancelOperation:` from this exact toolbar slot.
+/// Not a SwiftUI `TextField`: in a `ToolbarItem`, `@FocusState` can't put the caret in one, which
+/// is exactly what ⌘K needs, and a field focused behind SwiftUI's back loses the caret on a later
+/// re-render while the focus state still reads `false`. With AppKit owning it, ↑ ↓ ↩ esc arrive
+/// through the field editor's `doCommandBy` as `moveUp:`, `moveDown:`, `insertNewline:` and
+/// `cancelOperation:`.
 struct GoToTextField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -136,8 +126,8 @@ struct GoToTextField: NSViewRepresentable {
     /// One display frame. Short enough that the caret arrives without a visible wait, long enough
     /// that the runloop gets to mount the toolbar item between attempts.
     static let retryInterval: TimeInterval = 1.0 / 60.0
-    /// ~0.6s of frames. Generous because the cost of running out is a dead field, and the cost of
-    /// an unused attempt is nothing — the loop stops the moment the window appears.
+    /// ~0.6s of frames. Generous: running out leaves a dead field, and an unused attempt costs
+    /// nothing, since the loop stops once the window appears.
     static let focusAttempts = 36
 
     func makeNSView(context: Context) -> NSTextField {
@@ -151,9 +141,8 @@ struct GoToTextField: NSViewRepresentable {
         field.delegate = context.coordinator
         field.font = ScaledFont.system(size: GoToFieldMetrics.textPointSize).nsFont(scale: scale)
         field.placeholderString = placeholder
-        // Hugging low, compression high: the field is the part of the row that should absorb
-        // whatever width the capsule was given, and the keycap beside it is the part that must not
-        // be squeezed.
+        // Low hugging and low compression resistance: the field absorbs whatever width the capsule
+        // has, so the keycap beside it is not the part squeezed.
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
@@ -170,27 +159,17 @@ struct GoToTextField: NSViewRepresentable {
         claimFocus(field, attemptsLeft: Self.focusAttempts)
     }
 
-    /// Claiming the caret, with a retry rather than a single shot.
+    /// Claims the caret, retrying: the first update can run before the field is in a window, where
+    /// `makeFirstResponder` silently does nothing. Each retry re-reads the field's window.
     ///
-    /// The first update after the field is created can run before it is in a window, and
-    /// `makeFirstResponder` on a windowless view is a silent no-op — which would read as "⌘K opened
-    /// a field you then have to click". The retry re-reads the field's window each time rather than
-    /// capturing one.
-    ///
-    /// **The retry has to be `asyncAfter`, and three attempts was not a budget.** Measured in the
-    /// running app (2026-08-19): with a bare `DispatchQueue.main.async` every attempt was spent
-    /// before the field was mounted — the main queue drains blocks queued *during* a drain in the
-    /// same pass, so all three ran back-to-back inside one runloop turn, ahead of the SwiftUI
-    /// update that installs the toolbar item. The app said so (`claimFocus GAVE UP — never
-    /// mounted`) and ⌘K opened a field with no caret. A frame between attempts is what lets the
-    /// runloop do the mounting this is waiting for.
+    /// **The retry must be `asyncAfter`.** A bare `DispatchQueue.main.async` block queued during a
+    /// main-queue drain runs in that same drain, so every attempt would be spent before the SwiftUI
+    /// update mounts the toolbar item. A frame between attempts lets the runloop mount it.
     private func claimFocus(_ field: NSTextField, attemptsLeft: Int) {
         guard let window = field.window else {
             guard attemptsLeft > 0 else {
-                // Said out loud, because this failure has no other trace: the field is on screen
-                // and simply does not take what you type, which reads as ⌘K being broken rather
-                // than as focus never having been claimed. The panel logs the matching half when
-                // its anchor runs out.
+                // Logged because nothing else shows it: the field is on screen but ignores typing.
+                // The panel logs the matching half when its anchor runs out.
                 Logger.shared.warning("[palette] the Go to field never reached a window — it opened without the caret")
                 return
             }
@@ -200,9 +179,8 @@ struct GoToTextField: NSViewRepresentable {
             return
         }
         window.makeFirstResponder(field)
-        // Selected, not appended to: ⌘K on an already-open field means "search for something else",
-        // and a remembered query the user did not just type is the one they most need replaced in
-        // a single keystroke.
+        // Selected, not appended to: ⌘K on an open field means "search for something else", so the
+        // old query should go in one keystroke.
         field.currentEditor()?.selectAll(nil)
     }
 
@@ -228,11 +206,9 @@ struct GoToTextField: NSViewRepresentable {
             text.wrappedValue = field.stringValue
         }
 
-        /// The four keys the list needs, taken from the field editor before it acts on them.
-        ///
-        /// `true` means handled — the arrows must NOT also move the caret, and ↩ must not insert a
-        /// newline into a single-line field. Everything else is returned unhandled, so word
-        /// movement, selection and deletion stay exactly what AppKit does everywhere else.
+        /// The four keys the list needs, taken from the field editor before it acts on them. `true`
+        /// means handled, so the arrows don't also move the caret and ↩ inserts no newline;
+        /// everything else stays AppKit's.
         func control(_ control: NSControl, textView: NSTextView,
                      doCommandBy selector: Selector) -> Bool {
             switch selector {

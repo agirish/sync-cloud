@@ -5,18 +5,15 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// Restructure **past its launch gate** — the half of this lens no test had ever drawn.
-///
-/// `hasReviewed` decides between the setup card and the answer, and every call site in the suite
-/// built it `false`: the findings list, the clean state and the ancestor section had no coverage of
-/// any kind, so `body`'s three other branches could be deleted without a single failure. The flag is
-/// deliberately un-defaulted precisely so a call site cannot switch the gate off by forgetting it —
-/// which made the tests all passing `false` the one way that guard could still be circumvented.
+/// Restructure past its launch gate. `hasReviewed` decides between the setup card and the answer;
+/// these draw the other side (the findings list, the clean state and the ancestor section), so
+/// deleting any of `body`'s branches fails here. The flag is un-defaulted so a call site can't
+/// switch the gate off by forgetting it.
 @MainActor
 @Suite(.serialized) struct RestructureLensReviewedTests {
 
-    /// The gate switches something. With the same findings behind it, opened and not-yet-opened
-    /// must not paint the same lens.
+    /// The gate switches something: with the same findings, opened and not yet opened must not
+    /// paint the same lens.
     @Test(.machinePinned(.pixelSampling)) func theGateSwapsTheCardForTheAnswer() throws {
         let card = try Self.rendered(hasReviewed: false, findings: [Self.finding()])
         let answer = try Self.rendered(hasReviewed: true, findings: [Self.finding()])
@@ -25,25 +22,23 @@ import Sync
                 "\(differing) pixels separate the setup card from the revealed answer — the launch gate is drawing the same thing either side of itself")
     }
 
-    /// A tree that agrees with itself says so. Without this the empty case is indistinguishable
-    /// from a lens that revealed an answer and drew nothing.
+    /// A tree that agrees with itself says so, or the empty case looks like a lens that revealed an
+    /// answer and drew nothing.
     @Test(.machinePinned(.pixelSampling)) func aCleanTreeGetsASentenceRatherThanAnEmptyList() throws {
         let clean = try Self.rendered(hasReviewed: true, findings: [])
         let answer = try Self.rendered(hasReviewed: true, findings: [Self.finding()])
 
-        // **An ink count cannot answer this, measured.** The clean state inks 8,181 px and the
-        // findings list 8,374 — within 2% of each other, because a sentence with an icon and a card
-        // with two scheme rows simply happen to cover similar area. `differingPixels` separates them
-        // at 79,946 of 537,600 (14.9%). The same conclusion `PaneBarDeleteTests` reached, in a suite
-        // that had no reason to expect it.
+        // An ink count can't tell these apart: the clean state and the findings list ink within 2%
+        // of each other, since a sentence with an icon and a two-row card cover similar area.
+        // `differingPixels` separates them at about 15%.
         #expect(Self.ink(clean) > 200, "the clean state paints almost nothing — the lens reveals a blank pane")
         let differing = Self.differingPixels(clean, answer)
         let canvas = clean.pixelsWide * clean.pixelsHigh
         #expect(Double(differing) > Double(canvas) * 0.05,
                 "\(differing) of \(canvas) pixels separate a clean tree from one with findings — the two states are drawing the same thing")
 
-        // And the words, which no render can read back here: the claim is about the whole tree only
-        // when the lens is looking at the whole tree.
+        // And the words, which no render can read back: the claim is about the whole tree only when
+        // the lens is looking at the whole tree.
         #expect(RestructureLens.cleanTitle(isScoped: false) == "The tree agrees with itself")
         #expect(RestructureLens.cleanTitle(isScoped: true) == "This folder agrees with itself")
         #expect(RestructureLens.cleanMessage(folderCount: 3_013).hasPrefix("Checked 3,013 folders."))
@@ -51,10 +46,9 @@ import Sync
                 "a lens with no folder count invented one")
     }
 
-    /// **Findings about the folder above are not emptiness.** `isEmpty` is both lists, so a scope
-    /// with nothing inside it but something above still opens the answer rather than the clean
-    /// state — which is the case the ancestor section exists for and the one most likely to be
-    /// broken by a later "simplify this to `findings.isEmpty`".
+    /// Findings about the folder above are not emptiness. `isEmpty` covers both lists, so a scope
+    /// with nothing inside but something above opens the answer, not the clean state; simplifying
+    /// it to `findings.isEmpty` would break that.
     @Test(.machinePinned(.pixelSampling)) func ancestorOnlyFindingsAreAnAnswerNotACleanTree() throws {
         let ancestorOnly = try Self.rendered(hasReviewed: true, findings: [], ancestor: [Self.finding()])
         let clean = try Self.rendered(hasReviewed: true, findings: [])
@@ -63,8 +57,8 @@ import Sync
                 "a scope whose only findings are about the folder above drew the clean state — the lens says the tree agrees when it has something to show")
     }
 
-    /// And it says which folder it is talking about. Opening straight onto findings about a
-    /// *different* folder reads as the lens having answered the question it was asked.
+    /// And it says which folder it means: findings about a different folder would otherwise read as
+    /// an answer to the question asked.
     @Test func theAncestorSectionSaysWhoseFindingsTheseAre() {
         #expect(RestructureLens.ancestorHeading(hasFindingsHere: false)
                 == "Nothing about this folder itself — but about the folder above it:")

@@ -4,17 +4,12 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// What a provider switch does to the window's layout budget.
-///
-/// AppKit runs update-constraints passes until the window stops dirtying itself, and raises
-/// `NSGenericException` once it "has already had more update constraints passes than there are
-/// views in the window". Both halves of that comparison matter, and the second one is not a
-/// constant: `FileSyncManager.invalidateComparisonState()` drops BOTH pane trees synchronously, so
-/// a provider switch empties the window's view tree and refills it from a different root. The
-/// budget collapses at exactly the moment the churn peaks.
-///
-/// `PaneColumnsLayoutLoopTests` pins that a *click* settles. These pin the swap: rounds-to-settle
-/// against the view count that budgets them.
+/// What a provider switch does to the window's layout budget. AppKit raises `NSGenericException`
+/// once a window has had more update-constraints passes than it has views, and the view count is
+/// not a constant: `FileSyncManager.invalidateComparisonState()` drops both pane trees
+/// synchronously, so a provider switch empties the view tree and refills it from another root, and
+/// the budget collapses just as the churn peaks. `PaneColumnsLayoutLoopTests` pins that a click
+/// settles; these pin the swap, rounds-to-settle against the view count that budgets them.
 @MainActor
 @Suite struct PaneTreeSwapLayoutBudgetTests {
 
@@ -37,11 +32,8 @@ import Sync
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
-    /// The host's state, both panes. Both sit on one `path` because the first crash had them there
-    /// — switching the right provider pointed it at the folder the left pane already showed, which
-    /// looked like a shared-anchor bug. It was not: a later crash had the panes on different roots.
-    /// The configuration is kept because it is still the harder one to settle, not because it is
-    /// the crash's shape.
+    /// The host's state, both panes. Both sit on one `path` because that is the harder
+    /// configuration to settle.
     final class Box: ObservableObject {
         @Published var left: PaneTree
         @Published var right: PaneTree
@@ -65,7 +57,7 @@ import Sync
         return PaneTree(side: side, version: version, nodes: nodes)
     }
 
-    /// Two panes side by side on one root — the app's shape reduced to what lays out.
+    /// Two panes side by side on one root: the app's shape reduced to what lays out.
     private struct Harness: View {
         @ObservedObject var box: Box
         let leftPlacement: PaneBarPlacement
@@ -119,7 +111,7 @@ import Sync
         }
     }
 
-    /// Every view in the window — the exception's actual budget.
+    /// Every view in the window: the exception's actual budget.
     private func viewCount(_ v: NSView) -> Int {
         1 + v.subviews.reduce(0) { $0 + viewCount($1) }
     }
@@ -129,16 +121,13 @@ import Sync
             + v.subviews.reduce(0) { $0 + dirtyCount($1) }
     }
 
-    /// Layout rounds needed before nothing in the window is dirty any more, measured from the
-    /// moment a change lands. NOT preceded by a pump: pumping first measures the settled state and
-    /// the assertion becomes vacuous.
-    /// **This driver cannot see the AppKit display-cycle guard, and that is measured.**
-    /// `layoutIfNeeded()` runs constraint updates with the runaway guards disarmed: a deliberate
-    /// never-settling sibling ping-pong survives 400 rounds of it (469,000 `updateConstraints`
-    /// calls) without raising, while one second of the RUNLOOP raises on the first cycle. So a low
-    /// round count here says the tree stops dirtying itself under a manual pump — worth having, and
-    /// not the same claim as "this window will not blow AppKit's pass budget". The runloop-driven
-    /// counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
+    /// Layout rounds needed before nothing in the window is dirty, measured from the moment a
+    /// change lands. Not preceded by a pump: pumping first measures the settled state, a vacuous
+    /// pass. This driver can't see AppKit's display-cycle guard: `layoutIfNeeded()` runs constraint
+    /// updates with the runaway guards disarmed, so a never-settling loop survives 400 rounds here
+    /// while the run loop raises on its first cycle. A low count says the tree stops dirtying
+    /// itself under a manual pump, not that the window stays inside AppKit's pass budget; the
+    /// run-loop counterpart is `ColumnsDisplayCycleTests` (see `docs/columns-layout-loop.md`).
     private func roundsToSettle(_ window: NSWindow, cap: Int = 400) -> Int {
         var rounds = 0
         while rounds < cap, dirtyCount(window.contentView!) > 0 {
@@ -158,7 +147,7 @@ import Sync
         return counts
     }
 
-    /// The crash's sequence: two populated panes on one root, then both trees dropped and refilled
+    /// A provider switch: two populated panes on one root, then both trees dropped and refilled
     /// from a different root in a single turn.
     @Test func testProviderSwitchTreeSwapSettlesWellInsideTheWindowsViewBudget() throws {
         let box = Box(left: Self.tree(side: .left, files: 60),
@@ -167,13 +156,13 @@ import Sync
         let window = mount(box)
         pump(window, seconds: 0.5)
 
-        // Not vacuous: both panes really materialised tables with rows in them.
+        // Not vacuous: both panes materialised tables with rows in them.
         let before = tableRowCounts(window.contentView!)
         #expect(before.count == 2, "expected two pane tables, got \(before)")
         #expect(before.allSatisfy { $0 == 60 }, "panes did not lay out their rows: \(before)")
 
-        // The swap, exactly as `invalidateComparisonState()` does it: both trees emptied
-        // synchronously, then refilled from the new root in the same turn.
+        // The swap as `invalidateComparisonState()` does it: both trees emptied synchronously, then
+        // refilled from the new root in the same turn.
         box.left = PaneTree(side: .left, version: 2, nodes: [])
         box.right = PaneTree(side: .right, version: 2, nodes: [])
         box.path = "/newroot"
@@ -182,17 +171,15 @@ import Sync
 
         let rounds = roundsToSettle(window)
         let views = viewCount(window.contentView!)
-        // The exception's own comparison. A margin, not equality: the real window carries the
-        // toolbar, both action bars and the details sidebar, and its budget is spent by everything
-        // in it, not just by the panes.
+        // The exception's own comparison, with a margin: the real window also carries the toolbar,
+        // both action bars and the details sidebar, and everything in it spends the budget.
         #expect(rounds < views / 4,
                 "tree swap took \(rounds) layout rounds against a \(views)-view window — AppKit raises once passes exceed views")
         #expect(rounds < 400, "tree swap never settled (\(rounds) rounds)")
     }
 
-    /// The same swap while the panes are nearly empty — the moment the log caught, where the right
-    /// pane had painted 19 nodes and the left had not painted at all. This is where the budget is
-    /// smallest, so it is where a fixed amount of churn is likeliest to exceed it.
+    /// The same swap into a nearly empty window: the right pane paints 19 nodes and the left none.
+    /// The budget is smallest here, so a fixed amount of churn is likeliest to exceed it.
     @Test func testSwapIntoANearlyEmptyWindowStaysInsideItsShrunkenBudget() throws {
         let box = Box(left: Self.tree(side: .left, files: 60),
                       right: Self.tree(side: .right, files: 60),

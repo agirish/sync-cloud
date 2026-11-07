@@ -2,31 +2,22 @@ import SwiftUI
 import Design
 import Sync
 
-/// Everything that is one person's, grouped by why — the answer to "all of Daughter's files".
+/// Everything that is one person's, grouped by why: the answer to "all of Daughter's files".
 ///
-/// **A find dims the tree to show where something sits; this gathers.** That is the whole reason
-/// it is a different surface from the pane search that opens it: the question is not "where is
-/// this string" but "what is theirs", and the answer is spread across the source rather than
-/// standing in one place.
+/// A find dims the tree to show where something sits; this gathers, because "what is theirs" is
+/// spread across the source. Groups go in order of worth, not size: “In *name*’s folders” is the
+/// tree's own filing, which he could reach by browsing; “Theirs, filed elsewhere” holds candidate
+/// misfilings no browsing finds; then the rows waiting for review.
 ///
-/// Two groups in stage 1, and the order is by how much they are worth reading rather than by size.
-/// **In *name*’s folders** is the tree's own filing and dominates by volume — he could reach it by
-/// browsing. **Theirs, filed elsewhere** is the payoff: those rows are candidate misfilings, and no
-/// amount of browsing produces them.
-///
-/// Read-only. Nothing here writes a tag, and a row's action is Reveal — confirming a person and
-/// moving a file are separate verbs, and only the second one exists yet.
-///
-/// Takes the gather's **phase**, not just its answer: the sweep behind it walks every surveyed
-/// document, so the view is on screen before the answer exists and has to say what it is doing.
-/// The header — name and the ✕ out — is common to all three phases, so accepting an offer always
-/// puts something dismissable on screen immediately.
+/// Nothing here moves a file: rows reveal, and a review row records a verdict. Takes the gather's
+/// phase, not just its answer, because the sweep walks every surveyed document; the header (name
+/// and the ✕) is common to every phase, so accepting an offer shows something dismissable at once.
 public struct PersonView: View {
     let displayName: String
     let phase: PersonGatherPhase
     let accent: Color
     /// What the "<Name>’s" answer fills with under its white label: `accent` deepened, which is
-    /// `LiquidGlassHue.accentFillColor` for its hue — the fill every other lit control takes.
+    /// `LiquidGlassHue.accentFillColor` for its hue, the fill every other lit control takes.
     private var accentFill: Color { AccentFill.deepened(accent) }
     /// Reveals a folder in the pane. Folders, because that group's unit is the folder.
     let onOpenFolder: (String) -> Void
@@ -35,9 +26,8 @@ public struct PersonView: View {
     let onClear: () -> Void
     /// Records a verdict on a review row: the path, and whether it is theirs.
     ///
-    /// **Never a move.** Confirming says whose a document is; putting it somewhere is Organize's
-    /// verb, and the two stay separate — the design's own line, and the reason this closure has no
-    /// destination in it.
+    /// Never a move: confirming says whose a document is, and putting it somewhere is Organize's
+    /// verb, so this closure has no destination.
     let onVerdict: (String, Bool) -> Void
 
     public init(displayName: String, phase: PersonGatherPhase, accent: Color,
@@ -56,10 +46,8 @@ public struct PersonView: View {
 
     /// How many folders are listed before the rest collapse into a count.
     ///
-    /// Nine folders was the mockup's number and 166 is the real one for the largest person, so the
-    /// list has to stop somewhere. **The remainder is stated, never dropped** — a list that
-    /// silently showed the top five would misreport the answer to the question the view exists to
-    /// answer.
+    /// One person can own well over a hundred folders, so the list stops somewhere. The remainder
+    /// is stated, never dropped, or the list would misreport the answer.
     private static let folderLimit = 8
 
     /// The line under the list for the folders past ``folderLimit``. No "…": nothing opens from it.
@@ -69,11 +57,8 @@ public struct PersonView: View {
 
     /// How many review rows are shown before the rest collapse into a count.
     ///
-    /// **Measured, not guessed.** Over the live tree the queue is 870 rows across the household —
-    /// 420 for one person, 350 for another — because a page-1 mention is common even after the
-    /// one-person rule cuts it by 86%. A list that rendered all of them would be a wall, and the
-    /// remainder is stated rather than dropped: verdicts stick, so working down a long queue is
-    /// progress that is kept.
+    /// A page-1 mention is common, so one person's queue can run to hundreds of rows. The
+    /// remainder is stated rather than dropped; verdicts stick, so working down the queue is kept.
     private static let reviewLimit = 12
 
     public var body: some View {
@@ -112,10 +97,8 @@ public struct PersonView: View {
                 .foregroundStyle(accent)
             Text(displayName)
                 .scaledFont(.system(size: 13, weight: .semibold))
-            // The count is the whole set, not the rows on screen — it is the answer to the
-            // question, and the folder list below is deliberately truncated. Only once there IS
-            // an answer: a capsule saying "0 files" mid-sweep would be a wrong answer, not a
-            // pending one.
+            // The count is the whole set, not the rows on screen, since the folder list below is
+            // truncated. Only once there is an answer: "0 files" mid-sweep would be wrong.
             if case .ready(let files) = phase {
                 Text("\(files.total) file\(files.total == 1 ? "" : "s")")
                     .scaledFont(.system(size: 11, weight: .semibold))
@@ -124,9 +107,8 @@ public struct PersonView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(accent.opacity(0.14)))
-                // Separate from the count, because it is a different kind of number: the count is an
-                // answer and this is an outstanding question. Folding them into one total would be
-                // the view asserting exactly what the queue exists to ask.
+                // Separate from the count: the count is an answer, this an open question, and one
+                // total would assert what the queue exists to ask.
                 if !files.review.isEmpty {
                     Text("\(files.review.count) to review")
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -230,14 +212,12 @@ public struct PersonView: View {
 
     // MARK: Waiting for review
 
-    /// The rows stage 1 threw away.
+    /// The rows too weak to attribute on their own.
     ///
-    /// **These are not claims, and the group says so in every word it uses.** Each row states the
-    /// evidence and nothing else — the shared word and how many people answer to it, or what page 1
-    /// read — because the user is being asked a question and cannot answer it from a row that has
-    /// already decided. The two buttons are the whole vocabulary: yes and no, and *no* is the one
-    /// that matters, because the channels are deterministic and an unremembered refusal comes back
-    /// on every gather forever.
+    /// Not claims: each row states only the evidence (the shared word and how many answer to it,
+    /// or what page 1 read), because the user is being asked. The two buttons are yes and no, and
+    /// no matters most: the channels are deterministic, so an unremembered refusal returns on every
+    /// gather.
     private func reviewGroup(_ files: PersonFileSet) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             groupHeader(symbol: "questionmark.circle",
@@ -262,16 +242,11 @@ public struct PersonView: View {
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .chromeHover()
-                    // **The two answers are drawn as a pair, and as controls.** Rendered first as
-                    // plain accent-and-grey text runs beside Reveal, the row read as three links of
-                    // which the *answers* were the least prominent — "Not Daughter’s" in the same grey
-                    // as "Reveal" made the refusal look like a tertiary action rather than half of
-                    // the question being asked. Filled and outlined capsules make the choice look
-                    // like a choice.
+                    // The two answers are drawn as a pair of controls, filled and outlined, so the
+                    // refusal reads as half the question, not a tertiary link beside Reveal.
                     //
-                    // Filled by hand rather than with `.borderedProminent`: that style renders
-                    // **unfilled** in an offscreen host, so the fixture that proves this paints
-                    // would read false with the button plainly on screen.
+                    // Filled by hand, not with `.borderedProminent`: that style renders unfilled in
+                    // an offscreen host, so the fixture that proves this paints would read false.
                     Button { onVerdict(file.path, true) } label: {
                         Text("\(displayName)’s")
                             .scaledFont(.system(size: 11, weight: .semibold))
@@ -312,9 +287,8 @@ public struct PersonView: View {
 
     /// What the row says the evidence is.
     ///
-    /// Spelled out per reason rather than as one sentence with holes in it: "only the shared word
-    /// *father* — 3 others answer to it" and "page 1 reads *Granny Elder*" are different claims,
-    /// and a row that blurred them would be asking the user to judge evidence it had misdescribed.
+    /// Spelled out per reason, not one sentence with holes: "only the shared word *father*" and
+    /// "page 1 reads *Granny Elder*" are different claims, and the user judges the evidence.
     static func caption(for file: PersonFile, displayName: String) -> String {
         switch file.reason {
         case .sharedWordInName(let word, let sharedWith):
@@ -352,8 +326,8 @@ public struct PersonView: View {
         }
     }
 
-    /// The sweep is running. Said in words as well as a spinner, because the interval this covers
-    /// is exactly the one where a silent slot made the accept look like it did nothing.
+    /// The sweep is running. Said in words as well as a spinner, so accepting the offer never
+    /// looks like it did nothing.
     private var gatheringState: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             ProgressView()
@@ -371,15 +345,13 @@ public struct PersonView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// The sweep could not run, and the slot says why — this used to be a transient banner, gone
-    /// by the time the empty slot made anyone wonder why accepting did nothing.
+    /// The sweep could not run, and the slot says why, for as long as it is on screen.
     private func failedState(_ reason: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.triangle")
                 .scaledFont(.system(size: 12, weight: .semibold))
-                // The severity table, not a bare `.orange` — this was the one place in
-                // FileExplorer painting a meaning with a literal hue. `warning` rather than
-                // `error`: the gather could not run, but nothing was lost.
+                // The severity table, not a literal hue. `warning`, not `error`: the gather could
+                // not run, but nothing was lost.
                 .foregroundStyle(SemanticColor.warning)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Couldn’t gather \(displayName)’s files.")
@@ -393,8 +365,8 @@ public struct PersonView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// Nobody's, and that is an answer rather than a failure — it means the surveyed tree holds
-    /// nothing under their folders and nothing naming them strongly enough to be sure.
+    /// Nobody's: an answer, not a failure. The surveyed tree holds nothing under their folders and
+    /// nothing naming them strongly enough to be sure.
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Nothing filed under \(displayName).")

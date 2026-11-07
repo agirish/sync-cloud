@@ -5,24 +5,20 @@ import Events
 import Foundation
 import Vision
 
-/// **The words in a deck's slide pictures, read by Vision and laid invisibly over each page** — so a
-/// deck whose slides are pictures, all or some of them, can still be searched and selected (R2,
-/// decision AO's "searchable text later").
+/// The words in a deck's slide pictures, read by Vision and laid invisibly over each page, so a
+/// deck whose slides are pictures can still be searched and selected.
 ///
-/// Each page is drawn to a bitmap and read with `VNRecognizeTextRequest`; then the page is drawn
-/// again into a new PDF, its own content first and each recognised line over it in text render mode
-/// 3 — invisible — at the line's box, stretched to the box's width so a selection covers the words
-/// it names. The page looks exactly as it did.
+/// Each page is drawn to a bitmap and read with `VNRecognizeTextRequest`, then drawn again into a
+/// new PDF with each recognised line over it in invisible text (render mode 3) at the line's box,
+/// stretched to the box's width so a selection covers its words. The page looks as it did.
 ///
-/// **Measured 2026-10-19** on the three picture decks in ~/Documents (35 slides, 3750 px each):
-/// 0.07–0.22 s a slide at 1920 px once Vision's model is loaded; the first request on the Mac took
-/// 28 s. Titles, sentences and table figures read right — on a 99-line table slide, two slips — and
-/// logos and the small print inside screenshots do not, hence the banner's "may have mistakes".
-/// `.fast` lost 40 of 111 lines on a table slide; 1280 px read the same as 1920.
+/// About 0.1–0.2 s a slide at 1920 px once Vision's model is loaded (the first request can take
+/// ~30 s). Titles, sentences and table figures read well; logos and small print in screenshots
+/// don't, hence the banner's "may have mistakes". `.fast` drops many lines on tables.
 ///
 /// CoreGraphics and Vision only, no PDFKit, so nothing here is in `PDFKitSerialAccess`'s lane. It
 /// blocks for the whole deck: call it off the main actor. Ask Claude's `read_text` reads scanned
-/// PDF pages with ``text(in:)`` (TE264).
+/// PDF pages with ``text(in:reader:)``.
 public enum PictureText {
     /// The bitmap Vision reads, by its longer side.
     public static let readSize: CGFloat = 1920
@@ -59,12 +55,11 @@ public enum PictureText {
     /// the CPU alone.
     enum Processor: Sendable { case any, cpu }
 
-    /// The page's lines, read on Vision's own choice of processor and, **when that fails, read
-    /// again on the CPU**. The Neural Engine can refuse every request for hours while macOS
-    /// recompiles its models: from 09:27 to 12:04 on 2026-10-25 every text request on this Mac
-    /// failed with `e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options
-    /// call failed (Code: 13)`, macOS's own `mediaanalysisd` included, while the same picture read
-    /// on the CPU in 0.1–0.4 s. `read` is injectable so a test can be the refusal.
+    /// The page's lines, read on Vision's choice of processor and, **when that fails, again on the
+    /// CPU**. The Neural Engine can refuse every request for hours while macOS recompiles its
+    /// models (`e5rt_…_create_precompiled_compute_operation_with_options call failed (Code: 13)`),
+    /// while the CPU still reads a page in well under a second. `read` is injectable so a test can
+    /// be the refusal.
     static func recognise(_ page: CGPDFPage,
                           read: (CGImage, Processor) throws -> [Line] = { try PictureText.read($0, on: $1) }) -> [Line] {
         guard let image = bitmap(of: page) else { return [] }
@@ -94,16 +89,14 @@ public enum PictureText {
         }
     }
 
-    /// The words Vision reads in `image`, a line each in Vision's order, in whichever of its
-    /// languages it finds; nil when Vision fails on both processors, so a failure isn't taken for a
-    /// blank page. Its languages are its own list, not every script: 33 on macOS 27 (2026-11-02),
-    /// among them Chinese, Japanese, Korean, Russian, Arabic, Thai, Hindi and Marathi, but not
-    /// Greek, Hebrew, Bengali or Tamil.
-    /// For a caller that draws the page itself, as Ask Claude does on the PDFKit lane.
+    /// The words Vision reads in `image`, a line each in Vision's order; nil when Vision fails on
+    /// both processors, so a failure isn't taken for a blank page. For a caller that draws the page
+    /// itself, as Ask Claude does on the PDFKit lane.
     ///
-    /// **The language is detected**, where Save as PDF reads English only, Vision's default: a
-    /// scanned Chinese, Japanese or Hindi page read as nothing without it, and English pages read
-    /// the same with it (99–100% of words alike on six pages of three of his scans, 2026-11-02).
+    /// The language is detected, where Save as PDF reads Vision's default English only: without it
+    /// a Chinese, Japanese or Hindi scan reads as nothing, and English reads the same either way.
+    /// Vision's languages are its own list (33 on macOS 27, including CJK, Russian, Arabic, Thai and
+    /// Hindi, but not Greek, Hebrew, Bengali or Tamil).
     public static func text(in image: CGImage, reader: String) -> String? {
         let found = try? lines(in: image, reader: reader) { try read($0, on: $1, detectingLanguage: true) }
         return found.map { $0.map(\.text).joined(separator: "\n") }
@@ -137,12 +130,11 @@ public enum PictureText {
     /// The page's `box` on white, as ``bitmap(of:)`` draws the media box, or with its longer side
     /// `longestSide` pixels, never above four times its size in points.
     ///
-    /// **`box` and `longestSide` are for a PDF this app didn't make** (Ask Claude). A crop hides
-    /// what is outside the crop box, but the media box still holds it, so drawn by the media box
-    /// the words a crop hid would be read; the bitmap covers `box` alone. And a picture laid one
-    /// pixel to a point makes a page of 14,400 points, which the floor turned into a bitmap of
-    /// about 600 MB: `longestSide` drops the floor and caps the longer side there. Save as PDF
-    /// reads only decks it drew, so its pages keep the media box and the floor.
+    /// `box` and `longestSide` are for a PDF this app didn't make (Ask Claude). Drawn by the media
+    /// box, words a crop hid would be read, so the bitmap covers `box` alone. And a picture laid
+    /// one pixel to a point can make a page of 14,400 points, which the floor would turn into a
+    /// ~600 MB bitmap, so `longestSide` drops the floor and caps the longer side. Save as PDF reads
+    /// only decks it drew, so it keeps the media box and the floor.
     public static func bitmap(of page: CGPDFPage, box: CGPDFBox, longestSide: CGFloat?) -> CGImage? {
         // Within the media box, as viewers clip it: CoreGraphics gives a crop box as written, and
         // one that reaches past the media box would show what no viewer does.

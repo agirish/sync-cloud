@@ -5,26 +5,19 @@ import Foundation
 
 /// Takes a stack of the main thread while it is stalled, so a multi-second freeze leaves evidence.
 ///
-/// **Why the hitch monitor cannot.** `MainThreadHitchMonitor` times a turn from its run-loop
-/// observers, so it learns a turn was long only once the turn ends — by then the stack that took
-/// the time is gone. It is also DEBUG-level and armed only with the pane trace, both off on a
-/// normal install. The stalls this exists for (2–8 s on the Compare header, 5.4 s once at launch)
-/// left a duration at best and nothing to name it by.
+/// `MainThreadHitchMonitor` learns a turn was long only once it ends, when the stack is gone, and
+/// is armed only with the pane trace. Here a background timer posts a heartbeat onto the main
+/// queue every `beat` seconds; one still unanswered after `stallAfter` means the main thread has
+/// not finished a turn for that long. The watch then samples the main thread in-process at once
+/// (`ThreadStackSampler`), because `/usr/bin/sample` takes about half a second to attach, and runs
+/// `sample <own pid> 2` beside it for every thread. Both go into one file, and one INFO line names
+/// it with the stall's length and the main thread's CPU. Not a run-loop observer: an order-0
+/// observer closes the turn before Core Animation's commit, so a stall in that layout would never
+/// be seen to start.
 ///
-/// **How.** A background timer posts a heartbeat onto the main queue every `beat` seconds and
-/// waits for it to run. A heartbeat still unanswered after `stallAfter` means the main thread has
-/// not finished a turn for that long — in its own code, in layout, in drawing, anywhere. The watch
-/// then samples the main thread's stack from inside the process at once (`ThreadStackSampler`), and
-/// runs `/usr/bin/sample <own pid> 2` beside it for every thread's; both go into one file, and one
-/// INFO line names it, says how long the stall lasted and how much CPU the main thread spent in it.
-/// `sample` alone missed short stalls: it takes about half a second to attach. Not a run-loop
-/// observer: an order-0 observer closes the turn before Core Animation's commit, and a stall inside
-/// that layout would never be seen to start.
-///
-/// **On in every build**, because the stalls happen in the installed Release app. It costs two
-/// main-queue wakes a second while running; a sample is rate-limited (`minimumGap`, `perSession`)
-/// and old files are pruned (`keep`). The test host never starts it — the start sits inside the
-/// app's `!isRunningTests` launch block.
+/// On in every build, since the stalls happen in the Release app. It costs two main-queue wakes a
+/// second; samples are rate-limited (`minimumGap`, `perSession`) and old files pruned (`keep`).
+/// The test host never starts it: the start sits in the app's `!isRunningTests` launch block.
 public final class MainThreadStallWatch: @unchecked Sendable {
     public struct Configuration: Sendable {
         /// How long the main queue may go without answering before a stack is taken.
@@ -209,11 +202,10 @@ public final class MainThreadStallWatch: @unchecked Sendable {
             return
         }
         // An idle main thread with a heartbeat still queued is the system holding the app back,
-        // not the app stalling. Checked from one stack — microseconds, and taken off this queue's
-        // clock — before anything is spent on it: each false sample cost a 230 KB file, a run
-        // of `sample`, and the minute and the per-launch budget a real stall would need. Checked
-        // BEFORE the budget and the gap, so the clock keeps restarting while they hold sampling
-        // off; otherwise the first stall after the gap was dated from a heartbeat a minute old.
+        // not the app stalling. Checked from one stack (microseconds) before anything is spent: a
+        // false sample costs a file, a run of `sample`, and the gap and budget a real stall needs.
+        // Checked before the budget and the gap, so the clock keeps restarting while they hold
+        // sampling off; otherwise the first stall after the gap is dated from a stale heartbeat.
         if let thread {
             let stack = ThreadStackSampler.snapshot(of: thread)
             if isIdle(stack) {
@@ -314,8 +306,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         if let thread {
             snapshots.async { [weak self] in
                 // The stall ends at the first stack that shows the thread idle again, not when the
-                // heartbeat finally runs: the system can hold that heartbeat on past the stall (on
-                // 10-29 a 2.0 s sleep was logged as 2.89 s, 0.8 s of it idle).
+                // heartbeat finally runs: the system can hold that heartbeat on past the stall.
                 let stacks = ThreadStackSampler.sample(thread: thread, every: interval, limit: stacksLimit) { latest in
                     guard let self else { return true }
                     let idle = self.state.sync { self.isIdle(latest) }
@@ -335,8 +326,8 @@ public final class MainThreadStallWatch: @unchecked Sendable {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        // No `-mayDie`: it reads every image's symbols BEFORE sampling starts, which on the Release
-        // app took longer than the rest of a 1.5 s stall — the stack showed an idle main thread.
+        // No `-mayDie`: it reads every image's symbols before sampling starts, which in the Release
+        // app can outlast a short stall and leave a stack of an idle main thread.
         process.arguments = [String(getpid()), String(configuration.sampleSeconds), "-file", Self.sampleFile(file).path]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

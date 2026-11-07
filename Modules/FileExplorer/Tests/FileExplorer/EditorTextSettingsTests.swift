@@ -16,9 +16,9 @@ import EventsTestSupport
         return (scroll, view)
     }
 
-    /// **All five properties, because leaving any one out gets you a view that half-wraps.** The
-    /// long line is laid out and then clipped, with no scroller to reach the end of it — which
-    /// looks like the text being truncated rather than the setting being half-applied.
+    /// All five properties, because leaving any one out gives a view that half-wraps: the long line
+    /// is laid out and then clipped, with no scroller to reach its end, which looks like truncated
+    /// text rather than a half-applied setting.
     @Test func turningWrappingOffLetsTheLineRunOn() {
         let (scroll, view) = hosted()
         PlainTextEditor.applyWrapping(false, to: view, in: scroll)
@@ -37,9 +37,9 @@ import EventsTestSupport
         #expect(view.textContainer?.widthTracksTextView == true)
         #expect(!view.isHorizontallyResizable)
         #expect(!scroll.hasHorizontalScroller)
-        // **The view's own width has to come back too.** Unwrapped, it grew to the width of its
-        // longest line; a container that starts tracking THAT width wraps at a column far off the
-        // right edge, which reads as the setting not having worked.
+        // The view's own width has to come back too. Unwrapped, it grew to its longest line; a
+        // container that starts tracking that width wraps far off the right edge, which reads as
+        // the setting not having worked.
         #expect(abs(view.frame.width - scroll.contentSize.width) < 0.51,
                 "the view stayed \(view.frame.width)pt wide against a \(scroll.contentSize.width)pt column")
     }
@@ -57,10 +57,10 @@ import EventsTestSupport
 
     // MARK: The two switches on the menu
 
-    /// **On a scratch suite, never the standard domain.** Under `swift test` that is
-    /// `swiftpm-testing-helper`'s, shared by every test process on the machine — and this Mac is
-    /// also the CI runner. Two processes running this suite at once failed 17 runs in 40 each, on a
-    /// write the other made between a test's own write and its read.
+    /// On a scratch suite, never the standard domain. Under `swift test` that is
+    /// `swiftpm-testing-helper`'s, shared by every test process on the machine (this Mac is also
+    /// the CI runner), so another process's write could land between a test's own write and its
+    /// read.
     private func coordinator(defaults: UserDefaults = ScratchDefaults("EditorTextSettingsTests")) -> PlainTextEditor.Coordinator {
         let subject = PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
                                                   documentID: nil, onSelectionChange: { _ in })
@@ -68,7 +68,7 @@ import EventsTestSupport
         return subject
     }
 
-    /// **Offered on a read-only document too, unlike the markup verbs.** Neither switch changes
+    /// Offered on a read-only document too, unlike the markup verbs. Neither switch changes
     /// anything on disk, so a file you can only read should not also be harder to read.
     @Test func bothSwitchesAreOfferedEvenWithNoMarkupVerbs() {
         let menu = NSMenu()
@@ -81,8 +81,8 @@ import EventsTestSupport
         #expect(titles.contains("Check Spelling While Typing"), "the menu read \(titles)")
     }
 
-    /// The tick has to describe the stored setting rather than a fixed default, or the menu says
-    /// "off" over a view that is wrapping.
+    /// The tick describes the stored setting rather than a fixed default, or the menu says "off"
+    /// over a view that is wrapping.
     @Test func theTicksFollowTheStoredSetting() {
         let defaults = ScratchDefaults("EditorTextSettingsTests.ticks")
         defaults.set(false, forKey: EditorTextSettings.wrapsKey)
@@ -96,8 +96,8 @@ import EventsTestSupport
 
     // MARK: The way back to a hidden format bar
 
-    /// **Format Bar is on the text's right-click menu wherever the bar can be drawn** — a writable
-    /// Markdown file — and nowhere else, ticked by the stored setting. Hiding the bar from its own
+    /// Format Bar is on the text's right-click menu wherever the bar can be drawn (a writable
+    /// Markdown file) and nowhere else, ticked by the stored setting. Hiding the bar from its own
     /// menu takes that menu away too, so this is the way back on screen.
     @Test func theTextsMenuOffersFormatBarWhereTheBarCanBeDrawn() {
         let defaults = ScratchDefaults("EditorTextSettingsTests.offered")
@@ -125,7 +125,7 @@ import EventsTestSupport
         }
     }
 
-    /// **The item flips View ▸ Format Bar's own setting, and says so.**
+    /// The item flips View ▸ Format Bar's own setting, and logs it.
     @Test func theTextsFormatBarItemFlipsTheSettingAndSaysSo() async {
         let defaults = ScratchDefaults("EditorTextSettingsTests.flips")
         defaults.set(false, forKey: EditorTextSettings.showsFormatBarKey)

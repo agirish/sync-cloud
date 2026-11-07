@@ -2,16 +2,16 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **The two view-side doors of TE77: the rail's fold button, and the empty page's Show Text Files.**
+/// The rail's two view-side doors: its fold button, and the empty page's Show Text Files.
 ///
-/// The fold rule itself — which bit, what the strip's buttons do — lives in the app target and is
-/// pinned there (`EditorRailSpineTests`, `TopPaneVisibilityTests`, local-only). These are the halves
-/// CI can see: that the doors are wired to what the host hands this package, and drawn where the
-/// rule says. Read over code only, so a comment naming a call cannot satisfy a scan.
+/// The fold rule itself lives in the app target and is pinned there (`EditorRailSpineTests`,
+/// `TopPaneVisibilityTests`, local-only). These are the halves CI can see: the doors are wired to
+/// what the host hands this package, and drawn where the rule says. Read over code only, so a
+/// comment naming a call can't satisfy a scan.
 @Suite struct EditorRailFoldDoorsTests {
 
-    /// The fold button sits on the line under the tabs, AFTER the files-only capsule closes, so it
-    /// is drawn on both tabs at the same place; and only when the host passes the act.
+    /// The fold button sits on the line under the tabs, after the files-only block closes, so it is
+    /// drawn on both tabs at the same place, and only when the host passes the act.
     @Test func theFoldButtonIsDrawnOnBothTabsAndOnlyWhenHandedAnAct() throws {
         let rail = try ChromeGlassWiringTests.source("EditorFileRailView.swift")
         let filesOnly = try #require(rail.range(of: "if shownTab == .files {"), "the context row's files-only block moved")
@@ -26,7 +26,7 @@ import Foundation
         #expect(ChromeGlassWiringTests.count("if let onFold {", in: rail) == 1)
     }
 
-    /// The workspace hands the rail its host's fold act, and the empty page its Show Text Files —
+    /// The workspace hands the rail its host's fold act, and the empty page its Show Text Files,
     /// withheld while no folder is chosen, when there is no list to show.
     @Test func theWorkspacePassesBothDoorsThrough() throws {
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
@@ -35,8 +35,8 @@ import Foundation
                 "the empty page's Show Text Files is not the host's act, or is offered with no folder")
         #expect(workspace.contains("Button(action: showTextFiles) {"), "the empty page's button does not run its act")
         #expect(EditorWorkspaceView.showTextFilesTitle == "Show File List")
-        // **Not "Files"**: that is Expand's lit button, which brings back the pane and the sidebar
-        // too. Two buttons on one screen named for one word did different things (review 10-17).
+        // Not "Files": that is Expand's lit button, which brings back the pane and the sidebar too,
+        // and two buttons on one screen with one name must not do different things.
         #expect(EditorWorkspaceView.showTextFilesTitle != EditorWorkspaceView.expandTitle(railIsHidden: true))
         // The open document's row is lit whether it is text or a PDF.
         #expect(workspace.contains("selectedPath: pdf?.path ?? document.path,"),

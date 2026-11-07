@@ -4,13 +4,13 @@ import AppKit
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **The selection's two answers, derived beside the workspace (TE60)** — the status line's counts
-/// and the format bar's lit state, from the length a drag writes into ``EditorLiveSelection``.
-/// Mounted with a live box and bindings, so what is tested is the view the workspace draws, fed
-/// the way a drag feeds it; then the whole path in a mounted workspace, read off its status line.
+/// The selection's two answers, derived beside the workspace: the status line's counts and the
+/// format bar's lit state, from the length a drag writes into ``EditorLiveSelection``. Mounted with
+/// a live box and bindings, so what is tested is the view the workspace draws, fed the way a drag
+/// feeds it; then the whole path in a mounted workspace, read off its status line.
 ///
-/// **Waits await, never spin.** The answers come from main-actor tasks, and a synchronous run-loop
-/// spin on the main actor starves them — they wake only after the test has returned, cancelled.
+/// Waits await, never spin. The answers come from main-actor tasks, and a synchronous run-loop spin
+/// on the main actor starves them: they wake only after the test has returned, cancelled.
 @MainActor
 @Suite(.serialized) struct EditorSelectionDerivationsTests {
 
@@ -44,7 +44,7 @@ import FileExplorerTestSupport
         let version: Int
     }
 
-    /// `staleBy` sets the document's counts that many versions behind the text — as they are for
+    /// `staleBy` sets the document's counts that many versions behind the text, as they are for
     /// their own debounce after every edit.
     private func mount(_ text: String, named name: String, showsFormatBar: Bool = false,
                        documentFacts: EditorDocumentFacts = .empty, staleBy: Int = 0) throws -> Rig {
@@ -66,8 +66,9 @@ import FileExplorerTestSupport
         return Rig(window: window, live: live, answers: answers, version: document.textVersion)
     }
 
-    /// **A drag counts once, where it rests, and a bare caret clears.** Each tick lays the view out
-    /// before the next, as a drag's do; the count that lands is the last tick's, not one on the way.
+    /// A drag counts once, where it rests, and a bare caret clears. Each tick lays the view out
+    /// before the next, as a drag's do; the count that lands is the last tick's, not one on the
+    /// way.
     @Test func aDragIsCountedWhereItRests() async throws {
         let rig = try mount("one two three\nfour five\n", named: "drag.txt")
         defer { rig.window.orderOut(nil) }
@@ -76,7 +77,7 @@ import FileExplorerTestSupport
             rig.window.layoutIfNeeded()
         }
         let counted = await LayoutPumpWait.pump(rig.window, upTo: 5) { rig.answers.facts != nil }
-        // "one two three\nfo" — four words (the cut one counts), 16 characters, across two lines.
+        // "one two three\nfo": four words (the cut one counts), 16 characters, across two lines.
         #expect(rig.answers.facts == EditorSelectionFacts(words: 4, characters: 16, lines: 2),
                 "the drag counted \(String(describing: rig.answers.facts)) after \(counted.pumps) passes")
         rig.live.set(length: 0)
@@ -84,9 +85,9 @@ import FileExplorerTestSupport
         #expect(cleared.held, "a bare caret still shows \(String(describing: rig.answers.facts))")
     }
 
-    /// **The format bar's lit state follows the selection while the bar is drawn**, and is nothing
-    /// while it is not — nobody reads it then. The bar-off rig is waited out on the bar-on one's
-    /// answer (the probe), so its silence is a verdict and not an impatient look.
+    /// The format bar's lit state follows the selection while the bar is drawn, and is nothing
+    /// while it is not, since nobody reads it then. The bar-off rig is waited out on the bar-on
+    /// one's answer (the probe), so its silence is a verdict and not an impatient look.
     @Test func theBarsLitStateFollowsTheSelectionWhileTheBarIsDrawn() async throws {
         let text = "**bold** and plain\n"
         let shown = try mount(text, named: "lit.md", showsFormatBar: true)
@@ -101,9 +102,9 @@ import FileExplorerTestSupport
         #expect(hidden.answers.format == .none, "the bar is off and its state was derived anyway")
     }
 
-    /// **A selection is not counted beside the document's counts of another text** (TE60 review) —
-    /// just after an edit those are the last text's for their own debounce, and the pair read "13 of
-    /// 12 words". It waits, and is counted the moment they catch up — reusing them for a select-all.
+    /// A selection is not counted beside the document's counts of another text. Just after an edit
+    /// those are the last text's for their own debounce, and the pair would read "13 of 12 words".
+    /// It waits, and is counted the moment they catch up, reusing them for a select-all.
     ///
     /// The marker counts are deliberately wrong for the text, so a reuse shows as 900 words and a
     /// fresh count as 3. The current rig is the probe the stale one is waited out on.
@@ -133,7 +134,7 @@ import FileExplorerTestSupport
 
     // MARK: Several ranges
 
-    /// **Several ranges keep the document's counts** — an ⌥-drag's column or a ⌘-drag. The line counts
+    /// Several ranges (an ⌥-drag's column or a ⌘-drag) keep the document's counts. The line counts
     /// one selection, and the first range's count beside the others still lit would be a number
     /// about something else. The single-range rig is the probe the other is waited out on.
     @Test func severalRangesAreNotCounted() async throws {
@@ -160,8 +161,8 @@ import FileExplorerTestSupport
         var ranges: [NSRange] = []
     }
 
-    /// **The text view says how many ranges are selected, with every change** — and still hands over
-    /// the first range, as it always has.
+    /// The text view reports how many ranges are selected with every change, and still hands over
+    /// the first range.
     @Test func theTextViewReportsHowManyRangesAreSelected() throws {
         let reports = Reports()
         let source = EditorSourceStorage(text: "alpha beta gamma delta\n")
@@ -196,7 +197,7 @@ import FileExplorerTestSupport
         return nil
     }
 
-    /// The bottom of the workspace — the status line — as pixels.
+    /// The bottom of the workspace, the status line, as pixels.
     private func statusStrip(_ host: NSView) -> NSBitmapImageRep? {
         let strip = NSRect(x: 0, y: host.isFlipped ? host.bounds.height - 26 : 0, width: host.bounds.width, height: 26)
         guard let rep = host.bitmapImageRepForCachingDisplay(in: strip) else { return nil }
@@ -215,9 +216,9 @@ import FileExplorerTestSupport
         return count
     }
 
-    /// **A selection made in a mounted workspace reaches its status line, and leaves it again** —
-    /// the whole path: the text view's report, the box, the derivations, the line. Read as pixels of
-    /// the line's strip against itself with nothing selected.
+    /// A selection made in a mounted workspace reaches its status line, and leaves it again: the
+    /// whole path through the text view's report, the box, the derivations and the line. Read as
+    /// pixels of the line's strip against itself with nothing selected.
     @Test func aSelectionInAMountedWorkspaceReachesTheStatusLine() async throws {
         let document = try TestTextFiles.document(named: "mounted.txt", text: "one two three\nfour five\n")
         let host = NSHostingView(rootView: EditorWorkspaceView.fixture(document: document, mode: .edit)
@@ -231,7 +232,7 @@ import FileExplorerTestSupport
         window.makeKeyAndOrderFront(nil)
         #expect(BuriedWindow.isBuried(window), "the workspace window is above the desktop, at level \(window.level.rawValue)")
         defer { window.orderOut(nil) }
-        // Settled: the document's own counts land on their 150 ms debounce — a full floor of
+        // Settled: the document's own counts land on their 150 ms debounce, so a full floor of
         // passes, then the strip must hold still (the control: no selection, no change).
         _ = await LayoutPumpWait.pump(window, upTo: 1) { false }
         let bare = statusStrip(host)

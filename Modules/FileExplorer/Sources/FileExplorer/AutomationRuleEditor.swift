@@ -6,13 +6,9 @@ import Sync
 // MARK: - Condition type (the editor's type picker)
 
 /// The editable *type* of a condition, decoupled from its value so the editor can offer a picker and
-/// swap the underlying ``AutomationCondition`` while keeping the row.
-///
-/// `internal` so tests can pin it, like the editor's other seams. It was `private` while all of it
-/// was one `allCases` list; the person work put three real rules in here — which types may be added,
-/// which a given row may offer, and what a fresh row of each type starts as — and none of them is
-/// reachable from a render (a `Menu`'s contents do not paint until it is opened) or from anything
-/// else in this module.
+/// swap the underlying ``AutomationCondition`` while keeping the row. `internal` so tests can pin its
+/// rules (which types may be added, which a row may offer, what a fresh row starts as): none of them
+/// is reachable from a render, since a `Menu`'s contents don't paint until it opens.
 enum ConditionType: String, CaseIterable, Identifiable {
     case folderNamed, nameMatches, kindIs, mentionsAll, mentionsAny, personIs, largerThanMB,
          untouchedForDays, contentContains
@@ -67,9 +63,8 @@ enum ConditionType: String, CaseIterable, Identifiable {
         case .contentContains: return .contentContains("invoice")
         case .mentionsAll: return .mentionsAll(["invoice"])
         case .mentionsAny: return .mentionsAny(["invoice"])
-        // Empty, so the row is incomplete until a person is chosen — the editor cannot know which
-        // member of a household a new rule is about, and defaulting to the first would save a rule
-        // about somebody the user never picked.
+        // Empty, so the row is incomplete until a person is chosen: defaulting to the first member
+        // would save a rule about somebody the user never picked.
         case .personIs: return .personIs("")
         case .unrecognized: return .personIs("")
         }
@@ -85,17 +80,16 @@ private struct DraftCondition: Identifiable {
 
 // MARK: - Rule editor
 
-/// The plain-words rule builder (N2). Edits a working copy and hands the finished rule back on Save;
-/// Cancel discards. No file access here — this only shapes the rule; the preview does the evaluation.
+/// The plain-words rule builder. Edits a working copy and hands the finished rule back on Save;
+/// Cancel discards. No file access here: this only shapes the rule, and the preview evaluates it.
 struct AutomationRuleEditor: View {
     @Environment(\.colorScheme) private var colorScheme
     let accent: Color
     /// The folder destinations resolve against (the folder being previewed). When non-nil, a Browse…
     /// button appears and relativizes the picked folder against this root; nil hides Browse.
     let browseRoot: URL?
-    /// The household, for the "Is this person's" row. Empty hides that condition type entirely —
-    /// offering a person picker with nobody in it is a dead end, and the row could never be
-    /// completed.
+    /// The household, for the "Is this person's" row. Empty hides that condition type, since a
+    /// person picker with nobody in it could never be completed.
     let people: [Person]
     let onSave: (AutomationRule) -> Void
     let onCancel: () -> Void
@@ -103,7 +97,7 @@ struct AutomationRuleEditor: View {
     private let ruleID: UUID
     private let wasEnabled: Bool
     private let isNew: Bool
-    /// The rule as the editor opened it — what Cancel compares against before it throws edits away.
+    /// The rule as the editor opened it, which Cancel compares against before discarding edits.
     private let original: AutomationRule
 
     @State private var name: String
@@ -139,14 +133,12 @@ struct AutomationRuleEditor: View {
         )
     }
 
-    /// Save-time canonicalization: a `mentionsAll` row's free-typed words become the exact tokens
-    /// the engine matches with (`FilingEngine.nameTokens` — lowercased, stopwords and bare numbers
-    /// dropped, sorted). Editing keeps the raw text; only the saved rule is canonical, so an entry
-    /// like "Tesla-Model-3" can never save in a form that silently never fires. `internal` so tests
-    /// can pin it.
-    ///
-    /// A `mentionsAny` row's comma-separated phrases each become canonical words in the order
-    /// typed ("Japan Airlines" → "japan airlines"), as a rule taught in chat stores them (TE286).
+    /// Save-time canonicalization. A `mentionsAll` row's free-typed words become the exact tokens
+    /// the engine matches with (`FilingEngine.nameTokens`: lowercased, stopwords and bare numbers
+    /// dropped, sorted), so "Tesla-Model-3" can't save in a form that never fires. A `mentionsAny`
+    /// row's comma-separated phrases each become canonical words in the order typed ("Japan
+    /// Airlines" → "japan airlines"), as a rule taught in chat stores them. Editing keeps the raw
+    /// text. `internal` so tests can pin it.
     nonisolated static func canonicalized(_ condition: AutomationCondition) -> AutomationCondition {
         switch condition {
         case .mentionsAll(let tokens):
@@ -161,10 +153,10 @@ struct AutomationRuleEditor: View {
         }
     }
 
-    /// A `mentionsAll` row whose visible text canonicalizes to NOTHING (all stopwords / bare
-    /// numbers / 1-char fragments). Saving it would silently drop the condition — and in an
-    /// all-of rule that *broadens* the rule to whatever the other conditions match — so Save is
-    /// blocked and the row explains itself instead. `internal` so tests can pin it.
+    /// A `mentionsAll` or `mentionsAny` row whose visible text canonicalizes to nothing (all
+    /// stopwords, bare numbers or 1-char fragments). Saving would silently drop the condition, and
+    /// in an all-of rule that broadens it to whatever the other conditions match, so Save is
+    /// blocked and the row explains itself. `internal` so tests can pin it.
     nonisolated static func isUnmatchableMentions(_ condition: AutomationCondition) -> Bool {
         let tokens: [String]
         switch condition {
@@ -183,27 +175,21 @@ struct AutomationRuleEditor: View {
         rows.contains { Self.isUnmatchableMentions($0.condition) }
     }
 
-    /// The Save gate: runnable AND no unmatchable-mentions row. The second half is what makes
-    /// the `isUnmatchableMentions` warning's promise real — canonicalization would save such a
-    /// row as `.mentionsAll([])`, which the evaluator ignores, silently BROADENING an all-of
-    /// rule to whatever its other conditions match (and batch-eligible rules then blind-file on
-    /// it). `internal` so tests can pin the gate without a view.
+    /// The Save gate: runnable and no unmatchable mentions row. Canonicalization would save such a
+    /// row with no words, which the evaluator ignores, silently broadening an all-of rule (and
+    /// batch-eligible rules then file blind on it). `internal` so tests can pin it without a view.
     nonisolated static func canSave(isRunnable: Bool, conditions: [AutomationCondition]) -> Bool {
         isRunnable && !conditions.contains(where: isUnmatchableMentions)
     }
 
-    /// Whether Cancel would throw away anything (LN4): the rule as it stands differs from the rule
-    /// the editor opened with.
+    /// Whether Cancel would throw anything away: the rule as it stands differs from the one the
+    /// editor opened with. Esc lands on Cancel, so it must ask over real edits, but opening a rule
+    /// to look at it and pressing Esc must just close.
     ///
-    /// Esc lands on Cancel, and Cancel used to discard silently — a rule with several conditions,
-    /// or one learned from Remember and then adjusted, vanished on one keypress. Asking every time
-    /// would be its own defect: opening a rule to look at it and pressing Esc must just close.
-    ///
-    /// Compared field by field, in the form Save would write: conditions canonicalized and the
-    /// destination trimmed on both sides, so typing "invoice," where the rule said "invoice" is not
-    /// an edit. Not `==` on the whole rule, which also compares the fields a newer build wrote and
-    /// this editor never shows — those would make every such rule look edited. `internal` so tests
-    /// can pin it.
+    /// Compared field by field in the form Save would write (conditions canonicalized, destination
+    /// trimmed), so typing "invoice," where the rule said "invoice" isn't an edit. Not `==` on the
+    /// whole rule, which also compares fields a newer build wrote that this editor never shows.
+    /// `internal` so tests can pin it.
     nonisolated static func hasUnsavedEdits(original: AutomationRule, edited: AutomationRule) -> Bool {
         func destination(_ rule: AutomationRule) -> String {
             rule.destinationTemplate.trimmingCharacters(in: .whitespaces)
@@ -226,9 +212,9 @@ struct AutomationRuleEditor: View {
         return true
     }
 
-    /// The question Cancel asks over unsaved edits. Built on the editor's leave-question shape
-    /// (`EditorPDFTools.leaveAlert`): Discard first, marked destructive and off Return, then
-    /// Cancel, which keeps Esc — so a second Esc goes back to the rule rather than losing it.
+    /// The question Cancel asks over unsaved edits, in the editor's leave-question shape
+    /// (`EditorPDFTools.leaveAlert`): Discard first, destructive and off Return, then Cancel, which
+    /// keeps Esc, so a second Esc goes back to the rule rather than losing it.
     static func discardAlert(ruleName: String, isNew: Bool) -> NSAlert {
         let trimmed = ruleName.trimmingCharacters(in: .whitespaces)
         let title = isNew
@@ -321,10 +307,9 @@ struct AutomationRuleEditor: View {
     private func conditionRow(_ condition: Binding<AutomationCondition>, remove: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
             Picker("", selection: typeBinding(condition)) {
-                // The row's OWN type is always among the options, even when it is one nobody may
-                // add: a `Picker` whose selection matches no tag renders blank, so an alien row
-                // from a newer build showed an empty control that read as broken rather than as
-                // unreadable.
+                // The row's own type is always among the options, even one nobody may add: a
+                // `Picker` whose selection matches no tag renders blank, and a row from a newer
+                // build would look broken rather than unreadable.
                 ForEach(Self.pickerTypes(for: condition.wrappedValue,
                                          hasPeople: !people.isEmpty)) { Text($0.label).tag($0) }
             }
@@ -380,7 +365,7 @@ struct AutomationRuleEditor: View {
                     .textFieldStyle(.roundedBorder).controlSize(.small)
                     .help("The file must mention every word — in its name or its text. Separate with commas.")
                 if Self.isUnmatchableMentions(condition.wrappedValue) {
-                    // A sentence, so it takes the readable ink rather than raw orange (DS2).
+                    // A sentence, so it takes the readable ink rather than raw orange.
                     Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
@@ -406,9 +391,9 @@ struct AutomationRuleEditor: View {
             .labelsHidden().controlSize(.small).frame(width: 130)
             .help("Matches files of this kind, judged by their extension")
         case .personIs:
-            // Bound to the person's ID, shown by their name: the rule survives a rename, and the
-            // user never has to see the slug that makes that work. The empty tag is what a fresh
-            // row carries, so the picker opens blank rather than silently on whoever sorts first.
+            // Bound to the person's id, shown by their name, so the rule survives a rename. The
+            // empty tag is what a fresh row carries, so the picker opens blank rather than on
+            // whoever sorts first.
             Picker("", selection: personBinding(condition)) {
                 Text("Choose…").tag("")
                 ForEach(people) { Text($0.displayName).tag($0.id) }
@@ -419,8 +404,7 @@ struct AutomationRuleEditor: View {
             Text("“\(name)” — written by a newer version of SyncCloud. It is kept as-is and never "
                  + "matches; remove the row to drop it.")
                 .scaledFont(.system(size: 11))
-                // Prose, so it takes the ink treatment rather than raw caution — see
-                // `ChromeInk.bodyText`.
+                // Prose, so it takes the readable ink rather than raw caution (`ChromeInk.bodyText`).
                 .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
                 .fixedSize(horizontal: false, vertical: true)
         case .largerThanMB:
@@ -485,8 +469,8 @@ struct AutomationRuleEditor: View {
         }
     }
 
-    /// Opens a folder picker and returns the picked folder's name (its last path component) — for the
-    /// "in a folder named …" condition, which matches on a file's parent-folder name, not a path.
+    /// Opens a folder picker and returns the picked folder's name, for the "in a folder named"
+    /// condition, which matches a file's parent-folder name, not a path.
     private func pickFolderName() -> String? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -499,9 +483,9 @@ struct AutomationRuleEditor: View {
         return url.lastPathComponent
     }
 
-    /// Opens a folder picker rooted at the provider root (`browseRoot`) and sets the destination to
-    /// the picked folder's path relative to it — so Browse yields the same relative path the preview
-    /// resolves against (both anchor at the provider root). Tokens like {year} can be appended after.
+    /// Opens a folder picker at the provider root (`browseRoot`) and sets the destination to the
+    /// picked folder's path relative to it, the same anchor the preview resolves against. Tokens
+    /// like {year} can be appended after.
     private func browseForDestination() {
         guard let browseRoot else { return }
         let panel = NSOpenPanel()
@@ -552,8 +536,8 @@ struct AutomationRuleEditor: View {
                 .buttonStyle(.borderedProminent)
                 .accentedProminent()
                 .chromeHover()
-                // Gate on the RAW rows, not `assembled`: canonicalization already stripped the
-                // unmatchable row there, which is exactly the silent broadening being blocked.
+                // Gate on the raw rows, not `assembled`: canonicalization already stripped the
+                // unmatchable row there, which is the silent broadening being blocked.
                 .disabled(!Self.canSave(isRunnable: assembled.isRunnable, conditions: rows.map(\.condition)))
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
@@ -622,11 +606,8 @@ struct AutomationRuleEditor: View {
     }
 
     /// The types this row's picker offers: everything addable, plus the row's current type when
-    /// that is not addable (an unrecognized condition, or a person row on a machine with no roster).
-    ///
-    /// Static, taking the roster as a `Bool`, because that is all it ever read of `people` — and a
-    /// rule about what a blank picker would show is one a test has to be able to call. `internal`
-    /// so tests can pin it.
+    /// that isn't addable (an unrecognized condition, or a person row with no roster). Takes the
+    /// roster as a `Bool`, all it needs, so tests can call it. `internal` so tests can pin it.
     nonisolated static func pickerTypes(for condition: AutomationCondition,
                                         hasPeople: Bool) -> [ConditionType] {
         var out = ConditionType.addable(hasPeople: hasPeople)
@@ -649,11 +630,10 @@ struct AutomationRuleEditor: View {
         )
     }
 
-    /// Free-text round-trip for a `mentionsAll` row. While editing, the WHOLE field is held as a
-    /// single element so get(set(text)) == text — no per-keystroke splitting or trimming, which
-    /// would eat spaces as they're typed and yank the caret. Canonicalization (tokenizer splits,
-    /// lowercase, stopwords) happens once, at save (see `canonicalized`); a stored canonical array
-    /// displays back as its comma-joined form.
+    /// Free-text round-trip for a mentions row. While editing, the whole field is held as one
+    /// element so get(set(text)) == text: splitting or trimming per keystroke would eat spaces as
+    /// they're typed and move the caret. Canonicalization happens once, at save (`canonicalized`);
+    /// a stored canonical array displays as its comma-joined form.
     private func tokensBinding(_ condition: Binding<AutomationCondition>) -> Binding<String> {
         Binding(
             get: {

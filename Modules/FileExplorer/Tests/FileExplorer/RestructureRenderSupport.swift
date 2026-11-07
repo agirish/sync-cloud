@@ -3,23 +3,19 @@ import SwiftUI
 
 /// Reading a Restructure surface back, rather than asserting it has a width.
 ///
-/// **`#expect(hosting.fittingSize.width > 0)` closed seventeen render tests here and proves close
-/// to nothing** — an `NSHostingView` around an empty `VStack` passes it, so every one of those
-/// tests would have survived deleting the thing it was named after. What a render test can
-/// honestly claim is *this state draws differently from that one*, and the cheapest way to say it
-/// is the drawn pixels themselves: SwiftUI `Text` does not become an `NSTextField`, and the
-/// accessibility tree is unpopulated without an assistive client (that channel is test-blind on
-/// this machine), so the bitmap is the only channel that carries what was actually drawn.
+/// `hosting.fittingSize.width > 0` proves next to nothing: an `NSHostingView` around an empty
+/// `VStack` passes it. A render test can honestly claim *this state draws differently from that
+/// one*, and the drawn pixels are the only channel for it: SwiftUI `Text` doesn't become an
+/// `NSTextField`, and the accessibility tree is empty without an assistive client.
 enum RestructureRender {
 
-    /// The backdrop no part of this UI uses, so "not this colour" means "something was drawn".
-    /// An offscreen `NSHostingView` can rasterize fully transparent — blank offscreen renders are
-    /// a known hazard here — and against a transparent ground a blank render and a drawn one are
-    /// indistinguishable. Compositing over magenta removes that ambiguity.
+    /// The backdrop no part of this UI uses, so "not this colour" means "something was drawn". An
+    /// offscreen `NSHostingView` can rasterize fully transparent, where a blank render and a drawn
+    /// one look the same; compositing over magenta removes that ambiguity.
     static let backdrop = Color(red: 1, green: 0, blue: 1)
 
-    /// Lay a view out at a fixed size over the backdrop and rasterize it. Same size for both sides
-    /// of a comparison, or the difference being measured is the frame.
+    /// Lays a view out at a fixed size over the backdrop and rasterizes it. Use one size for both
+    /// sides of a comparison, or the difference measured is the frame.
     @MainActor
     static func raster(_ view: some View, width: CGFloat, height: CGFloat) -> NSBitmapImageRep? {
         let host = NSHostingView(rootView: AnyView(
@@ -31,10 +27,9 @@ enum RestructureRender {
         return rep
     }
 
-    /// How many pixels are not the magenta backdrop — the "something was drawn at all" measure.
-    /// Zero means the surface rendered blank, which is what a card that silently drew nothing and
-    /// a view that failed to rasterize offscreen both look like; either way there is nothing for
-    /// a difference test to compare, so this is the floor every comparison needs first.
+    /// How many pixels are not the magenta backdrop: the "something was drawn" measure. Zero means
+    /// a blank render (a card that drew nothing, or a view that failed to rasterize), leaving a
+    /// difference test nothing to compare, so every comparison needs this floor first.
     static func inkedPixels(_ rep: NSBitmapImageRep) -> Int {
         guard let data = rep.bitmapData else { return 0 }
         let bpr = rep.bytesPerRow, spp = rep.samplesPerPixel
@@ -54,7 +49,7 @@ enum RestructureRender {
     }
 
     /// Pixels that differ between two renders of the same surface in two states. Zero means the
-    /// state made no visible difference — the mutation a `fittingSize` closer cannot see.
+    /// state made no visible difference, which a `fittingSize` check can't see.
     static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard let da = a.bitmapData, let db = b.bitmapData,
               a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh,
@@ -73,14 +68,12 @@ enum RestructureRender {
         return count
     }
 
-    /// Pixels that read as a caution tint — **the one thing on these cards that only a warning
-    /// state paints.** Comparing a whole fresh render against a whole stale one is not a test of
-    /// the staleness branch: the two also carry different date sentences, so they differ whatever
-    /// the branch does, and hard-coding `stale = false` at the call site left such a comparison
-    /// passing. Counting the amber isolates it.
+    /// Pixels that read as a caution tint, the one thing on these cards only a warning state
+    /// paints. A fresh render and a stale one also carry different date sentences, so they differ
+    /// whatever the staleness branch does; counting the amber isolates it.
     ///
-    /// Warm (red clearly above blue, green between them), which system orange is and none of the
-    /// greys, the accent blue, or the text on these surfaces are.
+    /// Warm (red clearly above blue, green between them): system orange is, and none of the greys,
+    /// the accent blue or the text on these surfaces are.
     static func cautionPixels(_ rep: NSBitmapImageRep) -> Int {
         guard let data = rep.bitmapData else { return 0 }
         let bpr = rep.bytesPerRow, spp = rep.samplesPerPixel
@@ -97,12 +90,10 @@ enum RestructureRender {
         return count
     }
 
-    /// Pixels that read as a **success tint** — green-dominant, which none of the greys, the text
-    /// or the accent blue on these surfaces are.
-    ///
-    /// The counterpart to ``cautionPixels`` and there for the same reason: a render comparison
-    /// between two states can pass on any incidental difference, so the assertion that a run is
-    /// *marked* has to name the mark rather than the difference.
+    /// Pixels that read as a success tint: green-dominant, which none of the greys, the text or the
+    /// accent blue on these surfaces are. The counterpart to ``cautionPixels(_:)``, for the same
+    /// reason: a comparison can pass on any incidental difference, so asserting a run is marked
+    /// has to name the mark.
     static func successPixels(_ rep: NSBitmapImageRep) -> Int {
         guard let data = rep.bitmapData else { return 0 }
         let bpr = rep.bytesPerRow, spp = rep.samplesPerPixel
@@ -118,14 +109,11 @@ enum RestructureRender {
         return count
     }
 
-    /// Where the leftmost success-tinted pixel is, as a fraction of the render's width — nil when
-    /// nothing green was drawn.
-    ///
-    /// **A column's x position is a claim a bitmap can settle.** The renames card's "After" column
-    /// is the only green thing on it, so this locates that column; two renders at different widths
-    /// then say whether the columns divide the card evenly (the edge tracks the width) or are
-    /// sized to their content (it does not move). A fraction rather than a pixel count, because
-    /// the rep comes back at the display's backing scale.
+    /// Where the leftmost success-tinted pixel is, as a fraction of the render's width; nil when
+    /// nothing green was drawn. The renames card's "After" column is its only green, so two renders
+    /// at different widths say whether the columns divide the card evenly (the edge tracks the
+    /// width) or fit their content (it stays). A fraction, because the rep comes back at the
+    /// display's backing scale.
     static func leftmostSuccessFraction(_ rep: NSBitmapImageRep) -> Double? {
         guard let data = rep.bitmapData, rep.samplesPerPixel >= 3, rep.pixelsWide > 0 else {
             return nil

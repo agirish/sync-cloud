@@ -4,17 +4,12 @@ import AppKit
 @testable import FileExplorer
 
 /// The two-way bridge between the buffer and the `NSTextView`: what an edit to the text sends out,
-/// and what a write from outside has to send back in.
-///
-/// **The bridge is the document's text storage now** (TE67.0, ``EditorSourceStorage``). The text
-/// view is built around it rather than owning one, the buffer is published from its edits rather
-/// than from the view's `textDidChange`, and a write to the buffer from outside is taken into it. So
-/// what these pin moved with it: the old echo guard (`pushIfChanged` against a remembered string)
-/// is gone, because nothing is pushed back at the view it came from; the identity of the storage is
-/// what a document switch changes.
-///
-/// **Driven through a real `NSTextView` and the real coordinator**, built as `makeNSView` builds it:
-/// the factory's view, re-pointed at the storage by ``PlainTextEditor/show(_:in:)``.
+/// and what a write from outside must send back in. The bridge is the document's text storage
+/// (``EditorSourceStorage``): the view is built around it, the buffer is published from its edits
+/// rather than from `textDidChange`, and an outside write to the buffer is taken into it, so
+/// nothing is pushed back at the view it came from, and a document switch changes which storage.
+/// Driven through a real `NSTextView` and coordinator, built as `makeNSView` builds them: the
+/// factory's view, re-pointed at the storage by ``PlainTextEditor/show(_:in:)``.
 @MainActor
 @Suite(.serialized) struct PlainTextEditorBridgeTests {
 
@@ -27,9 +22,9 @@ import AppKit
         let window: NSWindow
     }
 
-    /// A text view set up the way ``PlainTextEditor/makeNSView(context:)`` sets one up, around a
-    /// storage the buffer follows, with the coordinator as its delegate and in a window —
-    /// `insertText` on a detached view is not a reliable stand-in for typing.
+    /// A text view set up as ``PlainTextEditor/makeNSView(context:)`` sets one up, around a storage
+    /// the buffer follows, with the coordinator as its delegate, in a window: `insertText` on a
+    /// detached view is not a reliable stand-in for typing.
     private func hosted(_ initial: String) -> Hosted {
         let buffer = EditorBuffer()
         buffer.text = initial
@@ -61,8 +56,8 @@ import AppKit
 
     // MARK: The view is built around the document's storage
 
-    /// **TextKit 2, around the shared storage.** Re-pointing the factory's view must not drop it to
-    /// TextKit 1 — reading `layoutManager` would, for good — and the view must edit the storage it
+    /// TextKit 2, around the shared storage. Re-pointing the factory's view must not drop it to
+    /// TextKit 1 (reading `layoutManager` would, for good), and the view must edit the storage it
     /// was handed, not one of its own.
     @Test func theViewIsOnTextKit2AndShowsTheSharedStorage() {
         let rig = hosted("one\n")
@@ -72,14 +67,13 @@ import AppKit
         #expect(rig.view.string == "one\n")
     }
 
-    /// **The editor's scroll view is the factory's, property for property** — only its class is
-    /// ours (`EditorDocumentScrollView`, so ⌘Z from the find bar reaches the document — UND-3).
-    /// Measured against AppKit's own construction of the same text view class in the same process,
-    /// scroll view and text view both, so a setting the factory starts giving its scroll view shows
-    /// up here.
+    /// The editor's scroll view is the factory's, property for property; only its class is ours
+    /// (`EditorDocumentScrollView`, so ⌘Z from the find bar reaches the document). Measured against
+    /// AppKit's own construction in the same process, scroll view and text view both, so a setting
+    /// the factory starts giving its scroll view shows up here.
     @Test func aDocumentScrollViewIsTheFactorysPropertyForProperty() {
-        // The clip is ours (TE62), and AppKit's in every bound while typewriter scrolling is off —
-        // `EditorTypewriterScrollingTests` pins that; here it counts as the factory's own class.
+        // The clip is ours, and matches AppKit's in every bound while typewriter scrolling is off
+        // (`EditorTypewriterScrollingTests` pins that); here it counts as the factory's own class.
         func clipClass(_ scroll: NSScrollView) -> String {
             scroll.contentView is EditorDocumentClipView ? "NSClipView" : "\(type(of: scroll.contentView))"
         }
@@ -109,9 +103,9 @@ import AppKit
         #expect(differences.isEmpty, "the editor's scroll view differs from the factory's: \(differences)")
     }
 
-    /// **The storage is styled exactly as `view.string = text` styled it** — run for run, with the
-    /// same typing attributes — so a reader cannot tell the shared storage from the old private one.
-    /// Measured against the old construction in the same process rather than against literals.
+    /// The storage is styled exactly as `view.string = text` styles it, run for run, with the same
+    /// typing attributes, so the shared storage looks like a view's private one. Measured against
+    /// that construction in the same process rather than against literals.
     @Test func theSharedStorageIsStyledAsTheOldAssignmentStyledIt() {
         let text = "hello\nwörld 日本 é\n"
         let rig = hosted(text)
@@ -137,10 +131,9 @@ import AppKit
         #expect(rig.view.textColor == old.textColor, "the text colour is not the one the old view drew in")
     }
 
-    /// **Building a view over a storage adds nothing to its history.** A mode switch builds one
-    /// over a document with typing in its stack; a mount that registered a step would put a
-    /// do-nothing ⌘Z in front of the typing. Counted, not inferred from `canUndo` — an empty group
-    /// reads as undoable.
+    /// Building a view over a storage adds nothing to its history. A mode switch builds one over a
+    /// document with typing in its stack, and a mount that registered a step would put a do-nothing
+    /// ⌘Z in front of the typing. Counted, not inferred from `canUndo`, which an empty group sets.
     @Test func mountingAViewOverAStorageRegistersNoUndo() {
         final class Counting: UndoManager {
             var registrations = 0
@@ -171,15 +164,15 @@ import AppKit
         let rig = hosted("one\n")
         defer { withExtendedLifetime(rig.window) {} }
         rig.view.setSelectedRange(NSRange(location: 4, length: 0))
-        // **`insertText(_:replacementRange:)`, which is the path typing takes.**
+        // `insertText(_:replacementRange:)`, the path typing takes.
         rig.view.insertText("two\n", replacementRange: NSRange(location: 4, length: 0))
         #expect(rig.buffer.text == "one\ntwo\n", "typing did not reach the document")
         #expect(rig.source.text == "one\ntwo\n")
     }
 
-    /// **Typing published to the buffer is not taken back into the storage.** That would be the old
-    /// echo, at the model's level: a whole-storage replace per keystroke, with the caret thrown to
-    /// wherever AppKit puts it and every range on the stack left stale.
+    /// Typing published to the buffer is not taken back into the storage. That echo would be a
+    /// whole-storage replace per keystroke, with the caret thrown wherever AppKit puts it and every
+    /// range on the stack left stale.
     @Test func typingIsNotTakenBackIntoTheStorage() {
         let rig = hosted("one two\n")
         defer { withExtendedLifetime(rig.window) {} }
@@ -192,9 +185,8 @@ import AppKit
         #expect(rig.view.string == "one two\n", "the keystroke could not be undone")
     }
 
-    /// **⌘Z reaches the buffer.** On TextKit 2 an `NSTextView` undo sends no `textDidChange`
-    /// (measured 2026-10-04), which the buffer used to follow alone. Mutation: publish from
-    /// `textDidChange` only and this fails with the typing still in the buffer.
+    /// ⌘Z reaches the buffer. On TextKit 2 an `NSTextView` undo sends no `textDidChange`, so
+    /// publishing from `textDidChange` alone must fail this with the typing still in the buffer.
     @Test func undoReachesTheBuffer() {
         let rig = hosted("one\n")
         defer { withExtendedLifetime(rig.window) {} }
@@ -212,12 +204,12 @@ import AppKit
         #expect(rig.buffer.textVersion != undone, "⇧⌘Z did not bump the version")
     }
 
-    /// **An edit from outside the text, and its undo, reach the document while a word is being
-    /// composed.** A tick in Split can land mid-composition. Measured: AppKit ends the composition
-    /// when its storage is edited from outside, keeping the word as typed — so the word is committed
-    /// text from then on, and the document must be what is on screen. The hold-back for marked text
-    /// waits for a `textDidChange` that neither an outside edit nor a TextKit 2 undo sends; it must
-    /// catch neither. Mutation: publish only from `textDidChange` while marked text is up.
+    /// An edit from outside the text, and its undo, reach the document while a word is being
+    /// composed (a tick in Split can land mid-composition). AppKit ends the composition when its
+    /// storage is edited from outside, keeping the word as typed, so the document must then be what
+    /// is on screen. The marked-text hold-back waits for a `textDidChange` that neither an outside
+    /// edit nor a TextKit 2 undo sends, so it must catch neither. Mutation: publish only from
+    /// `textDidChange` while marked text is up.
     @Test func anOutsideEditAndItsUndoReachTheDocumentMidComposition() {
         let rig = hosted("- [ ] a\n")
         defer { withExtendedLifetime(rig.window) {} }
@@ -238,9 +230,9 @@ import AppKit
         #expect(rig.buffer.text == rig.view.string, "⌘Z mid-composition left the document behind the screen")
     }
 
-    /// **Ending a composition commits the word into the document** (UND-5) — the first step of
-    /// every route out of a document, so the word is flushed as text and the storage is never put
-    /// away holding a character the buffer lacks. Mutation: `endComposition` returning `false` at once.
+    /// Ending a composition commits the word into the document: the first step of every route out
+    /// of a document, so the storage is never put away holding a character the buffer lacks.
+    /// Mutation: `endComposition` returning `false` at once.
     @Test func endingACompositionCommitsTheWord() {
         let rig = hosted("hello\n")
         defer { withExtendedLifetime(rig.window) {} }
@@ -258,10 +250,10 @@ import AppKit
         #expect(!rig.source.endComposition(), "a second end found a composition")
     }
 
-    /// **A tick lands on its checkbox while a word is being composed above it.** The published text
-    /// leaves the half-composed word out and the storage holds it, so a range measured on the one
-    /// and applied to the other lands that many characters early — here, on the `[` instead of the
-    /// space inside it. Mutation: measure the tick on `source.text`.
+    /// A tick lands on its checkbox while a word is being composed above it. The published text
+    /// leaves the half-composed word out and the storage holds it, so a range measured on one and
+    /// applied to the other lands that many characters early, here on the `[` instead of the space
+    /// inside it. Mutation: measure the tick on `source.text`.
     @Test func aTickLandsOnItsBoxWhileAWordIsComposedAboveIt() {
         let rig = hosted("abc\n- [ ] x\n")
         defer { withExtendedLifetime(rig.window) {} }
@@ -277,11 +269,10 @@ import AppKit
         #expect(rig.buffer.text == rig.view.string)
     }
 
-    /// **⌘Z while a word is being composed takes the composition back first**, so no older edit is
-    /// ever replayed under marked text — measured here with the typing's undo belonging to a view a
-    /// mode switch discarded, the case where a replay would come from outside the view on screen.
-    /// Whatever it takes back, the document is what is on screen afterwards. (This is why the
-    /// hold-back for marked text needs no exception for undo: there is no undo for it to catch.)
+    /// ⌘Z while a word is being composed takes the composition back first, so no older edit is
+    /// replayed under marked text. Tested with the typing's undo belonging to a view a mode switch
+    /// discarded, where a replay would come from outside the view on screen. Afterwards the
+    /// document is what is on screen, so the marked-text hold-back needs no exception for undo.
     @Test func undoMidCompositionLeavesTheDocumentMatchingTheScreen() {
         let rig = hosted("ab")
         defer { withExtendedLifetime(rig.window) {} }
@@ -316,10 +307,9 @@ import AppKit
         #expect(rig.buffer.text == "ab" && live.string == "ab", "the typing before the composition did not undo next")
     }
 
-    /// **A half-composed word is not the document's yet.** Marked text is in the storage the moment
-    /// it is typed and the view says nothing until it is committed, so the buffer — and autosave —
-    /// never held a kana reading before the kanji replaced it. Held back here, published on the
-    /// commit through `textDidChange`, and on `unmarkText` too.
+    /// A half-composed word is not the document's yet. Marked text is in the storage the moment it
+    /// is typed, so it is held back from the buffer (and autosave) until committed, through
+    /// `textDidChange` or `unmarkText`; a kana reading never reaches the document before its kanji.
     @Test func markedTextReachesTheBufferOnlyWhenCommitted() {
         let rig = hosted("ab")
         defer { withExtendedLifetime(rig.window) {} }
@@ -351,8 +341,8 @@ import AppKit
         #expect(rig.source.text == "two\n")
     }
 
-    /// **A write back to text the storage held before an edit is still taken in.** The storage
-    /// remembers what it last published; if typing did not move that record, an outside write
+    /// A write back to text the storage held before an edit is still taken in. The storage
+    /// remembers what it last published; if typing didn't move that record, an outside write
     /// matching the stale record would be skipped and the discarded edit left on screen.
     @Test func textSetFromOutsideReachesTheViewEvenBackToWhatItHeldBefore() {
         let rig = hosted("original\n")
@@ -366,8 +356,8 @@ import AppKit
                 "a write back to the pre-edit text left the discarded edit on screen")
     }
 
-    /// **Bytes, not `==`.** NFC and NFD are one Swift `String` value; an NFD write over NFC text
-    /// must still reach the storage, or the screen and a save would hold different bytes.
+    /// Bytes, not `==`. NFC and NFD are one Swift `String` value; an NFD write over NFC text must
+    /// still reach the storage, or the screen and a save would hold different bytes.
     @Test func aWriteThatDiffersOnlyInNormalisationIsTakenIn() {
         let nfc = "caf\u{E9}\n"
         let nfd = "cafe\u{301}\n"
@@ -381,9 +371,9 @@ import AppKit
 
     // MARK: A document switch changes which storage, not its text
 
-    /// **Two files holding the same bytes are still two storages**, and the view is re-pointed at
-    /// the incoming one. A text comparison cannot see this switch; the undo stack — kept beside the
-    /// storage — is why it matters.
+    /// Two files holding the same bytes are still two storages, and the view is re-pointed at the
+    /// incoming one. A text comparison can't see this switch; the undo stack, kept beside the
+    /// storage, is why it matters.
     @Test func aDocumentSwitchWithIdenticalTextRepointsTheView() {
         let rig = hosted("same bytes\n")
         defer { withExtendedLifetime(rig.window) {} }
@@ -406,7 +396,7 @@ import AppKit
 
     // MARK: Scroll sync
 
-    /// Only the split follows where the text has scrolled to — the rule that decides whether the
+    /// Only the split follows where the text has scrolled to: the rule that decides whether the
     /// topmost visible line is worked out at all on a scroll tick.
     @Test func theVisibleLineIsFollowedOnlyInSplit() {
         #expect(!EditorWorkspaceView.followsVisibleLine(.edit))
@@ -414,7 +404,7 @@ import AppKit
         #expect(EditorWorkspaceView.followsVisibleLine(.split))
     }
 
-    /// And a coordinator with nobody following it reports nothing — the wiring under that rule.
+    /// And a coordinator with nobody following it reports nothing: the wiring under that rule.
     @Test func aCoordinatorWithNoReporterIsTheRestingState() {
         let rig = hosted("one\ntwo\n")
         defer { withExtendedLifetime(rig.window) {} }

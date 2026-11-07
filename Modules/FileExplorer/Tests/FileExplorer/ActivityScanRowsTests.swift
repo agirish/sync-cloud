@@ -3,8 +3,8 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **The long scans in Activity's Running** (Run Room TE228, CO, R21): listed with a Show and no
-/// Stop — their controls stay on their cards — and Read documents says when it is paused, by whom.
+/// The long scans in Activity's Running: listed with a Show and no Stop, since their controls stay
+/// on their cards, and Read documents says when it is paused, and by whom.
 @MainActor
 @Suite struct ActivityScanRowsTests {
 

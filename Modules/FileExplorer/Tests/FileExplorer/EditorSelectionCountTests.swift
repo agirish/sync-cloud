@@ -4,9 +4,9 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// **TE60 — the status line counts the selection.** The counts themselves (one rule with the
-/// document's), what each rung says, and the ladder the selection joins: its line count goes first,
-/// and nothing it adds may push the line past its column.
+/// The status line counts the selection: the counts themselves (one rule with the document's), what
+/// each rung says, and the ladder the selection joins. Its line count goes first, and nothing it
+/// adds may push the line past its column.
 @MainActor
 @Suite struct EditorSelectionCountTests {
 
@@ -16,19 +16,19 @@ import Design
         #expect(EditorSelectionFacts.of("one two", selection: NSRange(location: 3, length: 0)) == nil)
     }
 
-    /// The selected range alone, by the document's rules: a word cut by the edge is one word, and the
-    /// characters are graphemes — the emoji is one.
+    /// The selected range alone, by the document's rules: a word cut by the edge is one word, and
+    /// the characters are graphemes, so the emoji is one.
     @Test func itCountsTheSelectedRangeByTheDocumentsRules() throws {
         let text = "alpha beta 👍 gamma delta"
-        // "ta 👍 ga" — part of beta, the emoji, part of gamma.
+        // "ta 👍 ga": part of beta, the emoji, part of gamma.
         let start = (text as NSString).range(of: "ta 👍").location
         let counted = try #require(EditorSelectionFacts.of(text, selection: NSRange(location: start, length: 8)))
         #expect(counted == EditorSelectionFacts(words: 3, characters: 7, lines: 1))
     }
 
-    /// **The lines a selection touches, with a trailing break opening none** — a triple-clicked line
+    /// The lines a selection touches, with a trailing break opening none: a triple-clicked line
     /// (its text and its newline) is one line, and a selection from the middle of line 1 to the
-    /// middle of line 3 is three. CRLF counts as one break, as the document's count has it.
+    /// middle of line 3 is three. CRLF counts as one break, as in the document's count.
     @Test func itCountsTheLinesTheSelectionTouches() throws {
         let text = "first line\r\nsecond line\r\nthird line\r\n"
         let ns = text as NSString
@@ -41,18 +41,18 @@ import Design
         #expect(EditorSelectionFacts.of(text, selection: inLine)?.lines == 1)
     }
 
-    /// **A selection reported against a longer text than the one read is clamped, never trapped
-    /// on** — the two are read at different moments.
+    /// A selection reported against a longer text than the one read is clamped, never trapped on:
+    /// the two are read at different moments.
     @Test func aSelectionPastTheEndIsClamped() {
         #expect(EditorSelectionFacts.of("abc", selection: NSRange(location: 1, length: 50))
                 == EditorSelectionFacts(words: 1, characters: 2, lines: 1))
         #expect(EditorSelectionFacts.of("abc", selection: NSRange(location: 9, length: 5)) == nil)
     }
 
-    /// **⌘A takes the document's own counts when they describe this text**, rather than walking a
-    /// 4 MiB buffer for numbers already on screen — and counts afresh when they do not. The facts
-    /// handed in are deliberately WRONG for the text, so the two answers differ and the test can
-    /// tell which one was given (a fixture whose fallback answers the same cannot fail).
+    /// ⌘A takes the document's own counts when they describe this text, rather than walking a 4 MiB
+    /// buffer for numbers already on screen, and counts afresh when they don't. The facts handed in
+    /// are deliberately wrong for the text, so the two answers differ and the test can tell which
+    /// one was given.
     @Test func aSelectAllReusesTheDocumentsCountsOnlyWhenTheyAreCurrent() {
         let text = "one two three"
         let all = NSRange(location: 0, length: (text as NSString).length)
@@ -68,9 +68,9 @@ import Design
                 "a partial selection took the whole document's counts")
     }
 
-    /// **The same length is not the same text** (review): one character typed over a one-character
-    /// selection leaves counts of the right length for the wrong text, and a select-all straight
-    /// after took them — "one twoxthree"'s 2 words for "one two three"'s 3, and they stayed.
+    /// The same length is not the same text: one character typed over a one-character selection
+    /// leaves counts of the right length for the wrong text, which a select-all straight after must
+    /// not take.
     @Test func aSelectAllAfterALengthPreservingEditCountsTheNewText() throws {
         let before = "one twoxthree"
         let after = "one two three"
@@ -80,10 +80,10 @@ import Design
         #expect(EditorSelectionFacts.of(after, selection: all, facts: (stale, 41), version: 42)?.words == 3)
     }
 
-    /// **The text the app hands over is a text storage's string, not a native one** — and the count
-    /// is the same through it: the slice is taken as a Swift string, never through `NSString`, which
-    /// walked four times slower (measured, see `EditorSelectionFacts.of`). Edges inside an emoji's
-    /// surrogate pair round to the character, as the caret does.
+    /// The app hands over a text storage's string, not a native one, and the count is the same
+    /// through it: the slice is taken as a Swift string, never through `NSString`, which walks four
+    /// times slower (see `EditorSelectionFacts.of`). Edges inside an emoji's surrogate pair round
+    /// to the character, as the caret does.
     @Test func aTextStoragesStringCountsTheSameAsANativeOne() throws {
         let native = "naïve 👍 café\nsecond line\n"
         let storage = NSTextStorage(string: native)
@@ -101,7 +101,7 @@ import Design
 
     private let facts = EditorDocumentFacts(words: 78, characters: 412, lines: 9, lineEnding: .lf, encoding: "UTF-8")
 
-    /// With no selection the line reads exactly as it did before TE60.
+    /// With no selection the line shows the document's counts alone.
     @Test func withNoSelectionTheCountsAreTheDocuments() {
         #expect(EditorStatusLine.countCaptions(facts: facts, selection: nil, rung: .full, lines: true)
                 == ["78 words", "412 characters"])
@@ -125,8 +125,8 @@ import Design
         #expect(EditorStatusLine.countCaptions(facts: facts, selection: three, rung: .caret, lines: true) == [])
     }
 
-    /// Singular where it is one — "1 of 1 word", "1 character selected" — through the document's own
-    /// `count`, so "1 words" cannot come back through this door.
+    /// Singular where it is one ("1 of 1 word", "1 character selected"), through the document's own
+    /// `count`, so "1 words" can't come back through this door.
     @Test func oneIsSingular() {
         let tiny = EditorDocumentFacts(words: 1, characters: 1, lines: 1, lineEnding: nil, encoding: nil)
         let sel = EditorSelectionFacts(words: 1, characters: 1, lines: 1)
@@ -134,15 +134,15 @@ import Design
                 == ["1 of 1 word", "1 character selected"])
     }
 
-    /// VoiceOver hears the whole selection — line count included — whatever the rung had room for.
+    /// VoiceOver hears the whole selection, line count included, whatever the rung had room for.
     @Test func voiceOverHearsTheSelection() {
         let label = EditorStatusLine.accessibilityLabel(facts: facts, caret: EditorCaret(line: 4, column: 2),
                                                         selection: EditorSelectionFacts(words: 12, characters: 64, lines: 3))
         #expect(label.hasPrefix("12 of 78 words, 64 characters, 3 lines selected, Line 4, Col 2"), "heard: \(label)")
     }
 
-    /// The line is `.equatable()` — compared on what it draws — so a selection that changed must
-    /// make it unequal, or the strip would keep the last selection's counts.
+    /// The line is `.equatable()`, compared on what it draws, so a changed selection must make it
+    /// unequal, or the strip would keep the last selection's counts.
     @Test func aChangedSelectionRedrawsTheLine() {
         let a = EditorStatusLine(facts: facts, caret: EditorCaret(line: 1, column: 1),
                                  selection: EditorSelectionFacts(words: 1, characters: 3, lines: 1))
@@ -171,8 +171,8 @@ import Design
         NSHostingView(rootView: AnyView(view.environment(\.appFontScale, scale))).fittingSize.width
     }
 
-    /// **Strictly narrowing, with the selection's line count first to go** — or `ViewThatFits`
-    /// could never reach a rung — at every text size.
+    /// Strictly narrowing at every text size, with the selection's line count first to go;
+    /// otherwise `ViewThatFits` could never reach a rung.
     @Test func theSelectionRungsNarrowInOrder() {
         for scale in scales {
             let widths = [ideal(line(multi, rung: .full), scale: scale),
@@ -184,8 +184,8 @@ import Design
         }
     }
 
-    /// **The caret rung is the same with a selection as without** — so the narrowest column the
-    /// layout allows still holds the line at every text size, selection or not.
+    /// The caret rung is the same with a selection as without, so the narrowest column the layout
+    /// allows still holds the line at every text size.
     @Test func theNarrowestRungIsTheCaretAloneWithASelection() {
         for scale in scales {
             let with = ideal(line(multi, rung: .caret), scale: scale)
@@ -214,10 +214,10 @@ import Design
         return count
     }
 
-    /// **Short of room for "118 lines", the line count goes and both counts stay.** Laid out by
-    /// width (no forced rung) a little narrower than the rung with lines, the line draws exactly what
-    /// the rung without lines draws — the same pixels. With room, it draws the lines (positive
-    /// control: the two forced rungs really do differ, so "the same pixels" can fail).
+    /// Short of room for "118 lines", the line count goes and both counts stay. Laid out by width
+    /// (no forced rung) a little narrower than the rung with lines, the line draws exactly the
+    /// pixels of the rung without lines. With room it draws the lines; the two forced rungs are
+    /// checked to differ, so "the same pixels" can fail.
     @Test func theSelectionsLineCountIsTheFirstThingToGo() throws {
         let withLines = ideal(line(multi, rung: .full))
         let without = ideal(line(multi, rung: .full, dropsLines: true))
@@ -234,9 +234,9 @@ import Design
                                                           width: withLines + 40))) > 50)
     }
 
-    /// **Beside a heading, too, the line count goes before the counts do** — and the heading still
-    /// gives way first: at a width that fits the heading's floor and the counts but not the lines,
-    /// the character count is still drawn (the line differs from the counts-only rung).
+    /// Beside a heading, too, the line count goes before the counts, and the heading still gives
+    /// way first: at a width that fits the heading's floor and the counts but not the lines, the
+    /// character count is still drawn.
     @Test func besideAHeadingTheLineCountStillGoesFirst() throws {
         let headings = EditorStatusHeadings(
             outline: [MarkdownOutlineEntry(line: 1, level: 2, depth: 0, title: "Method for the very patient weekend cook")],
@@ -249,7 +249,7 @@ import Design
         let floorFull = try #require(render(line(multi, rung: .full, dropsLines: true, headings: headings), width: width))
         #expect(differingPixels(chosen, counts) > 50, "the character count went before the line count")
         #expect(differingPixels(chosen, floorFull) == 0, "the line did not settle on the heading's floor without lines")
-        // …and with room, the line count IS drawn beside the heading: the same counts over one line
+        // And with room the line count is drawn beside the heading: the same counts over one line
         // draw differently from over 118.
         let roomy = without + EditorStatusLine.spacing + 600
         let oneLine = EditorSelectionFacts(words: multi.words, characters: multi.characters, lines: 1)
@@ -260,14 +260,14 @@ import Design
 
     // MARK: The call site
 
-    /// **The rule is wired**: the workspace hands the line its counted selection and keeps the
-    /// selection's length whatever the format bar is doing — a count gated on the bar would be
+    /// The rule is wired: the workspace hands the line its counted selection and keeps the
+    /// selection's length whatever the format bar is doing, since a count gated on the bar would be
     /// blank in every plain-text file. Read from the source, comments stripped.
     ///
-    /// **And the length is held, not observed** — the workspace keeps the box in `@State` and never
-    /// reads its length, so a forward drag's ticks re-render only ``EditorSelectionDerivations``
-    /// (measured 11 ms a tick against 0.5 ms, see ``EditorLiveSelection``). `@StateObject`, or a
-    /// read of the length in the workspace's body, would bring every tick back to the workspace.
+    /// And the length is held, not observed: the workspace keeps the box in `@State` and never
+    /// reads its length, so a drag's ticks re-render only ``EditorSelectionDerivations`` (see
+    /// ``EditorLiveSelection`` for the cost). `@StateObject`, or a read of the length in the
+    /// workspace's body, would bring every tick back to the workspace.
     @Test func theWorkspaceHandsTheLineItsSelection() throws {
         let source = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(source.contains("selection: selectionFacts, goToLine: statusGoToLine"),
@@ -286,7 +286,7 @@ import Design
         #expect(!source.contains("liveSelection.length"), "the workspace reads the live length")
         let derivations = try ChromeGlassWiringTests.source("EditorSelectionDerivations.swift")
         #expect(derivations.contains("EditorSelectionFacts.of(source, selection: selection, facts: whole, version: current)"))
-        // Go to Line's two doors in the workspace answer to the one rule (TE61).
+        // Go to Line's two doors in the workspace answer to the one rule.
         #expect(source.contains("guard offersGoToLine else { return nil }"), "the status line offers Go to Line in Preview")
         #expect(source.contains("guard offersGoToLine else { return }"), "the menu's press opens the field in Preview")
     }

@@ -2,14 +2,12 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// **One run of text a page's content stream draws** — a `Tj`, `TJ`, `'` or `"` — with the font it
-/// names, where its baseline starts and ends, and its fill colour.
-///
-/// Read off the content stream rather than asked of PDFKit, whose `attributedString` names a
-/// stand-in — plain Helvetica or Arial — for an embedded face it can't load: measured 2026-10-18 on
-/// page 1 of his PDFs, 44 of 132.
+/// One run of text a page's content stream draws (a `Tj`, `TJ`, `'` or `"`), with the font it
+/// names, where its baseline starts and ends, and its fill colour. Read off the content stream, not
+/// asked of PDFKit, whose `attributedString` names a stand-in (plain Helvetica or Arial) for any
+/// embedded face it can't load, which is common.
 struct EditorPDFTextRun: Equatable, Sendable {
-    /// The font's `/BaseFont` without its subset tag — "ArialMT" for "ABCDEF+ArialMT".
+    /// The font's `/BaseFont` without its subset tag: "ArialMT" for "ABCDEF+ArialMT".
     var fontName: String
     /// The `/FontDescriptor`'s `/Flags`: fixed pitch, serif, script, italic…
     var fontFlags: Int
@@ -51,12 +49,12 @@ public struct EditorPDFRGB: Equatable, Hashable, Sendable {
     static let white = EditorPDFRGB(red: 1, green: 1, blue: 1)
 }
 
-/// **Reads a page's text runs off its content stream** with `CGPDFScanner`: the graphics state's
+/// Reads a page's text runs off its content stream with `CGPDFScanner`: the graphics state's
 /// matrix (`q`, `Q`, `cm`), the text state (`BT`, `Tf`, `Td`, `TD`, `Tm`, `T*`, `TL`, `Tc`, `Tw`,
 /// `Tz`, `Tr`), the fill colour (`g`, `rg`, `k`, `cs`, `sc`, `scn`), and form XObjects (`Do`), into
 /// which it follows. Each run's end comes from its glyphs' widths in the font's `/Widths` or `/W`.
 ///
-/// Main-thread only, on the reader's own document — like everything else drawn from it.
+/// Main-thread only, on the reader's own document, like everything else drawn from it.
 final class EditorPDFTextRunReader {
     private(set) var runs: [EditorPDFTextRun] = []
 
@@ -101,8 +99,8 @@ final class EditorPDFTextRunReader {
     /// By the font dictionary's address: one resource, read once.
     private var fonts: [Int: Font] = [:]
     private var depth = 0
-    /// A page that draws more runs than this is read only this far — the picked words are rarely
-    /// past it, and a map of a hundred thousand glyph runs is not worth the wait.
+    /// A page that draws more runs than this is read only this far: the picked words are rarely
+    /// past it, and a map of a hundred thousand runs isn't worth the wait.
     static let runLimit = 50_000
 
     /// The runs `page` draws, in drawing order.

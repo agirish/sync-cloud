@@ -4,17 +4,14 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.2's decided route for the folders that were already empty: the crowding strip's third
-/// filter gets the removal sheet, the same one a landing's own emptied folders go through.
-///
-/// The build shipped the filter and the count without the button — the audit's G1. These are the
-/// text rules that route it, tested as text (a SwiftUI `Button` is not drivable from a unit test),
-/// plus a render smoke over the state that grew the control.
+/// The route for folders that were already empty: the crowding strip's empties filter opens the
+/// removal sheet, the same one a landing's emptied folders go through. The text rules that route
+/// it are tested as text (a SwiftUI `Button` isn't drivable from a unit test), plus a render
+/// smoke over the state that shows the control.
 @MainActor
 @Suite struct RestructureStandingEmptiesTests {
 
-    /// The chip's tooltip promised a sheet "when Apply lands". Apply landed; the sentence had to
-    /// stop describing a future and start describing the control under the list.
+    /// The chip's tooltip describes the control under the list, not a future "when Apply lands".
     @Test func theEmptiesChipPointsAtTheListItOpens() {
         let help = RestructureLens.crowdingHelp(.empty)
         #expect(!help.contains("when Apply lands"),
@@ -25,15 +22,15 @@ import Testing
                 "only the empties gained an action — the other two say why they did not")
     }
 
-    /// *Emptied* is a provenance claim: something drained these. True of a landing's folders,
-    /// false of the ones that were empty all along.
+    /// *Emptied* is a provenance claim, that something drained these: true of a landing's folders,
+    /// false of ones empty all along.
     @Test func theTitleDoesNotClaimSomethingEmptiedThem() {
         #expect(RestructureRemovalSheet.titleText(isStanding: true) == "Remove empty folders")
         #expect(RestructureRemovalSheet.titleText(isStanding: false) == "Remove emptied folders")
     }
 
-    /// One folder trashed used to read "1 emptied folders removed" — the removal is the landing
-    /// most likely to have a count of one, and the ledger sentence is what its card carries.
+    /// The ledger counts read in the singular: a removal is the landing most likely to count one,
+    /// and its card carries this sentence.
     @Test func theLedgerCountsReadInTheSingular() {
         var outcome = FileSyncManager.RestructureApplyOutcome()
         outcome.removedEmpty = 1
@@ -45,16 +42,14 @@ import Testing
         many.foldersMovedWhole = 2
         #expect(many.summary.contains("3 empty folders removed"))
         #expect(many.summary.contains("2 folders carried whole"))
-        // The DURABLE record, which outlives the sheet that made the provenance split. §5.2's
-        // standing empties were empty all along — nothing emptied them — so this sentence may
-        // not say "emptied" the way a landing-scoped removal could.
+        // The durable record, which outlives the sheet that made the provenance split. Standing
+        // empties were empty all along, so this sentence must not say "emptied".
         #expect(!many.summary.contains("emptied"),
                 "the ledger card carries this sentence for both removal origins")
     }
 
-    /// The sheet's opening sentence is its whole claim about where the list came from, so the two
-    /// origins say different things. The rule underneath — date buckets are debt, categories are
-    /// destinations — is shared, and must stay in both.
+    /// The sheet's opening sentence says where the list came from, so the two origins differ. The
+    /// rule underneath (date buckets are debt, categories are destinations) is shared by both.
     @Test func theSheetSaysWhichListItIsLookingAt() {
         let standing = RestructureRemovalSheet.introText(isStanding: true)
         let landing = RestructureRemovalSheet.introText(isStanding: false)
@@ -69,8 +64,8 @@ import Testing
         }
     }
 
-    /// `"."` is the profile's own spelling for the tree root and the family a scattered removal
-    /// gets. Rendered raw it heads the card with a full stop.
+    /// `"."` is the profile's spelling for the tree root, and the family a scattered removal gets;
+    /// rendered raw it would head the card with a full stop.
     @Test func aRootLevelLandingIsHeadedInWords() {
         #expect(RestructureLens.familyHeading(".") == "Across the tree")
         #expect(RestructureLens.familyHeading("Finance/US/Income Tax")
@@ -80,12 +75,11 @@ import Testing
 
     // MARK: The crowding lists, grouped (O9)
 
-    /// Below the threshold a flat list is the better answer — grouping a dozen paths adds a
-    /// disclosure to open before anything can be read. Both sides of the boundary are asserted,
-    /// because a threshold tested on one side is a constant, not a rule.
+    /// Below the threshold a flat list is better: grouping a dozen paths adds a disclosure to open
+    /// before anything can be read. Both sides of the boundary are asserted.
     @Test func shortCrowdingListsStayFlat() {
-        // The VALUE, not just the boundary: deriving the fixture from the constant compares the
-        // rule to itself, and 25 or 60 would both have passed.
+        // The value, not just the boundary: a fixture derived from the constant compares the rule
+        // to itself.
         #expect(RestructureLens.crowdingGroupingThreshold == 40)
         let few = (1...RestructureLens.crowdingGroupingThreshold).map { "Finance/\($0)" }
         #expect(RestructureLens.crowdingBranches(few) == nil)
@@ -94,8 +88,8 @@ import Testing
         #expect(RestructureLens.crowdingBranches([]) == nil)
     }
 
-    /// Grouped by top-level folder, biggest branch first — the pile worth opening leads — with
-    /// the paths inside each sorted and every path accounted for.
+    /// Grouped by top-level folder, biggest branch first so the pile worth opening leads, with each
+    /// group's paths sorted and every path accounted for.
     @Test func longCrowdingListsGroupByBranchBiggestFirst() throws {
         var paths = (1...30).map { "Work/\($0)" }
         paths += (1...8).map { "Finance/\($0)" }
@@ -107,24 +101,22 @@ import Testing
         #expect(groups.map(\.paths.count) == [30, 8, 5, 1])
         #expect(groups.flatMap(\.paths).count == paths.count, "no path is dropped")
         #expect(Set(groups.flatMap(\.paths)) == Set(paths))
-        // Pinned as a literal on a group whose INPUT order is not already sorted — comparing a
-        // list to its own `sorted()` is the model against itself, and the Finance group happened
-        // to arrive in order anyway.
+        // A literal, on a group whose input order isn't already sorted: comparing a list to its
+        // own `sorted()` checks the model against itself.
         #expect(groups[0].paths.prefix(3) == ["Work/1", "Work/10", "Work/11"])
-        // A top-level folder is its own branch rather than being dropped for having no first
-        // component to group under.
+        // A top-level folder is its own branch, not dropped for having no component to group under.
         #expect(groups.last?.paths == ["Loose"])
     }
 
-    /// Two branches of equal size order by name, so the list does not reshuffle between renders.
+    /// Two branches of equal size order by name, so the list doesn't reshuffle between renders.
     @Test func equalBranchesOrderByName() throws {
         let paths = (1...21).map { "Zulu/\($0)" } + (1...21).map { "Alpha/\($0)" }
         let groups = try #require(RestructureLens.crowdingBranches(paths))
         #expect(groups.map(\.branch) == ["Alpha", "Zulu"])
     }
 
-    /// The real tree's three classes: the two big ones group, and the empties — 20 of them —
-    /// stay flat, which is also what keeps their removal button one click from the chip.
+    /// Realistic class sizes: the two big classes group, and a couple of dozen empties stay flat,
+    /// which keeps their removal button one click from the chip.
     @Test func theRealTreesEmptiesStayFlatAndKeepTheirButtonReachable() {
         #expect(RestructureLens.crowdingBranches((1...503).map { "F/\($0)" }) != nil)
         #expect(RestructureLens.crowdingBranches((1...86).map { "F/\($0)" }) != nil)
@@ -133,8 +125,7 @@ import Testing
 
     // MARK: The two decisions the button rests on
 
-    /// The button's own gate. A render smoke test cannot see this — deleting the whole button
-    /// block left the entire FileExplorer package green — so the decision is a rule, and the
+    /// The button's own gate. A render smoke test can't see it, so the decision is a rule, and the
     /// scan below pins that the view still asks it.
     @Test func onlyTheEmptiesEndInATrashRoute() {
         #expect(RestructureLens.offersStandingRemoval(.empty, pathCount: 3, hasHandler: true))
@@ -147,9 +138,8 @@ import Testing
                 "no handler means no button, rather than one that does nothing")
     }
 
-    /// What the sheet is allowed to be seeded with. Widening this filter to "anything that is not
-    /// pass-through" survived the whole package, and it routes folders that hold a file into a
-    /// sheet whose own sentence says they were empty.
+    /// What the sheet may be seeded with: wholly empty folders only. Widening it to "anything not
+    /// pass-through" would route folders holding a file into a sheet that says they were empty.
     @Test func onlyWhollyEmptyFoldersAreOfferedForTheTrash() {
         let classified: [String: DeadWeightClass] = [
             "Travel/2019": .empty,
@@ -163,8 +153,7 @@ import Testing
         #expect(LensWorkspaceView.standingEmptyPaths(in: [:]) == [])
     }
 
-    /// The rules above are one revert away from being unused, and the display rules in this
-    /// change were each shown to survive being unwired. This pins every call site.
+    /// The rules above are one revert away from being unused, so this pins every call site.
     @Test func theSurfacesActuallyAskTheseRules() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -189,8 +178,8 @@ import Testing
                 "the header names the folder being planned, never a bare empty family")
     }
 
-    /// The ⌘Z action name is the one place `familyLabel` earns its keep, and reverting its call
-    /// site to `lastPathComponent` survived all 3,054 Sync tests.
+    /// The ⌘Z action name is where `familyLabel` earns its keep, and no Sync test catches its call
+    /// site reverting to `lastPathComponent`.
     @Test func theGroupedUndoNamesARootFamilyInWords() throws {
         let engine = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -202,10 +191,9 @@ import Testing
         #expect(!text.contains("\"Reorganize \\((manifest.family as NSString).lastPathComponent)\""))
     }
 
-    /// The state that grew the control: a clean tree whose only remaining work is the crowding
-    /// strip, with the empties filter open — **and the button is visibly there**, which an ink
-    /// floor over the whole lens could not say, since the strip inks tens of thousands of pixels
-    /// either way. The handler is the only difference between the two renders.
+    /// A clean tree whose only remaining work is the crowding strip, with the empties filter open,
+    /// and the button visibly there. An ink floor can't say that, since the strip inks plenty
+    /// either way, so the handler is the only difference between the two renders.
     @Test func theLensRendersTheEmptiesListWithItsRemovalButton() throws {
         func lens(remover: (() -> Void)?) -> RestructureLens {
             RestructureLens(
@@ -215,9 +203,8 @@ import Testing
                              "Work/EMP/Offer Letter": .singleFileLeaf],
                 accent: .blue, onReveal: { _ in }, hasReviewed: true,
                 onRemoveStandingEmpties: remover,
-                // The button lives under the EXPANDED empty list, and the filter is state a chip
-                // toggles — so without this seed both renders are of a closed strip, which is
-                // what the previous version of this test was silently comparing.
+                // The button lives under the expanded empty list, and the filter is state a chip
+                // toggles, so without this seed both renders would show a closed strip.
                 initialCrowdingFilter: .empty)
         }
         let without = try #require(RestructureRender.raster(lens(remover: nil),
@@ -229,8 +216,7 @@ import Testing
                 "\u{201c}Remove empty folders\u{2026}\u{201d} is on the strip")
 
         let lens = lens(remover: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(lens, width: 640, height: 480))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
@@ -246,8 +232,7 @@ import Testing
             accent: .blue, isStanding: true,
             onRemove: { _ in .landed(removed: 2, skippedCount: 0, caveat: nil) },
             onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 480, height: 400))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }

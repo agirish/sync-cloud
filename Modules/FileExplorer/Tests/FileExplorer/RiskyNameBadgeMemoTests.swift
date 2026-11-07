@@ -5,38 +5,25 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Holds the row badge to the cost model `RiskyNameBadgeCache` was designed against: a pane asks
-/// about a name on every visible row of every render pass, and the rules run **once per distinct
-/// name, ever**.
+/// Holds the row badge to `RiskyNameBadgeCache`'s cost model: a pane asks about a name on every
+/// visible row of every render pass, and the rules run once per distinct name, ever.
 ///
-/// This suite measures the tree pane (`FileTreeView`); `RiskyNameBadgeColumnsMemoTests` measures the
-/// columns pane against the same fixture. Both are real call sites of `riskyNameReason`, and the
-/// claim is meant to hold for whichever one is on screen.
+/// This suite measures the tree pane (`FileTreeView`); `RiskyNameBadgeColumnsMemoTests` measures
+/// the columns pane against the same fixture. Both are real call sites of `riskyNameReason`.
 ///
-/// **Why a count and not a stopwatch.** The obvious net was the existing
-/// `RiskyNameBadgeCostBenchmark` turned into a load-scaled timing bar, like
-/// `ColumnClickCostBenchmark`. It would not work. The badge's whole measured cost is +0.03–0.24 ms
-/// against a ~9 ms pane re-render — smaller than the spread *within* one arm, on a Mac that is also
-/// the CI runner and routinely sits at load 5–8 (three identical runs during the original
-/// measurement gave medians of 8.66, 10.50 and 9.16 ms; runs while writing these tests saw load
-/// above 24). Deleting the memo outright — the single regression most worth catching — swaps a
-/// ~1.5 µs dictionary hit for a ~7 µs live check on ~60 rows: a few hundred microseconds, an order
-/// of magnitude under the noise. A bar loose enough not to flake could not see it, and a net that
-/// catches nothing while looking like protection is worse than no net.
+/// A count, not a stopwatch. The badge costs +0.03–0.24 ms against a ~9 ms re-render, smaller than
+/// the spread within one arm on a loaded Mac; deleting the memo swaps a ~1.5 µs dictionary hit for
+/// a ~7 µs live check on ~60 rows, an order of magnitude under the noise. A timing bar loose
+/// enough not to flake couldn't see it. Counting evaluations is exact, needs no calibration and
+/// reads the same on a busy machine, so these cases are not `.machinePinned`.
 ///
-/// Counting evaluations measures the same quantity the design was argued from — the table in the
-/// cache's doc comment is a per-miss rate — and it is exact, needs no calibration, and gives the
-/// same verdict on a busy machine as an idle one. So these cases are deliberately NOT
-/// `.machinePinned`: there is nothing here for a machine to be wrong about.
+/// Counted by name, not by tally: `RiskyNameBadgeCache.onEvaluateForTesting` reports the name, and
+/// each case counts only its own fixture's names, because `DifferencesView` asks the same memo
+/// from suites running alongside. See the seam's own note.
 ///
-/// **Counted by name, not by tally.** `RiskyNameBadgeCache.onEvaluateForTesting` reports the name
-/// evaluated, and every case counts only names from its own fixture. That is not fastidiousness — a
-/// plain process-wide counter was tried and flaked, because `DifferencesView` asks the same memo and
-/// the suites that mount one run alongside these. See the seam's own note.
-///
-/// **What it catches.** Remove the memo, defeat it, key it on anything that varies per row or per
-/// pass, or add an eager pass over the published tree, and these counts move by more than an order
-/// of magnitude — measured, by mutation, for the first and the last of those.
+/// Removing the memo, defeating it, keying it on anything that varies per row or per pass, or
+/// adding an eager pass over the published tree moves these counts by more than an order of
+/// magnitude.
 @MainActor
 @Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgeMemoTests {
 
@@ -61,26 +48,14 @@ import Sync
         }
     }
 
-    /// The pane is mounted on a `NotificationCenter` of this suite's own.
+    /// The pane is mounted on a `NotificationCenter` of this suite's own. A mounted `FileTreeView`
+    /// subscribes to `.cloudDownloadRequested` regardless, so on `.default` any parallel suite's
+    /// `.left` post would republish `downloads.requests` and rebuild this pane's body.
     ///
-    /// It wants nothing from `.cloudDownloadRequested`, but a mounted `FileTreeView` subscribes
-    /// whether the test asks or not, so on `.default` it would accept any parallel suite's `.left`
-    /// post — and accepting one republishes `downloads.requests`, which rebuilds this pane's body.
-    ///
-    /// **Measured, not assumed, because the obvious worry is wrong.** Posting one foreign `.left`
-    /// request onto this pane during `aMountedPaneEvaluatesEachDistinctNameExactlyOnce` cost it a
-    /// whole extra render — `riskyNameReason` asks went 861 → 984 — and moved the evaluation count
-    /// by exactly nothing, 15 → 15. The memo absorbs it, and none of the three cases mounting
-    /// through here counts renders: they compare evaluations against the distinct names the pane
-    /// asked about, against zero for later passes, and against a collapsed subtree that stays
-    /// unrealized. All three are invariant under a render nobody here triggered, so this channel is
-    /// not propping up any verdict.
-    ///
-    /// It is here because the rule is the rule (see `docs/flaky-tests.md` mechanism 9) and because
-    /// the render is not free: 123 wasted asks and a full pass through the pane's body, inside a
-    /// `.serialized` suite, at a moment another suite chose. A count-based test earns its exactness
-    /// by having nothing else able to touch what it counts — including the parts that would have
-    /// been absorbed this time.
+    /// The memo absorbs such a render, and no case here counts renders, so no verdict depends on
+    /// this. It is here because the rule is the rule (see "A mounted view is a live subscriber, in
+    /// every suite at once" in `docs/flaky-tests.md`), and because a count-based test earns its
+    /// exactness by letting nothing else touch what it counts.
     private func mount(_ box: Box, delegate: FileActionDelegate) -> NSWindow {
         BadgeMemoMount.window(Harness(box: box,
                                       tree: BadgeMemoFixture.tree(side: .left),
@@ -108,7 +83,7 @@ import Sync
         }
     }
 
-    /// The count follows DISTINCT names, not calls: twelve names asked five hundred times each
+    /// The count follows distinct names, not calls: twelve names asked five hundred times each
     /// still cost twelve.
     @Test func theCountFollowsDistinctNamesNotCalls() {
         RiskyNameBadgeCache.resetForTesting()
@@ -125,13 +100,10 @@ import Sync
 
     // MARK: - The memo, under a mounted tree pane
 
-    /// **The main assertion.** Mount a pane, render it several times over, and require the rules to
-    /// have run exactly once per distinct name the pane asked about — no more (the memo is doing
-    /// its job) and no fewer (nothing else is answering).
-    ///
-    /// Stated against the pane's own traffic rather than a hand-written number, so it survives a
-    /// change in row height or window size: whatever the pane happens to realize, the evaluations
-    /// must equal the distinct names in it.
+    /// The main assertion: mount a pane, render it several times, and require the rules to have run
+    /// exactly once per distinct name the pane asked about, no more (the memo works) and no fewer
+    /// (nothing else is answering). Stated against the pane's own traffic, not a hand-written
+    /// number, so it survives a change in row height or window size.
     @Test func aMountedPaneEvaluatesEachDistinctNameExactlyOnce() {
         RiskyNameBadgeCache.resetForTesting()
         let box = Box()
@@ -147,11 +119,8 @@ import Sync
         }
     }
 
-    /// Re-rendering the pane must be free. The first pass pays for the names it sees; every pass
-    /// after it adds nothing at all.
-    ///
-    /// This is the claim a wall-clock bar could never state: zero is exact, and a few hundred
-    /// microseconds of extra live checking is not.
+    /// Re-rendering the pane must be free: the first pass pays for the names it sees, and every
+    /// later pass adds nothing. Zero is exact, which no wall-clock bar can state.
     @Test func furtherRenderPassesEvaluateNothingNew() {
         RiskyNameBadgeCache.resetForTesting()
         let box = Box()
@@ -170,10 +139,10 @@ import Sync
         }
     }
 
-    /// **The eager-pass guard.** The fixture's three collapsed folders hold 600 names that no
-    /// visible row shows. A lazy pane never touches them; a walk of the published tree — the
-    /// up-front index the cache's doc comment weighs and rejects at ~140 ms per publish — touches
-    /// all of them, on the main actor, on the path that decides how long opening a folder takes.
+    /// The eager-pass guard. The fixture's three collapsed folders hold 600 names no visible row
+    /// shows. A lazy pane never touches them; a walk of the published tree (the up-front index the
+    /// cache's doc comment rejects at ~140 ms per publish) touches all of them, on the main actor,
+    /// on the path that decides how long opening a folder takes.
     @Test func theCollapsedSubtreeIsNeverEvaluated() {
         RiskyNameBadgeCache.resetForTesting()
         let box = Box()
@@ -192,16 +161,13 @@ import Sync
 
 /// The same three claims, against the columns pane.
 ///
-/// `PaneColumnsView` is the badge's second render call site (`PaneColumnsView.columnRow`), and it is
-/// the same shape as the tree pane's: `riskyNameReason` per row, per render pass, evaluated eagerly
-/// while building the row. Nothing about the tree pane's verdict carries over on its own — the two
-/// realize rows differently, and the columns pane resolves each column's rows through
-/// `PaneChildrenIndex` rather than from `PaneRow.children` — so the claims are re-measured here
-/// rather than assumed.
+/// `PaneColumnsView` is the badge's second render call site (`PaneColumnsView.columnRow`), with the
+/// same shape: `riskyNameReason` per row, per pass, evaluated while building the row. The two panes
+/// realize rows differently (this one resolves each column's rows through `PaneChildrenIndex`, not
+/// `PaneRow.children`), so the claims are re-measured here rather than assumed.
 ///
-/// With an empty `browsePath` this renders exactly one column, the root's. A folder's children get a
-/// column only when it is drilled into, so the fixture's 600 hidden names are as far out of reach
-/// here as they are behind a collapsed `OutlineGroup` row.
+/// With an empty `browsePath` this renders one column, the root's; a folder's children get a
+/// column only when it is drilled into, so the fixture's 600 hidden names are out of reach.
 @MainActor
 @Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgeColumnsMemoTests {
 
@@ -210,8 +176,8 @@ import Sync
         @Published var selection: Set<String> = []
     }
 
-    /// Observes the box, so a selection write actually re-renders the pane — `PaneColumnsView` takes
-    /// bindings, and a bare `Binding(get:set:)` over the box would update the box and nothing else.
+    /// Observes the box, so a selection write re-renders the pane: `PaneColumnsView` takes bindings,
+    /// and a bare `Binding(get:set:)` over the box would update the box and nothing else.
     /// `ColumnTapSelectionWiringTests` documents the same trap.
     private struct Harness: View {
         @ObservedObject var box: Box
@@ -244,11 +210,9 @@ import Sync
     }
 
     private func mount(_ box: Box, delegate: FileActionDelegate) -> NSWindow {
-        // The preview column is switched off at the `Harness` above, which passes the pane its
-        // binding. This mount keeps its own `ScratchDefaults` suite for everything the pane still
-        // reads from defaults (the column widths, the glass hue) rather than taking whatever the
-        // process picked up: `UserDefaults.standard` is never touched, so nothing is inherited from
-        // another suite and nothing leaks to one.
+        // Its own `ScratchDefaults` suite for everything the pane reads from defaults (the column
+        // widths, the glass hue): `UserDefaults.standard` is never touched, so nothing is inherited
+        // from another suite and nothing leaks to one.
         let store = ScratchDefaults("RiskyNameBadgeColumnsMemoTests")
 
         let tree = BadgeMemoFixture.tree(side: .left)
@@ -295,8 +259,8 @@ import Sync
         }
     }
 
-    /// The columns pane's version of the eager-pass guard: an unopened folder's column does not
-    /// exist, so none of the 600 names behind one may be evaluated.
+    /// The columns pane's eager-pass guard: an unopened folder's column doesn't exist, so none of
+    /// the 600 names behind one may be evaluated.
     @Test func theUnopenedColumnsAreNeverEvaluated() {
         RiskyNameBadgeCache.resetForTesting()
         let box = Box()
@@ -313,10 +277,8 @@ import Sync
     }
 }
 
-/// The three claims themselves, written once so the two panes are held to the same bar and a
-/// strengthening of one cannot silently skip the other.
-///
-/// Each takes the pane's name so a failure says which presentation broke.
+/// The three claims, written once so both panes meet the same bar and strengthening one can't
+/// skip the other. Each takes the pane's name so a failure says which presentation broke.
 @MainActor
 enum BadgeMemoAssertions {
 
@@ -326,10 +288,9 @@ enum BadgeMemoAssertions {
                                               pane: String, sourceLocation: SourceLocation = #_sourceLocation) {
         let distinct = Set(asked)
 
-        // Anti-vacuity, and the reason the equality below means anything: the pane really did ask
-        // repeatedly, so a memo that answered nothing would not sail through. A `>` on the traffic
-        // rather than an equality on the row count, because how many rows a pane realizes is a
-        // layout detail this fixture has no business pinning.
+        // Anti-vacuity: the pane really did ask repeatedly, so a memo that answered nothing can't
+        // pass. A `>` on the traffic, not an equality on the row count, because how many rows a
+        // pane realizes is a layout detail this fixture shouldn't pin.
         #expect(asked.count > distinct.count * 2,
                 "\(pane): asked \(asked.count) times about \(distinct.count) names — too little repeat traffic for this to prove anything",
                 sourceLocation: sourceLocation)
@@ -337,14 +298,12 @@ enum BadgeMemoAssertions {
                 "\(pane): only \(distinct.count) distinct names reached the badge; the fixture's rows are not rendering",
                 sourceLocation: sourceLocation)
 
-        // The equality below is against the pane's OWN traffic, so on its own it cannot see traffic
-        // that should not exist: an eager walk that asks the delegate about the whole tree inflates
-        // both sides equally and the equality still holds. (Measured — that mutation passed this
-        // case until this assertion was added.) So bound the traffic first: only names the pane
-        // actually shows may be asked about at all.
+        // The equality below is against the pane's own traffic, so it can't see traffic that
+        // shouldn't exist: an eager walk asking about the whole tree inflates both sides equally.
+        // So bound the traffic first: only names the pane shows may be asked about at all.
         let strays = distinct.subtracting(BadgeMemoFixture.visibleDistinctNames).sorted()
-        // Counted before asserting: expanding the collection itself would bury the message under
-        // 600 names.
+        // Counted before asserting: expanding the collection would bury the message under 600
+        // names.
         let strayCount = strays.count
         #expect(strayCount == 0,
                 """

@@ -9,7 +9,7 @@ import EventsTestSupport
 @testable import FileExplorer
 
 extension PDFFixtures {
-    /// One Letter page whose `/Rotate` is `degrees` — a scan put in on its side.
+    /// One Letter page whose `/Rotate` is `degrees`, like a scan fed in on its side.
     static func writeRotated(_ path: String, degrees: Int) {
         let plain = path + ".plain.pdf"
         write(plain, pages: 1)
@@ -20,8 +20,8 @@ extension PDFFixtures {
     }
 }
 
-/// **Fill & Sign (Phase 5b)** — items placed on the open PDF, drawn by pdf-toolkit's
-/// `fillAndSignData` into a NEW copy beside it, never into the file itself.
+/// Fill & Sign: items placed on the open PDF, drawn by pdf-toolkit's `fillAndSignData` into a new
+/// copy beside it, never into the file itself.
 ///
 /// Serialized, because the saves and the opens run in `PDFKitSerialAccess`'s one lane; every wait
 /// is bounded in lane turns, as `EditorPDFDocumentTests`' are.
@@ -60,7 +60,7 @@ extension PDFFixtures {
 
     // MARK: The page's two spaces
 
-    /// **Display space and page space round-trip under every rotation**, crop box off the origin.
+    /// Display space and page space round-trip under every rotation, crop box off the origin.
     @Test(arguments: [0, 90, 180, 270, -90, 450])
     func displayAndPageSpaceRoundTrip(rotation: Int) {
         let box = EditorPDFPageBox(cropBox: CGRect(x: 20, y: 30, width: 600, height: 800), rotation: rotation)
@@ -78,16 +78,16 @@ extension PDFFixtures {
         }
     }
 
-    /// **A quarter turn clockwise puts the page's bottom edge on the left** — PDFKit's `/Rotate`.
+    /// A quarter turn clockwise puts the page's bottom edge on the left, as PDFKit's `/Rotate` does.
     @Test func aQuarterTurnPutsTheBottomEdgeOnTheLeft() {
         let box = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 90)
         #expect(box.displayPoint(page: CGPoint(x: 300, y: 0)).x == 0, "the bottom edge is not on the left")
         #expect(box.displayPoint(page: CGPoint(x: 0, y: 300)).y == 612, "the left edge is not at the top")
     }
 
-    /// **Ground truth: on a page turned a quarter, words and a drawn stroke come out where they
-    /// were placed and the way up they were placed** — rendered from the toolkit's copy as the
-    /// reader sees it. A horizontal stroke left in page space would come out vertical.
+    /// On a page turned a quarter, words and a drawn stroke come out where and the way up they were
+    /// placed, rendered from the toolkit's copy as the reader sees it. A horizontal stroke left in
+    /// page space would come out vertical.
     @Test func itemsOnATurnedPageComeOutUprightWhereTheyWerePlaced() async throws {
         let file = path("Turned.pdf")
         PDFFixtures.writeRotated(file, degrees: 90)
@@ -122,16 +122,16 @@ extension PDFFixtures {
             return count
         }
         #expect(blue(in: words.rect) > 200, "the words are not where they were placed")
-        // The stroke: a band across the box's middle has ink at both ends; the box's top and bottom
-        // quarters have none — they would, were the stroke drawn upright.
+        // A band across the box's middle has ink at both ends; the top and bottom quarters have
+        // none, as they would if the stroke were drawn upright.
         #expect(blue(in: CGRect(x: 505, y: 118, width: 30, height: 14)) > 10, "no ink at the stroke's left end")
         #expect(blue(in: CGRect(x: 665, y: 118, width: 30, height: 14)) > 10, "no ink at the stroke's right end")
         #expect(blue(in: CGRect(x: 500, y: 100, width: 200, height: 12)) == 0, "the stroke runs up the page, not across")
         #expect(blue(in: CGRect(x: 500, y: 138, width: 200, height: 12)) == 0, "the stroke runs up the page, not across")
     }
 
-    /// **Words placed at the box they measure come out whole** — the toolkit word-wraps inside the
-    /// rect and draws only what fits, so a box a hair too narrow drops the end of the words.
+    /// Words placed at the box they measure come out whole. The toolkit word-wraps inside the rect
+    /// and draws only what fits, so a box a hair too narrow drops the end of the words.
     @Test func wordsPlacedAtTheirMeasuredBoxComeOutWhole() async throws {
         let file = path("Words.pdf")
         PDFFixtures.write(file, pages: 1, text: false)
@@ -168,7 +168,7 @@ extension PDFFixtures {
 
     // MARK: Signatures
 
-    /// **A drawn signature is fitted to its own box**, its shape kept; a flat one is not a hair high.
+    /// A drawn signature is fitted to its own box, its shape kept; a flat one isn't a hair high.
     @Test func aDrawnSignatureIsFittedToItsOwnBox() throws {
         let made = try #require(EditorPDFSignature.drawn([[CGPoint(x: 10, y: 20), CGPoint(x: 110, y: 70)], [CGPoint(x: 60, y: 40)]],
                                                          kind: .signature))
@@ -182,8 +182,8 @@ extension PDFFixtures {
         #expect(EditorPDFSignature.drawn([[]], kind: .signature) == nil)
     }
 
-    /// **A tall, narrow drawing is placed no taller than its box is wide**, in its own shape — an
-    /// upright stroke came out five times as tall as wide: a 150 × 750 pt signature on a 792 pt page.
+    /// A tall, narrow drawing is placed no taller than the signature width, in its own shape;
+    /// otherwise an upright stroke could fill most of the page.
     @Test func aTallDrawingIsPlacedNoTallerThanItIsWide() async throws {
         let (pdf, _) = try await letter("Tall.pdf")
         let fill = pdf.fill
@@ -196,7 +196,7 @@ extension PDFFixtures {
         #expect(abs(rect.width / rect.height - 0.2) < 0.01, "lost its shape: \(rect.size)")
     }
 
-    /// **Saved signatures stay in this Mac's defaults**, newest first, each kind to its limit.
+    /// Saved signatures stay in this Mac's defaults, newest first, each kind to its limit.
     @Test func savedSignaturesAreKeptPerKindAndSurviveARelaunch() {
         let store = EditorPDFSignatureStore(defaults: defaults)
         let first = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
@@ -213,8 +213,8 @@ extension PDFFixtures {
         #expect(EditorPDFSignatureStore(defaults: defaults).saved(.initials).isEmpty)
     }
 
-    /// **Reset All Settings keeps the saved signatures** (`SettingsResetKeeps`, in Sync, names the key
-    /// by its string), and the sheet's last face, pen and smoothing go with the other settings.
+    /// Reset All Settings keeps the saved signatures (`SettingsResetKeeps`, in Sync, names the key
+    /// by its string); the sheet's last face, pen and smoothing go with the other settings.
     @Test func resetAllSettingsKeepsSavedSignatures() {
         #expect(SettingsResetKeeps.keeps(EditorPDFSignatureStore.key))
         for key in [EditorPDFSignatureStore.faceKey, EditorPDFSignatureStore.penKey,
@@ -223,9 +223,8 @@ extension PDFFixtures {
         }
     }
 
-    /// **A removal from the domain takes the saved signatures for good** — when Reset All Settings
-    /// still emptied the domain under a store already up, its next add wrote back the signatures the
-    /// reset had just removed.
+    /// A removal from the domain takes the saved signatures for good: a store already up must not
+    /// write the removed signatures back on its next add or delete.
     @Test func savedSignaturesDoNotComeBackAfterAReset() throws {
         let scratch = ScratchDefaults("EditorPDFSignatureReset")
         let store = EditorPDFSignatureStore(defaults: scratch)
@@ -238,7 +237,7 @@ extension PDFFixtures {
                                               from: try #require(scratch.data(forKey: EditorPDFSignatureStore.key)))
         #expect(stored == [new], "the reset's removed signature was written back")
         #expect(store.saved == [new])
-        // A delete after a reset is built on what is stored too — not the list held before it.
+        // A delete after a reset is built on what is stored too, not the list held before it.
         scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
         store.delete(old.id)
         let afterDelete = try JSONDecoder().decode([EditorPDFSignature].self,
@@ -246,9 +245,8 @@ extension PDFFixtures {
         #expect(afterDelete.isEmpty, "the delete wrote back signatures the reset removed: \(afterDelete)")
     }
 
-    /// **A removal takes them from the open app at once** — not only from disk. The list held in
-    /// memory went on offering a removed signature in the Signature flyout, ready to place, until
-    /// a relaunch or the next add.
+    /// A removal takes them from the open app at once, not only from disk, so the Signature flyout
+    /// never offers a removed signature until a relaunch or the next add.
     @Test func aResetTakesSavedSignaturesOffTheMenuAtOnce() throws {
         let scratch = ScratchDefaults("EditorPDFSignatureResetLive")
         let store = EditorPDFSignatureStore(defaults: scratch)
@@ -261,8 +259,8 @@ extension PDFFixtures {
         #expect(scratch.data(forKey: EditorPDFSignatureStore.key) == nil, "taking the reset wrote the list back")
     }
 
-    /// **A write to the signatures' domain from another thread never waits for the main thread**,
-    /// and the list still follows it — the reader's twin (`EditorPDFReaderChromeTests`).
+    /// A write to the signatures' domain from another thread never waits for the main thread, and
+    /// the list still follows it. The reader's twin is in `EditorPDFReaderChromeTests`.
     @Test func aWriteOffTheMainThreadNeverWaitsForTheSignatures() async throws {
         let scratch = ScratchDefaults("EditorPDFSignatureOffMain")
         let store = EditorPDFSignatureStore(defaults: scratch)
@@ -280,7 +278,7 @@ extension PDFFixtures {
         #expect(store.saved.isEmpty, "a reset from another thread left \(store.saved.count) signatures on offer")
     }
 
-    /// Blocks the main thread — this test runs on it — until `done` is signalled or five seconds
+    /// Blocks the main thread, which this test runs on, until `done` is signalled or five seconds
     /// pass. Synchronous, because a wait in an async test would hand the main thread back.
     private func holdingTheMainThread(until done: DispatchSemaphore) -> DispatchTimeoutResult {
         done.wait(timeout: .now() + 5)
@@ -310,7 +308,7 @@ extension PDFFixtures {
         #expect(fill.armed == .text, "Text was let go after one use")
     }
 
-    /// **Text left empty goes as though it was never placed** — no item, and nothing to undo.
+    /// Text left empty goes as though it was never placed: no item, and nothing to undo.
     @Test func textLeftEmptyLeavesNothingBehind() async throws {
         let (pdf, _) = try await letter()
         pdf.fill.toggle()
@@ -337,7 +335,7 @@ extension PDFFixtures {
         #expect(fill.armed == .mark(.check), "a mark was let go after one use")
     }
 
-    /// **A signature is placed once**, at its drawn shape, and the tool lets go.
+    /// A signature is placed once, at its drawn shape, and the tool lets go.
     @Test func aSignatureIsPlacedOnceAtItsShape() async throws {
         let (pdf, _) = try await letter()
         let fill = pdf.fill
@@ -352,7 +350,7 @@ extension PDFFixtures {
         #expect(fill.place(at: CGPoint(x: 10, y: 10), page: 0) == nil, "a second click placed it again")
     }
 
-    /// **Items stay on their page**: a drag past the edge stops at it.
+    /// Items stay on their page: a drag past the edge stops at it, in one undo step.
     @Test func aDragKeepsTheItemOnItsPageAndIsOneUndoStep() async throws {
         let (pdf, _) = try await letter()
         let fill = pdf.fill
@@ -393,7 +391,7 @@ extension PDFFixtures {
 
     // MARK: Refusals
 
-    /// **A file whose owner restricted editing gets no Fill & Sign** — the reason, and the way out.
+    /// A file whose owner restricted editing gets no Fill & Sign, with the reason and the way out.
     @Test func anOwnerRestrictedFileIsRefusedWithTheWayOut() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
@@ -416,7 +414,7 @@ extension PDFFixtures {
 
     // MARK: Saving
 
-    /// **Save Filled Copy writes "(filled)" beside the original and leaves the original as it was.**
+    /// Save Filled Copy writes "(filled)" beside the original and leaves the original as it was.
     @Test func savingWritesAFilledCopyAndNeverTheOriginal() async throws {
         let (pdf, file) = try await letter()
         let original = try Data(contentsOf: URL(fileURLWithPath: file))
@@ -435,10 +433,9 @@ extension PDFFixtures {
         #expect(pdf.path == file, "the original did not stay open")
     }
 
-    /// **The note card says a flat save flattens the file's own comments (FR57)** — and a sticky
-    /// note's text goes with it. Both claims measured on the copy: no comment is left as one, and
-    /// the closed note's words are nowhere in it. A file with a highlight only says the first half;
-    /// a file with none says nothing.
+    /// The note card says a flat save flattens the file's own comments, and a sticky note's text
+    /// goes with it. Both claims are checked on the copy. A file with only a highlight gets the
+    /// first half; a file with none gets nothing.
     @Test func aFlatSaveSaysTheFilesCommentsAreFlattened() async throws {
         func annotated(_ name: String, _ kinds: [PDFAnnotationSubtype]) throws -> String {
             let file = path(name)
@@ -480,10 +477,10 @@ extension PDFFixtures {
     // MARK: Keeping the file's comments (FR57, decided 2026-10-25)
     //
     // Every PDF read and write below runs in the PDFKit lane, as the app's do, handing back only
-    // facts: off it, they race the package's other PDF suites.
+    // facts; off it, they race the package's other PDF suites.
 
     /// A two-page Letter file whose second page carries a sticky note with its popup and a yellow
-    /// highlight across `highlight` — written by PDFKit, which gives each an appearance.
+    /// highlight across `highlight`, written by PDFKit, which gives each an appearance.
     private func commented(_ name: String) async throws -> String {
         let file = path(name)
         let written = await PDFKitSerialAccess.perform { () -> Bool in
@@ -507,9 +504,9 @@ extension PDFFixtures {
 
     nonisolated static let highlight = CGRect(x: 300, y: 300, width: 160, height: 40)
 
-    /// **How much yellow page `index`'s own content draws across ``highlight``** — the page's
-    /// content stream alone, as `drawPDFPage` draws it, with no annotation: a comment drawn into
-    /// the page shows here, one kept as a comment does not. `-1` for a page that can't be read.
+    /// How much yellow page `index`'s own content stream draws across ``highlight``, with no
+    /// annotations: a comment drawn into the page shows here, one kept as a comment does not. `-1`
+    /// for a page that can't be read.
     private func yellowInContent(_ data: Data, page index: Int) async -> Int {
         await PDFKitSerialAccess.perform { () -> Int in
             guard let document = CGDataProvider(data: data as CFData).flatMap(CGPDFDocument.init),
@@ -568,10 +565,9 @@ extension PDFFixtures {
         }
     }
 
-    /// **"Keep comments as comments" writes the file's comments into the copy as comments, and draws
-    /// none of them into its pages** — the sticky note with its text and its popup, the highlight —
-    /// while a save left as it is still draws them in. Off by default, offered on a flat file with
-    /// comments, and for that save only.
+    /// "Keep comments as comments" writes the file's comments (the sticky note with its text and
+    /// popup, the highlight) into the copy as comments and draws none into its pages; a plain save
+    /// draws them in. Off by default, offered on a flat file with comments, for that save only.
     @Test func keepingCommentsWritesThemAsCommentsAndDrawsNoneIn() async throws {
         #expect(EditorPDFComments.markupTypes == [
             "Text", "FreeText", "Line", "Square", "Circle", "Polygon", "PolyLine", "Highlight", "Underline",
@@ -592,7 +588,7 @@ extension PDFFixtures {
             return try Data(contentsOf: URL(fileURLWithPath: copy))
         }
 
-        // Left as it is: drawn in, as before.
+        // Left as it is: drawn in.
         let flat = try await save()
         #expect(await yellowInContent(flat, page: 1) > 1000, "a save left as it is did not draw the highlight in")
         #expect(await comments(flat, page: 1).filter { EditorPDFComments.markupTypes.contains($0.subtype) }.isEmpty,
@@ -603,7 +599,7 @@ extension PDFFixtures {
         #expect(fill.formNotes.first == EditorPDFComments.commentsKeptNote, "the card still says they are drawn in")
         let log = LogCapture()
         let kept = try await save()
-        // The log names what was done (F4).
+        // The log names what was done.
         let wrote = try #require(await log.entries.first { $0.message.contains("Edit wrote Noted (filled") }, "the save was not logged")
         #expect(wrote.message.contains(" — comments kept as comments"), "\(wrote.message)")
         #expect(!fill.keepsComments, "the choice outlived its save")
@@ -615,7 +611,7 @@ extension PDFFixtures {
         #expect(carried.first { $0.subtype == "Popup" }?.parent == "Text", "the popup no longer belongs to its note")
     }
 
-    /// **The choice goes back off with Discard and with another file**, as the links' does.
+    /// The choice goes back off with Discard and with another file, as the links' does.
     @Test func keepingCommentsLastsOneSaveOnly() async throws {
         let pdf = try await open(try await commented("Noted.pdf"))
         let fill = pdf.fill
@@ -633,10 +629,9 @@ extension PDFFixtures {
         #expect(!plain.0.fill.offersKeepingComments, "offered on a file with no comments")
     }
 
-    /// **Comments the toolkit could not keep are said to have been drawn in** — it draws them in
-    /// then and reports `.flatten`, as it does with an encrypted copy, which this run's stand-in for
-    /// the toolkit (called in the lane, as the toolkit is) does on purpose. The banner names it; the
-    /// copy has them drawn in.
+    /// Comments the toolkit couldn't keep are said to have been drawn in. The toolkit then draws
+    /// them in and reports `.flatten`, as with an encrypted copy; this run's stand-in for it (called
+    /// in the lane) does so on purpose. The banner names it, and the copy has them drawn in.
     @Test func commentsThatCouldNotBeKeptAreSaidToBeDrawnIn() async throws {
         let pdf = try await open(try await commented("Noted.pdf"))
         pdf.tools.fillAndSignHook = { input, items, _ in
@@ -649,7 +644,7 @@ extension PDFFixtures {
         fill.keepsComments = true
         let log = LogCapture()
         guard case .wrote(let copy) = await fill.save() else { Issue.record("the copy was not written"); return }
-        // The log says what the toolkit did, not what was asked (F4).
+        // The log says what the toolkit did, not what was asked.
         let wrote = try #require(await log.entries.first { $0.message.contains("Edit wrote Noted (filled") }, "the save was not logged")
         #expect(wrote.message.contains("the comments could not be kept, so they were drawn in")
                 && !wrote.message.contains("comments kept"), "\(wrote.message)")
@@ -658,10 +653,10 @@ extension PDFFixtures {
         #expect(await yellowInContent(try Data(contentsOf: URL(fileURLWithPath: copy)), page: 1) > 1000)
     }
 
-    /// **The engine never keeps comments with a page made a picture** (FR57): the picture pass
-    /// copies the other pages through PDFKit, which rewrites a kept comment, so it draws them in.
-    /// The same run with no picture keeps them — the fixture can tell the two apart. The engine is
-    /// called in the lane, as the app calls it.
+    /// The engine never keeps comments when a page is made a picture: that pass copies the other
+    /// pages through PDFKit, which rewrites a kept comment, so it draws them in. The same run with
+    /// no picture keeps them, so the fixture tells the two apart. Called in the lane, as the app
+    /// does.
     @Test func theEngineDrawsCommentsInWhenAPageIsMadeAPicture() async throws {
         let file = try await commented("Pictured.pdf")
         let item = FillSignItem(pageIndex: 0, rect: CGRect(x: 100, y: 500, width: 120, height: 20),
@@ -681,10 +676,10 @@ extension PDFFixtures {
                 "kept with a page made a picture, whose pass rewrites them")
     }
 
-    /// **Comments are kept from a PDF restricted with an owner password (F7)** — its strings are
-    /// encrypted in the file, and the toolkit carries the comments' dictionaries across, so their
-    /// text has to come through decrypted, not as the cipher bytes. The note's text, the popup's
-    /// parent and the highlight, read back by CoreGraphics. Every read and write in the lane.
+    /// Comments are kept from a PDF restricted with an owner password. Its strings are encrypted in
+    /// the file and the toolkit carries the comments' dictionaries across, so their text must come
+    /// through decrypted, not as cipher bytes. Read back by CoreGraphics; every read and write in
+    /// the lane.
     @Test func commentsAreKeptFromAnEditingRestrictedPDF() async throws {
         let plain = try await commented("Plain noted.pdf")
         let file = path("Restricted noted.pdf")
@@ -715,9 +710,9 @@ extension PDFFixtures {
         #expect(await yellowInContent(data, page: 1) == 0, "a kept comment is drawn into the page too")
     }
 
-    /// **What changes while the copy is being written is kept, not cleared** — it is not in the copy,
-    /// and clearing deleted it without a word. The save is held on its lane turn while a second item
-    /// goes down, then let finish: the copy has the first words only, and both items are still there.
+    /// What changes while the copy is being written is kept, not cleared: it isn't in the copy, so
+    /// clearing would lose it silently. A second item goes down while the save waits its lane turn;
+    /// the copy has the first words only, and both items remain.
     @Test func anItemPlacedWhileTheCopyIsWrittenOutlivesTheSave() async throws {
         let (pdf, _) = try await letter("Lease during.pdf")
         let fill = pdf.fill, tools = pdf.tools
@@ -738,9 +733,9 @@ extension PDFFixtures {
         #expect(fill.hasUnsavedChanges, "the leave question would no longer ask about it")
     }
 
-    /// **Fill & Sign does not go off while its own save is writing** — turning it off asked whether
-    /// to save the very items being saved; Save was then refused as "still running", and Discard
-    /// cleared what the copy was taking.
+    /// Fill & Sign doesn't go off while its own save is writing. Turning it off would ask whether to
+    /// save the very items being saved, refuse Save as "still running", and let Discard clear what
+    /// the copy was taking.
     @Test func itDoesNotTurnOffWhileTheSaveIsWriting() async throws {
         let (pdf, _) = try await letter("Lease saving.pdf")
         let fill = pdf.fill, tools = pdf.tools
@@ -760,7 +755,7 @@ extension PDFFixtures {
         #expect(!fill.isOn && fill.mayToggle)
     }
 
-    /// **A signature or initials make it "(signed)"** — drawn or typed.
+    /// A signature or initials, drawn or typed, make it "(signed)".
     @Test(arguments: [false, true])
     func aSignatureMakesItSigned(typed: Bool) async throws {
         let (pdf, _) = try await letter("Form \(typed).pdf")
@@ -791,7 +786,7 @@ extension PDFFixtures {
         #expect(EditorPDFToolEngine.refusal(.fillAndSign([far]), pageCount: 2) == PDFOperationError.pageOutOfBounds(6).errorDescription)
     }
 
-    /// **The words typed never reach the log** — the save's line names the copy and counts.
+    /// The words typed never reach the log; the save's line names the copy and counts.
     @Test func theWordsNeverReachTheLog() async throws {
         let log = LogCapture()
         let stem = "Words-\(UUID().uuidString.prefix(8))"
@@ -850,8 +845,8 @@ extension PDFFixtures {
         #expect(!fill.isOn && fill.items.isEmpty)
     }
 
-    /// **A closed file takes its items with it**, and a reload that changed the pages drops them
-    /// with a word; one that kept every page keeps them.
+    /// A closed file takes its items with it, and a reload that changed the pages drops them with a
+    /// word; one that kept every page keeps them.
     @Test func aCloseOrAReloadThatChangedThePagesDropsTheItems() async throws {
         let (pdf, file) = try await letter()
         let fill = pdf.fill
@@ -869,10 +864,10 @@ extension PDFFixtures {
         #expect(fill.items.isEmpty && !fill.isOn)
     }
 
-    /// **A reload that now refuses the file takes what was placed, and says so** — the owner's
-    /// rules changed in place, the pages did not. With the palette and pill down and the overlay
-    /// not drawing, the items were out of sight, yet File ▸ Save Filled Copy and the leave question
-    /// could still flatten them into a copy of a file that now forbids it.
+    /// A reload that now refuses the file (the owner's rules changed, not the pages) takes what was
+    /// placed, and says so. Otherwise the items sit out of sight, with the palette, pill and overlay
+    /// down, yet File ▸ Save Filled Copy and the leave question could flatten them into a copy of a
+    /// file that now forbids it.
     @Test(arguments: [true, false])
     func aReloadThatRefusesTheFileTakesWhatWasPlaced(formEntry: Bool) async throws {
         let (pdf, file) = try await letter()
@@ -889,8 +884,8 @@ extension PDFFixtures {
         #expect(pdf.tools.banner?.message.contains("no longer allows filling") == true)
     }
 
-    /// **What a vanished file took is what the pill counted** — a text box opened and not typed
-    /// into is no work, and was reported as "1 item".
+    /// What a vanished file took is what the pill counted: a text box opened and not typed into is
+    /// no work.
     @Test func anEmptyTextBoxIsNoLostWork() async throws {
         let (pdf, _) = try await letter()
         let fill = pdf.fill
@@ -904,9 +899,8 @@ extension PDFFixtures {
         #expect(fill.unsavedWork == "1 item")
     }
 
-    /// **A file that goes from under the reader says what unsaved work went with it** — a rename,
-    /// the Trash, a sync client's half-written file. The leave question cannot ask then, and the
-    /// items used to go with only a log line to say so.
+    /// A file that goes from under the reader (a rename, the Trash, a sync client's half-written
+    /// file) says in a banner what unsaved work went with it, since the leave question can't ask.
     @Test func aFileThatGoesFromUnderTheReaderSaysWhatWorkWentWithIt() async throws {
         let (pdf, file) = try await letter()
         let fill = pdf.fill
@@ -915,7 +909,7 @@ extension PDFFixtures {
         fill.place(at: CGPoint(x: 100, y: 100), page: 0)
         fill.place(at: CGPoint(x: 100, y: 200), page: 0)
         try FileManager.default.removeItem(atPath: file)
-        // Two looks: an empty path is believed only when a second agrees (FR52).
+        // Two looks: an empty path is believed only when a second agrees.
         pdf.look()
         pdf.lookAsAnEventWould()
         #expect(pdf.phase == .refused(EditorPDFDocument.goneReason))
@@ -928,7 +922,7 @@ extension PDFFixtures {
         quiet.look()
         quiet.lookAsAnEventWould()
         #expect(quiet.phase == .refused(EditorPDFDocument.goneReason) && quiet.tools.banner == nil)
-        // A file left unreadable — a sync client's half-written copy — says it the same way.
+        // A file left unreadable, like a sync client's half-written copy, says it the same way.
         let (torn, tornFile) = try await letter("Torn.pdf")
         torn.fill.toggle()
         torn.fill.armed = .mark(.check)
@@ -943,10 +937,10 @@ extension PDFFixtures {
                 == "The file couldn’t be read, so Fill & Sign’s unsaved work — 1 item — was dropped.")
     }
 
-    /// **A file renamed aside and then put back keeps the work on it** (FR52). A sync client, or an
-    /// app's save, that moves the original aside before installing the new revision leaves the path
-    /// empty for a moment that can outlast the settle. One look at that moment dropped every item,
-    /// field value and undo step, and said so in a banner, for a file back a moment later.
+    /// A file renamed aside and then put back keeps the work on it. A sync client or an app's save
+    /// that moves the original aside before installing the new revision leaves the path empty for a
+    /// moment that can outlast the settle; one look then must not drop every item, field value and
+    /// undo step.
     @Test func aFileRenamedAsideAndPutBackKeepsTheWorkOnIt() async throws {
         let (pdf, file) = try await letter()
         let fill = pdf.fill
@@ -974,9 +968,8 @@ extension PDFFixtures {
         #expect(pdf.tools.banner == nil)
     }
 
-    /// **And a file that stays gone is let go at the second look** — the control: waiting must not
-    /// mean keeping a document whose file is not coming back. The first look's own second look,
-    /// a settle later, is what lets it go.
+    /// The control: a file that stays gone is let go at the second look, a settle after the first,
+    /// so waiting never means keeping a document whose file isn't coming back.
     @Test func aFileThatStaysGoneIsLetGoAtTheSecondLook() async throws {
         let (pdf, file) = try await letter()
         let fill = pdf.fill
@@ -994,9 +987,9 @@ extension PDFFixtures {
                 == "The file was moved or deleted, so Fill & Sign’s unsaved work — 1 item — was dropped.")
     }
 
-    /// **A reload that changed the pages takes the undo steps too**, with nothing placed at the
-    /// time: ⌘Z after a Discard put an item back on a page the file no longer had — counted as
-    /// unsaved, drawn nowhere, and left out of the copy that Save then cleared it as saved.
+    /// A reload that changed the pages takes the undo steps too, even with nothing placed.
+    /// Otherwise ⌘Z after a Discard puts an item back on a page the file no longer has: counted as
+    /// unsaved, drawn nowhere, and left out of the copy that Save then clears it as saved.
     @Test func aReloadThatChangedThePagesForgetsTheUndoSteps() async throws {
         let (pdf, file) = try await letter()
         let fill = pdf.fill
@@ -1013,25 +1006,24 @@ extension PDFFixtures {
 
     // MARK: The menu bar
 
-    /// **File ▸ Fill & Sign and Save Filled Copy, as AppKit builds them** — `NSHostingMenu`, which
-    /// is how the menu bar turns SwiftUI items into an `NSMenu`. Drawn afresh for each read, so
-    /// what is read is the state, not whether a hosted menu has redrawn yet. A tick reads "✓ ", a
-    /// line nothing can choose is in brackets.
+    /// File ▸ Fill & Sign and Save Filled Copy as AppKit builds them, through `NSHostingMenu`, as
+    /// the menu bar does. Built afresh for each read, so what is read is the state, not whether a
+    /// hosted menu has redrawn yet. A tick reads "✓ ", a line nothing can choose is in brackets.
     private func menuLines(_ fill: EditorPDFFillSign, _ tools: EditorPDFTools) -> [String] {
         let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: fill, tools: tools))
         menu.update()
         return menu.items.map { item in
-            // A submenu's own line reads live whatever its lines say: File ▸ Fill & Sign Tool's are
-            // `EditorPDFFillKeyboardTests`'.
+            // A submenu's own line reads live whatever its lines say; File ▸ Fill & Sign Tool's
+            // lines are checked in `EditorPDFFillKeyboardTests`.
             if item.submenu != nil { return item.title + " ▸" }
             let title = (item.state == .on ? "✓ " : "") + item.title
             return item.isEnabled ? title : "(\(title))"
         }
     }
 
-    /// **The toggle is the header button, and Save is the toolbar's** — greyed with no file; live
-    /// and ticked as the button is lit; Save live only with something placed and no tool running.
-    /// The acts are driven directly: a menu item fires only in the app host, where
+    /// The toggle follows the header button and Save the pill's: greyed with no file, live and
+    /// ticked as the button is lit, Save live only with something placed and no tool running. A menu
+    /// item fires only in the app host, where
     /// `PDFMenuBarTests.fillAndSignsLinesDoWhatTheButtonAndTheSaveDo` chooses each one.
     @Test func theMenuBarsItemsFollowTheButtonAndTheToolbarsSave() async throws {
         let idle = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
@@ -1050,14 +1042,14 @@ extension PDFFixtures {
         let save = Task { await fill.save() }
         for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
         try #require(tools.running != nil, "the save never began")
-        // Both grey while it writes: turning it off then asked about the items being saved.
+        // Both grey while it writes, or turning it off would ask about the items being saved.
         #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "a line is live while the save runs")
         guard case .wrote = await save.value else { Issue.record("the save wrote no copy"); return }
         #expect(menuLines(fill, tools) == ["Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "the toolbar outlived the save")
     }
 
-    /// **Under a sheet both lines grey** — Add Signature's or a tool's. The menu bar stays live over
-    /// a window-modal sheet, and the toggle took Add Signature down with its strokes.
+    /// Under a sheet (Add Signature's or a tool's) both lines grey. The menu bar stays live over a
+    /// window-modal sheet, and the toggle would take Add Signature down with its strokes.
     @Test func theMenuBarsItemsGreyUnderASheet() async throws {
         let (pdf, _) = try await letter("Under a sheet.pdf")
         let fill = pdf.fill, tools = pdf.tools
@@ -1072,9 +1064,9 @@ extension PDFFixtures {
         #expect(menuLines(fill, tools) == ["(✓ Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "live under a tool's sheet")
     }
 
-    /// **A refused file: the toggle greyed and the reason under it**, short enough for a menu — the
-    /// alert's title for an owner's restriction, the locked reason's first sentence for a file locked
-    /// to open, as the right-click Replace Text… row says it (F-E7).
+    /// A refused file greys the toggle with the reason under it, short enough for a menu: the
+    /// alert's title for an owner's restriction, the locked reason's first sentence for a file
+    /// locked to open, as the right-click Replace Text… row says it.
     @Test func aRefusedFileGreysTheToggleAndSaysWhy() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
@@ -1096,9 +1088,9 @@ extension PDFFixtures {
 
     // MARK: The overlay
 
-    /// **The overlay over a real page view**: it lets clicks through to PDFKit unless it has
-    /// something to do with them, places at the pointer, drags in one undo step, and answers ⌘Z —
-    /// while the reader itself never claims Undo, whose menu PDFKit validates its own way.
+    /// The overlay over a real page view lets clicks through to PDFKit unless it uses them, places
+    /// at the pointer, drags in one undo step, and answers ⌘Z. The reader itself never claims Undo,
+    /// whose menu item PDFKit validates its own way.
     @Test(.machinePinned(.layoutMetrics)) func theOverlayPlacesAtThePointerAndOnlyTakesTheClicksItUses() async throws {
         let (pdf, _) = try await letter(pages: 1)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
@@ -1118,11 +1110,11 @@ extension PDFFixtures {
         let click = reader.convert(CGPoint(x: 306, y: 396), from: page)
 
         #expect(overlay.hitTest(click) == nil, "the overlay took a click with Fill & Sign off")
-        // Turned on with the pages holding the keyboard, the overlay takes it — so ⌘Z is Fill &
-        // Sign's from the start — and gives it back when it goes.
+        // Turned on with the pages holding the keyboard, the overlay takes it, so ⌘Z is Fill &
+        // Sign's from the start, and gives it back when it goes.
         window.makeFirstResponder(reader)
-        // The reader's own hand-off runs a turn after it takes the keyboard; let it run first, so
-        // what is tested is the toggle's.
+        // The reader's own hand-off runs a turn after it takes the keyboard; let it run first so
+        // the toggle's is what's tested.
         for _ in 0..<20 { await Task.yield() }
         #expect(window.firstResponder === reader)
         pdf.fill.toggle()
@@ -1141,7 +1133,7 @@ extension PDFFixtures {
             NSEvent.mouseEvent(with: type, location: reader.convert(point, to: nil), modifierFlags: [], timestamp: 0,
                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         }
-        // A ⌃-click is a right-click, and places nothing — away from an item there is no menu.
+        // A ⌃-click is a right-click and places nothing; away from an item there is no menu.
         overlay.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: reader.convert(click, to: nil),
                                                    modifierFlags: .control, timestamp: 0, windowNumber: window.windowNumber,
                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
@@ -1166,7 +1158,7 @@ extension PDFFixtures {
         overlay.undo(nil)
         #expect(pdf.fill.items.first?.rect == placed.rect)
 
-        // A press just inside the corner — within reach of the handle — still moves the item.
+        // A press just inside the corner, within reach of the handle, still moves the item.
         let corner = try #require(overlay.viewPoint(display: CGPoint(x: placed.rect.maxX, y: placed.rect.minY), page: 0))
         // 1.5pt in from each edge: a whole point inside even when the event rounds its location.
         let near = CGPoint(x: corner.x - 1.5, y: corner.y + (overlay.isFlipped ? -1.5 : 1.5))

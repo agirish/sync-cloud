@@ -1,20 +1,18 @@
 import SwiftUI
 import Design
 
-/// **Edit's empty page once it has files to offer** (TE58): the files Edit opened last, a New
-/// Text File button, and one sentence on the other ways in.
-///
-/// With nothing remembered — a first launch, or after Clear Menu — the page is `fallback`, the
-/// sentence it has always been.
+/// Edit's empty page once it has files to offer: the files Edit opened last, a New Text File
+/// button, and one sentence on the other ways in. With nothing remembered (a first launch, or after
+/// Clear Menu), the page is `fallback`.
 struct EditorRecentFilesPage<Fallback: View>: View {
     @ObservedObject var recents: EditorRecentFiles
     /// A row's click: the host's hand-off, so the pane follows the file as from any other door.
     let open: (String) -> Void
-    /// **⌘N's closure itself**, as the header's ＋ is — `nil` draws no button.
+    /// ⌘N's closure itself, as the header's ＋ is; `nil` draws no button.
     let newNote: (() -> Void)?
     /// Where New Text File makes its file, by the name the ＋'s tooltip uses.
     let newNoteFolder: String
-    /// The page's way to the folded list (TE77), kept beside New Text File.
+    /// The page's way to the folded list, kept beside New Text File.
     let showTextFiles: (() -> Void)?
     let accent: Color
     @ViewBuilder let fallback: () -> Fallback
@@ -23,27 +21,26 @@ struct EditorRecentFilesPage<Fallback: View>: View {
     /// The list's width, for whether the folder column fits.
     @State private var listWidth: CGFloat = 0
 
-    /// The page's heading and its New Text File button (ED7): the file it makes is a text file, as
-    /// File ▸ New Text File and ⌘N call it — not a note.
+    /// The page's heading. Its New Text File button names a text file, as File ▸ New Text File and
+    /// ⌘N do, not a note.
     static var title: String { "Recent" }
     static var newTextFileTitle: String { "New Text File" }
     static var removeTitle: String { "Remove from Recents" }
 
-    /// **What the page says under its buttons** — where New Text File's file goes, then ⌘O. Its own
-    /// words rather than `emptyCaption`'s: the list above is how to open a file again, so this says
-    /// how to open one that is not in it. It names no file: New Text File opens a naming row filled with
-    /// the first free name (`Untitled 2.md` when `Untitled.md` is taken), not a file made outright.
+    /// What the page says under its buttons: where New Text File's file goes, then ⌘O. Not
+    /// `emptyCaption`'s words: the list is how to reopen a file, so this says how to open one not in
+    /// it. It names no file, because New Text File opens a naming row with the first free name.
     static func caption(folderName: String) -> String {
         "New Text File asks for a name, then makes the file in \(folder(folderName)). To open a different file, select a text file "
             + "or a PDF file in Browse, Compare or Organize and press \(AppChord.openInEditor.display)."
     }
 
-    /// The folder New Text File names — Notes, where ⌘N goes with no folder in the pane.
+    /// The folder New Text File names: Notes, where ⌘N goes with no folder in the pane.
     static func folder(_ name: String) -> String {
         name.isEmpty ? EditorRecentFiles.notesFallbackName : name
     }
 
-    /// **Below this list width the folder column goes**, so the name keeps room in the narrowest
+    /// Below this list width the folder column goes, so the name keeps room in the narrowest
     /// document column (260pt): a name squeezed to "R…" beside its folder says neither.
     static var folderColumnMinimumListWidth: CGFloat { 320 }
 
@@ -55,7 +52,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
                 page(recents.shown)
             }
         }
-        // Each time the page appears: a file deleted since the last look is no longer offered.
+        // Each time the page appears, so a file deleted since the last look isn't offered.
         .task { await recents.refreshShown() }
     }
 
@@ -81,7 +78,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
     }
 
     private func list(_ files: [EditorRecentFile]) -> some View {
-        // Once a minute, so "2 min ago" does not stay two minutes for the length of a coffee.
+        // Once a minute, so "2 min ago" doesn't stay "2 min ago".
         TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(spacing: 1) {
                 ForEach(files) { file in
@@ -147,7 +144,7 @@ struct EditorRecentFilesPage<Fallback: View>: View {
                     .buttonStyle(.borderedProminent)
                     // The seam every filled button takes its hue through (`ProminentAccent`).
                     .accentedProminent()
-                    // ⌥ shows ⌘N and ⌃⌘T on the page's two buttons (TE194).
+                    // ⌥ shows ⌘N and ⌃⌘T on the page's two buttons.
                     .shortcutKeycap(AppChord.newTextFile.display)
                     .help(ShortcutHint.tooltip(EditorWorkspaceView.newTextFileTitle(folderName: Self.folder(newNoteFolder)),
                                                AppChord.newTextFile.display))
@@ -169,6 +166,6 @@ struct EditorRecentFilesPage<Fallback: View>: View {
 }
 
 extension EditorRecentFiles {
-    /// Where New Text File goes with no folder to name — `EditorNewFileFolder.notesName` in the app.
+    /// Where New Text File goes with no folder to name; `EditorNewFileFolder.notesName` in the app.
     nonisolated static let notesFallbackName = "Notes"
 }

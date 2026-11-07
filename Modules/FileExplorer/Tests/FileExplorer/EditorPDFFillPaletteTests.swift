@@ -8,9 +8,8 @@ import Design
 import FileExplorerTestSupport
 import Sync
 
-/// **Phase 6b: Fill & Sign as a palette** (mockup F) — the floating left palette with its flyouts,
-/// moved as the capsule is, and the save pill and note card at the top of the canvas, in place of
-/// the full-width toolbar and its line of words.
+/// Fill & Sign as a palette: the floating left palette with its flyouts, moved as the capsule is,
+/// and the save pill and note card at the top of the canvas, in place of a full-width toolbar.
 ///
 /// Serialized: the mounted tests lay out a `PDFView` on the main thread.
 @MainActor
@@ -27,7 +26,7 @@ import Sync
 
     private static let letterBox = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
 
-    /// Fill & Sign on, on a flat letter page — or on a form with one text field.
+    /// Fill & Sign on, on a flat letter page or on a form with one text field.
     private func fill(form: Bool = false) -> EditorPDFFillSign {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
@@ -91,23 +90,22 @@ import Sync
 
     // MARK: The tools
 
-    /// **Select, Text, Replace (after Text — Cover and Retype TE82), Date, Marks, Signature,
-    /// Initials, then style (Aa, between Initials and Text Size — Signature Styles TE93), size and
-    /// ink** (mockup F) — and Form Fields first, on a file with fields of its own and there only.
+    /// The tools in order: Select, Text, Replace, Date, Marks, Signature, Initials, style (Aa), size
+    /// and ink, with Form Fields first only on a file with fields of its own.
     @Test func theToolsAreInTheMockupsOrderWithFormFieldsFirstOnAForm() {
         let flat: [EditorPDFFillPalette.Tool] = [.select, .text, .replace, .date, .marks, .signature, .initials, .style, .size, .ink]
         #expect(EditorPDFFillPalette.tools(for: fill()) == flat)
         #expect(EditorPDFFillPalette.tools(for: fill(form: true)) == [.formFields] + flat)
-        // A form's row leaves Replace out — it is off there, and the row must fit the narrowest column.
+        // A form's row leaves Replace out: it is off there, and the row must fit the narrowest
+        // column.
         #expect(EditorPDFFillPalette.tools(for: fill(form: true), upright: false) == [.formFields] + flat.filter { $0 != .replace })
         #expect(EditorPDFFillPalette.tools(for: fill(), upright: false) == flat)
         // The ones that open a flyout carry its corner triangle; the rest arm on a click.
         #expect(EditorPDFFillPalette.Tool.allCases.filter { $0.flyout != nil } == [.marks, .signature, .initials, .style, .size, .ink])
     }
 
-    /// **The tool whose flyout is open is the one lit, and no other** — Text goes dark while Marks'
-    /// flyout is open, and comes back when it closes. Otherwise the armed tool is lit, and Select when
-    /// nothing is armed.
+    /// The tool whose flyout is open is the one lit, and no other: Text goes dark while Marks'
+    /// flyout is open. Otherwise the armed tool is lit, or Select when nothing is armed.
     @Test func aFlyoutsToolIsTheOneLitWhileItIsOpen() {
         typealias P = EditorPDFFillPalette
         let lit = { (armed: EditorPDFFillTool?, flyout: P.Flyout?) in P.Tool.allCases.filter { P.isLit($0, armed: armed, flyout: flyout) } }
@@ -124,7 +122,7 @@ import Sync
 
     // MARK: The flyouts
 
-    /// **Marks' flyout arms the mark chosen, and ticks it** the next time it opens.
+    /// Marks' flyout arms the mark chosen, and ticks it the next time it opens.
     @Test func theMarksFlyoutArmsAMarkAndTicksIt() throws {
         let fill = fill()
         var heard: [EditorPDFFillMark] = []
@@ -137,7 +135,7 @@ import Sync
         #expect(EditorPDFFillFlyouts.marks(for: fill).items.filter { $0.state == .on }.map(\.title) == ["✗  Cross"])
     }
 
-    /// **The size flyout sets the selected text's size, and the next item's** — one ⌘Z step — and
+    /// The size flyout sets the selected text's size and the next item's, in one ⌘Z step, and
     /// ticks the size in force. Smaller and Bigger are A− and A+, greyed at the ends.
     @Test func theSizeFlyoutSetsTheSelectedTextAndTheNext() throws {
         let fill = fill()
@@ -162,7 +160,7 @@ import Sync
         #expect(EditorPDFFillFlyouts.size(for: fill).items.dropFirst().first?.isEnabled == false)
     }
 
-    /// **The ink flyout sets the selected item's ink, and the next item's**, and ticks it.
+    /// The ink flyout sets the selected item's ink and the next item's, and ticks it.
     @Test func theInkFlyoutSetsTheInk() throws {
         let fill = fill()
         let id = try placeText(fill)
@@ -177,9 +175,8 @@ import Sync
 
     // MARK: Moving it
 
-    /// **The palette's place is its own**: the middle of the left side until it is moved, stored by
-    /// name under its own key, read back by the next view state — and moving it never moves the
-    /// capsule.
+    /// The palette's place is its own: the middle of the left side until moved, stored by name
+    /// under its own key, read back by the next view state. Moving it never moves the capsule.
     @Test func thePalettesPlaceIsStoredByNameApartFromTheCapsules() {
         #expect(EditorPDFSettings.palettePlaceKey == "editorPDFPalettePlace")
         let first = EditorPDFViewState(defaults: defaults)
@@ -198,7 +195,7 @@ import Sync
                                         context: nil, eventNumber: 0, clickCount: clicks, pressure: 1))
     }
 
-    /// **The palette's grip is the capsule's, moving the palette**: a double-click puts it back at
+    /// The palette's grip works like the capsule's, for the palette: a double-click puts it back at
     /// the left, Move To and its accessibility actions move it and only it, and it says so.
     @Test func thePalettesGripMovesThePaletteAndOnlyThePalette() throws {
         let state = EditorPDFViewState(defaults: defaults)
@@ -229,8 +226,7 @@ import Sync
         #expect(EditorPDFMovable.palette.tooltip.contains("Fill & Sign"))
     }
 
-    /// **A column in the middle of a side, a row everywhere else** — the capsule's rule (decided
-    /// 2026-10-19).
+    /// A column in the middle of a side, a row everywhere else: the capsule's rule.
     @Test func thePaletteIsAColumnAtTheSidesAndARowElsewhere() {
         let fill = fill()
         for place in EditorPDFCapsulePlace.allCases {
@@ -243,8 +239,8 @@ import Sync
         }
     }
 
-    /// **As a row, it fits the narrowest document column**, at every text size and with Form Fields
-    /// — the bound 5b's toolbar kept (`EditorPDFHeaderWidthTests.column`).
+    /// As a row, it fits the narrowest document column (`EditorPDFHeaderWidthTests.column`) at
+    /// every text size and with Form Fields.
     @Test func theRowFitsTheNarrowestColumnAtEveryTextSize() {
         let room = EditorPDFHeaderWidthTests.column - 2 * EditorPDFFloating.inset
         // A form's row, and a flat file's, which carries Replace.
@@ -258,11 +254,11 @@ import Sync
 
     // MARK: Floating pieces never overlap
 
-    /// **In a narrow or short canvas a piece finds the gap beside one piece and under another**,
-    /// rather than being drawn over one: one axis at a time found none, and the capsule at Top
-    /// Left sat on the pill in the narrowest column while (58, 52) was free. Swept over every pair
-    /// of places at the narrow and short sizes, with a form's taller palette — every case here has
-    /// room (checked by simulating the rule); only a canvas too short for its pieces does not.
+    /// In a narrow or short canvas a piece finds the gap beside one piece and under another rather
+    /// than being drawn over one; searching one axis at a time finds none, e.g. for the capsule at
+    /// Top Left in the narrowest column. Swept over every pair of places at the narrow and short
+    /// sizes with a form's taller palette; every case here has room (checked by simulating the
+    /// rule), and only a canvas too short for its pieces wouldn't.
     @Test func aPieceFindsTheGapBesideOneAndUnderAnother() {
         let narrow = EditorPDFReader.layout(canvas: CGSize(width: 368, height: 400), findCard: .zero,
                                             saveStack: CGSize(width: 281, height: 30),
@@ -296,9 +292,9 @@ import Sync
         }
     }
 
-    /// **No two floating pieces overlap, wherever the capsule and the palette are put** — with and
-    /// without the find card and the save pill, on a roomy canvas and a short one. The order they
-    /// give way in: the pill slides clear of the find card, the palette of both, the capsule of all.
+    /// No two floating pieces overlap, wherever the capsule and palette are put, with and without
+    /// the find card and save pill, on a roomy canvas and a short one. They give way in order: the
+    /// pill clears the find card, the palette both, the capsule all.
     @Test func noTwoFloatingPiecesOverlapAtAnyPlaces() {
         let capsule = CGSize(width: 300, height: 30), palette = (row: CGSize(width: 330, height: 38), column: CGSize(width: 38, height: 330))
         for canvas in [CGSize(width: 1000, height: 760), CGSize(width: 900, height: 520)] {
@@ -337,9 +333,9 @@ import Sync
 
     // MARK: The save pill and the note card
 
-    /// **The pill fits the narrowest column at every text size** — its words give way, the count
-    /// kept in its tooltip. With fixed words a form's "2 fields changed · 12 items not saved" ran past
-    /// the canvas, where nothing could keep it clear of the find card.
+    /// The pill fits the narrowest column at every text size: its words give way, the count kept in
+    /// its tooltip. With fixed words a form's long caption would run past the canvas, where nothing
+    /// keeps it clear of the find card.
     @Test func thePillFitsTheNarrowestColumnAtEveryTextSize() throws {
         let fill = fill(form: true)
         fill.beginFieldEditing("name")
@@ -359,9 +355,9 @@ import Sync
                 return NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: proposed, height: 1000)).width
             }
             #expect(width(fill, room) <= room, "at \(percent)% the pill is \(width(fill, room))pt, over the \(room)pt the narrowest column has")
-            // With less room than the short words take, it drops them rather than squeezing its
-            // buttons — a squeezed pill is as wide as it is let be, one with no words keeps its own
-            // width. Discard, Save Filled Copy and Done (TE98) take 260pt.
+            // With less room than the short words take, it drops them rather than squeeze its
+            // buttons: a squeezed pill is as wide as allowed, one with no words keeps its own width.
+            // Discard, Save Filled Copy and Done take 260pt.
             let bare = width(fill, 262)
             #expect(bare <= 262 && width(fill, 300) == bare,
                     "at \(percent)% with 300pt and 262pt the pill is \(width(fill, 300))pt and \(bare)pt — it squeezed its buttons to keep words")
@@ -370,8 +366,8 @@ import Sync
         }
     }
 
-    /// **The pill appears with the first mark, holds the count, and goes when nothing is left to
-    /// save** — after Discard, and with Fill & Sign off.
+    /// The pill appears with the first mark, holds the count, and goes when nothing is left to
+    /// save: after Discard, and with Fill & Sign off.
     @Test func thePillHoldsTheCountAndGoesWhenNothingIsLeftToSave() throws {
         let fill = fill()
         let tools = EditorPDFTools()
@@ -389,8 +385,8 @@ import Sync
         #expect(stack() != .zero, "Discard's undo did not bring the pill back")
     }
 
-    /// **The note card stands under the pill, and alone when there is nothing to save** — a form's
-    /// caveat is said from the moment Fill & Sign opens (decided 2026-10-19).
+    /// The note card stands under the pill, or alone when there is nothing to save: a form's caveat
+    /// shows from the moment Fill & Sign opens.
     @Test func theNoteCardShowsWithOrWithoutThePill() async throws {
         let file = folder + "/1040.pdf"
         try PDFFixtures.writeXFAForm(file)
@@ -416,8 +412,8 @@ import Sync
 
     // MARK: Mounted
 
-    /// **Turning Fill & Sign on leaves the page where it was** (mockup F, second pass) — the reader's
-    /// frame and the first page's place in the window, before and after, in the whole workspace.
+    /// Turning Fill & Sign on leaves the page where it was: the reader's frame and the first page's
+    /// place in the window match before and after, in the whole workspace.
     @Test func turningFillAndSignOnLeavesThePageWhereItWas() async throws {
         let pdf = try await open(pages: 3)
         let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
@@ -443,8 +439,8 @@ import Sync
                 "turning Fill & Sign on moved the page: \(pageBefore) → \(pageAfter)")
     }
 
-    /// **The palette floats over the canvas, and a click beside it reaches the pages** — placing
-    /// must work right up to its edge. Its grip is its own, and moves the palette.
+    /// The palette floats over the canvas, and a click beside it reaches the pages, so placing
+    /// works right up to its edge. Its grip gets its own clicks.
     @Test func thePaletteFloatsOverThePagesAndClicksBesideItReachThem() async throws {
         let pdf = try await open(pages: 3)
         pdf.fill.toggle()
@@ -476,9 +472,8 @@ import Sync
 
     // MARK: What went
 
-    /// **The toolbar, its line of words and row 2's count are gone** (decided 2026-10-19): nothing
-    /// mounts a Fill & Sign row under the header, and nothing draws the click hint and "14 fields ·
-    /// 2 changed" — the tooltips say what a tool does.
+    /// No Fill & Sign toolbar, line of words or row 2 count: nothing mounts a Fill & Sign row under
+    /// the header or draws a click hint or field count; the tooltips say what a tool does.
     @Test func theToolbarAndItsWordsAreGone() throws {
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(!workspace.contains("EditorPDFFill"), "the workspace mounts a Fill & Sign row again")
@@ -492,8 +487,8 @@ import Sync
         #expect(canvas.contains("EditorPDFFillSaveStack(fill: fill"), "the canvas does not float the save pill")
     }
 
-    /// **Every tool named for VoiceOver, the palette a group of its own**, after the pages and before
-    /// the capsule in the tab order.
+    /// Every tool is named for VoiceOver, and the palette is a group of its own, after the pages
+    /// and before the capsule in the tab order.
     @Test func thePaletteNamesItsToolsAndFollowsThePages() throws {
         let titles = EditorPDFFillPalette.Tool.allCases.map(\.title)
         #expect(Set(titles).count == titles.count && titles.allSatisfy { !$0.isEmpty })
@@ -509,9 +504,9 @@ import Sync
         #expect(pages.lowerBound < palette.lowerBound && palette.lowerBound < capsule.lowerBound)
     }
 
-    /// **At a right-hand corner a flyout opens leftwards**, away from the edge the palette is docked
-    /// to — it used to start at the tool's left edge and run off the canvas. Elsewhere on the top
-    /// and bottom it starts at the tool's left, and at the side middles it opens beside the tool.
+    /// At a right-hand corner a flyout opens leftwards, away from the docked edge, so it can't run
+    /// off the canvas. Elsewhere on the top and bottom it starts at the tool's left, and at the side
+    /// middles it opens beside the tool.
     @Test func flyoutsOpenAwayFromTheDockedEdge() {
         let tool = CGRect(x: 0, y: 0, width: 28, height: 28), menu = CGSize(width: 120, height: 200)
         for place in EditorPDFCapsulePlace.allCases {
@@ -529,9 +524,9 @@ import Sync
         }
     }
 
-    /// **A palette that goes while its grip is held takes the drag with it** — a save landing
-    /// mid-drag. The snap targets stayed drawn, and a late drop stored the place nearest the corner
-    /// of an empty frame. Wired in the canvas, which owns the drag.
+    /// A palette that goes while its grip is held (a save landing mid-drag) takes the drag with it.
+    /// Otherwise the snap targets stay drawn and a late drop stores the place nearest the corner of
+    /// an empty frame. Wired in the canvas, which owns the drag.
     @Test func aPaletteThatGoesMidDragTakesTheDragWithIt() throws {
         let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
         #expect(canvas.contains("if size == .zero, dragging == .palette { dragging = nil; drag = .zero }"))

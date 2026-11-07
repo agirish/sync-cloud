@@ -4,32 +4,23 @@ import Sync
 /// Pure logic behind the panes' two Compare items: which pair a row offers, and how that pair is
 /// ordered once it reaches the viewer.
 ///
-/// **Extracted for the reason `DifferenceRowMenu` is**: written inline in the menu's `ViewBuilder`
-/// these rules are only reachable by rendering a context menu, and the preconditions are exactly
-/// the part worth pinning — a Compare item that is merely absent looks identical to one correctly
-/// withheld, which is the failure mode this module has already shipped once.
+/// Extracted, like `DifferenceRowMenu`, so the preconditions can be tested without rendering a
+/// context menu: an absent Compare item looks the same as one correctly withheld.
 public enum PaneComparePairMenu {
 
-    /// The counterpart for a CROSS-pane compare, or nil when the row offers none.
+    /// The counterpart for a cross-pane compare, or nil when the row offers none.
     ///
-    /// Three preconditions, and each one is load-bearing:
-    /// - **Not the single-source rail.** There is no opposite pane, so `otherSelection` describes a
-    ///   tree nobody can see — the same gate the "Copy '…' from ⟨pane⟩" item beside it takes.
-    /// - **Exactly one file selected over there.** Two would make "compare with which?" a question
-    ///   the menu cannot ask, and the cross-pane copy item handles a multi-selection by copying all
-    ///   of them, which has no analogue here.
-    /// - **Both sides are files.** A folder pair has nothing the viewer can render, and Compare
-    ///   owns two folders already — the rule `DifferencesPairCompare.pair(for:paneNames:)` applies
-    ///   to its own rows.
+    /// - Not the single-source rail: there is no opposite pane, the same gate as the "Copy '…' from
+    ///   ⟨pane⟩" item beside it.
+    /// - Exactly one file selected over there, or "compare with which?" has no answer.
+    /// - Both sides are files: the viewer can't render a folder pair, as in
+    ///   `DifferencesPairCompare.pair(for:paneNames:)`.
     ///
-    /// Resolved against the other tree rather than trusting the path set, because a selection can
-    /// name a row that has since gone: `selectedNodes(at:)` answers with what is actually there. The
-    /// count is still the path set's, so two selected paths with one of them gone stay two.
-    ///
-    /// `resolve` is how the selection is looked up in `otherTree` — `PaneTree.selectedNodes(at:)`
-    /// unless the caller has a cheaper route to the same answer. The menu has one: every visible row
-    /// asks this, so it passes its pane's `PaneSelectionResolver`, which walks once for all of them.
-    /// The rule still does the looking itself, so no caller can hand it the wrong pane's nodes.
+    /// Resolved against the other tree, because a selected row may have gone; the count is still the
+    /// path set's, so two paths with one gone stay two. `resolve` defaults to
+    /// `PaneTree.selectedNodes(at:)`; the menu passes its `PaneSelectionResolver`, which walks once
+    /// for every visible row. The rule still does the lookup, so no caller can hand it the wrong
+    /// pane's nodes.
     @MainActor
     public static func crossPaneCounterpart(
         clicked: FileNode, otherTree: PaneTree, otherSelection: Set<String>, isSingleSource: Bool,
@@ -42,15 +33,9 @@ public enum PaneComparePairMenu {
         return counterpart
     }
 
-    /// The counterpart for a SAME-pane compare, or nil when the row offers none.
-    ///
-    /// **This is the entry that needs no new rules at all.** A pane's selection is a `Set`, so two
-    /// files picked in one tree is a state the app already reaches and the one-pane-selected
-    /// invariant has nothing to say about it.
-    ///
-    /// The clicked row must be one of the two: right-clicking a third row with two others selected
-    /// is not a pair anybody chose, and `resolvedSelection` would have collapsed the menu onto the
-    /// clicked row anyway.
+    /// The counterpart for a same-pane compare, or nil when the row offers none: exactly two files
+    /// selected, and the clicked row one of them. A third row right-clicked is not a pair anyone
+    /// chose, and `resolvedSelection` would collapse the menu onto it anyway.
     public static func samePaneCounterpart(clicked: FileNode,
                                            selectedNodes: [FileNode]) -> FileNode? {
         guard !clicked.isDirectory, selectedNodes.count == 2,
@@ -64,12 +49,9 @@ public enum PaneComparePairMenu {
 
     /// The pair a pane click opens, ordered for the viewer.
     ///
-    /// **A cross-pane pair is ordered by PANE SIDE, not by which row was clicked.** The viewer
-    /// draws two columns and names them left-to-right in its subtitle; if the reader right-clicks
-    /// in the right pane and their file turns up in the left column, the subtitle and the columns
-    /// disagree and the surface becomes a puzzle to read. A same-pane pair has no side to match, so
-    /// there the clicked row leads and the subtitle names the one pane once — "iCloud vs iCloud"
-    /// would name nothing.
+    /// A cross-pane pair is ordered by pane side, not by which row was clicked, so the viewer's
+    /// columns match its left-to-right subtitle. A same-pane pair has no side: the clicked row
+    /// leads and the subtitle names the pane once ("iCloud vs iCloud" would say nothing).
     public static func pair(clicked: FileNode, counterpart: FileNode,
                             counterpartIsInOtherPane: Bool, clickedPaneIsLeft: Bool,
                             leftPaneName: String, rightPaneName: String) -> DifferencePair {

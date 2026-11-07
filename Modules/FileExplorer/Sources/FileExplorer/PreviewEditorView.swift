@@ -3,16 +3,16 @@ import AppKit
 import Design
 import Events
 
-/// **The editable Preview** (TE67.3): a TextKit 2 text view drawing ``PreviewEditSession/display``,
-/// with every edit sent through the session to the document's source.
+/// The editable Preview: a TextKit 2 text view drawing ``PreviewEditSession/display``, with every
+/// edit sent through the session to the document's source.
 ///
 /// Mounted instead of ``MarkdownPreview`` when Edit in Preview is on, for a writable Markdown
 /// document. The read-only preview is untouched and stays what Preview is with the toggle off.
 struct PreviewEditorView: NSViewRepresentable {
 
     let source: EditorSourceStorage
-    /// The document's undo stack — the one Source uses, so ⌘Z here undoes the text and never a
-    /// file operation (§3.9).
+    /// The document's undo stack, the one Source uses, so ⌘Z here undoes the text and never a
+    /// file operation.
     let undoManager: UndoManager
     var fontScale: CGFloat = 1
     /// A refused edit, and where in the source it was: the status line shows "That change needs
@@ -20,8 +20,8 @@ struct PreviewEditorView: NSViewRepresentable {
     var onRefusal: ((PreviewRefusal, Int) -> Void)?
     /// The selection, mapped into the source — for Line and Column, and for Show in Source.
     var onSourceSelection: ((NSRange) -> Void)?
-    /// The styles ⌘B, ⌘I and friends set for what is typed next, as the verbs that set them — what
-    /// the format bar lights for them (FMT-15).
+    /// The styles ⌘B, ⌘I and friends set for what is typed next, as the verbs that set them, for
+    /// the format bar to light.
     var onPendingStyles: ((Set<MarkupVerb>) -> Void)?
     /// A `#fragment` link, ⌘-clicked.
     var onFollowAnchor: ((String) -> Void)?
@@ -31,28 +31,28 @@ struct PreviewEditorView: NSViewRepresentable {
     var isSplitHalf = false
     /// The open document's folder, which an image's relative path is relative to.
     var documentFolder: String?
-    /// Split: bring this source line's block to the top — the view only, never the caret (TE67.4).
+    /// Split: bring this source line's block to the top, moving the view only, never the caret.
     var followRequest: EditorScrollRequest?
     /// Split: the source line of the block at the top of what is on screen, as the person scrolls.
     var onVisibleLineChange: ((Int) -> Void)?
-    /// Preview: go to this source line — the heading menu, the outline, a `#fragment` link: the caret
-    /// there and the line at the top, as Source does (review: these were dropped outside Split).
+    /// Preview: go to this source line (the heading menu, the outline, a `#fragment` link), with
+    /// the caret there and the line at the top, as Source does.
     var scrollRequest: EditorScrollRequest?
-    /// Where the caret goes when this view is BUILT — the document's remembered caret, as Source
-    /// opens there: a mode switch or a reload no longer opens Preview at the top.
+    /// Where the caret goes when this view is built: the document's remembered caret, as in Source,
+    /// so a mode switch or a reload doesn't open Preview at the top.
     var initialSourceOffset: Int?
     /// Bumped to open the find bar — the header's magnifying glass, as over Source.
     var findRequest: Int = 0
-    /// The window's hue, which links wear here as they do in read-only Preview (ED5) — in the shade
-    /// ``linkInk(_:)`` makes of it, not raw (FE2).
+    /// The window's hue, which links wear here as in read-only Preview, in the shade
+    /// ``linkInk(_:)`` makes of it, not raw.
     var linkColor: Color = LiquidGlassHue.stored().accentColor
     /// Room under the last line for what floats over the text's foot — see
     /// ``PlainTextEditor/bottomInset``.
     var bottomInset: CGFloat = 0
-    /// Text ▸ Check Spelling While Typing, followed here as Source follows it (review V10).
+    /// Text ▸ Check Spelling While Typing, followed here as Source follows it.
     @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
         = EditorTextSettings.checksSpellingDefault
-    /// Text ▸ Continue Lists, followed here as Source follows it (LST-3).
+    /// Text ▸ Continue Lists, followed here as Source follows it.
     @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists: Bool
         = EditorTextSettings.continuesListsDefault
 
@@ -65,18 +65,16 @@ struct PreviewEditorView: NSViewRepresentable {
         return coordinator
     }
 
-    /// **What a link is drawn in: read-only Preview's shade of the hue (FE2)** —
-    /// `MarkdownBlockView.linkInk`'s rule, as an `NSColor` that picks its shade in the appearance
-    /// it is drawn in. The text view keeps the colour across a switch between light and dark, and
-    /// one resolved up front would stay the light shade in dark.
+    /// What a link is drawn in: read-only Preview's shade of the hue (`MarkdownBlockView.linkInk`'s
+    /// rule), as an `NSColor` that picks its shade in the appearance it is drawn in. The text view
+    /// keeps the colour across a light/dark switch, so one resolved up front would stay light.
     static func linkInk(_ hue: Color) -> NSColor {
         NSColor(ChromeInk.bodyText(hue))
     }
 
-    /// **What the text view draws over a link: the session's ink, and AppKit's own rest (ED5).** An
+    /// What the text view draws over a link: the session's ink, and AppKit's own rest. An
     /// `NSTextView` paints its `linkTextAttributes` over a link's run, and their default colour is
-    /// `NSColor.linkColor` — the system blue, whatever the run's own colour says. The underline and
-    /// the pointer stay AppKit's.
+    /// the system blue, whatever the run's own colour says. The underline and pointer stay AppKit's.
     static func linkTextAttributes(_ base: [NSAttributedString.Key: Any]?,
                                    color: NSColor) -> [NSAttributedString.Key: Any] {
         var attributes = base ?? [:]
@@ -94,7 +92,7 @@ struct PreviewEditorView: NSViewRepresentable {
         register(view)
         PlainTextEditor.applyBottomInset(bottomInset, to: scroll)
         // Requests already standing are not news to a view built after them: replaying one would
-        // jump somewhere asked for long ago (review).
+        // jump somewhere asked for long ago.
         context.coordinator.lastFollowRequest = followRequest
         context.coordinator.lastScrollRequest = scrollRequest
         context.coordinator.lastFindRequest = findRequest
@@ -192,11 +190,9 @@ struct PreviewEditorView: NSViewRepresentable {
         /// The hue ``PreviewEditSession/linkColor`` was last made from.
         var linkHue: Color?
 
-        /// **The workspace's follow and go-to requests, acted on a turn later** (review V6,
-        /// 2026-10-09). Handed over in `updateNSView`, and each reports back into the workspace's
-        /// state — `navigate` the caret it placed, a follow's scroll the line now on top — and a
-        /// write to SwiftUI state from inside a view update is the one SwiftUI warns is undefined.
-        /// Marked taken now, so the next pass does not hand the same request over again.
+        /// The workspace's follow and go-to requests, acted on a turn later. Each reports back into
+        /// the workspace's state, and a write to SwiftUI state from inside `updateNSView` is
+        /// undefined. Marked taken now, so the next pass does not hand the same request over again.
         func take(follow: EditorScrollRequest?, scroll: EditorScrollRequest?) {
             if let follow, follow != lastFollowRequest {
                 lastFollowRequest = follow
@@ -286,8 +282,8 @@ struct PreviewEditorView: NSViewRepresentable {
             session.onRefusal = { [weak self] reason, offset in self?.onRefusal?(reason, offset) }
             session.onSourceChange = { [weak self] offset in
                 // An undo or redo made here puts the caret where it landed. A change made in Source
-                // (Split) leaves this pane alone: moving its caret and scrolling to it there would
-                // scroll Source after it, and overwrite the caret Source reports (review).
+                // (Split) leaves this pane alone: moving its caret would scroll Source after it and
+                // overwrite the caret Source reports.
                 guard let self, let view = self.textView, view.window?.firstResponder === view else { return }
                 self.select(NSRange(location: min(offset, self.session.display.length), length: 0))
             }
@@ -304,17 +300,16 @@ struct PreviewEditorView: NSViewRepresentable {
             }
         }
 
-        /// A picture or a file, pasted or dropped: not something Preview can write (V5). Said — the
-        /// hint, and a line in the log naming the door, never the files.
+        /// A picture or a file, pasted or dropped: not something Preview can write. Said with the
+        /// hint, and a log line naming the door, never the files.
         func refuseImport(_ door: String) {
             Logger.shared.info("[preview-edit] Refused \(door): images and files go in through Source")
             let caret = textView?.selectedRange().location ?? 0
             onRefusal?(.notSupported, session.sourceOffset(near: min(caret, session.display.length)))
         }
 
-        /// **A Markup verb over the selection** — the menu, a chord and the bar all land here. A
-        /// refusal is logged once, at INFO, by the session, naming the verb as the menu does (review
-        /// V9, 2026-10-09; round 2: this wrote a second line for the same refusal).
+        /// A Markup verb over the selection: the menu, a chord and the bar all land here. The
+        /// session logs a refusal once, at INFO, so this logs nothing of its own.
         func performMarkup(_ verb: MarkupVerb) {
             guard let view = textView else { return }
             perform(RenderedEdit(range: view.selectedRange(), action: .format(verb)))
@@ -330,10 +325,9 @@ struct PreviewEditorView: NSViewRepresentable {
             reportPending()
         }
 
-        /// **Tells the format bar which styles wait for the next character** (FMT-15). ⌘B with
-        /// nothing selected writes nothing in Preview — it sets Bold for what is typed next — and
-        /// the bar never showed it: Bold stayed dark, and a second press to check turned it off
-        /// unseen. Reported whenever it may have changed, and only when it did.
+        /// Tells the format bar which styles wait for the next character: ⌘B with nothing selected
+        /// sets Bold for what is typed next, and the bar must show it or a second press turns it
+        /// off unseen. Reported whenever it may have changed, and only when it did.
         func reportPending() {
             let pending = session.context.pending
             guard pending != reportedPending else { return }
@@ -375,21 +369,19 @@ struct PreviewEditorView: NSViewRepresentable {
 
         func undoManager(for view: NSTextView) -> UndoManager? { session.undoManager }
 
-        /// Every change the text view would make to its own storage — typing, deleting, a paste, a
-        /// spelling correction, Replace — is made in the source instead, and refused here.
+        /// Every change the text view would make to its own storage (typing, deleting, a paste, a
+        /// spelling correction, Replace) is made in the source instead, and refused here.
         func textView(_ textView: NSTextView, shouldChangeTextInRanges ranges: [NSValue],
                       replacementStrings strings: [String]?) -> Bool {
             guard let view = textView as? PreviewTextView else { return false }
-            // An input method's composition lives in the display until it is committed (A12).
+            // An input method's composition lives in the display until it is committed.
             if view.isComposing { return true }
-            // **`nil` strings are a style change, not a deletion** — Underline, an alignment, the
-            // writing direction, the Font and Colors panels, a colour swatch dropped on the text:
-            // "keep these characters, change how they look". Read as empty strings it deleted the
-            // whole selection, which in a one-paragraph note was the note (review V1, 2026-10-09).
-            // The display is a rendering of the Markdown, which has no fonts or colours to change.
+            // `nil` strings are a style change, not a deletion (Underline, an alignment, the Font
+            // and Colors panels, a dropped colour swatch). Read as empty strings they would delete
+            // the whole selection. The display renders Markdown, which has no fonts or colours.
             guard let strings else {
-                // Once per run at INFO — the Colors panel dragged across the text sends one per
-                // step — and again after something is typed (round 2, 2026-10-10).
+                // Once per run at INFO (the Colors panel dragged across the text sends one per
+                // step), and again after something is typed.
                 let message = "[preview-edit] A style change from AppKit was ignored over \(ranges.count) range(s): Preview's text is the Markdown's rendering"
                 if loggedStyleChange { Logger.shared.debug(message) } else { Logger.shared.info(message) }
                 loggedStyleChange = true
@@ -429,17 +421,16 @@ struct PreviewEditorView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             // Not while an input method composes: the caret moves inside the marked text, and the
-            // opened paragraph or held space the composition began in must outlive it (review) —
-            // its commit too, which takes the marks away before it moves the caret.
+            // opened paragraph or held space the composition began in must outlive it, commit
+            // included, which takes the marks away before it moves the caret.
             guard !isSelecting, let view = textView, !view.hasMarkedText(), !view.isComposing else { return }
             session.selectionMoved(to: view.selectedRange())
             reportSelection()
             reportPending()
         }
 
-        /// **The text's right-click menu, as Source's**: AppKit's own items, with the Markup verbs and
-        /// the Format Bar switch on top — what Help says right-clicking the text offers (review:
-        /// Preview had AppKit's menu alone).
+        /// The text's right-click menu, as Source's: AppKit's own items, with the Markup verbs and
+        /// the Format Bar switch on top, as Help describes.
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
             let selection = session.sourceSelection(for: view.selectedRange()) ?? NSRange(location: 0, length: 0)
             let tables = MarkdownTables.reading(session.source.text as NSString, selection)
@@ -457,8 +448,8 @@ struct PreviewEditorView: NSViewRepresentable {
                                  action: #selector(toggleFormatBar(_:)), keyEquivalent: "")
             bar.target = self
             bar.state = shows ? .on : .off
-            // Check Spelling, as Source's menu has it (review V10) — and no Wrap Lines: Preview's
-            // column always wraps, so the item would do nothing here.
+            // Check Spelling, as Source's menu has it, and no Wrap Lines: Preview's column always
+            // wraps, so the item would do nothing here.
             let checks = UserDefaults.standard.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
                 ?? EditorTextSettings.checksSpellingDefault
             let spelling = NSMenuItem(title: Self.checkSpellingTitle,
@@ -498,7 +489,7 @@ struct PreviewEditorView: NSViewRepresentable {
             Logger.shared.info("[edit] Format bar \(shows ? "shown" : "hidden") from Preview's right-click menu")
         }
 
-        /// **A plain click on a link places the caret, as in every editor; ⌘-click opens it** (§1.2).
+        /// A plain click on a link places the caret, as in every editor; ⌘-click opens it.
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             clickedOnLink(link, at: charIndex,
                           command: NSApp.currentEvent?.modifierFlags.contains(.command) == true)
@@ -537,10 +528,9 @@ final class PreviewTextView: NSTextView {
     private var compositionRange = NSRange(location: 0, length: 0)
     private(set) var isPasting = false
 
-    /// **Where the line holding `offset` starts, in `view`'s coordinates** — laid out first, and
-    /// asked of TextKit 2's own fragment. TextKit 2 lays out lazily, and `firstRect` for a place far
-    /// below the screen answered a zero rectangle (measured: following line 81 of a long note
-    /// landed on line 37). Never `layoutManager`, which would drop the view to TextKit 1.
+    /// Where the line holding `offset` starts, in `view`'s coordinates, laid out first and asked of
+    /// TextKit 2's own fragment. TextKit 2 lays out lazily, and `firstRect` far below the screen
+    /// answers a zero rectangle. Never `layoutManager`, which would drop the view to TextKit 1.
     static func lineTop(in view: NSTextView, at offset: Int) -> CGFloat? {
         guard let manager = view.textLayoutManager, let content = view.textContentStorage,
               let location = content.location(content.documentRange.location, offsetBy: offset),
@@ -551,34 +541,32 @@ final class PreviewTextView: NSTextView {
     }
 
     /// Scrolls `view` so the line holding `offset` is the first on screen, below the text's inset.
-    ///
-    /// **The frame is grown first**: until the view's next pass it is sized to TextKit 2's
-    /// estimate, and a scroll past the estimate is clamped short of the line (measured: 778 for a
-    /// line at 1,095).
+    /// The frame is grown first: until the view's next pass it is sized to TextKit 2's estimate,
+    /// and a scroll past the estimate is clamped short of the line.
     static func scrollLineToTop(_ view: NSTextView, at offset: Int) {
         guard let top = lineTop(in: view, at: offset) else { return }
-        // Room for the line at the top of a screen. TextKit 2's own measure of what is used has
-        // not caught up with the layout just made (measured: still the estimate), so this asks
-        // for exactly what the scroll needs; the view sizes itself to the truth on its next pass.
+        // Room for the line at the top of a screen. TextKit 2's measure of what is used still
+        // holds the estimate, so this asks for exactly what the scroll needs; the view sizes
+        // itself to the truth on its next pass.
         let needed = top + view.visibleRect.height
         if needed > view.frame.height { view.setFrameSize(NSSize(width: view.frame.width, height: needed)) }
         view.scroll(NSPoint(x: 0, y: max(0, top - view.textContainerInset.height)))
     }
 
-    /// The widest the text column grows (§3.8): the measure a reader's eye can hold, as the read-only
+    /// The widest the text column grows: the measure a reader's eye can hold, as the read-only
     /// preview's `maxWidth: 720`.
     static let maxColumn: CGFloat = 720
     static let inset = NSSize(width: 22, height: 18)
 
     override class func scrollableTextView() -> NSScrollView {
-        // The document's stack for ⌘Z from Preview's find bar, as Source's (UND-3).
+        // The document's stack for ⌘Z from Preview's find bar, as Source's.
         let scroll = EditorDocumentScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let view = PreviewTextView(usingTextLayoutManager: true)
         view.isRichText = false
         view.importsGraphics = false
-        // No Font panel, as Source has none: its changes are styles Markdown cannot write (V1).
+        // No Font panel, as Source has none: its changes are styles Markdown cannot write.
         view.usesFontPanel = false
         view.isGrammarCheckingEnabled = false
         view.allowsUndo = false
@@ -608,26 +596,20 @@ final class PreviewTextView: NSTextView {
         return scroll
     }
 
-    /// **The document's undo stack, with `allowsUndo` off.** An `NSTextView` that does not allow
-    /// undo vends none (measured: `nil`), and ⌘Z would fall through to the window's — the file
-    /// operations'. Allowing it would register the view's own edits to the display — marked text,
-    /// a commit — against a storage that is only a rendering. So: vend the document's, register none.
-    /// **And none at all while an input method's text goes into the display**: `NSTextView`
-    /// registers "Typing" for marked text even with `allowsUndo` off, once it can find a manager
-    /// (measured 2026-10-05) — against the display, where an undo would edit a rendering.
+    /// The document's undo stack, with `allowsUndo` off. A view that doesn't allow undo vends
+    /// none, and ⌘Z would fall through to the window's, the file operations'. Allowing it would
+    /// register the view's own edits against a storage that is only a rendering. So: vend the
+    /// document's, register none. **And none at all while an input method composes**: `NSTextView`
+    /// registers "Typing" for marked text even with `allowsUndo` off, once it can find a manager.
     override var undoManager: UndoManager? { isComposing ? nil : coordinator?.session.undoManager }
 
-    /// **⌘Z here is answered here, on the document's stack** — not left to the window, which
-    /// answers `undo:` for a text view and, for one with `allowsUndo` off, undoes its OWN stack
-    /// whatever ``undoManager`` says: measured 2026-10-16, a keystroke here and ⌘Z undid a stand-in
-    /// file operation and left the keystroke (UND-1). Answered here, it is the stack this view vends.
+    /// ⌘Z is answered here, on the document's stack. Left to the window, which answers `undo:` for
+    /// a text view with `allowsUndo` off from its own stack whatever ``undoManager`` says, it would
+    /// undo a file operation and leave the keystroke.
     ///
-    /// **While a word is being composed, ⌘Z commits it and takes nothing back** (UND-8). Preview
-    /// registers nothing for marked text, so ⌘Z went past the composition to the document's last
-    /// step, and the redraw that followed threw the half-composed word away — measured: "Hello
-    /// world" with か being composed, ⌘Z, and the file read "Hello". The word is kept, committed
-    /// into the source as the input method's own commit would be; the next ⌘Z takes it back with
-    /// the typing it joined.
+    /// While a word is being composed, ⌘Z commits it and takes nothing back. Otherwise ⌘Z would
+    /// skip past the composition to the document's last step, and the redraw would throw the
+    /// half-composed word away. The next ⌘Z takes the word back with the typing it joined.
     @objc func undo(_ sender: Any?) {
         if hasMarkedText() {
             unmarkText()
@@ -636,7 +618,7 @@ final class PreviewTextView: NSTextView {
         undoManager?.undo()
     }
 
-    /// ⇧⌘Z, the same way — a composition is committed, and nothing is redone.
+    /// ⇧⌘Z, the same way: a composition is committed, and nothing is redone.
     @objc func redo(_ sender: Any?) {
         if hasMarkedText() {
             unmarkText()
@@ -652,7 +634,7 @@ final class PreviewTextView: NSTextView {
             ?? super.validateUserInterfaceItem(item)
     }
 
-    /// Takes the keyboard when nobody else holds it, as Source's view does (UND-1) — see
+    /// Takes the keyboard when nobody else holds it, as Source's view does; see
     /// ``EditorUndoAnchor``.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -715,7 +697,7 @@ final class PreviewTextView: NSTextView {
         paste(from: .general, sender: sender)
     }
 
-    /// The paste, from `pasteboard` — its own method so a test can hand it a private one rather than
+    /// The paste, from `pasteboard`, its own method so a test can hand it a private one rather than
     /// the person's clipboard. Plain text only, from the general pasteboard as AppKit reads it.
     func paste(from pasteboard: NSPasteboard, sender: Any? = nil) {
         if Self.carriesFilesOrPicture(pasteboard, text: pasteboard.string(forType: .string)) {
@@ -739,12 +721,10 @@ final class PreviewTextView: NSTextView {
 
     // MARK: Pictures and files (review V5)
 
-    /// **Files, or a picture with no text — which Preview cannot take** (review V5, 2026-10-09).
-    /// Source imports a picture into the note's Images folder and links it (TE56); Preview has no
-    /// such import, and AppKit's own handling typed a dropped file's PATH into the paragraph, and a
-    /// copied file's NAME, as text that reached the Markdown. A screenshot found nothing to paste,
-    /// and said nothing. Each is refused with the hint now. The full fix is Source's import, its
-    /// link written as a block after the caret's — a translation Preview does not have yet.
+    /// Files, or a picture with no text, which Preview cannot take. Source imports a picture into
+    /// the note's Images folder and links it; Preview has no such import, and AppKit's own handling
+    /// would type a dropped file's path, or a copied file's name, into the Markdown. Each is
+    /// refused with the hint instead.
     static func carriesFilesOrPicture(_ pasteboard: NSPasteboard, text: String?) -> Bool {
         if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { return true }
         return text == nil && pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
@@ -785,8 +765,8 @@ final class PreviewTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         if let box = taskBox(at: convert(event.locationInWindow, from: nil)) {
-            // The first click only: a double-click's second arrives as a mouse-down of its own, and
-            // ticked the box back (review V11, 2026-10-09). Swallowed, so it selects no word either.
+            // The first click only: a double-click's second arrives as a mouse-down of its own and
+            // would tick the box back. Swallowed, so it selects no word either.
             if event.clickCount == 1 {
                 coordinator?.perform(RenderedEdit(range: NSRange(location: box, length: 1), action: .tickTask))
             }

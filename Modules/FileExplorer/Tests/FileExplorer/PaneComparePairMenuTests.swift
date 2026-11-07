@@ -3,13 +3,12 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The panes' two Compare items — which pair a row offers, and how it reaches the viewer.
+/// The panes' two Compare items: which pair a row offers, and how it reaches the viewer.
 ///
-/// **Every test here is really about an item that must NOT appear.** A Compare item that is
-/// wrongly absent looks exactly like one correctly withheld, and this module has already shipped a
-/// menu item that was unreachable from the day it was written; so each refusal is paired with the
-/// nearest case that must still be offered, and neither a rule wired to `nil` nor one wired to
-/// "always" would survive the suite.
+/// Every test here is really about an item that must not appear. A Compare item wrongly absent
+/// looks exactly like one correctly withheld, so each refusal is paired with the nearest case that
+/// must still be offered, and neither a rule wired to `nil` nor one wired to "always" would survive
+/// the suite.
 @MainActor
 @Suite struct PaneComparePairMenuTests {
 
@@ -36,9 +35,9 @@ import Testing
         #expect(counterpart.id == "/R/scan.pdf")
     }
 
-    /// **The rail has no opposite pane**, so `otherSelection` describes a tree nobody can see —
-    /// the same gate the cross-pane copy item beside this one takes. Paired with the case above,
-    /// which is identical but for the flag.
+    /// The rail has no opposite pane, so `otherSelection` describes a tree nobody can see: the same
+    /// gate the cross-pane copy item beside this one takes. Identical to the case above but for the
+    /// flag.
     @Test func theSingleSourceRailOffersNoCrossPaneCompare() {
         let other = tree([file("/R/scan.pdf")])
         #expect(PaneComparePairMenu.crossPaneCounterpart(
@@ -68,18 +67,18 @@ import Testing
             otherSelection: ["/R/gone.pdf"], isSingleSource: false) == nil)
     }
 
-    /// **The count is the SELECTION's, not what survived resolving it.** Two rows selected over
-    /// there, one of which has since gone, is still a choice between two — resolving it leaves one
-    /// file, and a rule counting the resolved nodes would quietly offer that one as the pair.
+    /// The count is the selection's, not what survived resolving it. Two rows selected over there,
+    /// one since gone, is still a choice between two; a rule counting resolved nodes would offer
+    /// the survivor as the pair.
     @Test func twoSelectedWithOneGoneStillOfferNothing() {
         #expect(PaneComparePairMenu.crossPaneCounterpart(
             clicked: file("/L/lease.pdf"), otherTree: tree([file("/R/a.pdf")]),
             otherSelection: ["/R/a.pdf", "/R/gone.pdf"], isSingleSource: false) == nil)
     }
 
-    /// Folders are out on BOTH sides — the viewer has nothing to render for one, and Compare owns
-    /// two folders already. Each side is refused on its own, so a check covering only one would
-    /// leave the other open.
+    /// Folders are out on both sides: the viewer has nothing to render for one, and Compare already
+    /// owns two folders. Each side is refused on its own, so a check covering only one would leave
+    /// the other open.
     @Test func aFolderOnEitherSideIsRefused() {
         #expect(PaneComparePairMenu.crossPaneCounterpart(
             clicked: folder("/L/Reports"), otherTree: tree([file("/R/a.pdf")]),
@@ -110,9 +109,9 @@ import Testing
         #expect(counterpart.id == "/L/a.pdf", "the counterpart is the OTHER one, by id")
     }
 
-    /// The counterpart is found by id rather than by index, because `selectedNodes` is in tree
-    /// order and the clicked row is not reliably its head. Clicking either end must give the
-    /// other — an index-based rule passes one of these two and fails the other.
+    /// The counterpart is found by id, not index, because `selectedNodes` is in tree order and the
+    /// clicked row isn't reliably its head. Clicking either end must give the other; an index-based
+    /// rule passes one of these and fails the other.
     @Test func eitherRowOfThePairFindsTheOther() throws {
         let nodes = [file("/L/a.pdf"), file("/L/b.pdf")]
         let fromFirst = try #require(PaneComparePairMenu.samePaneCounterpart(
@@ -144,7 +143,7 @@ import Testing
 
     // MARK: How the pair reaches the viewer
 
-    /// **Ordered by pane side, not by which row was clicked.** The viewer names its two columns
+    /// Ordered by pane side, not by which row was clicked. The viewer names its two columns
     /// left-to-right in the subtitle; a clicked-row-leads rule would put the right pane's file in
     /// the left column half the time and make the subtitle disagree with what is drawn.
     @Test(arguments: [true, false])
@@ -160,8 +159,8 @@ import Testing
         #expect(pair.subtitle == "iCloud vs Dropbox")
     }
 
-    /// A same-pane pair has no side to match, so the clicked row leads — and the subtitle names
-    /// the one pane once, because "iCloud vs iCloud" would name nothing.
+    /// A same-pane pair has no side to match, so the clicked row leads, and the subtitle names the
+    /// one pane once, because "iCloud vs iCloud" would name nothing.
     @Test func aSamePanePairLeadsWithTheClickedRowAndNamesOnePane() {
         let pair = PaneComparePairMenu.pair(
             clicked: file("/L/b.pdf"), counterpart: file("/L/a.pdf"),
@@ -182,10 +181,9 @@ import Testing
 
     // MARK: The title, which the header's glyph is derived from
 
-    /// **The header glyph reads the title's extension**, so the title has to stay a file NAME.
-    /// Two differently-named files take the left one's, and the facts strip's Name row states the
-    /// difference with its ≠ spine — a title in the shape "a.pdf ↔ b.png" would draw one of the
-    /// two types over both.
+    /// The header glyph reads the title's extension, so the title must stay a file name. Two
+    /// differently named files take the left one's, and the facts strip's Name row shows the
+    /// difference; a title like "a.pdf ↔ b.png" would draw one of the two types over both.
     @Test func aPairOfDifferentlyNamedFilesTakesTheLeftName() {
         let pair = PaneComparePairMenu.pair(
             clicked: file("/L/Lease — Signed.pdf"), counterpart: file("/R/lease-final-scan.pdf"),

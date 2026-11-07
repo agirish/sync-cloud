@@ -5,7 +5,7 @@ import SwiftUI
 import Sync
 import UserNotifications
 
-/// **Settings ▸ Compare ▸ One-Way Sync**: the pair and its state, Pause and Choose Folders, the two
+/// Settings ▸ Compare ▸ One-Way Sync: the pair and its state, Pause and Choose Folders, the two
 /// settings, files you stopped syncing, SyncCloud Removed, and Turn Off. Before setup, *Set Up
 /// One-Way Sync…*. Hosted by Settings' Compare tab, which gives it a page of its own.
 public struct OneWaySyncSettingsView: View {
@@ -165,7 +165,7 @@ public struct OneWaySyncSettingsView: View {
             let days = Int(now.timeIntervalSince(oldest) / 86_400)
             parts.append(days < 1 ? "oldest today" : days == 1 ? "oldest 1 day" : days < 60 ? "oldest \(days) days" : "oldest \(days / 30) months")
         }
-        // DJ sends a file's eighth kept version on to Dropbox's deleted files on its own.
+        // SyncCloud sends a file's eighth kept version on to Dropbox's deleted files on its own.
         parts.append("emptied when you choose, or past seven versions of one file")
         return parts.joined(separator: " · ")
     }

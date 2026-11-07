@@ -6,51 +6,34 @@ import Testing
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The preview column must never render one file's probe against another file's path.
+/// The preview column must never render one file's probe against another file's path. A
+/// `.task(id:)` runs after the body that changed its id is committed, so state reset there leaves
+/// one frame showing the old file's probe for the new item. With a stale `.quickLook` that mounts
+/// `QLPreviewView` on a cloud-only placeholder, and Quick Look reads it: the provider download
+/// `.cloudOnly` exists to prevent. The probe is injected (`ColumnPreviewProbeReader`) because
+/// `.cloudOnly` needs `SF_DATALESS`, which only a File Provider sets.
 ///
-/// `probe` and `hasSettled` were independent `@State`, reset at the top of `.task(id:)` — and a task
-/// runs *after* the body that changed its id has already been committed. So the frame in which
-/// `item` became the new file still carried the old file's `.quickLook` and its `hasSettled`, and
-/// `case .quickLook where hasSettled` mounts `QLPreviewView` on `item.path`. On a cloud-only
-/// placeholder that hands the new path to the Quick Look extension, which READS it — the provider
-/// download `ColumnPreviewSource.cloudOnly` exists to prevent ("selecting a 4 GB video must not
-/// start a 4 GB transfer"). The other two stale states are the same defect wearing different
-/// clothes: an old `.cloudOnly` offers a Download button captioned for the new file, an old
-/// `.missing` says "no longer here" about a file that is present.
-///
-/// The probe is injected (`ColumnPreviewProbeReader`) because `.cloudOnly` is unreachable
-/// otherwise: `SF_DATALESS` is an `SF_` system flag, settable only by root and in practice only by
-/// a File Provider.
-///
-/// **The assignment is what is watched, not the view tree.** Sampling for a `QLPreviewView` carrying
-/// the new path cannot see this defect — measured: with it fully present, `previewItem` is assigned
-/// the cloud-only path and the view is torn down again inside the SAME `layoutIfNeeded()`, so every
-/// sample either side reads clean and the test passes green over the bug. What matters is the
-/// assignment itself — that is the call that hands the path to the Quick Look extension and makes it
-/// read — so this observes the live view's `previewItem` through KVO, which catches a value that
-/// existed for no frames at all. The observer is proven live before it is trusted (see the control
-/// below), because an unobservable property would make the whole test vacuous.
+/// The assignment is watched, not the view tree: the bad `previewItem` can be assigned and torn
+/// down inside one `layoutIfNeeded()`, so sampling the tree passes over the bug. KVO on the live
+/// view's `previewItem` sees a value that existed for no frames, and is proven live first.
 @MainActor
 @Suite struct ColumnPreviewProbeLifecycleTests {
 
-    /// Neither path exists on disk, deliberately: if the environment seam were ever bypassed and the
-    /// real `ColumnPreviewProbe.read` used instead, `previewable` would classify `.missing`, no
-    /// Quick Look would mount for it, and the positive control below fails rather than the whole
-    /// test passing for the wrong reason.
+    /// Neither path exists on disk, on purpose: if the seam were bypassed and the real
+    /// `ColumnPreviewProbe.read` used, `previewable` would be `.missing`, nothing would mount, and
+    /// the test fails instead of passing for the wrong reason.
     private static let previewable = "/probe-lifecycle/settled.txt"
     private static let cloudOnly = "/probe-lifecycle/placeholder.mov"
 
-    /// How long the second file's probe is held out, so that the stale state is unambiguously the
-    /// old one when the new item is committed — the render under test happens while this is
-    /// outstanding.
+    /// How long the second file's probe is held out, so the render under test happens while the
+    /// state is unambiguously the old file's.
     private static let heldProbe = Duration.milliseconds(1200)
 
     /// A path nothing renders, used once to prove the KVO channel is live.
     private static let kvoControl = "/probe-lifecycle/kvo-control"
 
-    /// Which paths the injected probe has actually answered. The observation window closes on THIS,
-    /// not on a timeout: a run where the second probe never completed sampled the wrong interval and
-    /// must say so instead of passing.
+    /// Which paths the injected probe has answered. The observation window closes on this, not a
+    /// timeout, so a run whose second probe never completed says so instead of passing.
     @MainActor private final class ProbeLog {
         var completed: Set<String> = []
     }
@@ -89,12 +72,9 @@ import UniformTypeIdentifiers
                                          kind: UTType.plainText.identifier))
     }
 
-    /// Every path ever ASSIGNED to one `QLPreviewView`'s `previewItem`, including values overwritten
-    /// within a single layout pass.
-    ///
-    /// Scoped to the one view this test mounts, and it keeps that view alive — an observed object
-    /// deallocating with an observer still attached is a crash, and SwiftUI dismantles this one the
-    /// moment the column stops previewing.
+    /// Every path ever assigned to one `QLPreviewView`'s `previewItem`, including values overwritten
+    /// within a layout pass. Keeps the view alive: SwiftUI dismantles it when the column stops
+    /// previewing, and an observed object deallocating with an observer attached crashes.
     private final class PreviewItemSpy: NSObject {
         private let view: QLPreviewView
         private(set) var assigned: [String] = []
@@ -127,13 +107,8 @@ import UniformTypeIdentifiers
 
     /// Pumps layout until `condition` holds, or until both the deadline has passed and
     /// `LayoutPumpWait.pumpFloor` passes have been made. Returns whether it held, and how many
-    /// passes that took.
-    ///
-    /// **Deliberately not `@discardableResult`.** The loop this wraps is bounded, and a bounded wait
-    /// whose expiry nobody reads is the vacuous pass `docs/flaky-tests.md` mechanism 8 warns about:
-    /// the wait returns, the test carries on against state it never reached, and the assertion after
-    /// it means nothing. Both call sites below read `.held` and report `.pumps`; making the compiler
-    /// insist on that is free.
+    /// passes that took. Not `@discardableResult`: a bounded wait whose expiry nobody reads lets the
+    /// test carry on against state it never reached.
     private func wait(_ window: NSWindow, upTo seconds: Double,
                       for condition: () -> Bool) async -> (held: Bool, pumps: Int) {
         await LayoutPumpWait.pump(window, upTo: seconds, until: condition)
@@ -152,8 +127,8 @@ import UniformTypeIdentifiers
         window.contentView = host
         defer { window.contentView = nil }
 
-        // Settle on a previewable file — the only state the defect needs, and the one that gives
-        // this test a live `QLPreviewView` to watch.
+        // Settle on a previewable file: the state the defect needs, and a live `QLPreviewView` to
+        // watch.
         let settled = await wait(window, upTo: 10) { quickLookView(in: host) != nil }
         try #require(settled.held,
                      "no Quick Look mounted for the first file after \(settled.pumps) layout passes — the column never settled")
@@ -162,9 +137,8 @@ import UniformTypeIdentifiers
         let spy = PreviewItemSpy(watching: preview)
         defer { spy.stop() }
 
-        // The channel's own positive control. `previewItem` is an ordinary Objective-C property, but
-        // "ordinary" is an assumption, and an unobservable one would make every assertion below pass
-        // for a column that was handing out cloud-only paths all day.
+        // Positive control: if `previewItem` weren't observable, every assertion below would pass
+        // for a column handing out cloud-only paths.
         preview.previewItem = URL(fileURLWithPath: Self.kvoControl) as NSURL
         try #require(spy.assigned.contains(Self.kvoControl),
                      "QLPreviewView.previewItem is not observable here — this test cannot see the assignment it forbids")
@@ -174,9 +148,8 @@ import UniformTypeIdentifiers
 
         box.item = Self.item(path: Self.cloudOnly)
 
-        // Sampled until the second probe answers — the interval bounded by the work, not the clock.
-        // The assignment this forbids happens in the FIRST committed body after the item changes,
-        // which is inside the first pass below.
+        // Sampled until the second probe answers, bounded by the work, not the clock. The forbidden
+        // assignment would happen in the first body committed after the change, in the first pass.
         let probed = await wait(window, upTo: 20) { log.completed.contains(Self.cloudOnly) }
         #expect(probed.held,
                 "the second probe never completed after \(probed.pumps) layout passes — the interval sampled was not the stale one")

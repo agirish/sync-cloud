@@ -5,14 +5,11 @@ import os
 @testable import FileExplorer
 import Sync
 
-/// **A cancelled page render never opens or draws its page** (speed audit item 10).
-///
-/// Compare Copies renders the page on screen through `.task(id:)`, which cancels the render when
-/// the page moves. Before `performUnlessCancelled`, a render's block was on the PDF lane from the
-/// moment its task started and ran whatever happened to the task, so paging past ten pages drew
-/// ten pages at 1,600 px — ahead of Edit's PDFs, Print and the column preview, which share the
-/// lane. The lane is held for each test so the renders are queued behind it, which is the case
-/// that matters: a lane that is free runs a render before anyone can cancel it.
+/// A cancelled page render never opens or draws its page. Compare Copies renders through
+/// `.task(id:)`, which cancels when the page moves; without `performUnlessCancelled`, paging past
+/// ten pages would draw all ten on the PDF lane, ahead of Edit's PDFs, Print and the column
+/// preview. The lane is held so the renders queue behind it: a free lane runs a render before
+/// anyone can cancel it.
 @MainActor
 @Suite(.serialized) struct CompareRenderCancellationTests {
 

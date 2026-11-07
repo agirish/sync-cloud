@@ -1,29 +1,16 @@
 import Testing
 import Foundation
 
-/// **Every path that clears the rasters must also orphan the render in flight.**
+/// Every path that clears the rasters must also orphan the render in flight. Cancellation is
+/// cooperative, so a superseded render still finishes, and only `guard rasterToken == token` keeps
+/// it from landing. A clearer that doesn't rotate the token lets it re-fill what was just cleared,
+/// with images of a page or pair no longer on screen.
 ///
-/// `.task(id:)` cancels the running render when the mode, page or pair changes, and Swift
-/// cancellation is cooperative: a render already drawing finishes, and the two `PagePairRaster`
-/// awaits resume regardless. So the ONLY thing standing between a superseded render and
-/// the state it is about to overwrite is `guard rasterToken == token`. The two completion points
-/// take that guard; the two CLEARERS have to rotate the token, or that guard is still satisfied
-/// when the superseded run lands and it re-fills what was just cleared — two full-page CGImages
-/// and a difference image retained by a mode that draws none of them, ready to be shown as this
-/// page's answer the moment an overlay mode comes back. On the pair reset it is worse than
-/// wasteful: the render describes two files that are no longer on screen.
+/// Both clearers call one `clearRasters()`; this pins what that can't: it rotates before it clears,
+/// and no clearer has its own copy of the assignments. A scan, not a mounted test, because racing a
+/// real render and asserting on what didn't land is a timing test over an absence.
 ///
-/// The rule is enforced by construction — one `clearRasters()` both call — so this scan pins the
-/// two things construction cannot: that the helper rotates BEFORE it clears, and that neither
-/// clearer has grown its own copy of the three assignments.
-///
-/// **A scan rather than a mounted-view test, deliberately.** Reproducing the window means racing a
-/// real PDF render against a mode switch and asserting on what did NOT land — a timing test over
-/// an absence, which is how flakes are written. The rule is three lines in one function; this pins
-/// the rule and says so, rather than pretending to have measured the race.
-///
-/// Its own file for the reason `TrashFallbackWiringTests` is in its own file: a scan filed inside
-/// a suite about something else is a scan nobody opens and nobody maintains.
+/// Its own file, like `TrashFallbackWiringTests`, so it isn't lost inside an unrelated suite.
 @Suite struct CompareRasterTokenScanTests {
 
     private func source() throws -> String {
@@ -36,8 +23,7 @@ import Foundation
 
     @Test func theOneClearerRotatesTheTokenBeforeItClears() throws {
         let source = try source()
-        // The positive control for the read itself: a rename fails this loudly rather than
-        // passing over a file it could not find the subject in.
+        // The positive control for the read: a rename fails loudly rather than passing.
         let start = try #require(source.range(of: "private func clearRasters() {"),
                                  "`clearRasters` is gone or renamed — re-aim this scan")
         let end = try #require(source.range(of: "\n    }\n", range: start.upperBound..<source.endIndex))
@@ -53,23 +39,18 @@ import Foundation
                 "the token is rotated after the clear, which leaves the same window open")
     }
 
-    /// And nothing clears that state without either rotating the token or standing behind it.
-    ///
-    /// There are exactly two legal shapes. A CLEARER rotates first — that is `clearRasters`. A
-    /// COMPLETION writes what it just computed, and reaches its write only past
-    /// `guard rasterToken == token`, so a superseded run never gets there. A third shape — a bare
-    /// `pageComparison = PageComparison()` with neither above it — is the defect this whole file
-    /// is about, and it is what a well-meant "clear it here too" edit looks like.
+    /// And nothing writes that state without rotating the token or standing behind it. A clearer
+    /// (`clearRasters`) rotates first; a completion writes only past `guard rasterToken == token`.
+    /// A bare `pageComparison = PageComparison()` with neither above it is what a well-meant
+    /// "clear it here too" edit looks like.
     @Test func everyWriteEitherRotatesTheTokenOrStandsBehindIt() throws {
         let source = try source()
-        // Split into members, so the question is asked WITHIN the function that writes rather
-        // than over a window of characters. A character window was the first shape of this scan
-        // and it was wrong twice over: it excused a write whose guard happened to be near, and it
-        // failed the moment an unrelated log block widened the gap in a function that was correct.
+        // Split into members, so the question is asked within the function that writes. A
+        // character window would excuse a write whose guard is merely nearby, and fail when an
+        // unrelated block widens the gap in a correct function.
         let members = source.components(separatedBy: "\n    private func ")
             .flatMap { $0.components(separatedBy: "\n    func ") }
-        // The `@State` declaration is a property, not a write, and carries no token — the leading
-        // indent tells them apart.
+        // The `@State` declaration is a property, not a write; the leading indent tells them apart.
         let marker = "        pageComparison = PageComparison("
         var writing = 0
         for member in members {

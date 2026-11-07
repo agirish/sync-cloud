@@ -25,7 +25,7 @@ private func diff(
 /// jumping around creates), outcome bookkeeping, jump rules, and the header's counts.
 @Suite struct ReviewSessionTests {
 
-    /// Decides the CURRENT item — the common path a Copy/Skip on the card takes.
+    /// Decides the current item: the common path a Copy/Skip on the card takes.
     private func decide(_ session: inout ReviewSession, _ outcome: ReviewSession.Outcome) throws {
         let id = try #require(session.current).id
         session.record(outcome, for: id)
@@ -66,7 +66,7 @@ private func diff(
         #expect(session.isComplete)
         #expect(session.current == nil)
         #expect(session.pending.isEmpty)
-        // Position counts decisions, capped at the total — never "3 of 2".
+        // Position counts decisions, capped at the total: never "3 of 2".
         #expect(session.position == 2)
     }
 
@@ -124,7 +124,7 @@ private func diff(
         // A copy of "a" is in flight when the user jumps to "c"; the copy's outcome lands late.
         session.jump(to: queue[2].id)
         session.record(.copied, for: queue[0].id)
-        // The outcome stamped "a", not whatever is current — and the user wasn't yanked away.
+        // The outcome stamped "a", not whatever is current, and the user wasn't yanked away.
         #expect(session.outcome(for: queue[0].id) == .copied)
         #expect(session.current?.id == queue[2].id)
         #expect(session.pending.map(\.id) == [queue[1].id, queue[2].id])
@@ -139,7 +139,7 @@ private func diff(
     }
 
     /// A verdict for an id outside the queue (stale after a rescan regenerated row UUIDs) is
-    /// refused — same membership rule `record` enforces for outcomes.
+    /// refused, by the same membership rule `record` enforces for outcomes.
     @Test func verdictForAnUnknownIdIsRefused() throws {
         let queue = [diff("a")]
         var session = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
@@ -169,10 +169,9 @@ private func diff(
         #expect(!store.isReviewing)
     }
 
-    /// The A3 race: `syncFile` is an unbounded await, and exiting review + starting a NEW
-    /// session over the same un-rescanned set keeps the SAME difference ids — so a membership
-    /// check can't tell the sessions apart. The stale outcome must be dropped by the token
-    /// guard, leaving the replacement session untouched.
+    /// `syncFile` is an unbounded await, and exiting review and starting a new session over the
+    /// same un-rescanned set keeps the same difference ids, so a membership check can't tell the
+    /// sessions apart. The token guard must drop the stale outcome, leaving the replacement alone.
     @Test func staleOutcomeAgainstAReplacedSessionIsDropped() throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
@@ -180,7 +179,7 @@ private func diff(
         store.session = old
         let staleToken = old.sessionToken   // captured before the "await", as reviewPrimary does
 
-        // Exit + restart over the SAME queue (identical ids), before the old outcome lands.
+        // Exit + restart over the same queue (identical ids), before the old outcome lands.
         let replacement = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         store.session = replacement
 
@@ -191,8 +190,8 @@ private func diff(
         #expect(session.sessionToken == replacement.sessionToken)
     }
 
-    /// The counterpart: a LATE outcome for the STILL-CURRENT session applies normally — the
-    /// token guard drops cross-session strays, not slow same-session copies.
+    /// The counterpart: a late outcome for the still-current session applies normally. The token
+    /// guard drops cross-session strays, not slow same-session copies.
     @Test func lateOutcomeForTheSameSessionStillApplies() throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
@@ -224,11 +223,10 @@ private func diff(
         #expect(store.session?.verdict(for: queue[0].id) == .identical)
     }
 
-    /// The A3 defect itself, at the seam that owns it. The token the outcome is applied under is
-    /// the CALLER's — read from the session the decision was made against, in the same
-    /// synchronous slot that raised `isActing` (see `reviewPrimary`). An exit + restart over the
-    /// same un-rescanned set — same difference ids — must therefore be caught, because the old
-    /// token no longer matches the live session.
+    /// The same race, at the seam that owns it. The outcome is applied under the caller's token,
+    /// read from the session the decision was made against in the same synchronous slot that
+    /// raised `isActing` (see `reviewPrimary`). An exit + restart over the same un-rescanned set
+    /// (same difference ids) is caught, because the old token no longer matches the live session.
     @Test func decideCapturesTheTokenBeforeTheAwaitNotAfter() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
@@ -238,7 +236,7 @@ private func diff(
 
         let replacement = try #require(ReviewSession(queue: queue, isMove: false, pathRootName: nil))
         let applied = await store.decide(for: queue[0].id, token: original.sessionToken) {
-            // Exit + restart lands WHILE the copy is out — the window the token exists for.
+            // Exit + restart lands while the copy is out: the window the token exists for.
             store.session = replacement
             await Task.yield()
             return .copied
@@ -253,17 +251,15 @@ private func diff(
         #expect(!store.isActing)
     }
 
-    /// The token is a PARAMETER, not something `decide` re-reads. If it ever went back to reading
-    /// `session?.sessionToken` itself, this passes a token belonging to no session at all while a
-    /// live session sits in the store — a re-read would find the live token, match it against
-    /// itself and apply. Only honoring the argument drops it.
+    /// The token is a parameter, not something `decide` re-reads. This passes a token belonging to
+    /// no session while a live session sits in the store: a re-read of `session?.sessionToken`
+    /// would match the live token against itself and apply; only honoring the argument drops it.
     ///
-    /// This is the store-side proxy for the caller-side window: `reviewPrimary` raises `isActing`
-    /// and then hops through a `Task`, so a teardown plus a fresh `startReview` inside that hop
-    /// would hand `decide` a session whose token was never the one the user decided under. That
-    /// hop cannot be driven from a test — `reviewPrimary` is private to the `DifferencesView`
-    /// struct and needs a mounted SwiftUI view plus a live `FileSyncManager` — so what is pinned
-    /// here is the contract that makes the caller's capture load-bearing.
+    /// The store-side proxy for the caller-side window: `reviewPrimary` raises `isActing` and then
+    /// hops through a `Task`, so a teardown plus a fresh `startReview` inside that hop would hand
+    /// `decide` a session the user never decided under. That hop can't be driven from a test
+    /// (`reviewPrimary` is private to `DifferencesView` and needs a mounted view and a live
+    /// `FileSyncManager`), so this pins the contract that makes the caller's capture matter.
     @Test func decideAppliesTheTokenItWasGivenNotTheLiveOne() async throws {
         let store = ReviewSessionStore()
         let queue = [diff("a"), diff("b")]
@@ -303,14 +299,13 @@ private func diff(
     /// No session at all (Exit before the decision even started): nothing to decide against, and
     /// the acting flag must come back down anyway.
     ///
-    /// `isActing` is raised deliberately here because that is the only state this can be reached
-    /// in: `reviewPrimary` sets it synchronously and then hops through a `Task`, so a teardown
-    /// inside that hop — a pane swap, provider switch, root edit, or Esc — arrives with the flag
-    /// already up and no copy ever started. Leaving it up latches PERMANENTLY: `endSession` defers
-    /// clearing to an in-flight copy that does not exist here, and `startReview` does not reset it,
-    /// so the next review opens with Copy, Skip and Verify disabled until the app is relaunched.
-    /// `decideCapturesTheTokenBeforeTheAwaitNotAfter` already pins the same invariant for the
-    /// session-REPLACED exit; this is the session-nil one.
+    /// `isActing` is raised here because that is the only state this is reached in:
+    /// `reviewPrimary` sets it synchronously, then hops through a `Task`, so a teardown inside that
+    /// hop (a pane swap, provider switch, root edit or Esc) arrives with the flag up and no copy
+    /// started. Left up it latches for good: `endSession` defers clearing to an in-flight copy that
+    /// doesn't exist, and `startReview` doesn't reset it, so the next review opens with Copy, Skip
+    /// and Verify disabled until relaunch. `decideCapturesTheTokenBeforeTheAwaitNotAfter` pins
+    /// the session-replaced exit; this is the session-nil one.
     @Test func decideWithNoSessionClearsTheActingFlag() async {
         let store = ReviewSessionStore()
         store.isActing = true

@@ -3,9 +3,9 @@ import AppKit
 import SwiftUI
 @testable import FileExplorer
 
-/// **The Contents results, drawn** (RD38) — the rail rendered with the switch on each side, so the
-/// results are seen to paint rather than assumed from the model (testing law 1). The renders are
-/// left in the temporary folder as `rd38-rail-names.png` and `rd38-rail-contents.png` to look at.
+/// The Contents results, drawn: the rail rendered with the switch on each side, so the results are
+/// seen to paint rather than assumed from the model. The renders are left in the temporary folder
+/// as `rd38-rail-names.png` and `rd38-rail-contents.png` to look at.
 @MainActor
 @Suite(.serialized) struct EditorRailContentRenderTests {
 
@@ -100,9 +100,9 @@ import SwiftUI
         return count
     }
 
-    /// **Contents draws its results where Names draws the folder's rows** — and they are not the
-    /// same picture: Names lists two files and stops; Contents lists the two files that hold the
-    /// word, their lines and the Spotlight group, which reach far further down the rail.
+    /// Contents draws its results where Names draws the folder's rows, and they differ: Names lists
+    /// two files and stops; Contents lists the two files that hold the word, their lines and the
+    /// Spotlight group, which reach far further down the rail.
     @Test func theContentsResultsPaint() async {
         let names = render(rail(await seededModel(scope: .names)), named: "names")
         let contents = render(rail(await seededModel(scope: .contents)), named: "contents")

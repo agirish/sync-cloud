@@ -4,7 +4,7 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// **Ask Claude About This on a row's menu (TE263)**, read off the real row menu through
+/// Ask Claude About This on a row's menu, read off the real row menu through
 /// `NSHostingMenu`: where it sits, what it says for one row and for several, and that a hidden row
 /// gets its item greyed and Show to Claude instead of Hide.
 @MainActor

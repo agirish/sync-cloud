@@ -29,9 +29,8 @@ import Design
         #expect(DuplicateMatchFilter.overlapping.matches(group(.overlapping(sharedFraction: 0.75))))
         #expect(!DuplicateMatchFilter.overlapping.matches(group(.identical)))
 
-        // **Every non-identical kind**, not just the one that happened to be handy: narrowing the
-        // predicate to `== .sameText` would silently stop the filter showing overlapping and
-        // versions groups, and a single-kind assertion cannot see that.
+        // Every non-identical kind, not one: narrowing the predicate to `== .sameText` would drop
+        // overlapping and versions groups, which a single-kind check can't see.
         for kind in DuplicateMatchType.Kind.allCases {
             let g = group(DuplicateSections.representative(kind))
             #expect(DuplicateMatchFilter.needsReview.matches(g) == (kind != .identical),
@@ -62,7 +61,7 @@ import Design
             "chevron.down", "chevron.right", "checkmark", "trash", "arrow.triangle.merge",
             "circle.slash", "largecircle.fill.circle", "circle", "info.circle",
             RevealGlyph.inFinder, "lock",
-            // Filing suggestion card (incl. F3 "Remembered" + AI badges) + rescan / preview / retry
+            // Filing suggestion card ("Remembered" and AI badges), rescan, preview, retry
             "arrow.turn.down.right", "arrow.right.circle", "folder", "xmark", "memories",
             "eye", "folder.badge.gearshape", "wand.and.stars", "sparkles", "arrow.triangle.2.circlepath",
             "cloud",   // Filing spend row

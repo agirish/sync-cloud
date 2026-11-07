@@ -3,9 +3,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// File ▸ Print… opens its rendered pages in the PDFKit lane, and one press at a time.
-///
-/// **Serialized, because a test here holds the lane** — see `PDFPreviewMountedTests`.
+/// File ▸ Print… opens its rendered pages in the PDFKit lane, one press at a time. Serialized,
+/// because a test here holds the lane (see `PDFPreviewMountedTests`).
 @MainActor
 @Suite(.serialized) struct DocumentPrintingTests {
 
@@ -18,11 +17,9 @@ import Testing
 
     private let job = DocumentPDF.Job(name: "note.md", text: "# Heading\n\nProse.\n", isMarkdown: true)
 
-    /// **The parse waits for the lane, and a second ⌘P while it waits starts nothing.** The render
-    /// and the hop into the lane are one main-actor turn, so after the sleep below the first press
-    /// has either queued its parse behind the hold or, parsing on the main actor, already
-    /// delivered — and the sleep also gives a parse that went off the main actor but AROUND the
-    /// lane time to land. Release the lane and exactly one operation arrives, named for the job.
+    /// The parse waits for the lane, and a second ⌘P while it waits starts nothing. After the
+    /// sleep, a parse on the main actor or one that bypassed the lane would already have
+    /// delivered. Release the lane and exactly one operation arrives, named for the job.
     @Test func thePrintIsParsedInTheLaneAndPreparedOnce() async throws {
         let hold = LaneHold()
         defer { hold.release() }
@@ -39,11 +36,10 @@ import Testing
                 "the operation was built while the lane was held — the PDF was parsed outside it")
 
         hold.release()
-        // **Waited for in lane turns, not seconds** (`docs/flaky-tests.md`, "The wait that hangs
-        // instead of failing"). The parse was queued behind the hold, and the lane runs in order, so
-        // the moment one turn of ours comes back the parse has run; what is left is its hop back to
-        // the main actor. A 10 s budget here ran out on CI three times in a day under load, with
-        // nothing wrong with printing — the parse was simply still queued behind other suites.
+        // Waited for in lane turns, not seconds ("The wait that hangs instead of failing" in
+        // `docs/flaky-tests.md`). The lane runs in order, so once one turn of ours returns the
+        // parse has run, and only its hop back to the main actor is left. Under load a seconds
+        // budget runs out with the parse still queued behind other suites.
         await PDFKitSerialAccess.perform {}
         for _ in 0..<1000 where first.operations.isEmpty {
             await PDFKitSerialAccess.perform {}

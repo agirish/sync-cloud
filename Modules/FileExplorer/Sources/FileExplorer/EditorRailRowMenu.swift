@@ -2,32 +2,27 @@ import SwiftUI
 import AppKit
 import Design
 
-/// What a Text Files rail row's context menu can do, each act taking the ROW's path.
+/// What a Text Files rail row's context menu can do, each act taking the row's path.
 ///
-/// **Most leave through the host**, because each needs something only the app owns: Browse's pane,
-/// the Info inspector, the window's one Quick Look panel, the download that clears the pane's cloud
-/// badge, and the rename prompt and delete confirmation Browse's own menu goes through. Reveal in
-/// Finder does not — it hands the file to Finder the same direct way the pane's row menu does — so
-/// it is defaulted to that, and a test passes its own to watch which path arrives.
-///
-/// **Built by the host and handed to `EditorWorkspaceView` whole**, which passes it to the rail
-/// untouched. The host acts have no defaults, so a construction site cannot draw the menu wired to
-/// nothing — the property the workspace's three separate closures used to carry.
+/// Most go through the host, because each needs something only the app owns: Browse's pane, the
+/// Info inspector, the window's one Quick Look panel, the download that clears the pane's cloud
+/// badge, and Browse's rename prompt and delete confirmation. Reveal in Finder is defaulted to the
+/// pane row menu's direct call; a test passes its own to watch which path arrives. Built by the host
+/// and passed through `EditorWorkspaceView` untouched; the host acts have no defaults, so no
+/// construction site can draw the menu wired to nothing.
 public struct EditorRailRowActions {
     let revealInBrowse: (String) -> Void
-    /// **Why Browse cannot show a path, or `nil` when it can** (TE116). Browse shows the left
-    /// pane's source, so a file opened from Compare's right side, or from another source, is one
-    /// Reveal in Browse would switch to and then leave unselected. The item is greyed for those,
-    /// with this line under it; Reveal in Finder still reaches them.
+    /// Why Browse can't show a path, or `nil` when it can. Browse shows the left pane's source, so
+    /// for a file from Compare's right side or another source, Reveal in Browse would switch and then
+    /// leave it unselected. The item is greyed with this line under it; Reveal in Finder still works.
     let revealInBrowseRefusal: (String) -> String?
     let getInfo: (String) -> Void
     let quickLook: (String) -> Void
     let revealInFinder: (String) -> Void
-    /// Asks for a cloud-only file's content — Browse's Download (TE96), and the file opens here if
-    /// it is the one Edit was refused.
+    /// Asks for a cloud-only file's content (Browse's Download); the file opens here if it is the
+    /// one Edit was refused.
     let download: (String) -> Void
-    /// Browse's Rename and Delete, on this row's file (TE117, decided AY): the same prompt, the
-    /// same confirmation, the same undo.
+    /// Browse's Rename and Delete, on this row's file: the same prompt, confirmation and undo.
     let rename: (String) -> Void
     let delete: (String) -> Void
 
@@ -49,13 +44,13 @@ public struct EditorRailRowActions {
         self.revealInFinder = revealInFinder
     }
 
-    /// Finder, selecting the file — the pane row menu's own call, word for word.
+    /// Finder, selecting the file: the pane row menu's own call, word for word.
     public static func revealInFinder(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
-    /// The same acts with Reveal in Browse sent through another door — the header's file name
-    /// (TE112), whose reveal logs as the header's rather than a row's.
+    /// The same acts with Reveal in Browse sent through another door: the header's file name, whose
+    /// reveal logs as the header's rather than a row's.
     func revealing(through reveal: @escaping (String) -> Void) -> EditorRailRowActions {
         EditorRailRowActions(revealInBrowse: reveal, revealInBrowseRefusal: revealInBrowseRefusal,
                              getInfo: getInfo, quickLook: quickLook, download: download,
@@ -63,36 +58,25 @@ public struct EditorRailRowActions {
     }
 }
 
-/// The context menu on a row of the Edit rail's Text Files list — and, the same menu, on the file
-/// name above the document (TE112).
+/// The context menu on a row of the Edit rail's Text Files list, and on the file name above the
+/// document: the way back out from any file in the list, not only the open one.
 ///
-/// **The way back out, from any file in the list — not only the open one.** The rail's rows had no
-/// menu, so the only reverse verb in Edit was the header filename's one-item menu, which can only
-/// ever name the document already open. A file you are about to open, or one the editor refuses,
-/// had no way to be looked at anywhere else.
+/// Dim rows keep the whole menu: a file too large or not downloaded is the one worth revealing,
+/// since the editor can't show it. A file still in the cloud adds Download at the top, as Browse
+/// offers it.
 ///
-/// **Dim rows keep the whole menu.** A file too large to read or not yet downloaded is exactly the
-/// one worth revealing or inspecting — the editor cannot show it, so somewhere else has to. The one
-/// thing a row's state adds is **Download, at the top, for a file still in the cloud** (TE96):
-/// Browse offers it on the same file, and in Edit it was a dead end.
+/// Order: Download · Reveal in Browse · Get Info · Reveal in Finder · Quick Look · Rename · Delete,
+/// in three groups. Reveal in Browse leads, as Open in Edit leads the pane's row menu; the next
+/// three follow that menu's order, titles and glyphs, and Rename and Delete are Browse's, at the
+/// bottom. Reveal in Browse is greyed, with the reason, where Browse can't show the file.
 ///
-/// **Order: Download · Reveal in Browse · Get Info · Reveal in Finder · Quick Look · Rename ·
-/// Delete**, in three groups. The in-app way back leads the middle group, as Open in Edit leads the
-/// pane's row menu for the opposite trip; the other three follow in the order the pane's row menu
-/// gives them, with its titles and glyphs, so the same act reads the same on both lists. Rename and
-/// Delete are Browse's, in their own group at the bottom (TE117), with Browse's words and glyphs.
-///
-/// **Reveal in Browse is greyed where Browse cannot show the file** (TE116), with the reason under
-/// it, rather than switching to a Browse that lands on nothing.
-///
-/// **Nothing here but Rename and Delete touches the open document.** Reveal in Browse switches
-/// workspace and leaves the buffer where it is — ⌘4 comes back to it, unsaved edits and all. Rename
-/// and Delete go through Browse's own prompt and confirmation, and the open document answers them
-/// as it answers the same act from Browse: it follows a rename, and says so when its file is gone.
+/// Only Rename and Delete touch the open document, through Browse's own prompt and confirmation:
+/// the document follows a rename and says so when its file is gone. Reveal in Browse leaves the
+/// buffer as it is, unsaved edits and all.
 struct EditorRailRowMenu: View {
 
     let path: String
-    /// Whether the file is still in the cloud — the one fact about the row the menu reads.
+    /// Whether the file is still in the cloud: the one fact about the row the menu reads.
     var isCloudOnly: Bool = false
     let actions: EditorRailRowActions
 
@@ -100,12 +84,12 @@ struct EditorRailRowMenu: View {
     struct Item: Identifiable {
         let title: String
         let systemImage: String
-        /// Why the item is greyed, drawn as a line under it — or `nil` for a live item.
+        /// Why the item is greyed, drawn as a line under it, or `nil` for a live item.
         var refusal: String? = nil
         var isDestructive = false
         /// Whether a separator comes before it.
         var startsGroup = false
-        /// Whether it writes to disk, and so waits while a long run is going (decision BZ).
+        /// Whether it writes to disk, and so waits while a long run is going.
         var writes = false
         let perform: () -> Void
         var id: String { title }
@@ -113,9 +97,9 @@ struct EditorRailRowMenu: View {
 
     /// The items, in drawn order, each already bound to `path`.
     ///
-    /// **A function rather than `Button`s in a body** so the claims worth making — the order, the
-    /// words, the groups, and that every act receives THIS row's path — can be asserted by calling
-    /// it, which a menu inside a hosted view does not allow. The body below draws exactly this list.
+    /// A function rather than `Button`s in a body, so a test can assert the order, the words, the
+    /// groups, and that every act gets this row's path; a hosted menu doesn't allow that. The body
+    /// draws exactly this list.
     static func items(for path: String, isCloudOnly: Bool = false,
                       actions: EditorRailRowActions) -> [Item] {
         var items: [Item] = []
@@ -141,8 +125,8 @@ struct EditorRailRowMenu: View {
         return items
     }
 
-    /// **The header name's tooltip** (TE157): the whole name, which the header cuts off in the
-    /// middle when it runs long, and the menu behind it, its acts named in the menu's own order.
+    /// The header name's tooltip: the whole name, which the header truncates in the middle, and the
+    /// menu behind it, its acts in the menu's own order.
     static func nameTooltip(_ name: String) -> String {
         "“\(name)” — right-click to reveal, get info or rename"
     }
@@ -155,7 +139,7 @@ struct EditorRailRowMenu: View {
             }
             .disabled(item.refusal != nil)
             .lockedDuringRun(item.writes)
-            // A menu draws a `Text` as a greyed line of its own — the reason, under the item.
+            // A menu draws a `Text` as a greyed line of its own: the reason, under the item.
             if let refusal = item.refusal { Text(refusal) }
         }
     }

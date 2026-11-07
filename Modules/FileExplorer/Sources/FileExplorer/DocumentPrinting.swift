@@ -2,44 +2,31 @@ import AppKit
 import PDFKit
 import Sync
 
-/// File ▸ Print… — the rendered document, handed to the system's print panel (roadmap RD9).
+/// File ▸ Print…: the rendered document, handed to the system's print panel.
 ///
-/// **The pages are rendered before the panel opens, not by it.** AppKit's own route is to give
-/// `NSPrintOperation` a view and let it repaginate for whatever paper the panel ends up choosing;
-/// that route is closed here, because the view being printed is a SwiftUI hosting view and a
-/// hosting view drawn into a print context draws *nothing* — measured, on this app's own preview:
-/// three pages of correctly numbered, entirely blank paper. `ImageRenderer` is the API that renders
-/// SwiftUI into an arbitrary `CGContext`, and it renders into a PDF context rather than into a
-/// print operation.
+/// The pages are rendered before the panel opens. A SwiftUI hosting view drawn into a print
+/// context draws blank pages, so `NSPrintOperation` can't repaginate a view; `ImageRenderer`
+/// renders into a PDF context instead. The paper is ``NSPrintInfo/shared``'s, and a paper changed
+/// in the panel scales the pages (`.pageScaleToFit`) rather than re-breaking them; Page Setup and a
+/// fresh print does repaginate.
 ///
-/// **So the paper is decided by ``NSPrintInfo/shared`` — the reader's default — and a different
-/// paper chosen in the panel scales rather than repaginates.** `.pageScaleToFit` is what makes that
-/// honest: a Letter-shaped page sent to A4 arrives whole and slightly smaller, rather than losing
-/// its right-hand margin. The cost is real and worth naming: the number of pages is settled before
-/// the panel opens, so a reader who changes paper size *in* the panel gets scaled pages rather than
-/// re-broken ones. Changing the default paper in Page Setup and printing again does repaginate.
-///
-/// **The rendered PDF is opened in ``PDFKitSerialAccess``'s lane, like every other PDFKit parse in
-/// the process.** So the panel arrives a moment after ⌘P — longer while a scan holds the lane — and
-/// the caller is handed the operation rather than returned it. See ``prepare(_:info:then:)``.
+/// The PDF is opened in ``PDFKitSerialAccess``'s lane, like every PDFKit parse, so the panel comes
+/// a moment after ⌘P and the caller is handed the operation. See ``prepare(_:info:then:)``.
 @MainActor
 public enum DocumentPrinting {
 
     /// Whether a print is being prepared: ⌘P pressed, the panel not up yet.
     public private(set) static var isPreparing = false
 
-    /// Renders `job`, opens the pages in the lane, and hands `present` the print operation — or
-    /// `nil` when the document could not be rendered. Returns `false`, and does nothing, while
-    /// another print is still being prepared.
+    /// Renders `job`, opens the pages in the lane, and hands `present` the print operation, or
+    /// `nil` when the document could not be rendered. Returns `false`, doing nothing, while another
+    /// print is being prepared.
     ///
-    /// **One at a time, settled before this returns.** The wait for the lane is the window a second
-    /// ⌘P can land in, and two presses there would put up two panels. The flag is set here, on the
-    /// press, rather than inside the task, because two presses in one run-loop turn would both
-    /// start a task before either task ran.
+    /// The flag is set here, on the press, not inside the task: two presses in one run-loop turn
+    /// would both start a task first, and a second ⌘P during the lane wait would put up two panels.
     ///
-    /// `present` runs the operation — `runModal(for:delegate:didRun:contextInfo:)` against the
-    /// window, so the panel arrives as a sheet on the window the document is in rather than as a
-    /// free-floating dialog belonging to nothing.
+    /// `present` should run it with `runModal(for:delegate:didRun:contextInfo:)`, so the panel is a
+    /// sheet on the document's window.
     @discardableResult
     public static func prepare(_ job: DocumentPDF.Job, info: NSPrintInfo = .shared,
                                then present: @escaping @MainActor (NSPrintOperation?) -> Void) -> Bool {
@@ -55,14 +42,11 @@ public enum DocumentPrinting {
 
     /// A print operation for `job`, or `nil` when the document could not be rendered.
     ///
-    /// **Only the parse goes to the lane.** The render is `ImageRenderer`, which is main-actor; and
-    /// the operation is AppKit's, built round a view and run on the main thread, so it is built
-    /// here too and the document crosses back as a ``SendableDocument``. What the operation draws
-    /// while it prints is the mounted `PDFView`s' case — AppKit drawing on its own schedule — and is
-    /// named on the lane rather than here.
+    /// Only the parse goes to the lane. `ImageRenderer` and the AppKit operation are main-thread,
+    /// so the document crosses back as a ``SendableDocument``. What the operation draws while it
+    /// prints is AppKit drawing on its own schedule, covered on ``PDFKitSerialAccess``.
     static func operation(for job: DocumentPDF.Job, info: NSPrintInfo) async -> NSPrintOperation? {
-        // A copy: `NSPrintInfo.shared` is the app's, and a print of one document must not leave
-        // its own settings behind for the next one.
+        // A copy, so one document's print settings aren't left on the app's shared info.
         guard let settings = info.copy() as? NSPrintInfo else { return nil }
         let geometry = DocumentPDF.PageGeometry.from(settings)
         guard let data = DocumentPDF.data(for: job, geometry: geometry) else { return nil }
@@ -71,8 +55,7 @@ public enum DocumentPrinting {
         }) else { return nil }
         let operation = opened.document.printOperation(for: settings, scalingMode: .pageScaleToFit,
                                                        autoRotate: false)
-        // The name in the print queue and on the panel. Without it the job is called by the
-        // process name, which is the app rather than the document.
+        // The name in the print queue and on the panel; without it the job takes the app's name.
         operation?.jobTitle = job.name
         return operation
     }

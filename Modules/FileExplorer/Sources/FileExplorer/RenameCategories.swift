@@ -1,21 +1,19 @@
 import Foundation
 import Sync
 
-/// The rename backlog, reorganized category-first (v4.0 polish P10): sections by what the pass
-/// would *do* — naming, reshuffling, padding — because the three operations ask different things
-/// of the user, and 132 visually identical folder rows asked them to discover that by opening
-/// every chevron. Within a section, folders follow path order and are drawn as cards.
+/// The rename backlog, category-first: sections by what the pass would do (name, reshuffle, pad),
+/// because the three ask different things of the user. Within a section, folders follow path
+/// order and are drawn as cards.
 ///
-/// **The plan stays the atomic unit.** A folder's steps are chosen against each other, so half a
-/// plan is not a smaller plan — a section therefore holds whole folders, classified by the most
-/// consequential kind of step their plan contains, and every button applies whole plans. A
-/// mixed folder's pads ride along with its namings, exactly as they do when its own row button
-/// is clicked; what the section changes is where you *find* the folder, not what applying it does.
+/// The plan stays the atomic unit: a folder's steps are chosen against each other, so half a plan
+/// is not a smaller plan. A section holds whole folders, classified by the most consequential step
+/// their plan contains, and every button applies whole plans. A mixed folder's pads ride along
+/// with its namings; the section changes where you find the folder, not what applying it does.
 enum RenameCategories {
 
-    /// Most consequential first — the same rule `RenameBacklogTally` orders its prose by:
-    /// naming gives a raw name a slot (a judgment about intent), a reshuffle touches files that
-    /// were already correct, a pad only respells. This is also the section order on screen.
+    /// Most consequential first, the order `RenameBacklogTally` uses too: naming is a judgment
+    /// about intent, a reshuffle touches files that were already correct, a pad only respells.
+    /// Also the section order on screen.
     enum Category: Int, CaseIterable, Equatable {
         case name, reshuffle, pad
 
@@ -28,7 +26,7 @@ enum RenameCategories {
             }
         }
 
-        /// The pill's word, matching the tally's vocabulary exactly — one measurement, one name.
+        /// The pill's word, matching the tally's vocabulary exactly.
         var label: String {
             switch self {
             case .name: return "to name"
@@ -69,15 +67,10 @@ enum RenameCategories {
         return nil
     }
 
-    /// The screen: sections in consequence order, present only when they report (the
-    /// sections-vanish-at-zero rule), folders in path order within each. Every plan with steps
-    /// lands in exactly one section; skip-only plans are `leftAlone`.
-    ///
-    /// **Path order, not a parent grouping.** These used to nest one level deeper: folders were
-    /// bucketed under their immediate parent, and each bucket carried a header and a chevron of
-    /// its own. Sorting on the whole relative path puts the same folders in the same order — a
-    /// parent is a prefix of its children's paths — without a second collapsible layer between
-    /// the section and the thing being read, and each card states its own path anyway.
+    /// The screen: sections in consequence order, each present only when non-empty, folders in
+    /// path order within each. Every plan with steps lands in exactly one section; skip-only plans
+    /// are `leftAlone`. Path order keeps a parent's children together without a second collapsible
+    /// layer, and each card states its own path.
     static func sections(_ plans: [RenamePlan]) -> [Section] {
         var buckets: [Category: [RenamePlan]] = [:]
         for plan in plans {

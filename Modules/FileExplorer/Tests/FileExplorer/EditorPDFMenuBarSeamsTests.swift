@@ -5,17 +5,14 @@ import SwiftUI
 import Combine
 @testable import FileExplorer
 
-/// **What the menu bar reaches in the PDF reader** — the seams Text ▸ Go to Page… and Edit ▸ Select
-/// All call. (Zoom In and Zoom Out call `canZoom` and `zoom(in:)`, which `EditorPDFLayoutTests`
-/// holds.) The items are the app's and are pinned there; these are the reader's halves, which a
-/// revert here would leave the items calling into nothing.
+/// The reader's halves of the menu bar's PDF items: the seams File ▸ PDF Tools, Text ▸ Go to Page…
+/// and Edit ▸ Select All call (`EditorPDFLayoutTests` covers Zoom In and Zoom Out). The items are
+/// the app's and are pinned there; without these halves they would call into nothing.
 @MainActor
 @Suite struct EditorPDFMenuBarSeamsTests {
 
-    /// **Go to Page… asks again on every press** — a count, so a second ⌃⌘L with the field already
-    /// up still puts the caret in it.
-    /// **File ▸ PDF Tools greys under a tool's own sheet**, as it does while a tool runs — Rotate
-    /// chosen there ran underneath an open Compress sheet.
+    /// File ▸ PDF Tools greys under a tool's own sheet, as it does while a tool runs, so no tool
+    /// runs underneath an open sheet.
     @Test func theToolsMenuGreysUnderASheet() {
         let tools = EditorPDFTools()
         tools.attach(path: "/a/plain.pdf", pageCount: 3, encryption: .none)
@@ -29,8 +26,8 @@ import Combine
         tools.fill = fill
         fill.tools = tools      // as `EditorPDFDocument` wires them
         #expect(EditorPDFToolsMenuEntry.entries(tools).contains { $0.enabled })
-        // The menu bar's items observe the tools alone, so they must hear the sheet come and go —
-        // or they keep the list they drew before it, live.
+        // The menu bar's items observe the tools alone, so the tools must announce the sheet
+        // coming and going, or the items keep the live list they drew before it.
         var told = 0
         let heard = tools.objectWillChange.sink { told += 1 }
         fill.addingSignature = .signature
@@ -41,6 +38,8 @@ import Combine
         #expect(told == 2, "the tools heard Add Signature come and go \(told) times, not 2")
     }
 
+    /// Go to Page… asks again on every press: a count, so a second ⌃⌘L with the field already up
+    /// still puts the caret in it.
     @Test func everyGoToPageIsANewAsk() {
         let state = EditorPDFViewState()
         let before = state.pageFieldRequest
@@ -61,16 +60,15 @@ import Combine
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    /// **The capsule's page field answers Go to Page…** — the request is what the menu item sends.
+    /// The capsule's page field answers Go to Page…, whose request is what the menu item sends.
     @Test func thePageFieldTakesTheCaretWhenAsked() throws {
         let card = try source("EditorPDFCapsule.swift")
         #expect(card.contains(".onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }"),
                 "nothing answers Text ▸ Go to Page… — the item would do nothing")
     }
 
-    /// **⌘A in the Pages grid is Edit ▸ Select All's**, which reads what the grid publishes while it
-    /// has focus. The `.onKeyPress` that stood here never ran — the menu takes ⌘A first — so one
-    /// coming back would be a handler that reads as working and is not.
+    /// ⌘A in the Pages grid is Edit ▸ Select All's, which reads what the grid publishes while it has
+    /// focus. An `.onKeyPress` for ⌘A would never run, since the menu takes the key first.
     @Test func thePagesGridHandsSelectAllToTheMenu() throws {
         let rail = try source("EditorPDFRailViews.swift")
         #expect(rail.contains(".focusedValue(\\.pdfPagesSelectAll, EditorPDFPagesSelectAll { tools.selectAll() })"),

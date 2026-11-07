@@ -4,24 +4,12 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// **Where the row menu offers Download All and Keep Downloaded**, read off the real row menu
-/// through `NSHostingMenu`. Every path here is spelled, never created: both gates are decided from
-/// the path (and, for Keep Downloaded, from attributes a missing file does not have), so nothing is
-/// written anywhere.
-///
-/// **Below a scratch home, never the real one.** The menu `lstat`s and `getxattr`s the row's path,
-/// and below the real `~/Library/Mobile Documents` that path is in iCloud Drive's File Provider
-/// domain: a process without the privacy grant for it waits until someone answers the consent
-/// dialog. On the CI runner nobody does, and three runs hung for 90 minutes each, when the read was
-/// still made on the main actor (docs/flaky-tests.md, "A consent dialog for iCloud Drive nobody
-/// answered holds a main-actor `lstat` until the job times out"). It is made off it now, and the
-/// menu stops waiting, but the read itself would still be stuck. Every item these tests expect offered is offered
-/// only when the menu measures from `cloudHome`, so a menu that reached for the real home fails by
-/// name.
-///
-/// **Through a reader of their own** (`BoundedCloudRead`), with a deadline no loaded run reaches, so
-/// a read that is merely slow cannot leave an item out — and a held read in one test cannot stop
-/// another suite's menus reading.
+/// Where the row menu offers Download All and Keep Downloaded, read off the real menu through
+/// `NSHostingMenu`. Paths are spelled, never created, so nothing is written. **Below a scratch
+/// home, never the real one:** reading under `~/Library/Mobile Documents` waits on iCloud Drive's
+/// consent dialog, which nobody answers on CI (docs/flaky-tests.md, "A consent dialog for iCloud
+/// Drive nobody answered holds a main-actor `lstat` until the job times out"). Each test gets its
+/// own `BoundedCloudRead`, so a slow or held read can't leave out an item or block another suite.
 @MainActor
 @Suite struct CloudFolderMenuTests {
 
@@ -96,9 +84,9 @@ import Testing
         #expect(titles.contains("Keep Downloaded"), "the menu reads \(titles)")
     }
 
-    /// **A read that hangs leaves the items out instead of the app hanging** — the row menu is built
-    /// on the main thread at a right-click, and a wedged File Provider holds these reads for seconds.
-    /// And once the stuck read returns, the next build offers them again.
+    /// A read that hangs leaves the items out instead of hanging the app: the row menu is built on
+    /// the main thread at a right-click, and a wedged File Provider holds these reads for seconds.
+    /// Once the stuck read returns, the next build offers them again.
     @Test func aStuckReadLeavesBothItemsOutUntilItReturns() async {
         let reads = BoundedCloudRead(deadline: .milliseconds(50))
         let release = DispatchSemaphore(value: 0)

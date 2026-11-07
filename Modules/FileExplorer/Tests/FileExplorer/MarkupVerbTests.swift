@@ -4,9 +4,9 @@ import Foundation
 
 /// The markup verbs: what each one does to a selection, and what it does the second time.
 ///
-/// **Every case asserts the whole buffer and the selection.** Where the selection lands is not a
-/// detail — a verb that leaves the caret in the wrong place makes the next one act on the wrong
-/// text, which is how a menu of toggles turns into a menu of accidents.
+/// Every case asserts the whole buffer and the selection. A verb that leaves the caret in the wrong
+/// place makes the next one act on the wrong text, which turns a menu of toggles into a menu of
+/// accidents.
 @Suite struct MarkupVerbTests {
 
     private func apply(_ verb: MarkupVerb, _ text: String, _ selection: NSRange) -> MarkupEdit? {
@@ -50,11 +50,10 @@ import Foundation
         #expect(apply(.italic, "one *two* three", range(5, 3))?.text == "one two three")
     }
 
-    /// **Italic on bold text makes it bold-italic, and the next press gives back the bytes it
-    /// started from** (FMT-4, FMT-11). A star is half of `**`, so Italic reads the whole run beside
-    /// the selection: two is bold alone, one or three is italic. Selected with its asterisks,
-    /// `**loud**` lost its bold to Italic (`*loud*`), and Italic lit over it as if it were italic;
-    /// selected between them, a second press added an eighth star instead of taking the third off.
+    /// Italic on bold text makes it bold-italic, and the next press gives back the bytes it started
+    /// from. A star is half of `**`, so Italic reads the whole run beside the selection: two is
+    /// bold alone, one or three is italic. Otherwise `**loud**` selected whole would lose its bold
+    /// to Italic, and a second press between the stars would add an eighth star.
     ///
     /// Mutation: route Italic back through the neighbour guard (drop `italicState`) and the first
     /// three expectations fail.
@@ -90,11 +89,10 @@ import Foundation
         #expect(escaped == "\\**x*\\*")
     }
 
-    /// **Two italic spans and the words between them are two spans, not one** (FMT-5) — the rule
-    /// Bold, Strikethrough and Code were given in TE52, now Italic's too. Selected whole or between
-    /// the outer stars, Italic took the outer pair off and left `Warning* read the *docs`, which
-    /// renders with no italic at all, and lit as if the run were one span. A bold pair inside one
-    /// italic span still comes off whole.
+    /// Two italic spans and the words between them are two spans, not one, as for Bold,
+    /// Strikethrough and Code. Taking the outer pair off would leave `Warning* read the *docs`,
+    /// which renders with no italic at all. A bold pair inside one italic span still comes off
+    /// whole.
     ///
     /// Mutation: drop the `holdsLoneStar` terms from `italicState` and the inverted text is back.
     @Test func italicOverTwoItalicSpansAddsRatherThanInverts() {
@@ -127,11 +125,11 @@ import Foundation
         #expect(apply(.inlineCode, "`let x`", range(1, 5))?.text == "let x")
     }
 
-    /// **Inline Code around text holding backticks uses a longer run, and comes back off** (FMT-20).
-    /// One backtick around `` use `a` here `` closed at the first backtick inside, and rendered as
-    /// code, plain and code. A span is read as CommonMark reads it: a run opens it and the next run
-    /// of the SAME length closes it, so a span written with two backticks comes off whole, and the
-    /// words between two spans are not taken for one span's code.
+    /// Inline Code around text holding backticks uses a longer run, and comes back off; one
+    /// backtick around `` use `a` here `` would close at the first backtick inside. A span is read
+    /// as CommonMark reads it: a run opens it and the next run of the same length closes it, so a
+    /// span written with two backticks comes off whole, and the words between two spans are not
+    /// code.
     ///
     /// Mutation: wrap with a single backtick again (drop `codeDelimiters`), and the first two cases
     /// fail; read only one backtick each side again, and the `` ``y`` `` case does.
@@ -169,12 +167,11 @@ import Foundation
         #expect(inverted != "`a and b`")
     }
 
-    /// **An inline mark wraps the selection's words, line by line** (FMT-10). A triple-click takes
-    /// the line break, a drag often takes a space, and a selection can run over paragraphs — Bold
-    /// wrote `**first line\n**`, `**word **` and `**one\n\ntwo**`, every one of them literal
-    /// asterisks. The ends' spaces and breaks are left out, each line gets its own pair, a list or
-    /// heading marker stays outside it, and across lines code and table rows are left alone. The
-    /// press comes off the same way, and lights the same way.
+    /// An inline mark wraps the selection's words, line by line. A triple-click takes the line
+    /// break, a drag often takes a space, and a selection can run over paragraphs; wrapped as is,
+    /// each gives literal asterisks. The ends' spaces and breaks are left out, each line gets its
+    /// own pair, a list or heading marker stays outside it, and code and table rows are left alone.
+    /// The press comes off, and lights, the same way.
     ///
     /// Mutation: have `inlineRuns` answer `[selection]`, and every case but the caret fails.
     @Test func inlineMarksWrapTheWordsLineByLine() throws {
@@ -293,10 +290,9 @@ import Foundation
         #expect(apply(.taskItem, "- [x] one\n", range(0, 0))?.text == "one\n")
     }
 
-    /// **A box with nothing after it — its trailing space trimmed — is still a task** (FMT-21). It
-    /// was read as a bullet whose text is `[ ]`: Tasks did not light on it, and its press wrote a
-    /// second box, `- [ ] [ ]` or `- [ ] [x]`. Mutation: require a space after the box in the task
-    /// pattern again, and every line here fails.
+    /// A box with nothing after it (its trailing space trimmed) is still a task, not a bullet whose
+    /// text is `[ ]`, so Tasks lights on it and doesn't write a second box. Mutation: require a
+    /// space after the box in the task pattern, and every line here fails.
     @Test func aBoxWithNothingAfterItIsATask() {
         for line in ["- [ ]", "- [x]", "* [X]"] {
             let lit = MarkdownEdits.isApplied(.taskItem, in: line, selection: range(line.count, 0))
@@ -323,12 +319,10 @@ import Foundation
                 "the blank line broke the toggle")
     }
 
-    /// **A list or heading verb reads past a line's quote markers and indentation, and writes
-    /// after them** (FMT-7). The patterns were anchored at column 0: Bullets over a nested list
-    /// wrote `-   - b`, Numbered `2.   - b`, Tasks a second box, Bullets on a quoted item
-    /// `- > - item`, Heading 2 on a quoted line `## > Title`. And an indented line carrying on a
-    /// list item is the item's words — a list verb leaves it, where Bullets made it an item of its
-    /// own. A lazy line, not indented, is still completed into the list.
+    /// A list or heading verb reads past a line's quote markers and indentation, and writes after
+    /// them; anchored at column 0 it would write `-   - b` or `## > Title`. An indented line
+    /// carrying on a list item is the item's words, which a list verb leaves alone. A lazy line,
+    /// not indented, is still completed into the list.
     ///
     /// Mutation: have `containerLength` answer 0, and the nested and quoted cases fail; drop the
     /// `.continuation` role, and the carried-on line does.
@@ -365,10 +359,10 @@ import Foundation
         #expect(completed == "- one\n- plain\n- three")
     }
 
-    /// **A setext heading — words over `=====` or `-----` — is a heading to the verbs and the Body
-    /// menu** (FMT-13). The menu named it Body, Heading 1 did not light, and Heading 2 wrote
-    /// `## Title` over a stray `=====` paragraph. The underline goes when the words take a marker or
-    /// lose their heading; Quote quotes it with them, so the heading stays one inside the quote.
+    /// A setext heading (words over `=====` or `-----`) is a heading to the verbs and the Body
+    /// menu. The underline goes when the words take a marker or lose their heading, or it would be
+    /// left as a stray paragraph; Quote quotes it with them, so the heading stays one inside the
+    /// quote.
     ///
     /// Mutation: drop the `.setext` role (answer `.text`), and every line but the control fails.
     @Test func aSetextHeadingIsAHeading() {
@@ -403,12 +397,10 @@ import Foundation
         #expect(control == .body)
     }
 
-    /// **Code, front matter, raw HTML and dividers are not prose, and a line verb leaves them byte
-    /// for byte** (FMT-6) — they decide nothing about whether the verb adds or removes, either.
-    /// Body over a section stripped the `# ` from a shell comment in its code; Bullets put `- ` in
-    /// front of the fences; ⌘A then Numbered List made the front matter list items and a divider
-    /// an empty one. A caret inside code reads as no heading and no list, and a verb there does
-    /// nothing.
+    /// Code, front matter, raw HTML and dividers are not prose: a line verb leaves them byte for
+    /// byte, and they don't decide whether the verb adds or removes. So Body doesn't strip a shell
+    /// comment's `# ` and ⌘A then Numbered List doesn't number front matter. A caret inside code
+    /// reads as no heading and no list, and a verb there does nothing.
     ///
     /// Mutation: have `LineSurvey.written` keep `.literal` lines, and every case fails.
     @Test func codeFrontMatterHTMLAndDividersAreLeftAlone() {
@@ -454,14 +446,13 @@ import Foundation
         (.heading(1), "# "), (.heading(2), "## "), (.heading(3), "### "), (.blockQuote, "> "),
     ]
 
-    /// **On a blank line — or in an empty note — a list, heading or quote verb STARTS one**, the
-    /// caret after its marker so typing begins the item. He found Bullets, Numbered and Tasks did
-    /// nothing there. Body has nothing to put on a blank line. Mutation: return `nil` for blank
-    /// lines again (the old rule) and every line fails.
+    /// On a blank line, or in an empty note, a list, heading or quote verb starts one, the caret
+    /// after its marker so typing begins the item. Body has nothing to put on a blank line.
+    /// Mutation: return `nil` for blank lines, and every line fails.
     @Test func aLineVerbOnABlankLineStartsOne() {
         for (verb, marker) in Self.starts {
-            // A list or quote keeps a blank line from the paragraphs either side (FMT-3); a heading
-            // needs none. These lines read "Para.\n\(marker)\nNext." for every verb until then.
+            // A list or quote keeps a blank line from the paragraphs either side; a heading needs
+            // none.
             let room: String
             if case .heading = verb { room = "" } else { room = "\n" }
             let between = apply(verb, "Para.\n\nNext.", range(6, 0))
@@ -477,12 +468,11 @@ import Foundation
         #expect(apply(.heading(0), "Para.\n\nNext.", range(6, 0)) == nil, "Body put something on a blank line")
     }
 
-    /// **A list or quote started on the one blank line between two paragraphs keeps a blank line
-    /// on each side** (FMT-3). The marker took that blank line's place and stood against both: a
-    /// bare `- ` under `Para.` read as a setext underline (`Para.` an H2), a bare `1. ` as words of
-    /// the paragraph, and once the item was typed `Next.` ran on into it as a lazy line. Pressed
-    /// again, the bare marker comes off with the room it was given, back to the bytes it started
-    /// from. Under a list item there is no room to keep — the list carries on.
+    /// A list or quote started on the one blank line between two paragraphs keeps a blank line on
+    /// each side. Against both, a bare `- ` under `Para.` reads as a setext underline, a bare `1. `
+    /// as words of the paragraph, and `Next.` runs on into a typed item as a lazy line. Pressed
+    /// again, the bare marker comes off with its room, back to the original bytes. Under a list
+    /// item there is no room to keep: the list carries on.
     ///
     /// Mutation: drop the lead and trail from `startingLines`, and the rendering lines fail; drop
     /// the collapse, and the round trip does.
@@ -505,8 +495,8 @@ import Foundation
         #expect(underList == "- a\n- \n\nNext.", "Bullets under a list item wrote \(String(describing: underList))")
     }
 
-    /// **Numbered on a blank line takes up from a numbered item directly above** — "3." under
-    /// "2." — and starts at 1 anywhere else.
+    /// Numbered on a blank line takes up from a numbered item directly above ("3." under "2."), and
+    /// starts at 1 anywhere else.
     @Test func numberedOnABlankLineCarriesOnFromTheItemAbove() {
         #expect(apply(.numberedList, "1. one\n2. two\n", range(14, 0))?.text == "1. one\n2. two\n3. ")
         #expect(apply(.numberedList, "9) nine\n\n", range(8, 0))?.text == "9) nine\n10. \n")
@@ -514,8 +504,8 @@ import Foundation
         #expect(apply(.numberedList, "- one\n", range(6, 0))?.text == "- one\n1. ")
     }
 
-    /// **Pressed again on the bare marker, the verb takes it off** and the caret goes back to the
-    /// line's start — and the bare marker lights its button, as the bar's lit state promises.
+    /// Pressed again on the bare marker, the verb takes it off and the caret goes back to the
+    /// line's start; the bare marker lights its button, as the bar's lit state promises.
     @Test func pressedAgainOnTheBareMarkerItComesOff() throws {
         for (verb, marker) in Self.starts {
             let on = try #require(apply(verb, "a\n\nb", range(2, 0)))
@@ -528,30 +518,28 @@ import Foundation
         }
     }
 
-    /// **A selection keeps its inner blank lines blank** (the rule above it), and one that covers
-    /// ONLY blank lines starts an item on each.
+    /// A selection keeps its inner blank lines blank, and one that covers only blank lines starts
+    /// an item on each.
     @Test func aSelectionKeepsItsInnerBlankLinesUnlessThatIsAllItHolds() {
         #expect(apply(.bulletList, "one\n\ntwo", range(0, 8))?.text == "- one\n\n- two")
         #expect(apply(.numberedList, "one\n\ntwo", range(0, 8))?.text == "1. one\n\n2. two")
         #expect(apply(.bulletList, "a\n\n\nb", range(2, 2))?.text == "a\n\n- \n- \n\nb")
     }
 
-    /// **A bare caret stays with its text when a marker goes on or comes off** — after Bullets on
-    /// "foo|" the caret is still after "foo", not at "- f|oo".
+    /// A bare caret stays with its text when a marker goes on or comes off: after Bullets on "foo|"
+    /// the caret is still after "foo", not at "- f|oo".
     @Test func aCaretStaysWithItsTextWhenAMarkerGoesOnOrOff() {
         #expect(apply(.bulletList, "foo", range(3, 0))?.selection == range(5, 0))
         #expect(apply(.bulletList, "- foo", range(5, 0))?.selection == range(3, 0))
         #expect(apply(.heading(2), "x\nfoo", range(3, 0))?.selection == range(6, 0))
         #expect(apply(.bulletList, "- foo", range(1, 0))?.selection == range(0, 0), "a caret inside the marker left the line")
-        // A selection keeps its words — not the marker too (FMT-8). This line read range(0, 5),
-        // `- foo` selected, until Bold on that selection wrote `**- foo**`.
+        // A selection keeps its words, not the marker too, or Bold next would write `**- foo**`.
         #expect(apply(.bulletList, "foo", range(0, 3))?.selection == range(2, 3))
     }
 
-    /// **A selection stays on its words when a marker goes on, comes off or changes** (FMT-8), so
-    /// the next verb aims at the same words. It kept its index and grew by the change instead:
-    /// Bullets on `one` left `- one` selected and Bold then wrote `**- one**`, which is no list
-    /// item; Bullets off `- one` left `e` selected, and Bold wrote `on**e**`.
+    /// A selection stays on its words when a marker goes on, comes off or changes, so the next verb
+    /// aims at the same words. Kept at its index and grown by the change, Bold after Bullets would
+    /// write `**- one**`, and after Bullets off, `on**e**`.
     ///
     /// Mutation: map the selection's start by the total change again (`selectionAfter`), and the
     /// chained Bold and the multi-line selection both fail.
@@ -587,9 +575,9 @@ import Foundation
         #expect((edit?.text as NSString?)?.substring(with: edit?.selection ?? range(0, 0)) == "let x = 1")
     }
 
-    /// **A fence around lines that already hold one is longer than theirs** (FMT-9). Three backticks
-    /// around a note with a fenced example closed at the example's first fence: the rest fell out
-    /// as a paragraph and an empty block. Mutation: always write three, and the block splits.
+    /// A fence around lines that already hold one is longer than theirs; three backticks would
+    /// close at the inner example's first fence. Mutation: always write three, and the block
+    /// splits.
     @Test func aFenceAroundAFenceIsLongerThanIt() throws {
         let source = "Example:\n```\ncode\n```"
         let edit = try #require(apply(.codeBlock, source, range(0, (source as NSString).length)))

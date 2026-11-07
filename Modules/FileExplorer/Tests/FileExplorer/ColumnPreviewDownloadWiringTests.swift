@@ -7,63 +7,18 @@ import Testing
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The Info inspector's preview's half of a download, mounted beside the real pane that watches it.
+/// The Info inspector's preview's half of a download, mounted beside the real pane that watches
+/// it, so the joins between them are the app's own code. The inspector runs no watch of its own;
+/// it follows the pane's. The column's Download click is out of reach (it would open Finder for a
+/// fixture), so that call is pinned by source. The probe is injected (`ColumnPreviewProbeReader`)
+/// because `.cloudOnly` needs `SF_DATALESS`, which only a File Provider sets.
 ///
-/// Everything below the pane was tested and everything above it was tested; the expressions joining
-/// them were not, and each survived deletion once:
-///
-/// - `ColumnPreviewColumn(… paneToken:)` — the argument was optional with a `nil` default, and
-///   `requestDownload` downgraded nil to "requested, unwatched" behind a debug log. Deleting it
-///   compiled and left the suite green while every preview-started download lost its watch. That
-///   one is now a compile error (the property has no default), which is why no test here can fail
-///   for it.
-/// - `ColumnPreviewColumn(… isAwaitingDownload:)` — pinning it to `false` at the call site leaves
-///   the column sitting on its pre-download answer for good: no "Downloading…", and no re-probe
-///   when the content lands. That is what `thePaneWatchIsWhatTellsThePreviewTheFileArrived` fails
-///   on.
-/// - **The one watch.** The inspector is outside the pane's view tree, so it cannot be handed the
-///   pane's watches the way a row is; it used to run a `PaneDownloadWatch` of its own beside the
-///   pane's — two polls and two memo `forget`s per download. It follows the pane's watch now, from
-///   the request to the pane's `.cloudDownloadWatchEnded`, and the test above mounts the real pair
-///   to prove that hop is live: with the post in `PaneDownloadWatch.begin` deleted, the column never
-///   re-probes.
-///
-/// **What no test here can reach, and why.** Clicking the column's own Download button. It renders
-/// only for a `.cloudOnly` probe, and `requestDownload` then calls
-/// `MaterializationStatus.download` — which throws for a file that is not a real cloud placeholder,
-/// as every fixture here is, and falls back to `NSWorkspace.activateFileViewerSelecting`, i.e. it
-/// opens Finder on the test machine. So the
-/// button's `paneToken` argument is proven by the type system (no default to fall back to) and its
-/// value by the derivation test, not by a click.
-///
-/// The probe is injected through the environment (`ColumnPreviewProbeReader`) because `.cloudOnly`
-/// is otherwise unreachable: `SF_DATALESS` is an `SF_` system flag, settable only by root and in
-/// practice only by a File Provider. Every caption this suite reads renders in that state alone.
-///
-/// **The pane this suite mounts is on a `NotificationCenter` of its own, and the one post below
-/// goes through that same one.** Suites run in PARALLEL, `.default` is process-wide, and a mounted
-/// `FileTreeView` is a live subscriber that accepts any post carrying its own token no matter which
-/// test made it — a token names a SURFACE, not a test. A pane mounted here on `.default` therefore
-/// latched posts `CloudDownloadWiringTests` issues to prove another pane ignores them, and its
-/// watch's `CloudOnlyBadgeCache.forget` cleared the very ghost that suite asserts on: measured,
-/// `theRightPaneIgnoresTheLeftPanesRequest` failed in 3 of 3 full runs and passed under `--filter`
-/// every time. Picking a surface nobody else posts to was the old answer here and it is gone — all
-/// three are already spoken for as the *ignored* token somewhere, so there was no fourth to pick,
-/// and it hid the opposite failure too (a foreign pane satisfying a positive control for the pane
-/// under test). A channel nobody else holds is reachable by nothing else, whatever token it
-/// carries. See `docs/flaky-tests.md` mechanism 9.
-///
-/// Which leaves the token free to be the one this pane really is: `isSingleSource: true` mounts the
-/// single-source rail, so it derives `.singleSource`, and the post below sends from `.singleSource` because
-/// that is what the inspector sends for a file selected in the rail.
-///
-/// The `.default` the app runs on is no longer exercised end to end from here. Both halves of that
-/// default are pinned directly instead — `CloudDownloadRoutingTests.theDefaultChannelIsTheAppsOwn`
-/// for the poster, `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault` for the
-/// receiver.
-///
-/// `.serialized` because the badge memo is process-wide. The download notification no longer is,
-/// for this suite — that is what the channel above buys — so the memo is now the whole reason.
+/// The pane gets a `NotificationCenter` of its own, as every mounting suite does
+/// (`docs/flaky-tests.md`, "A mounted view is a live subscriber, in every suite at once"), so its
+/// token can be the real `.singleSource`. `.default` is pinned by
+/// `CloudDownloadRoutingTests.theDefaultChannelIsTheAppsOwn` and
+/// `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault`. `.serialized` because the
+/// badge memo is process-wide.
 @MainActor
 @Suite(.serialized) struct ColumnPreviewDownloadWiringTests {
 
@@ -93,15 +48,10 @@ import UniformTypeIdentifiers
         @Published var selection: Set<String> = []
     }
 
-    /// What the injected probe answers, and every path it has answered for, in order.
-    ///
-    /// Mutable so the test can stage a materialization: `.cloudOnly` before the download,
-    /// `.quickLook` after. Main-actor isolated (and therefore `Sendable`) so the `@Sendable` reader
-    /// closure can reach it with one hop.
-    ///
-    /// A list rather than a set, because one of the tests below asks *how many times* a path was
-    /// probed: a re-probe is the only trace the falling edge leaves when the download did not land,
-    /// and a set cannot count it.
+    /// What the injected probe answers, and every path it has answered for, in order. Mutable to
+    /// stage a materialization (`.cloudOnly`, then `.quickLook`); main-actor isolated, so `Sendable`,
+    /// for the `@Sendable` reader to reach in one hop. A list, not a set, because a test counts
+    /// re-probes: the only trace the falling edge leaves when the download didn't land.
     @MainActor private final class ProbeSwitch {
         var source: ColumnPreviewSource = .cloudOnly
         var answered: [String] = []
@@ -109,10 +59,9 @@ import UniformTypeIdentifiers
         func probes(of path: String) -> Int { answered.filter { $0 == path }.count }
     }
 
-    /// The whole pane, in Columns mode, as `ContentView` mounts it, with the Info inspector's preview
-    /// of its selected file beside it — so the notification subscription, the pane's watch, the
-    /// watch's end and the inspector's following it are all the app's own code rather than
-    /// arguments this test supplied.
+    /// The whole pane in Columns mode, as `ContentView` mounts it, with the Info inspector's preview
+    /// of its selected file beside it, so the subscription, the watch, its end and the inspector's
+    /// following it are all the app's own code.
     private struct Harness: View {
         @ObservedObject var box: Box
         let tree: PaneTree
@@ -121,9 +70,8 @@ import UniformTypeIdentifiers
         let defaults: UserDefaults
         let probe: ProbeSwitch
         let channel: NotificationCenter
-        /// The inspector's downloads, made once per mount: a body that made them would make a new
-        /// set on every render. Their deadline is out of reach, so the only thing that can end the
-        /// inspector's "Downloading…" inside this suite's waits is the pane's `.cloudDownloadWatchEnded`.
+        /// The inspector's downloads, made once per mount, not per render. Their deadline is out of
+        /// reach, so only the pane's `.cloudDownloadWatchEnded` ends "Downloading…" in these waits.
         let downloads: InspectorDownloads
 
         var body: some View {
@@ -165,11 +113,8 @@ import UniformTypeIdentifiers
     }
 
     /// The rail with the one file selected and the inspector's preview showing it, on a download
-    /// channel of its own.
-    ///
-    /// The channel comes back with the window because it is the only way in: a post through
-    /// anything else — including the `.default` the app runs on — reaches this pane not at all. See
-    /// the suite comment.
+    /// channel of its own. The channel is returned because it is the only way in: a post through
+    /// anything else, `.default` included, doesn't reach this pane.
     private func mount(root: String = root, probe: ProbeSwitch = ProbeSwitch())
     -> (window: NSWindow, host: NSView, channel: NotificationCenter) {
         let defaults = ScratchDefaults("ColumnPreviewDownloadWiringTests")
@@ -192,22 +137,14 @@ import UniformTypeIdentifiers
         return (window, host, channel)
     }
 
-    /// Every path a live `QLPreviewView` in the tree is previewing.
+    /// Every path a live `QLPreviewView` in the tree is previewing: the only observation channel.
+    /// SwiftUI builds no accessibility tree unless an assistive client is attached, so captions read
+    /// through `accessibilityChildren()` would come back empty under `swift test` and pass vacuously.
+    /// An `NSViewRepresentable` is real AppKit and sits in the subtree.
     ///
-    /// **The observation channel, and it is the only one available.** The captions are the obvious
-    /// thing to read — "Not downloaded" against "Downloading…" — but SwiftUI builds no accessibility
-    /// tree at all unless an assistive client is attached to the process, so `accessibilityChildren()`
-    /// on a hosted pane comes back empty under `swift test` and every caption assertion would pass
-    /// vacuously. An `NSViewRepresentable` is real AppKit and is simply there in the subtree, which
-    /// makes the Quick Look mount readable.
-    ///
-    /// It is not a proxy for the caption either; it is the OTHER half of the same wiring, and the
-    /// half with teeth. `ColumnPreviewColumn` re-probes on the FALLING edge of `isAwaitingDownload`
-    /// — the pane's watch concluding is what tells a downloaded file it may be previewed — so a
-    /// mount here proves the latch reached this column, went true, and went false again. Threading
-    /// that is dead (the argument deleted, or a constant `nil`) never raises the edge and never
-    /// re-probes: the column sits on its pre-download answer forever, which is exactly the shipped
-    /// symptom.
+    /// `ColumnPreviewColumn` re-probes on the falling edge of `isAwaitingDownload`, so a mount here
+    /// proves the latch reached this column, went true and went false again. Dead threading never
+    /// raises the edge, and the column stays on its pre-download answer.
     private func quickLookPaths(in root: NSView) -> [String] {
         var found: [String] = []
         func walk(_ view: NSView) {
@@ -221,41 +158,30 @@ import UniformTypeIdentifiers
         return found
     }
 
-    /// Pumps until `condition` holds, or the deadline passes. Returns whether it held.
-    ///
-    /// The loop itself is `LayoutPumpWait.pump` — shared because a private copy of it per suite is
-    /// how two of the three kept a defect the third had already fixed. See `pumpFloor` there for why
-    /// a deadline alone is not a bound on a congested main actor.
+    /// Pumps until `condition` holds or the deadline passes, and returns whether it held, through the
+    /// shared `LayoutPumpWait.pump`. See `pumpFloor` there for why a deadline alone doesn't bound a
+    /// congested main actor.
     @discardableResult
     private func wait(_ window: NSWindow, upTo seconds: Double,
                       for condition: () -> Bool) async -> Bool {
         await LayoutPumpWait.pump(window, upTo: seconds, until: condition).held
     }
 
-    /// A one-shot flag a queued block can set — the queue is the bound, not the clock.
+    /// A one-shot flag a queued block can set, so the queue is the bound, not the clock.
     private final class Marker {
         var fired = false
     }
 
-    /// How many main-queue turns an absence assertion in this suite is bounded by.
-    ///
-    /// A number rather than one queued block, because the effect being ruled out is not one turn
-    /// long: a re-probe travels state write → `body` → `.onChange` → `.task(id:)` → the probe
-    /// closure's own `await MainActor.run`, and each of those is at least a turn. Bounded by ONE,
-    /// "nothing happened" and "it has not happened yet" are the same reading, which is mechanism 2
-    /// in `docs/flaky-tests.md`.
-    ///
-    /// Comfortably above what a real re-probe costs here, and that margin is CHECKED rather than
-    /// assumed — `aWatchThatEndsWithoutAnArrivalStillReleasesTheColumn` measures the live edge in
-    /// these same units and fails naming the number if this constant ever stops clearing it.
+    /// How many main-queue turns bound an absence assertion in this suite. Several, because a
+    /// re-probe travels state write → `body` → `.onChange` → `.task(id:)` → the probe's
+    /// `await MainActor.run`, each at least a turn; bounded by one, "nothing happened" and "not yet"
+    /// read the same (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). The margin is checked:
+    /// `aWatchThatEndsWithoutAnArrivalStillReleasesTheColumn` measures a real re-probe in turns.
     private static let absenceTurns = 24
 
-    /// Runs `turns` real main-queue turns, laying the window out around each.
-    ///
-    /// Turns, not wall time: this is the self-hosted runner, where suites run in parallel and a
-    /// fixed millisecond window is ample idle and nowhere near enough under load. `layoutIfNeeded`
-    /// between them is what lets SwiftUI actually commit a render in the turn it was given, so the
-    /// chain being bounded can make progress rather than merely be waited on.
+    /// Runs `turns` real main-queue turns, laying the window out around each. Turns, not wall time,
+    /// since a fixed window that is ample idle is too short under load. `layoutIfNeeded` lets
+    /// SwiftUI commit a render each turn, so the chain can make progress.
     private func drain(_ window: NSWindow, turns: Int) async {
         for _ in 0..<turns {
             window.layoutIfNeeded()
@@ -269,30 +195,18 @@ import UniformTypeIdentifiers
     // MARK: - The pane's watch reaches the inspector's preview
 
     /// A download started for the inspector's file is watched by the pane it was selected in, and
-    /// the inspector's preview learns when that watch ends.
+    /// the inspector's preview learns when that watch ends. The probe answers `.cloudOnly` until the
+    /// request and `.quickLook` after, and the column re-probes only on `probeGeneration`, so the
+    /// final Quick Look mount is the whole chain: `CloudDownloadRequest.post` → the pane's
+    /// `.onReceive` → `PaneDownloadWatch.begin` → the watch concluding → `.cloudDownloadWatchEnded`
+    /// → `InspectorDownloads` → `ColumnPreviewColumn(isAwaitingDownload:)` → the re-probe.
     ///
-    /// The file answers `.cloudOnly` until the request goes out and `.quickLook` afterwards — a
-    /// materialization, staged. The column may only notice it by way of the pane's watch: its probe
-    /// re-runs on `probeGeneration`, and nothing else bumps that. So the Quick Look mount at the end
-    /// is the whole chain reporting in — `CloudDownloadRequest.post` → the pane's scoped
-    /// `.onReceive` → `PaneDownloadWatch.begin` → the watch concluding →
-    /// `.cloudDownloadWatchEnded` → `InspectorDownloads` →
-    /// `ColumnPreviewColumn(isAwaitingDownload:)` → the falling edge → the re-probe.
+    /// Fails, with no clock in the verdict, if the post in `PaneDownloadWatch.begin` is deleted (the
+    /// inspector's deadline is an hour away) or if the request goes through `.default`.
     ///
-    /// Delete the post in `PaneDownloadWatch.begin` and the column waits out its deadline instead,
-    /// which this harness puts an hour away — so this goes red, with no clock in the verdict. Posting through `.default` instead of this mount's channel fails it the same way, which
-    /// is what says the pane really is listening where this test posts.
-    ///
-    /// **A REAL file, under a per-test directory, and that is load-bearing.** The pane's watch is
-    /// the app's own `CloudDownloadPoll`, whose probe is the production
-    /// `MaterializationStatus.isCloudOnlyIfKnown` — and that answers nil, not `false`, for a path
-    /// with nothing behind it. Against the ghost path this used to post for, `stillCloudOnly ==
-    /// false` never held, so every run spent the poll's full `attempts × interval` budget and
-    /// concluded EXHAUSTED: ~10 s inside a `.serialized` suite, exercising the opposite branch to
-    /// the one this name and prose describe. (It was not vacuous — the falling edge fires either
-    /// way — but it silently stopped covering the arrival path when the probe went three-way.) With
-    /// a file on disk the first probe lands, which is the ~1 s arrival this test is about; the
-    /// exhaustion branch keeps its own test below.
+    /// A real file in a per-test directory: the pane's poll uses the production
+    /// `MaterializationStatus.isCloudOnlyIfKnown`, which answers nil for a missing path, so a ghost
+    /// would exhaust the poll's budget instead of covering the arrival. Exhaustion has its own test.
     @Test func thePaneWatchIsWhatTellsThePreviewTheFileArrived() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("ColumnPreviewDownloadWiring-\(UUID().uuidString)")
@@ -303,11 +217,9 @@ import UniformTypeIdentifiers
 
         let probe = ProbeSwitch()
         let (window, host, channel) = mount(root: dir.path, probe: probe)
-        // Torn down rather than merely kept alive: this pane (and the inspector) holds a live
-        // `.cloudDownloadRequested` subscription, and one left listening past its test would go on
-        // accepting posts through this channel. Belt and braces now that the channel is per-mount —
-        // nothing later posts through this one — but `CloudDownloadWiringTests.teardown` documents
-        // the failure a shared channel caused, and `close()` is still the wrong way to do it.
+        // Torn down, not just released: the pane and inspector hold live `.cloudDownloadRequested`
+        // subscriptions. Belt and braces with a per-mount channel; not `close()`, which
+        // over-releases (see `CloudDownloadWiringTests.teardown`).
         defer { window.contentView = nil }
 
         // The resting state: a cloud-only placeholder is never handed to Quick Look.
@@ -315,9 +227,8 @@ import UniformTypeIdentifiers
         #expect(settled, "the column never probed its file — nothing below can be observed")
         #expect(!quickLookPaths(in: host).contains(path))
 
-        // The content lands. On its own this changes nothing on screen: the column has no reason to
-        // ask again, and a probe that re-ran for any other reason would make the mount below prove
-        // nothing about the latch.
+        // The content lands. On its own this changes nothing on screen; a probe that re-ran for any
+        // other reason would make the mount below prove nothing about the latch.
         probe.source = .quickLook
         let idle = Marker()
         DispatchQueue.main.async { MainActor.assumeIsolated { idle.fired = true } }
@@ -328,38 +239,25 @@ import UniformTypeIdentifiers
         }
         #expect(!remountedUnprompted, "the column re-probed without the pane's watch concluding")
 
-        // Through this mount's own channel, which nothing else in the process holds — so the latch
-        // that rises below can only be this pane's, and only this post can raise it.
+        // Through this mount's own channel, so only this post can raise this pane's latch.
         CloudDownloadRequest.post(path: path, from: .singleSource, through: channel)
 
-        // `CloudDownloadPoll` is bounded by `attempts × interval`, so this cannot hang on a pane
-        // that simply never concludes; it fails instead. The file is on disk, so the FIRST probe
-        // lands and the budget is one interval rather than all ten.
+        // `CloudDownloadPoll` is bounded by `attempts × interval`, so a pane that never concludes
+        // fails rather than hangs. The file is on disk, so the first probe lands.
         #expect(await wait(window, upTo: 30) { quickLookPaths(in: host).contains(path) },
                 "the pane's watch never reached the inspector's preview of that file")
     }
 
     // MARK: - A watch that ends without an arrival
 
-    /// The other end of the same latch: a download that never materializes.
+    /// A download that never materializes still releases the column. The falling edge comes from
+    /// the watch concluding, either way; were it only on arrival, a stalled download would leave
+    /// "Downloading…" up for as long as the file stayed selected.
     ///
-    /// The falling edge is raised by the watch CONCLUDING, not by the content arriving, and both
-    /// endings raise it. If only the arrival case re-probed, a stalled download would leave the
-    /// column captioned "Downloading…" under a spinner for as long as the file stayed selected —
-    /// the state `PreviewAccessory.decide` renders for `isAwaitingDownload`, with nothing left to
-    /// take it down.
-    ///
-    /// Driven at the column instead of through the pane, for the reason the test above no longer
-    /// has to be: reaching exhaustion through a mounted `FileTreeView` costs the poll's whole
-    /// `attempts × interval` budget — ten seconds, inside a `.serialized` suite — and that budget
-    /// is not injectable from here (`@StateObject private var downloads = PaneDownloadWatch()`).
-    /// The pane's contribution is the edge itself, which the test above proves arrives; what is
-    /// left is what the column does with an edge whose file did not change, and that needs no poll
-    /// at all.
-    ///
-    /// The re-probe IS the observation. Nothing else changes: the file is still a placeholder, so
-    /// no Quick Look mounts either way, and the caption is unreadable from a hosted view (see
-    /// `quickLookPaths`). A probe that ran is the trace the column leaves.
+    /// Driven at the column, not through the pane: exhaustion through a mounted `FileTreeView` costs
+    /// the poll's whole budget, which isn't injectable from here, and the test above already proves
+    /// the edge arrives. The re-probe is the observation; the file stays a placeholder, so no Quick
+    /// Look mounts, and the caption can't be read (see `quickLookPaths`).
     @Test func aWatchThatEndsWithoutAnArrivalStillReleasesTheColumn() async throws {
         let path = "\(Self.root)/stalled.mov"
         let probe = ProbeSwitch()
@@ -380,18 +278,17 @@ import UniformTypeIdentifiers
         #expect(await wait(window, upTo: 10) { probe.probes(of: path) == 1 },
                 "the column never probed its file — nothing below can be observed")
 
-        // Arming the watch changes nothing on disk, so it must not cost a probe. Without this the
-        // assertion below would pass on the RISING edge and prove the opposite of its name.
+        // Arming the watch changes nothing on disk, so it must not cost a probe; otherwise the
+        // assertion below could pass on the rising edge.
         watching.isAwaiting = true
         await drain(window, turns: Self.absenceTurns)
         #expect(probe.probes(of: path) == 1, "arming the watch re-probed a file nothing had touched")
 
-        // The watch ends having found nothing — the file is still a placeholder.
+        // The watch ends having found nothing: the file is still a placeholder.
         watching.isAwaiting = false
 
-        // Counted in the same units the absence above was bounded in, so the two are comparable and
-        // the margin between them can be asserted rather than hoped for. Deadlined as well, because
-        // a starved main actor must report as a failed wait rather than spin.
+        // Counted in the units the absence above was bounded in, so the margin can be asserted.
+        // Deadlined too, so a starved main actor fails the wait rather than spinning.
         var turnsToReprobe = 0
         let deadline = Date().addingTimeInterval(10)
         while probe.probes(of: path) < 2, Date() < deadline {
@@ -401,18 +298,14 @@ import UniformTypeIdentifiers
         #expect(probe.probes(of: path) >= 2,
                 "an exhausted watch left the column on its pre-download answer")
 
-        // AT the edge, not past it — and this is the half that has teeth against an inverted edge.
-        // `>=` above is satisfied the instant the count reaches 2, so a source that re-probed on
-        // BOTH edges would sail through it on its way to 3; the exact count, read after the queue
-        // has been given as long again as the absence was, is what refuses that.
+        // Exactly one re-probe: `>=` above would also pass a source that re-probed on both edges, on
+        // its way to 3. The exact count, after as long again as the absence, refuses that.
         await drain(window, turns: Self.absenceTurns)
         #expect(probe.probes(of: path) == 2,
                 "the falling edge cost more than one re-probe")
 
-        // The absence above was bounded by more turns than a real re-probe actually needs, so
-        // "nothing happened" there was a verdict and not a head start. This is the assertion that
-        // keeps `absenceTurns` honest on a machine slower than the one it was measured on: if it
-        // ever fails, raise the constant — do not delete the check.
+        // Keeps `absenceTurns` honest: the absence above must allow more turns than a real re-probe
+        // needs. If this fails on a slower machine, raise the constant; don't delete the check.
         #expect(turnsToReprobe < Self.absenceTurns,
                 "a real re-probe cost \(turnsToReprobe) turns; the absence above allowed only \(Self.absenceTurns)")
 
@@ -446,11 +339,10 @@ import UniformTypeIdentifiers
 
     // MARK: - One watch
 
-    /// What the inspector shows as downloading, after each notice — kept by `InspectorDownloads`,
-    /// which outlives the preview. A request starts it; the end of exactly that request's watch
-    /// clears it; another file's request leaves it alone, and so does the end of a SUPERSEDED
-    /// request — a repeat Download of the same file. Every end counts against its file, which is
-    /// what makes the preview look again.
+    /// What the inspector shows as downloading, kept by `InspectorDownloads`, which outlives the
+    /// preview. A request starts it and the end of exactly that request's watch clears it; another
+    /// file's request and a superseded request's end leave it alone. Every end counts against its
+    /// file, which makes the preview look again.
     @Test func theInspectorFollowsEachWatchByRequest() {
         let channel = NotificationCenter()
         let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600))
@@ -471,10 +363,8 @@ import UniformTypeIdentifiers
         #expect(downloads.watchesEnded(path) == 2)
     }
 
-    /// **The "Downloading…" outlives the preview.** It used to be the preview's own `@State`, so a
-    /// click on a folder and back — which takes the preview down and builds a new one — forgot a
-    /// download the pane was still watching, and offered Download again. The state is the host's
-    /// now; a preview made after the request still sees it.
+    /// "Downloading…" outlives the preview. A click on a folder and back rebuilds the preview, so the
+    /// state lives in the host, or the new preview would offer Download again for a watched file.
     @Test func aDownloadOutlivesThePreviewThatStartedIt() {
         let channel = NotificationCenter()
         let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600))
@@ -484,9 +374,9 @@ import UniformTypeIdentifiers
         #expect(downloads.isAwaiting(path))
     }
 
-    /// A watch that ends AFTER the inspector gave up on it still makes the preview look again. The
-    /// deadline used to clear the request, and the late end then matched nothing — the file was on
-    /// disk and the preview kept offering Download until it was reselected.
+    /// A watch that ends after the inspector's deadline still makes the preview look again;
+    /// otherwise a late end would match nothing and the preview would offer Download for a file on
+    /// disk until reselected.
     @Test func aWatchEndingAfterTheDeadlineStillCounts() async {
         let channel = NotificationCenter()
         let downloads = InspectorDownloads(channel: channel, deadline: .milliseconds(1))
@@ -520,10 +410,9 @@ import UniformTypeIdentifiers
         #expect(watch.requests.isEmpty)
     }
 
-    /// **One watch per download.** A request a pane will watch is only followed here — a second
-    /// `PaneDownloadWatch` beside the pane's doubled the poll and the memo `forget`. Only a request
-    /// with no pane on screen to hear it (Edit with its file pane folded, say) is watched here, once
-    /// however often it is asked.
+    /// One watch per download. A request a pane will watch is only followed here, since a second
+    /// `PaneDownloadWatch` would double the poll and the memo `forget`. Only a request no pane hears
+    /// (Edit with its file pane folded, say) is watched here, once however often it is asked.
     @Test func theInspectorWatchesOnlyWhatNoPaneWill() async {
         final class Began: @unchecked Sendable { var paths: [String] = [] }
         let began = Began()
@@ -547,9 +436,9 @@ import UniformTypeIdentifiers
         #expect(downloads.isAwaiting(unheard.path))
     }
 
-    /// **The column's Download is the row menu's verb, sent from its pane on its pane's channel.**
-    /// It was a copy of that verb's try, post and reveal — the drift `requestDownload` was written
-    /// to end. Its click is out of reach (see the suite's note), so the call is pinned by source.
+    /// The column's Download is the row menu's verb, `requestDownload`, sent from its pane on its
+    /// pane's channel, so the two can't drift. Its click is out of reach (see the suite comment), so
+    /// the call is pinned by source.
     @Test func thePreviewsDownloadIsTheRowMenusVerb() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

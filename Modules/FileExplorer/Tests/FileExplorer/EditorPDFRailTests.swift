@@ -7,10 +7,10 @@ import Sync
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **Phase 1b of the PDF reader: Edit's rail learns PDFs** — the Files tab's two sections, the
-/// Pages tab and its thumbnails, and a PDF's bookmarks in Outline.
+/// Edit's rail with PDFs: the Files tab's two sections, the Pages tab and its thumbnails, and a
+/// PDF's bookmarks in Outline.
 ///
-/// Serialized, and every wait bounded in lane TURNS, for `EditorPDFDocumentTests`' reason: the
+/// Serialized, and every wait bounded in lane turns, for `EditorPDFDocumentTests`' reason: the
 /// thumbnails and the outline are read through `PDFKitSerialAccess`'s one lane.
 @MainActor
 @Suite(.serialized) final class EditorPDFRailTests {
@@ -49,8 +49,8 @@ import FileExplorerTestSupport
 
     // MARK: The survey
 
-    /// **The text cap is a text read's, and a PDF never takes one.** A 10 MB scan is an ordinary
-    /// PDF that opens on the click; the 10 MB `.txt` beside it is still refused, and says why.
+    /// The size cap is for text reads, and never applies to a PDF: a 10 MB scan opens on the
+    /// click, while the 10 MB `.txt` beside it is refused, and says why.
     @Test func aTenMegabytePDFIsNotDimmedWhileATenMegabyteTextFileIs() throws {
         let tenMB = 10 * 1024 * 1024
         try Data(count: tenMB).write(to: URL(fileURLWithPath: path("scan.pdf")))
@@ -67,7 +67,7 @@ import FileExplorerTestSupport
         #expect(log.dimmedReason?.hasPrefix("Too large to open") == true)
     }
 
-    /// Cloud-only is the one thing that dims a PDF row — in the words the reader's own refusal uses.
+    /// Cloud-only is the one thing that dims a PDF row, in the words the reader's own refusal uses.
     @Test func aCloudOnlyPDFIsDimmedWithTheReadersWords() throws {
         let file = path("statement.pdf")
         try Data(count: 10).write(to: URL(fileURLWithPath: file))
@@ -79,7 +79,7 @@ import FileExplorerTestSupport
 
     // MARK: The Files tab
 
-    /// Text Files, then PDFs, each in the order handed in — and a section with no rows is left out.
+    /// Text Files, then PDFs, each in the order handed in; a section with no rows is left out.
     @Test func sectionsAreTextThenPDFsAndAnEmptyOneIsLeftOut() {
         let mixed = [entry("a.md"), entry("b.pdf", kind: .pdf), entry("c.txt"), entry("d.pdf", kind: .pdf)]
         let sections = EditorRail.sections(mixed)
@@ -91,8 +91,8 @@ import FileExplorerTestSupport
         #expect(EditorRail.sections([]).isEmpty)
     }
 
-    /// **⌘N in a folder of nothing but PDFs still opens the naming row** — the empty Text Files
-    /// section is hidden, and the row is not inside it to be hidden with it.
+    /// ⌘N in a folder of nothing but PDFs still opens the naming row: the empty Text Files section
+    /// is hidden, and the row must not be inside it.
     @Test func theNamingRowStillShowsInAPDFOnlyFolder() {
         func fields(naming: Bool) -> Int {
             let rail = Self.rail(entries: [entry("scan.pdf", kind: .pdf)], naming: naming)
@@ -111,7 +111,7 @@ import FileExplorerTestSupport
         #expect(fields(naming: false) == 0, "control: a naming row with no ⌘N")
     }
 
-    /// The captions say "text files and PDFs" now that the list holds both — the arms that changed.
+    /// The empty captions say "text files and PDFs", since the list holds both.
     @Test func theEmptyCaptionsNameBothKinds() {
         #expect(EditorFileRailView.fileEmptyCaption(folderName: "", anyEntries: false, filter: "",
                                                     otherFiles: nil)
@@ -132,9 +132,9 @@ import FileExplorerTestSupport
         #expect(EditorRailTab.files.title == "Files")
     }
 
-    /// **A PDF keeps Outline only with a contents worth the tab** (asked 2026-10-17): two
-    /// bookmarks or more, every level counted. A Markdown note keeps it whatever the flag says.
-    /// Mutation: drop the threshold to 1 and the one-bookmark statement keeps its tab.
+    /// A PDF keeps Outline only with contents worth the tab: two bookmarks or more, every level
+    /// counted. A Markdown note keeps it whatever the flag says. Mutation: a threshold of 1 must
+    /// fail it.
     @Test func aPDFOffersOutlineOnlyWithTwoBookmarksOrMore() {
         #expect(EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: false, markdownIsOpen: false) == [.files, .pages])
         #expect(EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true).contains(.outline))
@@ -148,8 +148,8 @@ import FileExplorerTestSupport
         #expect(EditorRailTab.resolved(.outline, pdfIsOpen: true, pdfHasOutline: true, markdownIsOpen: false) == .outline)
     }
 
-    /// **Pages falls back to Files when text opens** — drawn, not written back, so the next PDF
-    /// opens on Pages again. Outline is offered for Markdown notes and stays.
+    /// Pages falls back to Files when text opens, as drawn, not written back, so the next PDF opens
+    /// on Pages again. Outline is offered for Markdown notes and stays.
     @Test func pagesFallsBackToFilesWhenTextOpens() async {
         #expect(EditorRailTab.resolved(.pages, pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true) == .files)
         #expect(EditorRailTab.resolved(.pages, pdfIsOpen: true, pdfHasOutline: false, markdownIsOpen: false) == .pages)
@@ -162,8 +162,8 @@ import FileExplorerTestSupport
         #expect(Self.rail(entries: [], tab: .pages, pdf: pdf).shownTab == .pages)
         #expect(Self.rail(entries: [], tab: .pages, pdf: nil).shownTab == .files)
 
-        // The bar reads the drawn tab and writes the CHOSEN one: a click on the Files it is shown
-        // as is still a write, and a click elsewhere lands on the stored tab.
+        // The bar reads the drawn tab and writes the chosen one: a click on the drawn Files is still
+        // a write, and a click elsewhere lands on the stored tab.
         final class Box { var tab = EditorRailTab.pages }
         let box = Box()
         let rail = Self.rail(entries: [], tab: Binding(get: { box.tab }, set: { box.tab = $0 }), pdf: nil)
@@ -181,10 +181,10 @@ import FileExplorerTestSupport
 
     // MARK: The thumbnails
 
-    /// **Through the lane**: with the process's PDFKit lane held, the render step draws nothing;
-    /// released, it draws. **Held, drawn and released entirely off the main actor** — this is the
-    /// one test that holds the real lane, and a hold that waits on the main actor (crowded in a
-    /// full run) is what starved the other PDF suites' budgets (see `EditorPDFThumbnails.Lane`).
+    /// Thumbnails render through the lane: with the process's PDFKit lane held the render draws
+    /// nothing; released, it draws. Held, drawn and released entirely off the main actor, since this
+    /// test holds the real lane and a hold waiting on a crowded main actor would starve the other
+    /// PDF suites' budgets (see `EditorPDFThumbnails.Lane`).
     @Test func thumbnailsRenderThroughTheLane() async throws {
         let file = path("pages.pdf")
         PDFFixtures.write(file, pages: 12)
@@ -195,8 +195,8 @@ import FileExplorerTestSupport
             let hold = LaneHold()
             guard await hold.waitUntilHeld() else { hold.release(); return (-1, false) }
             let render = Task.detached { await EditorPDFThumbnails.render(page: 0, source: source, wanted: wanted) }
-            // The control draws the same page OFF the lane, three times over, so a render that
-            // went around the lane has had longer than it needs; then the count, then the release.
+            // The control draws the same page off the lane three times over, so a render that went
+            // around the lane has had longer than it needs; then the count, then the release.
             let control = PDFDocument(url: URL(fileURLWithPath: file))
             for _ in 0..<3 {
                 _ = control?.page(at: 0).flatMap { EditorPDFThumbnails.drawThumbnail($0, longEdge: 240) }
@@ -219,9 +219,9 @@ import FileExplorerTestSupport
         #expect(Set(thumbnails.images.keys) == Set(0..<(4 + EditorPDFThumbnails.margin)))
     }
 
-    /// **Pages scrolled away are cancelled**: a window asked for and left before its turn came is
-    /// never drawn. Its one turn already queued skips itself at its head. Held on a lane of the
-    /// test's own, so nothing else in the package waits on this test.
+    /// Pages scrolled away are cancelled: a window asked for and left before its turn came is never
+    /// drawn, and its one queued turn skips itself. Held on a lane of the test's own, so nothing
+    /// else in the package waits on this test.
     @Test func pagesScrolledAwayAreCancelled() async throws {
         let file = path("long.pdf")
         PDFFixtures.write(file, pages: 300, text: false)
@@ -246,8 +246,8 @@ import FileExplorerTestSupport
                 "the turn queued for the first window ran \(thumbnails.skippedTurns == 0 ? "and drew" : "\(thumbnails.skippedTurns) times")")
     }
 
-    /// **Bounded, and released with the PDF.** A long scroll keeps at most `capacity` images; a
-    /// text file opening (the model's close) drops every one, and the document they came from.
+    /// The cache is bounded, and released with the PDF: a long scroll keeps at most `capacity`
+    /// images, and a close drops every one and the document they came from.
     @Test func theThumbnailCacheIsBoundedAndReleasedOnClose() async throws {
         let file = path("scroll.pdf")
         PDFFixtures.write(file, pages: 120, text: false)
@@ -262,10 +262,10 @@ import FileExplorerTestSupport
         #expect(pdf.thumbnails.drawn.count > EditorPDFThumbnails.capacity,
                 "fixture: the scroll drew only \(pdf.thumbnails.drawn.count) pages, never reaching the cap")
         #expect(pdf.thumbnails.holdsSource)
-        // **The farthest went, not just any**: the last window is all there, the first all gone.
+        // The farthest went, not just any: the last window is all there, the first all gone.
         #expect((108..<114).allSatisfy { pdf.thumbnails.images[$0] != nil }, "the window on screen was evicted")
         #expect(!pdf.thumbnails.images.keys.contains { $0 < 12 }, "the pages farthest from the screen were kept")
-        // **And the document they come from was reopened along the way** (`Source.recycleEvery`).
+        // And the document they come from was reopened along the way (`Source.recycleEvery`).
         let source = try #require(pdf.thumbnails.currentSource)
         let draws = source.draws.withLock { $0 }, opens = source.opens.withLock { $0 }
         #expect(opens >= draws / EditorPDFThumbnails.recycleEvery && opens >= 2,
@@ -276,13 +276,13 @@ import FileExplorerTestSupport
         #expect(!pdf.thumbnails.holdsSource, "the thumbnails' document outlived the PDF")
     }
 
-    /// **The mounted grid asks for what is on screen** — and asks again when the PDF reloads under
-    /// it, where no cell appears anew to say so.
+    /// The mounted grid asks for what is on screen, and asks again when the PDF reloads under it,
+    /// where no cell appears anew to say so.
     @Test func theMountedGridAsksForItsPagesAndAgainAfterAReload() async throws {
         let file = path("mounted.pdf")
         PDFFixtures.write(file, pages: 40)
-        // A watch that never settles inside the test: the rewrite below is looked at once, by
-        // hand. A live watch looked a second time, re-queuing the reload and withdrawing the first.
+        // A watch that never settles inside the test, so the rewrite below is looked at once, by
+        // hand. A live watch would look again, re-queuing the reload and withdrawing the first.
         let pdf = EditorPDFDocument(settle: .seconds(3600), isCloudOnly: { _ in false })
         pdf.open(path: file, log: { _ in })
         await wait("the open") { pdf.phase == .open }
@@ -299,7 +299,7 @@ import FileExplorerTestSupport
         }
         #expect(pdf.thumbnails.images[39] == nil, "a page far below the fold was drawn: nothing is lazy")
 
-        // Rewritten on disk: the model reloads, the thumbnails start over — and the grid, which
+        // Rewritten on disk: the model reloads, the thumbnails start over, and the grid, which
         // never left the screen, must ask again.
         // Different bytes, so a different size: the stamp moves whatever the clock's resolution.
         PDFFixtures.write(file, pages: 40, text: false)
@@ -312,10 +312,10 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **A rotated or cropped page draws where the reader sees it** — read in pixels. A page marked
-    /// in its top-left corner: turned a quarter clockwise, the mark is top-RIGHT; cropped to its
-    /// top-left quarter, the mark is top-left and bigger. This was blank and shifted respectively
-    /// while `transform(for:)` was applied on top of `draw(with:to:)` (measured 2026-10-17).
+    /// A rotated or cropped page's thumbnail draws as the reader sees it, read in pixels. A page
+    /// marked in its top-left corner: turned a quarter clockwise, the mark is top-right; cropped to
+    /// its top-left quarter, the mark is top-left and bigger. Applying `transform(for:)` on top of
+    /// `draw(with:to:)` would draw these blank and shifted.
     @Test func aRotatedOrCroppedPageDrawsWhereTheReaderSeesIt() async throws {
         let file = path("marked.pdf")
         var box = CGRect(origin: .zero, size: PDFFixtures.letter)
@@ -337,7 +337,7 @@ import FileExplorerTestSupport
                              quadrants: EditorPDFRailTests.darkQuadrants(image))
             }
         }
-        // Quadrants: top-left, top-right, bottom-left, bottom-right — dark pixels in each.
+        // Quadrants: top-left, top-right, bottom-left, bottom-right; dark pixels in each.
         let plain = try #require(await draw(rotation: 0, cropped: false))
         #expect(plain.quadrants[0] > 0 && plain.quadrants[1...].allSatisfy { $0 == 0 }, "plain: \(plain.quadrants)")
         let turned = try #require(await draw(rotation: 90, cropped: false))
@@ -371,7 +371,7 @@ import FileExplorerTestSupport
         return counts
     }
 
-    /// **The placeholder is the shape the thumbnail will be** — crop box, turned — so a row does not
+    /// The placeholder is the shape the thumbnail will be (crop box, turned), so a row doesn't
     /// change height when its image lands. `shownSizes` is read with the facts, in the lane.
     @Test func theFactsCarryEachPagesShownShape() async throws {
         let plain = path("portrait.pdf"), turned = path("turned-on-disk.pdf")
@@ -389,9 +389,9 @@ import FileExplorerTestSupport
         #expect(facts.pageSizes == [PDFFixtures.letter], "the paper stays the media box: \(facts.pageSizes)")
     }
 
-    /// **A turn queued before a reload never draws from the old document** — each attachment has a
-    /// wanted set of its own, so the old turn finds nothing wanted even when the reloaded PDF wants
-    /// the very same page.
+    /// A turn queued before a reload never draws from the old document: each attachment has its own
+    /// wanted set, so the old turn finds nothing wanted even when the reloaded PDF wants the same
+    /// page.
     @Test func aTurnFromBeforeAReloadDrawsNothing() async throws {
         let file = path("reloaded.pdf")
         PDFFixtures.write(file, pages: 10)
@@ -410,8 +410,8 @@ import FileExplorerTestSupport
         #expect(old.draws.withLock { $0 } == 0, "the turn from before the reload drew from the old document")
     }
 
-    /// **A PDF evicted while open is not downloaded to draw its thumbnails**: the Pages tab reopens
-    /// its source from the path, which on a dataless file would fetch it, in the lane.
+    /// A PDF evicted while open is not downloaded to draw its thumbnails: the Pages tab reopens its
+    /// source from the path, which on a dataless file would fetch it, in the lane.
     @Test func thumbnailsDoNotDownloadAFileEvictedWhileOpen() async throws {
         let file = path("evicted.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -424,14 +424,14 @@ import FileExplorerTestSupport
         await wait("every page to be tried") { source.draws.withLock { $0 } >= 3 }
         #expect(source.opens.withLock { $0 } == 0, "the evicted file was opened to draw it")
         #expect(pdf.thumbnails.images.isEmpty)
-        // **Downloaded again, the next scroll draws them** — they were not written off as unreadable.
+        // Downloaded again, the next scroll draws them: they weren't written off as unreadable.
         cloudOnly.withLock { $0 = false }
         pdf.thumbnails.show([0, 1])
         await wait("the downloaded file's thumbnails") { [0, 1].allSatisfy { pdf.thumbnails.images[$0] != nil } }
     }
 
-    /// **A password-unlocked PDF has thumbnails** — from the copy unlocked in the same turn, the
-    /// password kept nowhere. Without that copy every page would fail, never retried.
+    /// A password-unlocked PDF has thumbnails, from the copy unlocked in the same turn, the password
+    /// kept nowhere. Without that copy every page would fail, never retried.
     @Test func anUnlockedPDFHasThumbnails() async throws {
         let file = path("locked.pdf")
         PDFFixtures.writeLocked(file, password: "hunter2", pages: 3)
@@ -446,9 +446,9 @@ import FileExplorerTestSupport
                 "the thumbnails reopened the locked file instead of drawing from the unlocked copy")
     }
 
-    /// **A turn waiting in the lane does not keep the thumbnails alive.** The pump holds them only
-    /// between turns: one waiting behind a long duplicate scan kept the object and its images
-    /// past their owner when the loop held `self` through the wait.
+    /// A turn waiting in the lane doesn't keep the thumbnails alive. The pump holds them only between
+    /// turns; holding `self` through the wait would keep the object and its images past their owner
+    /// while the lane is busy, say behind a long duplicate scan.
     @Test func aQueuedTurnDoesNotKeepTheThumbnailsAlive() async throws {
         let file = path("alive.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -472,8 +472,8 @@ import FileExplorerTestSupport
         #expect(EditorPDFRailPages.caption(phase: .open) == "This PDF has no pages.")
     }
 
-    /// **PDF B's outline opens at its own place, not where A was left** — the list's scroll state
-    /// is per document. One model reopened in place, as an outside open does with Edit on screen.
+    /// PDF B's outline opens at its own place, not where A was left: the list's scroll state is per
+    /// document. One model reopened in place, as an outside open does with Edit on screen.
     @Test func anotherPDFsOutlineDoesNotOpenWhereTheLastWasLeft() async throws {
         let first = path("first.pdf"), second = path("second.pdf")
         let marks = (0..<40).map { Bookmark(title: "Chapter \($0 + 1)", page: $0) }
@@ -509,14 +509,14 @@ import FileExplorerTestSupport
 
     /// Writes `file` with `pages` blank pages and the bookmarks `tree` describes.
     ///
-    /// **Through CoreGraphics' outline, not `PDFDocument.write`**: measured 2026-10-16, a
-    /// `PDFOutline` built in memory and set as `outlineRoot` is not written — the file reads back
-    /// with no outline at all. `CGPDFContextSetOutline` writes one, its destinations one-based.
+    /// Through CoreGraphics' outline, not `PDFDocument.write`: a `PDFOutline` built in memory and
+    /// set as `outlineRoot` is not written, so the file reads back with none.
+    /// `CGPDFContextSetOutline` writes one, its destinations one-based.
     private func writeBookmarked(_ file: String, pages: Int, tree: [Bookmark]) {
         func node(_ mark: Bookmark) -> [String: Any] {
             var entry: [String: Any] = [kCGPDFOutlineTitle as String: mark.title]
-            // No page → a web link: CoreGraphics crashes writing an entry with no destination
-            // at all (signal 11, measured), and a link is the real-world bookmark with no page.
+            // No page → a web link: CoreGraphics crashes (signal 11) writing an entry with no
+            // destination at all, and a link is the real-world bookmark with no page.
             entry[kCGPDFOutlineDestination as String] = mark.page.map { $0 + 1 as Any }
                 ?? URL(string: "https://example.com/elsewhere")! as CFURL
             if !mark.children.isEmpty { entry[kCGPDFOutlineChildren as String] = mark.children.map(node) }
@@ -535,7 +535,8 @@ import FileExplorerTestSupport
         var children: [Bookmark] = []
     }
 
-    /// **Flattened depth-first, with the right depths and pages**, read in the lane with the open.
+    /// The outline is flattened depth-first, with the right depths and pages, read in the lane with
+    /// the open.
     @Test func theOutlineIsFlattenedWithDepthsAndPages() async throws {
         let file = path("1099.pdf")
         writeBookmarked(file, pages: 6, tree: [
@@ -566,8 +567,8 @@ import FileExplorerTestSupport
         #expect(pdf.outline.isEmpty && pdf.outlineRail.rows.isEmpty, "the bookmarks outlived the PDF")
     }
 
-    /// **A bookmark goes to its own place on the page** (TE187) — an `/XYZ`'s left and top, the
-    /// page's left edge when it gives none — and to the page's top when it names no place.
+    /// A bookmark goes to its own place on the page (an `/XYZ`'s left and top, the page's left edge
+    /// when it gives none), and to the page's top when it names no place.
     @Test func aBookmarkGoesToItsPlaceOnThePage() async throws {
         let file = path("Placed.pdf")
         let dests = ["/XYZ 72 400 0", "/XYZ null 300 null", "/Fit"]
@@ -624,8 +625,8 @@ import FileExplorerTestSupport
         #expect(EditorPDFOutline.currentIndex(page: 9, in: marks) == 3)
     }
 
-    /// **A PDF with no bookmarks has no Outline tab** (asked 2026-10-17). The caption is still
-    /// right for the phase, though the tab rule keeps it out of sight.
+    /// A PDF with no bookmarks has no Outline tab. The caption is still right for the phase, though
+    /// the tab rule keeps it out of sight.
     @Test func aPDFWithNoBookmarksHasNoOutlineTab() async {
         let file = path("plain.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -636,8 +637,8 @@ import FileExplorerTestSupport
                                      markdownIsOpen: false).contains(.outline))
     }
 
-    /// **A PDF's outline keeps its place per file, in the one anchor map** — and the anchor goes
-    /// with the file when it moves (`EditorOutlineScroll.moveAnchor`, the host's rekey).
+    /// A PDF's outline keeps its place per file, in the one anchor map, and the anchor goes with the
+    /// file when it moves (`EditorOutlineScroll.moveAnchor`, the host's rekey).
     @Test func theOutlineAnchorIsRestoredAndSurvivesAMove() async throws {
         let file = path("long-outline.pdf")
         writeBookmarked(file, pages: 40, tree: (0..<40).map { Bookmark(title: "Chapter \($0 + 1)", page: $0) })
@@ -650,7 +651,7 @@ import FileExplorerTestSupport
         EditorOutlineScroll.moveAnchor(in: &anchors, from: "/nowhere", to: "/else")
         #expect(anchors == [file + ".moved": 30], "a move of another file touched this one's anchor")
 
-        // Restored on the mounted list, under the PDF's path — the Markdown outline's own wiring.
+        // Restored on the mounted list, under the PDF's path, by the Markdown outline's own wiring.
         final class Box { var anchors: [String: Int] = [:] }
         func offset(_ remembered: [String: Int]) -> CGFloat? {
             let box = Box()
@@ -668,10 +669,10 @@ import FileExplorerTestSupport
             walk(host)
             return scroll?.documentVisibleRect.origin.y
         }
-        // **The Markdown outline's rule, for a page instead of a caret**: the current bookmark wins
-        // when the anchor would leave it past the fold. So the reader is put on page 33, which
-        // the anchor's view (row 30 onwards) shows — and the same page with no anchor is the
-        // control: it opens on the current bookmark, row 32, further down than the anchor.
+        // The Markdown outline's rule, for a page instead of a caret: the current bookmark wins when
+        // the anchor would leave it past the fold. So the reader is put on page 33, which the
+        // anchor's view (row 30 onwards) shows; the same page with no anchor is the control, opening
+        // on the current bookmark, row 32, further down than the anchor.
         pdf.view.currentPage = 32
         let current = try #require(offset([:]), "no scroll view in the mounted outline")
         let restored = try #require(offset([file: 30]))
@@ -682,8 +683,8 @@ import FileExplorerTestSupport
 
     // MARK: Helpers
 
-    /// Yields the main actor until `done` — no lane turn, for the waits made while the lane is
-    /// held, and no fixed pause. Bounded so a pump that never asks fails rather than hangs.
+    /// Yields the main actor until `done`, with no lane turn (for waits made while the lane is
+    /// held) and no fixed pause. Bounded, so a pump that never asks fails rather than hangs.
     static func until(_ done: () -> Bool) async {
         for _ in 0..<20_000 where !done() { await Task.yield() }
     }
@@ -707,8 +708,8 @@ import FileExplorerTestSupport
 
     // MARK: Grid or list
 
-    /// **The grid gains columns as the column widens, the list gains sharpness** — and the default
-    /// grid asks for exactly the thumbnails it always had.
+    /// The grid gains columns as the rail widens and the list gains sharpness; the default grid asks
+    /// for thumbnails at the standard size.
     @Test func theGridGainsColumnsAndTheListGainsSharpness() {
         let grid = EditorPDFPagesLayout.grid, list = EditorPDFPagesLayout.list
         let narrow = EditorLayoutMetrics.railWidth, wide = EditorLayoutMetrics.maxRailWidth
@@ -716,7 +717,7 @@ import FileExplorerTestSupport
         #expect(grid.columns(railWidth: wide) == 4)
         #expect(list.columns(railWidth: narrow) == 1 && list.columns(railWidth: wide) == 1)
         #expect(grid.renderEdge(railWidth: narrow) == EditorPDFThumbnails.longEdge)
-        // A grid cell stays near its old size as columns come, so its images do too.
+        // A grid cell stays near its size as columns come, so its images do too.
         #expect(grid.renderEdge(railWidth: wide) <= EditorPDFThumbnails.longEdge * 2)
         // A list page is drawn for its width: sharper than a grid's, sharper again wider, capped.
         let listNarrow = list.renderEdge(railWidth: narrow), listWide = list.renderEdge(railWidth: wide)
@@ -726,8 +727,8 @@ import FileExplorerTestSupport
         #expect(listWide >= list.imageWidth(railWidth: wide) * 2 * 792 / 612)
     }
 
-    /// **The cap follows the image size**: the grid's 48 at its own size, fewer as each grows, and
-    /// never under a list's window. Bigger pages look fewer ahead.
+    /// The cap follows the image size: the grid's 48 at its own size, fewer as each grows, and never
+    /// under a list's window. Bigger pages look fewer ahead.
     @Test func theImageCapScalesWithTheImageSize() {
         #expect(EditorPDFThumbnails.capacity(forEdge: EditorPDFThumbnails.longEdge) == EditorPDFThumbnails.capacity)
         #expect(EditorPDFThumbnails.capacity(forEdge: 480) == 12)
@@ -736,8 +737,8 @@ import FileExplorerTestSupport
         #expect(EditorPDFThumbnails.margin(forEdge: 720) == 2)
     }
 
-    /// **A bigger size redraws what is held, and the small image stays until the sharp one lands**
-    /// — no cell goes blank on a switch to List. A smaller size redraws nothing.
+    /// A bigger size redraws what is held, and the small image stays until the sharp one lands, so
+    /// no cell goes blank on a switch to List. A smaller size redraws nothing.
     @Test func aBiggerSizeRedrawsWithoutBlankingAndASmallerOneRedrawsNothing() async throws {
         let file = path("sharper.pdf")
         PDFFixtures.write(file, pages: 12, text: false)
@@ -762,7 +763,7 @@ import FileExplorerTestSupport
         #expect(window.allSatisfy { longEdge($0) == 720 })
     }
 
-    /// **A mounted list asks for list-sized pages**, and the rail hands the tab its choice and width.
+    /// A mounted list asks for list-sized pages, and the rail hands the tab its choice and width.
     @Test func theMountedListAsksForSharperPages() async throws {
         let file = path("list.pdf")
         PDFFixtures.write(file, pages: 10, text: false)
@@ -787,9 +788,9 @@ import FileExplorerTestSupport
         #expect(rail.contains("ForEach(EditorPDFPagesLayout.allCases"), "the Pages tab offers no Grid / List switch")
     }
 
-    /// **A lane of the test's own, in front of the real one.** Held, it stops only THIS test's turns;
+    /// A lane of the test's own, in front of the real one. Held, it stops only this test's turns;
     /// released, each turn still runs inside `PDFKitSerialAccess` (`run`, from this queue's thread),
-    /// so the lane's rule holds in tests too. Holding is immediate — nothing to wait for.
+    /// so the lane's rule holds in tests too. Holding is immediate, with nothing to wait for.
     final class HeldLane: Sendable {
         private let queue = DispatchQueue(label: "EditorPDFRailTests.HeldLane")
         private let gate = DispatchSemaphore(value: 0)

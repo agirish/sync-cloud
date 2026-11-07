@@ -3,7 +3,7 @@ import Testing
 @testable import FileExplorer
 
 /// The pane list's selection styling: the table search that turns the system highlight off, and the
-/// active/inactive wash that replaced the emphasized selection AppKit used to draw.
+/// active/inactive wash drawn in place of AppKit's emphasized selection.
 @MainActor
 @Suite struct PaneListSelectionStylerTests {
 
@@ -25,7 +25,7 @@ import Testing
     }
 
     /// An anchor is what a `.background` is: a view laid out to exactly the frame of the list it
-    /// backs. Measured identical to the point on a mounted pane.
+    /// backs (identical to the point on a mounted pane).
     private func anchor(at frame: CGRect) -> NSView { NSView(frame: frame) }
 
     // MARK: Table search
@@ -38,8 +38,8 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) === table)
     }
 
-    /// A table with no columns yet (SwiftUI mid-mount) still counts — the pane list is single-column
-    /// by construction, and refusing it here would leave the gray highlight on until a relayout.
+    /// A table with no columns yet (SwiftUI mid-mount) still counts: the pane list is single-column
+    /// by construction, and refusing it would leave the gray highlight on until a relayout.
     @Test func testZeroColumnTableCounts() {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
         let (scroll, table) = list(at: frame, columns: 0)
@@ -48,8 +48,8 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) === table)
     }
 
-    /// A multi-column table is a `Table` (the differences list), NOT a pane list. Styling it would
-    /// strip the selection highlight from the wrong view entirely.
+    /// A multi-column table is a `Table` (the differences list), not a pane list. Styling it would
+    /// strip the selection highlight from the wrong view.
     @Test func testMultiColumnTableIsIgnored() {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
         let (scroll, _) = list(at: frame, columns: 3)
@@ -58,10 +58,10 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) == nil)
     }
 
-    /// **The case the old walk got wrong.** Three columns are siblings under one `HStack`, so the
-    /// first ancestor holding any table holds all three — the subtree-counting walk refused, and
-    /// every column but the first kept the OS selection highlight. The frame resolves it: each
-    /// anchor sits over exactly one column.
+    /// Three columns are siblings under one `HStack`, so the first ancestor holding any table holds
+    /// all three, and a walk counting tables in a subtree would refuse, leaving every column but
+    /// the first with the OS highlight. The frame resolves it: each anchor sits over exactly one
+    /// column.
     @Test func testSiblingColumnsEachResolveToTheirOwnList() {
         var lists: [(scroll: NSScrollView, table: NSTableView)] = []
         var anchors: [NSView] = []
@@ -77,8 +77,7 @@ import Testing
         }
     }
 
-    /// The two comparison panes are never in the same place, so the frame separates them — which is
-    /// what the old ambiguity refusal was protecting against, now handled rather than declined.
+    /// The two comparison panes are never in the same place, so the frame separates them.
     @Test func testTheOtherPanesListIsNotPickedUp() {
         let mineFrame = CGRect(x: 0, y: 0, width: 400, height: 520)
         let theirsFrame = CGRect(x: 500, y: 0, width: 400, height: 520)
@@ -90,8 +89,7 @@ import Testing
     }
 
     /// Two lists in the same place mean the frame has stopped identifying anything. Refuse rather
-    /// than toss a coin between panes — the same discipline the old walk applied to an ambiguous
-    /// subtree.
+    /// than toss a coin between panes.
     @Test func testTwoListsInTheSamePlaceAreRefused() {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
         let a = list(at: frame)
@@ -101,7 +99,7 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) == nil)
     }
 
-    /// The differences table's styler asks for the OPPOSITE split: the one multi-column `Table`,
+    /// The differences table's styler asks for the opposite split: the one multi-column `Table`,
     /// never a pane list. Same resolver, same frame anchoring, inverted column filter.
     @Test func testMultiColumnModeResolvesTheDifferencesTable() {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 300)
@@ -111,7 +109,7 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor, multiColumn: true) === table)
     }
 
-    /// And a pane list under a multi-column anchor is refused — the differences styler painting
+    /// And a pane list under a multi-column anchor is refused: the differences styler painting
     /// washes into a pane list would double up the pane's own selection drawing.
     @Test func testMultiColumnModeIgnoresPaneLists() {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 300)
@@ -121,8 +119,8 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor, multiColumn: true) == nil)
     }
 
-    /// An anchor SwiftUI has not sized yet resolves to nothing rather than matching whatever
-    /// happens to sit at the origin — the caller retries once it has a frame.
+    /// An anchor SwiftUI hasn't sized yet resolves to nothing rather than matching whatever sits at
+    /// the origin; the caller retries once it has a frame.
     @Test func testAnUnlaidOutAnchorResolvesToNothing() {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
         let (scroll, _) = list(at: frame)
@@ -132,7 +130,7 @@ import Testing
     }
 
     /// A list nowhere near the anchor is not this anchor's list, however alone it is in the
-    /// hierarchy — otherwise a single stale table would be adopted by any anchor that asked.
+    /// hierarchy; otherwise a single stale table would be adopted by any anchor that asked.
     @Test func testANonOverlappingListIsNotAdopted() {
         let (scroll, _) = list(at: CGRect(x: 0, y: 0, width: 210, height: 520))
         let anchor = anchor(at: CGRect(x: 600, y: 0, width: 210, height: 520))
@@ -146,7 +144,7 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) == nil)
     }
 
-    /// The search climbs ancestors, so an anchor mounted deeper than the list still reaches it —
+    /// The search climbs ancestors, so an anchor mounted deeper than the list still reaches it,
     /// within the bounded number of levels.
     @Test func testSearchClimbsAncestorsWithinItsBudget() {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
@@ -172,9 +170,9 @@ import Testing
 
     // MARK: Selection wash
 
-    /// The active pane's selection must read stronger than the inactive one's — that gap is the
-    /// only remaining cue for which pane the action bar's Delete will act on, now that the system
-    /// highlight is off and the window is pinned to `controlActiveState == .active`.
+    /// The active pane's selection must read stronger than the inactive one's: with the system
+    /// highlight off and the window pinned to `controlActiveState == .active`, that gap is the only
+    /// cue for which pane the action bar's Delete will act on.
     @Test func testActiveWashIsStrongerThanInactive() {
         #expect(PaneSelectionWash.opacity(isActivePane: true) > PaneSelectionWash.opacity(isActivePane: false))
         #expect(PaneSelectionWash.opacity(isActivePane: true) == PaneSelectionWash.active)

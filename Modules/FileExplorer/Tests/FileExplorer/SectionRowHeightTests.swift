@@ -5,19 +5,12 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Pins the height a section header actually REACHES inside the table, at both densities.
-///
-/// `SectionHeaderMetricsTests` measures the header view's own `fittingSize`, which is what the
-/// header asks for. This measures what it gets, and the two are not the same number: a SwiftUI
-/// Table adds ~8pt of chrome around a hosted section header and floors the row at 28pt. Every
-/// spacing decision made about the collapsed summary was made about THIS number, so this is the
-/// one worth pinning — twice now, a padding value has been chosen against the view's height and
-/// been surprised by the row's.
-///
-/// The 28pt floor is SwiftUI's own and is not reachable from either lever we own: padding below 2
-/// changes nothing, and dropping Compact's `tableMinRowHeight` from 20 to 16 takes its DATA rows
-/// to 16pt while leaving the header at 28. That is why both densities are expected to agree here
-/// while their data rows do not.
+/// Pins the height a section header reaches inside the table, at both densities.
+/// `SectionHeaderMetricsTests` measures what the header asks for (`fittingSize`); this measures
+/// what it gets. A SwiftUI Table adds ~8pt of chrome around a hosted header and floors the row at
+/// 28pt, and the collapsed summary's spacing is judged against this number. The floor is SwiftUI's:
+/// padding below 2 changes nothing, and lowering Compact's `tableMinRowHeight` lowers its data rows
+/// but not the header, so both densities agree here while their data rows don't.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable) struct SectionRowHeightTests {
 
@@ -36,17 +29,12 @@ import Testing
         }
     }
 
-    /// Mounts the real view at `density` and reports (header row, data row), waiting until the
-    /// pair settles at `expectedData` under the header floor (or the timeout runs out).
-    ///
-    /// Both preferences are seeded into a fresh `ScratchDefaults` suite the view reads via
-    /// `.defaultAppStorage` — `UserDefaults.standard` is never touched, so nothing is inherited
-    /// from other suites, nothing leaks to them, and no restore is owed on the way out.
-    /// `@AppStorage`'s process-wide storage location for a standard-domain key can re-attach to
-    /// a fresh view without re-reading the defaults, and a loaded run of this suite proved the
-    /// grouping key was not special: it drew Comfortable's 24pt data rows for Compact's entire
-    /// 15s wait. A location born from this mount's own store cannot hold a foreign value. Full
-    /// account: `DifferencesTableIdentityTests`.
+    /// Mounts the real view at `density` and reports (header row, data row), waiting until the pair
+    /// settles at `expectedData` under the header floor or the timeout runs out. The preferences go
+    /// into a fresh `ScratchDefaults` suite read via `.defaultAppStorage`, never
+    /// `UserDefaults.standard`: `@AppStorage`'s process-wide location for a standard-domain key can
+    /// re-attach to a fresh view without re-reading defaults and show another run's density. A
+    /// location born from this mount's own store can't (see `DifferencesTableIdentityTests`).
     private func rowHeights(_ density: ListDensity,
                             expectingData expectedData: CGFloat)
         async -> (heights: (header: CGFloat, data: CGFloat)?, pumps: Int) {
@@ -73,21 +61,15 @@ import Testing
             for subview in view.subviews { if let found = table(subview) { return found } }
             return nil
         }
-        // Row 0 of a sectioned Table is the section HEADER, not the first file.
+        // Row 0 of a sectioned Table is the section header, not the first file.
         //
-        // The header does not get its height in the pass that materializes the rows: the table
-        // first lays row 0 out at the data-row height and only differentiates it when SwiftUI's
-        // row-height invalidation runs. Under a full parallel test run that invalidation can be
-        // starved well past any polite fixed window — measuring as soon as rows existed is how
-        // this test flaked, catching the header still at the data row's 24. So wait for the
-        // settled pair the assertions expect, `waitForOrigin`-style (PaneColumnsScrollTests),
-        // and on timeout return the last measurement so a real regression fails with the
-        // numbers actually on screen rather than hanging the assertions on a nil.
-        //
-        // Bounded by `LayoutPumpWait`'s pass floor as well as by its deadline: the invalidation
-        // arrives on main-actor turns, and a congested full-package run has fewer of them per
-        // second, so fifteen seconds can buy too few passes to see it. This suite gave up with no
-        // rows at all in a loaded run on 2026-08-04. See `docs/flaky-tests.md`, mechanism 2.
+        // The table first lays row 0 out at the data-row height and gives the header its own only
+        // when SwiftUI's row-height invalidation runs, which a full parallel run can starve past
+        // any fixed window. So wait for the settled pair the assertions expect (as
+        // PaneColumnsScrollTests' `waitForOrigin` does), and on timeout return the last
+        // measurement so a regression fails with the numbers on screen. Bounded by
+        // `LayoutPumpWait`'s pass floor as well as its deadline, since the invalidation needs
+        // main-actor turns (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
         let settled = (header: Self.headerRowHeight, data: expectedData)
         var last: (header: CGFloat, data: CGFloat)?
         let outcome = await LayoutPumpWait.pump(host, upTo: 15) {
@@ -103,11 +85,9 @@ import Testing
         let heights = try #require(measured.heights,
                                    "table never produced rows after \(measured.pumps) passes")
         #expect(heights.header == Self.headerRowHeight)
-        // Named so a failure says which number moved. The data row is the yardstick the header is
-        // judged against — a header that grew because the whole table grew is a different bug.
-        // 24, not a floor: comfortable sets no `tableMinRowHeight`, so the tallest cell decides —
-        // it was 25 while the "Copy to" pill chip lived in the row, and became the text cells' 24
-        // when the Path column replaced the chip.
+        // Named so a failure says which number moved: the data row is the yardstick, and a header
+        // that grew because the whole table grew is a different bug. 24, not a floor: comfortable
+        // sets no `tableMinRowHeight`, so the tallest cell, a text cell, decides.
         #expect(heights.data == 24)
     }
 
@@ -119,8 +99,8 @@ import Testing
         #expect(heights.data == 20)
     }
 
-    /// The claim the padding constant's doc rests on, asserted rather than left as a comment: the
-    /// densities differ in their data rows and agree on their header.
+    /// The claim the padding constant's doc rests on: the densities differ in their data rows and
+    /// agree on their header.
     @Test func theTwoDensitiesAgreeOnTheHeaderAndDisagreeOnTheRow() async throws {
         let comfortableMeasured = await rowHeights(.comfortable, expectingData: 24)
         let compactMeasured = await rowHeights(.compact, expectingData: 20)

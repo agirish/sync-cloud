@@ -2,22 +2,18 @@ import AppKit
 import Events
 import UniformTypeIdentifiers
 
-/// **The four things a key, a paste or a drop does differently in a writable Markdown file**
-/// (TE54–TE56): Return carries a list on, Tab and ⇧Tab move an item, a web address pasted onto
-/// words links them, and an image dropped or pasted is saved and linked.
+/// The four things a key, a paste or a drop does differently in a writable Markdown file: Return
+/// carries a list on, Tab and ⇧Tab move an item, a web address pasted onto words links them, and
+/// an image dropped or pasted is saved and linked.
 ///
-/// **Each is a narrow exception to "Edit never writes what you did not type"**, so each asks every
-/// question first and does what the key or the paste always did when any answer is no: not Markdown,
-/// not writable, the IME composing (marked text), the caret in code or the front matter — and, for
-/// Return and Tab alone, Continue Lists off. See ``MarkdownListEdits`` and ``MarkdownPasteEdits``
-/// for the rest.
+/// Each is a narrow exception to "Edit never writes what you did not type", so each does what the
+/// key or paste normally does unless every check passes: Markdown, writable, no IME composing
+/// (marked text), the caret outside code and the front matter, and for Return and Tab, Continue
+/// Lists on. See ``MarkdownListEdits`` and ``MarkdownPasteEdits`` for the rest.
 ///
-/// **Every edit is its own undo step, apart from the typing on either side of it** —
-/// `breakUndoCoalescing()` before and after the `insertText(_:replacementRange:)` that typing itself
-/// goes through. Without the breaks the edit joins the run of typing before it, and one ⌘Z takes
-/// the words back too (measured 2026-10-04, with a run-loop turn between keys). Everything one key
-/// does lands in that key's single undo step — the undo manager groups by event — which is why
-/// Return and the marker it adds come back together, never one without the other.
+/// Every edit is its own undo step, apart from the typing either side: `breakUndoCoalescing()`
+/// before and after the `insertText(_:replacementRange:)`, or one ⌘Z takes the words back too.
+/// The undo manager groups by event, so Return and the marker it adds undo together.
 extension PlainTextEditor.Coordinator: EditorTextViewHandling {
 
     /// Whether the Markdown-only edits apply in `view` at all.
@@ -25,9 +21,8 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         editsMarkdown && view.isEditable && !view.hasMarkedText()
     }
 
-    /// The buffer as the storage holds it — **not `view.string`, which copies the whole document**
-    /// out of the text storage to answer one keystroke (see ``EditorSourceStorage/text``, the copy
-    /// kept so nothing else has to).
+    /// The buffer as the storage holds it, not `view.string`, which copies the whole document to
+    /// answer one keystroke (see ``EditorSourceStorage/text``, the copy kept so nothing else has to).
     private func buffer(of view: NSTextView) -> NSString {
         view.textStorage?.mutableString ?? (view.string as NSString)
     }
@@ -39,13 +34,12 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         return command(selector, in: view, shift: modifiers.contains(.shift))
     }
 
-    /// The key commands this editor answers in a Markdown file, with ⇧ said rather than read off the
-    /// current event — the seam a test drives.
+    /// The key commands this editor answers in a Markdown file, with ⇧ passed in rather than read
+    /// off the current event: the seam a test drives.
     ///
-    /// **⇧Return and ⌃Return are a plain line break** (LST-6, LST-7, 2026-10-15), whatever Continue
-    /// Lists says. AppKit sends ⇧Return as Return, so it carried a list on where Preview makes it a
-    /// line break; and ⌃Return as `insertLineBreak:`, which writes U+2028 — a new line on screen and
-    /// none to Markdown, so `- eggs`, ⌃Return, `- milk` was one item reading "eggs - milk".
+    /// ⇧Return and ⌃Return are a plain line break, whatever Continue Lists says. AppKit sends
+    /// ⇧Return as Return, which would carry a list on, and ⌃Return as `insertLineBreak:`, which
+    /// writes U+2028: a new line on screen and none to Markdown, so two items would read as one.
     func command(_ selector: Selector, in view: NSTextView, shift: Bool) -> Bool {
         if typesMarkdown(in: view) {
             if selector == #selector(NSResponder.insertLineBreak(_:)) {
@@ -54,9 +48,8 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
             }
             if selector == #selector(NSResponder.insertNewline(_:)), shift { return false }
         }
-        // **One selection** (LST-15, 2026-10-15), as for a paste: a column selection over several
-        // items is "a selection over several lines", which is today's key. It moved the first
-        // range's item alone and dropped the rest of the selection.
+        // One selection, as for a paste: a column selection over several items gets the plain key,
+        // since moving only the first range's item would drop the rest of the selection.
         guard continuesLists, typesMarkdown(in: view), view.selectedRanges.count == 1 else { return false }
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
@@ -70,14 +63,14 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         }
     }
 
-    /// Return at the end of a list item: the line break EXACTLY as Return makes it, and the
-    /// opening after it — or the empty item's opening taken off before it.
+    /// Return at the end of a list item: the line break exactly as Return makes it and the opening
+    /// after it, or, on an empty item, its opening taken off.
     private func carryOnList(in view: NSTextView) -> Bool {
         guard let first = MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
         else { return false }
-        // This Return writes: the file to LF first, then measured again on it (`EditorLineEndings`) —
-        // only when that changed something (LST-14, 2026-10-15): in an LF file, which is nearly
-        // every file, the second reading was the first again, at a parse or two of the document.
+        // This Return writes: the file to LF first (`EditorLineEndings`), then measured again, but
+        // only when that changed something. In an LF file, nearly every file, a second reading would
+        // cost a parse or two for the same answer.
         let converted = (view as? EditorTextView)?.convertLineEndingsToLF(on: "Return in a list") ?? []
         guard let edit = converted.isEmpty
                 ? Optional(first) : MarkdownListEdits.returnEdit(in: buffer(of: view), selection: view.selectedRange())
@@ -106,10 +99,10 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
     private func moveListItem(in view: NSTextView, outdent: Bool) -> Bool {
         guard let first = MarkdownListEdits.tabEdit(in: buffer(of: view), selection: view.selectedRange(),
                                                     outdent: outdent) else { return false }
-        // Taken but changing nothing — an item that cannot move: no edit, so no conversion either.
+        // Taken but changing nothing (an item that can't move): no edit, so no conversion either.
         guard case .rewrite = first else { return true }
-        // Measured again only on a buffer the conversion changed (LST-14): a Tab is several parses
-        // of the whole document, and in an LF file the second reading was the first again.
+        // Measured again only on a buffer the conversion changed: a Tab is several parses of the
+        // whole document, and in an LF file the second reading would match the first.
         let converted = (view as? EditorTextView)?.convertLineEndingsToLF(on: outdent ? "⇧Tab in a list" : "Tab in a list") ?? []
         guard case .rewrite(let range, let text, let selection)? = converted.isEmpty
                 ? Optional(first)
@@ -120,9 +113,9 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         return true
     }
 
-    /// **This edit writes**: the file to LF first (``EditorLineEndings``), and `range` — measured on
-    /// the buffer before — mapped across, so whatever is measured next is measured on the LF text.
-    /// Called only once the edit is certain: a paste or drop that ends in a refusal converts nothing.
+    /// This edit writes: the file to LF first (``EditorLineEndings``), and `range`, measured on the
+    /// buffer before, mapped across so the next measurement is on the LF text. Called only once the
+    /// edit is certain, so a paste or drop that ends in a refusal converts nothing.
     private func convertedForWriting(_ range: NSRange, in view: NSTextView, on trigger: String) -> NSRange {
         guard let editor = view as? EditorTextView else { return range }
         return EditorLineEndings.mapped(range, through: editor.convertLineEndingsToLF(on: trigger))
@@ -138,14 +131,14 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
     // MARK: Paste
 
     func handlePaste(from pasteboard: NSPasteboard, in view: NSTextView) -> Bool {
-        // **One selection.** With several (⌘-drag), AppKit's paste replaces the first and deletes
-        // the rest; neither edit here has an answer for the rest, so it is AppKit's paste.
+        // One selection. With several (⌘-drag), AppKit's paste replaces the first and deletes the
+        // rest; neither edit here has an answer for the rest, so it is AppKit's paste.
         guard typesMarkdown(in: view), view.selectedRanges.count == 1 else { return false }
         let selection = view.selectedRange()
 
-        // TE56: image FILES, copied in Finder or a pane — copied in as a drop copies them. Their
-        // names come along as text, and the names are not what anybody meant — except where no
-        // image may go (code, raw HTML, the front matter), where the names paste as they always did.
+        // Image files copied in Finder or a pane are copied in as a drop copies them. Their names
+        // come along as text, which nobody meant, except where no image may go (code, raw HTML,
+        // the front matter): there the names paste as text.
         if let importer = imageImport, let files = EditorTextView.imageFiles(on: pasteboard),
            Self.imageCanGo(count: files.count, at: selection, in: buffer(of: view)) {
             insertImages(files.map(EditorImageImport.Source.file), at: selection, in: view, importer: importer)
@@ -153,11 +146,10 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         }
         let string = pasteboard.string(forType: .string)
 
-        // TE55: one web address, pasted over words. "Nothing else" on the clipboard: a file copied
-        // in Finder carries its name as a string too, and is not an address. An address put there
-        // as a URL alone, with no text beside it, is the same address — but **not one beside a
-        // picture** (review IMG-2): a picture copied in a browser carries its own address, and
-        // with words selected that pasted a link to it, and no picture.
+        // One web address, pasted over words, and no file URL: a file copied in Finder carries its
+        // name as a string too. An address put there as a URL alone counts, but not one beside a
+        // picture: a picture copied in a browser carries its own address, and should paste as the
+        // picture, not a link.
         let address = string ?? (Self.carriesImageData(pasteboard) ? nil : Self.webURL(on: pasteboard))
         if let address, selection.length > 0, !pasteboard.canReadObject(forClasses: [NSURL.self],
                                                                         options: [.urlReadingFileURLsOnly: true]),
@@ -171,9 +163,9 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
             return true
         }
 
-        // TE56: image data and no text — a screenshot, or a picture copied in a browser, which puts
-        // its address beside it as a URL. Anything carrying text pastes the text, as it always did:
-        // rich text copied from a document often carries a picture OF itself too.
+        // Image data and no text: a screenshot, or a picture copied in a browser, which puts its
+        // address beside it as a URL. Anything carrying text pastes the text: rich text copied from
+        // a document often carries a picture of itself too.
         guard string == nil, let importer = imageImport, let image = Self.pastedImage(on: pasteboard) else {
             return false
         }
@@ -181,21 +173,21 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         return true
     }
 
-    /// Whether the clipboard holds a picture's data — of a type an image reads — and not only an
-    /// address or a file's URL.
+    /// Whether the clipboard holds a picture's data (of a type an image reads), not only an address
+    /// or a file's URL.
     static func carriesImageData(_ pasteboard: NSPasteboard) -> Bool {
         pasteboard.availableType(from: NSImage.imageTypes.map { NSPasteboard.PasteboardType($0) }) != nil
     }
 
-    /// The one web URL on the clipboard when it holds a URL and no text — what a URL written as an
-    /// object alone puts there. `nil` for none, several, or a file.
+    /// The one web URL on the clipboard when it holds a URL and no text, as a URL written alone
+    /// puts there. `nil` for none, several, or a file.
     static func webURL(on pasteboard: NSPasteboard) -> String? {
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
               urls.count == 1, let url = urls.first, !url.isFileURL else { return nil }
         return url.absoluteString
     }
 
-    /// The formats a pasted picture is saved in as it came — each one Preview draws, and each
+    /// The formats a pasted picture is saved in as it came: each one Preview draws, and each
     /// already compressed. Anything else (TIFF, PDF, BMP…) is converted to PNG.
     static let keptImageFormats: [(type: NSPasteboard.PasteboardType, fileExtension: String)] = [
         (.png, "png"),
@@ -205,13 +197,12 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
         (NSPasteboard.PasteboardType(UTType.webP.identifier), "webp"),
     ]
 
-    /// **The clipboard's picture, saved as it came** where it is one of ``keptImageFormats``, and
-    /// anything else AppKit reads converted to PNG — `nil` for no picture.
+    /// The clipboard's picture, saved as it came where it is one of ``keptImageFormats``, and
+    /// anything else AppKit reads converted to PNG; `nil` for no picture.
     ///
-    /// Everything used to be converted (review IMG-4, 2026-10-15): a JPEG photo re-encoded as PNG
-    /// came out 4.8 times the size — 657 KB to 3.2 MB — in somebody's synced folder, and a real
-    /// photo could cross the 25 MB Preview draws. TIFF is uncompressed and PDF is not a picture
-    /// Preview draws, so those two still become PNG.
+    /// A JPEG photo re-encoded as PNG comes out several times the size, in a synced folder, and can
+    /// cross the 25 MB Preview draws. TIFF is uncompressed and PDF is not a picture Preview draws,
+    /// so those become PNG.
     static func pastedImage(on pasteboard: NSPasteboard) -> EditorImageImport.Source? {
         for format in keptImageFormats {
             if let data = pasteboard.data(forType: format.type), !data.isEmpty {
@@ -238,11 +229,11 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
 
     // MARK: Images
 
-    /// **Whether `count` images may go at `range`, asked of the text as it will read with them in
-    /// it** — placeholder links, the same lines. A link inside a code block, raw HTML, a link
-    /// definition or the front matter is literal text, and the image would be a file nothing shows.
-    /// Asked of the result and not only of the drop point, because on a blank line the blank lines
-    /// added decide it: inside a fence they are code, after an HTML block they end it.
+    /// Whether `count` images may go at `range`, asked of the text as it will read with placeholder
+    /// links in it. A link inside a code block, raw HTML, a link definition or the front matter is
+    /// literal text, and the image would be a file nothing shows. Asked of the result, not the drop
+    /// point, because the blank lines added decide it: inside a fence they are code, after an HTML
+    /// block they end it.
     static func imageCanGo(count: Int, at range: NSRange, in ns: NSString) -> Bool {
         guard let trial = MarkdownPasteEdits.imageBlock(Array(repeating: "x", count: max(count, 1)),
                                                         replacing: range, in: ns) else { return false }
@@ -250,11 +241,11 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
                                                 in: ns.replacingCharacters(in: trial.range, with: trial.text) as NSString)
     }
 
-    /// Saves the images and links them at `range` — or says why not, and writes nothing.
+    /// Saves the images and links them at `range`, or says why not and writes nothing.
     @discardableResult
     private func insertImages(_ sources: [EditorImageImport.Source], at range: NSRange,
                               in view: NSTextView, importer: EditorImageImporter) -> Bool {
-        // **Asked before anything is written** — see `imageCanGo`.
+        // Asked before anything is written: see `imageCanGo`.
         let ns = buffer(of: view)
         guard Self.imageCanGo(count: sources.count, at: range, in: ns) else {
             importer.report(.refused("An image can’t go in a code block, raw HTML, a link definition or the "
@@ -262,8 +253,8 @@ extension PlainTextEditor.Coordinator: EditorTextViewHandling {
             return false
         }
         let report = EditorImageImport.importImages(sources, forNote: importer.notePath, linkedIn: ns as String)
-        // Only once the images are written is the link certain — the file to LF then, and the block
-        // measured on it: its caret is in the units of the text it is written into (2026-10-09).
+        // Only once the images are written is the link certain: the file goes to LF then, and the
+        // block is measured on it, since its caret is in the units of the text it is written into.
         guard case .wrote(_, _, let links, _) = report, !links.isEmpty,
               let splice = MarkdownPasteEdits.imageBlock(links, replacing: convertedForWriting(range, in: view, on: "an image paste or drop"),
                                                          in: buffer(of: view)) else {

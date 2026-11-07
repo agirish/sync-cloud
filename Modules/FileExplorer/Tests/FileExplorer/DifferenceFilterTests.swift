@@ -2,8 +2,8 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// Coverage for DifferenceFilter.matches — the predicate driving what the differences list shows.
-/// The two "changed" cases discriminate on BOTH type and action, a compound condition easy to break.
+/// `DifferenceFilter.matches`, the predicate deciding what the differences list shows. The two
+/// "changed" cases test both type and action, a compound condition easy to break.
 @Suite struct DifferenceFilterTests {
 
     private func diff(_ type: FileDifference.DifferenceType, _ action: FileDifference.SyncAction) -> FileDifference {
@@ -47,21 +47,20 @@ import Sync
         #expect(DifferenceFilter.failed.displayName(leftName: "iCloud", rightName: "Dropbox") == "Failed to transfer")
     }
 
-    /// `.failed` ignores every property the shape filters read, and answers only from the id set.
-    /// Both fixtures use the SAME difference, so nothing but the set can be deciding.
+    /// `.failed` ignores every property the shape filters read and answers only from the id set.
+    /// Both fixtures use the same difference, so only the set can decide.
     @Test func testFailedFiltersOnTheIDSetAndNothingElse() {
         let d = diff(.missingOnRight, .copyToRight)
         #expect(DifferenceFilter.failed.matches(d, failedIDs: [d.id]))
         #expect(!DifferenceFilter.failed.matches(d, failedIDs: []))
-        // ...and a shape filter is deaf to the set, or a failed row would vanish from the
-        // filter that describes what it IS the moment a transfer failed on it.
+        // ...and a shape filter ignores the set, or a failed row would vanish from the filter
+        // that describes what it is.
         #expect(DifferenceFilter.missingOnRight.matches(d, failedIDs: []))
         #expect(DifferenceFilter.missingOnRight.matches(d, failedIDs: [d.id]))
     }
 
     @Test func testDisplayNameWithSpatialFallbackMatchesOriginalLabels() {
-        // With the Left/Right fallback names the labels must read exactly as they did
-        // before the provider-name refactor.
+        // With the Left/Right fallback names, the labels read "Left" and "Right".
         let names = PaneProviderNames.leftRight
         #expect(DifferenceFilter.missingOnLeft.displayName(leftName: names.left, rightName: names.right) == "Missing on Left")
         #expect(DifferenceFilter.missingOnRight.displayName(leftName: names.left, rightName: names.right) == "Missing on Right")
@@ -79,7 +78,7 @@ import Sync
     }
 }
 
-/// Coverage for PaneProviderNames — pane display names with same-provider disambiguation.
+/// `PaneProviderNames`: pane display names, with same-provider disambiguation.
 @Suite struct PaneProviderNamesTests {
 
     @Test func testDistinctProvidersUsePlainNames() {
@@ -113,12 +112,9 @@ import Sync
 
     // MARK: The plain name — what a surface showing ONE pane says
 
-    /// **The suffix is a disambiguator, not part of the provider's name.** It exists so two panes
-    /// on the same provider can be told apart; a surface showing one pane has nothing to tell it
-    /// apart from, and the suffix there is a distinction the reader cannot interpret. Reported
-    /// against the Organize tab, whose breadcrumbs all read "iCloud (left) › Documents › …"
-    /// whenever the Compare tab's two panes happened to sit on the same provider: "left in
-    /// parenthesis doesn't make sense right? Just iCloud should suffice."
+    /// The suffix is a disambiguator, not part of the provider's name: it tells two panes on one
+    /// provider apart. A surface showing one pane, like Organize's breadcrumbs, shows the plain
+    /// name, since "iCloud (left)" means nothing there.
     @Test func testPlainNameDropsTheSideSuffix() {
         let names = PaneProviderNames(leftName: "iCloud", rightName: "iCloud")
         #expect(names.plain(isLeft: true) == "iCloud")
@@ -127,17 +123,16 @@ import Sync
                 "the disambiguated pair must be untouched — the two-pane surfaces still need it")
     }
 
-    /// Where the two panes already differ, plain and disambiguated are the same string — which is
-    /// what makes switching every single-pane surface to `plain` safe in one go: it can only have
-    /// changed anything for someone whose two panes are on one provider.
+    /// Where the two panes differ, plain and disambiguated are the same string, so `plain` changes
+    /// a single-pane surface only when both panes are on one provider.
     @Test func testPlainAndDisambiguatedAgreeForDifferentProviders() {
         let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
         #expect(names.plain(isLeft: true) == names.left)
         #expect(names.plain(isLeft: false) == names.right)
     }
 
-    /// **Kept, not stripped.** Recovering the plain name by removing a "(left)" suffix would
-    /// mangle a source a user genuinely named that way; the raw name is already in hand at init.
+    /// The plain name is kept, not stripped: removing a "(left)" suffix would mangle a source a
+    /// user really named that way, and the raw name is already in hand at init.
     @Test func testAProviderNamedLikeTheSuffixSurvives() {
         let names = PaneProviderNames(leftName: "Archive (left)", rightName: "Dropbox")
         #expect(names.plain(isLeft: true) == "Archive (left)")

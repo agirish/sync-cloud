@@ -1,33 +1,14 @@
 import SwiftUI
 import Design
 
-/// One fact on a lens header's summary row, drawn as **text rather than as a capsule**.
+/// One fact on a lens header's summary row, drawn as text rather than a capsule. The row's rule
+/// is that a capsule is a control: the focus chips navigate and wear one; readouts such as
+/// `10 ready` or `4 unsure` do nothing when clicked, so they are plain text.
 ///
-/// ## Why this exists
-///
-/// Organize's summary row had six capsules on it and three of them were buttons. The focus chips —
-/// `14 to file`, `3 risky names`, `126 folders to rename` — navigate; `10 ready`, `4 new folders`
-/// and `4 unsure` are a readout and do nothing when clicked. Every one of them was a `StatPill`, so
-/// they were the same shape, the same size and the same tinted-capsule idiom, and the only way to
-/// find out which half was live was to click and see. The scanned-folder chip sat *between* the two
-/// groups wearing neither treatment, which made it read as a third, broken kind of button.
-///
-/// So the row now has one rule: **a capsule is a control.** The focus chips keep theirs and are the
-/// only things on the row that wear one; everything else is a run of text.
-///
-/// ## Why the number is not tinted
-///
-/// The obvious de-capsuling — keep the semantic colour, drop the wash — makes the row *less*
-/// legible, not more. `SemanticColor.caution` is `Color.yellow`, and the 0.14 wash and 0.45 hairline
-/// a `Pill` puts behind it are most of what gives yellow text a shape on a white card. Take the
-/// capsule away and "4 unsure" is yellow-on-white.
-///
-/// The colour therefore moves to the glyph, which is a non-text indicator and answers to 3:1 rather
-/// than 4.5:1, and the words take the standard label hierarchy: the count at `.primary` because it
-/// is the fact, the noun at `.secondary` because it only names it. That is strictly more readable
-/// than what it replaces, and it is the same treatment ``LensWorkspaceView/scannedFolderChip(_:)`` already
-/// used — which is why the scope now reads as the first member of the readout instead of an oddity
-/// between two groups.
+/// The number isn't tinted: without a `Pill`'s wash, yellow `SemanticColor.caution` text is
+/// unreadable on white. The colour goes on the glyph, a non-text indicator held to 3:1, and the
+/// words use the label hierarchy: count `.primary`, noun `.secondary`. The same treatment as
+/// ``LensWorkspaceView/scannedFolderChip(_:help:)``, so the scope reads as part of the readout.
 struct SummaryRun: View {
     let count: Int
     /// The noun after the count. Already pluralised by the caller — only the caller knows the rule.

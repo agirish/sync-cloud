@@ -4,18 +4,12 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// Proves a flat `semantic` capsule survives WITHOUT a trailing chevron, by rendering the pill and
-/// reading the pixels it actually paints.
-///
-/// The collapsed differences strip shows the same count as the expanded header but has no toggle,
-/// so it passes `semantic:` with no `trailingSystemImage:`. `StatPill` used to key its whole
-/// composed path on the trailing symbol alone, so that combination silently fell through to the
-/// pale tint wash — the count wore one colour language expanded and another collapsed, and no
-/// assertion anywhere could see it, because both spellings type-check and both render *something*.
-///
-/// Sampling the MODAL opaque colour (the capsule fill, which outnumbers the dot/text/chevron
-/// pixels) is what makes the with-chevron and without-chevron specimens directly comparable: the
-/// chevron changes the pill's width and pixel mix, but not the colour of its fill.
+/// A flat `semantic` capsule survives without a trailing chevron, checked in painted pixels. The
+/// collapsed differences strip shows the expanded header's count with no toggle, so it passes
+/// `semantic:` with no `trailingSystemImage:`. Keying the composed path on the trailing symbol
+/// alone would drop it to the pale tint wash, and both spellings type-check and render something.
+/// The modal opaque colour (the capsule fill) makes the two comparable: the chevron changes the
+/// pill's width and pixel mix, not its fill.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct StatPillFlatFillTests {
 
@@ -34,7 +28,7 @@ import Testing
         return rep
     }
 
-    /// The most frequent fully-opaque colour, quantized to 1/32 per channel — i.e. the capsule fill.
+    /// The most frequent fully-opaque colour, quantized to 1/32 per channel: the capsule fill.
     private func modalFill(_ rep: NSBitmapImageRep) -> (r: Double, g: Double, b: Double) {
         var counts: [Int: Int] = [:]
         for x in 0..<rep.pixelsWide {
@@ -75,9 +69,9 @@ import Testing
     }
 
     @Test func testTheFlatFillIsNotTheTintWashItUsedToFallThroughTo() throws {
-        // The pre-fix rendering of the collapsed strip: no semantic style reaches the surface, so
-        // the pill wears `color` as a pale wash. If the fall-through ever comes back, THIS is the
-        // assertion that fails — the one above would still pass if both specimens regressed.
+        // The collapsed strip with no semantic style reaching the surface wears `color` as a pale
+        // wash. If the fall-through comes back, this assertion fails; the one above would still
+        // pass if both specimens regressed.
         let flat = modalFill(try render(pill(trailing: nil, semantic: accent, tint: .blue)))
         let wash = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.warning)))
         #expect(distance(flat, wash) > 0.20,
@@ -85,11 +79,10 @@ import Testing
     }
 
     @Test func testAPlainTintedPillStillTakesTheSharedPillPath() throws {
-        // Guard the other direction: the many plain lens pills must not be dragged onto the
-        // composed surface by this change. Two tints that differ only in hue must still differ.
-        // Over an opaque white ground, so the 14% wash composites to an opaque colour the modal read
-        // counts. The pill's words are label colour now (DS1), so on a bare window the only opaque
-        // pixels were the black words — the same in both tints — and the tint lives in the wash.
+        // The other direction: plain lens pills must stay off the composed surface, so two tints
+        // that differ only in hue must still differ. Over opaque white, so the 14% wash composites
+        // to an opaque colour the modal read counts; the words are label colour, the same in both
+        // tints, so the tint lives only in the wash.
         let warning = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.warning)
             .background(Color.white)))
         let info = modalFill(try render(pill(trailing: nil, semantic: nil, tint: SemanticColor.info)
@@ -98,10 +91,10 @@ import Testing
                 "the plain tinted pills stopped carrying their tint: \(warning) vs \(info)")
     }
 
-    /// **The composed pill's words are label colour on its tint's wash (DS1, RB1).** Its wash is
-    /// drawn inside `StatPillSurface`, out of the source scan's reach, so the words are read off a
-    /// render: the darkest pixel in light, the brightest in dark, near-neutral black or white —
-    /// where the caution yellow they once wore sits near L 0.6 with a strong cast.
+    /// The composed pill's words are label colour on its tint's wash. The wash is drawn inside
+    /// `StatPillSurface`, out of the source scan's reach, so the words are read off a render: the
+    /// darkest pixel in light and the brightest in dark must be near-neutral black or white, not
+    /// the caution yellow (near L 0.6, strongly tinted).
     @Test(arguments: [false, true]) func theComposedPillsWordsAreLabelColour(dark: Bool) throws {
         let pill = pill(trailing: "chevron.right", semantic: nil, tint: SemanticColor.caution)
             .padding(6)
@@ -119,11 +112,10 @@ import Testing
         host.layoutSubtreeIfNeeded()
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        // Raw bytes: `colorAt` tags sRGB numbers as calibrated. Two reads, because one cannot say
-        // it alone. The extreme pixel is the words' ink when they are drawn in label colour — but
-        // the trailing chevron and the rolling count keep a label-colour pixel whatever the words
-        // wear, so it would win either way. So also count the strongly coloured pixels: the words
-        // in the caution yellow are chroma near 1, the hairline (the tint at 0.45) and the wash
+        // Raw bytes: `colorAt` tags sRGB numbers as calibrated. Two reads, because one can't decide
+        // alone: the chevron and the rolling count keep a label-colour pixel whatever the words
+        // wear, so the extreme pixel passes either way. So also count strongly coloured pixels:
+        // words in caution yellow are chroma near 1, the hairline (the tint at 0.45) and the wash
         // under 0.6.
         var best: (l: CGFloat, chroma: CGFloat) = (dark ? 0 : 1, 0)
         var coloured = 0

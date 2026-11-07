@@ -5,30 +5,16 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// The palette's results list, **rendered and read back**, in light and dark.
+/// The palette's results list, rendered and read back in light and dark.
 ///
-/// ## Why pixels, on a view whose every decision is elsewhere
+/// `CommandPaletteTests` proves the routing; only pixels show whether the rows draw and whether the
+/// highlight is on the selected row and only there. The list is driven entirely by ↑ ↓ ↩, so a
+/// highlight that did not render would leave every keystroke landing somewhere invisible.
 ///
-/// `CommandPaletteTests` proves the routing. It cannot see whether the row that carries a route is
-/// legible, whether the disabled row's *reason* survives the layout, or whether the highlight is
-/// visible at all — and this codebase's own record is that geometry and ink counts do not see what a
-/// person sees. Four defects have shipped past green suites here and been caught by rendering.
+/// The subject is `PaletteResultsList` alone, the list under ⌘K's Go to field
+/// (`GoToResultsPanel`), mounted without glass so the highlight is measurable.
 ///
-/// Two claims in particular can only be made in pixels:
-///
-/// - **The reason on an unavailable row is drawn**, not merely present in the model. It is the row's
-///   trailing text on a row whose title may be long; a layout that dropped it would leave an
-///   unmounted source looking like an ordinary one.
-/// - **The highlight is drawn on the selected row and only there**, in both schemes. This surface is
-///   driven entirely by ↑ ↓ ↩, so a highlight that did not render would leave every keystroke
-///   landing somewhere invisible.
-///
-/// **The subject is `PaletteResultsList`, not a whole palette.** The 620pt card these tests were
-/// written against is gone — ⌘K is the toolbar's Go to field with `GoToResultsPanel` under it — and
-/// the list is the part both surfaces drew. Mounting it alone was always how the highlight was made
-/// measurable (see the type's own note); now it is also the only thing left to mount.
-///
-/// **`.machinePinned(.pixelSampling)`** — it reads pixels out of a live renderer.
+/// `.machinePinned(.pixelSampling)`: it reads pixels out of a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct CommandPaletteRenderTests {
 
@@ -54,14 +40,10 @@ import Design
         PaletteRouter.rows(query: query, index: index())
     }
 
-    /// Mounts **the results list on its own**, without the card's glass wrapper.
-    ///
-    /// **Measured, not assumed:** a plain blue rectangle renders blue through a bare
-    /// `NSHostingView` and comes back WHITE through the same host once `contentSurface` +
-    /// `groundedGlassCard` is wrapped around it. So the whole-card render above can see the text
-    /// and nothing about the selection highlight — which is the one thing a keyboard-only surface
-    /// depends on. `PaletteResultsList` exists to be measurable here, the same reason
-    /// `ScopeChipLabel` is extracted from `LensWorkspaceView`.
+    /// Mounts the results list on its own, without a glass wrapper: offscreen, a blue rectangle
+    /// inside `contentSurface` + `groundedGlassCard` reads back white, which would hide the
+    /// selection highlight. `PaletteResultsList` is separate to be measurable here, as
+    /// `ScopeChipLabel` is from `LensWorkspaceView`.
     static func renderList(rows: [PaletteRow], selection: Int?, scheme: ColorScheme,
                            width: CGFloat = 620, height: CGFloat = 460,
                            accent: Color = .blue) -> NSBitmapImageRep {
@@ -116,10 +98,8 @@ import Design
         return count
     }
 
-    /// Pixels that are not the image's own corner — **read from the bitmap, never from an
-    /// `NSColor` built by hand.** `NSColor(white:alpha:)` is in the generic gray space, and asking
-    /// it for `redComponent` throws rather than converting; the corner pixel comes out of the same
-    /// sRGB bitmap as everything it is compared against.
+    /// Pixels that are not the image's own corner. The corner is read from the bitmap, never built
+    /// as an `NSColor`: `NSColor(white:alpha:)` is grey-space, and its `redComponent` throws.
     static func inked(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
         var count = 0
@@ -136,22 +116,11 @@ import Design
 
     // MARK: It draws at all, in both schemes
 
-    /// **A blank-render smoke check, and no more than that — the mutation said so.**
-    ///
-    /// The exact half is the baseline: `PaletteResultsList` with no rows paints **nothing at all** —
-    /// no background, no chrome, no frame of its own. Measured, 0 ink in both schemes. That is a real
-    /// invariant and it is what stops the floor below being a comparison against unknown furniture.
-    ///
-    /// **The floor does NOT tell you the rows drew, and an earlier version of this comment claimed
-    /// it did.** Mutating the subject down to a single row left the test green, so the claim was
-    /// measured and withdrawn rather than reworded. The numbers say why: for this 20-row fixture,
-    /// one row inks 108,838 and all twenty ink 150,783 (light; 109,507 / 156,798 dark). Ink here is
-    /// dominated by a fixed cost that arrives with the first row, so it separates *blank* from
-    /// *drawn* and nothing finer.
-    ///
-    /// What actually catches a row-level regression is below: `theHighlightFollowsTheSelection`,
-    /// `theSelectionMovesDownTheScreenAsTheIndexRises` and the two differing-pixel tests. This one
-    /// only catches the case where the list renders as an empty page.
+    /// A blank-render smoke check only. An empty list paints nothing at all, which keeps the floor
+    /// below meaningful. The floor tells blank from drawn and nothing finer: one row inks ~109,000
+    /// and twenty ~151,000, so a list cut to one row still passes. Row-level regressions are caught
+    /// by `theHighlightFollowsTheSelection`, `theSelectionMovesDownTheScreenAsTheIndexRises` and
+    /// the two differing-pixel tests.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func theListDrawsItsRows(scheme: ColorScheme) {
         let rows = Self.rows("")
@@ -166,12 +135,9 @@ import Design
 
     // MARK: The highlight is real, and it is where the selection says
 
-    /// Moving the selection must move paint, and the paint must be the **accent**.
-    ///
-    /// Two renders differing only in `selection`. A highlight that was not drawn, or was drawn in a
-    /// fixed place, makes these identical; a highlight drawn in some neutral wash passes the
-    /// difference check and fails the accent one, which is the failure this suite was written after
-    /// finding — the fill came back white and the row's white-on-accent label was invisible on it.
+    /// Moving the selection must move paint, and the paint must be the accent. A highlight not
+    /// drawn, or drawn in a fixed place, makes the two renders identical; one drawn in a neutral or
+    /// white wash passes the difference check and fails the accent one, and hides the white label.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func theHighlightFollowsTheSelection(scheme: ColorScheme) {
         let rows = Self.rows("")
@@ -183,12 +149,9 @@ import Design
         #expect(Self.accentPixels(third) > 3_000, "no accent fill under the moved selection in \(scheme)")
     }
 
-    /// **The highlight is the deepened accent, under a white label** — the fill every other lit
-    /// control takes. It was the raw accent with `Color.onFillLabel`, which on Green drew the row in
-    /// dark ink: a second look beside the white-on-deepened buttons.
-    ///
-    /// The ground is read back first and must be exactly the colour it was painted, so a reading
-    /// pipeline that shifts colours cannot pass the fill comparison by shifting both.
+    /// The highlight is the deepened accent under a white label, the fill every other lit control
+    /// takes. The raw accent with `Color.onFillLabel` would draw dark ink on Green. The ground is
+    /// read back first and must match what was painted, so a colour-shifting read can't pass.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func theHighlightIsTheDeepenedAccent(scheme: ColorScheme) throws {
         let raw = try #require(NSColor(LiquidGlassHue.green.accentColor).usingColorSpace(.sRGB))
@@ -225,10 +188,8 @@ import Design
                 "a palette with no selection is still painting a highlight in \(scheme)")
     }
 
-    /// **↓ moves DOWN the screen.** The rows are ranked by score and drawn in that order, so the
-    /// selection index and the vertical position agree — the first cut grouped them and drew the
-    /// groups in a fixed order, which put index 2 *above* index 0 and made ↓ jump upward on a
-    /// surface that has no other way to navigate.
+    /// ↓ moves down the screen: rows are drawn in score order, so the selection index and the
+    /// vertical position agree. Drawing grouped rows in a fixed order would make ↓ jump upward.
     @Test func theSelectionMovesDownTheScreenAsTheIndexRises() {
         let rows = Self.rows("")
         #expect(rows.count > 4, "too few rows to tell the order — this test would be vacuous")
@@ -255,9 +216,8 @@ import Design
 
     // MARK: The rows say different things
 
-    /// Two different queries produce two different lists — the discriminating check this codebase
-    /// keeps needing, because a card clipped to stubs compares equal to itself and passes anything
-    /// weaker.
+    /// Two different queries produce two different lists: the discriminating check, because a list
+    /// clipped to stubs compares equal to itself and passes anything weaker.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func twoDifferentQueriesRenderDifferentLists(scheme: ColorScheme) {
         let legal = Self.renderList(rows: Self.rows("legal"), selection: 0, scheme: scheme)

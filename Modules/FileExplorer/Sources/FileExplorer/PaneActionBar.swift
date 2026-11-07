@@ -5,39 +5,23 @@ import Sync
 /// The selection-driven file-action bar docked at the bottom of the active pane: what is selected,
 /// and what can be done with it.
 ///
-/// **Why the summary reserves its width.** The bar's leading element is
-/// `"12 selected · 340 MB"`, and both halves of it change width as you click around: the count's
-/// digits, and the size's digits and unit. Sized to its content, it moved every button after it —
-/// measured in the running app, Compare sat at x≈452 for "10.7 MB" and x≈470 for "972.2 MB", so
-/// the buttons jumped ~18pt under the cursor on every selection change. Going to click Copy,
-/// changing your mind, and finding Copy somewhere else is the bug.
+/// The summary ("12 selected · 340 MB") reserves a stable width, because its digits and unit change
+/// with every click and, sized to content, would move every button after it under the cursor. A
+/// hidden twin with the widest realistic summary sets the frame; the real text draws inside it and
+/// truncates. The reference is a string, not a pt constant, so it is right at every text size.
 ///
-/// The fix is to give the summary a *stable* width rather than a flexible one, so the row's
-/// geometry stops depending on its text. A hidden twin rendered with the widest realistic summary
-/// establishes the frame; the real text draws inside it and truncates. That keeps the layout
-/// identical to before — buttons immediately after the summary, Delete and ✕ pushed to the trailing
-/// edge — while making their positions constant.
-///
-/// Deriving the width from a reference *string* rather than a hard-coded number matters: the bar
-/// uses `scaledFont`, so a pt constant would be wrong at every text size but the default.
-///
-/// One movement is deliberately left in: Compare appears only for a selection it can act on — one
-/// folder (the two-folder scan) or two files (the pair viewer) — so the button set genuinely
-/// differs across selections. Reserving a permanent gap for a button that is often absent would
-/// trade a real change for a phantom one.
-///
-/// `PaneActionBarStabilityTests` renders the bar across the full summary swing and asserts the
-/// button region is pixel-identical, so this cannot regress quietly.
+/// One movement is left in: Compare appears only for a selection it can act on (one folder or two
+/// files), and a permanent gap for an often-absent button would be a phantom change.
+/// `PaneActionBarStabilityTests` asserts the button region is pixel-identical across the swing.
 public struct PaneActionBar: View {
-    /// "12 selected · 340 MB" — see `SelectionSummary.text(for:)`.
+    /// "12 selected · 340 MB"; see `SelectionSummary.text(for:)`.
     public let summaryText: String
-    /// Whether this selection has a comparison to offer at all — one folder, or two files. The
-    /// rule is `PaneLogic.compareOffer(for:)`, which the host also acts on, so the button's
-    /// presence and what it does cannot disagree. One word serves both because they are mutually
-    /// exclusive by construction, and because CC1 settled that this surface never calls itself
-    /// "Compare files" — the sidebar's Compare keeps one meaning.
+    /// Whether this selection has a comparison to offer at all: one folder, or two files. The rule
+    /// is `PaneLogic.compareOffer(for:)`, which the host also acts on, so the button's presence and
+    /// action can't disagree. One word serves both, since they are mutually exclusive, and this
+    /// surface never says "Compare files", so the sidebar's Compare keeps one meaning.
     public let showsCompare: Bool
-    /// What the Compare button says — "Compare" for a comparison this click completes, "Compare
+    /// What the Compare button says: "Compare" for a comparison this click completes, "Compare
     /// with…" where it arms a pick and asks for the second file. Supplied by the host, which owns
     /// the rule (`PaneLogic.CompareOffer.buttonTitle`), so the label and the action cannot drift.
     public var compareTitle: String = "Compare"
@@ -66,7 +50,7 @@ public struct PaneActionBar: View {
     /// The widest summary the bar realistically renders, used to reserve the leading zone. Wide
     /// enough that real text truncates only in absurd cases (a four-digit selection of terabytes),
     /// narrow enough not to waste the row. `8` is the widest digit in most faces, and this string
-    /// is never displayed — only measured.
+    /// is only measured, never displayed.
     static let summaryWidthReference = "888 selected · 888.8 MB"
 
     public init(summaryText: String, showsCompare: Bool, compareTitle: String = "Compare",
@@ -94,8 +78,8 @@ public struct PaneActionBar: View {
         content
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            // A subtle, transparent-ish accent-tinted glass — not a gray material and not a solid
-            // slab. The buttons carry the accent chrome; the bar itself just whispers the hue.
+            // A subtle accent-tinted glass, not a gray material or a solid slab. The buttons carry
+            // the accent chrome; the bar only hints at the hue.
             .accentGlassCapsule(glassHue.accentColor, strength: 0.12)
             .overlay(Capsule().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.75))
             .shadow(color: .black.opacity(0.10), radius: 8, y: 2)
@@ -104,16 +88,14 @@ public struct PaneActionBar: View {
 
     /// The row itself, separated from the glass chrome around it.
     ///
-    /// Split so the layout can be pixel-tested: a `.glassEffect` container renders *empty* offscreen
-    /// and takes its content with it, so a snapshot of the whole bar shows only the stroke. The
-    /// chrome is decoration; every position this file is responsible for lives in here, and this is
-    /// what `PaneActionBarStabilityTests` renders.
+    /// Split so the layout can be pixel-tested: a `.glassEffect` container renders empty offscreen,
+    /// content and all, so a snapshot of the whole bar shows only the stroke. Every position this
+    /// file owns lives in here, and this is what `PaneActionBarStabilityTests` renders.
     var content: some View {
         let accent = glassHue.accentColor
         return HStack(spacing: 8) {
             // The hidden twin sizes the zone; the real summary draws inside it and truncates, so
-            // this element's width no longer depends on its text. Monospaced digits steady the
-            // count within that zone as well.
+            // this element's width doesn't depend on its text. Monospaced digits steady the count.
             summaryLabel(Self.summaryWidthReference, accent: accent)
                 .hidden()
                 .overlay(alignment: .leading) {
@@ -136,8 +118,8 @@ public struct PaneActionBar: View {
             actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, help: transferHelp,
                             writes: true, action: onMove)
 
-            // New Folder is intentionally omitted here to keep the bar compact — it lives in the
-            // pane's nav cluster and its right-click menu.
+            // No New Folder, to keep the bar compact; it lives in the pane's nav cluster and its
+            // right-click menu.
             Spacer(minLength: 6)
 
             actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive,
@@ -161,8 +143,8 @@ public struct PaneActionBar: View {
     }
 
     /// The summary's content, rendered twice: once hidden to fix the zone's width, once visible.
-    /// One builder so the two can never disagree about font, weight or spacing — which would make
-    /// the reserved width wrong in exactly the way this is meant to prevent.
+    /// One builder, so the two can't disagree about font, weight or spacing and make the reserved
+    /// width wrong.
     private func summaryLabel(_ text: String, accent: Color) -> some View {
         Label(text, systemImage: "checkmark.circle.fill")
             .labelStyle(.titleAndIcon)
@@ -174,15 +156,13 @@ public struct PaneActionBar: View {
             .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// One button in the bar — the same `ActionBarButtonStyle` the differences header uses, at
-    /// `.primary`. It used to be a private lookalike with its own capsule, metrics and fill, which
-    /// is how the two drifted: `ActionBarWeight.primary` fills at opacity 1, the lookalike filled at
-    /// 0.9 while resting, and `AccentFill` leaves NO headroom for that — the deepened colour sits
-    /// exactly on the 4.55:1 ceiling, so any alpha below 1 composites the surface behind it back in
-    /// and puts the white label under the floor.
+    /// One button in the bar: the same `ActionBarButtonStyle` the differences header uses, at
+    /// `.primary`, which fills at opacity 1. **Don't fill it below opacity 1**: `AccentFill`'s
+    /// deepened colour sits right at 4.55:1, so any alpha lets the surface through and drops the
+    /// white label under the contrast floor.
     ///
-    /// The destructive red needs no deepening — it already carries white — but goes through the
-    /// same call so there is one rule here instead of a special case.
+    /// The destructive red needs no deepening (it already carries white) but goes through the same
+    /// call, so there is one rule instead of a special case.
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
                                  role: ButtonRole? = nil, help: String? = nil,
                                  keycap: String? = nil, writes: Bool = false,
@@ -194,13 +174,11 @@ public struct PaneActionBar: View {
         .buttonStyle(.actionBar(.primary,
                                 tint: AccentFill.deepened(isDestructive ? .red : accent),
                                 onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor))
-        // Between the style and `.help`: the keycap's ordering rules are the adopters' to hold —
-        // above any `.disabled` (none here), and with `.help` OUTSIDE it so the tooltip keeps
-        // the control's description on the accessibility element. `shortcutKeycap` takes the
-        // Optional directly and withholds both the badge and the hint on nil, which is what the
-        // private `OptionalKeycap` wrapper here used to do by branching.
+        // Between the style and `.help`: the keycap goes above any `.disabled` (none here), with
+        // `.help` outside it so the tooltip keeps the control's description on the accessibility
+        // element. A nil keycap withholds both the badge and the hint.
         .shortcutKeycap(keycap)
-        // Copy, Move and Delete grey with the reason while a long run is going (decision BZ).
+        // Copy, Move and Delete grey with the reason while a long run is going.
         .lockedDuringRun(writes)
         // `.help` takes a non-optional, and `.help("")` renders an empty tooltip box rather than
         // none, so the presence check has to happen somewhere.
@@ -210,11 +188,10 @@ public struct PaneActionBar: View {
 
 /// Applies `.help` only when a string is present.
 ///
-/// This still branches, so the two arms are two structural identities — kept out of
-/// `actionBarButton`'s builder only so the button's own chain reads as one expression. Safe here
-/// because the buttons hold no state to lose, and because `transferHelp` changes only when the
-/// active pane does, which already rebuilds the bar. Do not reach for this pattern around
-/// anything stateful.
+/// This still branches, so the two arms are two structural identities; it is a modifier only so
+/// the button's chain reads as one expression. Safe because the buttons hold no state, and
+/// `transferHelp` changes only with the active pane, which rebuilds the bar anyway. **Don't use
+/// this pattern around anything stateful.**
 private struct OptionalHelp: ViewModifier {
     let text: String?
 

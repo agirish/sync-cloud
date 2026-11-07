@@ -7,7 +7,7 @@ import Sync
 /// once and then sync.
 extension OneWaySyncController {
 
-    /// Where Now's rows show their result when an answer can't go through.
+    /// Answers one of Now's buttons for `row`; any sheet it opens goes over `host`'s window.
     public func perform(_ button: OneWaySyncNoticeButton, row: OneWaySyncNoticeRow, from host: OneWaySyncSheetHost = .main) {
         sheetHost = host
         let notice = row.members.first
@@ -158,7 +158,7 @@ extension OneWaySyncController {
             stopSyncingFolder(folder)
         case .createInDropboxAndSync:
             let places = places(for: record)
-            // Dropbox's folder of that name, already there, may be shared: DL asks first.
+            // Dropbox's folder of that name, already there, may be shared: ask first.
             let existing = OneWaySyncDisk.kind(at: places.dropboxParent.appendingPathComponent(folder).path) == .folder
             if existing, !confirmNotShared(folder) { return }
             if let failure = await answer("made \(folder) in Dropbox", then: false, { _ in
@@ -386,7 +386,7 @@ extension OneWaySyncController {
         return text
     }
 
-    /// DL for a folder synced from a row: Dropbox's own folder of that name may be shared.
+    /// Asks before syncing a folder from a row: Dropbox's own folder of that name may be shared.
     func confirmNotShared(_ folder: String) -> Bool {
         let alert = NSAlert()
         alert.messageText = "Is \(folder) shared with anyone on Dropbox?"

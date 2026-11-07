@@ -1,7 +1,7 @@
 import SwiftUI
 import Design
 
-/// Where To File suggests homes, and the choices for changing it (TE287).
+/// Where To File suggests homes, and the choices for changing it.
 ///
 /// Built by the host, which knows the sources, the folder survey and what was stored; this file
 /// only draws it. `path` is what the next scan files into — ``FilingDestinationRoot`` decides it.

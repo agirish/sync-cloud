@@ -12,11 +12,11 @@ import WebKit
 struct SaveAsPDFOutput: Sendable, Equatable {
     var data: Data
     var pageCount: Int
-    /// A deck's pages that carried no text a reader can select — slides that were pictures in the
-    /// file itself, so their pages are pictures too. The banner says so (decision AO).
+    /// A deck's pages that carried no selectable text: slides that were pictures in the file
+    /// itself, so their pages are pictures too. The banner says so.
     var picturePages: Int
-    /// Pictures whose words Vision read, now laid invisibly over them (``PictureText``) — the PDF
-    /// can be searched, with a misread here and there, and the banner says that instead.
+    /// Pictures whose words Vision read, now laid invisibly over them (``PictureText``): the PDF
+    /// can be searched, with the odd misread, and the banner says that instead.
     var isRecognised: Bool
 
     /// Every slide a picture.
@@ -36,27 +36,25 @@ struct SaveAsPDFFailure: LocalizedError, Equatable {
     static let stalled = SaveAsPDFFailure(reason: "macOS stopped answering while drawing it")
 }
 
-/// **The engines behind Save as PDF** — one per ``SaveAsPDFKind``, all ending in PDF bytes and none
-/// touching the original (CV6, decision AP).
+/// The engines behind Save as PDF, one per ``SaveAsPDFKind``, all ending in PDF bytes and none
+/// touching the original.
 ///
-/// - **Text and Markdown are ``DocumentPDF``**, Edit's own Print render, handed the file's text the
-///   way Edit's Print is handed the buffer's — the same pages either way.
-/// - **Rich text is Apple's text system**, paginated by AppKit's print system.
-/// - **Word, Excel and PowerPoint go through Quick Look.** No public API hands back a document's
-///   pages, but `qlmanage -p -o` writes the HTML Quick Look draws its preview from, and this app is
-///   not sandboxed, so it can run it (R1). WebKit then draws that HTML to PDF, as vector text:
-///   - a Word document is printed — WebKit breaks pages between lines, at the page size and margins
-///     the HTML carries from the file;
+/// - Text and Markdown are ``DocumentPDF``, Edit's own Print render, so the pages match Edit's.
+/// - Rich text is Apple's text system, paginated by AppKit's print system.
+/// - Word, Excel and PowerPoint go through Quick Look. No public API hands back a document's
+///   pages, but `qlmanage -p -o` writes the HTML Quick Look previews from, and this app is not
+///   sandboxed, so it can run it. WebKit then draws that HTML to PDF as vector text:
+///   - a Word document is printed, WebKit breaking pages between lines at the HTML's page size
+///     and margins;
 ///   - a sheet is cut into pages between its rows, scaled to the paper's width;
-///   - a deck is one page per slide, each the slide's own `div.slide` box at the slide's size —
-///     never a print, which paginates by height and gave 15 pages for 14 slides.
+///   - a deck is one page per slide, each the slide's own `div.slide` box, never a print, which
+///     paginates by height and miscounts slides.
 ///   Word falls back to the text system when Quick Look gives nothing.
 ///
-/// **No PDFKit here but one read in the lane.** Pages are counted and combined with CoreGraphics,
-/// which is not PDFKit (``PDFMenuEncryption`` measures the same distinction); which of a deck's
-/// pages came out as pictures is asked of PDFKit through `PDFKitSerialAccess`, like every other
-/// parse. Those pages, and only those, get their words read by Vision and laid over them
-/// (``PictureText``) — a deck can mix text slides with pictures.
+/// One PDFKit read, in the lane: pages are counted and combined with CoreGraphics, which is not
+/// PDFKit (see ``PDFMenuEncryption``), and which deck pages came out as pictures is asked of PDFKit
+/// through `PDFKitSerialAccess`. Only those pages get their words read by Vision and laid over
+/// them (``PictureText``), since a deck can mix text slides with pictures.
 @MainActor
 enum SaveAsPDFRender {
 
@@ -97,9 +95,9 @@ enum SaveAsPDFRender {
         return SaveAsPDFOutput(data: data, pageCount: pages, picturePages: pictures.count, isRecognised: isRecognised)
     }
 
-    /// The pages, counted from 0, with no text a reader can select — a deck's slides that were
-    /// pictures in the file itself. Asked of PDFKit, in its lane. A PDF PDFKit cannot open is taken
-    /// as all pictures, as the whole-deck check before it took it.
+    /// The pages, counted from 0, with no selectable text: a deck's slides that were pictures in
+    /// the file itself. Asked of PDFKit, in its lane. A PDF PDFKit can't open counts as all
+    /// pictures.
     static func pagesWithoutText(_ data: Data) async -> Set<Int> {
         let texts: [String]? = await PDFKitSerialAccess.perform { [data] in
             guard let document = PDFDocument(data: data) else { return nil }
@@ -111,8 +109,8 @@ enum SaveAsPDFRender {
 
     // MARK: - Text and Markdown: Edit's Print render
 
-    /// The file read as the compare pane reads text — bounded, lenient about bad bytes — and drawn by
-    /// ``DocumentPDF`` exactly as Edit's Print draws an open note.
+    /// The file read as the compare pane reads text (bounded, lenient about bad bytes) and drawn by
+    /// ``DocumentPDF`` as Edit's Print draws an open note.
     static func documentPDF(_ path: String, isMarkdown: Bool, settings: Settings) throws -> Data {
         let text: String
         switch BoundedTextRead.read(path: path) {
@@ -144,19 +142,16 @@ enum SaveAsPDFRender {
         }
     }
 
-    /// `text` laid out by an `NSTextView` at the content width and printed to a file — AppKit breaks
-    /// the pages between lines, and tables and pictures the text system holds come with it.
+    /// `text` laid out by an `NSTextView` at the content width and printed to a file: AppKit breaks
+    /// pages between lines, and the text system's tables and pictures come with it.
     ///
-    /// **Light, and black where the file names no colour.** A text view takes its default colour
-    /// from the appearance, and a PDF saved in dark mode would otherwise be white words on white
-    /// paper.
+    /// Light, and black where the file names no colour: a text view takes its default colour from
+    /// the appearance, so a PDF saved in dark mode would be white on white.
     ///
-    /// **Laid out on the page AppKit will print, not the one asked for.** The print system moves a
-    /// margin narrower than the printer can reach out to where it can, so the page is smaller than
-    /// `geometry.content` — and the asked-for geometry comes from `NSPrintInfo.shared`, which need
-    /// not know the printer the operation uses. A view a page tall left the last few points of an
-    /// empty page over: with no printer the bottom 40 points are out of reach, and a one-page memo
-    /// at half-inch margins printed as two (measured on GitHub's hosted VM, 2026-10-29).
+    /// Laid out on the page AppKit will print, not the one asked for: the print system moves a
+    /// margin the printer can't reach inward, so the page is smaller than `geometry.content`. A
+    /// view sized to the asked-for page would spill a few points onto an extra blank page (with no
+    /// printer, the bottom 40 points are out of reach).
     static func textSystemPDF(_ text: NSAttributedString, geometry: DocumentPDF.PageGeometry) async throws -> Data {
         let info = printInfo(paper: geometry.paper, margins: NSEdgeInsets())
         let content = printable(geometry.content, reach: info.imageablePageBounds)
@@ -183,7 +178,7 @@ enum SaveAsPDFRender {
         return try await savePrint(operation, info: info) { operation.run() }
     }
 
-    /// `content` cut to what the printer reaches — the page AppKit prints on. An empty reach, as a
+    /// `content` cut to what the printer reaches, the page AppKit prints on. An empty reach, which a
     /// print system with no printers can report, leaves `content` whole.
     nonisolated static func printable(_ content: CGRect, reach: CGRect) -> CGRect {
         guard reach.width > 0, reach.height > 0 else { return content }
@@ -203,7 +198,7 @@ enum SaveAsPDFRender {
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         guard let html = await preview(path, scratch) else {
-            // Word's second route: the text system reads .docx and .doc itself — without pictures,
+            // Word's second route: the text system reads .docx and .doc itself, without pictures,
             // headers or table layout, but every word.
             if kind == .word {
                 let type: NSAttributedString.DocumentType =
@@ -221,13 +216,11 @@ enum SaveAsPDFRender {
         }
     }
 
-    /// **A Word document: printed, at the page the HTML describes.** Quick Look draws the whole
-    /// document in one `div` as wide as the file's page, padded by the file's margins. The side
-    /// padding stays — it is the margin, and WebKit prints it — while the top and bottom move into
-    /// the print's margins, so every page gets them rather than only the first and last. Left as
-    /// padding, a one-page memo printed two (measured: the fixture's `aOnePageMemoIsOnePageOfText`
-    /// goes red). The `div`'s one-page minimum height is left alone: removing it changed no page
-    /// count.
+    /// A Word document, printed at the page the HTML describes. Quick Look draws it in one `div` as
+    /// wide as the file's page, padded by its margins. The side padding stays (WebKit prints it as
+    /// the margin); the top and bottom move into the print's margins, so every page gets them, not
+    /// just the first and last, and a one-page memo stays one page (`aOnePageMemoIsOnePageOfText`).
+    /// The `div`'s one-page minimum height is left alone: it changes no page count.
     static func pagePDF(_ html: URL, geometry: DocumentPDF.PageGeometry) async throws -> Data {
         let web = await WebPDFView.make(width: geometry.paper.width)
         defer { web.close() }
@@ -262,11 +255,11 @@ enum SaveAsPDFRender {
         return try await web.print(printInfo(paper: paper, margins: margins))
     }
 
-    /// **A deck: one page per slide**, each page the slide's own box drawn as vector — the slide's
-    /// text stays text, and a slide that is a picture stays the picture at its full size.
+    /// A deck: one page per slide, each the slide's own box drawn as vector, so its text stays text
+    /// and a picture slide stays the picture at full size.
     ///
-    /// `pause` waits between the decode and the drawing — for tests, which stand in a loaded
-    /// machine's delays with it.
+    /// `pause` waits between the decode and the drawing, so tests can stand in for a loaded
+    /// machine's delays.
     static func slidesPDF(_ html: URL, pause: Duration = .zero) async throws -> Data {
         let web = await WebPDFView.make(width: 1024)
         defer { web.close() }
@@ -293,9 +286,9 @@ enum SaveAsPDFRender {
         return data
     }
 
-    /// **A workbook: every sheet, in tab order, each cut into pages between its rows.** A workbook
-    /// of one sheet is Quick Look's page itself; of several, the page is a tab strip framing one sheet
-    /// at a time, and each tab names its sheet's own page in the bundle.
+    /// A workbook: every sheet, in tab order, each cut into pages between its rows. With one sheet
+    /// the page is Quick Look's page itself; with several it is a tab strip framing one sheet at a
+    /// time, each tab naming its sheet's page in the bundle.
     static func sheetsPDF(_ html: URL, geometry: DocumentPDF.PageGeometry) async throws -> Data {
         let sheets = QuickLookHTML.sheetPages(in: html)
         var composer = PDFComposer()
@@ -306,20 +299,17 @@ enum SaveAsPDFRender {
         return data
     }
 
-    /// One sheet, scaled so its full width fits the page — turned to landscape when it is wider than
-    /// the page is tall — and broken at the last row that fits, so no row is cut in two unless it is
-    /// taller than a page.
+    /// One sheet, scaled so its full width fits the page (landscape when it is wider than the page
+    /// is tall), and broken at the last row that fits, so no row is cut unless taller than a page.
     ///
-    /// **Scaled, not printed.** WebKit's print lays a sheet out at the paper's width and clips every
-    /// column past it, and CSS zoom shrank the columns but not the type, so the cells wrapped into
-    /// each other (both measured 2026-10-19). Each page here is `createPDF` of one band of the sheet
-    /// at its own width — vector text, so a wide sheet's small print zooms sharp.
+    /// Scaled, not printed: WebKit's print clips columns past the paper's width, and CSS zoom
+    /// shrinks the columns but not the type, so cells overlap. Each page is `createPDF` of one band
+    /// at the sheet's own width, as vector text, so small print zooms sharp.
     static func addSheet(_ html: URL, to composer: inout PDFComposer, geometry: DocumentPDF.PageGeometry) async throws {
-        // **Loaded into a view smaller than any sheet, so the page's scroll size is the sheet's own.**
-        // A document is never smaller than the view it is laid out in: measured in a view of a
-        // usual size, a two-column sheet came out landscape and a short one ran on to blank pages.
-        // Measuring the tables alone instead lost text a last cell spills past the table's edge.
-        // A sheet's columns are fixed widths, so the small view wraps nothing.
+        // Loaded into a view smaller than any sheet, so the scroll size is the sheet's own: a
+        // document is never smaller than its view, so a usual-size view would pad a small sheet
+        // into landscape or blank pages. Measuring the tables alone would lose text a last cell
+        // spills past the table's edge. Columns are fixed widths, so the small view wraps nothing.
         let web = await WebPDFView.make(width: 100, height: 100)
         defer { web.close() }
         guard await web.load(html) else { throw SaveAsPDFFailure.quickLookGaveNothing }
@@ -342,16 +332,14 @@ enum SaveAsPDFRender {
         guard let sheet, let height = sheet["height"] as? Double, height > 0 else { throw SaveAsPDFFailure.noPages }
         let rows = (sheet["rows"] as? [Double]) ?? []
 
-        // The deck's race again: without the wait, a sheet of four pictures lower down drew only one
-        // to three of them, which ones changing run to run.
+        // The deck's race again: without the wait, pictures lower down a sheet can draw blank.
         try await web.picturesDecoded()
 
         let layout = SheetLayout(contentWidth: width, contentHeight: height, rowBottoms: rows, geometry: geometry)
-        // A `createPDF` per band, each the band alone: one of the whole sheet came back as pages of
-        // at most 14,400 points, and cutting those into bands put every clipped row's text into the
-        // PDF again — a search found rows twice, and a 4,096-row sheet's file grew to 36 MB.
-        // Measured 2026-10-19: 0.04 s a band in an app; the same calls from a test process with no
-        // `NSApplication`, whose views WebKit throttles, took 3 s each.
+        // A `createPDF` per band, each the band alone. One of the whole sheet comes back as pages
+        // of at most 14,400 points, and cutting those up would put every clipped row's text into
+        // the PDF again, so search finds rows twice and the file balloons. A band takes ~0.04 s in
+        // the app; in a test process with no `NSApplication`, WebKit throttles it to seconds.
         for band in layout.bands {
             let data = try await web.pdf(of: CGRect(x: 0, y: band.lowerBound, width: width,
                                                     height: band.upperBound - band.lowerBound))
@@ -380,7 +368,7 @@ enum SaveAsPDFRender {
         return info
     }
 
-    /// Runs `operation` to a scratch file and hands back its bytes. `run` starts it — synchronously
+    /// Runs `operation` to a scratch file and hands back its bytes. `run` starts it: synchronously
     /// for a view AppKit prints itself, through a window for WebKit's.
     static func savePrint(_ operation: NSPrintOperation, info: NSPrintInfo,
                           run: () async throws -> Bool) async throws -> Data {
@@ -403,10 +391,10 @@ enum SaveAsPDFRender {
     }
 }
 
-/// **A Word page's paper, from the width Quick Look gave it** — Letter and A4 either way up by
-/// their width in points, which is what the HTML's pixel width is. Any other width that fits the
-/// reader's paper is printed on it: a file that names no page size gets Quick Look's own 600, which
-/// is no paper anyone has. Wider than that, the page keeps the reader's paper's proportion.
+/// A Word page's paper, from the width Quick Look gave it: Letter and A4 either way up, by width
+/// in points (the HTML's pixel width). Any other width that fits the reader's paper prints on it,
+/// since a file naming no page size gets Quick Look's 600, which is no real paper. Wider than that,
+/// the page keeps the reader's paper's proportion.
 enum WordPaper {
     static func size(forWidth width: Double, fallback: CGSize) -> CGSize {
         let known: [(CGFloat, CGFloat)] = [(612, 792), (595, 842), (792, 612), (842, 595)]
@@ -419,13 +407,13 @@ enum WordPaper {
     }
 }
 
-/// **How a sheet is cut into pages** — pure, so the rule is tested on numbers rather than through
+/// How a sheet is cut into pages. Pure, so the rule is tested on numbers rather than through
 /// WebKit.
 struct SheetLayout: Equatable {
     /// The paper, turned to landscape when the sheet is wider than the portrait page's content.
     let paper: CGSize
     let content: CGRect
-    /// Sheet pixels to page points — never above 1: a narrow sheet is printed at its own size.
+    /// Sheet pixels to page points, never above 1: a narrow sheet prints at its own size.
     let scale: CGFloat
     /// Each page's band of the sheet, top to bottom, in the sheet's own pixels.
     let bands: [Range<Double>]
@@ -461,8 +449,8 @@ struct SheetLayout: Equatable {
     }
 }
 
-/// **Pages drawn into one PDF with CoreGraphics** — `drawPDFPage` copies a page's content stream,
-/// so text stays text. Not PDFKit, so outside the lane.
+/// Pages drawn into one PDF with CoreGraphics. `drawPDFPage` copies a page's content stream, so
+/// text stays text. Not PDFKit, so outside the lane.
 struct PDFComposer {
     private let data = NSMutableData()
     private var context: CGContext?
@@ -510,24 +498,23 @@ struct PDFComposer {
     }
 }
 
-/// **Quick Look's preview of an Office file, as the HTML it draws from.**
+/// Quick Look's preview of an Office file, as the HTML it draws from.
 ///
-/// `qlmanage -p -o <folder> <file>` writes `<name>.qlpreview/` — `Preview.html`, its stylesheets
-/// and pictures as `AttachmentN` files — and nothing else. It is Apple's debugging tool, not an
-/// API, so its output can change in any release (R1); `SaveAsPDFRenderTests` pins it on fixtures.
+/// `qlmanage -p -o <folder> <file>` writes `<name>.qlpreview/` (`Preview.html`, its stylesheets,
+/// and pictures as `AttachmentN` files) and nothing else. It is Apple's debugging tool, not an
+/// API, so its output can change in any release; `SaveAsPDFRenderTests` pins it on fixtures.
 enum QuickLookHTML {
     static let tool = "/usr/bin/qlmanage"
-    /// Measured: under a second for Word and Excel, up to ~2 s for a large deck; 4.4 s at most in
-    /// 8,499 runs eight at a time at load 16–85, and 8.3 s twenty at a time at load 66
-    /// (2026-10-21). A run that takes 30 s has wedged.
+    /// Under a second for Word and Excel, up to ~2 s for a large deck, and under 10 s even twenty
+    /// at a time on a loaded machine. A run that takes 30 s has wedged.
     static let timeout: TimeInterval = 30
-    /// **A wedged `qlmanage` is killed and run once more.** Three runs in 8,503 never finished
-    /// (2026-10-21): idle, the file-coordination thread parked in `-[QLPreview synchronousGetData]`
-    /// for a reply that never comes. A wedged run does not recover; the next run of the same file
-    /// works (`docs/flaky-tests.md`, "A Quick Look run that waits for ever on its own reply").
+    /// A wedged `qlmanage` is killed and run once more. Rarely a run never finishes, its
+    /// file-coordination thread parked in `-[QLPreview synchronousGetData]` for a reply that never
+    /// comes; it doesn't recover, but the next run of the same file works (`docs/flaky-tests.md`,
+    /// "A Quick Look run that waits for ever on its own reply").
     static let attempts = 2
 
-    /// The preview's `Preview.html`, or `nil` when Quick Look made none. `folder` must be empty —
+    /// The preview's `Preview.html`, or `nil` when Quick Look made none. `folder` must be empty:
     /// the bundle is found as the one thing in it. `tool` and `timeout` are for tests.
     nonisolated static func preview(of file: String, into folder: URL, tool: String = tool,
                                     timeout: TimeInterval = timeout) async -> URL? {
@@ -598,12 +585,12 @@ enum QuickLookHTML {
     }
 }
 
-/// **An offscreen WebKit view that loads one file and draws it to PDF.**
+/// An offscreen WebKit view that loads one file and draws it to PDF.
 ///
-/// In a window that is never shown — WebKit's print runs against a window, and `createPDF` draws
-/// what the view lays out. **No network and no scripts**: Quick Look's own preview allows neither
+/// In a window that is never shown: WebKit's print runs against a window, and `createPDF` draws
+/// what the view lays out. No network and no scripts: Quick Look's preview allows neither
 /// (`AllowNetworkAccess` is false in every bundle), and a document's links are not ours to follow.
-/// The measuring below is the app's own script, which a page's scripts setting does not govern.
+/// The measuring is the app's own script, which a page's scripts setting does not govern.
 @MainActor
 final class WebPDFView: NSObject, WKNavigationDelegate {
     let web: WKWebView
@@ -620,15 +607,13 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
 
     private static var offlineRules: WKContentRuleList?
 
-    /// **Every picture `decoding = 'sync'` from the moment the parser adds it**, before anything is
-    /// painted. A large picture left at `auto` is decoded in the background when the view paints it:
-    /// first, and again after WebKit has let go of it, a second after drawing it. A background
-    /// decode still queued when `createPDF` or the print draws the picture makes it draw that picture
-    /// blank, because WebKit never decodes one picture on two threads. Set after the load, as it
-    /// first was, it came too late for the paints the load had made: `decode()` settles when *any*
-    /// decode of the picture finishes, so it could settle on such a paint's while its own was still
-    /// queued (2026-10-20, `docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for
-    /// the main thread"). The app's own script, in the app's world, which the page's scripts setting
+    /// Every picture `decoding = 'sync'` from the moment the parser adds it, before anything is
+    /// painted. A large picture at `auto` decodes in the background when painted (and again after
+    /// WebKit lets it go), and a background decode still queued when `createPDF` or the print draws
+    /// it makes it draw blank, since WebKit never decodes one picture on two threads. It must be set
+    /// before the load's paints: `decode()` settles when any decode finishes, so it could settle on
+    /// a paint's while its own was queued (`docs/flaky-tests.md`, "A wedge guard that counts time
+    /// spent waiting for the main thread"). The app's own script, which the page's scripts setting
     /// does not govern.
     static let syncPictures = """
         new MutationObserver(function (changes) {
@@ -642,10 +627,10 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         }).observe(document, { childList: true, subtree: true });
         """
 
-    /// **Every request off the disk blocked** — a navigation is refused by the policy below, and a
-    /// picture or stylesheet a page names by URL by this list, which WebKit applies to every load.
-    /// Compiled once per process. One rule per scheme: WebKit's rule patterns have no `|`, and a
-    /// list that uses one fails to compile, and then nothing is blocked.
+    /// Every request off the disk blocked: a navigation by the policy below, and a picture or
+    /// stylesheet a page names by URL by this list, which WebKit applies to every load. Compiled
+    /// once per process. **One rule per scheme**: WebKit's patterns have no `|`, and a list using
+    /// one fails to compile, leaving nothing blocked.
     static func offline() async -> WKContentRuleList? {
         if let offlineRules { return offlineRules }
         let rules = ["^https?:", "^wss?:", "^ftp:"]
@@ -674,15 +659,12 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         web.navigationDelegate = self
     }
 
-    /// Loads `file` with read access to its own folder — the bundle — and waits for it.
+    /// Loads `file` with read access to its own folder (the bundle) and waits for it.
     ///
-    /// **The timeout is a wedge guard, not a measure of a slow load**: a crashed web process ends the
-    /// wait at once (below), and a file on the disk with nothing to fetch never hangs on its own.
-    /// It is counted by ``WedgeGuard``, so time `didFinish` spends queued for the main thread is
-    /// not: as a wall-clock timer, with the whole FileExplorer package's tests sharing one main
-    /// thread, a sub-second load came back after 45 s, past the 30 s this was, and Word's page
-    /// failed as unreadable (2026-10-19, `docs/flaky-tests.md`, "A wedge guard that counts time
-    /// spent waiting for the main thread").
+    /// The timeout is a wedge guard, not a measure of a slow load: a crashed web process ends the
+    /// wait at once, and a file with nothing to fetch never hangs on its own. It is counted by
+    /// ``WedgeGuard``, so time `didFinish` spends queued for a busy main thread doesn't count
+    /// (`docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for the main thread").
     func load(_ file: URL, timeout: TimeInterval = WedgeGuard.budget) async -> Bool {
         let loaded = await withCheckedContinuation { continuation in
             loading = continuation
@@ -697,17 +679,14 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         return loaded
     }
 
-    /// **The web process kept at the foreground's priority from the load to ``close()``**, by a call
-    /// of the app's own script that does not answer until then.
+    /// Keeps the web process at foreground priority from the load to ``close()``, through a call
+    /// of the app's own script that doesn't answer until then; WebKit holds a foreground activity
+    /// for each script call until it answers.
     ///
-    /// A hidden view's web process is given the background role once WebKit has no foreground work
-    /// for it, about a second after the load's last script call answers. `createPDF` and the print
-    /// take no foreground activity of their own, so a draw sent after that runs in the background
-    /// band, which a busy machine starves: under 30 `yes` spinners a slide's `createPDF`, sent after
-    /// a 3 s pause, took 231 s, its web process at priority 4 and given 0.2 s of processor in that
-    /// time (2026-10-21, `docs/flaky-tests.md`, "A hidden web view's process drops to the
-    /// background band, so load starves its draws"). WebKit holds a foreground activity for each
-    /// script call until it answers.
+    /// A hidden view's web process drops to the background band about a second after its last
+    /// script call answers, and `createPDF` and the print take no foreground activity of their
+    /// own, so on a busy machine a draw could starve for minutes (`docs/flaky-tests.md`, "A hidden
+    /// web view's process drops to the background band, so load starves its draws").
     private func holdForeground() {
         web.callAsyncJavaScript("""
             return await new Promise(function (release) { window.saveAsPDFRelease = release; })
@@ -721,16 +700,14 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         loading = nil
     }
 
-    /// **One call into WebKit, given up on if WebKit stops answering.** `start` makes the call and
+    /// One call into WebKit, given up on if WebKit stops answering. `start` makes the call and
     /// hands its answer to the closure it is given; the first of that answer and ``WedgeGuard``
     /// running out wins, and a late answer is dropped.
     ///
-    /// WebKit has no deadline of its own here. A web process that is alive but not running — stopped,
-    /// or never given the processor — leaves `createPDF` waiting with no answer and no
-    /// `webViewWebContentProcessDidTerminate`, for as long as it lasts: measured with the process
-    /// stopped, `createPDF` answered 62 s later, the moment it was let go (2026-10-21,
-    /// `docs/flaky-tests.md`, "A hidden web view's process drops to the background band, so load
-    /// starves its draws").
+    /// WebKit has no deadline of its own: a web process alive but not running (stopped, or never
+    /// given the processor) leaves `createPDF` waiting with no answer and no
+    /// `webViewWebContentProcessDidTerminate` for as long as that lasts (`docs/flaky-tests.md`,
+    /// "A hidden web view's process drops to the background band, so load starves its draws").
     func guarded<T: Sendable>(_ what: String, budget: TimeInterval = WedgeGuard.budget,
                               _ start: (@escaping @MainActor @Sendable (Result<T, Error>) -> Void) -> Void)
         async throws -> T {
@@ -760,20 +737,18 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         return try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
     }
 
-    /// **Every picture decoded, so `createPDF` and the print draw it** — or a minute, whichever is
-    /// first. A page loaded is not its pictures decoded: a deck of two 1920 px slide pictures drew
-    /// its second page blank on every run, and the same box drew whole two seconds later; a sheet's
-    /// bands lost pictures the same way, and Word's print its first picture, on CI only. `decode()`
-    /// settles when a picture can be painted, and fails, settling too, for one that cannot.
+    /// Every picture decoded, so `createPDF` and the print draw it, or a minute, whichever is
+    /// first. A loaded page is not its pictures decoded, and an undecoded picture draws blank.
+    /// `decode()` settles when a picture can be painted, and fails, settling too, for one that
+    /// can't.
     ///
-    /// The minute guards against a decode that never settles; a cap that fires draws the pictures
-    /// still decoding blank, so it is said. It was ten seconds until a loaded machine took longer
-    /// than that and a picture deck's first slide came out blank, with no words to read (2026-10-19).
+    /// The minute guards against a decode that never settles; when it fires, pictures still
+    /// decoding draw blank, so it is logged. Shorter caps proved too short on a loaded machine.
     ///
-    /// **Not enough on its own**: a decode WebKit queues in the background is still drawn blank
-    /// after this settles. ``syncPictures`` keeps any from being queued.
+    /// Not enough on its own: a decode WebKit queued in the background still draws blank after
+    /// this settles. ``syncPictures`` keeps any from being queued.
     ///
-    /// The minute is the web process's own clock, so it guards nothing when that process stops
+    /// The minute is the web process's own clock, so it guards nothing once that process stops
     /// running; ``guarded(_:budget:_:)`` does.
     func picturesDecoded() async throws {
         let decoded: Bool? = try await guarded("decoding the pictures") { answer in
@@ -815,7 +790,7 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
                 operation.runModal(for: window, delegate: done,
                                    didRun: #selector(PrintDone.operationDidRun(_:success:contextInfo:)),
                                    contextInfo: nil)
-                // Held by the operation until it ends — the selector is all AppKit keeps.
+                // Held by the operation until it ends; the selector is all AppKit keeps.
                 objc_setAssociatedObject(operation, &PrintDone.key, done, .OBJC_ASSOCIATION_RETAIN)
             }
         }
@@ -843,8 +818,8 @@ final class WebPDFView: NSObject, WKNavigationDelegate {
         finishLoading(false)
     }
 
-    /// A web process that died never reports the load either way — fail now, not at the guard. One
-    /// that dies after the load leaves a view that would draw blank, so the draws refuse too.
+    /// A web process that died never reports the load either way, so fail now, not at the guard.
+    /// One that dies after the load leaves a view that would draw blank, so the draws refuse too.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         Logger.shared.warning("Save as PDF: the web process drawing the file quit")
         terminated = true
@@ -884,7 +859,7 @@ private final class Answer<T: Sendable> {
         self.continuation = continuation
     }
 
-    /// Whether this was the answer — `false` once one has been given.
+    /// Whether this was the answer: `false` once one has been given.
     @discardableResult func resume(with result: Result<T, Error>) -> Bool {
         guard let continuation else { return false }
         self.continuation = nil
@@ -895,19 +870,17 @@ private final class Answer<T: Sendable> {
     }
 }
 
-/// **A wedge guard that counts only time the main thread was free** — to hear the answer it is
-/// waiting for, which WebKit hands back on the main thread too.
+/// A wedge guard that counts only time the main thread was free to hear the answer, which WebKit
+/// hands back on the main thread.
 ///
-/// A wall-clock deadline counts time an answer spends queued behind other main-thread work as
-/// if WebKit were still working: with the whole FileExplorer package's tests sharing one main
-/// thread, a sub-second load came back after 45 s (`docs/flaky-tests.md`, "A wedge guard that
-/// counts time spent waiting for the main thread"). This one ticks on the main run loop and counts
-/// each gap between ticks only up to two ticks, so a main thread held elsewhere for a minute costs
-/// the budget a second, not the minute.
+/// A wall-clock deadline would count time an answer spends queued behind other main-thread work
+/// as WebKit's (`docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for the main
+/// thread"). This one ticks on the main run loop and counts each gap between ticks only up to two
+/// ticks, so a main thread held elsewhere for a minute costs the budget a second.
 @MainActor
 final class WedgeGuard {
-    /// How long WebKit may take over one answer. Never a measure of a slow draw: with the web
-    /// process kept in the foreground, 216 draws under 30 `yes` spinners took at most 2.84 s.
+    /// How long WebKit may take over one answer. Not a measure of a slow draw: with the web
+    /// process in the foreground, draws on a heavily loaded machine take under 3 s.
     static let budget: TimeInterval = 120
     static let tick: TimeInterval = 0.5
 
@@ -917,8 +890,8 @@ final class WedgeGuard {
     private let budget: TimeInterval
     private let expired: @MainActor () -> Void
 
-    /// `expired` runs once, on the main thread, when `budget` has been counted — unless
-    /// ``cancel()`` comes first.
+    /// `expired` runs once, on the main thread, when `budget` has been counted, unless ``cancel()``
+    /// comes first.
     init(budget: TimeInterval, expired: @escaping @MainActor () -> Void) {
         self.budget = budget
         self.expired = expired

@@ -5,7 +5,7 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **Edit's recent files (TE58): the store's rules, its words, and the empty page that draws it.**
+/// Edit's recent files: the store's rules, its words, and the empty page that draws it.
 ///
 /// The store copies the sidebar Recents' rules (`FolderJumpStore`), so the cases are its cases:
 /// move-to-front with a cap, missing files hidden but kept, a moved file followed, and bytes this
@@ -22,9 +22,8 @@ import FileExplorerTestSupport
 
     // MARK: Order and cap
 
-    /// **Opening a file again moves it to the top, once** — and the cap drops the OLDEST. The file
-    /// opened again sits LAST before it is reopened, so a rule that appended instead of moving
-    /// would leave it there.
+    /// Opening a file again moves it to the top, once, and the cap drops the oldest. The reopened
+    /// file sits last beforehand, so a rule that appended instead of moving would leave it there.
     @Test func reopeningMovesAFileToTheTopAndTheCapDropsTheOldest() {
         let recents = store()
         for i in 0..<EditorRecentFiles.maxStored {
@@ -54,8 +53,8 @@ import FileExplorerTestSupport
 
     // MARK: Persistence
 
-    /// **What is written is what the next launch reads** — asserted on the bytes under the key,
-    /// decoded independently, not on the store's own copy (`decoded ≠ preserved`).
+    /// What is written is what the next launch reads: asserted on the bytes under the key, decoded
+    /// independently, not on the store's own copy (`decoded ≠ preserved`).
     @Test func theListSurvivesARelaunch() throws {
         let defaults = ScratchDefaults("EditorRecentFiles")
         let first = store(defaults)
@@ -69,9 +68,9 @@ import FileExplorerTestSupport
         #expect(second.stored == written)
     }
 
-    /// **Unreadable bytes are kept, once, and the store carries on empty** — the next open must not
-    /// be what destroys them, and a SECOND unreadable launch must not overwrite the first stash,
-    /// which is the one holding the real list.
+    /// Unreadable bytes are kept, once, and the store carries on empty. The next open must not
+    /// destroy them, and a second unreadable launch must not overwrite the first stash, which holds
+    /// the real list.
     @Test func unreadableBytesAreKeptRatherThanWrittenOver() throws {
         let defaults = ScratchDefaults("EditorRecentFiles")
         let original = Data("not json at all".utf8)
@@ -87,8 +86,8 @@ import FileExplorerTestSupport
         #expect(defaults.data(forKey: "editorRecentFiles.unreadable") == original, "a later failure replaced the first stash")
     }
 
-    /// **A kind from another build reads as text**, and every other row survives — one row this
-    /// build cannot name must not send the whole list to the stash.
+    /// A kind from another build reads as text and every other row survives: one row this build
+    /// cannot name must not send the whole list to the stash.
     @Test func anUnknownKindReadsAsTextAndKeepsTheList() throws {
         let defaults = ScratchDefaults("EditorRecentFiles")
         let json = #"[{"path":"/n/Deck.key","openedAt":0,"kind":"slides"},{"path":"/n/A.pdf","openedAt":0,"kind":"pdf"}]"#
@@ -101,7 +100,7 @@ import FileExplorerTestSupport
 
     // MARK: Missing files
 
-    /// **A missing file is hidden but kept** — and the shown ten are the first ten THERE, so a
+    /// A missing file is hidden but kept, and the shown ten are the first ten that exist, so a
     /// missing one at the top lets the eleventh in. The missing file is the newest, so a rule that
     /// hid nothing would show it first.
     @Test func aMissingFileIsHiddenButKept() async {
@@ -119,7 +118,7 @@ import FileExplorerTestSupport
 
     // MARK: Moves, removal, Clear Menu
 
-    /// **A moved file keeps its place and its date**, and an older row at the new path goes so the
+    /// A moved file keeps its place and its date, and an older row at the new path goes, so the
     /// path is listed once.
     @Test func aMovedFileIsFollowedInPlace() {
         let recents = store()
@@ -155,9 +154,9 @@ import FileExplorerTestSupport
 
     // MARK: Words
 
-    /// **When a row was opened, in the fewest words** — the rule, on a fixed calendar and zone so
-    /// the days are this test's and not the Mac's. The words that are the app's own are pinned
-    /// literally; the time, weekday and date are the reader's own format.
+    /// When a row was opened, in the fewest words, on a fixed calendar and zone so the days are
+    /// this test's and not the Mac's. The app's own words are pinned literally; the time, weekday
+    /// and date are the reader's own format.
     @Test func theTimeColumnSaysWhenInTheFewestWords() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -198,7 +197,7 @@ import FileExplorerTestSupport
         #expect(files[3].folderName == "iCloud Drive")
     }
 
-    /// The page's sentence, as decided: where New Text File's file goes, then ⌘O from the chord itself.
+    /// The page's sentence: where New Text File's file goes, then ⌘O from the chord itself.
     @Test func theCaptionSaysWhereNewTextFileGoesThenHowToOpenAnother() {
         let open = AppChord.openInEditor.display
         #expect(EditorRecentFilesPage<EmptyView>.caption(folderName: "Recipes")
@@ -210,9 +209,9 @@ import FileExplorerTestSupport
 
     // MARK: The page
 
-    /// **The empty page draws the list once there is one, and its old sentence until then** — read
-    /// in pixels, against the same workspace with nothing remembered. A source scan pins that the
-    /// page is the workspace's, wired to the host's two closures and ⌘N's.
+    /// The empty page draws the list once there is one, and its plain sentence until then, read in
+    /// pixels against the same workspace with nothing remembered. A source scan pins that the page
+    /// is the workspace's, wired to the host's two closures and ⌘N's.
     @Test func theEmptyPageDrawsTheListOnlyWhenThereIsOne() throws {
         let empty = store()
         let full = store()
@@ -238,9 +237,9 @@ import FileExplorerTestSupport
         #expect(EditorRecentFilesPage<EmptyView>.removeTitle == "Remove from Recents")
     }
 
-    /// **A drop on the empty page hands its files to the host, and only files** (TE198). A web
-    /// address dragged from a browser is a URL too; a drop with no file in it, or with no host to
-    /// take it, is refused so Finder slides it back. The page takes it whole, not just the list.
+    /// A drop on the empty page hands its files to the host, and only files. A web address dragged
+    /// from a browser is a URL too; a drop with no file in it, or no host to take it, is refused so
+    /// Finder slides it back. The drop covers the whole page, not just the list.
     @Test func aDropOnTheEmptyPageHandsOverItsFiles() throws {
         var handed: [[URL]] = []
         let take: ([URL]) -> Void = { handed.append($0) }
@@ -262,8 +261,8 @@ import FileExplorerTestSupport
                 "the drop takes only what the page draws, not the whole page")
     }
 
-    /// **The narrowest column, 260pt, still reads** — rendered for a look, and the folder column
-    /// goes below its width rather than squeezing the name.
+    /// The narrowest column, 260pt, still reads (rendered for a look): the folder column goes below
+    /// that width rather than squeezing the name.
     @Test func theNarrowestColumnKeepsTheName() throws {
         #expect(EditorRecentFilesPage<EmptyView>.folderColumnMinimumListWidth > 260 - 32)
         let full = store()
@@ -312,8 +311,8 @@ import FileExplorerTestSupport
 
     // MARK: Reset All Settings
 
-    /// **Reset All Settings takes the list while the app runs.** The store held it in memory, so it
-    /// stayed in File ▸ Open Recent and went back to disk with the next file opened.
+    /// Reset All Settings takes the list while the app runs: a store still holding it in memory
+    /// would keep it in File ▸ Open Recent and write it back with the next file opened.
     @Test func aListRemovedFromTheDomainIsNotWrittenBack() throws {
         let defaults = ScratchDefaults("EditorRecentFilesReset")
         let recents = store(defaults)
@@ -327,8 +326,8 @@ import FileExplorerTestSupport
         #expect(written.map(\.path) == ["/n/new.md"], "the removed list was written back")
     }
 
-    /// Emptied by the person, the list is written as `[]`, not removed — so nothing here reads its
-    /// own Remove as a reset.
+    /// Emptied by the person, the list is written as `[]`, not removed, so nothing reads its own
+    /// Remove as a reset.
     @Test func removingTheLastFileWritesAnEmptyList() {
         let defaults = ScratchDefaults("EditorRecentFilesEmptied")
         let recents = store(defaults)

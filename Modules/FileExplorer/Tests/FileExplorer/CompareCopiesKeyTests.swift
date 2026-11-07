@@ -7,15 +7,12 @@ import Testing
 
 /// The Compare Copies surface's keys, driven through a real window's responder chain.
 ///
-/// **The one rule worth a whole suite: ⏎ never trashes.** The house rule is written down and
-/// tested at the Restructure sheet — the safe act keeps the default, and landing a destructive one
-/// is a deliberate click. The mockup this surface was built from put ⌘⏎ on the trash button; the
-/// review reversed it, and this is what keeps it reversed.
+/// The rule worth a whole suite: ⏎ never trashes. As at the Restructure sheet, the safe act keeps
+/// the default and a destructive one is a deliberate click.
 ///
-/// The keys are `.onKeyPress` and not key equivalents, which is a correction to the plan rather
-/// than a preference: an in-window overlay leaves the whole window mounted underneath it, so a
-/// `.defaultAction` here would eat bare ⏎ typed into any field behind the scrim, on key-repeat.
-/// `BareKeyEquivalentScanTests` enforces that; this suite pins that the replacement actually works.
+/// The keys are `.onKeyPress`, not key equivalents: the window stays mounted under an in-window
+/// overlay, so a `.defaultAction` would eat bare ⏎ typed into any field behind the scrim.
+/// `BareKeyEquivalentScanTests` enforces that; this suite pins that the replacement works.
 @MainActor
 @Suite(.serialized) struct CompareCopiesKeyTests {
 
@@ -47,8 +44,8 @@ import Testing
             onChooseKeeper: { recorder.keeperPicks.append($0) },
             onTrash: { c, _ in recorder.trashes.append(c.path) },
             onClose: { recorder.closes += 1 },
-            // The panes must not mount Quick Look here: a real preview spins up an extension
-            // process per side, and this suite is about the responder chain.
+            // No Quick Look: a real preview spins up an extension process per side, and this
+            // suite is about the responder chain.
             probe: { _ in .missing },
             hash: { _ in .hashed("a") })
     }
@@ -66,8 +63,8 @@ import Testing
         return window
     }
 
-    /// Waits for the surface's own deferred `FocusState` claim, so a green here also says the
-    /// overlay really does take focus when it appears — without which every key below is dead.
+    /// Waits for the surface's deferred `FocusState` claim, so a green also says the overlay takes
+    /// focus when it appears; without it every key below is dead.
     private func waitForFocus(in window: NSWindow) async -> Bool {
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
             window.firstResponder !== window && !(window.firstResponder is NSText)
@@ -89,8 +86,8 @@ import Testing
         send(w, keyCode: 36, characters: "\r", modifiers: modifiers)
     }
 
-    /// keyCode 76, U+0003 — and it always carries `.numericPad` and `.function`, which is why the
-    /// guard is `isPlainKeystroke` and not `modifiers.isEmpty`.
+    /// keyCode 76, U+0003. It always carries `.numericPad` and `.function`, which is why the guard
+    /// is `isPlainKeystroke`, not `modifiers.isEmpty`.
     private func sendKeypadEnter(_ w: NSWindow, modifiers: NSEvent.ModifierFlags = []) {
         send(w, keyCode: 76, characters: "\u{3}",
              modifiers: modifiers.union([.numericPad, .function]))
@@ -117,8 +114,8 @@ import Testing
         #expect(recorder.trashes.isEmpty, "⏎ destroyed one of the user's files")
     }
 
-    /// The second keycap that says Enter. keyCode 76 sends U+0003, so a handler keyed on `.return`
-    /// alone is silently deaf to it — on a surface whose whole job is one decision.
+    /// The keypad's Enter closes too. keyCode 76 sends U+0003, so a handler keyed on `.return`
+    /// alone is silently deaf to it.
     @Test func theKeypadsEnterClosesToo() async throws {
         let recorder = Recorder()
         let window = host(sheet(into: recorder))
@@ -136,8 +133,7 @@ import Testing
         #expect(recorder.closes == 1)
     }
 
-    /// A chord belongs to whoever owns it. ⌘⏎ was the mockup's trash shortcut; it must now do
-    /// nothing here at all rather than quietly closing.
+    /// A chord belongs to whoever owns it: ⌘⏎ does nothing here, not even close.
     @Test func aModifiedReturnIsIgnored() async throws {
         let recorder = Recorder()
         let window = host(sheet(into: recorder))
@@ -162,8 +158,8 @@ import Testing
                 "← re-picked the copy that is already the keeper")
     }
 
-    /// **Caps Lock must not kill the arrows**, which `modifiers.isEmpty` would — it rides on every
-    /// event while engaged. The arrows themselves also always carry `.numericPad`/`.function`.
+    /// Caps Lock must not kill the arrows, which `modifiers.isEmpty` would: it rides on every event
+    /// while engaged. The arrows also always carry `.numericPad`/`.function`.
     @Test func capsLockDoesNotKillTheArrows() async throws {
         let recorder = Recorder()
         let window = host(sheet(into: recorder))
@@ -180,9 +176,8 @@ import Testing
         #expect(recorder.keeperPicks.isEmpty)
     }
 
-    /// A stale surface has nothing to act on — the live group that would receive the flip is gone.
-    /// The key must be `.ignored` rather than silently doing nothing, so whoever else wants it
-    /// still sees it.
+    /// A stale surface has no live group to flip, so the arrows are `.ignored` rather than
+    /// swallowed, and whoever else wants them still sees them.
     @Test func aStaleSurfaceIgnoresTheKeeperArrows() async throws {
         let recorder = Recorder()
         let window = host(sheet(into: recorder, isStale: true))
@@ -196,15 +191,10 @@ import Testing
 
     // MARK: The Differences overlay, before its stat lands
 
-    /// **esc, while the surface is still nothing but a spinner.**
-    ///
-    /// The pair view owns every key this surface answers and is not mounted until both sides have
-    /// been statted — and that stat is off the main actor precisely because a dead SMB or unmounted
-    /// cloud volume can block it indefinitely. So the one moment the reader most wants out was the
-    /// one moment esc did nothing. The fix mounts a focusable placeholder carrying its own handler;
-    /// this is what says that handler is reachable, focused, and wired to the close.
-    ///
-    /// The stat here never answers, which IS the state under test rather than a slow stand-in.
+    /// esc closes while the surface is still only a spinner. The pair view, which owns the keys,
+    /// mounts only after both sides are statted, and a dead SMB or unmounted cloud volume can block
+    /// that stat forever. A focusable placeholder carries its own esc handler; this pins that it is
+    /// focused and wired to the close. The stat here never answers: that is the state under test.
     @Test func escapeClosesTheDifferencesOverlayWhileTheStatIsStillBlocking() async throws {
         let recorder = Recorder()
         let difference = FileDifference(relativePath: "Reports/Q3.pdf",
@@ -212,8 +202,7 @@ import Testing
                                         rightItemPath: "/R/Reports/Q3.pdf",
                                         type: .differentDates, action: .copyToRight,
                                         description: "differs", enclosedItemCount: nil)
-        // Built out here, not inside the closure: the closure is `@Sendable` and these come from a
-        // main-actor helper. They are values, so capturing them is free.
+        // Built outside the `@Sendable` closure, since these come from a main-actor helper.
         let left = copy("/L/Reports/Q3.pdf", keeper: true)
         let right = copy("/R/Reports/Q3.pdf")
         let pair = try #require(DifferencesPairCompare.pair(

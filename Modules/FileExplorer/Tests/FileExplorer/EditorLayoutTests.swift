@@ -5,12 +5,9 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// What the Editor's chrome actually measures, at every text size the app offers.
-///
-/// **The class of test the branch shipped without.** Every other assertion about this workspace is
-/// pure logic — what the store writes, what the walk produces — and none of it can see a header
-/// that wraps, a capsule that outgrows the column it sits in, or a rail that stops matching the
-/// number the layout clamps against. Browse shipped with a rendered test; this is Editor's.
+/// What the Editor's chrome actually measures, at every text size the app offers. The workspace's
+/// logic tests can't see a header that wraps, a capsule that outgrows its column, or a rail that
+/// stops matching the number the layout clamps against; these rendered tests can.
 @MainActor
 @Suite(.serialized) struct EditorLayoutTests {
 
@@ -60,14 +57,9 @@ import FileExplorerTestSupport
         EditorRailEntry(path: "/a/\(name)", name: name, size: size, isCloudOnly: false)
     }
 
-    /// **The drawn rail is the width the layout reserves — and the rows are really in it.**
-    ///
-    /// The width half alone is a tautology and was one: `EditorFileRailView.body` ends in
-    /// `.frame(width: Self.width)` and `Self.width` IS `EditorLayoutMetrics.railWidth`, so the
-    /// assertion compared a constant to itself through a hard frame and would have passed with the
-    /// header deleted, every row deleted, or `railWidth` set to 500. The height is what makes it a
-    /// measurement: it is the axis the frame does not pin, so a rail that stopped drawing its rows
-    /// fails here.
+    /// The drawn rail is the width the layout reserves, and the rows are really in it. The width
+    /// alone is a tautology (the body ends in `.frame(width: Self.width)`, which is `railWidth`);
+    /// the height, which the frame doesn't pin, is what fails if the rail stops drawing its rows.
     @Test func theRailDrawsAtTheReservedWidthWithItsRowsInIt() {
         let one = size(rail(entries: [entry("one.md")]))
         let three = size(rail(entries: [entry("one.md"), entry("two.md"), entry("three.md")]))
@@ -80,13 +72,9 @@ import FileExplorerTestSupport
                 "three rows measure the same as one (\(three.height)pt) — the rows are not drawn, so the width assertion above is measuring an empty frame")
     }
 
-    /// **A long file name truncates rather than wrapping**, measured in HEIGHT.
-    ///
-    /// Width cannot see this and the earlier version of this test asked in width: the rail is hard
-    /// framed, so a name that wrapped to three lines measured exactly as wide as one that did not,
-    /// and deleting `lineLimit(1)` and `truncationMode(.middle)` from the row changed nothing the
-    /// assertion could read. What a wrap actually does is make the ROW taller, so that is the axis.
-    /// The two-row control below is what stops this passing on a rail that draws nothing at all.
+    /// A long file name truncates rather than wrapping, measured in height: the rail is hard
+    /// framed, so a wrapped name is no wider, only taller. The two-row control stops this passing
+    /// on a rail that draws nothing.
     @Test func aLongFileNameTruncatesRatherThanWrappingTheRow() {
         let short = size(rail(entries: [entry("a.md")])).height
         let long = size(rail(entries: [entry(String(repeating: "verylongname", count: 12) + ".md")])).height
@@ -98,15 +86,11 @@ import FileExplorerTestSupport
                 "a second row did not make the rail taller (\(two)pt vs \(short)pt) — height is not measuring the rows, so the comparison above proves nothing")
     }
 
-    /// **The two cards really do cost a `cardGutter`, measured rather than restated.**
-    ///
-    /// `minWorkspaceWidth` is defined as `railWidth + minDocumentWidth + 2 * cardGutter`, so
-    /// asserting that equality is the definition typed twice — it cannot fail. What can fail is the
-    /// claim underneath it: that `bottomSectionCard` insets its content by half a gutter on each
-    /// side in Cards, which is where the `2 *` comes from. That is a fact about a Design component
-    /// this file does not own, and if it ever changes, the workspace floor silently starts promising
-    /// a document column it then shaves points off. Cards is the costly style and the floor is
-    /// budgeted for it; in Unified the two sit flush and cost nothing, which the floor also covers.
+    /// The two cards really cost a `cardGutter`, measured rather than restated.
+    /// `minWorkspaceWidth` is `railWidth + minDocumentWidth + 2 * cardGutter`; the `2 *` rests on
+    /// `bottomSectionCard` (a Design component) insetting half a gutter each side in Cards. If that
+    /// changes, the floor would promise a document column it then shaves. In Unified the cards sit
+    /// flush and cost nothing, which the floor also covers.
     @Test func aCardCostsExactlyTheGutterTheWorkspaceMinimumBudgetsForIt() {
         let bare = size(Color.clear.frame(width: 200, height: 40))
         let carded = size(Color.clear.frame(width: 200, height: 40)
@@ -122,25 +106,14 @@ import FileExplorerTestSupport
                 "the workspace floor does not cover the chrome the two cards actually draw")
     }
 
-    /// **The rail row wears the row variant, and both of its arms wear the same shape.**
+    /// The rail row wears the `.row` hover variant, and both arms wear one shape. `.inline` (a
+    /// dismiss glyph's variant) defaults to a circle, which in a full-width row is a grey disc, not
+    /// a wash; `.filled` defaults to a capsule, a pill around a rounded rectangle. Which variant a
+    /// control wears is decided per call site, so `HoverAffordanceTests` can't catch it.
     ///
-    /// It shipped as `isSelected ? .filled : .inline`. `.inline` is documented for "a small dismiss
-    /// glyph riding inside a field or chip", and its default shape is a **circle** — which in a
-    /// full-width row collapses to the row's height and centres itself, so hovering a file drew a
-    /// grey disc in the middle of the row rather than a wash across it. The selected arm was wrong
-    /// in the same breath: `.filled` defaults to a capsule, so the ring traced a pill around a
-    /// rounded rectangle.
-    ///
-    /// **Nothing in the repo could have caught it.** `HoverAffordanceTests` pins each variant's own
-    /// metrics; which variant a given control should wear is decided per call site, by hand — the
-    /// `.segment` census in `HoverAffordanceShape` is a doc comment, not an assertion. So this is
-    /// the check for this row, in the shape the duplicate card's own scan uses.
-    ///
-    /// A source scan because hover state does not render offscreen (`HoverTintRenderTests` drives
-    /// the phase directly rather than through a pointer). The value assertions below are the half
-    /// that is not string matching: the shape this row names must be exactly what `.row` would have
-    /// chosen for itself, which is what makes passing it explicitly a fix for the `.filled` arm
-    /// rather than a second opinion about the unselected one.
+    /// A source scan, since hover state doesn't render offscreen (`HoverTintRenderTests` drives the
+    /// phase directly). The value checks pin that the row's shape is exactly what `.row` would
+    /// choose, so passing it explicitly fixes the `.filled` arm.
     @Test func theRailRowWearsTheRowHoverVariantInOneShape() throws {
         #expect(EditorFileRailView.rowShape == HoverAffordanceShape.default(for: .row),
                 "the row names a shape .row would not have chosen — one of the two is wrong")
@@ -155,20 +128,16 @@ import FileExplorerTestSupport
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
                                   "cannot read EditorFileRailView.swift — this scan would be vacuous")
         try #require(source.count > 500, "the file is implausibly short — the scan would be near-vacuous")
-        // Scoped to the row builder, so a `.glyph` elsewhere in the file — the ＋ button and the
-        // naming row legitimately have their own — cannot satisfy or break this. `row(_:)` is the
-        // last member of the type, so "to the end" IS its body; asserted rather than assumed,
-        // because a member added after it would silently widen this scan.
+        // Scoped to the row builder, so a `.glyph` elsewhere (the ＋ button and the naming row have
+        // their own) can't satisfy or break this. `row(_:)` is the type's last member, so "to the
+        // end" is its body; asserted, because a member added after it would widen the scan.
         let start = try #require(source.range(of: "private func row(_ entry: EditorRailEntry)"),
                                  "the row builder is gone or renamed — this scan is not reading it")
         let whole = String(source[start.upperBound...])
         #expect(!whole.contains("\n    private func ") && !whole.contains("\n    var "),
                 "row(_:) is no longer the last member, so this scan now covers more than the row")
-        // **Comment lines dropped before anything is asserted**, and this is not tidiness. The
-        // paragraph above the button style explains the defect by naming `.inline`, so a scan of the
-        // raw text finds the very spelling it is asserting the absence of — it failed on its own
-        // explanation the first time it ran. A scan that reads prose is a scan that can be satisfied
-        // or broken by prose.
+        // Comment lines dropped first: the comment above the button style names `.inline`, so a
+        // scan of the raw text would find the spelling it asserts is absent.
         let code = whole.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
@@ -184,12 +153,9 @@ import FileExplorerTestSupport
                 "the row is back on the dismiss-glyph variant, which washes in ink and draws a circle")
     }
 
-    /// **Only the OPEN row wears the unsaved dot.**
-    ///
-    /// The rail lists every text file in the folder and exactly one of them is the document, so a
-    /// dot resolved from a document-wide status without checking which row it is would mark the
-    /// whole folder as unsaved. That mistake is invisible in the obvious place to look — a folder
-    /// with one file in it — which is why it is asserted here rather than left to a screenshot.
+    /// Only the open row wears the unsaved dot. The rail lists every text file in the folder and
+    /// one is the document, so a dot taken from the document's status without checking the row
+    /// would mark the whole folder unsaved, unseen in a folder of one file.
     @Test func onlyTheOpenRowShowsTheUnsavedDot() {
         let open = "/a/open.md"
         let other = "/a/other.md"
@@ -208,21 +174,16 @@ import FileExplorerTestSupport
                                              status: .saved, accent: .blue) == nil)
         #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: open,
                                              status: .readOnly, accent: .blue) == nil)
-        // A stop is the warning colour here as it is in the header — one rule, two places.
+        // A stop is the warning colour here as in the header: one rule, two places.
         #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: open,
                                              status: .stopped("x"), accent: .blue) == .orange)
     }
 
     // MARK: The split divider
 
-    /// **The clamp both the divider and the drag now ask.**
-    ///
-    /// This arithmetic has shipped a bug in each direction. `min(max(x, lower), 1 - lower)` is not
-    /// a clamp when `lower > 1 - lower`: it collapses to the constant `1 - lower`, which froze the
-    /// divider at the window floor. The display path was guarded and the drag handler kept its own
-    /// unguarded copy, so every drag at that width committed a fraction nobody chose — invisible
-    /// until the window was widened and the divider jumped. Being a named function is what let this
-    /// be tested at all; it was inline in a `GeometryReader` closure.
+    /// The one clamp both the divider and the drag ask. `min(max(x, lower), 1 - lower)` is not a
+    /// clamp when `lower > 1 - lower`: it collapses to `1 - lower` and freezes the divider at the
+    /// window floor, and a drag would commit a fraction nobody chose.
     @Test func theSplitClampNeverInvertsAndNeverLeavesAColumnUnusable() {
         let minimum = EditorLayoutMetrics.minSplitColumnWidth
 
@@ -240,8 +201,8 @@ import FileExplorerTestSupport
             }
         }
 
-        // The property that matters at every width the window can be: neither column is ever
-        // squeezed past the other's minimum, and the fraction is always a fraction.
+        // At every width the window can be: neither column is squeezed past the other's minimum,
+        // and the fraction is always a fraction.
         for width in stride(from: CGFloat(1), through: 2400, by: 13) {
             for raw in [CGFloat(-5), 0, 0.2, 0.5, 0.9, 1, 4] {
                 let f = EditorLayoutMetrics.splitFraction(raw, in: width)
@@ -261,12 +222,9 @@ import FileExplorerTestSupport
             .environment(\.appFontScale, scale))
     }
 
-    /// **The narrow rung has to fit beside a filename in the narrowest document column.**
-    ///
-    /// The capsule sits at the trailing end of the editor's header row and the header's other half
-    /// is the file name; `minDocumentWidth` is what the split clamp guarantees that column. This is
-    /// the assertion that found the labelled capsule too wide to sit there at any text size — 208pt
-    /// at the default against a 260pt column — which is why the control sheds its words at all.
+    /// The narrow rung must fit beside a filename in the narrowest document column
+    /// (`minDocumentWidth`, the split clamp's guarantee). The labelled capsule is too wide for that
+    /// column at every text size, which is why the control sheds its words.
     @Test func theGlyphRungFitsTheNarrowestDocumentColumnAtEveryTextSize() {
         let nameAllowance = Self.nameAllowance
         for scale in scales {
@@ -283,46 +241,27 @@ import FileExplorerTestSupport
     /// What the header must still be able to show of a file name beside the capsule.
     private static let nameAllowance: CGFloat = 120
 
-    /// The document column at the app's 760pt window floor, with the folder sidebar at its own
-    /// 150pt minimum. **Deliberately the conservative reading** — `EditorLayoutMetrics` puts the
-    /// real column at ~391pt there, and anything that clears this clears that, so the test cannot
-    /// pass on an over-generous estimate of the room available.
+    /// The document column at the app's 760pt window floor, with the folder sidebar at its 150pt
+    /// minimum. Deliberately conservative: `EditorLayoutMetrics` puts the real column at ~391pt, so
+    /// anything that clears this clears that.
     private static var documentWidthAtWindowFloor: CGFloat {
         760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter
     }
 
-    /// **Where the words survive at the narrowest window the app allows — pinned as a boundary,
-    /// not as a verdict.**
+    /// Where the words survive at the 760pt window floor, pinned as a boundary: the labelled rung
+    /// fits up to 130% and sheds only at 135%, the `Largest` preset, by a few points. Above it the
+    /// names stay reachable through the tooltip and accessibility label, as the workspace bar's do.
     ///
-    /// `minDocumentWidth` (260) is the split clamp's floor and the labelled rung has never fitted
-    /// it; that is what the glyph rung above is for. This asks the other question: at the 760pt
-    /// window floor, with the folder sidebar at its own 150pt minimum, does the reader still get
-    /// the words? Not at every text size — so what is pinned is the percent where it turns over.
-    ///
-    /// **Swept over `selectablePercents`, not `allCases`.** The four named presets are what the UI
-    /// offers by name; the slider lands on every step from 90 to 135. A four-row table would have
-    /// reported "Large fits, Largest does not" and left the six steps between them unmeasured.
-    /// Measured 2026-08-31 on this code, the last percent that fits is **130** — so the shed is
-    /// confined to **135 alone**, the top of the range and the `Largest` preset, where the rung is
-    /// 251pt and 251 + 120 = 371 against a 368pt column. Three points over.
-    ///
-    /// That corner is new, and it is what two changes landing together cost: "Edit" became
-    /// "Source" (+15 to +20pt across the range) and the glyph box started scaling with the type
-    /// ramp instead of sitting in a pinned 13×13. **Neither alone crossed it** — with "Edit" at
-    /// 135 the rung was 231, and 231 + 120 = 351 fitted. Above the boundary the names stay
-    /// reachable through the tooltip and the accessibility label, which is the bargain the
-    /// workspace bar strikes too, and only at the narrowest window the app allows.
-    ///
-    /// Pinning the boundary is what makes this fail in BOTH directions: a longer label drags it
-    /// down through the presets, and anything that buys width back pushes it up — and either way
-    /// the failure names the percent rather than only saying "too wide".
+    /// Swept over `selectablePercents`, every slider step, not the four named presets. Pinning the
+    /// boundary fails in both directions (a longer label drags it down, any width bought back
+    /// pushes it up), and the failure names the percent.
     @Test func theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange() {
         let column = Self.documentWidthAtWindowFloor
         let fitting = FontSize.selectablePercents.filter { percent in
             capsule(.labelled, scale: FontSize(percent: percent).scale).width
                 + Self.nameAllowance <= column
         }
-        // Contiguous from the bottom, or "the last one that fits" is not a boundary at all.
+        // Contiguous from the bottom, or "the last one that fits" is not a boundary.
         #expect(fitting == Array(FontSize.selectablePercents.prefix(fitting.count)),
                 "the percents that fit are \(fitting) — not a contiguous run, so there is no single boundary")
         #expect(fitting.last == 130, """
@@ -333,8 +272,7 @@ import FileExplorerTestSupport
                 """)
     }
 
-    /// …and the labelled rung is genuinely wider, or the ladder has nothing to choose between and
-    /// the check above is measuring the only rung there is.
+    /// …and the labelled rung is genuinely wider, or the ladder has nothing to choose between.
     @Test func theLabelledRungIsTheWiderOneItShedsFrom() {
         for scale in scales {
             let labelled = capsule(.labelled, scale: scale).width
@@ -344,9 +282,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// The capsule is one width whichever segment is selected — a control that resized as the
-    /// selection moved would shift the filename beside it on every click. It did: the selected
-    /// segment was semibold and the others medium, and weight changes width.
+    /// The capsule is one width whichever segment is selected, or the filename beside it would
+    /// shift on every click (a bolder selected segment would widen it).
     @Test func theCapsuleIsOneWidthWhicheverModeIsSelected() {
         for rung in [EditorModeBar.Rung.labelled, .glyphOnly] {
             let widths = EditorMode.allCases.map { capsule(rung, mode: $0).width }
@@ -355,14 +292,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// It grows with the app's type rather than staying pinned — the failure that would make the
-    /// ceiling check above vacuous.
-    ///
-    /// **Both rungs, and the glyph-only one is why this test was rewritten.** It measured the
-    /// labelled rung alone, which scaled the whole time because its words are `Text` — so it went
-    /// green over a glyph-only rung that measured **85pt at every one of the four sizes**, its
-    /// symbols framed at a hard `13×13` while the glyphs inside them grew and overflowed. A rung
-    /// the ceiling checks above are asked about is a rung this has to be asked about too.
+    /// Both rungs grow with the app's type rather than staying pinned, or the ceiling checks above
+    /// would be vacuous. The glyph-only rung especially: it has no `Text` to scale, so a
+    /// hard-framed glyph box would stay one width while the glyphs inside overflowed.
     @Test func bothRungsGrowWithTheAppsTextSize() {
         for rung in [EditorModeBar.Rung.labelled, .glyphOnly] {
             let widths = scales.map { capsule(rung, mode: .edit, scale: $0).width }
@@ -400,11 +332,8 @@ import FileExplorerTestSupport
             forcedRung: rung)
     }
 
-    /// **The rungs have to be strictly narrower in order, or `ViewThatFits` never reaches them.**
-    ///
-    /// It takes the first candidate that fits, so a "narrower" rung that measures wider than the
-    /// one before it is dead code that no width can select — the failure mode is silent, and the
-    /// strip simply truncates at the size the shedding was written for.
+    /// The rungs must be strictly narrower in order, or `ViewThatFits`, which takes the first that
+    /// fits, never reaches them, and the strip silently truncates instead.
     @Test func eachStatusRungIsNarrowerThanTheOneBeforeIt() {
         for scale in scales {
             let widths = EditorStatusLine.Rung.allCases.map {
@@ -415,8 +344,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// The narrowest rung has to fit the narrowest column the layout will ever give it, at every
-    /// text size — otherwise the strip truncates in a window the app itself allows.
+    /// The narrowest rung fits the narrowest column the layout ever gives it, at every text size,
+    /// or the strip truncates in a window the app allows.
     @Test func theNarrowestStatusRungFitsTheNarrowestDocumentColumn() {
         for scale in scales {
             let width = size(statusLine(.caret).environment(\.appFontScale, scale)).width
@@ -425,9 +354,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// A five-figure count is wider than a one-figure count, so the rung widths above are a
-    /// property of the numbers as well as of the layout. This is the positive control for the two
-    /// tests above: without it they would pass over a strip that rendered no numbers at all.
+    /// A five-figure count is wider than a one-figure count: the positive control for the two tests
+    /// above, which would otherwise pass over a strip that drew no numbers.
     @Test func theStatusLineReallyDrawsItsNumbers() {
         let small = size(statusLine(.full, words: 1, characters: 4)).width
         let large = size(statusLine(.full, words: 4_218, characters: 24_907)).width
@@ -437,20 +365,15 @@ import FileExplorerTestSupport
 
     // MARK: The rail's tabs
 
-    /// **The words fit every segment at every text size — measured, not assumed.**
-    ///
-    /// The bar spans a rail that is 232pt and cannot be anything else, in equal segments — three
-    /// with a PDF open — so what decides whether a word truncates is the widest label in ONE
-    /// segment. An ideal-width reading of the real bar would answer about the sum, which is a
-    /// different and more forgiving number — hence `tabs:`, which puts one title in every segment
-    /// and measures the layout's actual worst case. With glyphs, "Outline" overflowed from Default
-    /// up (``EditorRailTab/title`` has the numbers); words alone pass with the widest at 64 of 67pt.
+    /// The words fit every segment at every text size. The bar spans the fixed-width rail in equal
+    /// segments (three with a PDF open), so the widest label in one segment decides; the bar's
+    /// ideal width would only answer for the sum. `tabs:` puts one title in every segment to
+    /// measure the worst case. ``EditorRailTab/title`` has the numbers.
     @Test func theRailTabsFitTheRailAtEveryTextSize() {
-        // What the bar is actually handed: the rail, less the 10pt it is inset by on each side.
+        // What the bar is handed: the rail, less its 10pt inset on each side.
         let available = EditorLayoutMetrics.railWidth - 20
-        // Every title in every segment of the widest bar there is — the three a PDF brings — rather
-        // than the longest title by character count: "Pages" is shorter than "Outline" and not
-        // necessarily narrower in every font, and the measurement is cheap.
+        // Every title in every segment of the widest bar (the three a PDF brings), not the longest
+        // by character count, which needn't be the widest in every font.
         let widestBar = EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true, markdownIsOpen: false)
         #expect(widestBar.count == 3, "the PDF bar is the widest case and has \(widestBar.count) tabs")
         for scale in scales {
@@ -466,8 +389,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// Both tabs draw at the one width the layout reserves — the rail is hard-framed, so this is
-    /// really asking that neither half's content escapes the frame and pushes it.
+    /// Both tabs draw at the one width the layout reserves: neither half's content escapes the hard
+    /// frame and pushes it.
     @Test func eitherTabDrawsAtTheReservedWidth() {
         let files = size(rail(entries: [entry("one.md")], tab: .files))
         let outlined = size(rail(entries: [entry("one.md")],
@@ -481,9 +404,8 @@ import FileExplorerTestSupport
 
     // MARK: The outline tab
 
-    /// **The eight-row cap is gone with the stack that needed it**, which is half the point of the
-    /// tabs: the outline has the whole card, so its twelfth row is drawn as surely as its fourth.
-    /// Twelve against four, either side of the old ceiling.
+    /// The outline has the whole card, with no row cap, so its twelfth row is drawn as surely as
+    /// its fourth. Twelve against four, either side of an eight-row cap.
     @Test func theOutlineTabDrawsPastTheRowCapTheStackImposed() {
         let four = size(rail(entries: [entry("one.md")],
                              outline: (1...4).map { heading("Row \($0)", line: $0) },
@@ -506,22 +428,16 @@ import FileExplorerTestSupport
                 "four outline rows measured \(four.height) against one row's \(one.height)")
     }
 
-    /// **The empty outline is a note with no headings yet** — the only empty the tab can show since
-    /// it is offered only for Markdown (TE111) — so it says what makes one rather than "there are
-    /// none".
+    /// The empty outline is a note with no headings yet, the only empty the tab can show since it
+    /// is offered only for Markdown, so it says what makes one rather than "there are none".
     @Test func theEmptyOutlineSaysWhatMakesAHeading() {
         #expect(EditorFileRailView.outlineEmptyCaption.contains("#"),
                 "the no-headings caption does not say what makes a heading: \(EditorFileRailView.outlineEmptyCaption)")
     }
 
-    /// **The rail's four empties, kept apart.** No folder chosen; a filter that matched nothing; a
-    /// folder that really is empty; and a folder full of files the editor does not open. The last
-    /// one used to render as the third, which is the defect this whole change is: standing in a
-    /// folder of PDFs, the app said "No text files in this folder" and nothing else, and a folder
-    /// he had just filled read as one he had lost.
-    ///
-    /// Collapse any two arms and the set shrinks, which is what makes this a test rather than a
-    /// restatement of the function.
+    /// The rail's four empties, kept apart: no folder chosen; a filter that matched nothing; a
+    /// folder that really is empty; a folder of files the editor doesn't open, which must not read
+    /// as an empty one. Collapsing any two arms shrinks the set.
     @Test func theEmptyRailKeepsItsFourAnswersApart() {
         let noFolder = EditorFileRailView.fileEmptyCaption(folderName: "", anyEntries: false,
                                                            filter: "", otherFiles: nil)
@@ -542,9 +458,8 @@ import FileExplorerTestSupport
                 "the empty folder's caption counts files that are not there: \(empty)")
     }
 
-    /// An uncounted folder reads as an empty one. `nil` means nobody asked — which happens only
-    /// when the rail has rows and this caption is not on screen — so the two must not diverge into
-    /// a third sentence nothing can reach.
+    /// An uncounted folder reads as an empty one. `nil` means nobody asked, which happens only when
+    /// the rail has rows and this caption isn't on screen, so there's no third sentence to reach.
     @Test func anUncountedFolderReadsAsAnEmptyOne() {
         #expect(EditorFileRailView.fileEmptyCaption(folderName: "Notes", anyEntries: false,
                                                     filter: "", otherFiles: nil)
@@ -552,8 +467,8 @@ import FileExplorerTestSupport
                                                        filter: "", otherFiles: 0))
     }
 
-    /// One file is not a corner — a PDF in a folder of its own is an ordinary thing to be standing
-    /// in — and a single pluralised template renders it "None of the 1 file in this folder are".
+    /// One file is ordinary (a PDF in a folder of its own), and a single pluralised template would
+    /// render it "None of the 1 file in this folder are".
     @Test func theEmptyRailReadsAsEnglishForOneFile() {
         let one = EditorFileRailView.fileEmptyCaption(folderName: "Scans", anyEntries: false,
                                                       filter: "", otherFiles: 1)
@@ -564,7 +479,7 @@ import FileExplorerTestSupport
                 "one unopenable file reads the same as an empty folder: \(one)")
     }
 
-    /// **A count past a thousand is grouped** (ED15) — "None of the 1,200 files", not "1200".
+    /// A count past a thousand is grouped: "None of the 1,200 files", not "1200".
     @Test func theEmptyRailGroupsALargeCount() throws {
         let grouped = 1_200.formatted()
         try #require(grouped != "1200", "this locale groups no digits — this measures nothing")
@@ -575,14 +490,9 @@ import FileExplorerTestSupport
         #expect(!many.contains("1200"), "\(many)")
     }
 
-    /// An empty outline is a caption, not a blank card.
-    ///
-    /// **Asserted as a difference, not as a height floor.** A floor is what this was first written
-    /// as — `> 60pt` — and the tabs and the context line clear that on their own, so it passed with
-    /// the caption replaced by an empty string. It compared the two empties' captions while there
-    /// were two; since TE111 there is one (a note with no headings), so the rail's empty Outline tab
-    /// is measured against the same rail with that caption blanked: blank it in the source and the
-    /// heights collapse together.
+    /// An empty outline is a caption, not a blank card. Asserted as a difference, not a height
+    /// floor, which the tabs and context line clear on their own: the empty Outline tab against the
+    /// same rail with the caption blanked. Blank it in the source and the heights match.
     @Test func theEmptyOutlineTabDrawsTheCaptionAndNotJustSpace() {
         let drawn = size(rail(entries: [entry("one.md")], tab: .outline), width: EditorLayoutMetrics.railWidth)
         let list = { (caption: String) in
@@ -607,10 +517,8 @@ import FileExplorerTestSupport
         .fixture(document: document, showsRail: showsRail, railIsHidden: railIsHidden, isNaming: naming)
     }
 
-    /// **A `.md` and a `.txt` header must be the same height**, or the document column below them
-    /// starts at two different places depending on which file you opened — which is what it did:
-    /// the mode capsule is the tallest thing in the top row and a plain-text file has no capsule,
-    /// so its header was measurably shorter.
+    /// A `.md` and a `.txt` header are the same height, or the document column would start at two
+    /// places: the mode capsule is the top row's tallest thing, and a plain-text file has none.
     @Test func theHeaderIsTheSameHeightForEveryKindOfTextFile() throws {
         let markdown = try document(named: "note.md")
         let plain = try document(named: "note.txt")
@@ -627,12 +535,10 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The assumption the reservation rests on, and it was unpinned.** The hidden capsule sits
-    /// inside a zero-width frame, so its `ViewThatFits` is proposed no width and picks the NARROWEST
-    /// rung — the glyph-only one. That only reserves the right height because both rungs happen to
-    /// be the same height: measured, 22 · 23 · 27 · 28pt across the four text sizes. Change the
-    /// labelled rung's padding or its font and that stops being true, the reservation quietly
-    /// under-reserves, and the two headers diverge again with nothing failing.
+    /// The assumption the reservation rests on: the hidden capsule sits in a zero-width frame, so
+    /// its `ViewThatFits` picks the narrowest, glyph-only rung. That reserves the right height only
+    /// while both rungs are the same height; a change to the labelled rung's padding or font would
+    /// quietly under-reserve.
     @Test func bothCapsuleRungsAreTheSameHeight() {
         for scale in scales {
             let labelled = size(EditorModeBar(mode: .constant(.edit), accentFill: .blue,
@@ -643,15 +549,15 @@ import FileExplorerTestSupport
                              .environment(\.appFontScale, scale))
             #expect(abs(labelled.height - glyph.height) < 0.51,
                     "at scale \(scale) the rungs are \(labelled.height)pt and \(glyph.height)pt tall")
-            // The positive control: they differ in WIDTH, which is what the rungs are for.
+            // The positive control: they differ in width, which is what the rungs are for.
             #expect(labelled.width > glyph.width + 10,
                     "the two rungs measure the same width — the shedding is not happening")
         }
     }
 
-    /// The mechanism the fix rests on, pinned on its own: a hidden capsule inside a zero-width
-    /// frame still contributes its HEIGHT. If `.frame(width: 0)` ever flattened the height too, the
-    /// test above would go green only because both headers had lost the reservation together.
+    /// A hidden capsule inside a zero-width frame still contributes its height. If
+    /// `.frame(width: 0)` flattened it, the header test above would pass only because both headers
+    /// lost the reservation together.
     @Test func aZeroWidthHiddenCapsuleStillReservesItsHeight() {
         for scale in scales {
             let visible = size(EditorModeBar(mode: .constant(.edit), accentFill: .blue, onAccent: .white)
@@ -667,17 +573,10 @@ import FileExplorerTestSupport
     }
 
 
-    /// **Both header rows reserve the dot's column, which is what gives them one left edge.**
-    ///
-    /// A source scan, and it is the second-best test — but the position of a view inside a rendered
-    /// SwiftUI tree is not reachable from here, so "the title and the subtitle start at the same x"
-    /// cannot be measured the way a size can. What can be checked is the mechanism: two rows both
-    /// asking the same named constant. The failure it guards is somebody widening the dot on the
-    /// title row and leaving the reservation below it alone, which puts the edges back out of step
-    /// with nothing to notice it.
-    ///
-    /// **Comments are stripped first.** A previous scan in this codebase matched the doc comment
-    /// explaining a removal and reported the code as still present.
+    /// Both header rows reserve the dot's column, which gives them one left edge. A source scan,
+    /// since a view's position in a rendered SwiftUI tree isn't reachable here: both rows must ask
+    /// the same named constant, so widening the dot on one row alone fails. Comments are stripped
+    /// first, so prose can't satisfy it.
     @Test func bothHeaderRowsReserveTheDotColumn() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -713,10 +612,9 @@ import FileExplorerTestSupport
 
 // MARK: - Fewer columns
 
-/// **What the document gets when the rail is not drawn, and where ⌘N's row goes.** Measured on the
-/// mounted AppKit tree rather than read off the view, because `showsRail` is one `if` and a rail
-/// hidden by `.opacity(0)` would pass any presence check while taking exactly the width it took
-/// before.
+/// What the document gets when the rail is not drawn, and where ⌘N's row goes. Measured on the
+/// mounted AppKit tree, because a rail hidden by `.opacity(0)` would pass any presence check while
+/// still taking its width.
 @MainActor
 @Suite(.serialized) struct EditorFewerColumnsLayoutTests {
 
@@ -741,8 +639,8 @@ import FileExplorerTestSupport
         return host
     }
 
-    /// The first descendant of `type`, with its frame in the host's coordinates — a frame read raw
-    /// is in the superview's space, and the nesting here is deep.
+    /// The first descendant of `type`, with its frame in the host's coordinates; a raw frame is in
+    /// the superview's space, and the nesting here is deep.
     private func first<T: NSView>(_ type: T.Type, in host: NSView) -> (view: T, frame: CGRect)? {
         var found: (T, CGRect)?
         func walk(_ v: NSView) {
@@ -767,10 +665,9 @@ import FileExplorerTestSupport
         return found
     }
 
-    /// **Without the rail the document is wider by the rail and its card**, measured on the text
-    /// view AppKit actually mounted. The difference is `railWidth + gutter`: the rail's width plus
-    /// the gutter its card cost — one in Cards, the number `minDocumentOnlyWidth` is built from, and
-    /// none in the fixture's default Unified, where the rail sits flush beside the document.
+    /// Without the rail the document is wider by the rail and its card, measured on the text view
+    /// AppKit mounted: `railWidth + gutter`, where the gutter is one in Cards (as
+    /// `minDocumentOnlyWidth` is built) and none in the fixture's default Unified.
     @Test func withoutTheRailTheDocumentTakesItsWidth() throws {
         let doc = try document(named: "note.txt")
         let withRail = try #require(first(NSTextView.self, in: mounted(workspace(doc, showsRail: true))),
@@ -781,15 +678,15 @@ import FileExplorerTestSupport
         let expected = EditorLayoutMetrics.railWidth + LiquidGlass.gutter(.unified)
         #expect(abs(gained - expected) < 1,
                 "the document gained \(gained)pt without the rail; the rail and its card are \(expected)pt")
-        // And it is the LEFT edge that moved: the rail was on the left, so the text starts where
-        // the rail started. A document that widened to the right would be measuring something else.
+        // And it is the left edge that moved: the rail was on the left, so the text starts where
+        // the rail started.
         #expect(without.frame.minX < withRail.frame.minX - EditorLayoutMetrics.railWidth + 1,
                 "the text still starts at x=\(without.frame.minX) without the rail (with: \(withRail.frame.minX))")
     }
 
-    /// **⌘N's row is in the rail while there is one, and at the top of the document when there is
-    /// not** — one row, never two, never none. Told apart by width: the rail's field is inside a
-    /// 232pt column, the document's spans the row.
+    /// ⌘N's row is in the rail while there is one, and at the top of the document when there isn't:
+    /// one row, never two, never none. Told apart by width: the rail's field is in a 232pt column,
+    /// the document's spans the row.
     @Test func theNamingRowMovesToTheDocumentWhenThereIsNoRail() throws {
         let doc = try document(named: "note.txt")
         let inRail = nameFields(in: mounted(workspace(doc, showsRail: true, naming: true)))
@@ -811,20 +708,18 @@ import FileExplorerTestSupport
         #expect(nameFields(in: mounted(workspace(doc, showsRail: true))).isEmpty)
     }
 
-    /// **Expand names its NEXT act (TE48):** "Expand" while the rail is there, "Files" once it is
-    /// not — the word on the button and its accessibility label — with a tooltip that spells the act
-    /// out, and arrows that point out and then in. Pinned on the statics the view draws from,
-    /// because a hosted SwiftUI tree exposes neither its accessibility labels nor its tooltips under
-    /// `swift test` (measured 2026-09-16: `NSView.toolTip` is nil throughout). "Just the text" is
-    /// gone from every string. Mutation: swap any ternary's arms and its lines fail.
+    /// Expand names its next act: "Expand" while the rail is there, "Files" once it isn't, on the
+    /// button and its accessibility label, with a tooltip that spells it out and arrows that point
+    /// out, then in. Pinned on the statics the view draws from, since a hosted SwiftUI tree exposes
+    /// no labels or tooltips under `swift test`. Swapping any ternary's arms fails its lines.
     @Test func theExpandButtonNamesItsNextAct() {
         #expect(EditorWorkspaceView.expandTitle(railIsHidden: false) == "Expand")
         #expect(EditorWorkspaceView.expandTitle(railIsHidden: true) == "Files")
         #expect(EditorWorkspaceView.expandSymbol(railIsHidden: false) == "arrow.up.left.and.arrow.down.right")
         #expect(EditorWorkspaceView.expandSymbol(railIsHidden: true) == "arrow.down.right.and.arrow.up.left")
         #expect(EditorWorkspaceView.expandHelp(railIsHidden: false).contains("put away the file list"))
-        // The sidebar too, since 2026-10-04: it stays beside Edit's folded pane, so the ordinary
-        // layout can have one on screen for the button to put away.
+        // The sidebar too: it stays beside Edit's folded pane, so the ordinary layout can have one
+        // on screen for the button to put away.
         #expect(EditorWorkspaceView.expandHelp(railIsHidden: false).contains("sidebar"))
         // Leaving gives back what was there, not only the list.
         #expect(EditorWorkspaceView.expandHelp(railIsHidden: true).contains("as they were"))
@@ -839,22 +734,12 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The button really lights — its wash — and lighting it moves nothing else.** Its word and
-    /// glyph stay label colour lit or not (DS1, RB2): the accent as words on its own wash read at
-    /// 2.3:1 on Green.
-    ///
-    /// The wash is counted on its own: pixels of the accent's soft tint (light, blue-leaning, not
-    /// white and not the saturated ink) inside the Expand button's ring, as an area in square
-    /// points so the display's scale cannot move it. Unlit there are none; lit they cover most of
-    /// the pill. A count of every pixel that changed could not tell a missing wash from a present
-    /// one — the glyph and the word both change when it lights — which is how the first version of
-    /// this test let the wash go unpinned.
-    ///
-    /// And every pixel that changes is inside that ring, which is the same frame lit and unlit —
-    /// "Files" sits in the room "Expand" takes, so nothing to its left slides.
-    ///
-    /// Mutations: drop the wash (the lit area falls to the ink's edges), or the width reservation
-    /// (the ring moves) — each fails.
+    /// The button really lights with its wash, and lighting it moves nothing else. Its word and
+    /// glyph stay label colour lit or not, since accent words on their own wash read at 2.3:1 on
+    /// Green. The wash is counted alone, as the accent's soft tint inside the ring, in square
+    /// points so the display's scale can't move it; counting every changed pixel couldn't tell a
+    /// missing wash, since the glyph and word change too. Every changed pixel is inside the ring,
+    /// the same frame lit and unlit. Dropping the wash, or the width reservation, fails.
     @Test(.machinePinned(.pixelSampling))
     func theExpandButtonLightsWhenTheRailIsHidden() throws {
         let doc = try document(named: "note.txt")
@@ -880,11 +765,10 @@ import FileExplorerTestSupport
         #expect(litWash > ringArea * Self.expandWashShare,
                 "the lit button's wash covers \(litWash)pt² of its \(ringArea)pt² — the wash is not drawn")
         #expect(on.nameRowRings == row, "lighting Expand moved the row's buttons: \(row) → \(on.nameRowRings)")
-        // **"Files" starts where "Expand" did** — laid out from the leading edge of the room the
-        // wider word takes, so the word begins the same distance into the button lit as unlit.
-        // Centred, the shorter word drifted ~7pt right. Read as inked columns inside the ring: the
-        // word begins at the first ink after a blank run of at least 2pt (the arrow's own strokes
-        // leave narrower gaps; the arrow-to-word spacing is 4pt).
+        // "Files" starts where "Expand" did: laid out from the leading edge of the wider word's
+        // room, not centred, so the word begins the same distance in lit as unlit. Read as inked
+        // columns in the ring: the word begins at the first ink after a blank run of at least 2pt
+        // (the arrow's strokes leave narrower gaps; arrow-to-word spacing is 4pt).
         func wordStart(_ r: Rendered, ink: @escaping (CGFloat, CGFloat, CGFloat) -> Bool) -> CGFloat? {
             let step: CGFloat = 0.5
             var inked: [Bool] = []
@@ -914,8 +798,8 @@ import FileExplorerTestSupport
                 "lighting Expand changed pixels at \(box), outside its own button \(expand)")
     }
 
-    /// See ``theExpandButtonLightsWhenTheRailIsHidden``: the lit wash covers at least this share of
-    /// the button's ring — the pill less its glyph, its word and its anti-aliased edge.
+    /// For ``theExpandButtonLightsWhenTheRailIsHidden``: the lit wash covers at least this share of
+    /// the button's ring, the pill less its glyph, word and anti-aliased edge.
     static let expandWashShare: CGFloat = 0.4
 
     private static let headerSize = CGSize(width: 520, height: 44)

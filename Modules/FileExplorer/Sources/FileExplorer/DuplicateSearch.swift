@@ -2,15 +2,13 @@ import Foundation
 import Design
 import Sync
 
-/// Structured tokens for the Duplicates lens search — `kind:` plus size comparators on top of a
-/// name substring — reusing the Compare grammar (and its `DifferenceSearch.parseSize`) so one
-/// vocabulary works across surfaces. A query with no recognized tokens is a plain case-insensitive
-/// match on the group's name, so an empty field shows everything. Pure, so it's unit-tested without
-/// a view.
+/// Structured tokens for the Duplicates lens search: `kind:` and size comparators on top of a name
+/// substring, reusing the Compare grammar (and its `DifferenceSearch.parseSize`) so one vocabulary
+/// works across surfaces. A query with no recognized tokens is a plain case-insensitive match on
+/// the group's name, so an empty field shows everything. Pure, so it's unit-tested without a view.
 ///
-/// The mechanics (tokenizer, verbatim-raw fallback, all-occurrences removal, family-last-wins
-/// chips) are Design's shared `TokenQuery` core; this grammar owns only its token table and
-/// `matches()`.
+/// The mechanics (tokenizer, verbatim fallback, all-occurrences removal, last-wins chips) are
+/// Design's shared `TokenQuery`; this grammar owns only its token table and `matches()`.
 enum DuplicateSearch {
 
     struct Query: Equatable {
@@ -36,17 +34,16 @@ enum DuplicateSearch {
         }
     }
 
-    /// Class aliases for `kind:` — a single word matching a fixed extension set, so the "Images"
-    /// suggestion can honestly mean images (it used to insert `kind:jpg`, silently excluding PNGs,
-    /// HEICs, …). The table lives on `DifferenceSearch` (the shared grammar base, like `parseSize`)
-    /// so Compare's `kind:image` means exactly the same thing.
+    /// Class aliases for `kind:`: one word for a fixed extension set, so the "Images" suggestion
+    /// means every image type, not just `jpg`. The table lives on `DifferenceSearch`, so Compare's
+    /// `kind:image` means exactly the same thing.
     static let kindClasses: [String: Set<String>] = DifferenceSearch.kindClasses
 
     static func parse(_ raw: String) -> Query {
         var kind: String?
         var atLeast: Int?
         var atMost: Int?
-        // No recognized tokens → freeText keeps the raw string verbatim (legacy substring search).
+        // No recognized tokens: freeText keeps the raw string verbatim, a plain substring search.
         let text = TokenQuery.freeText(raw) { word in
             let lower = word.lowercased()
             if lower.hasPrefix("kind:") {
@@ -66,23 +63,20 @@ enum DuplicateSearch {
 
     // MARK: Chips (UI)
 
-    /// A recognized filter word paired with a human label, so the lens search field can render
-    /// removable chips like Compare's. `raw` is the exact word typed (e.g. `>5mb`), so a chip's ✕
-    /// removes precisely that word; the label formats sizes the way the app displays them.
+    /// A recognized filter word with a human label, so the lens search field can draw removable
+    /// chips like Compare's. `raw` is the exact word typed (e.g. `>5mb`), so a chip's ✕ removes
+    /// precisely that word; the label formats sizes the way the app shows them.
     struct Chip: Equatable, DimmableTokenChip {
         var raw: String
         var label: String
         /// Whether this chip is part of the effective query. `parse` is last-wins within a family
-        /// (kind / `>` / `<` are each single-valued), so when a family appears twice only the LAST
-        /// word filters anything; earlier ones render dimmed so the chips read as the query the
-        /// filter actually runs. Their ✕ still removes the superseded word exactly.
+        /// (kind, `>` and `<` are each single-valued), so only the last word of a family filters;
+        /// earlier ones draw dimmed. Their ✕ still removes the superseded word.
         var isActive: Bool = true
     }
 
-    /// The `kind:`/size words in `raw`, in order, as display chips. Free (name) text is excluded, so
-    /// the chips are exactly the active structured filters. Within each family only the last
-    /// occurrence is `isActive` — matching `parse`'s last-wins semantics (via
-    /// `TokenQuery.lastWinsChips`).
+    /// The `kind:` and size words in `raw`, in order, as chips; free name text is left out. Within
+    /// each family only the last is `isActive`, matching `parse` (via `TokenQuery.lastWinsChips`).
     static func chips(_ raw: String) -> [Chip] {
         TokenQuery.lastWinsChips(raw) { word in
             let lower = word.lowercased()
@@ -100,8 +94,8 @@ enum DuplicateSearch {
         }
     }
 
-    /// Removes every occurrence of `word` from `raw` — see `TokenQuery.removing` for why ALL
-    /// occurrences is the honest ✕ semantics under last-wins parsing.
+    /// Removes every occurrence of `word` from `raw`; `TokenQuery.removing` says why all of them is
+    /// the right ✕ under last-wins parsing.
     static func removing(_ raw: String, word: String) -> String {
         TokenQuery.removing(raw, word: word)
     }

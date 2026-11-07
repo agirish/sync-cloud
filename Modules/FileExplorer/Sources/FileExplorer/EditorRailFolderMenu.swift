@@ -4,17 +4,16 @@ import Design
 /// Where the rail's folder sits, as the folder line's menu offers it: every level from the top of
 /// the pane's source down to the folder, and the folders inside it.
 ///
-/// **Built by the host from the pane's own vocabulary** — the levels are the Edit header's location
-/// segments for the pane's folder (`EditorHeaderLocation`), so every name here is a word the pane's
-/// breadcrumb draws, and every target is the combined path that crumb would send the pane to. A
-/// pick moves the LEFT pane, and the rail follows it because the rail lists the left pane's folder:
-/// the menu is a way to steer the pane while it is folded away, not a second place to stand.
+/// Built by the host from the Edit header's location segments for the pane's folder
+/// (`EditorHeaderLocation`), so every name is one the pane's breadcrumb draws and every target the
+/// path that crumb would send. A pick moves the left pane and the rail follows, since it lists that
+/// pane's folder: a way to steer the folded pane, not a second place to stand.
 public struct EditorFolderTrail: Equatable, Sendable {
     /// The top of the source first, the rail's folder last. A `nil` target is named and not
-    /// offered — a folder outside the pane's source, which the pane cannot go to without switching
-    /// source. The last level's is always `nil`: it is the folder already being listed.
+    /// offered: a folder outside the pane's source, which the pane can't reach without switching
+    /// source. The last level's is always `nil`, being the folder already listed.
     public var levels: [EditorDocumentLocation.Segment]
-    /// The rail's folder as a pane target — what a subfolder's target is built from — or `nil`
+    /// The rail's folder as a pane target, which a subfolder's target is built from, or `nil`
     /// outside the pane's source, where a subfolder is no more reachable than its parent.
     public var currentTarget: String?
     /// The folders inside, by name, in Finder's order (``EditorRail/Survey/folders``).
@@ -26,8 +25,8 @@ public struct EditorFolderTrail: Equatable, Sendable {
         self.subfolders = subfolders
     }
 
-    /// How many subfolders the menu lists before it says how many more there are. A folder of
-    /// hundreds is a menu taller than the screen, and the pane is the place to read those.
+    /// How many subfolders the menu lists before offering the rest: hundreds would make a menu
+    /// taller than the screen, and the pane is the place to read those.
     static let subfolderCap = 40
 
     /// Where a pick of the subfolder `name` sends the pane, or `nil` when it cannot go.
@@ -35,37 +34,34 @@ public struct EditorFolderTrail: Equatable, Sendable {
         currentTarget.map { $0.isEmpty ? name : $0 + "/" + name }
     }
 
-    /// **The levels in the menu's order: the folder first, the top of the source last** — Finder's
-    /// path menu. Under the subfolders, that makes the whole menu read one way, down the tree at the
-    /// top and up it from the folder.
+    /// The levels in the menu's order: the folder first, the top of the source last, as Finder's
+    /// path menu has them. Under the subfolders, the whole menu then reads one way.
     var upward: [EditorDocumentLocation.Segment] { levels.reversed() }
 
-    /// Whether the menu has anywhere to go. A trail with no door at all — a folder outside the
-    /// pane's source with nothing inside — draws the plain line rather than a menu of greyed rows.
+    /// Whether the menu has anywhere to go. A trail with no door (a folder outside the pane's source
+    /// with nothing inside) draws the plain line rather than a menu of greyed rows.
     var offersAnything: Bool {
         levels.contains { $0.target != nil } || (currentTarget != nil && !subfolders.isEmpty)
     }
 
-    /// The item past the cap that opens the file pane on the folder (TE183).
+    /// The item past the cap that opens the file pane on the folder.
     static func showAllTitle(count: Int) -> String { "Show All \(count) in the File Pane" }
 
     /// The menu's tooltip and VoiceOver hint.
     static let help = "Go to an enclosing folder or a folder inside this one"
 }
 
-/// The Files tab's folder line: the folder's name, and — where the pane can go somewhere from it —
-/// a menu down to its subfolders and up to the top of the source.
-///
-/// **A `Menu` in the button style**, as the header location's folded "…" is: the label is drawn as
-/// written, at the row's 11pt and with the hover wash, rather than as AppKit's pop-up, which draws
-/// its own label and does not take the app's text size.
+/// The Files tab's folder line: the folder's name and, where the pane can go somewhere from it, a
+/// menu down to its subfolders and up to the top of the source. A `Menu` in the button style, as
+/// the header location's folded "…" is, so the label draws at the row's 11pt with the hover wash;
+/// AppKit's pop-up draws its own label and ignores the app's text size.
 struct EditorRailFolderMenu: View {
     let name: String
     let trail: EditorFolderTrail?
     let accent: Color
     let onGoTo: ((String) -> Void)?
-    /// Opens the file pane, which is on this folder already — the menu's way to the subfolders past
-    /// ``EditorFolderTrail/subfolderCap`` (TE183). `nil`, in the previews, lists the first ones only.
+    /// Opens the file pane, already on this folder: the menu's way to the subfolders past
+    /// ``EditorFolderTrail/subfolderCap``. `nil` (the previews) lists the first ones only.
     var onShowAll: (() -> Void)? = nil
 
     var body: some View {
@@ -80,8 +76,8 @@ struct EditorRailFolderMenu: View {
             .menuStyle(.button)
             .buttonStyle(.hoverAffordance(.segment, tint: accent))
             .menuIndicator(.hidden)
-            // Back out the label's padding, so the folder glyph sits where it sits on the other
-            // tabs and does not step sideways when the tab changes.
+            // Back out the label's padding, so the folder glyph sits where it does on the other
+            // tabs and doesn't step sideways when the tab changes.
             .padding(.horizontal, -4)
             .help(EditorFolderTrail.help)
             .accessibilityLabel("Folder: \(name)")
@@ -119,9 +115,8 @@ struct EditorRailFolderMenu: View {
                         Button { onGoTo(target) } label: { Label(folder, systemImage: "folder") }
                     }
                 }
-                // **A door, not a greyed line** (TE183): it said "12 more — open the file pane to
-                // see them all" and left the opening to you. Counts the whole folder, as Finder's
-                // Show All does, rather than the leftover.
+                // A door, not a greyed line. Counts the whole folder, as Finder's Show All does,
+                // rather than the leftover.
                 if trail.subfolders.count > EditorFolderTrail.subfolderCap, let onShowAll {
                     Button(EditorFolderTrail.showAllTitle(count: trail.subfolders.count), action: onShowAll)
                 }
@@ -130,8 +125,8 @@ struct EditorRailFolderMenu: View {
         Section {
             ForEach(Array(trail.upward.enumerated()), id: \.offset) { index, level in
                 if index == 0 {
-                    // The folder being listed: ticked, and not a door — a pick would send the pane
-                    // to where it already is.
+                    // The folder being listed: ticked, and not a door, since a pick would send the
+                    // pane where it already is.
                     Toggle(isOn: .constant(true)) { Label(level.name, systemImage: "folder") }
                         .disabled(true)
                 } else if let target = level.target {

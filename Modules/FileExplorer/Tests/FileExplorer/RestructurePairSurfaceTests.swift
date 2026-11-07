@@ -4,9 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// `Plan…` on the merge kinds (the audit's G2): the lens's gate follows the route, the trigger's
-/// promise matches the surface it opens, and the cross-parent confirm sheet renders what the
-/// planner derived.
+/// `Plan…` on the merge kinds: the lens's gate follows the route, the trigger's promise matches
+/// the surface it opens, and the cross-parent confirm sheet renders what the planner derived.
 @MainActor
 @Suite struct RestructurePairSurfaceTests {
 
@@ -33,8 +32,8 @@ import Testing
 
     // MARK: The trigger
 
-    /// The help text describes the surface that opens, and the three surfaces are different. All
-    /// of them end with the same promise, because that is the one claim a person acts on.
+    /// The help text describes the surface that opens, and the three surfaces differ. All end with
+    /// the same promise, the one claim a person acts on.
     @Test func theTriggerPromisesTheSurfaceItOpens() {
         let shape = StructureFinding(kind: .shape, family: "Family/Events",
                                      subject: "Family/Events",
@@ -53,17 +52,16 @@ import Testing
         }
     }
 
-    /// A report-only kind must not grow a trigger from this change — the gate is the route, and
-    /// the route says no.
+    /// A report-only kind offers no trigger: the gate is the route, and the route says no.
     @Test func aReportOnlyKindStillOffersNoPlan() {
         let loose = StructureFinding(kind: .looseAboveSeries, family: "Tax", subject: "Tax",
                                      detail: .looseAboveSeries(looseFiles: 4, seriesFolders: 3))
         #expect(!RestructurePlanRouting.carriesPlanSurface(loose))
     }
 
-    /// A pair whose parent is a TOP-LEVEL folder makes the seeded family the empty string, since
-    /// the family is the pair's grandparent. Everything downstream that renders it has to survive
-    /// that: the sheet's header would otherwise be a blank line over the mapping.
+    /// A pair whose parent is a top-level folder seeds the family as the empty string, since the
+    /// family is the pair's grandparent. Everything that renders it must cope, or the sheet's
+    /// header is a blank line over the mapping.
     @Test func aTopLevelPairStillNamesItsFolderEverywhere() {
         let echo = StructureFinding(
             kind: .echoName, family: "Travel", subject: "Travel/Reciepts",
@@ -78,8 +76,8 @@ import Testing
         #expect(RestructureLens.familyHeading(family) == "Across the tree")
     }
 
-    /// A family mapping keeps naming the family — the single-member spelling is for the seeded
-    /// pair, and a shape finding always has more than one member.
+    /// A family mapping keeps naming the family: the single-member spelling is for the seeded pair,
+    /// and a shape finding always has more than one member.
     @Test func aFamilyMappingHeaderStillNamesTheFamily() {
         #expect(RestructurePlanSheet.headerPath(family: "Finance/US/Income Tax",
                                                 members: ["2013", "2014"])
@@ -89,7 +87,7 @@ import Testing
     // MARK: The confirm sheet
 
     /// A refusal is a sentence. An empty operation list with no explanation reads as "nothing to
-    /// do", which is a different claim from "this could not be derived".
+    /// do", a different claim from "this could not be derived".
     @Test func everyRefusalHasWords() {
         let refusals: [RestructurePlanner.PlanRefusal] = [
             .nothingMapped,
@@ -107,18 +105,17 @@ import Testing
         }
         #expect(RestructurePairMergeSheet.refusalText(.unknownFiles(source: "A/Inbox"),
                                                       source: "A").contains("A/Inbox"))
-        // The associated value, not the argument — they are the same on today's only route, so
-        // a message naming the wrong folder would otherwise be undetectable.
+        // The associated value, not the argument: the two match on the only route today, so only
+        // this catches a message naming the wrong folder.
         #expect(RestructurePairMergeSheet.refusalText(.unresolvableOrder(member: "Deep/Nested"),
                                                       source: "A").contains("Deep/Nested"))
     }
 
-    /// The operation verbs are the words the cards use, not the schema's wire values — a review
-    /// screen reading `move-file` is showing its serialization.
+    /// The operation verbs are the words the cards use, not the schema's wire values like
+    /// `move-file`.
     @Test func theOperationVerbsAreWordsNotRawValues() {
-        // Every one pinned: with only a no-hyphen check and one literal, five of the six could be
-        // swapped for each other and nothing went red — a review list calling a create a rename
-        // is worse than one showing the raw value.
+        // Every one pinned, so no two can be swapped: a review list calling a create a rename is
+        // worse than one showing the raw value.
         let expected: [RestructureManifest.ActionKind: String] = [
             .createDir: "create", .renameDir: "rename", .moveDir: "move folder",
             .moveFile: "move file", .keep: "keep", .removeEmptyDir: "remove",
@@ -129,8 +126,8 @@ import Testing
         }
     }
 
-    /// The card that opens this sheet says "Review 3 operations"; a button reading only "Apply"
-    /// leaves the two disagreeing about what is about to happen.
+    /// The card that opens this sheet says "Review 3 operations", so the button counts too, or the
+    /// two disagree about what is about to happen.
     @Test func theApplyButtonCountsWhatItWouldRun() {
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "Work",
@@ -138,9 +135,8 @@ import Testing
             actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/Acme/Badge")])
         #expect(RestructurePairMergeSheet.applyTitle(manifest: manifest, applying: false)
                     == "Apply 1 Operation")
-        // `keep` rows are the signature block. The card beside this button counts with
-        // `operationCount`, so counting them here put "Apply 3 operations" under a card reading
-        // "Review 1 operation" — the disagreement `applyTitle`'s own doc exists to prevent.
+        // `keep` rows are the signature block and don't count: the card beside this button counts
+        // with `operationCount`, and the two must agree.
         var withKeeps = manifest
         withKeeps.actions += [.init(action: .keep, src: "a"), .init(action: .keep, src: "b")]
         #expect(RestructurePairMergeSheet.applyTitle(manifest: withKeeps, applying: false)
@@ -157,8 +153,8 @@ import Testing
         #expect(RestructurePairMergeSheet.applyTitle(manifest: nil, applying: false) == "Apply")
     }
 
-    /// A parent/child echo is four of the five echo hits on the real tree, and both folders wear
-    /// the same word — "Merge IRS into IRS" names neither.
+    /// A parent/child echo is the commonest echo, and both folders wear the same word: "Merge IRS
+    /// into IRS" names neither.
     @Test func aTitleWhoseTwoNamesMatchStatesTheRelationInstead() {
         #expect(RestructurePairMergeSheet.title(source: "Finance/TODO/IRS/IRS",
                                                 destination: "Finance/TODO/IRS")
@@ -186,18 +182,15 @@ import Testing
             onExport: { _ in .saved(filename: "f.json") },
             onApply: { _ in .applied(summary: "2 moved") },
             onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 560, height: 420))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
     // MARK: Discard Plan (L10)
 
-    /// **A pair's saved plan could not be dropped.** Save for Later wrote a draft, the card said
-    /// "Review N operations", and the sheet it reopened offered Cancel, Save and Apply — so Help's
-    /// "reopen it and click Discard Plan" could not be followed. The button is drawn on a sheet
-    /// opened on a saved plan, and the host wires it to the store.
+    /// A pair's saved plan can be dropped, as Help's "reopen it and click Discard Plan" promises:
+    /// a sheet opened on a saved plan draws the button, and the host wires it to the store.
     @Test func aSavedPairPlanCanBeDiscardedFromItsSheet() throws {
         #expect(RestructurePairMergeSheet.offersDiscard(hasSavedDraft: true, canDiscard: true,
                                                         landed: false))
@@ -244,9 +237,8 @@ import Testing
 
     // MARK: The call site
 
-    /// The routing rule is testable on its own, and a revert that went back to gating on
-    /// `finding.kind == .shape` would leave every test above green while five kinds lost their
-    /// button again. This pins the wiring.
+    /// Pins the wiring: gating on `finding.kind == .shape` would leave every rule test above green
+    /// while five kinds lost their button.
     @Test func theLensAndTheHostBothRouteThroughTheRule() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // FileExplorer (tests)
@@ -257,8 +249,8 @@ import Testing
                               encoding: .utf8)
         #expect(lens.contains("RestructurePlanRouting.carriesPlanSurface(finding)"),
                 "the trigger's gate is the route, not the kind")
-        // Scoped to the trigger's own gate rather than the whole 1,300-line file: a legitimate
-        // future `finding.kind == .shape` anywhere else is not this defect.
+        // Scoped to the trigger's own gate, not the whole file: `finding.kind == .shape` elsewhere
+        // is legitimate.
         let trigger = try #require(lens.range(of: "if let onPlan,"))
         #expect(!lens[trigger.lowerBound...].prefix(400).contains("finding.kind == .shape"),
                 "gating on the kind is the shipped narrowing this change removes")
@@ -278,10 +270,9 @@ import Testing
 
     // MARK: The row text — names, not truncated paths
 
-    /// **A row names what moves, not where it already is.** Both folders are in the header, and
-    /// every row of a pair merge runs between those two — so repeating them spent the row's whole
-    /// width on what the reader knew and truncated what they did not. On the real tree this read
-    /// `…on/Form ETA-9035 (DOL).pdf → …n/Form ETA-9035 (DOL).pdf`: two ellipses, no answer.
+    /// A row names what moves, not where it already is. Both folders are in the header, and every
+    /// row of a pair merge runs between them, so repeating them would spend the row's width on
+    /// what the reader knows and truncate what they don't.
     @Test func anOrdinaryRowIsJustTheFileName() {
         let action = RestructureManifest.Action(
             action: .moveFile,
@@ -295,8 +286,8 @@ import Testing
         #expect(row.detail == nil, "it goes where the header says everything goes")
     }
 
-    /// A file nested inside the source keeps the part of its path that is not the source folder —
-    /// dropping to the leaf alone would show two rows as identical names.
+    /// A file nested in the source keeps the part of its path below the source folder; the leaf
+    /// alone could show two rows with identical names.
     @Test func aNestedFileKeepsWhatDistinguishesIt() {
         let action = RestructureManifest.Action(
             action: .moveFile, src: "A/Inbox/2024/receipt.pdf", dst: "A/Real/2024/receipt.pdf")
@@ -307,9 +298,9 @@ import Testing
                 "a merge preserves structure, so the mirrored landing repeats the name back")
     }
 
-    /// **A row that does something the header does not describe says so.** A collision rename and
-    /// a landing outside the common destination are exactly the rows a reader must not miss, and
-    /// they are the ones a leaf-only row would hide.
+    /// A row that does something the header doesn't describe says so. A collision rename and a
+    /// landing outside the common destination are the rows a reader must not miss, and a
+    /// leaf-only row would hide them.
     @Test func aRowThatDivergesFromTheHeaderSaysHow() {
         let renamed = RestructurePairMergeSheet.rowText(
             RestructureManifest.Action(action: .moveFile, src: "A/Inbox/tax.pdf",
@@ -325,7 +316,7 @@ import Testing
         #expect(elsewhere.detail?.contains("A/Somewhere Else/Forms") == true,
                 "a destination the header never named is stated in full")
 
-        // A file landing somewhere else UNDER the destination names the place, not the path.
+        // A file landing elsewhere under the destination names the place, not the path.
         let deeper = RestructurePairMergeSheet.rowText(
             RestructureManifest.Action(action: .moveFile, src: "A/Inbox/tax.pdf",
                                        dst: "A/Real/2024/tax.pdf"),
@@ -333,7 +324,7 @@ import Testing
         #expect(deeper.detail == "into 2024/tax.pdf")
     }
 
-    /// `relative` is component-wise — a sibling sharing a name prefix is not a child.
+    /// `relative` is component-wise: a sibling sharing a name prefix is not a child.
     @Test func theSourcePrefixIsStrippedByComponentNotByCharacter() {
         #expect(RestructurePairMergeSheet.relative(of: "A/Inbox/x.pdf", under: "A/Inbox")
                 == "x.pdf")
@@ -344,9 +335,8 @@ import Testing
 
     // MARK: The safe button says what it is for
 
-    /// It was labelled "Export plan…" with no help at all — a file format for a name, and nothing
-    /// about why anyone would press it. Both of the things it does have to be in the sentence,
-    /// because the durable one (the card remembers) is the one people actually want.
+    /// The help names both things the button does, because the durable one (the card remembers)
+    /// is what people want, and the JSON file alone says nothing about why to press it.
     @Test func theSaveButtonExplainsBothOfTheThingsItDoes() {
         let help = RestructurePairMergeSheet.exportHelp
         #expect(help.contains("Review N operations"), "the card state it produces")
@@ -357,9 +347,9 @@ import Testing
 
     // MARK: Both paths reach the pixels
 
-    /// **The two folders are the sheet's whole subject, and they were the first thing truncated.**
-    /// Rendered at the minimum width, a deep source and a deep destination must still draw
-    /// differently from a shallow pair — a header that clipped both to `…/Petition` would not.
+    /// The two folders are the sheet's whole subject. At the minimum width, a deep source and
+    /// destination must still draw differently from a shallow pair, which a header clipping both
+    /// to `…/Petition` would not.
     @Test func bothFullPathsAreDrawnEvenWhenDeep() throws {
         func sheet(source: String, destination: String) -> RestructurePairMergeSheet {
             RestructurePairMergeSheet(

@@ -3,23 +3,23 @@ import Foundation
 import PDFKit
 import PDFToolkitCore
 
-/// **A PDF's own interactive form, as Fill & Sign's Form Fields tool sees it** (Phase 5c, mockup 19).
+/// A PDF's own interactive form, as Fill & Sign's Form Fields tool sees it.
 ///
 /// Read in the lane with the facts (``EditorPDFFacts/read(_:path:)``) by pdf-toolkit's
 /// `formFields(at:)`: every field, in document order, with its kind, value, options, `/MaxLen`,
 /// whether it can be filled, and each widget's page and rect in page space. Nothing here is drawn
-/// by PDFKit or typed into the reader's document — the overlay draws the fields from these rects,
-/// the values the reader types are draft state on ``EditorPDFFillSign``, and Save hands them to
-/// `fillFormData` on a fresh open of the file in the lane, so the copy's form stays fillable.
+/// by PDFKit or typed into the reader's document: the overlay draws the fields from these rects,
+/// typed values are draft state on ``EditorPDFFillSign``, and Save hands them to `fillFormData` on
+/// a fresh open of the file in the lane, so the copy's form stays fillable.
 public struct EditorPDFForm: Equatable, Sendable {
     /// Every field, signature and push-button fields included, in the toolkit's document order.
     public var fields: [FormField]
     /// Whether the form also carries XFA data. The toolkit fills the AcroForm only, and Acrobat may
-    /// show the XFA data instead — said once, in the note card under the save pill.
+    /// show the XFA data instead; said once, in the note card under the save pill.
     public var hasXFA: Bool
-    /// **Each field's own description, by its full name** — the `/TU` a form gives a field for
-    /// screen readers and tooltips ("Name (as shown on your income tax return)"). The toolkit lists
-    /// none, and a full name like `topmostSubform[0].Page1[0].f1_1[0]` says nothing to VoiceOver.
+    /// Each field's own description, by its full name: the `/TU` a form gives a field for screen
+    /// readers and tooltips ("Name (as shown on your income tax return)"). The toolkit lists none,
+    /// and a full name like `topmostSubform[0].Page1[0].f1_1[0]` says nothing to VoiceOver.
     public var descriptions: [String: String]
 
     public init(fields: [FormField] = [], hasXFA: Bool = false, descriptions: [String: String] = [:]) {
@@ -30,19 +30,20 @@ public struct EditorPDFForm: Equatable, Sendable {
 
     public static let none = EditorPDFForm()
 
-    /// Whether the file has a form at all — what sends Save down `fillFormData` rather than 5b's
+    /// Whether the file has a form at all, which sends Save down `fillFormData` rather than the
     /// flattening `fillAndSignData`.
     public var hasFields: Bool { !fields.isEmpty }
 
-    /// The fields Tab walks and a click fills: fillable ones, in document order.
-    /// A checkbox whose boxes carry separate values is left out with them (``refusal(_:allowsFormEntry:)``),
-    /// so Tab, the count and whether the form offers fields at all agree with what a click does.
+    /// The fields Tab walks and a click fills: fillable ones, in document order. A checkbox whose
+    /// boxes carry separate values is left out with them
+    /// (``refusal(_:allowsFormEntry:allowsPlacing:)``), so Tab, the count and whether the form
+    /// offers fields at all agree with what a click does.
     public var fillable: [FormField] { fields.filter { $0.isFillable && !($0.kind == .checkbox && $0.options.count > 1) } }
 
     public func field(named name: String) -> FormField? { fields.first { $0.name == name } }
 
-    /// **What VoiceOver calls a field**: its description, else the last part of its name without
-    /// the `[0]` a designer's tool adds — "f1_1", "name".
+    /// What VoiceOver calls a field: its description, else the last part of its name without the
+    /// `[0]` a designer's tool adds ("f1_1", "name").
     public func label(of field: FormField) -> String {
         if let description = descriptions[field.name] { return description }
         let last = field.name.split(separator: ".").last.map(String.init) ?? field.name
@@ -51,22 +52,22 @@ public struct EditorPDFForm: Equatable, Sendable {
 
     // MARK: Reading, in the lane
 
-    /// Called inside the lane only, on the document the load just opened. **Cheap for a file with no
-    /// form**: the catalog is asked for a non-empty `/AcroForm /Fields` first, and only a file that
-    /// has one is listed — `formFields(at:)` opens its own copy and walks every page's annotations,
-    /// which a 900-page book with no form must not pay for.
+    /// Called inside the lane only, on the document the load just opened. Cheap for a file with no
+    /// form: the catalog is asked for a non-empty `/AcroForm /Fields` first, and only a file that has
+    /// one is listed. `formFields(at:)` opens its own copy and walks every page's annotations, which a
+    /// 900-page book with no form must not pay for.
     nonisolated static func read(_ document: PDFDocument, url: URL) -> EditorPDFForm {
         guard let acroForm = acroForm(of: document) else { return .none }
         var xfa: CGPDFObjectRef?
         let hasXFA = CGPDFDictionaryGetObject(acroForm, "XFA", &xfa)
-        // A file locked to open throws `encryptedInput` here — and Fill & Sign is refused for it.
+        // A file locked to open throws `encryptedInput` here; Fill & Sign is refused for it anyway.
         let listed = (try? PDFToolkit.formFields(at: url)) ?? []
         return EditorPDFForm(fields: listed, hasXFA: hasXFA && !listed.isEmpty,
                              descriptions: listed.isEmpty ? [:] : descriptions(in: acroForm))
     }
 
-    /// Every field's `/TU`, by the full name the toolkit gives it — the partial `/T`s from the top
-    /// of `/Fields` down, joined by periods. A kid without a `/T` is a widget of its parent.
+    /// Every field's `/TU`, by the full name the toolkit gives it: the partial `/T`s from the top of
+    /// `/Fields` down, joined by periods. A kid without a `/T` is a widget of its parent.
     nonisolated static func descriptions(in acroForm: CGPDFDictionaryRef) -> [String: String] {
         var out: [String: String] = [:]
         func text(_ dictionary: CGPDFDictionaryRef, _ key: String) -> String? {
@@ -74,8 +75,8 @@ public struct EditorPDFForm: Equatable, Sendable {
             guard CGPDFDictionaryGetString(dictionary, key, &string), let string else { return nil }
             return CGPDFStringCopyTextString(string) as String?
         }
-        // Each node once: a `/Kids` that names a node twice, looping back, doubled the walk at every
-        // level down to the depth cap — 2^32 visits, in the lane.
+        // Each node once: a `/Kids` that names a node twice, looping back, would double the walk at
+        // every level down to the depth cap, 2^32 visits in the lane.
         var visited: Set<UInt> = []      // each node's address: CGPDF hands one object the same reference
         func walk(_ array: CGPDFArrayRef, parent: String?, depth: Int) {
             // A form whose kids loop back on themselves stops here.
@@ -98,7 +99,7 @@ public struct EditorPDFForm: Equatable, Sendable {
         return out
     }
 
-    /// The catalog's `/AcroForm`, when it lists at least one field — or `nil`.
+    /// The catalog's `/AcroForm`, when it lists at least one field, or `nil`.
     nonisolated private static func acroForm(of document: PDFDocument) -> CGPDFDictionaryRef? {
         guard let catalog = document.documentRef?.catalog else { return nil }
         var acroForm: CGPDFDictionaryRef?
@@ -110,22 +111,20 @@ public struct EditorPDFForm: Equatable, Sendable {
     }
 
 
-    /// **The reader never edits a field itself.** A click in a `PDFView` on a text widget puts
-    /// PDFKit's own editor in it, and typing changes the ON-SCREEN document — measured 2026-10-18:
-    /// "Ada Quill" became "Ada QuillXYZ", and a click toggled a checkbox — which the copy rule never
-    /// sees and File ▸ Print would print. Marking every widget read-only on the reader's copy turns
-    /// that off for the mouse, the keyboard and VoiceOver alike, and draws the same pixels (compared
-    /// on the corpus form and a 535-field I-539). Called in the lane, before the document crosses to
-    /// the main thread; the file itself is never touched.
+    /// The reader never edits a field itself. A click in a `PDFView` on a text widget puts PDFKit's
+    /// own editor in it, and typing (or a click on a checkbox) changes the on-screen document, which
+    /// the copy rule never sees and File ▸ Print would print. Marking every widget read-only on the
+    /// reader's copy turns that off for the mouse, the keyboard and VoiceOver alike, and draws the
+    /// same pixels. Called in the lane, before the document crosses to the main thread; the file
+    /// itself is never touched.
     ///
-    /// **Every widget, whatever the catalog says.** A page copy keeps its widgets and drops the
-    /// catalog's `/AcroForm` — Extract Pages… on a form makes exactly that file — and PDFKit still
-    /// reads each widget's field type and edits it on a click; the reader skipped such a file as
-    /// having no form. Only pages whose `/Annots` hold a widget are walked, found from the page
-    /// dictionaries without making PDFKit's annotation objects, so a long book with no form pays
-    /// one dictionary look per page.
+    /// Every widget, whatever the catalog says: a page copy (Extract Pages… on a form) keeps its
+    /// widgets and drops the catalog's `/AcroForm`, and PDFKit still edits each widget on a click.
+    /// Only pages whose `/Annots` hold a widget are walked, found from the page dictionaries without
+    /// making PDFKit's annotation objects, so a long book with no form pays one dictionary look per
+    /// page.
     nonisolated static func lockWidgets(in document: PDFDocument) {
-        // An owner who forbids form entry has done it already — and PDFKit logs every refused set.
+        // An owner who forbids form entry has done it already, and PDFKit logs every refused set.
         guard document.allowsFormFieldEntry else { return }
         for index in pagesWithWidgets(document) {
             for annotation in document.page(at: index)?.annotations ?? [] where annotation.type == "Widget" {
@@ -134,7 +133,7 @@ public struct EditorPDFForm: Equatable, Sendable {
         }
     }
 
-    /// The zero-based pages whose `/Annots` hold a `/Widget` — read from CoreGraphics' page
+    /// The zero-based pages whose `/Annots` hold a `/Widget`, read from CoreGraphics' page
     /// dictionaries, which builds none of PDFKit's annotation objects.
     nonisolated static func pagesWithWidgets(_ document: PDFDocument) -> [Int] {
         guard let pdf = document.documentRef else { return [] }
@@ -159,11 +158,10 @@ public struct EditorPDFForm: Equatable, Sendable {
     static let signFieldRefusal = "Signature field — this PDF’s owner doesn’t allow adding a signature to its pages"
     static let separateBoxValuesReason = "These boxes share one name with separate values, which can’t be set here"
 
-    /// Why a field takes no value, or `nil` for one that does — the overlay's hover words. **A
-    /// signature field is no refusal where the owner lets signatures be placed** (TE107, TE164): a
-    /// click, Space, Return or a VoiceOver press signs it, and its hover words are
-    /// ``signFieldHint``. Its hint used to be returned here, so VoiceOver read the field as dimmed,
-    /// its press did nothing and Tab skipped it.
+    /// Why a field takes no value, or `nil` for one that does: the overlay's hover words. A
+    /// signature field is no refusal where the owner lets signatures be placed: a click, Space,
+    /// Return or a VoiceOver press signs it, and its hover words are ``signFieldHint``. Returning
+    /// the hint here would make VoiceOver read the field as dimmed and Tab skip it.
     public static func refusal(_ field: FormField, allowsFormEntry: Bool, allowsPlacing: Bool = true) -> String? {
         switch field.kind {
         case .signature: return allowsPlacing ? nil : signFieldRefusal
@@ -171,16 +169,16 @@ public struct EditorPDFForm: Equatable, Sendable {
         default: break
         }
         if field.isReadOnly { return "Read-only — the form doesn’t let this field be changed" }
-        // **Boxes under one name with different values** — a Yes and a No box. A click cannot say
-        // which box it meant, the overlay ticks every box of the field, and the toolkit turns on
-        // only the first value: the screen and the copy disagreed. Refused, as such a list is.
+        // Boxes under one name with different values, such as a Yes and a No box: a click can't say
+        // which box it meant, the overlay ticks every box of the field, and the toolkit turns on only
+        // the first value, so the screen and the copy would disagree. Refused, as such a list is.
         if field.kind == .checkbox, field.options.count > 1 { return separateBoxValuesReason }
         if !field.isFillable { return "This list’s items have separate export values, which can’t be filled here" }
         if !allowsFormEntry { return EditorPDFFillSign.noFormEntryReason }
         return nil
     }
 
-    /// The field's value as the file has it, in the toolkit's terms — what a draft is compared with.
+    /// The field's value as the file has it, in the toolkit's terms; a draft is compared with it.
     static func original(_ field: FormField) -> FormFieldValue? {
         switch field.kind {
         case .text: return .text(field.value ?? "")
@@ -198,11 +196,11 @@ public struct EditorPDFForm: Equatable, Sendable {
 
     // MARK: Before Save — the toolkit's refusals, said up front
 
-    /// **Why `fillFormData` would refuse these values and items, or `nil`** — the toolkit's own
-    /// checks, in its order and with its errors, so the reader hears it before Save rather than
-    /// after a lane turn: permissions, then each value by name (unknown, read-only, not fillable,
-    /// wrong kind, over `/MaxLen`, not an option), then typed text on a rotated page.
-    /// `EditorPDFFormRefusalTests` holds each answer to what the toolkit actually throws.
+    /// Why `fillFormData` would refuse these values and items, or `nil`: the toolkit's own checks,
+    /// in its order and with its errors, so the reader hears it before Save rather than after a lane
+    /// turn: permissions, then placed items (page out of range, typed text on a rotated page), then
+    /// each value by name (unknown, read-only, not fillable, wrong kind, over `/MaxLen`, not an
+    /// option). `EditorPDFFormRefusalTests` holds each answer to what the toolkit actually throws.
     static func problem(values: [String: FormFieldValue], items: [EditorPDFFillItem], form: EditorPDFForm,
                         boxes: [EditorPDFPageBox], allowsFormEntry: Bool, allowsCommenting: Bool,
                         file: URL) -> PDFOperationError? {
@@ -224,7 +222,7 @@ public struct EditorPDFForm: Equatable, Sendable {
         return nil
     }
 
-    /// One value against its field — the toolkit's `validate`, case for case.
+    /// One value against its field: the toolkit's `validate`, case for case.
     static func check(_ value: FormFieldValue, for field: FormField) -> PDFOperationError? {
         switch field.kind {
         case .signature, .pushButton: return .formFieldNotFillable(field.name)

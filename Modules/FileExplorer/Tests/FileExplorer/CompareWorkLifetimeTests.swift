@@ -2,19 +2,13 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// **Work on this surface must not outlive the surface, and must not be redone for nothing.**
+/// Work on the compare card must not outlive it, or be redone for nothing. Two long jobs are out
+/// of `.task(id:)`'s reach: the line diff is a `Task.detached`, which doesn't inherit
+/// cancellation, and the ↑/↓ page walk is a `Task` from a button handler. A token only discards a
+/// stale result while the work runs on, so each needs cancelling too.
 ///
-/// Three rules, all about the same thing: the compare card starts two long jobs that no
-/// `.task(id:)` can reach into. The line diff is a `Task.detached` — cancellation does not inherit
-/// into one — and the ↑/↓ page walk is a `Task` created inside a button handler. Both were guarded
-/// only by a token, which discards a stale RESULT while the work runs on: closing the card left a
-/// Myers walk on two 4 MB files running, and a page search with up to fifty PDF opens still queued
-/// on the serial lane a running scan shares.
-///
-/// **A scan rather than a mounted-view test, for `CompareRasterTokenScanTests`' reason.** Proving
-/// a task stopped means asserting on work that did NOT happen, against a real PDF and a real
-/// window — a timing test over an absence, which is how flakes get written. The rules are single
-/// lines in a file; this pins the lines and says so.
+/// A scan, not a mounted test, for `CompareRasterTokenScanTests`' reason: proving a task stopped
+/// would be a timing test over an absence.
 @Suite struct CompareWorkLifetimeTests {
 
     private func source() throws -> String {
@@ -25,9 +19,8 @@ import Testing
                             "cannot read CompareCopiesSheet.swift — this check is vacuous")
     }
 
-    /// The member a rule is about, so the question is asked inside the function that has to answer
-    /// it rather than over a window of characters — the shape `CompareRasterTokenScanTests` settled
-    /// on after a character window excused one defect and invented another.
+    /// The member a rule is about, so the question is asked inside that function rather than over
+    /// a window of characters, as in `CompareRasterTokenScanTests`.
     private func member(_ name: String, in source: String,
                         endingWith terminator: String = "\n    }\n") throws -> String {
         let start = try #require(source.range(of: name),
@@ -37,8 +30,7 @@ import Testing
         return String(source[start.upperBound..<end.lowerBound])
     }
 
-    /// Closing the card cancels both handles. Without this the only thing that stops either job is
-    /// the work finishing.
+    /// Closing the card cancels both handles; otherwise only finishing stops either job.
     @Test func closingTheSurfaceCancelsBothLongJobs() throws {
         let body = try member(".onDisappear {", in: try source(), endingWith: "\n        }")
         #expect(body.contains("textDiffTask?.cancel()"),
@@ -47,25 +39,23 @@ import Testing
                 "closing the card leaves the page search queueing PDF opens on the serial lane")
     }
 
-    /// The walk between candidate pages asks BOTH questions, and they are different ones: the token
-    /// says a newer search has superseded this one, cancellation says nobody wants any search.
+    /// The walk between candidate pages asks both questions: the token says a newer search
+    /// superseded this one, cancellation says nobody wants any search.
     @Test func thePageSearchChecksCancellationBetweenCandidates() throws {
         let body = try member("private func stepToDifferingPage(", in: try source())
         #expect(body.contains("!Task.isCancelled"), """
                 the page walk checks only its token, so a cancelled search still renders up to \
                 `PageDifferenceStepper.renderBudget` page pairs
                 """)
-        // The positive control: the token guard it stands beside is still there, so a green here
-        // cannot mean the loop lost its guards altogether.
+        // The positive control: the token guard is still there, so green can't mean the loop lost
+        // its guards altogether.
         #expect(body.contains("pageSearchToken == token"),
                 "the search no longer guards on its token — re-aim this scan")
     }
 
-    /// **The diff is keyed on the PAIR, not on the mode.** Keyed on `activeMode.rawValue` — with a
-    /// guard that cleared the held diff on the way out — every `1`→`2` press re-read both files (up
-    /// to 8 MB), re-split them into lines and re-walked them. The comment that justified that key
-    /// is about laziness: a pair the reader never switches to Diff should cost nothing. Laziness
-    /// needs no eviction, and `textDiffPairKey` is what separates the two.
+    /// The diff is keyed on the pair, not the mode, so a `1`→`2` press doesn't re-read and re-diff
+    /// both files. It stays lazy (a pair never shown in Diff costs nothing) without eviction;
+    /// `textDiffPairKey` is the memo.
     @Test func theTextDiffIsNotRecomputedOnEveryModeToggle() throws {
         let source = try source()
         #expect(!source.contains("(pairKey)|\\(activeMode.rawValue)"), """
@@ -79,9 +69,8 @@ import Testing
                 "the diff is recomputed even when one for this pair is already in hand")
     }
 
-    /// The rasters are keyed on what they are OF, and the comparison on what is being asked of
-    /// them — see `decodeKey`. Without the split, entering or leaving a pixel mode re-decoded both
-    /// sides before comparing anything, which for an image pair throws away rasters already in hand.
+    /// The rasters are keyed on what they are of, and the comparison on what is asked of them (see
+    /// `decodeKey`), so entering or leaving a pixel mode doesn't re-decode both sides.
     @Test func aModeChangeDoesNotThrowAwayTheDecode() throws {
         let source = try source()
         #expect(source.contains("private var decodeKey: String {"),
@@ -100,14 +89,9 @@ import Testing
                 "the refresh no longer reuses rasters it already has")
     }
 
-    /// The difference raster is a third full-page image, and the de-skew that produces the number
-    /// beside it is 565 ms of a 605 ms comparison. Swipe and onion read neither.
-    ///
-    /// **The justification, so the next reader does not re-litigate it** (this session did, and was
-    /// wrong): `comparedState(atPage:)` — the walk that fills the strip for every page the ↑/↓
-    /// search touches — has always used the plain unaligned `BitmapDiff.compare`. Only the visible
-    /// page went through the aligned path, so the strip already carried one aligned dot among a row
-    /// of unaligned ones. Gating removes that mixture rather than creating one.
+    /// The difference raster is a third full-page image, and its de-skew is ~565 ms of a ~605 ms
+    /// comparison; swipe and onion read neither, so only Difference runs it. This keeps the strip
+    /// uniform: `comparedState(atPage:)`, which fills it for the ↑/↓ walk, is always unaligned.
     @Test func theExpensiveComparisonIsOnlyRunForTheModeThatReadsIt() throws {
         let source = try source()
         #expect(source.contains(
@@ -119,16 +103,15 @@ import Testing
                 """)
         #expect(refresh.contains("BitmapDiff.compareAligning("),
                 "the difference mode no longer aligns at all — re-aim this scan")
-        // The premise of all of the above, pinned where it can rot: the page walk is unaligned.
+        // The premise of the above, pinned where it can rot: the page walk is unaligned.
         let walk = try member("private func comparedState(", in: source)
         #expect(walk.contains("BitmapDiff.compare(") && !walk.contains("compareAligning"), """
                 `comparedState` now aligns too — the strip is no longer uniformly unaligned                 outside the difference mode, and the gate's justification needs re-reading
                 """)
     }
 
-    /// **Leaving the difference mode must not downgrade what was already computed.** The rule is a
-    /// value so it can be asserted at all — the alternative is a mounted surface, two real PDFs and
-    /// a mode press, asserting on a dot's colour.
+    /// Leaving the difference mode must not downgrade what was computed. The rule is a value so it
+    /// can be asserted without a mounted surface, two PDFs and a dot's colour.
     @Test func anAlignedVerdictSurvivesAModeToggleAndAnUnalignedOneIsUpgraded() {
         let page = "pair|3|pdf|true|true|12"
         // Difference → swipe: aligned in hand, alignment no longer wanted. Keep it.

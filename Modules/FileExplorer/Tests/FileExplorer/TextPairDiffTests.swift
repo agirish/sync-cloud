@@ -31,15 +31,14 @@ import Testing
                     == .text("one\ntwo\n", lossy: false, encoding: .utf8))
     }
 
-    /// **The LogViewer trap, designed out rather than caught late.** `String(contentsOf:)` throws
-    /// on invalid UTF-8, so a rotated log truncated mid-character came back as an error with its
-    /// readable 99% sitting on disk. A lossy decode is a file with a few replacement characters
-    /// in it, which is what the reader wants — and the lossiness is disclosed, because a diff of
-    /// two lossily decoded files can show a difference that is really two invalid sequences.
+    /// A log truncated mid-character still reads. `String(contentsOf:)` throws on invalid UTF-8 and
+    /// would lose the readable 99%; a lossy decode keeps it with a few replacement characters. The
+    /// lossiness is disclosed, because a diff of two lossy decodes can show a difference that is
+    /// really two invalid sequences.
     @Test func aTruncatedMultibyteTailDecodesLossilyAndSaysSo() throws {
         let fixture = try Fixture()
         var bytes = Data("héllo\n".utf8)
-        bytes.append(0xC3)   // a lead byte with no continuation — the truncated tail
+        bytes.append(0xC3)   // a lead byte with no continuation: the truncated tail
         let path = try fixture.write("bad.txt", bytes)
         let outcome = BoundedTextRead.read(path: path, isCloudOnly: { _ in false })
         guard case .text(let text, let lossy, _) = outcome else {
@@ -50,9 +49,8 @@ import Testing
         #expect(text.hasPrefix("héllo"), "the readable part was lost with the unreadable byte")
     }
 
-    /// **The cloud-only check comes FIRST**, before the size read and before the open: opening a
-    /// placeholder is what makes the provider fetch the whole file, which for a compare pane is a
-    /// multi-gigabyte transfer nobody asked for.
+    /// The cloud-only check comes first, before the size read and the open: opening a placeholder
+    /// makes the provider fetch the whole file, possibly gigabytes nobody asked for.
     @Test func aCloudOnlyPlaceholderIsNeverOpened() throws {
         let fixture = try Fixture()
         let path = try fixture.write("cloud.txt", Data("real content".utf8))
@@ -73,11 +71,9 @@ import Testing
                     == .text("", lossy: false, encoding: .utf8))
     }
 
-    /// **A UTF-16 file is text, and used to be called binary.** Every ASCII character in one is a
-    /// byte pair holding a zero, so the NUL sniff — which runs on the first 8 KB and is right about
-    /// PNGs — reported "this is not text" over a file any editor opens, with no mention of the
-    /// encoding to act on. Driven for both endiannesses, because the two BOMs are byte-reversed
-    /// and a test of one proves nothing about the other.
+    /// A UTF-16 file is text. Every ASCII character in one is a byte pair holding a zero, so the
+    /// NUL sniff, which is right about PNGs, would call it binary; its BOM must be read first. Both
+    /// endiannesses, because the two BOMs are byte-reversed and one proves nothing about the other.
     @Test(arguments: [(String.Encoding.utf16LittleEndian, [UInt8]([0xFF, 0xFE]),
                        BoundedTextRead.TextEncoding.utf16LittleEndian),
                       (String.Encoding.utf16BigEndian, [UInt8]([0xFE, 0xFF]),
@@ -98,8 +94,8 @@ import Testing
         #expect(encoding == expected)
     }
 
-    /// **UTF-32 LE's BOM begins with UTF-16 LE's whole BOM**, so the shorter match must not be
-    /// tested first: read as UTF-16, every other character of a UTF-32 file is a NUL.
+    /// UTF-32 LE's BOM begins with UTF-16 LE's whole BOM, so the shorter match must not be tested
+    /// first: read as UTF-16, every other character of a UTF-32 file is a NUL.
     @Test func aUTF32FileIsNotMistakenForUTF16() throws {
         let fixture = try Fixture()
         var bytes = Data([0xFF, 0xFE, 0x00, 0x00])
@@ -109,8 +105,8 @@ import Testing
         #expect(outcome == .text("hi\n", lossy: false, encoding: .utf32LittleEndian))
     }
 
-    /// A UTF-8 BOM is stripped rather than diffed as an invisible first character — and the file
-    /// still says it carried one, which is what makes the note below possible.
+    /// A UTF-8 BOM is stripped rather than diffed as an invisible first character, and the read
+    /// still says it carried one, which makes the encoding note possible.
     @Test func aUTF8BOMIsStrippedAndDisclosed() throws {
         let fixture = try Fixture()
         var bytes = Data([0xEF, 0xBB, 0xBF])
@@ -120,16 +116,16 @@ import Testing
                     == .text("one\n", lossy: false, encoding: .utf8WithBOM))
     }
 
-    /// **A binary file stays binary.** The BOM check runs before the NUL sniff, which is exactly
-    /// the ordering that could have let a PNG through — this is the positive control for that.
+    /// A binary file stays binary: the positive control for the BOM check running before the NUL
+    /// sniff, the ordering that could let a PNG through.
     @Test func aBOMlessBinaryFileIsStillNotOfferedAsLines() throws {
         let fixture = try Fixture()
         let path = try fixture.write("bin2", Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0x0D, 0x0A]))
         #expect(BoundedTextRead.read(path: path, isCloudOnly: { _ in false }) == .binary)
     }
 
-    /// The diff compares DECODED text, so two files whose only difference is the encoding show no
-    /// changed rows at all. Only this note tells the reader the bytes differ.
+    /// The diff compares decoded text, so two files differing only in encoding show no changed
+    /// rows. Only this note tells the reader the bytes differ.
     @Test func differingEncodingsAreDisclosedAndMatchingOnesAreSilent() {
         let note = BoundedTextRead.encodingNote(left: .utf16LittleEndian, right: .utf8)
         #expect(note?.contains("UTF-16 LE") == true)
@@ -138,18 +134,14 @@ import Testing
                 "two files read the same way were given a difference to read about")
     }
 
-    /// **A truncated UTF-16 file loses its tail, and has to SAY so.**
-    ///
-    /// `String(data:encoding:.utf16LittleEndian)` over an odd number of bytes returns the whole
-    /// code units and reports nothing — so a rotated UTF-16 log came back as clean text with its
-    /// last character quietly missing, and a file holding one stray byte came back as the empty
-    /// string. That is the silent-loss failure this type exists to prevent, reached through the
-    /// BOM door: the same file read as UTF-8 has always been reported lossy.
+    /// A truncated UTF-16 file loses its tail and must say so. `String(data:encoding:)` over an
+    /// odd number of UTF-16 bytes returns the whole code units and reports nothing, so the dropped
+    /// byte would vanish silently, the loss this type exists to prevent.
     @Test func aTruncatedUTF16FileKeepsWhatItHasAndIsReportedLossy() throws {
         let fixture = try Fixture()
         var bytes = Data([0xFF, 0xFE])
         bytes.append(try #require("hi".data(using: .utf16LittleEndian)))
-        bytes.append(0x41)   // half a code unit — a file cut mid-character
+        bytes.append(0x41)   // half a code unit: a file cut mid-character
         let path = try fixture.write("cut.txt", bytes)
         let outcome = BoundedTextRead.read(path: path, isCloudOnly: { _ in false })
         guard case .text(let text, let lossy, let encoding) = outcome else {
@@ -162,10 +154,9 @@ import Testing
         #expect(encoding == .utf16LittleEndian)
     }
 
-    /// **A BOM that names an encoding the bytes then fail to be** — an unpaired surrogate is a
-    /// whole code unit and still not text. The decode fails outright, and the read falls through
-    /// to the ordinary path, which finds the NULs and keeps the conservative answer rather than
-    /// letting a bad BOM swallow the file.
+    /// A BOM naming an encoding the bytes then fail to be: an unpaired surrogate is a whole code
+    /// unit and still not text. The decode fails, and the read falls through to the ordinary path,
+    /// which finds the NULs and answers binary rather than letting a bad BOM swallow the file.
     @Test func aBOMThatLiesFallsThroughRatherThanSwallowingTheFile() throws {
         let fixture = try Fixture()
         let path = try fixture.write("lying.txt", Data([0xFF, 0xFE, 0x00, 0xD8, 0x41, 0x00]))
@@ -173,12 +164,10 @@ import Testing
                 "a BOM naming an encoding the bytes are not was trusted anyway")
     }
 
-    /// **The notes are built in ONE place, and the reason is the call site rather than the rules.**
-    /// Every rule below takes a left and a right, so a caller handing them over the wrong way round
-    /// satisfies every test of the rules themselves and tells the reader the UTF-16 file is the
-    /// UTF-8 one. The same failure `CompareCopiesSheet.trashTitle` exists as a seam to prevent.
-    ///
-    /// Asymmetric fixture on purpose: swap the arguments and every assertion here changes.
+    /// The notes are built in one place, for the call site's sake: every rule takes a left and a
+    /// right, so a caller passing them the wrong way round passes every rule's test and names the
+    /// wrong file (the failure `CompareCopiesSheet.trashTitle` is a seam against). The fixture is
+    /// asymmetric: swap the arguments and every assertion here changes.
     @Test func theNotesNameTheSideEachFindingIsAbout() {
         let left = BoundedTextRead.Outcome.text("a\r\nb", lossy: false, encoding: .utf16LittleEndian)
         let right = BoundedTextRead.Outcome.text("a\nb", lossy: true, encoding: .utf8)
@@ -205,8 +194,8 @@ import Testing
                     == .unreadable)
     }
 
-    /// Each refusal says something a reader can act on — the size, or that the file needs
-    /// downloading — rather than one generic failure.
+    /// Each refusal says something a reader can act on (the size, or that the file needs
+    /// downloading) rather than one generic failure.
     @Test func everyRefusalCarriesItsOwnReason() throws {
         #expect(BoundedTextRead.Outcome.text("x", lossy: false, encoding: .utf8).caption == nil)
         let large = try #require(BoundedTextRead.Outcome.tooLarge(bytes: 9_000_000).caption)
@@ -217,9 +206,9 @@ import Testing
 
     // MARK: Line endings
 
-    /// **CRLF against LF is a byte difference, not a content difference.** A diff that showed
-    /// every line as changed because one file came off Windows would be reporting the encoding as
-    /// the finding. The difference is real and IS reported — separately, in one line.
+    /// CRLF against LF is a byte difference, not a content difference: every line changed because
+    /// one file came off Windows would report the line endings as the finding. The difference is
+    /// real and is reported separately, in one note.
     @Test func crlfAgainstLfDiffsAsIdenticalAndIsNotedSeparately() throws {
         let left = "one\r\ntwo\r\nthree"
         let right = "one\ntwo\nthree"
@@ -241,9 +230,8 @@ import Testing
         #expect(diff.summary == "The text is identical.")
     }
 
-    /// **The alignment `CollectionDifference` does not give.** A removal facing an insertion is
-    /// ONE changed row with both texts on it — not a deleted row above an added one, which the
-    /// reader then has to line up by eye.
+    /// A removal facing an insertion is one changed row with both texts on it, not a deleted row
+    /// above an added one that the reader has to line up by eye.
     @Test func anEditedLineIsOneChangedRowNotADeleteAboveAnAdd() throws {
         let diff = TextPairDiff.make(left: ["alpha", "beta", "gamma"],
                                      right: ["alpha", "BETA", "gamma"])
@@ -271,8 +259,8 @@ import Testing
         #expect(removed.right == nil)
     }
 
-    /// **↑/↓ step between regions, not lines.** A twelve-line replacement is one thing that
-    /// happened, and twelve stops for it is twelve presses to get past one edit.
+    /// ↑/↓ step between regions, not lines: a twelve-line replacement is one edit, not twelve
+    /// presses.
     @Test func aRunOfChangedLinesIsOneRegion() {
         let diff = TextPairDiff.make(left: ["a", "1", "2", "3", "z"],
                                      right: ["a", "x", "y", "w", "z"])
@@ -289,8 +277,8 @@ import Testing
         #expect(diff.summary == "2 changes, 2 lines.")
     }
 
-    /// A region running to the end of the file is still a region — the loop that closes regions
-    /// on the next `.same` row would drop it without the flush after the walk.
+    /// A region running to the end of the file is still a region: the loop that closes regions on
+    /// the next `.same` row would drop it without the flush after the walk.
     @Test func aRegionAtTheEndOfTheFileIsClosed() {
         let diff = TextPairDiff.make(left: ["a", "b"], right: ["a", "B"])
         #expect(diff.regions == [1..<2])
@@ -319,9 +307,9 @@ import Testing
         #expect(right.filter(\.changed).map(\.text) == ["$9,999.00 "])
     }
 
-    /// **The runs reconstruct the line exactly.** A pane that rendered its own reassembly of a
-    /// line would be showing the reader text the file does not contain — a space collapsed here,
-    /// an indent lost there, on a surface whose whole claim is fidelity.
+    /// The runs reconstruct the line exactly. A pane drawing its own reassembly would show text the
+    /// file doesn't contain (a space collapsed, an indent lost) on a surface whose claim is
+    /// fidelity.
     @Test func theSegmentsJoinBackToTheOriginalLine() {
         let line = "    let total  =   4   // trailing"
         let (left, _) = TextPairDiff.segments(line, "different")
@@ -342,9 +330,8 @@ import Testing
 
     // MARK: Stepping between changes
 
-    /// **The first ↓ goes to the FIRST change.** It used to start the count at region 0 and add
-    /// one, so the opening press skipped straight to the second change and the first was reachable
-    /// only by wrapping the whole way round — on the one press every reader makes first.
+    /// The first ↓ goes to the first change. Counting from region 0 and adding one would skip to
+    /// the second, leaving the first reachable only by wrapping round.
     @Test func theFirstStepDownLandsOnTheFirstChange() {
         #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 5) == 0)
     }
@@ -354,7 +341,7 @@ import Testing
         #expect(TextPairDiff.steppedRegion(from: nil, direction: -1, count: 5) == 4)
     }
 
-    /// Every position steps to its neighbour, and both ends wrap — the stepper's stated contract.
+    /// Every position steps to its neighbour, and both ends wrap: the stepper's stated contract.
     @Test func steppingWalksEveryRegionAndWrapsAtBothEnds() {
         #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 3) == 1)
         #expect(TextPairDiff.steppedRegion(from: 1, direction: 1, count: 3) == 2)
@@ -379,15 +366,14 @@ import Testing
 
 // MARK: - The cost cap
 //
-// The byte cap bounds memory; this one bounds TIME, and they are not the same limit. Two 4 MB
-// logs pass `BoundedTextRead` and then put Myers at 10⁹–10¹⁰ operations, uncancellable, under a
-// spinner. The estimate has to separate that from an ordinary large diff, or a refusal is worse
-// than the wait.
+// The byte cap bounds memory; this one bounds time. Two 4 MB logs pass `BoundedTextRead` and could
+// then put Myers at 10⁹–10¹⁰ operations under a spinner. The estimate must separate that from an
+// ordinary large diff, or a refusal is worse than the wait.
 @Suite struct TextPairDiffCostTests {
 
     /// Lines that appear the same number of times on both sides cost nothing to match, so a big
-    /// file with a small edit must stay well inside the budget. **This is the case a size-only cap
-    /// would have refused**, which is why the estimator counts difference rather than length.
+    /// file with a small edit stays well inside the budget. A size-only cap would refuse it, which
+    /// is why the estimator counts difference, not length.
     @Test func aBigFileWithASmallEditIsCheap() {
         var left = (0..<100_000).map { "line \($0)" }
         var right = left
@@ -397,36 +383,30 @@ import Testing
     }
 
     /// Two files with nothing in common: every line on both sides is an edit, so the estimate is
-    /// (N+M)·(N+M) and lands far outside the budget. Two rotated logs, which is the pair this
-    /// whole cap exists for.
+    /// (N+M)·(N+M) and lands far outside the budget. Two rotated logs are the pair this cap exists
+    /// for.
     @Test func twoLargeFilesWithNothingInCommonAreRefused() {
         let left = (0..<100_000).map { "alpha \($0)" }
         let right = (0..<100_000).map { "beta \($0)" }
         let note = TextPairDiff.refusalNote(left: left, right: right)
         #expect(note != nil)
-        // Named for what it found, not for the number — the reader can act on "too different".
+        // Named for what it found, not for the number: the reader can act on "too different".
         #expect(note?.contains("too different") == true)
     }
 
-    /// **The positive control on the refusal.** A test that only ever sees "refused" cannot tell a
-    /// working cap from one wired to `true`, and a test that only ever sees "allowed" cannot tell
-    /// it from `false` — so the same shape of input is run at both sides of the budget.
-    ///
-    /// **The allowed end moved from 5,000 lines to 20,000, and that is the point of it.** This
-    /// pre-filter used to be the binding limit of the two — it refused two 7,100-line files with
-    /// nothing in common, which the walk behind it now finishes in 0.23s — because its threshold
-    /// was chosen against a slower diff and never rescaled when the diff got faster. It is now four
-    /// times ``TextPairDiff/maxDiffWork``, which is the measured ratio between what this estimates
-    /// and what the walk then spends on exactly this family of input (see
-    /// `theEstimateRunsAtFourTimesTheWalkOnTheFamilyItGuards`).
+    /// The positive control on the refusal: only "refused" can't tell a working cap from one wired
+    /// to `true`, nor only "allowed" from `false`, so the same shape runs on both sides of the
+    /// budget. The pre-filter must not bind before the walk would: it is four times
+    /// ``TextPairDiff/maxDiffWork``, the measured ratio of this estimate to the walk's steps on
+    /// this family (`theEstimateRunsAtFourTimesTheWalkOnTheFamilyItGuards`), so 20,000 lines pass.
     @Test func anEntirelyRewrittenFileIsAllowedUntilItIsBigEnoughToRefuse() {
         func rewrite(lines: Int) -> (left: [String], right: [String]) {
             ((0..<lines).map { "alpha \($0)" }, (0..<lines).map { "beta \($0)" })
         }
-        // 20,000 lines rewritten end to end — 1.75s of walk, measured, and a diff someone wants.
+        // 20,000 lines rewritten end to end: about 1.75s of walk, and a diff someone wants.
         let small = rewrite(lines: 20_000)
         #expect(TextPairDiff.refusalNote(left: small.left, right: small.right) == nil)
-        // 40,000 — the same shape, past what the walk behind this could afford to finish.
+        // 40,000: the same shape, past what the walk could afford to finish.
         let large = rewrite(lines: 40_000)
         #expect(TextPairDiff.refusalNote(left: large.left, right: large.right) != nil)
     }
@@ -439,8 +419,8 @@ import Testing
         #expect(TextPairDiff.refusalNote(left: lines, right: lines) == nil)
     }
 
-    /// Empty sides are not a refusal — there is nothing to diff, and `make` handles it. Guarding
-    /// the arithmetic rather than the caller.
+    /// Empty sides aren't a refusal: there is nothing to diff, and `make` handles it. Guards the
+    /// arithmetic rather than the caller.
     @Test func emptySidesAreNotRefused() {
         #expect(TextPairDiff.refusalNote(left: [], right: []) == nil)
         #expect(TextPairDiff.refusalNote(left: [], right: ["one"]) == nil)
@@ -448,16 +428,14 @@ import Testing
 
     // MARK: The intra-line pass has a budget too
 
-    /// **A file with no newlines in it walks straight past the line cap.** `estimatedCost` on the
-    /// LINE arrays answers 4 for one line against one line, so a 4 MiB minified script — or JSON
-    /// saved in one line, or a log whose writer never flushed — is admitted, and the row is then a
-    /// changed row whose words go through the same Myers. Measured: such a file holds ~800,000
-    /// words a side, where 8,000 already costs a second. The pane hung, and nothing in the line cap
-    /// could see it coming.
+    /// A file with no newlines walks straight past the line cap: `estimatedCost` on the line arrays
+    /// answers 4 for one line against one, so a 4 MiB minified script is admitted, and its one
+    /// changed row's words go through the same Myers. Such a file holds ~800,000 words a side,
+    /// where 8,000 already cost a second, so the intra-line budget must mark the row whole.
     @Test func oneEnormousLineIsMarkedWholeRatherThanHangingThePane() throws {
         let left = (0..<40_000).map { "alpha\($0)" }.joined(separator: " ")
         let right = (0..<40_000).map { "beta\($0)" }.joined(separator: " ")
-        // The premise: the LINE cap admits this pair, so the intra-line budget is the only thing
+        // The premise: the line cap admits this pair, so the intra-line budget is the only thing
         // standing between the reader and the hang.
         #expect(TextPairDiff.refusalNote(left: [left], right: [right]) == nil,
                 "the line cap now refuses this, and this test no longer tests what it says")
@@ -471,8 +449,8 @@ import Testing
         #expect(row.left == left, "the text itself must survive: the pane still renders the line")
     }
 
-    /// The positive control, and the line this feature is actually for: ordinary changed lines
-    /// still get their word runs, so the budget has not simply turned the intra-line pass off.
+    /// The positive control, and the line this feature is for: ordinary changed lines still get
+    /// their word runs, so the budget hasn't simply turned the intra-line pass off.
     @Test func anOrdinaryChangedLineStillGetsItsWordRuns() throws {
         let diff = TextPairDiff.make(left: ["Total due: $4,120.00 by 15 March"],
                                      right: ["Total due: $9,999.00 by 15 March"])
@@ -482,8 +460,8 @@ import Testing
         #expect(marked == ["$9,999.00 "])
     }
 
-    /// A whole document of ordinary changed lines stays inside the budget — the aggregate is what
-    /// the budget bounds, and a diff of this shape is the common case, not the pathological one.
+    /// A whole document of ordinary changed lines stays inside the budget: the budget bounds the
+    /// aggregate, and this shape is the common case, not the pathological one.
     @Test func aWholeDocumentOfShortChangedLinesStaysInsideTheBudget() {
         let left = (0..<2_000).map { "the quick brown fox number \($0) jumps over the lazy dog" }
         let right = (0..<2_000).map { "the quick brown cat number \($0) jumps over the lazy dog" }

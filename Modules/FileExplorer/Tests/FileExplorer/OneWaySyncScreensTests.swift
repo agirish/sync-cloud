@@ -45,8 +45,8 @@ import Sync
         #expect(controller.ladder == .stopped("Sync stopped: the Dropbox app isn’t running"))
     }
 
-    /// What the differences bar reserves is what the pill says now, not the widest it could say:
-    /// v6.2's bar had no pill, so a short one costs Verify and Review as little as it can.
+    /// What the differences bar reserves is what the pill says now, not the widest it could say, so
+    /// a short pill costs Verify and Review as little room as it can.
     @Test func theBarReservesWhatThePillSays() throws {
         let scratch = try Scratch()
         let (controller, center) = controller(scratch, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000), refusal: nil)
@@ -66,8 +66,8 @@ import Sync
         #expect(OneWaySyncStatusPill.width(controller: unset, scale: 1) == 0)
     }
 
-    /// Before setup the pill shows only for an iCloud pane compared with a Dropbox one (31 Oct);
-    /// once set up, in every Compare.
+    /// Before setup the pill shows only for an iCloud pane compared with a Dropbox one; once set
+    /// up, in every Compare.
     @Test func beforeSetupThePillShowsOnlyForICloudAndDropbox() throws {
         let scratch = try Scratch()
         let (controller, _) = controller(scratch, refusal: nil)
@@ -105,7 +105,7 @@ import Sync
         #expect(OneWaySyncHistoryRows.headline(entry).hasPrefix("Synced \(1_500.formatted()) · "))
     }
 
-    /// History's right-hand column says what a step did, as the mockup does.
+    /// History's right-hand column says what a step did.
     @Test func historySaysWhatEachStepDid() {
         func outcome(_ action: OneWaySyncAction, _ status: OneWaySyncHistoryStep.Status = .confirmed, emptied: [String]? = nil) -> String {
             var step = OneWaySyncHistoryStep(step: OneWaySyncStep(action: action), status: status)

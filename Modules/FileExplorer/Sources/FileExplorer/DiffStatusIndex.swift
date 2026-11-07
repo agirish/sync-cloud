@@ -2,26 +2,21 @@ import Foundation
 import Sync
 
 /// Per-pane lookup from a tree node's absolute path to its diff status, built once per
-/// differences change so `FileRowView` can badge rows with dictionary lookups instead of
-/// scanning the differences list per row.
+/// differences change so `FileRowView` badges rows by dictionary lookup, not by scanning the list.
 ///
-/// `FileDifference.relativePath` is relative to the focused comparison root, while tree
-/// node IDs are absolute paths; the index joins each relative path onto the pane's root
-/// (`rootPath`) to key by absolute path, re-aligned to the side's real casing via
-/// `sideAlignedPath` (lookups are exact-string). Ancestor directories of every diff
-/// (strictly below the root) are also indexed so folders can show a contained-differences
-/// count.
+/// Each relative path is joined onto the pane's root (`rootPath`) to key by absolute path, the
+/// form of tree node IDs, and re-aligned to the side's real casing via `sideAlignedPath`, since
+/// lookups are exact-string. Ancestors of every diff (strictly below the root) are indexed too,
+/// so folders can show a contained-differences count.
 public struct DiffStatusIndex: Equatable, Sendable {
     /// Absolute path of a differing item → its difference type.
     private let statusByPath: [String: FileDifference.DifferenceType]
     /// Absolute path of a directory → number of differences anywhere beneath it.
     private let containedDiffCounts: [String: Int]
-    /// Case/NFC-folded directory path → count, the fallback for panes on case-insensitive
-    /// volumes: a MISSING row's expected path carries the SOURCE side's ancestor casing all
-    /// the way down, so the destination pane's real folder ("docs" receiving a copy credited
-    /// under "Docs") matched no exact key and showed no badge. Empty when `foldsCase` is
-    /// false — on a case-sensitive volume "Docs" and "docs" are distinct real folders and a
-    /// folded hit would badge the wrong one.
+    /// Case/NFC-folded directory path → count, for panes on case-insensitive volumes: a missing
+    /// row's expected path carries the source side's ancestor casing, so the destination's real
+    /// folder ("docs" receiving a copy credited under "Docs") matches no exact key. Empty when
+    /// `foldsCase` is false, where "Docs" and "docs" are distinct folders.
     private let foldedContainedDiffCounts: [String: Int]
 
     /// Index with no differences: every lookup returns nil/zero.
@@ -31,8 +26,8 @@ public struct DiffStatusIndex: Equatable, Sendable {
     ///   - differences: Current diff results for the focused comparison.
     ///   - rootPath: Absolute path of this pane's comparison root (the folder whose
     ///     children the pane's tree shows). Trailing slashes are tolerated.
-    ///   - foldsCase: Pass true when this pane's volume is case-insensitive; enables the
-    ///     folded contained-count fallback described above.
+    ///   - foldsCase: True when this pane's volume is case-insensitive; enables the folded
+    ///     contained counts.
     public init(differences: [FileDifference], rootPath: String, foldsCase: Bool = false) {
         let root = Self.normalizedRoot(rootPath)
         guard !rootPath.isEmpty, !differences.isEmpty else {
@@ -49,9 +44,9 @@ public struct DiffStatusIndex: Equatable, Sendable {
         for difference in differences {
             let relative = Self.normalizedRelative(difference.relativePath)
             guard !relative.isEmpty else { continue }
-            // A name conflict's two sides spell the name differently (relativePath carries
-            // only the LEFT spelling), so index each side's REAL path — whichever lies under
-            // this pane's root badges its own node; the other side's key matches nothing here.
+            // A name conflict's two sides spell the name differently and relativePath carries only
+            // the left spelling, so index each side's real path; whichever lies under this pane's
+            // root badges its node.
             let keys: [String]
             if difference.type == .nameConflict {
                 keys = [difference.leftItemPath, difference.rightItemPath]
@@ -59,19 +54,17 @@ public struct DiffStatusIndex: Equatable, Sendable {
             } else {
                 keys = [Self.sideAlignedPath(
                     // Composed through `PathBoundary`, so a difference under a folder the root
-                    // links in from outside (iCloud Drive's `Documents`) keys the node the walk
-                    // actually made, which carries that folder's real spelling. The filesystem
-                    // root normalizes to an empty `root` here, which `join` reads as no root at
-                    // all — that one composes as it always did.
+                    // links in (iCloud Drive's `Documents`) keys the node the walk made. The
+                    // filesystem root normalizes to an empty `root`, which `join` reads as no root,
+                    // so it is joined by hand.
                     joined: root.isEmpty ? root + "/" + relative : PathBoundary.join(root: root, relative: relative),
                     left: difference.leftItemPath,
                     right: difference.rightItemPath
                 )]
             }
-            // A pane can show both sides of a conflict (same provider in both panes): each key
-            // badges its own node. But the two sides of a name conflict are siblings in the same
-            // folder, so they share every ancestor — credit each ancestor only ONCE per
-            // difference, or the shared folders would count this single pair twice.
+            // A pane can show both sides of a conflict (same provider in both panes), and the two
+            // are siblings sharing every ancestor, so credit each ancestor once per difference or
+            // the pair counts twice.
             var ancestorsToCredit = Set<String>()
             for absolute in keys {
                 status[absolute] = difference.type
@@ -108,13 +101,10 @@ public struct DiffStatusIndex: Equatable, Sendable {
         statusByPath[id]
     }
 
-    /// Number of differences anywhere beneath this directory node (0 for files
-    /// and for directories with no differing descendants). On a folding pane the FOLDED map
-    /// is authoritative, not a fallback: one real folder's differences can be keyed under two
-    /// casings at once (existing pairs under the pane's real spelling via sideAlignedPath,
-    /// missing rows under the source side's spelling), and an exact-first shortcut returned
-    /// only its own casing's share — undercounting the very badge the fold exists to fix. On
-    /// exact panes the folded map is empty and the exact key answers as before.
+    /// Number of differences anywhere beneath this directory node (0 for files and folders with
+    /// none). On a folding pane the folded map answers alone, not as a fallback: one real folder's
+    /// differences can be keyed under two casings (pairs via sideAlignedPath, missing rows under
+    /// the source's), and an exact lookup would count only one casing's share.
     public func containedDiffCount(forNodeId id: String) -> Int {
         if !foldedContainedDiffCounts.isEmpty {
             return foldedContainedDiffCounts[Self.foldedKey(id)] ?? 0
@@ -122,19 +112,16 @@ public struct DiffStatusIndex: Equatable, Sendable {
         return containedDiffCounts[id] ?? 0
     }
 
-    /// Case + Unicode fold for the fallback map (APFS/HFS+ lookups are
-    /// normalization-insensitive; case folds only on the volumes this map is built for).
+    /// Case + Unicode fold for the folded map (APFS/HFS+ lookups are normalization-insensitive;
+    /// case folds only on the volumes this map is built for).
     private static func foldedKey(_ path: String) -> String {
         path.precomposedStringWithCanonicalMapping.lowercased()
     }
 
-    /// The absolute key to index a difference under. `relativePath` always carries
-    /// LEFT-side casing, but on a case-insensitive volume a pair can differ in case
-    /// between the sides — then the right pane's node ids carry right-side casing and an
-    /// exact lookup on the join would miss. When the join isn't literally one of the
-    /// difference's side paths but matches one case-insensitively, that side's real path
-    /// (root included, so a right pane under a left-cased join can't be misattributed)
-    /// wins; the exact-match check first keeps the left index byte-identical to the join.
+    /// The absolute key to index a difference under. `relativePath` carries left-side casing, but
+    /// on a case-insensitive volume the right pane's node ids carry right-side casing, so an exact
+    /// lookup on the join would miss. When the join matches a side path only case-insensitively,
+    /// that side's real path wins; the exact check first keeps the left index identical to the join.
     static func sideAlignedPath(joined: String, left: String, right: String) -> String {
         if left == joined || right == joined { return joined }
         if left.caseInsensitiveCompare(joined) == .orderedSame { return left }
@@ -150,8 +137,8 @@ public struct DiffStatusIndex: Equatable, Sendable {
         return root
     }
 
-    /// Relative path with surrounding slashes stripped (the diff engine emits none,
-    /// but the join above must not produce empty components if one sneaks in).
+    /// Relative path with surrounding slashes stripped. The diff engine emits none, but the join
+    /// must not produce empty components if one sneaks in.
     private static func normalizedRelative(_ path: String) -> String {
         var relative = path
         while relative.hasPrefix("/") { relative.removeFirst() }

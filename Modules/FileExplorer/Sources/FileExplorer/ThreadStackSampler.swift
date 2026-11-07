@@ -3,10 +3,9 @@ import Foundation
 
 /// Samples one thread of this process by walking its frame-pointer chain, from inside the process.
 ///
-/// **Why not leave it to `/usr/bin/sample`.** `sample` takes about half a second to attach, and a
-/// stall is noticed a second or more after it starts — so on the installed app a 1.5 s stall had
-/// ended before `sample` took its first stack, twice, and the file showed an idle main thread. This
-/// starts within microseconds of the stall being noticed.
+/// Not left to `/usr/bin/sample`, which takes about half a second to attach: a stall is noticed a
+/// second or more in, so a short one can end before `sample` takes a stack. This starts within
+/// microseconds of the stall being noticed.
 ///
 /// **While the thread is suspended, nothing here allocates, locks or symbolicates.** The suspended
 /// thread may hold the malloc lock or dyld's, and touching either would deadlock the process
@@ -66,15 +65,14 @@ enum ThreadStackSampler {
     /// `__CFRunLoopServiceMachPort`, a single `__CFRunLoopRun`, and below CoreFoundation the frame
     /// that entered it — on the main thread, HIToolbox's event loop. A heartbeat overdue while the
     /// main thread sits there was held back by the system (App Nap, a display asleep), not by the
-    /// app: on 10-28 every stall the watch caught on a normal launch was this, with 0.00 s of CPU
-    /// and the app inactive and occluded.
+    /// app.
     ///
-    /// **Every part of the shape is needed.** A nested run loop — `CFRunLoopRunInMode` in a private
-    /// mode, a synchronous `CFMessagePortSendRequest`, an Apple Event waiting on its reply — parks
-    /// in exactly the same four frames, and an overdue heartbeat there IS a stall: that loop is not
-    /// draining the main queue. Those show a second `__CFRunLoopRun`, or a caller other than the
-    /// event loop below CoreFoundation. A lock, a semaphore, a sleep or a blocked `open` waits in
-    /// the kernel without `mach_msg` at all. Symbolicates, so only call it with the thread running.
+    /// Every part of the shape is needed. A nested run loop (`CFRunLoopRunInMode` in a private
+    /// mode, a synchronous `CFMessagePortSendRequest`, an Apple Event awaiting its reply) parks in
+    /// the same four frames, and an overdue heartbeat there is a real stall: that loop isn't
+    /// draining the main queue. Those show a second `__CFRunLoopRun` or another caller below
+    /// CoreFoundation. A lock, semaphore, sleep or blocked `open` waits without `mach_msg` at all.
+    /// **Symbolicates, so only call it with the thread running.**
     ///
     /// `loops` is how many run loops deep an idle thread may sit: 2 while a modal session is up,
     /// whose loop runs in a mode that drains the main queue, so a heartbeat held there is the

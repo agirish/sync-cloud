@@ -13,9 +13,9 @@ import Testing
         #expect(DocumentSurveyStrip.isShown(for: .interrupted(done: 12, total: 90)))
     }
 
-    /// **An offer is not a run**, and a receipt is not either. A strip on every lens announcing a
-    /// finished job would be a banner nobody can dismiss, and the offer needs the room the card has
-    /// to say what it costs.
+    /// An offer is not a run, and neither is a receipt. A strip on every lens announcing a finished
+    /// job would be a banner nobody can dismiss, and the offer needs the card's room to say what it
+    /// costs.
     @Test func theStripIsHiddenForOffersAndReceipts() {
         #expect(!DocumentSurveyStrip.isShown(for: .offered(documents: 6_140)))
         #expect(!DocumentSurveyStrip.isShown(for: .finished(summary: "Read 90 documents.",
@@ -32,9 +32,8 @@ import Testing
         #expect(!DocumentSurveyCardText.detail(for: state).isEmpty)
     }
 
-    /// **And the card's verbs: never one the card does not offer in the same state**, under the
-    /// card's own tooltip. The interrupted strip had a Stop the card does not — and with nothing
-    /// running, `stopDocumentSurvey()` had no run to stop, so the button did nothing.
+    /// The strip offers only verbs the card offers in the same state, under the card's tooltip. A
+    /// Stop on the interrupted strip, say, would do nothing: there is no run to stop.
     @MainActor @Test func everyVerbIsOneTheCardOffers() {
         let states: [DocumentSurveyCardState] = [
             .running(done: 4, total: 90, folder: "Finance", secondsRemaining: 60, pause: nil),
@@ -58,10 +57,9 @@ import Testing
         }
     }
 
-    /// **Interrupted, the strip offers Resume and nothing else.** Nothing is running, so there is
-    /// nothing to stop; and *Start over* throws hours of reading away behind a question, which
-    /// belongs on the card — the overview, where there is room to say what it costs — not on a
-    /// line drawn across every lens.
+    /// Interrupted, the strip offers only Resume. There is nothing to stop, and Start Over discards
+    /// hours of reading behind a question, which belongs on the card, where there is room to say
+    /// what it costs.
     @MainActor @Test func theInterruptedStripOffersOnlyResume() {
         let strip = DocumentSurveyStrip(state: .interrupted(done: 12, total: 90), accent: .blue,
                                         onResume: {}, onPause: {}, onStop: {})
@@ -71,11 +69,9 @@ import Testing
 
 /// The strip is drawn where the workspace's header ends, on every lens.
 ///
-/// **A source scan, because a view that is never instantiated is a view no unit test can miss.**
-/// `DocumentSurveyStripTests` above proves the strip decides correctly which states it appears
-/// for; it says nothing at all about whether anything asks it. The whole feature is that the line
-/// shows up on the five lenses that do not carry the card, and that is a property of the call
-/// site.
+/// A source scan, because no unit test notices a view that is never instantiated.
+/// `DocumentSurveyStripTests` checks which states the strip appears for, not that anything draws
+/// it; showing on the five lenses without the card is a property of the call site.
 @Suite struct DocumentSurveyStripCallSiteTests {
 
     private static func lensWorkspaceSource() throws -> String {
@@ -98,9 +94,9 @@ import Testing
                 "the workspace decides for itself which states to draw it in, rather than asking the strip")
     }
 
-    /// **Below the header card, above the source bar.** The header is pinned at 81pt by its own
-    /// test and every lens lines its lower edge up with the file pane's; a strip inserted above it
-    /// would move that edge on exactly the lenses a survey is running on.
+    /// Below the header card, above the source bar. The header is pinned at 81pt and every lens
+    /// lines its lower edge up with the file pane's, so a strip above it would move that edge
+    /// while a survey runs.
     @Test func theStripSitsBetweenTheHeaderAndTheSourceBar() throws {
         let source = try Self.lensWorkspaceSource()
         let header = try #require(source.range(of: "lensHeaderCard(rows: rows, counts: counts"))
@@ -119,8 +115,8 @@ import Testing
         }
     }
 
-    /// **The card's Start over reaches the verb that discards**, through the workspace to the
-    /// overview — the card's own test cannot see this wiring, and `onStart` in its place resumes.
+    /// The card's Start Over reaches the verb that discards, through the workspace to the overview.
+    /// The card's own test can't see this wiring, and `onStart` in its place would resume.
     @Test func theCardsStartOverIsWiredToTheVerbThatDiscards() throws {
         let workspace = try Self.lensWorkspaceSource()
         #expect(workspace.contains("onStartDocumentSurveyOver: onStartDocumentSurveyOver"))

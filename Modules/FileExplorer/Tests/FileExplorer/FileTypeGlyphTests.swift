@@ -5,9 +5,9 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The medium classification behind the shared row glyph. The rule that could rot: an unknown
-/// or extensionless file must stay `.generic` (quiet, untinted) — the vocabulary makes distinct
-/// mediums findable, it must not invent a colorful category for arbitrary data.
+/// The medium classification behind the shared row glyph. The rule that could rot: an unknown or
+/// extensionless file must stay `.generic` (quiet, untinted). The vocabulary makes distinct mediums
+/// findable; it must not invent a colourful category for arbitrary data.
 @Suite struct FileTypeGlyphTests {
 
     @Test func theCommonMediumsClassify() {
@@ -54,8 +54,8 @@ import Design
 
     @Test func everyDistinctMediumCarriesATint() {
         // The findability claim: each named medium must be tinted, or shape alone carries it.
-        // Swept over `Kind.allCases` rather than a list written here: the list was a copy of the
-        // table it checks, so a ninth medium added untinted would have left both stale together.
+        // Swept over `Kind.allCases` rather than a list written here, so a new medium added
+        // untinted can't leave a copied list stale along with the table.
         for kind in FileTypeGlyph.Kind.allCases where kind != .folder && kind != .generic {
             #expect(FileTypeGlyph.tint(for: kind) != nil, "\(kind) lost its tint")
         }
@@ -64,14 +64,13 @@ import Design
     }
 }
 
-/// The two claims the identity vocabulary makes that nothing else measures: **a shape says which
-/// medium this is**, and **the ink is legible on the card it is drawn on**.
+/// The two claims the identity vocabulary makes that nothing else measures: a shape says which
+/// medium this is, and the ink is legible on the card it is drawn on.
 ///
-/// Both were open. `.pdf` and `.wordProcessing` drew the same `doc.text.fill`, so the pair these
-/// lists interleave most was separated by hue alone — against the type's own "shape carries the
-/// medium" premise. And the eight tints are fixed sRGB values minted outside `Design`, several of
-/// them dark, drawn at 13–17pt on a card whose dark fill is darker still: the exact shape that
-/// produced `ChromeInk`, and never measured.
+/// Shape alone must carry the medium, so even `.pdf` and `.wordProcessing`, the pair these lists
+/// interleave most, need distinct symbols. And the tints are fixed sRGB values minted outside
+/// `Design`, several of them dark, drawn at 13–17pt on a card whose dark fill is darker still, so
+/// their contrast is measured here.
 @MainActor
 @Suite struct FileTypeGlyphContrastTests {
 
@@ -102,22 +101,21 @@ import Design
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
-    /// **Every identity tint clears 3:1 against the card fill, in BOTH appearances.**
+    /// Every identity tint clears 3:1 against the card fill, in both appearances.
     ///
-    /// 3:1 is the floor for a graphical object that carries meaning — which is what these are: the
-    /// glyph is the only thing on the row saying "this is a video". The dark half is the one that
-    /// was never checked, and it is where the margins are thinnest (`video` 3.16, `wordProcessing`
-    /// 3.21); light's floor is `presentation` at 3.10.
+    /// 3:1 is the floor for a graphical object that carries meaning, which these are: the glyph is
+    /// the only thing on the row saying "this is a video". Dark is where the margins are thinnest
+    /// (`video` 3.16, `wordProcessing` 3.21); light's floor is `presentation` at 3.10.
     ///
     /// Recomputed from the live system colours rather than compared to the numbers in
     /// `FileTypeGlyph`'s own comment, so the table there cannot quietly become fiction.
     @Test func everyIdentityTintIsLegibleOnTheCardInBothAppearances() throws {
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let fill = Self.cardFill(appearance)
-            // **Guard the harness before trusting a sweep over it.** If `performAsCurrentDrawingAppearance`
-            // stopped resolving — or a future macOS moved the card fill — every ratio below would be
-            // measured against the wrong surface and this suite would pass or fail for a reason that
-            // has nothing to do with the tints.
+            // Guard the harness before trusting a sweep over it. If
+            // `performAsCurrentDrawingAppearance` stopped resolving, or a future macOS moved the
+            // card fill, every ratio below would be measured against the wrong surface and this
+            // suite would pass or fail for a reason unrelated to the tints.
             let fillLuminance = Self.luminance(fill)
             if appearance == .darkAqua {
                 #expect(fillLuminance < 0.05,
@@ -138,15 +136,15 @@ import Design
         }
     }
 
-    /// **The tinted dark ground costs no glyph any contrast** (HZ). In dark at Frosted the Go To
-    /// results draw these glyphs on `glassPanelGround`, the window's own dark ground in the accent,
-    /// where they used to sit on the charcoal. Over the window's background, on every accent at
-    /// Tint 0 and his 12%, the worst glyph on the new ground must read at least as well as the worst
-    /// did on the charcoal. The full diagonal and glow took it from 2.63:1 to about 2.3.
+    /// The tinted dark ground costs no glyph any contrast. In dark at Frosted the Go To results
+    /// draw these glyphs on `glassPanelGround`, the window's own dark ground in the accent, rather
+    /// than the charcoal. Over the window's background, on every accent at Tint 0 and 12%, the
+    /// worst glyph on that ground must read at least as well as the worst on the charcoal; the full
+    /// diagonal and glow would drop it from 2.63:1 to about 2.3.
     ///
-    /// Relative, not 3:1: offscreen there is no material, so the window background behind the
-    /// panel renders brighter than it is, and the charcoal itself measures under 3:1 here. Frosted
-    /// only: at Clear the desktop behind decides, and nothing offscreen can render it.
+    /// Relative, not 3:1: offscreen there is no material, so the window background behind the panel
+    /// renders brighter than it is, and the charcoal itself measures under 3:1 here. Frosted only:
+    /// at Clear the desktop behind decides, and nothing offscreen can render it.
     @Test(.machinePinned(.pixelSampling)) func theDarkPanelGroundLowersNoGlyphsContrast() throws {
         for tint in [0.0, 0.12] {
             // `.solid` is the charcoal: `glassPanelGround` keeps `controlBackgroundColor` there.
@@ -158,11 +156,12 @@ import Design
         }
     }
 
-    /// **The same promise in arithmetic, so it runs on CI too** (G9). The pixel test above is
-    /// machine-pinned, so nothing on the hosted runners held `panelGroundAccentScale` down. Here the
-    /// ground's brightest point — the deep base's top stop under the diagonal's first stop, at the
-    /// scale and Tint — is composited by hand, and on every accent at Tint 0 and 12% the worst glyph
-    /// must read at least as well on it as on the charcoal. The full diagonal (scale 1) fails this.
+    /// The same promise in arithmetic, so it runs on CI too: the pixel test above is
+    /// machine-pinned, so on the hosted runners nothing else holds `panelGroundAccentScale` down.
+    /// The ground's brightest point (the deep base's top stop under the diagonal's first stop, at
+    /// the scale and Tint) is composited by hand, and on every accent at Tint 0 and 12% the worst
+    /// glyph must read at least as well on it as on the charcoal. The full diagonal (scale 1) fails
+    /// this.
     @Test func thePanelGroundsAccentShareKeepsEveryGlyphAsLegibleAsTheCharcoal() throws {
         let charcoal = Self.cardFill(.darkAqua)
         #expect(Self.luminance(charcoal) < 0.05, "premise: the charcoal resolved to a dark surface")
@@ -232,9 +231,8 @@ import Design
         return worst
     }
 
-    /// **No two mediums share a shape.** A vocabulary whose premise is that the symbol names the
-    /// medium cannot have two mediums answering the same symbol — the tint is then the only
-    /// difference, which is the thing the type says it is not relying on.
+    /// No two mediums share a shape. A vocabulary whose premise is that the symbol names the medium
+    /// cannot have two mediums answering the same symbol, leaving the tint as the only difference.
     @Test func everyMediumDrawsItsOwnShape() {
         var byGlyph: [String: [FileTypeGlyph.Kind]] = [:]
         for kind in FileTypeGlyph.Kind.allCases {
@@ -246,7 +244,7 @@ import Design
                 "two mediums share a glyph: \(shared)")
     }
 
-    /// And each of those shapes is a symbol this renderer actually has — a typo'd name draws
+    /// And each of those shapes is a symbol this renderer actually has: a mistyped name draws
     /// nothing at all, which no geometry or count on the row can see.
     @Test func everyShapeIsARealSymbol() {
         for kind in FileTypeGlyph.Kind.allCases {

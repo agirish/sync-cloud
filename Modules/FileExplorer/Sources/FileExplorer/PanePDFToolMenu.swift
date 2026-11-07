@@ -4,19 +4,19 @@ import PDFToolkitCore
 import Sync
 import SwiftUI
 
-/// **What a pane row's PDF Tools submenu asks the window to do** — Edit's whole-file tools, by the
-/// names its Tools menu gives them, and Combine and Split, which Edit's has not (TE294). The page
-/// tools (Extract, Delete, Reorder) are not here: a row has no pages to pick, and Open in Edit, a
-/// few items up, leads to them. Split asks where its parts start in its own sheet.
+/// What a pane row's PDF Tools submenu asks the window to do: Edit's whole-file tools, by its Tools
+/// menu's names, plus Combine and Split, which Edit's lacks. No page tools (Extract, Delete,
+/// Reorder): a row has no pages to pick, and Open in Edit leads to them. Split asks where its parts
+/// start in its own sheet.
 public enum PDFToolRequest: Equatable, Sendable {
     case rotateAll(quarterTurns: Int)
     case compress
     case cleanMetadata
     case protect
     case removePassword
-    /// Several PDFs into one, in an order the sheet sets (TE294).
+    /// Several PDFs into one, in an order the sheet sets.
     case combine
-    /// One PDF into several, at the pages the sheet names (TE294).
+    /// One PDF into several, at the pages the sheet names.
     case split
 
     /// Whether the request runs over several files. Passwords are one file at a time: each
@@ -29,21 +29,19 @@ public enum PDFToolRequest: Equatable, Sendable {
     }
 }
 
-/// **What a row's menu offers, or `nil` for no submenu at all** — hidden rather than greyed, so a
-/// row that could run nothing shows nothing.
+/// What a row's menu offers, or `nil` for no submenu: hidden rather than greyed, so a row that
+/// could run nothing shows nothing. Hidden when any item is a folder, not a PDF
+/// (`EditableText.isPDF`, the reader's gate), or cloud-only (the row offers Download, and a tool
+/// would have no bytes to read).
 ///
-/// Hidden when any item is a folder, is not a PDF (`EditableText.isPDF`, the gate every door into
-/// the reader asks), or is cloud-only — a cloud-only row already offers Download, and a tool would
-/// have no bytes to read.
-///
-/// **File ▸ PDF Tools asks the same question**, through ``forSelection(_:)``, outside a PDF open in
-/// Edit — and greys where the row hides.
+/// File ▸ PDF Tools asks the same question through ``forSelection(_:)`` outside a PDF open in
+/// Edit, and greys where the row hides.
 public enum PanePDFToolOffer: Equatable, Sendable {
-    /// One PDF, with its protection as the menu reads it — see ``PDFMenuEncryption``.
+    /// One PDF, with its protection as the menu reads it (see ``PDFMenuEncryption``).
     case single(path: String, encryption: PDFEncryptionState)
     case several(paths: [String])
 
-    /// The submenu's name — on the row and in File ▸ — which counts the files a batch runs over.
+    /// The submenu's name, on the row and in File ▸, counting the files a batch runs over.
     public var title: String {
         switch self {
         case .single: return "PDF Tools"
@@ -51,15 +49,14 @@ public enum PanePDFToolOffer: Equatable, Sendable {
         }
     }
 
-    /// **The row menu's answer for a selection, and File ▸ PDF Tools' too** — so the two cannot
-    /// disagree about whether a selection takes the tools, or which. One file is probed for its
-    /// protection; several share one cloud answer per selection (``PanePDFSelectionCloud``).
+    /// The answer for a selection, for both the row menu and File ▸ PDF Tools, so they can't
+    /// disagree. One file is probed for its protection; several share one cloud answer per
+    /// selection (``PanePDFSelectionCloud``).
     ///
-    /// The cloud lookup is the row's own: the badge's memo, else an `lstat`. Whatever the memos
-    /// cannot answer — that `lstat`, a link to resolve, the protection probe — is read off the main
-    /// thread through `reads` (`BoundedCloudRead`), and the tools are withheld when it does not
-    /// answer in time: both callers ask on the main thread, the row menu at a right-click and the
-    /// menu bar on every window render, and a wedged File Provider holds those reads for seconds.
+    /// What the memos can't answer (an `lstat`, a link to resolve, the protection probe) is read off
+    /// the main thread through `reads` (`BoundedCloudRead`), and the tools are withheld if it doesn't
+    /// answer in time: both callers ask on the main thread (a right-click, every window render), and
+    /// a wedged File Provider holds those reads for seconds.
     @MainActor
     public static func forSelection(_ nodes: [FileNode]) -> PanePDFToolOffer? {
         forSelection(nodes, reads: .shared)
@@ -73,13 +70,11 @@ public enum PanePDFToolOffer: Equatable, Sendable {
               encryption: { PDFMenuEncryption.state(for: $0, reads: reads) })
     }
 
-    /// The cheap rules first — path math and a flag the node holds — so a selection with a folder
-    /// or a JPEG in it never pays a cloud lookup, and a cloud-only file never pays a probe. Nil, too,
-    /// when either read gave no answer.
+    /// The cheap rules first (path math, a flag on the node), so a folder or JPEG never pays a cloud
+    /// lookup and a cloud-only file never pays a probe. Nil, too, when either read gave no answer.
     ///
-    /// **A link is asked about as the file it points to** (TE206), so a link to a cloud-only PDF
-    /// is hidden as that PDF is — and never reaches the probe, which reads the file and so
-    /// downloaded it, the moment the row was selected.
+    /// A link is asked about as the file it points to, so a link to a cloud-only PDF is hidden and
+    /// never reaches the probe, which reads the file and would download it on selection.
     static func offer(for nodes: [FileNode], anyCloudOnly: () -> Bool?,
                       encryption: (FileNode) -> PDFEncryptionState?) -> PanePDFToolOffer? {
         guard !nodes.isEmpty,
@@ -95,27 +90,24 @@ public enum PanePDFToolOffer: Equatable, Sendable {
 
 extension FileNode {
     /// The path a door asks the cloud question of: the file a link points to, else the node's own
-    /// (``MaterializationStatus/linkTarget(of:)``). The walk says whether each node is a link, so
-    /// an ordinary row pays no `lstat` here; a node built without saying is asked.
+    /// (``MaterializationStatus/linkTarget(of:)``). The walk records which nodes are links, so an
+    /// ordinary row pays no `lstat`; a node built without saying is asked.
     var linkTarget: String {
         isSymbolicLink == false ? id : MaterializationStatus.linkTarget(of: id)
     }
 }
 
-/// **Whether any of a selection is cloud-only, as PDF Tools and Save as PDF ask it** — each link as
-/// the file it points to (``FileNode/linkTarget``), each file by the badge's memo, else an `lstat`.
+/// Whether any of a selection is cloud-only, as PDF Tools and Save as PDF ask it: each link as the
+/// file it points to (``FileNode/linkTarget``), each file by the badge's memo, else an `lstat`.
 ///
-/// **The memo is read here, the filesystem off the main thread.** A selected row has been drawn, so
-/// its badge has usually answered, and an ordinary node says it is no link: most selections never
-/// touch the disk. What is left — a link to resolve, a file no badge has answered — is one read
-/// through `reads` (`BoundedCloudRead`) for the lot, nil when it did not answer in time. A link's
-/// target is `lstat`ed even when the memo knows it, so the read needs no second trip back to this
-/// actor; the memo's answer still wins, as it did.
+/// The memo is read here, the filesystem off the main thread. A selected row has usually had its
+/// badge answered, so most selections never touch the disk. The rest is one read through `reads`
+/// (`BoundedCloudRead`), nil if it doesn't answer in time. A link's target is `lstat`ed even when
+/// the memo knows it, to save a second trip back to this actor; the memo's answer still wins.
 ///
-/// **Several files' answer is held for a second.** The menu bar asks on every window render, so a
-/// selection the memo cannot answer would otherwise be read once per render. A file evicted inside
-/// that second is caught again when the run starts. One file is asked afresh each time, as the
-/// row's own Download is.
+/// Several files' answer is held for a second, since the menu bar asks on every window render. A
+/// file evicted inside that second is caught again when the run starts. One file is asked afresh
+/// each time, as the row's own Download is.
 @MainActor
 enum PanePDFSelectionCloud {
     private static var last: (ids: [String], at: Date, answer: Bool)?
@@ -161,24 +153,20 @@ enum PanePDFSelectionCloud {
     }
 }
 
-/// **How a PDF is protected, as a row's menu reads it — from CoreGraphics, waited for briefly.**
+/// How a PDF is protected, as a row's menu reads it: from CoreGraphics, waited for briefly.
 ///
-/// The menu is built on the main thread, so it cannot wait on the PDFKit lane. `CGPDFDocument` is not
-/// PDFKit, and so outside the lane's scope (see `PDFKitSerialAccess`): it reads the trailer and the
-/// encryption dictionary and nothing else. Measured 2026-10-17 on this Mac with CoreGraphics
-/// already loaded, as it always is in the app: 0.7 ms on a 697 MB PDF, 0.15–2.7 ms on 29 untouched
-/// local PDFs of 20–125 MB (one 7 ms outlier, a 23 MB slide deck), ~2 ms on a locked and on a
-/// restricted 54 MB file; 0.14 ms on a 15 KB one, 2026-10-28. Then it is a dictionary lookup.
+/// The menu is built on the main thread, so it can't wait on the PDFKit lane. `CGPDFDocument` is
+/// outside the lane's scope (see `PDFKitSerialAccess`) and reads only the trailer and encryption
+/// dictionary: a few milliseconds even on a large PDF, then a memo lookup.
 ///
-/// **The probe runs off the main thread** (`BoundedCloudRead`): it opens the file, and a file in a
-/// File Provider domain is opened through the provider, which a wedged one holds. A probe that does
-/// not answer in time answers nil, which withholds the tools, and is not remembered.
+/// The probe runs off the main thread (`BoundedCloudRead`), because opening a File Provider file
+/// goes through the provider, which a wedged one holds. A probe that doesn't answer in time answers
+/// nil, which withholds the tools, and isn't remembered.
 ///
-/// The answer maps exactly as `PDFToolkit.encryptionState` maps PDFKit's: not encrypted is
-/// `.none`, encrypted and unlocked is `.restrictedOnly`, encrypted and locked is `.lockedToOpen` —
-/// PDFKit's `isLocked` and `isEncrypted` are CoreGraphics's `isUnlocked` and `isEncrypted`. A file
-/// CoreGraphics cannot open answers `.none`, as the toolkit's does. The lane reads the state again
-/// before anything runs, so a file that changed between the two is told, not trusted.
+/// Maps as `PDFToolkit.encryptionState` maps PDFKit's: not encrypted is `.none`, encrypted and
+/// unlocked `.restrictedOnly`, encrypted and locked `.lockedToOpen`. A file CoreGraphics can't open
+/// answers `.none`, as the toolkit's does. The lane reads the state again before anything runs, so
+/// a file changed in between is caught.
 @MainActor
 enum PDFMenuEncryption {
     struct Key: Hashable {
@@ -191,7 +179,7 @@ enum PDFMenuEncryption {
     /// to find out.
     private static var memo: [Key: PDFEncryptionState] = [:]
     static let capacity = 4096
-    /// Every probe that reached CoreGraphics — the tests' way to see the memo held.
+    /// Every probe that reached CoreGraphics, so tests can see the memo held.
     private(set) static var probes = 0
 
     static func state(for node: FileNode, reads: BoundedCloudRead = .shared) -> PDFEncryptionState? {
@@ -212,9 +200,8 @@ enum PDFMenuEncryption {
     }
 }
 
-/// **The submenu itself** — one section of the row menu, below Open in Edit and its neighbours.
-/// Each item hands its request to the delegate; the window reads the file again in the lane and
-/// presents the same sheet Edit's Tools menu does.
+/// The submenu itself, one section of the row menu below Open in Edit. Each item hands its request
+/// to the delegate; the window re-reads the file in the lane and presents Edit's own sheet.
 struct PanePDFToolsSubmenu: View {
     let offer: PanePDFToolOffer
     let delegate: FileActionDelegate
@@ -227,10 +214,9 @@ struct PanePDFToolsSubmenu: View {
         }
     }
 
-    /// Edit's Tools menu without its page tools (Extract and Delete), in its order, with Split
-    /// under Rotate, and with what Edit would grey out left out — so a file locked to open holds
-    /// only Remove Password, under Edit's own reason, and a restricted one says why Clean Metadata
-    /// is not there, where it would be.
+    /// Edit's Tools menu without its page tools, in its order, with Split under Rotate and with
+    /// what Edit would grey out left out: a file locked to open holds only Remove Password under
+    /// Edit's reason, and a restricted one says why Clean Metadata is missing, in its place.
     @ViewBuilder
     static func singleItems(encryption: PDFEncryptionState, run: @escaping (PDFToolRequest) -> Void) -> some View {
         if encryption == .lockedToOpen {
@@ -277,8 +263,8 @@ struct PanePDFToolsSubmenu: View {
     }
 }
 
-/// **The submenu's lines for an offer** — on a row, and in File ▸ PDF Tools outside a PDF open in
-/// Edit, the same view in both. `run` is handed each request with the paths it runs over.
+/// The submenu's lines for an offer, the same view on a row and in File ▸ PDF Tools outside a PDF
+/// open in Edit. `run` is handed each request with the paths it runs over.
 public struct PanePDFToolsMenuItems: View {
     let offer: PanePDFToolOffer
     let run: (PDFToolRequest, [String]) -> Void

@@ -6,11 +6,11 @@ import Sync
 import SwiftUI
 @testable import FileExplorer
 
-/// Organize's lenses and Compare, ahead of 6.1 (LN4, LN5, LN7, LN13, LN20, LN22, LN23, DS2, DS3).
+/// Fixes to Organize's lenses and Compare.
 ///
 /// Each fix is pinned twice where it can be: the rule it rests on, called directly, and a scan of
-/// the one call site that uses it — because a rule extracted for a test is one revert away from
-/// being unused, and SwiftUI gives a unit test no way to press the button that reaches it. LN6's
+/// the one call site that uses it, because a rule extracted for a test is one revert away from
+/// unused, and SwiftUI gives a unit test no way to press the button that reaches it. The storage
 /// totals are pinned in Sync (`StorageLensTests`) and through the Overview model
 /// (`OrganizeOverviewWiringTests`).
 @Suite struct LensAndCompareFixesTests {
@@ -212,9 +212,8 @@ import SwiftUI
 
     // MARK: LN23 — no disabled "Keep this instead"
 
-    /// **The side with nothing to offer drew an empty row**, so its preview sat ~22pt higher than
-    /// the kept side's, under its "Keeping this" chip. It now holds the chip's height, invisibly,
-    /// and draws nothing in it.
+    /// The side with nothing to offer holds the "Keeping this" chip's height, invisibly, so its
+    /// preview starts level with the kept side's, and draws nothing in it.
     @MainActor
     @Test func anOverlapGroupsOtherSideKeepsTheChipsHeight() throws {
         func row(_ control: CompareKeeperControl) -> NSHostingView<AnyView> {

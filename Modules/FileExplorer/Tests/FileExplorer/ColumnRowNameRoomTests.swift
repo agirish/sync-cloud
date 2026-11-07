@@ -4,21 +4,11 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// How much of a column row the NAME gets — measured in painted pixels, at three row widths.
-///
-/// A truncated name used to stop 39.5–50pt short of the next thing painted on its row, at every
-/// width from 200pt to 284pt: the row was a 10pt-spaced HStack, and it paid that spacing around two
-/// children that draw nothing (a `Spacer`'s 8pt minimum and an empty search note on every row). A
-/// width that is constant across row widths is spacing, not layout — and spacing is exactly what a
-/// later edit reintroduces without noticing, which is why it is pinned here rather than trusted.
-///
-/// **Painted pixels, not geometry.** The name is a `Text` inside a hosted row; nothing outside
-/// `FileRowView` can read its frame, and the frame is not the claim anyway — the claim is where the
-/// glyphs stop. The runs are the same measurement that found the gap.
-///
-/// Tolerances carry the one thing that is not layout: a truncated `Text` ends up to one glyph short
-/// of its frame, because the ellipsis lands on a character boundary (1.5–12pt measured with the old
-/// tail truncation; middle truncation keeps it under a glyph).
+/// How much of a column row the name gets, measured in painted pixels at three row widths. Spacing
+/// paid around children that draw nothing (a `Spacer`'s minimum, an empty search note) shows as a
+/// gap that stays constant across widths, and a later edit can bring it back unnoticed. Pixels,
+/// because the claim is where the glyphs stop, and nothing outside `FileRowView` can read the
+/// `Text`'s frame. Tolerances allow for a truncated `Text` ending up to a glyph short of its frame.
 @MainActor
 @Suite(.serialized) struct ColumnRowNameRoomTests {
     private static let height: CGFloat = 26
@@ -51,8 +41,8 @@ import Sync
         return rep
     }
 
-    /// Painted runs along x, in POINTS, with gaps narrower than `merge` folded in (the space
-    /// between glyphs and words). Empty for a bitmap that painted nothing.
+    /// Painted runs along x, in points, with gaps narrower than `merge` (between glyphs and words)
+    /// folded in. Empty for a bitmap that painted nothing.
     private func runs(_ rep: NSBitmapImageRep, width: CGFloat, merge: Double = 3.5) -> [ClosedRange<Double>] {
         let scale = Double(rep.pixelsWide) / Double(width)
         guard let ground = rep.colorAt(x: 1, y: 1) else { return [] }
@@ -80,9 +70,8 @@ import Sync
         return out
     }
 
-    /// A long folder name runs to one gap short of its chevron: the chevron is the last run, the
-    /// name ends in the run before it, and between them sits only `ColumnRowView`'s 6pt plus the
-    /// ellipsis slack. It was 43pt here, from 200pt to 284pt.
+    /// A long folder name runs to one gap short of its chevron: between the name's last run and the
+    /// chevron sits only `ColumnRowView`'s 6pt plus the ellipsis slack.
     @Test(.machinePinned(.pixelSampling)) func aLongFolderNameRunsToItsChevron() throws {
         let node = FileNode(id: "/root/\(longFolder)", name: longFolder, isDirectory: true)
         for width in Self.widths {
@@ -97,15 +86,9 @@ import Sync
         }
     }
 
-    /// A long file name runs to one gap short of the ☁ slot every file row holds (14.5pt at this
-    /// text size, reserved so names do not shift when a cloud answer lands). Nothing trails a
-    /// downloaded file, so the measurement is the blank after the name: slot + 10pt gap + slack —
-    /// about 27pt.
-    ///
-    /// **With no size to draw**, so the last painted run is the name on the old layout as well as
-    /// this one. Given a size, the old row painted it last, 34.5pt from the edge — inside a looser
-    /// bound — and this passed against the very spacing it exists to catch; the name itself sat
-    /// ~52pt short.
+    /// A long file name runs to one gap short of the ☁ slot every file row holds (14.5pt here,
+    /// reserved so names don't shift when a cloud answer lands). The blank after the name is slot +
+    /// 10pt gap + slack, about 27pt. No size is given, so the last painted run is surely the name.
     @Test(.machinePinned(.pixelSampling)) func aLongFileNameRunsToTheCloudSlot() throws {
         let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false)
         for width in Self.widths {
@@ -118,11 +101,9 @@ import Sync
         }
     }
 
-    /// **A search hit keeps its match on screen.** "Individual" sits left of the middle of this
-    /// name, which is exactly what a middle cut removes: at 240pt the hit row drew the same pixels as
-    /// the same name with no match — the emboldened run cut away, the row a hit with nothing to show
-    /// for it. Cut at the tail instead (`FileRowView.nameTruncation`), part of the match survives,
-    /// bold, and the two rows differ.
+    /// A search hit keeps its match on screen. "Individual" sits left of this name's middle, which a
+    /// middle cut would remove at 240pt, leaving a hit row identical to a plain one. Cut at the tail
+    /// (`FileRowView.nameTruncation`), part of the bold match survives and the rows differ.
     @Test(.machinePinned(.pixelSampling)) func aSearchHitKeepsItsMatchOnScreen() throws {
         let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false)
         let start = try #require(longFile.range(of: "Individual"))
@@ -159,10 +140,9 @@ import Sync
         #expect(FileRowView.nameTruncation(match: 0..<1, in: "") == .middle)
     }
 
-    /// **In Tree, a long name runs to the size beside it.** The same zero-spaced row, with the
-    /// trailing detail Columns withholds: the name stops one 10pt gap short of the file's size, and
-    /// the size keeps only its gap and the ☁ slot after it. They were 28pt and 20pt while the row was
-    /// spaced 10pt around children that draw nothing — the Tree gained the name room too.
+    /// In Tree, a long name runs to the size beside it: the same row with the detail Columns
+    /// withholds. The name stops one 10pt gap short of the size, and the size keeps only its gap and
+    /// the ☁ slot after it.
     @Test(.machinePinned(.pixelSampling)) func aLongTreeNameRunsToItsSize() throws {
         let node = FileNode(id: "/root/\(longFile)", name: longFile, isDirectory: false, fileSize: 96_256)
         for width in [300, 360, 420] as [CGFloat] {
@@ -178,8 +158,8 @@ import Sync
         }
     }
 
-    /// The positive control for both: a SHORT name leaves most of the row blank, so "the name runs
-    /// to the end" is a statement about long names and not something every render satisfies.
+    /// Positive control: a short name leaves most of the row blank, so "the name runs to the end" is
+    /// about long names, not something every render satisfies.
     @Test(.machinePinned(.pixelSampling)) func aShortNameLeavesTheRowBlank() throws {
         let node = FileNode(id: "/root/a.pdf", name: "a.pdf", isDirectory: false, fileSize: 1)
         let rep = try #require(bitmap(ColumnRowView(
@@ -189,9 +169,8 @@ import Sync
         #expect(284 - nameEnd > 150, "a five-letter name filled the row — the measurement proves nothing")
     }
 
-    /// **Middle truncation keeps names that share a long prefix apart.** Cut at the end, these two
-    /// render identically in a 284pt row — the month, the one thing that differs, is what goes —
-    /// which is a column of look-alike rows. Cut in the middle, the endings survive and differ.
+    /// Middle truncation keeps names that share a long prefix apart. Cut at the end, these two would
+    /// render identically at 284pt, losing the month; cut in the middle, the endings survive.
     @Test(.machinePinned(.pixelSampling)) func namesSharingAPrefixStayDistinguishable() throws {
         func rendered(_ name: String) throws -> NSBitmapImageRep {
             try #require(bitmap(ColumnRowView(

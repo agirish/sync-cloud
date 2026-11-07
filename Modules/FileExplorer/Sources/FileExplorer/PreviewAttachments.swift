@@ -1,11 +1,11 @@
 import AppKit
 
-/// **What the editable Preview draws for each U+FFFC the projection leaves** (TE67 §3.8): a task's
-/// box, a rule, an image, front matter. The projection marks each with ``NSAttributedString/Key/previewAttachment``
+/// What the editable Preview draws for each U+FFFC the projection leaves: a task's box, a rule, an
+/// image, front matter. The projection marks each with ``NSAttributedString/Key/previewAttachment``
 /// and leaves the attachment empty; this gives it something to draw and a size.
 ///
-/// Each is atomic — one character the caret steps over and an edit cannot enter (the translator
-/// refuses ``PreviewRefusal/notText``). A task box is the one that does something when clicked:
+/// Each is atomic: one character the caret steps over and an edit can't enter (the translator
+/// refuses ``PreviewRefusal/notText``). Only a task box does something when clicked:
 /// ``PreviewTextView`` sends the click as ``RenderedEdit/Action/tickTask``.
 @MainActor
 enum PreviewAttachments {
@@ -16,7 +16,7 @@ enum PreviewAttachments {
     }
 
     /// The width a rule at `location` has to span: the column, less the indent its paragraph starts
-    /// at — a rule in a list item ran past the column's edge by the item's indent (review, 2026-10-09).
+    /// at, or a rule in a list item would run past the column's edge by the item's indent.
     static func column(_ columnWidth: CGFloat, at location: Int, in text: NSAttributedString) -> CGFloat {
         let style = text.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
         return columnWidth - (style?.headIndent ?? 0)
@@ -31,8 +31,8 @@ enum PreviewAttachments {
                   let attachment = text.attribute(.attachment, at: range.location, effectiveRange: nil)
                     as? NSTextAttachment else { return }
             dress(attachment, as: kind, scale: scale, columnWidth: column(columnWidth, at: range.location, in: text))
-            // A task's box keeps a gap before its words (reported 2026-10-05: "☐boil water") — as
-            // kerning, since widening the bounds would stretch the box.
+            // A task's box keeps a gap before its words, as kerning, since widening the bounds
+            // would stretch the box.
             if kind == .task || kind == .taskDone {
                 text.addAttribute(.kern, value: 6 * scale, range: range)
             }
@@ -57,10 +57,9 @@ enum PreviewAttachments {
             }
             attachment.bounds = CGRect(x: 0, y: 0, width: width, height: 9 * scale)
         case .image, .inlineImage, .frontMatter:
-            // A labelled placeholder: while an image loads, where it cannot be drawn (with why), for
-            // an image inside a sentence, and for front matter, which stays folded. **The alt text
-            // leads**, as in the read-only Preview: it is what the author wrote to stand for the
-            // picture, so it is the more useful half when the picture is missing.
+            // A labelled placeholder: while an image loads, where it can't be drawn (with why), for
+            // an image inside a sentence, and for front matter, which stays folded. The alt text
+            // leads, as in the read-only Preview: the author wrote it to stand for the picture.
             let name = (attachment as? PreviewImageAttachment)?.label ?? accessibilityLabel(for: kind)
             let label = reason.map { "\(name) — \($0)" } ?? name
             let font = placeholderFont(scale: scale)
@@ -89,15 +88,15 @@ enum PreviewAttachments {
         return NSSize(width: size.width + 16 * scale, height: size.height + 6 * scale)
     }
 
-    /// Where a placeholder sits on its line — what the projection gives an image before the view
-    /// dresses it, so a table holding one is measured with it (review, 2026-10-09: measured with an
-    /// empty attachment, the column was the picture's placeholder too narrow).
+    /// Where a placeholder sits on its line: what the projection gives an image before the view
+    /// dresses it, so a table holding one is measured with it, not with an empty attachment that
+    /// would leave the column too narrow.
     nonisolated static func placeholderBounds(_ label: String, scale: CGFloat) -> CGRect {
         CGRect(origin: CGPoint(x: 0, y: -3 * scale), size: placeholderSize(label, scale: scale))
     }
 
-    /// One image per symbol and size, made once: a document's every box was a new SF Symbol image
-    /// on every keystroke.
+    /// One image per symbol and size, made once, not a new SF Symbol image for every box on every
+    /// keystroke.
     private static var symbols: [String: NSImage] = [:]
 
     private static func symbolImage(_ name: String, side: CGFloat) -> NSImage? {
@@ -120,14 +119,12 @@ enum PreviewAttachments {
     }
 }
 
-/// **An image's U+FFFC, holding the alt text its picture stands for** (review, 2026-10-09).
+/// An image's U+FFFC, holding the alt text its picture stands for.
 ///
-/// The read-only Preview read the alt to VoiceOver and led its placeholder with it; the editable one
-/// read "Image" for every picture, and a missing one said only "Image — reason". The projection
-/// makes one of these for every image it leaves, and whatever is drawn in it — the placeholder, or
-/// the picture once it loads — is described by the alt. The alt is also on the character as
-/// ``NSAttributedString/Key/previewImageAlt``, so a changed alt differs in the rendering and the
-/// view takes the new attachment.
+/// The projection makes one for every image it leaves, and whatever is drawn in it (the
+/// placeholder, or the picture once it loads) is described by the alt, as in the read-only
+/// Preview. The alt is also on the character as ``NSAttributedString/Key/previewImageAlt``, so a
+/// changed alt differs in the rendering and the view takes the new attachment.
 final class PreviewImageAttachment: NSTextAttachment {
 
     var alt = ""
@@ -140,8 +137,8 @@ final class PreviewImageAttachment: NSTextAttachment {
     override var image: NSImage? {
         get { super.image }
         set {
-            // The same picture again, under the same alt — each decoration of the paragraph around
-            // it sets it — keeps the copy it has: a copy per keystroke (round 2, 2026-10-10).
+            // The same picture again under the same alt (each decoration of the paragraph sets it)
+            // keeps the copy it has, rather than making a copy per keystroke.
             if let newValue, newValue === original, super.image?.accessibilityDescription == label { return }
             original = newValue
             let copy = newValue?.copy() as? NSImage

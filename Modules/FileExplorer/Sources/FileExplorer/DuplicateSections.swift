@@ -4,16 +4,10 @@ import Sync
 
 /// The Duplicates list, sectioned by what each finding asks of you.
 ///
-/// **88 tiles of equal weight is a wall, not a list.** His report on the grid: "still looks very
-/// crowded". The tiles were correct and the count was the problem — a byte-for-byte pair that one
-/// button removes and a pair of same-named folders that nothing can remove were the same size, the
-/// same shape and adjacent, so the two findings that need a person were somewhere among eighty-six
-/// that do not.
-///
-/// This is the move the rename backlog already made for the same reason (see ``RenameCategories``,
-/// and the 132 near-identical rows it was built for): section by the OPERATION, each section
-/// carrying its own definition. The order is ``order``'s to explain — the bulk you can clear in a
-/// click leads, and everything under it needs a person.
+/// Tiles of equal weight make a wall: a byte-for-byte pair one button removes would sit beside a
+/// pair of same-named folders nothing can remove, at the same size and shape. So, as
+/// ``RenameCategories`` does for renames, the list is sectioned by the operation, each section
+/// carrying its own definition. ``order`` explains the order.
 ///
 enum DuplicateSections {
 
@@ -23,29 +17,23 @@ enum DuplicateSections {
         var reclaimableBytes: Int { groups.reduce(0) { $0 + $1.reclaimableBytes } }
     }
 
-    /// **The one you can act on leads; everything below it needs a person.**
+    /// The one you can act on leads; everything below it needs a person.
     ///
-    /// `identical` is first because it is the only kind `isRecommendedForBatch` admits — the
+    /// `identical` is first because it is the only kind `isRecommendedForBatch` admits: the
     /// header's "Apply N recommended" is exactly this section, it carries the reclaim figure, and
-    /// it is the reason most people open this lens. It was last, under a most-consequential-first
-    /// rule borrowed from the rename backlog; his call, and the better one: a screen that opens on
-    /// four findings you must think about, with the thirty-one you can clear in a click below the
-    /// fold, buries its own answer.
+    /// it is why most people open this lens. A screen that opened on the findings you must think
+    /// about would bury it.
     ///
-    /// The rest keep consequence order under it — a merge writes somewhere new, a same-text match
-    /// is weaker than byte identity (`DuplicateRemovalPrompt.informativeText` adds a warning
-    /// sentence for that kind and no other), and versions discard older content by a stated rule.
-    ///
-    /// **Not `Kind.allCases`** — that order is the enum's declaration order, which is about
-    /// nothing, and this order is a claim.
+    /// The rest keep consequence order: a merge writes somewhere new, a same-text match is weaker
+    /// than byte identity (`DuplicateRemovalPrompt.informativeText` warns for that kind alone), and
+    /// versions discard older content by a stated rule. Not `Kind.allCases`, whose declaration
+    /// order means nothing.
     static let order: [DuplicateMatchType.Kind] = [.identical, .overlapping, .sameText,
                                                    .versions]
 
-    /// The sections, in that order, present only when they report — a section that says "0" is a
-    /// row of chrome explaining an absence.
-    ///
-    /// Groups keep the order they arrive in (the lens sorts by reclaimable size), so sectioning
-    /// re-groups the list without re-ranking it.
+    /// The sections, in that order, present only when they have groups: a section that says "0" is
+    /// chrome explaining an absence. Groups keep the order they arrive in (the lens sorts by
+    /// reclaimable size), so sectioning regroups the list without re-ranking it.
     static func sections(_ groups: [DuplicateGroup]) -> [Section] {
         var buckets: [DuplicateMatchType.Kind: [DuplicateGroup]] = [:]
         for group in groups { buckets[group.matchType.kind, default: []].append(group) }
@@ -62,20 +50,17 @@ enum DuplicateSections {
         switch kind {
         case .overlapping: return "to merge"
         case .sameText: return "to check"
-        // Not a verb phrase like its neighbours, deliberately: "versions" is the word the card's
-        // own subtitle and the confirmation dialog already use, and matching them beats a
-        // grammatical parallel invented here.
+        // Not a verb phrase like its neighbours: "versions" is the word the card's subtitle and the
+        // confirmation dialog already use.
         case .versions: return "versions"
         case .identical: return "to remove"
         }
     }
 
-    /// The section's tint, routed through the one place a match type's colour is decided
-    /// (`DuplicateMatchStyle.color`) rather than restated here — a second copy of the palette is
-    /// how a heading comes to disagree with the badges under it.
-    ///
-    /// The representative type exists only for that lookup: `Kind` drops the overlap fraction, and
-    /// the colour does not depend on it.
+    /// The section's tint, from the one place a match type's colour is decided
+    /// (`DuplicateMatchStyle.color`), so a heading can't disagree with the badges under it. The
+    /// representative type exists only for that lookup: `Kind` drops the overlap fraction, and the
+    /// colour doesn't depend on it.
     static func tint(_ kind: DuplicateMatchType.Kind) -> Color {
         DuplicateMatchStyle.color(representative(kind))
     }

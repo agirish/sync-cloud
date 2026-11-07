@@ -2,8 +2,7 @@ import Foundation
 
 /// The YAML block some Markdown files open with, and what is left after it.
 ///
-/// **Split off before parsing, not rendered as Markdown, and this is a correctness fix rather than
-/// a nicety.** A file opening
+/// Split off before parsing, not rendered as Markdown. A file opening
 ///
 /// ```
 /// ---
@@ -11,10 +10,8 @@ import Foundation
 /// ---
 /// ```
 ///
-/// parses as a thematic break, then a paragraph, then — because a paragraph followed by a line of
-/// dashes is a **setext heading** — `title: Release plan` becomes an H2. So the preview opened on a
-/// rule and a large heading nobody wrote, and the outline listed a YAML key as a section of the
-/// document. Every note in a folder that uses front matter had a wrong outline.
+/// parses as a thematic break and then a setext heading (a paragraph over a line of dashes), so
+/// `title: Release plan` would become an H2 in the preview and a section in the outline.
 enum MarkdownFrontMatter {
 
     struct Split: Equatable, Sendable {
@@ -27,30 +24,25 @@ enum MarkdownFrontMatter {
         var bodyStartLine: Int
     }
 
-    /// The delimiters a block may close with. YAML allows both; a file in the wild uses `---`.
+    /// The delimiters a block may close with. YAML allows both; files in the wild use `---`.
     private static let closers: Set<String> = ["---", "..."]
 
     /// Splits `source` into its front matter and its body.
     ///
-    /// **Only at the very top, and only when it closes.** A `---` in the middle of a document is a
-    /// thematic break and stays one; an opening `---` with no closing delimiter anywhere is also a
-    /// thematic break, because a file that begins with a horizontal rule is a real file and reading
-    /// the whole of it as unterminated front matter would make its entire text disappear from the
-    /// preview.
+    /// Only at the very top, and only when it closes. A `---` mid-document is a thematic break, and
+    /// so is an opening `---` with no closer: a file may begin with a rule, and reading it all as
+    /// unterminated front matter would blank the preview.
     ///
-    /// **Lines end at `\r\n`, `\n` and `\r` alike** (CHR-5) — the three the parser and
-    /// `EditorCaret` count. It split on `\n` alone, so a file with classic Mac line endings had one
-    /// line, its front matter went unrecognised, and the last YAML key became a setext heading in the
-    /// outline and in the status line's "in …". The block's text and the body are cut from the file
-    /// as written, so an LF or CRLF file gets back exactly what it did.
+    /// Lines end at `\r\n`, `\n` and `\r` alike, the three the parser and `EditorCaret` count, so a
+    /// CR-only file's front matter is found too. The block and the body are cut from the file as
+    /// written.
     static func split(_ source: String) -> Split {
         let ns = source as NSString
         guard let found = block(in: ns) else {
             return Split(frontMatter: nil, body: source, bodyStartLine: 1)
         }
         // The block's lines as written, less the one character that ended the last of them: its
-        // `\n` — what rejoining the lines on `\n` produced, so a CRLF block still ends in its `\r`,
-        // as it always did — or a CR-only file's `\r`.
+        // `\n` (so a CRLF block still ends in its `\r`), or a CR-only file's `\r`.
         let written = ns.substring(with: found.matter) as NSString
         let last = written.length > 0 ? written.character(at: written.length - 1) : 0
         let matter = last == newline || last == carriageReturn
@@ -59,10 +51,9 @@ enum MarkdownFrontMatter {
                      bodyStartLine: found.bodyStartLine)
     }
 
-    /// Where ``split(_:)``'s body begins, as a line and as a UTF-16 offset into `ns` — **the same
-    /// answer, without splitting the buffer.** This is asked on a keystroke
-    /// (``MarkdownSourceContext``), and it walks only as far as the closer. `bodyStartIsSplitsAnswer`
-    /// holds the two together.
+    /// Where ``split(_:)``'s body begins, as a line and a UTF-16 offset into `ns`: the same answer
+    /// without splitting the buffer. Asked on a keystroke (``MarkdownSourceContext``), it walks
+    /// only as far as the closer. `bodyStartIsSplitsAnswer` holds the two together.
     static func bodyStart(in ns: NSString) -> (line: Int, offset: Int) {
         guard let found = block(in: ns) else { return (1, 0) }
         return (found.bodyStartLine, found.bodyOffset)
@@ -107,19 +98,17 @@ enum MarkdownFrontMatter {
 
     /// A line with its trailing carriage return and spaces gone.
     ///
-    /// **CR included, and that is not defensive.** Splitting on `"\n"` alone leaves the `\r` of a
-    /// CRLF file on the end of every line, so `"---\r" == "---"` is false and front matter in a
-    /// file that came from Windows went entirely unrecognised.
+    /// The CR matters: a line cut at `"\n"` alone keeps a CRLF file's `\r`, and `"---\r"` would not
+    /// match `"---"`.
     private static func trimmed(_ line: some StringProtocol) -> String {
         line.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
     }
 
     /// How many `key:` lines the block holds, for the chip that stands in for it.
     ///
-    /// A count rather than the keys themselves: the chip is one line in a document view, and the
-    /// block is one click away when somebody wants to read it.
+    /// A count, not the keys: the chip is one line, and the block is one click away.
     static func keyCount(in matter: String) -> Int {
-        // Every line ending ``split(_:)`` cuts at — a CR-only block is one string with no `\n` in it.
+        // Every line ending ``split(_:)`` cuts at: a CR-only block has no `\n` in it.
         matter.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n").reduce(into: 0) { count, line in
             let text = line.trimmingCharacters(in: .whitespaces)

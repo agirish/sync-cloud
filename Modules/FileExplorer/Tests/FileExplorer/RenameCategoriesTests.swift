@@ -3,11 +3,10 @@ import Foundation
 @testable import Sync
 @testable import FileExplorer
 
-/// The category-first reorganization of the rename backlog. The claims that could rot: the
-/// partition is total (every plan with steps in exactly one section, skip-only plans in the
-/// footnote), classification follows the most consequential step (a mixed folder is a judgment
-/// call, never buried under "to pad"), sections keep consequence order and vanish at zero, and
-/// folders follow path order within a section.
+/// The rename backlog's category sections. The partition is total (every plan with steps in exactly
+/// one section, skip-only plans in the footnote), classification follows the most consequential
+/// step (a mixed folder is a judgment call, never buried under "to pad"), sections keep consequence
+/// order and vanish at zero, and folders follow path order within a section.
 @Suite struct RenameCategoriesTests {
 
     private func step(_ kind: RenameStep.Kind, _ current: String = "a.pdf",
@@ -49,10 +48,8 @@ import Foundation
         #expect(Set(sectioned + leftAlone) == Set(plans.map(\.relativePath)))
     }
 
-    /// **Path order, which is what replaced the parent grouping.** Folders used to be bucketed
-    /// under their immediate parent, each bucket with a header row and a chevron; sorting on the
-    /// whole path has to keep siblings adjacent and parents in order, or removing that layer
-    /// would have scattered a directory's folders through the section.
+    /// Folders sort on the whole path, which keeps siblings adjacent and parents in order without a
+    /// grouping layer; anything else scatters a directory's folders through the section.
     @Test func foldersFollowPathOrderWithSiblingsAdjacent() {
         let plans = [
             plan("Finance/US/eTrade/2015", steps: [step(.tidied)]),
@@ -66,8 +63,8 @@ import Foundation
     }
 
     @Test func theKindCountClaimsOnlyItsOwnKind() {
-        // The pill says "1 to name"; the bulk button says "Rename 3 files" — different claims,
-        // both true, and the kind count must not inflate to the folder total.
+        // The pill says "1 to name", the bulk button "Rename 3 files": both true, and the kind
+        // count must not inflate to the folder total.
         let mixed = plan("C", steps: [step(.tidied), step(.tidied), step(.placed)])
         let section = RenameCategories.sections([mixed]).first!
         #expect(section.category == .name)

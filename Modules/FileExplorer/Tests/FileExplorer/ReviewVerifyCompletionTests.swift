@@ -3,9 +3,9 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// Pins what a finished per-item Verify is allowed to write back to the review card
-/// (`ReviewCardView.applyVerifyCompletion`): the verdict ALWAYS goes out — it is session-guarded
-/// downstream by `ReviewSessionStore.recordVerdict` — while the spinner write belongs only to a
+/// Pins what a finished per-item Verify may write back to the review card
+/// (`ReviewCardView.applyVerifyCompletion`): the verdict always goes out (session-guarded
+/// downstream by `ReviewSessionStore.recordVerdict`), while the spinner write belongs only to a
 /// completion whose card hasn't advanced.
 @MainActor
 @Suite struct ReviewVerifyCompletionTests {
@@ -27,8 +27,8 @@ import Sync
     }
 
     /// A verify stopped because the card left Review answers nil, and that nil is about the stop,
-    /// not the files: no verdict goes out — `.unverifiable` would tell the user a readable pair
-    /// couldn't be checked. The unstopped nil beside it is the control.
+    /// not the files: no verdict goes out, since `.unverifiable` would tell the user a readable
+    /// pair couldn't be checked. The unstopped nil beside it is the control.
     @Test func aStoppedVerifyReportsNoVerdict() {
         let token = UUID()
         #expect(run(sameContent: nil, stopped: true, liveToken: token, startedToken: token).verdicts.isEmpty)
@@ -51,19 +51,18 @@ import Sync
         #expect(result.clearedSpinner)
     }
 
-    /// The regression this guard must NOT cause. Verify a large pair, click another row, click
-    /// back: `.task(id: item.id)` re-minted the token twice, so the completion's token is stale
-    /// even though its verdict describes a real hash of a real item. Dropping it there left the
-    /// user with no spinner and no answer — the verdict must still be reported (the session
-    /// token it carries is what decides whether it lands).
+    /// What this guard must not cause. Verify a large pair, click another row, click back:
+    /// `.task(id: item.id)` has re-minted the token twice, so the completion's token is stale
+    /// though its verdict is a real hash of a real item. Dropping it would leave no spinner and no
+    /// answer, so the verdict is still reported (its session token decides whether it lands).
     @Test func aCompletionFromAnAdvancedCardStillReportsItsVerdict() {
         let result = run(sameContent: false, liveToken: UUID(), startedToken: UUID())
         #expect(result.verdicts == [.differed], "a legitimate verdict must not be discarded by the spinner guard")
     }
 
-    /// The bug the token guard exists for (D14): a large pair returning after the card advanced
-    /// must not clear the spinner of the item now on screen — `.task(id:)` already reset that
-    /// flag for the NEW item, whose own verify may be running.
+    /// What the token guard exists for: a large pair returning after the card advanced must not
+    /// clear the spinner of the item now on screen. `.task(id:)` already reset that flag for the
+    /// new item, whose own verify may be running.
     @Test func aCompletionFromAnAdvancedCardDoesNotTouchTheSpinner() {
         let result = run(sameContent: true, liveToken: UUID(), startedToken: UUID())
         #expect(!result.clearedSpinner, "a stale completion must not clear the current item's spinner")

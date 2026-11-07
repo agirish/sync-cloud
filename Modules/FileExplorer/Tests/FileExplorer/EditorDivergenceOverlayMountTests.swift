@@ -4,37 +4,24 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// **The overlay, actually drawn** — mounted in a real window and read back as pixels.
+/// The overlay, actually drawn: mounted in a real window and read back as pixels. It opens from a
+/// modal `NSAlert` button, which a script can't drive without assistive access, so a hosted render
+/// is the only check that the card comes up at all.
 ///
-/// It exists because this surface cannot be reached by hand: it opens from a modal `NSAlert` button,
-/// and driving an `NSAlert` from a script needs assistive access this machine refuses (`-25211`). So
-/// "does the card come up at all" is a question only a hosted render can answer, and without one the
-/// feature's entire evidence would be that its rules are right.
+/// It does not cover the diff: `.task` doesn't fire in a hosted `NSHostingView` under `swift test`,
+/// so the pane is always its resting spinner. `EditorDivergenceRefusalTests` drives
+/// `TextPairDiffPipeline` with this overlay's labels; this suite covers the chrome around it.
 ///
-/// **What this does NOT cover, stated so nobody reads more into a green than is there: the DIFF.**
-/// `.task` does not fire in a hosted `NSHostingView` under `swift test` — measured, with a probe
-/// view whose `.task` set a flag that would have painted 40pt text: it painted nothing at rest and
-/// nothing after 1.5 seconds of a spun main run loop, and the overlay likewise rendered
-/// byte-identically before and after settling, in the refusal case as well as the ordinary one. So
-/// the pane here is always its resting spinner. What produces the rows is `TextPairDiffPipeline`,
-/// and `EditorDivergenceRefusalTests` drives it over real files with this overlay's own two labels;
-/// this suite covers the chrome around it.
-///
-/// **Ink is counted as DARK PIXELS, not as inked rows.** The overlay draws a full-bleed scrim, so
-/// every row of the frame carries ink before the card has drawn anything at all — the row measure
-/// the pane-header suites use saturates here and reports 1240 of 1240 for a blank card. Dark pixels
-/// separate them, because what is being asked is how much TEXT is on the card.
-///
-/// `.pixelSampling`, because it reads painted pixels out of a live renderer. CI runs this family;
-/// only the reference-image suites are excluded there.
+/// Ink is counted as dark pixels, not inked rows: the full-bleed scrim inks every row before the
+/// card draws anything. `.pixelSampling` because it reads a live renderer's pixels; CI runs it.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct EditorDivergenceOverlayMountTests {
 
     private static let width: CGFloat = 900
     private static let height: CGFloat = 620
 
-    /// A document opened from a real file, with the file then rewritten underneath it — the exact
-    /// state the alert asks about.
+    /// A document opened from a real file, with the file then rewritten underneath it: the state
+    /// the alert asks about.
     private func divergedDocument() throws -> (EditorDocument, URL) {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("divergence-mount-\(UUID().uuidString)")
@@ -86,12 +73,9 @@ import Testing
         return dark
     }
 
-    /// **The card comes up, with words on it.**
-    ///
-    /// The floor is not a chosen number: an empty view through the same harness measures exactly 0
-    /// dark pixels, so the positive control is inside the test rather than in a comment beside it.
-    /// What is drawn at this point is the header sentence, the two column captions and the three
-    /// foot buttons — everything except the rows, which cannot arrive here (see the suite note).
+    /// The card comes up, with words on it: the header sentence, two column captions and three foot
+    /// buttons (the rows can't arrive here). An empty view through the same harness measures 0 dark
+    /// pixels, which is the positive control.
     @Test func theOverlayMountsAndDrawsItsChrome() throws {
         let (document, folder) = try divergedDocument()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -103,8 +87,8 @@ import Testing
                 "the card drew \(card) dark pixels — its header, columns and three buttons alone should be far more than that")
     }
 
-    /// **A document with nothing open draws its card and does not trap.** `refresh` returns early on
-    /// a nil path, which is the branch a surface opened over no document would take.
+    /// A document with nothing open draws its card and doesn't trap: `refresh` returns early on a
+    /// nil path, the branch a surface opened over no document takes.
     @Test func anEmptyDocumentDoesNotTrapTheSurface() {
         let card = darkPixels(EditorDivergenceDiffOverlay(document: EditorDocument()) { _ in })
         #expect(card >= 0, "hosting the overlay with no document open failed outright")

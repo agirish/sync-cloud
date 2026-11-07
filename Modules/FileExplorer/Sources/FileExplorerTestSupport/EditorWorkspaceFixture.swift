@@ -1,18 +1,14 @@
 import SwiftUI
 import FileExplorer
 
-/// **One `EditorWorkspaceView` for tests, with every argument a test does not care about filled
-/// in** — so a test names only what it is about.
+/// One `EditorWorkspaceView` for tests, with every argument a test doesn't care about filled in,
+/// so a test names only what it is about.
 ///
-/// The initializer takes thirty-odd arguments and leaves most of them without defaults on purpose
-/// (see its parameter comments): a construction site in the APP that forgot a closure would draw a
-/// control that does nothing. That rule is about the app. In a test it only meant seven hand-copied
-/// constructions, each a wall of `{ _ in }` in which the one argument the test was about had to be
-/// found by eye — and which drifted whenever the initializer grew. The defaults below are the inert
-/// values those copies all used; a test overrides the ones it asserts on.
+/// The initializer leaves most of its thirty-odd arguments without defaults on purpose, so an app
+/// call site can't forget a closure and draw a dead control. Tests get inert defaults here and
+/// override the ones they assert on.
 ///
-/// Test-only: this target is linked by the FileExplorer and Dashboard test targets, never by the
-/// app.
+/// Test-only: linked by the FileExplorer and Dashboard test targets, never by the app.
 extension EditorWorkspaceView {
 
     @MainActor
@@ -88,8 +84,8 @@ extension EditorWorkspaceView {
 }
 
 public extension EditorRailRowActions {
-    /// Row acts that do nothing, for a test about something else — Reveal in Finder included, so a
-    /// test that performs every item never brings Finder forward on his screen.
+    /// Row actions that do nothing, for a test about something else. Reveal in Finder included, so
+    /// a test that performs every item never brings Finder forward.
     static var inert: EditorRailRowActions {
         EditorRailRowActions(revealInBrowse: { _ in }, revealInBrowseRefusal: { _ in nil },
                              getInfo: { _ in }, quickLook: { _ in }, download: { _ in },

@@ -5,36 +5,30 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// **The route-table walk** — ROADMAP v4 §7's one stated silent-removal risk, owed since the 620pt
-/// card was deleted in `7e8fff03` and taken 2026-08-19.
+/// The route-table walk: every destination the palette can reach must keep a door. The results list
+/// is `GoToResultsPanel`, as wide as the toolbar field: 620pt at the ceiling but 320 at the floor.
+/// A destination that lost its row would go unreported by anything else in the app.
 ///
-/// The card listed workspaces, sources, folders and actions in 620pt with room for a title *and* a
-/// detail line. Its replacement is `GoToResultsPanel`, whose width is the toolbar field's — 620 at
-/// the ceiling but **320 at the floor**. Anything the card alone made reachable went with it, and
-/// nothing in the app would report that.
+/// Two questions, and the second has the teeth:
 ///
-/// Two questions, and the second is the one with teeth:
-///
-/// 1. **Is every destination still listed?** Cheap, and a straight model walk.
-/// 2. **Is every listed row still usable at 320pt?** The `detail` is what separates
-///    `Clients/Legal` from `Archive/Legal` — both are a row titled "Legal". If it stops being drawn
-///    at the floor width, two different destinations become the same visible row and one of them
-///    has effectively lost its door. Geometry cannot see that, and neither can an ink count; it is
-///    a pixel question (`.machinePinned(.pixelSampling)` for the half that renders).
+/// 1. Is every destination still listed? A straight model walk.
+/// 2. Is every listed row still usable at 320pt? The `detail` is what separates `Clients/Legal`
+///    from `Archive/Legal`, both rows titled "Legal". If it stops being drawn at the floor width,
+///    two destinations become one visible row and one has lost its door. Geometry and ink counts
+///    can't see that; it is a pixel question (`.machinePinned(.pixelSampling)` for that half).
 @MainActor
 @Suite(.serialized) struct PaletteRouteDoorTests {
 
     static let root = "/Users/x/Documents"
-    /// A second **mounted** source the pane is not aimed at — the only configuration that can
-    /// produce a `.folderInSource` route.
+    /// A second mounted source the pane is not aimed at: the only configuration that can produce a
+    /// `.folderInSource` route.
     static let dropbox = "/Users/x/Dropbox"
 
     /// Everything a route can be, flattened to a name, so a walk can assert coverage without
-    /// `PaletteRoute` being `CaseIterable` — it has associated values and cannot be.
+    /// `PaletteRoute` being `CaseIterable` (it has associated values and can't be).
     ///
-    /// **Written as an exhaustive `switch` deliberately.** A new case added to `PaletteRoute` fails
-    /// to compile here, which is the only thing that makes "every destination" mean the whole set
-    /// rather than the set someone remembered to list.
+    /// An exhaustive `switch` on purpose: a new `PaletteRoute` case fails to compile here, which is
+    /// what makes "every destination" mean the whole set rather than the set someone remembered.
     static func kind(_ route: PaletteRoute) -> String {
         switch route {
         case .browse: return "browse"
@@ -46,10 +40,9 @@ import Design
         case .folder: return "folder"
         case .folderInSource: return "folderInSource"
         case .action(let action): return "action.\(action)"
-        // One kind, not one per tab: which tabs are offered is a property of the list the host
-        // injects, and it is walked where that list is derived (`everyTabIsOffered`) and where it
-        // is passed through (`theHostOffersEverySettingsTab`). What is owed *here* is that the
-        // Settings builder still emits at all.
+        // One kind, not one per tab: which tabs are offered is a property of the injected list,
+        // walked where it is derived (`everyTabIsOffered`) and passed through
+        // (`theHostOffersEverySettingsTab`). What is owed here is that the Settings builder emits.
         case .settings: return "settings"
         }
     }
@@ -59,36 +52,30 @@ import Design
 
     /// The path a route resolves under the provider root, or nil for a route that names none.
     ///
-    /// **Exhaustive on purpose, like `kind` above.** "Which routes name a folder" is the question a
-    /// root that did not answer has to be applied to, and the first attempt at that answered it
-    /// from memory: `folderRows` and `emptyQueryRows` were marked and `verbRows` — which turns the
-    /// same `index.folders` into an Organize *scope* — was not, so "organize legal" on a sleeping
-    /// drive still wrote a scope for a folder that is not there and moved the workspace to show it.
-    /// A new case with a path in it fails to compile here rather than being quietly unguarded.
+    /// Exhaustive on purpose, like `kind` above. A root that didn't answer has to be applied to
+    /// every route that names a folder, and a list kept from memory misses one: `verbRows` turns
+    /// the same `index.folders` into an Organize scope. A new case with a path in it fails to
+    /// compile here rather than going unguarded.
     static func pathUnderRoot(of route: PaletteRoute) -> String? {
         switch route {
         case .folder(let path): return path
         case .organize(_, let scope): return scope
-        // **`.folderInSource` names a path under ANOTHER source's root, so it is not one of
-        // these** — and that is the point of the distinction rather than an omission.
-        // `foldersUnavailable` is an answer about the root the pane is aimed at ("this drive did
-        // not answer"), and a source the pane is not on has its own `isMounted`, which
-        // `pathRow` checks before offering the switch at all. Marking a cross-source row with the
-        // aimed root's verdict would refuse a folder on a disk that is wide awake.
+        // `.folderInSource` names a path under another source's root, so it is not one of these, on
+        // purpose. `foldersUnavailable` is a verdict on the root the pane is aimed at, and another
+        // source has its own `isMounted`, which `pathRow` checks before offering the switch.
+        // Applying the aimed root's verdict would refuse a folder on a disk that is wide awake.
         case .browse, .compare, .editor, .person, .provider, .folderInSource, .action, .settings:
             return nil
         }
     }
 
-    /// **Both same-leaf folders are RECENTS**, deliberately. With one pinned and one recent the two
-    /// rows differ by the word "Favorite" against "Recent" — a label, not the path — and the render
-    /// check below would pass even if the path truncated away entirely, which is the collapse it
-    /// exists to catch. Same group, same leaf: only `Clients/` against `Archive/` tells them apart.
-    /// **The paths share a long head and a leaf, and differ only in the middle** — which is
-    /// precisely what a middle-truncated detail elides first. Short paths make this test vacuous:
-    /// measured 2026-08-19, `Clients/Legal` against `Archive/Legal` renders identically at 620 and
-    /// at 320 because neither width truncates anything, so the fixture could not have detected a
-    /// collapse at either.
+    /// Both same-leaf folders are recents, on purpose. With one pinned and one recent the rows
+    /// would differ by "Favorite" against "Recent", and the render check below would pass even if
+    /// the path truncated away entirely. Same group, same leaf: only the path tells them apart.
+    ///
+    /// The paths share a long head and a leaf and differ only in the middle, which is what a
+    /// middle-truncated detail elides first. Short paths make the test vacuous: they render without
+    /// truncating at both widths, so a collapse couldn't show.
     static func index(recents: [String] = ["Clients/Acme Holdings International/2024 Filings/Legal",
                                            "Clients/Acme Holdings International/2019 Filings/Legal"],
                       pinned: [String] = [],
@@ -96,11 +83,9 @@ import Design
         PaletteIndex(
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true,
                                         isCurrent: true, root: root),
-                        // **Mounted, and not the one the pane is on** — the shape RD7's
-                        // `.folderInSource` needs, and the only shape that can produce it. Without
-                        // a source like this in the fixture the walk below cannot reach that
-                        // destination at all, and "every destination has a door" would quietly
-                        // mean "every destination except the newest one".
+                        // Mounted, and not the one the pane is on: the only shape that can produce
+                        // `.folderInSource`. Without it the walk below can't reach that destination
+                        // at all.
                         PaletteProvider(id: "dropbox", name: "Dropbox", isMounted: true,
                                         isCurrent: false, root: dropbox),
                         PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: false,
@@ -127,36 +112,30 @@ import Design
     /// (`emptyQueryRows`), a plain folder match (`folderRows`), and a verb with an object
     /// (`verbRows`).
     static let pathBearingQueries = ["", "legal", "organize legal", "finance", "organize finance",
-                                     // **A typed path is the fourth builder**, and the walk could
-                                     // not see it until 2026-08-20: `pathRow` only fires when a
-                                     // probe is supplied, and the walk called `rows` without one —
-                                     // so the guard written so "a fourth builder cannot be missed
-                                     // the same way" was blind to the fourth builder. It is passed
-                                     // one now (see `probe`), which is what makes that promise true.
+                                     // A typed path is the fourth builder. `pathRow` fires only
+                                     // when a probe is supplied, so the walk passes one (see
+                                     // `probe`).
                                      "\(root)/Finance"]
 
     /// The disk, for the one builder that asks it. Answers `.directory` for anything under the
-    /// fixture's root and `.missing` elsewhere, which is enough for the walk: what is under test is
-    /// whether a route that names a path is *marked*, not whether the folder is there.
+    /// fixture's root and `.missing` elsewhere: what is under test is whether a route that names a
+    /// path is marked, not whether the folder is there.
     static let probe: PalettePathProbe = { path in
         path.hasPrefix(root) ? .directory : .missing
     }
 
-    /// **Every destination the palette can reach still has a door.**
-    ///
-    /// The queries are the doors: the empty landing, plus one query per destination that the
-    /// landing does not carry. If a builder stopped emitting a group, its kind is missing here and
-    /// the failure names it.
+    /// Every destination the palette can reach still has a door. The queries are the doors: the
+    /// empty landing, plus one per destination the landing doesn't carry. If a builder stops
+    /// emitting a group, its kind is missing and the failure names it.
     @Test func everyRouteKindIsStillReachableFromSomeQuery() {
         let index = Self.index()
         let queries = ["", "browse", "compare", "storage", "organize", "daughter", "icloud",
                        "legal", "rescan", "new folder", "choose", "find", "settings",
                        "shortcuts", "activity",
-                       // The two typed-path doors, which are two different destinations: a path
-                       // inside the source the pane is showing (`folder`) and one inside another
-                       // mounted source (`folderInSource`, RD7). Both need the probe below — a
-                       // `rows` call without one emits no path row at all, which is how this walk
-                       // was blind to the path builder until 2026-08-20.
+                       // The two typed-path doors, two different destinations: a path inside the
+                       // source the pane is showing (`folder`) and one inside another mounted
+                       // source (`folderInSource`). Both need the probe: `rows` without one emits
+                       // no path row.
                        "\(Self.root)/Finance", "\(Self.dropbox)/Legal"]
         var reached = Set<String>()
         for query in queries {
@@ -166,10 +145,9 @@ import Design
             }
         }
 
-        // "storage" is gone as a route KIND — `PaletteRoute.storage` was deleted when Storage
-        // became a lens, and the place now arrives as `organize` carrying `lens: .storage`. The
-        // door is still there; it is one of Organize's. `CommandPaletteTests` is where the query
-        // "storage" is followed to that route, including with a folder.
+        // "storage" is not a route kind: Storage is a lens, so the place arrives as `organize`
+        // carrying `lens: .storage`. `CommandPaletteTests` follows the query "storage" to that
+        // route, including with a folder.
         var expected: Set<String> = ["browse", "compare", "organize", "person",
                                      "provider", "folder", "folderInSource", "settings"]
         for action in PaletteAction.allCases { expected.insert("action.\(action)") }
@@ -179,14 +157,11 @@ import Design
                 "these destinations have no door left in the palette, and the 620pt card that used to show them is deleted: \(missing.joined(separator: ", "))")
     }
 
-    /// **A root that did not answer must take EVERY route that names a path under it, not the two
-    /// builders somebody remembered.**
-    ///
-    /// This is the walk the first fix should have been: three builders mint a path under
-    /// `providerRoot` — the landing's recents and pins, a folder match, and a verb row's Organize
-    /// scope — and marking two of them left "organize legal" writing a scope for a folder on a
-    /// sleeping drive, moving the workspace to Organize to show it, and revealing nothing. The
-    /// route is walked by `pathUnderRoot`, so a fourth builder cannot be missed the same way.
+    /// A root that didn't answer must take every route that names a path under it. Three builders
+    /// mint such a path: the landing's recents and pins, a folder match, and a verb row's Organize
+    /// scope. Missing one would let "organize legal" write a scope for a folder on a sleeping
+    /// drive, move the workspace to show it, and reveal nothing. Walked through `pathUnderRoot`, so
+    /// a new builder can't be missed the same way.
     @Test func everyPathBearingRouteIsRefusedWhenTheRootIsAsleep() {
         let index = Self.index(unavailable: "Not available")
         var seen = 0
@@ -202,8 +177,8 @@ import Design
                 "only \(seen) path-bearing rows were reached — the queries no longer cover the builders this is about")
     }
 
-    /// The awake half, so the assertion above is not "unavailable is whatever we passed" — and so a
-    /// fix that simply marked everything always would fail here.
+    /// The awake half, so the test above isn't just "unavailable is whatever we passed", and a fix
+    /// that marked everything always would fail here.
     @Test func thoseSameRoutesAreLiveWhenTheRootAnswers() {
         let index = Self.index()
         var seen = 0
@@ -216,8 +191,8 @@ import Design
         #expect(seen >= 7, "only \(seen) path-bearing rows were reached — this pair is not measuring the same set")
     }
 
-    /// The landing alone — what ⌘K opens on — must carry the four groups the card led with.
-    /// A destination reachable only by typing its name is a destination a stranger cannot find.
+    /// The landing alone, what ⌘K opens on, must carry the four groups. A destination reachable
+    /// only by typing its name is one a stranger can't find.
     @Test func theLandingStillLeadsWithAllFourGroups() {
         let rows = PaletteRouter.rows(query: "", index: Self.index())
         for group in [PaletteGroup.folders, .places, .sources, .actions] {
@@ -231,18 +206,16 @@ import Design
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PaletteRouteDoorRenderTests {
 
-    /// **Two folders with the same leaf must not render as the same row — at either width.**
+    /// Two folders with the same leaf must not render as the same row, at either width.
     ///
-    /// The fixture's two folders are both titled "Legal"; only the detail line — the same
-    /// "Recent · " prefix over two paths that share a long head and their leaf, and differ in the
-    /// middle — tells them apart. At the 620pt ceiling there is room for it. At the **320pt floor**
-    /// there may not be, and if the detail is dropped or middle-truncated down to that common head
-    /// the two rows become one visible destination with the other silently unreachable — the exact
-    /// removal the card's deletion put at risk. (`PaletteRouteDoorTests.index` carries why both are
-    /// recents and why the paths are long; two short ones could not fail.)
+    /// Both are titled "Legal"; only the detail line (the same "Recent · " prefix over two paths
+    /// that share a long head and leaf) tells them apart. At 620pt there is room for it; at the
+    /// 320pt floor there may not be, and a detail dropped or truncated to the common head would
+    /// make the two rows one visible destination. (`PaletteRouteDoorTests.index` says why both are
+    /// recents and why the paths are long.)
     ///
-    /// Rendered and compared pixel-for-pixel rather than measured: this codebase's own record is
-    /// that geometry and ink counts cannot see "omitted" versus "truncated".
+    /// Compared pixel for pixel rather than measured, because geometry and ink counts can't tell
+    /// "omitted" from "truncated".
     @Test(arguments: [620.0, 320.0]) func sameLeafFoldersStayDistinguishable(width: Double) {
         let rows = PaletteRouter.rows(query: "", index: PaletteRouteDoorTests.index())
             .filter { $0.group == .folders }
@@ -250,16 +223,15 @@ import Design
         #expect(leaves.count == 2 && Set(leaves).count == 1,
                 "the fixture no longer produces two same-leaf folders — it cannot detect the collapse it is here for")
 
-        // One row each, rendered alone at the same size, so any difference IS the row's content.
+        // One row each, rendered alone at the same size, so any difference is the row's content.
         let first = CommandPaletteRenderTests.renderList(rows: [rows[0]], selection: nil,
                                                         scheme: .light, width: width, height: 60)
         let second = CommandPaletteRenderTests.renderList(rows: [rows[1]], selection: nil,
                                                          scheme: .light, width: width, height: 60)
         let differing = CommandPaletteRenderTests.differingPixels(first, second)
-        // Measured 2026-08-19: 1256 differing at 620pt, 1783 at 320pt (the count RISES at the
-        // floor, because truncation shifts glyphs as well as removing them). Dropping the detail
-        // line entirely takes both to **0** — the two rows render identically — which is what the
-        // threshold is set against, and what a collapse actually looks like.
+        // Distinct rows differ by over a thousand pixels at both widths (more at the floor, since
+        // truncation shifts glyphs too). Dropping the detail line takes both to 0, which is what
+        // the threshold is set against.
         #expect(differing > 200,
                 "at \(Int(width))pt two different folders draw the same row (\(differing) pixels differ, against ~1256 at 620pt and ~1783 at 320pt when they are distinct) — one of them has no door a person can pick")
     }

@@ -5,22 +5,23 @@ import Combine
 import FileExplorerTestSupport
 import EventsTestSupport
 
-/// Every way Source writes a line break, in an LF, a CRLF and a lone-CR file — and the rule they all
-/// now follow: Edit writes LF only, converting a file on its first edit (``EditorLineEndings``).
+/// Every way Source writes a line break, in an LF, a CRLF and a lone-CR file, and the rule they all
+/// follow: Edit writes LF only, converting a file on its first edit (``EditorLineEndings``).
 ///
-/// **Through the real text view and coordinator**, built as `EditorMarkdownTypingTests` builds them
+/// Through the real text view and coordinator, built as `EditorMarkdownTypingTests` builds them
 /// (mounting the representable in this process segfaults). Paste and drop are both
 /// `readSelection(from:type:)` under AppKit's own handling, given a private pasteboard so the test
-/// never touches the clipboard; Replace is the text view's own ask-replace-announce, which is what the find bar's replace does.
+/// never touches the clipboard; Replace is the text view's own ask-replace-announce, which is what
+/// the find bar's replace does.
 @MainActor
 @Suite(.serialized) struct LineEndingPathsTests {
 
-    /// The document's own buffer, following the storage the view is built around (TE67.0).
+    /// The document's own buffer, following the storage the view is built around.
     @MainActor
     final class Box {
         let buffer = EditorBuffer()
         var text: String { buffer.text }
-        /// How many conversions the buffer was told of (TE104).
+        /// How many conversions the buffer was told of.
         var told = 0
         private var listening: AnyCancellable?
         init() {
@@ -90,7 +91,7 @@ import EventsTestSupport
     /// One path, run on a document written in `ending`. Returns the buffer afterwards.
     private typealias Path = (_ ending: Ending) -> String
 
-    /// Two lines before every path's text, so every edit happens AFTER line breaks — where the
+    /// Two lines before every path's text, so every edit happens after line breaks, where the
     /// conversion moves offsets. An edit before the first break would pass with no mapping at all.
     private func pre(_ e: Ending) -> String { "x" + e.rawValue + e.rawValue }
     private func at(_ offset: Int, _ e: Ending) -> Int { pre(e).utf16.count + offset }
@@ -183,8 +184,8 @@ import EventsTestSupport
         ]
     }
 
-    /// What each path wrote in an LF file on `main` before LF-only — measured 2026-10-05 and pinned,
-    /// so "LF files behave as today" is a claim with bytes behind it.
+    /// What each path writes in an LF file, pinned byte for byte, so "LF files behave as they
+    /// always did" is a claim with bytes behind it.
     static let lfBaseline: [String: String] = [
         "Return": "x\n\none\n\n\ntwo\n",
         "Return in a list": "x\n\n- one\n- \n- two\n",
@@ -192,7 +193,7 @@ import EventsTestSupport
         "Code Block verb": "x\n\n```\none\n```\n\ntwo\n",
         "Horizontal Rule verb": "x\n\none\n\n---\n\ntwo\n",
         "Insert Table verb": "x\n\none\n\n| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n|          |          |          |\n|          |          |          |\n\ntwo\n",
-        // A compact delimiter row stays compact (TBL-4; this pinned `| --- | --- |`).
+        // A compact delimiter row stays compact.
         "Add Row Below verb": "x\n\n| a   | b   |\n|-----|-----|\n|     |     |\n| c   | d   |\n",
         "Paste of two lines": "x\n\nonex\ny\n\ntwo\n",
         "Replace with a line break": "x\n\nox\nye\n\ntwo\n",
@@ -208,7 +209,7 @@ import EventsTestSupport
         return rep.representation(using: .png, properties: [:])!
     }
 
-    /// Every path: an LF file exactly as before, and a CRLF or CR file converted on that edit — so
+    /// Every path: an LF file exactly as before, and a CRLF or CR file converted on that edit, so
     /// it comes out byte for byte what the LF file did, and the status line reads LF.
     @Test func everyPathWritesLFAndConvertsTheFileOnItsFirstEdit() {
         for (name, path) in paths {
@@ -229,7 +230,7 @@ import EventsTestSupport
         #expect(r.box.text == r.view.string)   // and the document heard about it
     }
 
-    /// A pasted CRLF goes in as LF, in an LF file too — nothing Edit writes is anything but LF.
+    /// A pasted CRLF goes in as LF, in an LF file too: Edit writes nothing but LF.
     @Test func aPastedCRLFIsWrittenAsLF() {
         let r = rig("one\n", caret: 3)
         let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
@@ -241,7 +242,7 @@ import EventsTestSupport
     }
 
     /// Opening, reading, moving the caret and selecting change nothing: a file is converted by an
-    /// edit, never by being looked at — and a read-only one never.
+    /// edit, never by being looked at, and a read-only one never.
     @Test func aFileThatIsOnlyReadKeepsItsBytes() {
         let text = "one\r\ntwo\r\n"
         let r = rig(text, caret: 0)
@@ -253,9 +254,9 @@ import EventsTestSupport
         #expect(locked.view.string == text)
     }
 
-    /// The conversion rides in the first edit's undo step — AppKit groups undo by event — so one ⌘Z
-    /// gives back the file exactly as it was opened, and ⌘⇧Z makes both again. Later edits are
-    /// ordinary steps of their own.
+    /// The conversion rides in the first edit's undo step (AppKit groups undo by event), so one ⌘Z
+    /// gives back the file exactly as opened, and ⌘⇧Z makes both again. Later edits are ordinary
+    /// steps of their own.
     @Test func undoTakesBackTheFirstEditAndTheConversionTogether() {
         let text = "one\r\n\r\ntwo\r\n"
         let r = rig(text, caret: 3)
@@ -280,25 +281,24 @@ import EventsTestSupport
         #expect(r.view.string.contains("\r\n"))
         r.view.insertText("か", replacementRange: NSRange(location: NSNotFound, length: 0)); spin()
         #expect(!r.view.hasMarkedText())
-        // **And the commit is the first edit, so it converts** (2026-10-09). AppKit asks
-        // `shouldChangeText` for a commit while the word is still marked, so the net let it through
-        // as it stood: the file was saved CRLF, and the conversion rode in later, inside the undo
-        // step of whatever was typed next.
+        // And the commit is the first edit, so it converts. AppKit asks `shouldChangeText` for a
+        // commit while the word is still marked, so letting it through as it stands would save the
+        // file CRLF and push the conversion into the undo step of whatever is typed next.
         #expect(r.view.string == "oneか\ntwo", "the commit left \(String(reflecting: r.view.string))")
         #expect(r.box.text == r.view.string)
         #expect(r.view.selectedRange() == NSRange(location: 4, length: 0))
-        // **Two steps, not one, and that is the price of never converting a file nobody edits.** The
-        // word's typing step was opened by the event that STARTED the composition, so the commit's
-        // conversion cannot join it; converting at the start instead would rewrite the file for a
-        // composition then cancelled with Esc. So ⌘Z puts the carriage returns back, and the next
-        // takes the word — every state between a file Edit could have written.
+        // Two steps, not one: the price of never converting a file nobody edits. The word's typing
+        // step was opened by the event that started the composition, so the commit's conversion
+        // can't join it, and converting at the start would rewrite the file for a composition then
+        // cancelled with Esc. So ⌘Z puts the carriage returns back, and the next takes the word:
+        // every state between is a file Edit could have written.
         r.undo.undo(); spin()
         #expect(r.view.string == "oneか\r\ntwo", "the first ⌘Z left \(String(reflecting: r.view.string))")
         r.undo.undo(); spin()
         #expect(r.view.string == text, "the second ⌘Z left \(String(reflecting: r.view.string))")
     }
 
-    /// **A composition cancelled with Esc writes nothing**, so it converts nothing: the marked text
+    /// A composition cancelled with Esc writes nothing, so it converts nothing: the marked text
     /// goes as it came, and the file keeps its bytes.
     @Test func aCancelledCompositionLeavesTheFileAsItWas() {
         let text = "one\r\ntwo"
@@ -349,9 +349,9 @@ import EventsTestSupport
         #expect((r.view.string as NSString).substring(with: r.view.selectedRange()) == "plenty")
     }
 
-    /// The paths that set a selection from offsets measured BEFORE they edit — Tab on a list item,
-    /// a link pasted over words, a verb — land it in the same place in a converted CRLF file as in
-    /// an LF one. Each relies on the conversion happening first; mapped afterwards, its selection
+    /// The paths that set a selection from offsets measured before they edit (Tab on a list item, a
+    /// link pasted over words, a verb) land it in the same place in a converted CRLF file as in an
+    /// LF one. Each relies on the conversion happening first; mapped afterwards, its selection
     /// would be a line's worth of breaks early.
     @Test func selectionsMeasuredBeforeTheEditLandRightInAConvertedFile() {
         typealias Run = (_ e: Ending) -> (String, NSRange)
@@ -392,9 +392,8 @@ import EventsTestSupport
         }
     }
 
-    /// A tick — the one edit made from outside the text view today, and the door TE67's Preview
-    /// writes will use — converts too, in its own undo step: one ⌘Z gives back the file's bytes, and
-    /// the document's buffer follows the storage back.
+    /// A tick, an edit made from outside the text view, converts too, in its own undo step: one ⌘Z
+    /// gives back the file's bytes, and the document's buffer follows the storage back.
     @Test func aTickConvertsAndOneUndoGivesBackTheBytes() {
         let text = "- [ ] one\r\n- [ ] two\r\n"
         let r = rig(text, caret: 0)
@@ -409,12 +408,12 @@ import EventsTestSupport
         #expect(r.box.text == r.view.string)
     }
 
-    /// **TE104: every door that converts tells the buffer, once** — which is what puts "Converted to
-    /// LF line endings — ⌘Z undoes" on the status line. Typing, a Markup verb, a tick, Preview's own
-    /// conversion; and an LF file, or the second edit to a converted one, tells nothing.
+    /// Every door that converts tells the buffer, once, which puts "Converted to LF line endings —
+    /// ⌘Z undoes" on the status line. Typing, a Markup verb, a tick, Preview's own conversion; and
+    /// an LF file, or the second edit to a converted one, tells nothing.
     ///
-    /// Mutation: drop `buffer?.convertedToLF.send()` from `noteConversion`, or have the text view
-    /// log without it, and the doors fail.
+    /// Dropping `buffer?.convertedToLF.send()` from `noteConversion`, or having the text view log
+    /// without it, must fail the doors.
     @Test func everyConversionIsToldToTheBufferOnce() {
         let crlf = "- [ ] one\r\n- [ ] two\r\n"
         let doors: [(String, (Rig) -> Void)] = [
@@ -444,8 +443,8 @@ import EventsTestSupport
     }
 
     /// A tick while a word is being composed: `replace` converts nothing under the marked text, the
-    /// tick ends the composition and keeps the word (AppKit's doing, measured 2026-10-04), and that
-    /// commit — an edit like any other — converts the file. The word lands whole, where it was typed.
+    /// tick ends the composition and keeps the word (AppKit's doing), and that commit, an edit like
+    /// any other, converts the file. The word lands whole, where it was typed.
     @Test func aTickWhileAWordIsComposedKeepsTheWord() {
         let text = "- [ ] one\r\nab"
         let r = rig(text, caret: (text as NSString).length)
@@ -471,11 +470,10 @@ import EventsTestSupport
 
     // MARK: Reading never converts (fixed 2026-10-05)
 
-    /// **Moving is not editing.** Every key command reaches `doCommand(by:)` — the arrows, paging,
-    /// ⌘-arrows, scrolling, Esc — and converting on every one of them rewrote a file that was only
-    /// being read: ↓ in an opened CRLF note marked it changed, and autosave wrote it. Sent the way
-    /// AppKit sends them; `moveDown(nil)` called directly skipped the override and passed with
-    /// the bug in place.
+    /// Moving is not editing. Every key command reaches `doCommand(by:)` (arrows, paging, ⌘-arrows,
+    /// scrolling, Esc), and converting on any of them would rewrite a file only being read: ↓ in a
+    /// CRLF note would mark it changed for autosave. Sent the way AppKit sends them, because
+    /// `moveDown(nil)` called directly skips the override and would pass regardless.
     @Test func movingSelectingAndScrollingAFileChangesNothing() {
         let text = "one\r\ntwo\r\nthree\r\n"
         let r = rig(text, caret: 0)
@@ -495,8 +493,8 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)
     }
 
-    /// ⇧Tab on a line that is no list item writes nothing — nor does Tab on an item that cannot
-    /// move — so neither converts; and a read-only file is never converted, whatever is pressed.
+    /// ⇧Tab on a line that is no list item writes nothing, nor does Tab on an item that can't move,
+    /// so neither converts; and a read-only file is never converted, whatever is pressed.
     @Test func keysThatWriteNothingConvertNothing() {
         let text = "one\r\n- first\r\n"
         let r = rig(text, caret: 1)
@@ -514,7 +512,7 @@ import EventsTestSupport
         #expect(locked.view.string == text)
     }
 
-    /// Find — opening the bar, finding next — reads; it does not convert.
+    /// Find (opening the bar, finding next) reads; it doesn't convert.
     ///
     /// The bar is retired as the test ends: Find Next leaves AppKit's find indicator a redraw to
     /// make, which must not outlive the rig (`PlainTextEditor.retireFindBar`).
@@ -533,8 +531,8 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)
     }
 
-    /// A mode switch shows the same storage in a new text view; opening Preview — read-only or
-    /// editable — projects it. None of them writes.
+    /// A mode switch shows the same storage in a new text view; opening Preview, read-only or
+    /// editable, projects it. None of them writes.
     @Test func showingTheFileElsewhereChangesNothing() {
         let text = "# one\r\n\r\n- [ ] two\r\n"
         let r = rig(text, caret: 0)
@@ -563,7 +561,7 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)
     }
 
-    /// A pasted CRLF alone — no lone CR beside it — is written as LF too.
+    /// A pasted CRLF alone, with no lone CR beside it, is written as LF too.
     @Test func aPastedCRLFAloneIsWrittenAsLF() {
         let r = rig("one\n", caret: 3)
         let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
@@ -573,8 +571,8 @@ import EventsTestSupport
         #expect(r.view.string == "onex\ny\n")
     }
 
-    /// Text the net writes itself — a paste with a line break, into an empty note — wears the
-    /// view's font, not none.
+    /// Text the net writes itself (a paste with a line break, into an empty note) wears the view's
+    /// font, not none.
     @Test func whatTheNetWritesKeepsTheViewsFont() throws {
         let r = rig("", caret: 0)
         let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
@@ -607,10 +605,10 @@ import EventsTestSupport
         return board
     }
 
-    /// **A screenshot pasted into a CRLF note leaves the caret where it does in an LF one** — after
-    /// the link. A plain-text view reads no image type, so the paste's early conversion used to skip
-    /// a PNG-only clipboard; the image block was then measured on CRLF text and its caret, in CRLF
-    /// units, applied to the LF text the net had written: two units late for every break before it.
+    /// A screenshot pasted into a CRLF note leaves the caret where it does in an LF one: after the
+    /// link. A plain-text view reads no image type, so the paste's early conversion must not skip a
+    /// PNG-only clipboard, or the image block is measured on CRLF text and its caret lands two
+    /// units late for every break before it.
     @Test func aPastedScreenshotLeavesTheCaretWhereAnLFNoteDoes() throws {
         func run(_ e: Ending) throws -> (String, NSRange) {
             let note = try TestTextFiles.write(paragraph(e), named: "Note.md")
@@ -630,10 +628,10 @@ import EventsTestSupport
         }
     }
 
-    /// **A refused image drop changes nothing** — through `performDragOperation`, the door AppKit
-    /// uses. Dropped onto a fenced code block in a CRLF note, the host says why, and the note keeps
-    /// its bytes: it used to be converted before the refusal, marked changed, and autosaved as LF
-    /// with nothing added.
+    /// A refused image drop changes nothing, through `performDragOperation`, the door AppKit uses.
+    /// Dropped onto a fenced code block in a CRLF note, the host says why, and the note keeps its
+    /// bytes: converting before the refusal would mark it changed and autosave it as LF with
+    /// nothing added.
     @Test func aRefusedImageDropLeavesTheFileAsItWas() throws {
         let text = "```\r\ncode\r\nmore code\r\n```\r\n"
         let note = try TestTextFiles.write(text, named: "Note.md")
@@ -653,8 +651,8 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)
     }
 
-    /// **An image that cannot be imported changes nothing either** — here a Finder copy of a photo
-    /// that has since gone, which pastes as a refusal: the note keeps its CRLF bytes.
+    /// An image that can't be imported changes nothing either: here a Finder copy of a photo that
+    /// has since gone, which pastes as a refusal. The note keeps its CRLF bytes.
     @Test func aFailedImageImportLeavesTheFileAsItWas() throws {
         let text = "one\r\n\r\ntwo\r\n"
         let note = try TestTextFiles.write(text, named: "Note.md")
@@ -696,10 +694,9 @@ import EventsTestSupport
         #expect(r.view.string == text)
     }
 
-    /// **A verb while a word is being composed writes nothing into a file that is not LF yet** — the
-    /// conversion waits for the marked text, and the verb written anyway left a CRLF file mixed
-    /// (measured 2026-10-09: `a\r\nb\r\nplentyか\n\n---\n`). In an LF file the verb commits the word
-    /// and applies, as it always did.
+    /// A verb while a word is being composed writes nothing into a file that isn't LF yet: the
+    /// conversion waits for the marked text, and writing the verb anyway would leave a CRLF file
+    /// mixed. In an LF file the verb commits the word and applies, as it always did.
     @Test func aVerbWhileAWordIsComposedNeverMixesAFile() async {
         let log = LogCapture()
         let lf = rig("a\nb\nplenty", caret: 10)
@@ -721,9 +718,9 @@ import EventsTestSupport
                 "the refusal said nothing")
     }
 
-    /// **Every conversion says so, once, at INFO** — kinds and counts, the file's name, and what did
-    /// it; never the text. Each case is its own uniquely named file, because a capture also sees
-    /// its sibling cases' lines.
+    /// Every conversion says so, once, at INFO: kinds and counts, the file's name, and what did it;
+    /// never the text. Each case is its own uniquely named file, because a capture also sees its
+    /// sibling cases' lines.
     @Test func everyConversionLogsOneLine() async throws {
         let log = LogCapture()
         func named(_ r: Rig, _ kind: String) -> String {
@@ -765,7 +762,7 @@ import EventsTestSupport
 
     // MARK: The find bar, for real
 
-    /// The find bar's two fields — Find, then Replace — set as a person types into them.
+    /// The find bar's two fields, Find then Replace, set as a person types into them.
     private func findAndReplace(_ find: String, with replacement: String, in r: Rig) {
         r.view.usesFindBar = true
         PlainTextEditor.showFindBar(in: r.view); spin()
@@ -794,9 +791,9 @@ import EventsTestSupport
         r.view.performTextFinderAction(sender); spin()
     }
 
-    /// **Replace and Replace All through the find bar itself** — not the ask-replace-announce the
-    /// paths above emulate. A CRLF file and a replacement holding a CRLF: written LF, the file
-    /// converted in the same step, and one ⌘Z gives back the file's bytes.
+    /// Replace and Replace All through the find bar itself, not the ask-replace-announce the paths
+    /// above emulate. A CRLF file and a replacement holding a CRLF: written LF, the file converted
+    /// in the same step, and one ⌘Z gives back the file's bytes.
     @Test func replaceAndReplaceAllFromTheFindBarWriteLFAndUndoAsOneStep() {
         let text = "one\r\ntwo\r\none\r\n"
         for (action, expected) in [(NSTextFinder.Action.replace, "X\nYe\ntwo\none\n"),
@@ -817,13 +814,13 @@ import EventsTestSupport
 
     // MARK: What AppKit does after an edit the net made (2026-10-09)
 
-    /// **A long paste the net writes scrolls to the caret, as AppKit's own paste does.** When the
-    /// net makes the edit itself it tells AppKit no, and AppKit's own follow-up — scrolling the
-    /// caret into view — never ran: paste two hundred lines carrying CRLFs and the caret was left
-    /// off the bottom of the screen. Every paste holding a CR takes this route, LF files included.
+    /// A long paste the net writes scrolls to the caret, as AppKit's own paste does. When the net
+    /// makes the edit itself it tells AppKit no, so AppKit's follow-up (scrolling the caret into
+    /// view) never runs, and a two-hundred-line CRLF paste would leave the caret off screen. Every
+    /// paste holding a CR takes this route, LF files included.
     ///
-    /// No AppKit paste as the control: in a window that is not key — every test window — AppKit's own
-    /// paste does not scroll either (measured), so the control is the mutation instead.
+    /// No AppKit paste as the control: in a window that isn't key (every test window) AppKit's own
+    /// paste doesn't scroll either, so the control is the mutation instead.
     @Test func aLongPasteTheNetWritesScrollsToTheCaret() throws {
         let r = rig("top\n", caret: 4)
         let board = board { $0.setString(String(repeating: "line\r\n", count: 200), forType: .string) }
@@ -836,9 +833,9 @@ import EventsTestSupport
                 "the caret is at the end, and the view was left at \(clip.bounds) of \(r.view.frame.height)")
     }
 
-    /// **A paste over two selections leaves the caret where AppKit's does** — after what was pasted
-    /// into the first. The net sets no selection for more than one range, and needs none: measured
-    /// 2026-10-09, AppKit's own paste lands it there either way.
+    /// A paste over two selections leaves the caret where AppKit's does: after what was pasted into
+    /// the first. The net sets no selection for more than one range, and needs none, since AppKit's
+    /// own paste lands it there either way.
     @Test func aPasteOverTwoSelectionsLeavesTheCaretWhereAppKitsDoes() {
         var results: [(String, [NSRange])] = []
         for e in [Ending.lf, .crlf] {
@@ -856,12 +853,11 @@ import EventsTestSupport
         #expect(results[1].1 == results[0].1, "CRLF \(results[1].1), LF \(results[0].1)")
     }
 
-    /// **`replace`'s undo puts back exactly what it took** (2026-10-09). The inverse went back
-    /// through `replace` itself, which converts and normalises: undoing an edit that took a CRLF
-    /// out put back an LF — and converted the file's other breaks — and the next ⌘Z then ran off the
-    /// end of the text and took the app down. Reached here by an edit while a word is composed,
-    /// which `replace` leaves unconverted; no door in the app hands it a CR today, so this pins the
-    /// inverse rather than a path.
+    /// `replace`'s undo puts back exactly what it took. An inverse sent back through `replace`
+    /// itself would convert and normalise: undoing an edit that took a CRLF out would put back an
+    /// LF, convert the file's other breaks, and leave the next ⌘Z running off the end of the text
+    /// and crashing the app. Reached here by an edit while a word is composed, which `replace`
+    /// leaves unconverted; no door in the app hands it a CR, so this pins the inverse, not a path.
     @Test func replacesUndoPutsBackExactlyWhatItTook() {
         let text = "a\r\nb\r\nc"
         let r = rig(text, caret: (text as NSString).length)
@@ -880,9 +876,9 @@ import EventsTestSupport
 
     // MARK: Unicode's other line breaks (decision, 2026-10-09)
 
-    /// **Text pasted or dropped in with a line or paragraph separator comes in as LF.** Pages and Word
-    /// put U+2028 on the clipboard for a soft return; the text view DRAWS it as a line break while
-    /// cmark, and every other tool, reads none — a line that is two on screen and one in the note.
+    /// Text pasted or dropped in with a line or paragraph separator comes in as LF. Pages and Word
+    /// put U+2028 on the clipboard for a soft return; the text view draws it as a line break while
+    /// cmark, and every other tool, reads none: a line that is two on screen and one in the note.
     /// U+2029 and U+0085 likewise. Text coming in only: the file's own are never touched.
     @Test func separatorsPastedOrDroppedInComeInAsLF() throws {
         let incoming = "x\u{2028}y\u{2029}z\u{0085}w"
@@ -900,12 +896,11 @@ import EventsTestSupport
                 "dropped: \(String(reflecting: dropped.view.string))")
     }
 
-    /// **Text dragged within the note is the file's own, and keeps its separators** (round 2,
-    /// R10, 2026-10-10): every drop was read as text coming in, so moving a line that held a U+2028
-    /// turned it into a line break — a change to the note nobody typed. The same drop from
-    /// anywhere else still comes in as LF (above).
+    /// Text dragged within the note is the file's own, and keeps its separators: moving a line that
+    /// holds a U+2028 must not turn it into a line break nobody typed. The same drop from anywhere
+    /// else still comes in as LF (above).
     ///
-    /// Mutation: read every drop as incoming again — the moved text loses its U+2028.
+    /// Reading every drop as incoming must make the moved text lose its U+2028.
     @Test func aDragOfTheFilesOwnTextKeepsItsSeparators() throws {
         let r = rig("one\n", caret: 3)
         let board = board { $0.setString("x\u{2028}y", forType: .string) }
@@ -918,8 +913,8 @@ import EventsTestSupport
         #expect(control.view.string.contains("x\ny"), "the control: \(String(reflecting: control.view.string))")
     }
 
-    /// **The file's own separators stay** — typing beside one, a verb over one, ⌘Z that brings one
-    /// back: none of them is text coming in.
+    /// The file's own separators stay: typing beside one, a verb over one, ⌘Z that brings one back.
+    /// None of them is text coming in.
     @Test func aFilesOwnSeparatorsAreNeverTouched() {
         let text = "a\u{2028}b plenty\u{2029}here"
         let r = rig(text, caret: 1)

@@ -4,19 +4,16 @@ import PDFToolkitCore
 import Design
 import Sync
 
-/// **The header's Tools menu** — the last of the file actions, before the divider, for a PDF that
-/// is open or locked. Every item writes a new copy next to the original; the open file stays as it
-/// is, and stays read-only.
+/// The header's Tools menu, last of the file actions before the divider, for a PDF that is open or
+/// locked. Every item writes a new copy next to the original; the open file stays read-only.
 ///
-/// It also presents the tools' sheets, whichever surface asked for one: the Pages tab's menu sets
-/// ``EditorPDFTools/sheet`` too. This view is mounted whenever a sheet can be asked for — a PDF
-/// that is open or locked — and in the other phases (loading, refused) ``EditorPDFTools/detach()``
-/// has already cleared any sheet, so none is left without a presenter.
+/// It also presents the tools' sheets, whichever surface asked (the Pages tab's menu sets
+/// ``EditorPDFTools/sheet`` too). It is mounted whenever a sheet can be asked for, and in the other
+/// phases ``EditorPDFTools/detach()`` has cleared any sheet, so none is left without a presenter.
 ///
-/// **The file actions' bezel** (``EditorPDFActionStyle``), with the wrench it has always drawn and a
-/// chevron, since it opens a menu: `.menuStyle(.button)` under the shared style, so it washes and
-/// tints like Find and Fill & Sign beside it — the AppKit pop-up chrome of a borderless menu would
-/// grow a row whose height the header pins.
+/// It wears the file actions' bezel (``EditorPDFActionStyle``), a wrench and a chevron, through
+/// `.menuStyle(.button)`, so it washes and tints like Find and Fill & Sign; a borderless menu's
+/// AppKit pop-up chrome would grow the row past the height the header pins.
 struct EditorPDFToolsMenu: View {
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
@@ -45,17 +42,17 @@ struct EditorPDFToolsMenu: View {
     }
 }
 
-/// One line of the Tools menu, as data — what it says, whether it can be chosen, what it does — so
-/// a test can read the menu without opening it (a hosted `Menu`'s body never runs offscreen).
+/// One line of the Tools menu as data (what it says, whether it can be chosen, what it does), so a
+/// test can read the menu without opening it: a hosted `Menu`'s body never runs offscreen.
 public struct EditorPDFToolsMenuEntry: Equatable {
     public enum Action: Equatable {
         case run(EditorPDFTool)
         case sheet(EditorPDFToolSheet)
-        /// The Pages tab's dragged order, written as a copy — the reorder bar's Save Reordered Copy.
+        /// The Pages tab's dragged order, written as a copy: the reorder bar's Save Reordered Copy.
         case saveArrangement
-        /// The dragged order put back — the reorder bar's Reset.
+        /// The dragged order put back: the reorder bar's Reset.
         case resetArrangement
-        /// A line that only explains — why the others are greyed out.
+        /// A line that only explains why the others are greyed out.
         case none
     }
     public var title: String
@@ -74,18 +71,15 @@ public struct EditorPDFToolsMenuEntry: Equatable {
         self.dividerBefore = dividerBefore
     }
 
-    /// The header menu, for the file the tools are attached to. With a selection, its own rotate
-    /// lines come first, and Extract and Delete are filled in with it — the Pages tab's menu,
-    /// reachable without right-clicking. **File ▸ PDF Tools is drawn from this list too**, so the
-    /// header and the menu bar cannot disagree; that is also why a pending reorder's two actions
-    /// are here, last, for as long as the reorder bar above the pages shows them.
+    /// The header menu, for the file the tools are attached to. With a selection, its rotate lines
+    /// come first and Extract and Delete are filled in with it, as the Pages tab's menu does. File ▸
+    /// PDF Tools is drawn from this list too, so the two can't disagree; that is why a pending
+    /// reorder's two actions are here, last, while the reorder bar shows them.
     @MainActor
     public static func entries(_ tools: EditorPDFTools) -> [EditorPDFToolsMenuEntry] {
-        // **A sheet that is up counts as busy.** The menu bar's copy of this list stays live over
-        // a window-modal sheet, and Rotate chosen there ran underneath an open Compress sheet,
-        // whose own Compress was then refused as "still running". Fill & Sign's Add Signature
-        // sheet is one too: Rotate wrote a copy under it, and Compress… put a second sheet up
-        // over it.
+        // A sheet that is up counts as busy, Add Signature's included: the menu bar's copy of this
+        // list stays live over a window-modal sheet, and a tool chosen there would run under it or
+        // put a second sheet over it.
         let idle = tools.running == nil && tools.sheet == nil && tools.fill?.addingSignature == nil
         let pages = tools.offersPageTools && idle
         let selected = tools.order.filter(tools.selection.pages.contains)
@@ -105,9 +99,8 @@ public struct EditorPDFToolsMenuEntry: Equatable {
         }
         rotations(Array(0..<tools.pageCount), in: "Rotate All Pages")
         let prefill = EditorPDFPageMenu.rangeText(selected)
-        // Named for the selection as the rotate submenu is — "Extract 3 Selected Pages…" — and as
-        // the Pages tab's own menu names it (`EditorPDFPageMenu.title`); with none, the sheet asks
-        // which pages.
+        // Named for the selection as the rotate submenu and the Pages tab's menu are
+        // (`EditorPDFPageMenu.title`); with none, the sheet asks which pages.
         func pagesTitle(_ verb: String) -> String {
             switch selected.count {
             case 0: return "\(verb) Pages…"
@@ -120,8 +113,8 @@ public struct EditorPDFToolsMenuEntry: Equatable {
         out.append(.init(title: pagesTitle("Delete"), enabled: pages && tools.mayDelete(selected),
                          action: .sheet(.pages(.delete, prefill: prefill))))
         out.append(.init(title: "Compress…", enabled: pages, action: .sheet(.compress), dividerBefore: true))
-        // A restricted file says why Clean Metadata is off in the item itself — a menu row does not
-        // wrap, so the reason is kept short.
+        // A restricted file says why Clean Metadata is off in the item itself, kept short because a
+        // menu row doesn't wrap.
         out.append(.init(title: tools.encryption == .restrictedOnly ? EditorPDFTools.metadataEncryptedReason
                                                                      : "Clean Metadata…",
                          enabled: tools.offersMetadata && idle, action: .sheet(.metadata)))
@@ -142,8 +135,8 @@ public struct EditorPDFToolsMenuEntry: Equatable {
     }
 }
 
-/// The menu's items, drawn from ``EditorPDFToolsMenuEntry/entries(_:)`` — in the header's Tools
-/// menu and in File ▸ PDF Tools, the same view in both.
+/// The menu's items, drawn from ``EditorPDFToolsMenuEntry/entries(_:)``: the same view in the
+/// header's Tools menu and in File ▸ PDF Tools.
 public struct EditorPDFToolsMenuItems: View {
     @ObservedObject var tools: EditorPDFTools
 
@@ -197,12 +190,11 @@ public struct EditorPDFToolsMenuItems: View {
     }
 }
 
-/// **What the tools are doing or did**, across the top of the PDF card: a run in flight with
-/// Stop — for the runs no sheet is showing, Rotate and Save Reordered Copy among them — or the
-/// last run's word, with Open in Edit and Reveal in Browse for a copy. **A pane-launched run's ending
-/// (``PaneToolResult``) offers the same doors in the same order**: Open in Edit then Reveal in
-/// Browse. ``EditorDiskBannerView``'s shape:
-/// the sentence wraps rather than truncates, and the buttons go under it in a narrow column.
+/// What the tools are doing or did, across the top of the PDF card: a run in flight with Stop (for
+/// runs no sheet shows, such as Rotate and Save Reordered Copy), or the last run's word, with Open
+/// in Edit and Reveal in Browse for a copy. A pane-launched run's ending (``PaneToolResult``) offers
+/// the same doors in the same order. ``EditorDiskBannerView``'s shape: the sentence wraps rather
+/// than truncates, and the buttons go under it in a narrow column.
 struct EditorPDFToolBannerView: View {
     @ObservedObject var tools: EditorPDFTools
     let accent: Color
@@ -225,7 +217,7 @@ struct EditorPDFToolBannerView: View {
                         .controlSize(.small)
                         .help("Show the copy in Browse")
                 }
-                // A file only in the cloud now: fetched here, not from a file pane's menu (TE185).
+                // A file only in the cloud now: fetched here, not from a file pane's menu.
                 if let path = banner.download {
                     Button(EditorPDFTools.downloadTitle) {
                         tools.banner = nil
@@ -248,7 +240,7 @@ struct EditorPDFToolBannerView: View {
         }
     }
 
-    /// The strip itself — also what a pane-launched run shows its progress in at the window's foot
+    /// The strip itself, also what a pane-launched run shows its progress in at the window's foot
     /// (``PanePDFToolCard``), so the two read the same.
     static func strip<Buttons: View>(symbol: String?, tint: Color, message: String,
                                      @ViewBuilder buttons: () -> Buttons) -> some View {
@@ -285,8 +277,8 @@ struct EditorPDFToolBannerView: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// "Compressing — page 4 of 12". Until its lane turn begins, any run is waiting behind other PDF
-    /// work and says so; after it, the tools that report no pages say only what they are doing.
+    /// "Compressing — page 4 of 12". Until its lane turn begins, a run says it is waiting behind
+    /// other PDF work; after, tools that report no pages say only what they are doing.
     static func runningMessage(_ running: EditorPDFTools.Running, progress: EditorPDFTools.Progress?) -> String {
         guard running.started else { return "\(running.sentence) — \(waitingWords)" }
         guard running.reportsProgress, let progress, progress.total > 0 else { return "\(running.sentence)…" }
@@ -306,8 +298,8 @@ struct EditorPDFToolBannerView: View {
 }
 
 extension EditorPDFTools {
-    /// The banner's door to a copy, or — when it is no longer there (trashed, moved) — a banner
-    /// saying so instead of a door that silently does nothing.
+    /// The banner's door to a copy, or, when it is gone (trashed, moved), a banner saying so instead
+    /// of a door that silently does nothing.
     func follow(_ path: String, _ door: (String) -> Void) {
         guard FileManager.default.fileExists(atPath: path) else {
             banner = EditorPDFToolBanner(

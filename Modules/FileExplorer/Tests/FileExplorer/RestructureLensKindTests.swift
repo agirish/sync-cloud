@@ -3,12 +3,12 @@ import SwiftUI
 @testable import FileExplorer
 @testable import Sync
 
-/// §5.1's card rules — the kind tag, the subtitle, the blast radius, the scaffold line and the
-/// crowding strip's words — asserted as values, the way `cleanTitle`/`revealTitle` already are.
+/// The Restructure card rules (the kind tag, the subtitle, the blast radius, the scaffold line and
+/// the crowding strip's words), asserted as values the way `cleanTitle`/`revealTitle` are.
 @Suite struct RestructureLensKindTests {
 
-    /// Every kind has a label and a verb, and no two kinds share a label — a mixed list is
-    /// sorted by eye, and two kinds wearing one word would read as one.
+    /// Every kind has a label and a verb, and no two share a label: a mixed list is sorted by eye,
+    /// and two kinds wearing one word would read as one.
     @Test func everyKindHasADistinctLabelAndAVerb() {
         var labels = Set<String>()
         for kind in FindingKind.allCases {
@@ -19,8 +19,8 @@ import SwiftUI
         }
     }
 
-    /// Every kind has a symbol too, and no two share one — the glyph's whole job is letting a
-    /// mixed list sort by eye before it is read, which two kinds wearing one symbol defeat.
+    /// Every kind has a real symbol too, and no two share one: the glyph lets a mixed list sort by
+    /// eye before it is read.
     @Test func everyKindHasADistinctSymbol() {
         var symbols = Set<String>()
         for kind in FindingKind.allCases {
@@ -32,9 +32,9 @@ import SwiftUI
         }
     }
 
-    /// **The tint answers the same question the Plan button does.** `carriesPlan` is the rail
-    /// badge's wider rule and counts `duplicatedTaxonomy`, which has no plan surface at all —
-    /// tinting on it promised a plan the card does not offer.
+    /// The tint answers the same question the Plan button does. `carriesPlan` is the rail badge's
+    /// wider rule and counts `duplicatedTaxonomy`, which has no plan surface, so tinting on it
+    /// would promise a plan the card doesn't offer.
     @Test func theGlyphTakesTheAccentExactlyWhenTheCardOffersSomething() {
         for kind in FindingKind.allCases {
             let tinted = RestructureLens.glyphTakesAccent(kind)
@@ -53,20 +53,13 @@ import SwiftUI
                 "and this is the difference the rule exists to hold apart")
     }
 
-    /// **The tooltip answers the same question the tint does** — and it did not.
-    ///
-    /// `glyphTakesAccent` withholds the accent from `duplicatedTaxonomy` precisely so the glyph
-    /// does not promise a plan the card has no button for. `kindVerb` is hung on that same glyph
-    /// as its `.help`, and it said "Merges two folders holding the same documents" — the promise
-    /// the tint had just been taught not to make, restored in the half a reader actually reads.
-    ///
-    /// Written as a rule over the table, not a pin on the one kind: a verb naming an operation is
-    /// exactly what a reader takes as an offer, so any kind with no plan surface has to say it
-    /// reports. `backlog` is the stated exemption — its card ends in the scaffold landing, so
-    /// "Creates folders" is a promise it keeps.
+    /// The tooltip answers the same question the tint does. `kindVerb` is the glyph's `.help`, so
+    /// a kind with no plan surface must not open on an operation, which a reader takes as an
+    /// offer; it says it reports. A rule over the whole table, not a pin on one kind. `backlog` is
+    /// exempt: its card ends in the scaffold landing, so "Creates folders" is a promise it keeps.
     @Test func aKindWithNoPlanSurfaceDoesNotNameAnOperationInItsTooltip() {
-        // The words that read as an offer. Present tense third person, because that is the shape
-        // every acting verb in the table takes ("Renames or merges folders").
+        // The words that read as an offer, in the third-person present every acting verb in the
+        // table takes ("Renames or merges folders").
         let operations = ["Renames", "Merges", "Creates", "Moves", "Removes", "Deletes"]
         for kind in FindingKind.allCases where kind != .backlog {
             let finding = StructureFinding(kind: kind, family: "F", subject: "F/x",
@@ -78,11 +71,10 @@ import SwiftUI
                         "\(kind.rawValue) has no plan surface, and its tooltip opens \"\(verb)\" — a reader takes that as an offer the card cannot honour")
             }
         }
-        // The one this was found on, pinned by value so a reword cannot quietly re-promise it.
+        // The kind most at risk, pinned by value so a reword can't quietly re-promise a plan.
         #expect(RestructureLens.kindVerb(.duplicatedTaxonomy) == "Reports the pair — no plan yet")
-        // The positive control: the rule above is capable of objecting. A kind that DOES act
-        // still names its operation, so the loop is skipping on the plan surface rather than
-        // finding nothing to test.
+        // Positive control: a kind that does act still names its operation, so the loop skips on
+        // the plan surface rather than finding nothing to test.
         #expect(RestructureLens.kindVerb(.shape).hasPrefix("Renames"))
         #expect(RestructurePlanRouting.carriesPlanSurface(
             StructureFinding(kind: .shape, family: "F", subject: "F")))
@@ -103,8 +95,8 @@ import SwiftUI
         }
     }
 
-    /// A symbol that is merely distinct is not a symbol that is RIGHT — swapping two survived a
-    /// distinctness check. The two the eye uses most are pinned.
+    /// Distinct is not the same as right: swapping two symbols passes a distinctness check, so
+    /// the ones the eye uses most are pinned.
     @Test func theGlyphsMeanWhatTheyName() {
         #expect(RestructureLens.kindSymbol(.shape) == "square.on.square.dashed")
         #expect(RestructureLens.kindSymbol(.backlog) == "calendar.badge.plus")
@@ -112,8 +104,8 @@ import SwiftUI
         #expect(RestructureLens.kindSymbol(.deadWeight) == "wind")
     }
 
-    /// The glyph is tinted; the LABEL is not. Accent on 9.5pt text is the contrast trap the
-    /// repo's amber-on-body-text rule exists for, and this pins the call site.
+    /// The glyph is tinted; the label is not. Accent on 9.5pt text is the contrast trap the
+    /// repo's amber-on-body-text rule exists for, so this pins the call site.
     @Test func theTagTintsItsGlyphAndNeverItsText() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -121,8 +113,8 @@ import SwiftUI
             .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
         let tag = try #require(text.range(of: "private func kindTag(_ kind: FindingKind)"))
-        // To the end of the function, not a byte count — a comment added inside `kindTag` used
-        // to push the accent line out of a fixed window and fail this for no reason.
+        // To the end of the function, not a byte count, so a comment added inside `kindTag` can't
+        // push the accent line out of the window.
         let rest = text[tag.lowerBound...]
         let end = rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex
         let body = String(rest[..<end])
@@ -135,8 +127,8 @@ import SwiftUI
                 "the label keeps the quiet treatment")
     }
 
-    /// The blast radius states the honest cost, and the two shape sentences are the two §5.1
-    /// names: renames-only for a one-to-one family, merges for the flagship's.
+    /// The blast radius states the honest cost: renames only for a one-to-one family, merges for
+    /// unequal shapes.
     @Test func theShapeBlastRadiusTellsRenamesFromMerges() {
         let oneToOne = StructureFinding(
             family: "F",
@@ -152,7 +144,7 @@ import SwiftUI
         #expect(RestructureLens.blastRadius(for: unequal)
             == "Converging these shapes needs merges — files would move.")
 
-        // A scheme with NO shared vocabulary cannot promise a bijection, whatever the sizes say.
+        // A scheme with no shared vocabulary can't promise a bijection, whatever the sizes say.
         let hollow = StructureFinding(
             family: "F",
             schemes: [.init(vocabulary: [], members: ["2016", "2017"]),
@@ -174,8 +166,8 @@ import SwiftUI
         #expect(RestructureLens.blastRadius(for: rename)?.contains("no file would move") == true)
     }
 
-    /// The scaffold line is honest in both directions: what it would create, or that there is
-    /// nothing to copy — and an empty scaffold never claims "creates folders only".
+    /// The scaffold line says what it would create, or that there is nothing to copy; an empty
+    /// scaffold never claims "creates folders only".
     @Test func theScaffoldLineSaysWhatItWouldCreateOrThatItCannot() {
         let scaffolded = StructureFinding(kind: .backlog, family: "H", subject: "H/2025",
                                           detail: .backlog(scaffold: ["Claims", "Statements"],
@@ -205,13 +197,9 @@ import SwiftUI
         #expect(RestructureLens.subtitle(for: parent) == "echoes its parent, ACI")
     }
 
-    /// The crowding strip's words: counts in the chips, reasons in the help.
-    ///
-    /// **This help has been wrong in two directions, so it is pinned in both.** It first promised
-    /// "the removal sheet takes these when Apply lands" over a build where nothing removed
-    /// standing empties, and was then corrected to say that removing them was a job for Finder —
-    /// which O1 made false in turn by building the route. It now describes the button that is
-    /// actually under the list, and the two dead wordings are named so neither returns.
+    /// The crowding strip's words: counts in the chips, reasons in the help. The empties' help
+    /// points at the button under the list, and is pinned against both false wordings: that Apply
+    /// removes them, and that removing them is a job for Finder.
     @Test func theCrowdingStripSaysWhyOnlyEmptiesGetAnAction() {
         #expect(RestructureLens.crowdingLabel(.passThrough, count: 86) == "86 pass-through")
         #expect(RestructureLens.crowdingLabel(.singleFileLeaf, count: 503) == "503 single-file")
@@ -229,8 +217,7 @@ import SwiftUI
                 "nor the sentence that outlived the route being built")
     }
 
-    /// The subtitle counts the family on both drop paths — §5.1's 11 → 17, as a rule rather
-    /// than a screenshot.
+    /// The subtitle counts the whole family, drift and shapeless members included.
     @Test func theShapeSubtitleCountsTheWholeFamily() {
         let finding = StructureFinding(
             family: "F",
@@ -241,9 +228,9 @@ import SwiftUI
     }
 }
 
-/// **Restructure's member column shows the whole list on hover (LN18).** The members sharing a
-/// shape are the finding itself, and the 150pt, two-line column cut them off past about four
-/// names with no tooltip. Both rows that draw a member list carry it whole in `.help`.
+/// Restructure's member column shows the whole list on hover. The members sharing a shape are the
+/// finding itself, and the narrow two-line column cuts them off past about four names, so both
+/// rows that draw a member list carry it whole in `.help`.
 @Suite struct RestructureMemberColumnTests {
     @Test func bothMemberRowsCarryTheWholeListAsATooltip() throws {
         let lens = try OrganizeScopeCallSiteTests.source("RestructureLens.swift")

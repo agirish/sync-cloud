@@ -4,16 +4,11 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// **The facts strip states the page count, which for a year it was built to do and did not.**
+/// The facts strip states the page count. `ComparePairFacts.make` takes `pages:`, and
+/// `Row.isPending` covers the late answer, but a tested rule with no caller never draws.
 ///
-/// `ComparePairFacts.make` has always taken a `pages:` argument, `.pages` has always had a label
-/// and a plural-safe formatter, and `Row.isPending` exists for the one row whose answer arrives
-/// late. No production caller passed it. So the row never drew, `isPending` was never true in a
-/// shipped build, and a whole tested sub-feature sat one argument away from working — the shape
-/// [[a-tested-rule-with-no-caller]] describes.
-///
-/// Three checks, because the failure could return at three different heights: the rule itself,
-/// the view's reading of it, and the call that hands it to `make`.
+/// Three checks, because the wiring can break at three heights: the rule, the view's reading of
+/// it, and the call that hands it to `make`.
 @Suite struct ComparePageFactsWiringTests {
 
     private func copy(_ path: String) -> DuplicateCopy {
@@ -26,8 +21,8 @@ import Sync
 
     // MARK: The rule
 
-    /// Not paged, paged-but-unanswered, and answered are three outcomes, not two. The middle one
-    /// is the whole reason the argument is an optional tuple of optionals.
+    /// Not paged, paged-but-unanswered, and answered are three outcomes; the middle one is why the
+    /// argument is an optional tuple of optionals.
     @Test func aPairWithNoPagesOmitsTheRowAndAPdfStillReadingLeavesItPending() throws {
         #expect(ComparePairFacts.pages(for: .text, pairing: nil) == nil,
                 "a text pair was offered a page row")
@@ -35,8 +30,8 @@ import Sync
                 "an image pair was offered a page row — images have no pages to count")
         #expect(ComparePairFacts.pages(for: .other, pairing: nil) == nil)
 
-        // `try #require`, not `try?` and an optional-chained compare: `pending?.left == nil` is
-        // TRUE when the whole tuple is nil, which is the one answer this line exists to reject.
+        // `try #require`, not an optional-chained compare: `pending?.left == nil` is true when the
+        // whole tuple is nil, the one answer this line must reject.
         let pending = try #require(ComparePairFacts.pages(for: .pdf, pairing: nil),
                                    "a PDF whose counts have not landed dropped the row instead of pending it")
         #expect(pending.left == nil && pending.right == nil)
@@ -57,9 +52,8 @@ import Sync
 
     // MARK: The view's reading of it
 
-    /// The real view, built from real paths, so the kind comes from `PairContentKind.classify`
-    /// rather than from a value the test chose. `pairing` is `@State` and starts nil, which is
-    /// exactly the pending case a reader sees for the first moments of every PDF pair.
+    /// The real view, built from real paths, so the kind comes from `PairContentKind.classify`.
+    /// `pairing` is `@State` and starts nil: the pending case a reader sees as every PDF pair opens.
     @MainActor @Test func theViewAsksAboutItsOwnPairRatherThanAConstant() {
         func view(_ ext: String) -> FilePairCompareView<Text> {
             FilePairCompareView(
@@ -76,10 +70,9 @@ import Sync
 
     // MARK: The call that hands it over
 
-    /// **The call site, which neither check above can see.** Both would still pass with `pages:`
-    /// deleted from `facts` — the rule would be right and unread, which is the state this whole
-    /// suite exists to end. Scoped to the `facts` member, because a character window around a
-    /// call breaks the first time an unrelated line moves near it.
+    /// The call site, which neither check above can see: both pass with `pages:` deleted from
+    /// `facts`. Scoped to the `facts` member, because a character window around a call breaks when
+    /// an unrelated line moves near it.
     @Test func theFactsStripIsBuiltWithThePageCounts() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

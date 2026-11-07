@@ -4,25 +4,17 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The landing itself, driven through the real path: Organize mounted standing on its Duplicates
-/// rail item — the configuration the app builds, `lens: .filing` with the selection in defaults —
-/// handed a reveal request, resolving through its own `.task` exactly as it does when the
-/// workspace switch mounts it.
+/// The reveal landing, driven through the real path: Organize mounted on its Duplicates rail item
+/// (`lens: .filing` with the selection in defaults, as the app builds it), handed a reveal request
+/// that resolves through its own `.task`.
 ///
-/// **Mounted, not called.** The tempting shape is to build a `LensWorkspaceView` value and invoke
-/// `applyRevealRequest()` on it — which writes `@State` on a view SwiftUI never installed, so
-/// every assertion afterwards reads back the initial values and passes with the whole feature
-/// disconnected. These mount the view and read back what it PAINTS, so the task, the state writes
-/// and the re-render all have to actually happen.
+/// Mounted, not called: invoking `applyRevealRequest()` on an uninstalled `LensWorkspaceView` value
+/// writes `@State` SwiftUI never reads back, so every check would pass with the feature
+/// disconnected. Pixels, not geometry or captions: the lens fills a fixed frame, so `fittingSize`
+/// can't see a card open, and with no assistive client attached accessibility checks pass vacuously.
 ///
-/// **Pixels, not geometry and not captions.** The lens fills a fixed frame, so `fittingSize` is
-/// the frame whatever the content does — it cannot see a card open. And nothing here can read a
-/// caption: with no assistive client attached to this process, accessibility assertions pass
-/// vacuously. What is left, and what is actually being claimed, is what ends up on screen.
-///
-/// The sharp assertion is `theGroupHoldingTheFileIsTheOneOpened`: revealing one file must paint
-/// something DIFFERENT from revealing another. A resolver that always opened the first group would
-/// satisfy every "something changed" case in here and fail only that one.
+/// The sharp check is `theGroupHoldingTheFileIsTheOneOpened`: a resolver that always opened the
+/// first group would pass every "something changed" case and fail only that one.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct DuplicateRevealLandingTests {
 
@@ -49,9 +41,8 @@ import Sync
         return m
     }
 
-    /// One mounted lens, kept alive together with the window it needs to paint into — and with the
-    /// defaults suite it reads its rail selection from, which wipes itself when the last reference
-    /// goes away.
+    /// One mounted lens, kept alive with the window it paints into and the defaults suite holding
+    /// its rail selection, which wipes itself when the last reference goes.
     private final class Mounted {
         let host: NSHostingView<AnyView>
         let window: NSWindow
@@ -63,32 +54,16 @@ import Sync
         }
     }
 
-    /// Mounts Organize, standing on Duplicates — **the configuration the app actually produces.**
+    /// Mounts Organize on Duplicates, as the app does: `lens: .filing`, with Duplicates found
+    /// through `@AppStorage(OrganizeLens.defaultsKey)`, so `lens` and `effectiveLens` differ as in
+    /// the app. A mount where they were equal would hide any code that reads the wrong one.
     ///
-    /// The window background is not decoration: without one the content composites against the
-    /// borderless window's own buffer and every comparison below reads as zero difference —
-    /// "nothing painted", whatever the code did.
+    /// The window background matters: without one the content composites against the borderless
+    /// window's buffer and every comparison reads as no difference.
     ///
-    /// This used to pass `lens: .duplicates`, which nothing in the app can build. Since Duplicates
-    /// folded from a workspace into an Organize rail item, `LensWorkspaceView` is always given `lens:
-    /// .filing` and finds Duplicates through `@AppStorage(OrganizeLens.defaultsKey)` — so the old
-    /// mount made `lens` and `effectiveLens` equal where the app keeps them apart, and two real
-    /// bugs lived in exactly that gap (a chip's ✕ and the "Nothing matches" button both wrote
-    /// `searchQueries[lens]`) with this suite green throughout, because in that mount the wrong key
-    /// *was* the right one.
-    ///
-    /// The selection is seeded into a fresh `ScratchDefaults` suite and reaches the view through
-    /// `.defaultAppStorage`, rather than through `UserDefaults.standard` as the app does.
-    /// `.standard` would be the more faithful copy and is the wrong trade here: `@AppStorage`
-    /// binds a process-wide storage location per (store, key), other suites in this target write
-    /// this very key (`FilingRefineControlTests`), and Swift Testing runs suites in parallel — so
-    /// the faithful version buys fidelity in one property by making every render race the rest of
-    /// the target. What matters for this suite is that `lens` and `effectiveLens` differ and that
-    /// the rail selection is what closes the gap, and both are true here.
-    ///
-    /// Nothing needed re-baselining: every comparison below is between two of these mounts, so the
-    /// only screen difference the change makes — the rail rings Duplicates instead of All — is
-    /// present identically on both sides of each diff.
+    /// The selection reaches the view through a fresh `ScratchDefaults` suite, not
+    /// `UserDefaults.standard`: `@AppStorage` binds one process-wide location per (store, key),
+    /// other suites write this key (`FilingRefineControlTests`), and suites run in parallel.
     private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?,
                        onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
         let defaults = ScratchDefaults("DuplicateRevealLandingTests")
@@ -114,13 +89,10 @@ import Sync
         return Mounted(host: host, window: window, defaults: defaults)
     }
 
-    /// **The mount really is standing where the app stands**, which every case below assumes and
-    /// none of them can see: they compare two of these screens, so a mount that silently landed on
-    /// the overview — or on some other lens — would compare two wrong screens and agree.
-    ///
-    /// Asserted by paint, because that is all this suite can read: the same manager mounted with no
-    /// rail selection draws Organize's overview instead, and the two must differ. That is exactly
-    /// what a `.defaultAppStorage` that failed to reach `railLens` would produce.
+    /// The mount really stands on Duplicates, which every case assumes but none can see: a mount
+    /// that landed on the overview would compare two wrong screens and agree. Checked by paint: with
+    /// no rail selection the same manager draws the overview, and the two must differ, as they
+    /// wouldn't if `.defaultAppStorage` failed to reach `railLens`.
     @Test func theMountLandsOnDuplicatesAndNotOnTheOverview() async throws {
         let groups = [Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")]
         let selected = try #require(await settled(mount(Self.manager(groups: groups), request: nil),
@@ -172,22 +144,16 @@ import Sync
         return differing
     }
 
-    /// This mount's painted screen once IT has stopped changing.
+    /// This mount's painted screen once it has stopped changing.
     ///
-    /// **Every comparison in this suite settles each mount on its own and then compares — never
-    /// "poll one host until it differs from another host's screen".** That second form is
-    /// unsound, and measurably so: two hosts mounted from identical state and snapshotted
-    /// immediately differ by ~27,000 pixels, because a fresh `NSHostingView` has not finished
-    /// drawing. A poll whose first check runs at that moment returns `true` on the drawing noise,
-    /// and the test then passes however the feature behaves. It cost a real regression here — the
-    /// not-scanned case passed with its rule mutated away.
+    /// Settle each mount on its own, then compare; never poll one host until it differs from
+    /// another. Two hosts mounted from identical state differ by thousands of pixels until a fresh
+    /// `NSHostingView` finishes drawing, so such a poll passes on drawing noise whatever the
+    /// feature does.
     ///
-    /// Bounded by `LayoutPumpWait`, which floors on layout PASSES rather than seconds and returns
-    /// the count: what these waits wait for arrives on main-actor turns, and under full-suite
-    /// congestion a wall-clock deadline buys fewer of those exactly when more are needed (see
-    /// `docs/flaky-tests.md`, mechanism 2). Quiet means `stableFrames` consecutive identical
-    /// frames, not one matching pair, so a gap between two render stages cannot be mistaken for
-    /// the end.
+    /// Bounded by `LayoutPumpWait`, which floors on layout passes, not seconds ("Fixed pumps and
+    /// fixed sleeps" in `docs/flaky-tests.md`). Quiet means `stableFrames` identical frames in a
+    /// row, so a gap between two render stages isn't mistaken for the end.
     private func settled(_ mounted: Mounted, stableFrames: Int = 4,
                          within timeout: TimeInterval = 10,
                          _ what: String,
@@ -207,8 +173,8 @@ import Sync
         return latest ?? snapshot(mounted)
     }
 
-    /// Polls until the mounted lens paints the same screen as `reference`. The arrival check: a
-    /// landing is not "a repaint happened", it is "the screen is now the one it should be".
+    /// Polls until the mounted lens paints the same screen as `reference`: a landing is the screen
+    /// it should be, not just a repaint.
     private func settled(_ mounted: Mounted,
                          matching reference: NSBitmapImageRep,
                          within timeout: TimeInterval = 10,
@@ -227,9 +193,8 @@ import Sync
 
     // MARK: The premise
 
-    /// **A reveal changes what is on screen at all.** Every case below reads a landing as a change
-    /// in paint, so if the mount painted identically with and without a request they would all
-    /// pass against a feature that does nothing.
+    /// A reveal changes what is on screen at all. Every case below reads a landing as a change in
+    /// paint, so without this they could all pass against a feature that does nothing.
     @Test func aRevealChangesWhatIsPainted() async throws {
         let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
         let quiet = try #require(await settled(mount(Self.manager(groups: [target]), request: nil),
@@ -241,12 +206,10 @@ import Sync
                 "the reveal painted nothing new — the card never opened")
     }
 
-    /// **An answered request is reported back, exactly once, with its id — and a waiting one is
-    /// not.** The callback is the cross-mount half of the applied-id guard: `appliedRevealID` is
-    /// `@State` and dies with the lens, so without the host retiring the request, every return to
-    /// a lens workspace after a trip through Compare replayed the whole plan over the user's
-    /// filter and query. Driven through the real mount so the `.task` and the state writes have
-    /// to actually happen.
+    /// An answered request is reported back once, with its id; a waiting one is not.
+    /// `appliedRevealID` is `@State` and dies with the lens, so without the host retiring the
+    /// request, every return to the workspace (after a trip through Compare, say) would replay the
+    /// plan over the user's filter and query.
     @Test func anAnsweredRequestIsHandedBackAndAWaitingOneIsNot() async throws {
         let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
         final class Handled: @unchecked Sendable {
@@ -265,8 +228,8 @@ import Sync
         #expect(answered.value == [request.id],
                 "an applied plan must hand its request back for retirement — once, with the right id")
 
-        // Waiting: a scan is running, nothing is answered, nothing is handed back — retiring a
-        // waiting request would drop the answer its scan is about to earn.
+        // Waiting: a scan is running, so nothing is handed back; retiring the request would drop
+        // the answer its scan is about to give.
         let waitingLog = Handled()
         let scanning = FileSyncManager()
         scanning.isFindingDuplicates = true
@@ -280,12 +243,9 @@ import Sync
 
     // MARK: Landing on the right group
 
-    /// **The group holding the FILE is the one opened — not simply the first one.**
-    ///
-    /// Two groups, and two requests naming a file in each. A resolver that always opened the first
-    /// group (or that opened all of them, or none) paints the same thing both times; only one that
-    /// follows the requested path paints differently. This is the assertion the "something
-    /// changed" cases cannot make.
+    /// The group holding the file is the one opened, not simply the first. Two groups, two requests
+    /// naming a file in each: a resolver that opened the first, all, or none paints the same both
+    /// times; only one following the requested path paints differently.
     @Test func theGroupHoldingTheFileIsTheOneOpened() async throws {
         let first = Self.group(["/root/a/aaa.txt", "/root/b/aaa.txt"], name: "aaa.txt")
         let second = Self.group(["/root/a/zzz.txt", "/root/b/zzz.txt"], name: "zzz.txt")
@@ -300,12 +260,9 @@ import Sync
                 "revealing two different files opened the same group — the requested path is not what decides")
     }
 
-    /// **A request made mid-scan resolves when the results land, not before.** The common
-    /// first-use shape — no scan yet, so the handoff starts one — and the case a fixture that only
-    /// ever tests completed scans would miss entirely.
-    ///
-    /// The scan is ended here the way `findDuplicates` ends one: publish the results, then clear
-    /// the running flag. Nothing else is touched, and nothing re-triggers the request.
+    /// A request made mid-scan resolves when the results land, not before: the common first-use
+    /// shape, where the handoff starts a scan. The scan ends as `findDuplicates` ends one (publish
+    /// the results, then clear the running flag), and nothing re-triggers the request.
     @Test func aRequestMadeDuringAScanLandsWhenTheResultsArrive() async throws {
         let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
         let manager = FileSyncManager()
@@ -323,12 +280,9 @@ import Sync
         #expect(pixelsDiffering(scanning, landed) > 0,
                 "the pending request never resolved once the scan published its results")
 
-        // **"Something repainted" is not the claim.** The results arriving repaints the lens on
-        // its own — a request that had already given up and answered `notFound` from the empty
-        // pre-scan groups would repaint too, and would satisfy the assertion above while never
-        // opening anything. So the late landing is held to the EAGER one: mounting the same
-        // request against the same completed results is known (from the cases above) to open the
-        // group, and resolving late must arrive at exactly that screen.
+        // A repaint alone isn't the claim: the results repaint the lens anyway, even for a request
+        // that already answered `notFound` from the empty pre-scan groups. So the late landing
+        // must match the eager one, the same request mounted against the completed results.
         let eager = mount(Self.manager(groups: [target]),
                           request: DuplicateRevealRequest(path: "/root/b/x.txt"))
         let reference = try #require(await settled(eager, "eager reference"))
@@ -337,11 +291,8 @@ import Sync
         #expect(arrived)
     }
 
-    /// The named empty state: a file in no group must land on an answer, not on a list that has
-    /// quietly filtered itself to nothing.
-    ///
-    /// Compared against revealing a file that IS grouped, in the same results — so the difference
-    /// is the outcome and not merely "a request happened".
+    /// A file in no group lands on a named answer, not a list quietly filtered to nothing. Compared
+    /// against a grouped file in the same results, so the difference is the outcome.
     @Test func aFileInNoGroupLandsSomewhereElseThanAGroupedOne() async throws {
         let groups = [Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")]
         let grouped = try #require(await settled(
@@ -354,17 +305,12 @@ import Sync
                 "a file in no group landed on the same screen as one that has a group")
     }
 
-    /// **A file the scan never looked at gets a DIFFERENT screen from one it cleared.**
+    /// A file the scan never looked at gets a different screen from one it cleared: both show an
+    /// empty list, with opposite claims, and "no duplicates of x" for both is false confidence.
+    /// Shows the rule in `DuplicateReveal.outcome` reaches the screen.
     ///
-    /// Both land with an empty list; the claims are opposite. Driven through the mount so the
-    /// pure rule in `DuplicateReveal.outcome` is shown to actually reach the user — the shipped
-    /// version answered "no duplicates of x" for both, which is the false confidence this whole
-    /// feature is built to avoid.
-    ///
-    /// **The two files share a NAME and differ only in folder**, which is what makes this bite.
-    /// An earlier form used `lonely.txt` against `x.txt` and passed with the rule mutated away:
-    /// both screens then read *No duplicates of “<name>”*, and the pixels differed because the
-    /// NAMES did. Holding the name fixed leaves the state as the only thing that can move.
+    /// The two files share a name and differ only in folder; with different names the pixels would
+    /// differ even with the rule removed.
     @Test func aFileTheScanNeverLookedAtLandsSomewhereElseThanOneItCleared() async throws {
         // The manager records a completed scan of /root, so /elsewhere was never examined.
         let cleared = try #require(await settled(
@@ -377,18 +323,14 @@ import Sync
                 "a file the scan never covered was given the same answer as one it cleared")
     }
 
-    /// **A `notScanned` landing applied over a POPULATED list must not sit latent and surface
-    /// later.** The sequence is real: ask about a file the last scan never covered while that
-    /// scan's groups are on screen (the landing is invisible — the list has rows), then resolve
-    /// every group. The list empties with an empty query, and the stored landing used to surface
-    /// "wasn't in the last scan" over the all-clear the user had just earned — a claim about a
-    /// file they asked about an hour before. This pins `applyRevealPlan`'s CALL of
-    /// `landingToStore`, which the pure tests beside that function cannot: they pass however the
-    /// view wires it.
+    /// A `notScanned` landing applied over a populated list must not surface later. Ask about a file
+    /// the last scan never covered while its groups are on screen, then resolve every group: the
+    /// list must show the all-clear, not "wasn't in the last scan" about a file asked about long
+    /// before. Pins `applyRevealPlan`'s call of `landingToStore`, which its pure tests can't see.
     @Test func aLatentNotScannedLandingDoesNotSurfaceOverALaterAllClear() async throws {
         let group = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
 
-        // The reference: the same end state with no request ever made — everything resolved.
+        // The reference: the same end state with no request ever made.
         let refManager = Self.manager(groups: [group])
         let reference = mount(refManager, request: nil)
         _ = try #require(await settled(reference, "reference with groups"))
@@ -407,9 +349,8 @@ import Sync
                 "resolving the last group surfaced a latent 'wasn't in the last scan' claim instead of the all-clear")
     }
 
-    /// A scan that found NO groups at all still answers about the file rather than showing the
-    /// folder's generic all-clear. The user asked about a file; an answer about the folder leaves
-    /// them to infer it covered the thing they clicked.
+    /// A scan that found no groups still answers about the file, not with the folder's generic
+    /// all-clear, which would leave the user to infer it covered what they clicked.
     @Test func aScanWithNoGroupsAtAllStillAnswersAboutTheFile() async throws {
         func emptyManager() -> FileSyncManager {
             let m = FileSyncManager()

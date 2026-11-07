@@ -6,21 +6,17 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// **A PDF tool sheet's other buttons draw their words at 4.5:1, in light and dark.**
+/// A PDF tool sheet's other buttons draw their words at 4.5:1, in light and dark.
 ///
-/// The tool sheets wore `.accentedProminent()` on their root, for the default button's fill. A
-/// `.tint` reaches every `.bordered` button under it, and one with no tint of its own draws the
-/// tint as its WORDS: Clean Metadata's Keep Current Values and Clear All, and a failure's Download,
-/// were the deepened Green on their bezels. The tint now sits on the default button alone
-/// (`AccentFillScanTests`, rule 7, holds the source).
+/// A `.tint` reaches every `.bordered` button under it, and one with no tint of its own draws the
+/// tint as its words, so a root tint would paint Keep Current Values, Clear All and Download in
+/// deepened Green on their bezels. The tint sits on the default button alone (`AccentFillScanTests`
+/// holds the source).
 ///
-/// Rendered for real and read back: the Clean Metadata sheet as `PanePDFTools` presents it, at
-/// Green, and the button row under its form — found as the first rows below the last field that
-/// differ from the sheet's ground — measured for its darkest (light) or brightest (dark) pixel
-/// against the bezel's own colour. The same sheet under the old root tint is the control.
-/// Measured 2026-10-26: Keep Current Values' words 13.0:1 light and 9.9:1 dark; under the old
-/// tint 4.3:1 and 3.5:1, on this row's small bezels (`ChromeInk.buttonWords` cites 3.8:1 and
-/// 2.9:1 for a regular-size one).
+/// Rendered and read back: the Clean Metadata sheet as `PanePDFTools` presents it, at Green, its
+/// button row (the first rows below the last field that differ from the ground) measured for its
+/// darkest (light) or brightest (dark) pixel against the bezel. A root tint is the control:
+/// measured at about 4.3:1 light and 3.5:1 dark, against 13.0:1 and 9.9:1 without.
 /// `.machinePinned(.pixelSampling)`, like every suite here that samples a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) final class EditorPDFSheetButtonWordsTests {
@@ -74,7 +70,7 @@ import Sync
         return max(x, y) / min(x, y)
     }
 
-    /// The sheet, hosted in a window that is never ordered in, rendered once its form has loaded;
+    /// The sheet, hosted in a window that is never ordered in, rendered once its form has loaded,
     /// with the y, in points from the top, of the last field's lower edge.
     private func render(rootTint: Color?, dark: Bool) async throws -> (NSBitmapImageRep, fieldsEnd: CGFloat) {
         let tools = try fixture()
@@ -154,8 +150,8 @@ import Sync
         return best
     }
 
-    /// **Keep Current Values' words read at the floor**, and under the old root tint the same
-    /// probe reads them below it — so it can see the case it guards.
+    /// Keep Current Values' words read at the floor, and under a root tint the same probe reads
+    /// them below it, so it can see the case it guards.
     @Test(arguments: [false, true]) func theMetadataSheetsOtherButtonsReadAtTheFloor(dark: Bool) async throws {
         let (rep, fieldsEnd) = try await render(rootTint: nil, dark: dark)
         let r = try Self.wordsRatio(rep, below: fieldsEnd, dark: dark)

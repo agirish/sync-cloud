@@ -1,15 +1,12 @@
 import Design
 import SwiftUI
 
-/// One line under Organize's header saying that documents are being read, on every lens.
+/// One line under Organize's header saying that documents are being read, on every lens. The
+/// survey is an hours-long background job and its card lives on the overview, so this lets someone
+/// in Duplicates or Renames see it and pause it without leaving.
 ///
-/// **The card is on the overview and the reading is not.** A survey started from setup, or left
-/// running from a previous session, is a three-hour background job whose only sign was a card the
-/// user had to navigate to — so somebody working in Duplicates or Renames had no way to know it was
-/// happening, and no way to pause it without leaving what they were doing.
-///
-/// It is the card's own words and the card's own verbs, in a strip: ``DocumentSurveyCardText`` is
-/// the single source of both, so the two surfaces cannot come to describe one run differently.
+/// The card's own words and verbs: ``DocumentSurveyCardText`` is the source of both, so the two
+/// can't describe one run differently.
 public struct DocumentSurveyStrip: View {
     let state: DocumentSurveyCardState
     /// The hue the user picked, for the reading wash — the card's `accent`, so the two agree.
@@ -32,11 +29,9 @@ public struct DocumentSurveyStrip: View {
         self.onStop = onStop
     }
 
-    /// The three states the strip appears for.
-    ///
-    /// **Only the ones that are about a run in flight.** `.offered` is an invitation and belongs on
-    /// the card, where there is room to say what it costs; `.finished` and `.settled` are receipts,
-    /// and a strip on every lens reporting a finished job would be a banner nobody can dismiss.
+    /// The three states the strip appears for: a run in flight. `.offered` belongs on the card,
+    /// with room to say what it costs; `.finished` and `.settled` are receipts, and on every lens
+    /// they would be a banner nobody can dismiss.
     public static func isShown(for state: DocumentSurveyCardState?) -> Bool {
         switch state {
         case .running, .finishing, .interrupted: return true
@@ -74,8 +69,7 @@ public struct DocumentSurveyStrip: View {
         }
     }
 
-    /// Accent while reading, grey while paused or interrupted — exactly the card's rule, so the
-    /// two never disagree about whether anything is happening.
+    /// Accent while reading, grey while paused or interrupted: the card's rule.
     private var background: some ShapeStyle {
         switch state {
         case .interrupted:
@@ -93,12 +87,10 @@ public struct DocumentSurveyStrip: View {
         }
     }
 
-    /// The strip's verbs, as ``OverviewCardAction`` values — the card's own type, so a test can
-    /// hold the two side by side without mounting either. `rank` is unused: the strip draws them
-    /// in the order listed, all alike.
-    ///
-    /// **Only verbs the card offers in the same state**, under the card's tooltip — the strip may
-    /// leave one out, never add one.
+    /// The strip's verbs, as the card's ``OverviewCardAction``, so a test can compare the two
+    /// without mounting either. `rank` is unused: they are drawn in order, all alike. Only verbs
+    /// the card offers in the same state, with its tooltips: the strip may leave one out, never
+    /// add one.
     var verbs: [OverviewCardAction] {
         var actions: [OverviewCardAction] = []
         switch state {
@@ -106,8 +98,8 @@ public struct DocumentSurveyStrip: View {
             if pause == nil, let onPause {
                 actions.append(OverviewCardAction(title: "Pause", run: onPause))
             } else if let pause, pause.resumesOnItsOwn, let onResume {
-                // The card's word for the same click: it reads through a pause that would
-                // otherwise clear by itself, rather than undoing a Pause.
+                // The card's word: it reads through a pause that would clear by itself, rather
+                // than undoing a Pause.
                 actions.append(OverviewCardAction(title: "Resume Now",
                                                   help: DocumentSurveyCard.resumeNowHelp,
                                                   run: onResume))
@@ -125,10 +117,9 @@ public struct DocumentSurveyStrip: View {
                                                   help: "Carry on reading — only the documents not yet read",
                                                   run: onResume))
             }
-            // **No Stop: nothing is running.** It reached `stopDocumentSurvey()`, which stops the
-            // run in flight, and there is none — so it did nothing. Nor the card's *Start over*:
-            // it throws hours of reading away behind a question, which belongs on the overview,
-            // not on a line drawn across every lens.
+            // No Stop: `stopDocumentSurvey()` stops the run in flight, and there is none. No
+            // Start over either: it throws hours of reading away behind a question, which belongs
+            // on the overview card, not on every lens.
         default:
             break
         }

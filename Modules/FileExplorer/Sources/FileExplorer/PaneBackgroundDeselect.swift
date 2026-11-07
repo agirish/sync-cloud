@@ -5,31 +5,20 @@ import SwiftUI
 /// Makes the empty area of a pane's list a deselect target: clicking below the last row clears the
 /// selection, the way it does in Finder and in every other list on this OS.
 ///
-/// The panes had no deselect gesture at all. Escape and the action bar's ✕ were both added to work
-/// around that, and neither helps the user who simply clicks off a file expecting it to let go.
+/// A gesture recognizer, not a SwiftUI tap: the empty area belongs to AppKit, a `.background`
+/// behind the list never gets those clicks (the scroll view is opaque to hit-testing), and a
+/// `TapGesture` on the list would compete with the rows and cause dead clicks. A recognizer can
+/// decline an event before it engages, leaving AppKit's mouse handling untouched. That declining
+/// is this file's whole safety argument, so `acceptsClick(modifiers:pointInTable:table:)` is
+/// separate and pinned by its own tests.
 ///
-/// **Why a gesture recognizer and not a SwiftUI tap.** The empty area belongs to AppKit. A
-/// `.background` behind the list never receives those clicks — the list's scroll view is opaque to
-/// hit-testing — and a `TapGesture` on the list would have to compete with the rows, which is the
-/// exact competition that produced the dead clicks (`743d8bd`, `8b85cf4`). A recognizer can decline
-/// an event *before* it engages, and a declined event leaves AppKit's own mouse handling completely
-/// untouched. That declining is the whole safety argument of this file, which is why
-/// `acceptsClick(modifiers:pointInTable:table:)` is separated out and pinned by its own tests.
+/// On the table, not its clip view: SwiftUI's table fills its viewport exactly, so the empty area
+/// is table, and the click hit-tests to the recognizer's own view with no assumption about how far
+/// AppKit walks an ancestor chain. A row click hit-tests to an `NSTableRowView` inside the table,
+/// and if it does reach this recognizer, `acceptsClick` declines it.
 ///
-/// **Why the table and not its clip view.** The first draft put the recognizer on the enclosing
-/// `NSClipView`, reasoning that a table shorter than its viewport would not receive the clicks
-/// below it. Mounting the pane and measuring says otherwise: SwiftUI's table fills its viewport
-/// exactly (520pt of table in a 520pt clip view, with three rows in it), so the empty area *is*
-/// table. Putting the recognizer there means the click's hit-test view is the recognizer's own
-/// view, with no assumption about how far AppKit walks an ancestor chain — and the ancestor
-/// question is precisely the kind of thing this file cannot afford to be wrong about, since a
-/// recognizer that never fires would be invisible until the user reported it.
-///
-/// It leaves row clicks doubly protected. A row click hit-tests to an `NSTableRowView` *inside* the
-/// table, so it may not consult this recognizer at all; if it does, `acceptsClick` declines it.
-///
-/// Placed as a zero-size `.background` sibling of the list, exactly like `PaneListSelectionStyler`,
-/// whose ancestor walk it reuses wholesale.
+/// Placed as a zero-size `.background` sibling of the list, like `PaneListSelectionStyler`, whose
+/// ancestor walk it reuses.
 struct PaneBackgroundDeselect: NSViewRepresentable {
     /// Runs on a plain click in the list's empty area. Re-supplied on every SwiftUI update, since it
     /// closes over the column depth the click should truncate to.
@@ -46,15 +35,14 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
 
     /// Whether a click on the list is one this should act on.
     ///
-    /// Two refusals, and both matter:
+    /// Two refusals:
     ///
-    ///   - ⌘ and ⇧ are the list's own extend and range-select. Acting on them would collapse a
-    ///     multi-selection the moment the pointer missed a row by a pixel — the same flattening
-    ///     `dba5cd3` fixed on the row path.
+    ///   - ⌘ and ⇧ are the list's own extend and range-select; acting on them would collapse a
+    ///     multi-selection whenever the pointer missed a row by a pixel.
     ///   - A point that resolves to a row is a row click, and this must be invisible to it.
     ///
     /// Split from the delegate so tests can drive it over a synthetic table with a plain point,
-    /// rather than fabricating `NSEvent`s against a window a test process cannot make key.
+    /// rather than fabricating `NSEvent`s against a window a test process can't make key.
     static func acceptsClick(
         modifiers: NSEvent.ModifierFlags,
         pointInTable: CGPoint,
@@ -64,24 +52,19 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         return table.row(at: pointInTable) == -1
     }
 
-    /// The bounded search and its re-arm ladder are `FrameAnchoredResolveView`'s; what this adds
-    /// is the recognizer install. The budget matters more here than on the stylers, in one way:
-    /// a spent budget that was never refilled silently stopped the recognizer being installed —
-    /// which, unlike the styler's blue highlight, has no visible symptom at all. It just quietly
-    /// stops deselecting.
+    /// The bounded search and its re-arm ladder are `FrameAnchoredResolveView`'s; this adds the
+    /// recognizer install. **Keep the search budget refilled**: a spent one silently stops the
+    /// install, and unlike a styler's highlight, a missing recognizer has no visible symptom.
     final class CatcherView: FrameAnchoredResolveView, NSGestureRecognizerDelegate {
         var onDeselect: () -> Void
 
         /// The table the recognizer currently sits on, so a rebuilt list moves it rather than
         /// accumulating one recognizer per rebuild.
         ///
-        /// Typed as the table rather than a bare view because the gate below reads it: it is by
-        /// construction the view a click on this recognizer hit-tested to, which `cachedTable` is
-        /// not. A resolve that comes up empty — the budget ran out, or the frame matched nothing
-        /// mid-rebuild — assigns `cachedTable = nil` while leaving this recognizer installed and
-        /// live, and a gate reading `cachedTable` then declined every click until some later pass
-        /// happened to re-resolve. Silently, since a recognizer that never fires looks exactly like
-        /// a feature nobody built.
+        /// The gate below reads this, not `cachedTable`: it is by construction the view a click on
+        /// this recognizer hit-tested to. A resolve that comes up empty (budget spent, or nothing
+        /// matched mid-rebuild) sets `cachedTable = nil` while this recognizer stays live, and a
+        /// gate reading the cache would silently decline every click until a later re-resolve.
         private weak var installedOn: NSTableView?
         private var recognizer: NSClickGestureRecognizer?
 
@@ -93,21 +76,19 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        /// Uninstalls on the way out of the window, not in `deinit`: a nonisolated `deinit` cannot
-        /// touch non-Sendable stored state. Leaving a recognizer behind would be worse than
-        /// untidy — its target is unowned, so a click on an orphaned one would call into a
-        /// deallocated view. The cached table goes with it: this copy does not re-trust across a
-        /// window exit the table its recognizer just left.
+        /// Uninstalls on the way out of the window, not in `deinit`, which is nonisolated and
+        /// can't touch non-Sendable state. **A recognizer left behind is a crash risk**: its target
+        /// is unowned, so a click on an orphan calls into a deallocated view. The cached table is
+        /// forgotten too, not trusted again across a window exit.
         override func windowDidExit() {
             uninstall()
             forgetResolvedTable()
         }
 
-        /// Diverges from the base's re-arm on purpose: the budget is always refilled, but the
-        /// deferred retry is only for the mount, when the list's scroll view may not exist yet.
-        /// Once armed, `layout()` re-checks on every pass anyway, so scheduling a block per update
-        /// would be per-render main-queue work on a pane whose click cost has been measured more
-        /// than once — and there is one of these per column.
+        /// Differs from the base's re-arm on purpose: the budget is always refilled, but the
+        /// deferred retry is only for the mount, when the scroll view may not exist yet. Once
+        /// armed, `layout()` re-checks every pass, so a block per update would be needless
+        /// per-render main-queue work, with one of these per column.
         override func rearm() {
             refillSearchBudget()
             guard installedOn == nil else { return }
@@ -123,9 +104,9 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
             table.addGestureRecognizer(click)
             recognizer = click
             installedOn = table
-            // The one place every pane table — Tree, and each column — is already resolved, so the
-            // keyboard claim rides on it rather than running a search of its own. Not a click
-            // behaviour of this recognizer's: see `PaneListKeyFocus` for why it is a monitor.
+            // The one place every pane table (Tree, and each column) is already resolved, so the
+            // keyboard claim rides on it rather than searching on its own. Not a click behaviour:
+            // see `PaneListKeyFocus` for why it is a monitor.
             PaneListKeyFocus.register(table)
         }
 
@@ -139,12 +120,11 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
             onDeselect()
         }
 
-        /// The gate. Returning false here means the recognizer never engages and the click reaches
-        /// the table exactly as it does today.
+        /// The gate. Returning false means the recognizer never engages and the click reaches the
+        /// table untouched.
         ///
-        /// Reads `installedOn`, not `cachedTable`: the recognizer is ON that table, so it is the
-        /// view this click hit-tested to and the only one whose coordinate space the point below is
-        /// meaningful in. See the note on the property for what reading the cache instead cost.
+        /// Reads `installedOn`, not `cachedTable`: the recognizer is on that table, so it is the
+        /// view this click hit-tested to and the only one whose coordinate space the point is in.
         func gestureRecognizer(
             _ gestureRecognizer: NSGestureRecognizer,
             shouldAttemptToRecognizeWith event: NSEvent

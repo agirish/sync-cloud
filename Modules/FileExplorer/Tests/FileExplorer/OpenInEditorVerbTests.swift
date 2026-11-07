@@ -8,9 +8,9 @@ import FileExplorerTestSupport
 
 /// The verb that hands a row to the Editor, and the rows it is offered on.
 ///
-/// **The gate is `PairContentKind`'s text set — the same table the rail filters on.** A menu item
-/// that opened a JPEG into a text editor would offer something the editor then refuses, and the two
-/// surfaces disagreeing about what "a text file" means is the thing worth pinning.
+/// The gate is `PairContentKind`'s text set, the same table the rail filters on. A menu item that
+/// opened a JPEG into a text editor would offer something the editor then refuses, so the two
+/// surfaces must agree about what "a text file" means.
 @MainActor
 @Suite struct OpenInEditorVerbTests {
 
@@ -36,9 +36,8 @@ import FileExplorerTestSupport
     }
 
     /// The gate the menu item is written with, over the kinds the rail lists and the kinds it does
-    /// not. **This is the classifier alone** — that the MENU ITEM actually applies it is asserted
-    /// by `theRowMenuOffersTheEditorOnlyForTextFiles` below, which was missing entirely: deleting
-    /// `SharedFileMenuItems.openInEditor`, or dropping its `if`, left every test here green.
+    /// not. This is the classifier alone; that the menu item applies it is asserted by
+    /// `theRowMenuOffersTheEditorOnlyForFilesEditOpens` below.
     @Test func theVerbIsOfferedForTextKindsAndNothingElse() {
         for name in ["notes.md", "readme.txt", "data.json", "run.sh", "Package.swift", "notes.markdown"] {
             #expect(PairContentKind.classify(path: name) == .text,
@@ -50,15 +49,12 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The public predicate the doors outside this package ask, over the whole table.**
-    ///
-    /// `EditableText.isText` exists because `PairContentKind` is internal and the Info inspector
-    /// and the File menu are not: each has to gate its own Open in Edit on the same answer this
-    /// menu item does. So the claim worth pinning is agreement — every extension the row menu's
-    /// gate accepts, the predicate accepts, and nothing else does. Looping over `textExtensions`
-    /// rather than a hand-written sample is deliberate here (and is the opposite of
-    /// `theRailListsTheTextFilesAndOnlyThose`'s choice, for the opposite reason): the claim is not
-    /// "these six files are text", it is "there is no entry in the table the predicate misses".
+    /// The public predicate the doors outside this package ask, over the whole table.
+    /// `PairContentKind` is internal, so the Info inspector and the File menu gate their Open in
+    /// Edit on `EditableText.isText`, and it must accept exactly what the row menu's gate accepts.
+    /// It loops over `textExtensions`, not a hand-written sample (unlike
+    /// `theRailListsTheTextFilesAndPDFsAndOnlyThose`), because the claim is that no entry is
+    /// missed.
     @Test func thePublicPredicateAnswersForEveryTextExtensionAndNoOther() {
         for ext in PairContentKind.textExtensions {
             #expect(EditableText.isText(path: "/a/notes.\(ext)"),
@@ -72,12 +68,10 @@ import FileExplorerTestSupport
         #expect(EditableText.isText(path: "/a/READ.MD"), "an upper-cased extension is not matched")
     }
 
-    /// **The predicate and the menu item's own gate are one answer, not two that agree today.**
-    ///
-    /// The point of the predicate is that the inspector and the File menu cannot drift from this
-    /// menu; a test that checks each side against its own hand-written list would not see them
-    /// drift apart. This asserts them against each other over the same inputs — the menu as DRAWN,
-    /// since the item now asks `opensInEdit` (text, or a PDF read-only) rather than the text kind.
+    /// The predicate and the menu item's own gate are one answer, not two that agree today. Checked
+    /// against each other over the same inputs, since each against its own list would miss them
+    /// drifting apart. The menu is read as drawn, because the item asks `opensInEdit` (text, or a
+    /// PDF read-only) rather than the text kind.
     @Test func thePredicateAgreesWithTheGateTheRowMenuApplies() {
         let delegate = Recorder()
         for name in ["notes.md", "readme.txt", "Package.swift", "photo.jpg", "report.pdf", "noext"] {
@@ -92,13 +86,9 @@ import FileExplorerTestSupport
         #expect(!EditableText.opensInEdit(path: "/a/photo.jpg"))
     }
 
-    /// **The rail lists exactly the text files and the PDFs, spelled out rather than re-derived.**
-    ///
-    /// The expectation used to be `names.filter { PairContentKind.classify(path: $0) == .text }` —
-    /// the same call `EditorRail.entries` filters on, so both sides of the comparison moved
-    /// together and the test could only fail if `contentsOfDirectory` broke. Written out by hand,
-    /// it is an independent claim about which of these four files a person should see. The PDF is
-    /// listed since Phase 1b of the PDF reader; the photo still is not.
+    /// The rail lists exactly the text files and the PDFs, spelled out rather than re-derived: an
+    /// expectation built with `PairContentKind.classify`, which `EditorRail.entries` filters on,
+    /// would move with the code. The photo is not listed.
     @Test func theRailListsTheTextFilesAndPDFsAndOnlyThose() throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("editor-verb-\(UUID().uuidString)")
@@ -112,14 +102,10 @@ import FileExplorerTestSupport
         #expect(listed == ["notes.md", "readme.txt", "paper.pdf"], "the rail lists \(listed)")
     }
 
-    /// **The menu item itself, not the classifier it consults.**
-    ///
-    /// The suite is titled for the verb that hands a row to the Editor and asserted only
-    /// `PairContentKind.classify`, a pure function that predates the branch — so deleting
-    /// `SharedFileMenuItems.openInEditor` outright, or dropping the `if` that gates it so a JPEG
-    /// offered it, went unnoticed by every test in the file. `openInEditor` is a `@ViewBuilder`
-    /// returning nothing at all for a non-text row, which is a difference a rendered measurement
-    /// can see: an empty build has no size.
+    /// The menu item itself, not the classifier it consults: deleting
+    /// `SharedFileMenuItems.openInEditor`, or dropping the `if` that gates it, must fail here.
+    /// `openInEditor` is a `@ViewBuilder` that builds nothing for a row Edit can't open, and a
+    /// rendered measurement can see that: an empty build has no size.
     @MainActor
     @Test func theRowMenuOffersTheEditorOnlyForFilesEditOpens() {
         let delegate = Recorder()
@@ -136,20 +122,16 @@ import FileExplorerTestSupport
         #expect(image.height == 0, "an item was built for a JPEG — the gate is not applied")
     }
 
-    /// **The menu as it is actually DRAWN, in order — not the source that describes it.**
+    /// The menu as drawn, in order, not the source that describes it. The app target pins the order
+    /// too (`PaneTabWiringTests.openInEditLeadsTheRowMenusSingleFileBranch`), but by reading the
+    /// file as text, which can't see a `@ViewBuilder` branch that never builds. Hosted in a
+    /// `VStack`, `FileContextMenu`'s `Group` flattens, so each item is one focus-ring view at its
+    /// own y: the drawn order.
     ///
-    /// The order is pinned in the app target too (`PaneTabWiringTests.openInEditLeadsTheRowMenus\
-    /// SingleFileBranch`), but that reads the file as text: it cannot see a `@ViewBuilder` branch
-    /// that never builds, and this repo has shipped a green geometry test sitting over a control
-    /// that was not drawn. Hosting `FileContextMenu` in a `VStack` flattens its `Group` into that
-    /// stack, so each item becomes one focus-ring view at its own y — which is the drawn order.
-    ///
-    /// **Identity by measurement, because the hosted rows carry no readable text.**
-    /// `accessibilityChildren()` on a hosting view returns an empty group here (measured, and
-    /// recorded in `OrganizeRailTests` for the rail), so a row is recognised by its WIDTH, which is
-    /// its label's intrinsic width — each item rendered alone, then matched inside the whole menu.
-    /// Nothing is compared against a hard-coded pixel count, so this is not machine-pinned; it does
-    /// assume the three labels measure differently, and says so out loud if they ever stop.
+    /// The hosted rows carry no readable text (`accessibilityChildren()` returns an empty group
+    /// here, as `OrganizeRailTests` notes), so a row is recognised by its width: each item rendered
+    /// alone, then matched in the whole menu. No hard-coded pixel counts, so not machine-pinned; it
+    /// assumes the three labels measure differently, and fails loudly if they stop.
     @Test func theDrawnMenuPutsOpenInEditAboveGetInfo() throws {
         let delegate = Recorder()
         let editorWidth = Self.soloWidth(SharedFileMenuItems.openInEditor("/a/notes.md", delegate: delegate))
@@ -168,13 +150,13 @@ import FileExplorerTestSupport
         #expect(editor == 1, "Open in Edit is the \(editor + 1)th item drawn, not the first after Refresh")
         #expect(drawn.first == refreshWidth, "Refresh no longer leads the menu")
 
-        // …and the same menu over an archive draws no editor row at all, which is what makes the
-        // index above a fact about THIS item rather than about whatever sits second.
+        // …and the same menu over an archive draws no editor row at all, which makes the index
+        // above a fact about this item rather than about whatever sits second.
         let archive = Self.drawnRowWidths(for: "/a/bundle.zip", delegate: delegate)
         #expect(!archive.contains(editorWidth), "an archive row draws Open in Edit")
         #expect(archive.first == refreshWidth && archive.dropFirst().first == getInfoWidth,
                 "with no editor item, Get Info should lead the single-file branch")
-        // A PDF row draws it, in the same place (Phase 1a).
+        // A PDF row draws it, in the same place.
         let pdf = Self.drawnRowWidths(for: "/a/report.pdf", delegate: delegate)
         #expect(pdf.firstIndex(of: editorWidth) == 1, "a PDF row does not lead with Open in Edit")
     }
@@ -208,11 +190,9 @@ import FileExplorerTestSupport
         return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }
     }
 
-    /// **The delegate the app really wires, forwarding the path to the closure ContentView hands
-    /// it.** This asserted a test double calling its own recorder — no production symbol was in
-    /// the room, so `PaneActionDelegate.handleOpenInEditor` could have been deleted and it passed.
-    /// That delegate lives in the app target, so the real test lives beside it, in
-    /// `SyncCloudTests/EditorHandOffTests.swift`.
+    /// Only checks the test double these tests rely on. The real delegate,
+    /// `PaneActionDelegate.handleOpenInEditor`, lives in the app target, so its test lives beside
+    /// it, in `SyncCloudTests/EditorHandOffTests.swift`.
     @Test func theRecorderUsedByTheseTestsRecords() {
         let recorder = Recorder()
         recorder.handleOpenInEditor("/a/b/notes.md")

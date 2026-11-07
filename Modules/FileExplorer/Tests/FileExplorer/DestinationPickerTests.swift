@@ -27,8 +27,8 @@ import Sync
         #expect(path.components == ["Health"])
     }
 
-    /// A folder outside the root cannot be drawn as a stack under it, so it rests at the root —
-    /// the only honest stack available. Reached when a recent survives a provider change.
+    /// A folder outside the root can't be drawn as a stack under it, so it rests at the root. A
+    /// recent that survives a provider change reaches this.
     @Test func testAFolderOutsideTheRootRestsAtTheRoot() {
         #expect(DestinationPicker.browsePath(for: "/elsewhere/Deep", under: "/p").isEmpty)
     }
@@ -39,8 +39,7 @@ import Sync
     }
 
     /// An iCloud item lives at `~/Documents/…`, which iCloud Drive reaches through its hidden
-    /// `Documents` link. The picker must open down that stack, not at the bare root (2026-11-01:
-    /// it opened on iCloud's root with only Downloads and Word showing).
+    /// `Documents` link. The picker opens down that stack, not at the bare root.
     @Test func testAFolderUnderALinkedFolderOpensThroughTheLink() {
         let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/home/Documents"]]
         let path = DestinationPicker.browsePath(for: "/home/Documents/Travel/Trips", under: "/icloud", links: links)
@@ -52,8 +51,8 @@ import Sync
 
     // MARK: - Round trip
 
-    /// Every folder under the root resolves back to itself through the stack, which is what makes
-    /// the footer path and the highlighted column agree.
+    /// Every folder under the root resolves back to itself through the stack, so the footer path
+    /// and the highlighted column agree.
     @Test func testTheStackResolvesBackToTheFolderItOpenedOn() {
         let root = "/p"
         for folder in ["/p", "/p/Health", "/p/Health/Medical/Kaiser/Son"] {
@@ -64,7 +63,7 @@ import Sync
 
     // MARK: - Recents that share a name (BR20)
 
-    /// **Two recents named Legal each say where they sit**; a recent with a name of its own says
+    /// Two recents named Legal each say where they sit; a recent with a name of its own says
     /// nothing more, and one directly under the provider names the provider.
     @Test func recentsThatShareANameCarryTheirParent() {
         let recents = ["/p/Clients/Acme/Legal", "/p/Archive/Legal", "/p/Medical", "/p/Legal"]
@@ -90,7 +89,7 @@ import Sync
 
     // MARK: - Here rows
 
-    /// The item's own folder, then up one, then up two — the short moves, first in the rail.
+    /// The item's own folder, then up one, then up two: the short moves, first in the rail.
     @Test func testHereRowsClimbFromTheItemsFolder() {
         let rows = DestinationPicker.hereRows(itemFolder: "/p/Travel/Trips/IN-US", root: "/p", rootName: "iCloud", links: [:])
         #expect(rows.map(\.name) == ["IN-US", "Trips", "Travel", "iCloud"])
@@ -154,7 +153,7 @@ import Sync
     // MARK: - Review fixes, 2026-11-01
 
     /// Items not in the opening folder (a Downloads file filed into iCloud; a selection from two
-    /// folders): nothing claims "now here" — the root row alone, with no rung named.
+    /// folders): nothing claims "now here", just the root row with no rung named.
     @Test func testHereClaimsNothingWhenTheItemsAreElsewhere() {
         let rows = DestinationPicker.hereRows(itemFolder: "/p", root: "/p", rootName: "iCloud", itemsAreHere: false, links: [:])
         #expect(rows.map(\.name) == ["iCloud"])
@@ -175,9 +174,9 @@ import Sync
         #expect(!DestinationPicker.picksNewFolder(highlighted: "/p/2026", suggestion: nil))
     }
 
-    /// A FILE named like the suggested year folder refuses Move (G7): the listing shows folders
-    /// only, so the suggestion read the name as free, and Move would have aimed at the file. A
-    /// folder of that name, or no item at all, is no reason to refuse.
+    /// A file named like the suggested new folder refuses Move: the listing shows folders only, so
+    /// the name looks free and Move would aim at the file. A folder of that name, or nothing
+    /// there, is no reason to refuse.
     @Test func testAFileNamedLikeTheNewFolderRefusesMove() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("picker-clash-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

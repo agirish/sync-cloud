@@ -5,8 +5,8 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// RD70's pane-side pieces: the status bar's count and chip, the filtered-out empty state, the
-/// closed folders' pill, and the type list's words. Every expectation is a literal.
+/// The type filter's pane-side pieces: the status bar's count and chip, the filtered-out empty
+/// state, the closed folders' pill, and the type list's words. Every expectation is a literal.
 @MainActor
 @Suite struct PaneTypeFilterViewTests {
 
@@ -84,7 +84,7 @@ import Sync
     }
 
     /// An open column with no rows says "No matching files" only when the filter hid something in
-    /// it (G10); a folder that held nothing at all says "Empty", filter or not.
+    /// it; a folder that held nothing at all says "Empty", filter or not.
     @Test func aGenuinelyEmptyColumnSaysEmptyUnderAFilter() {
         let decor = PaneTypeFilterDecor(stamp: 4, filter: PaneTypeFilter(families: [.pdfs]), matchCounts: [:],
                                         emptyFolders: ["/d/untitled folder"])
@@ -136,8 +136,8 @@ import Sync
     }
 }
 
-/// The type list, drawn and kept (testing law 1: render it and look). Machine-pinned like every
-/// reference image here, so CI never reads it.
+/// The type list, drawn and kept, so it is checked by rendering it and looking. Machine-pinned like
+/// every reference image here, so CI never reads it.
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct PaneTypeFilterSnapshotTests {
     @Test func theTypeList() {

@@ -1,9 +1,9 @@
 import Testing
 @testable import FileExplorer
 
-/// Pins `AutomationToggleEchoGuard` (C12): `AutomationRuleCard` mirrors `rule.enabled` into local
-/// `@State`, and before the guard an EXTERNAL write to `rule.enabled` (import, bulk toggle, undo)
-/// round-tripped through the mirror's `onChange` into `onToggle` → `setAutomationRule` — a model
+/// Pins `AutomationToggleEchoGuard`: `AutomationRuleCard` mirrors `rule.enabled` into local
+/// `@State`, and without the guard an external write to `rule.enabled` (import, bulk toggle, undo)
+/// would round-trip through the mirror's `onChange` into `onToggle` → `setAutomationRule`, a model
 /// write the user never made. The guard must swallow exactly those echoes while letting genuine
 /// gestures through, in both directions.
 ///
@@ -30,8 +30,7 @@ struct AutomationToggleEchoGuardTests {
     }
 
     /// Flip off, model confirms, flip back on: the second gesture must not be eaten by the first
-    /// one's bookkeeping. (This is the trace that breaks a naive "remember the last user value"
-    /// implementation.)
+    /// one's bookkeeping, as it would be by a naive "remember the last user value" guard.
     @Test func consecutiveOpposingGesturesAreBothForwarded() {
         var echoGuard = AutomationToggleEchoGuard(enabled: true)
 

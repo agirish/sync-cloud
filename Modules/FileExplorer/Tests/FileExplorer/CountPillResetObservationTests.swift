@@ -4,35 +4,22 @@ import Testing
 import Design
 @testable import FileExplorer
 
-/// Why `DifferencesView.countPillToggle`'s `.onChange(of: hasScanned)` sits OUTSIDE
-/// `withScanFreshness` rather than inside the closure with everything else.
+/// Why `DifferencesView.countPillToggle`'s `.onChange(of: hasScanned)` sits outside
+/// `withScanFreshness`, not inside its closure.
 ///
-/// `withScanFreshness` renders a `TimelineView` only while `lastScanDate` is non-nil, and falls back
-/// to a plain render when it is nil. `FileSyncManager+Navigation`'s
-/// `invalidateDifferencesForPaneRetarget()` clears `lastScanDate` and `hasScanned` in ONE
-/// transaction — so a handler living inside that closure is torn down by the very change it is
-/// watching for, and never fires. The reset it owes (`showItemCounts`, `isCountPillHovered`) is then
-/// silently skipped, leaving the pill expanded over a comparison that no longer exists.
+/// `withScanFreshness` renders a `TimelineView` only while `lastScanDate` is non-nil.
+/// `invalidateDifferencesForPaneRetarget()` clears `lastScanDate` and `hasScanned` in one
+/// transaction, so a handler inside the closure is torn down by the change it watches and never
+/// fires, leaving the pill expanded over a comparison that no longer exists.
 ///
-/// Asserted rather than argued, because the placement reads like a style choice — an `.onChange`
-/// tucked in with the `.help` and the accessibility modifiers looks tidier, and nothing about the
-/// call site says it must not be. This suite is the note that says it must.
-///
-/// The four cases form their own control. The one that fails is exactly the shipped shape under
-/// exactly the retarget transaction; the "branch survives" row proves the harness CAN see a handler
-/// fire from inside the closure, so the empty result in the first row is a real miss and not a rig
-/// that never observes anything.
-///
-/// **What this does NOT pin.** `countPillToggle` is private and its `showItemCounts` is `@State`, so
-/// nothing here reaches the shipped view: moving that `.onChange` back inside the closure would
-/// leave this suite green. What is pinned is the HAZARD — so anyone who makes that move and runs the
-/// suite finds the reason not to, spelled out, instead of rediscovering it from a bug report.
+/// The "branch survives" cases prove the harness can see a handler fire inside the closure, so the
+/// empty result is a real miss. This pins the hazard, not the shipped view: `countPillToggle` is
+/// private, so moving the `.onChange` back inside would leave this suite green.
 @MainActor
 @Suite(.serialized) struct CountPillResetObservationTests {
 
-    /// Stands in for the two `FileSyncManager` fields involved. `ObservableObject` with `@Published`
-    /// because that is what `FileSyncManager` is — the observation mechanism is half of what is
-    /// being characterised here, so substituting `@Observable` would test a different thing.
+    /// Stands in for the two `FileSyncManager` fields. `ObservableObject` with `@Published`, as
+    /// `FileSyncManager` is: the observation mechanism is half of what is characterised here.
     private final class Model: ObservableObject {
         @Published var lastScanDate: Date?
         @Published var hasScanned: Bool
@@ -76,9 +63,8 @@ import Design
     }
 
     /// Hosts the specimen, applies the state change, and returns what the handler saw.
-    ///
-    /// `clearsScanDate` is the whole variable: true is `invalidateDifferencesForPaneRetarget()`
-    /// (both fields in one transaction), false is a reset that leaves the freshness branch standing.
+    /// `clearsScanDate` true is the retarget (both fields in one transaction); false leaves the
+    /// freshness branch standing.
     private func observedResets(handlerInsideBranch: Bool, clearsScanDate: Bool) -> [Bool] {
         let model = Model(lastScanDate: Date(timeIntervalSince1970: 1_780_315_200), hasScanned: true)
         let recorder = Recorder()
@@ -107,27 +93,21 @@ import Design
         }
     }
 
-    /// **The bug.** Inside the branch, the retarget transaction is missed entirely.
-    ///
-    /// This pins a SwiftUI behaviour rather than our own code, so it is the one test here that could
-    /// start failing because the framework improved. That failure would be worth reading, not
-    /// silencing: it would mean the hazard this placement works around is gone.
+    /// Inside the branch, the retarget transaction is missed entirely. This pins SwiftUI behaviour,
+    /// so it could fail because the framework improved; that would mean the hazard is gone.
     @Test func aHandlerInsideTheFreshnessBranchMissesTheRetargetTransaction() {
         #expect(observedResets(handlerInsideBranch: true, clearsScanDate: true) == [])
     }
 
-    /// **The fix.** Outside, the same transaction is observed — the handler hangs off the branch
-    /// SWITCH instead of off either branch.
+    /// Outside, the same transaction is observed: the handler hangs off the branch switch, not
+    /// either branch.
     @Test func aHandlerOutsideTheFreshnessBranchObservesTheRetargetTransaction() {
         #expect(observedResets(handlerInsideBranch: false, clearsScanDate: true) == [false])
     }
 
-    /// The control that makes the two above mean something. When `lastScanDate` survives, the branch
-    /// survives, and BOTH placements observe the change — so the empty result above is the teardown,
-    /// not a rig that cannot see handlers fire.
-    ///
-    /// It is also why the defect went unnoticed: every path that resets `hasScanned` WITHOUT
-    /// clearing the scan date works exactly as written.
+    /// The control: when `lastScanDate` survives, the branch survives and both placements observe
+    /// the change, so the empty result above is the teardown. Every reset of `hasScanned` that
+    /// keeps the scan date works either way, which is why the inside placement looks safe.
     @Test func bothPlacementsObserveAResetThatLeavesTheBranchStanding() {
         #expect(observedResets(handlerInsideBranch: true, clearsScanDate: false) == [false])
         #expect(observedResets(handlerInsideBranch: false, clearsScanDate: false) == [false])

@@ -3,14 +3,14 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// **Every door asks about the file a link points to, not the link** (TE206, decision BY).
+/// Every door asks about the file a link points to, not the link.
 ///
-/// The cloud-only check and the size cap read `lstat`/`attributesOfItem`, which describe a link
-/// itself — always local, always tiny. So a link to a cloud-only file was opened and downloaded
-/// unasked, and a link to a huge text file got past Edit's cap. Each test makes real links in a
-/// temp folder and says "cloud-only" through the door's own `isCloudOnly` seam, answering yes only
-/// for the TARGET file — matched by inode, so neither the link nor a respelling of the path can
-/// satisfy it. Asked about the link, as every door used to ask, each one answers "local".
+/// `lstat` and `attributesOfItem` describe a link itself, always local and always tiny, so a door
+/// asking them about the link would open and download a cloud-only target unasked, or let a huge
+/// text file past Edit's cap. Each test makes real links in a temp folder and says "cloud-only"
+/// through the door's own `isCloudOnly` seam, only for the target file, matched by inode so neither
+/// the link nor a respelling of its path satisfies it. Asked about the link, each door answers
+/// "local".
 @MainActor
 @Suite(.serialized) final class LinkTargetDoorsTests {
     /// The suite's own reader, with a deadline no loaded run reaches: on the shared one a read
@@ -52,8 +52,8 @@ import Sync
 
     // MARK: Edit — text
 
-    /// **A link to a cloud-only text file is refused as not downloaded**, in the words the file
-    /// itself gets — and opens when nothing is in the cloud, so the refusal is the cloud answer's.
+    /// A link to a cloud-only text file is refused as not downloaded, in the words the file itself
+    /// gets, and opens when nothing is in the cloud, so the refusal is the cloud answer's.
     @Test func editRefusesALinkToACloudOnlyTextFile() throws {
         let file = try write("in the cloud\n", "notes.md")
         let link = try link("link.md", to: file)
@@ -69,8 +69,8 @@ import Sync
         }
     }
 
-    /// **A link to a text file over the cap is refused as too large**, measured as the file —
-    /// where the link's own size, the length of the path it holds, let it through.
+    /// A link to a text file over the cap is refused as too large, measured as the file, not as the
+    /// link, whose size is only the length of the path it holds.
     @Test func editRefusesALinkToATooLargeTextFile() throws {
         let file = path("big.log")
         #expect(FileManager.default.createFile(atPath: file, contents: nil))
@@ -85,8 +85,8 @@ import Sync
                 == .refused(reason: EditorFileStore.refusal(for: tooLarge)))
     }
 
-    /// **The Files tab draws a link to a cloud-only file dim, with Download**, as it draws the
-    /// file — and a link to a local file stays undimmed.
+    /// The Files tab draws a link to a cloud-only file dim, with Download, as it draws the file;
+    /// a link to a local file stays undimmed.
     @Test func theRailDrawsALinkToACloudOnlyFileAsNotDownloaded() throws {
         let cloudFile = try write("x\n", "cloud.md")
         let localFile = try write("x\n", "local.md")
@@ -102,7 +102,7 @@ import Sync
 
     // MARK: Edit — PDF
 
-    /// **A link to a cloud-only PDF is refused without a parse**, as the PDF itself is.
+    /// A link to a cloud-only PDF is refused without a parse, as the PDF itself is.
     @Test func editRefusesALinkToACloudOnlyPDF() throws {
         let file = path("cloud.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -118,9 +118,9 @@ import Sync
 
     // MARK: A pane's selection — PDF Tools and Save as PDF
 
-    /// **Selecting a link to a cloud-only PDF opens nothing**: no PDF Tools, as for the PDF itself,
-    /// and the protection probe — which reads the file, on the main thread — never runs. A link to
-    /// a local PDF is probed and offered, so the absence is the cloud answer.
+    /// Selecting a link to a cloud-only PDF opens nothing: no PDF Tools, as for the PDF itself, and
+    /// the protection probe, which reads the file on the main thread, never runs. A link to a local
+    /// PDF is probed and offered, so the absence is the cloud answer.
     @Test func selectingALinkToACloudOnlyPDFOpensNothing() throws {
         let cloudFile = path("cloud.pdf"), localFile = path("local.pdf")
         PDFFixtures.write(cloudFile, pages: 1)
@@ -147,8 +147,8 @@ import Sync
         #expect(PDFMenuEncryption.probes == probes + 1)
     }
 
-    /// **Save as PDF is not offered for a link to a cloud-only note**, as for the note itself —
-    /// and is for a link to a local one. (A PDF is never offered it, so a note is the case to ask.)
+    /// Save as PDF is not offered for a link to a cloud-only note, as for the note itself, and is
+    /// for a link to a local one. (A PDF is never offered it, so a note is the case to ask.)
     @Test func saveAsPDFIsNotOfferedForALinkToACloudOnlyNote() throws {
         let cloudFile = try write("x\n", "cloud.md"), localFile = try write("x\n", "local.md")
         let cloudLink = try link("cloud-link.md", to: cloudFile)
@@ -165,7 +165,7 @@ import Sync
 
     // MARK: Markdown images
 
-    /// **A note's image that is a link to a cloud-only picture is not fetched** for the preview.
+    /// A note's image that is a link to a cloud-only picture is not fetched for the preview.
     @Test func aMarkdownImageLinkedToACloudOnlyPictureIsRefused() throws {
         let picture = path("photo.png")
         try Data([0x89, 0x50, 0x4E, 0x47]).write(to: URL(fileURLWithPath: picture))

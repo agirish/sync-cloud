@@ -4,14 +4,10 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The strip's shedding ladder — the three rungs, and the two properties that make a ladder a
-/// ladder rather than a pile of thresholds: it never widens as it sheds, and it moves with the
-/// app's font scale.
-///
-/// The scale half is the one the v4.x roadmap calls out as a trap, and it is a real one: the pane
-/// bar's ladder is constant arithmetic (the string `scale` does not appear in
-/// `PaneBarArrangement.swift` at all) and copying its shape here would give a strip that keeps
-/// drawing five chips at Large with their names squeezed out of them.
+/// The strip's shedding ladder: the three rungs, and the two properties that make it a ladder
+/// rather than a pile of thresholds. It never widens as it sheds, and it moves with the app's font
+/// scale. The scale half is the trap: the pane bar's ladder is constant arithmetic, and copying its
+/// shape here would keep drawing five chips at Large with their names squeezed out.
 @MainActor
 @Suite struct PaneTabStripLadderTests {
 
@@ -19,8 +15,8 @@ import Design
     private let four = ["Finance", "Photos", "Legal", "Medical"]
     private let five = ["Finance", "Photos", "Legal", "Medical", "Immigration"]
 
-    /// The widest pane at which this strip is no longer `full` — the point the ladder sheds at,
-    /// which is what "sheds earlier at a bigger font" is a claim about.
+    /// The widest pane at which this strip is no longer `full`: the point the ladder sheds at,
+    /// which "sheds earlier at a bigger font" is a claim about.
     private func sheddingWidth(scale: CGFloat) -> CGFloat {
         var width: CGFloat = 900
         while width > 100 {
@@ -34,14 +30,10 @@ import Design
 
     // MARK: The roadmap's table
 
-    /// §1's rung table, reproduced **with the tab count stated** — the widths in it are the pane
-    /// widths a four- or five-tab strip meets each rung at, not thresholds the code compares
-    /// against. Three tabs at 340pt legitimately still get `full`, which is the test below.
-    ///
-    /// **Measured while writing this, and worth recording rather than rounding away:** five tabs at
-    /// 520pt come out five points short of `full` — 5 × 96 + four gaps + the trailing ＋ is 526.
-    /// The table's "520+" row is a four-tab strip, which is what this pins; the five-tab strip
-    /// crosses at 526 and is pinned separately below so the number is written down somewhere.
+    /// The roadmap's rung table, with the tab count stated: its widths are where a four- or
+    /// five-tab strip meets each rung, not thresholds the code compares against. Three tabs at
+    /// 340pt still get `full` (a test below). The "520+" row is a four-tab strip; five tabs need
+    /// 526 (5 × 96 + four gaps + the trailing ＋), pinned separately below.
     @Test func theTableInTheRoadmapIsReproduced() {
         #expect(PaneTabStripLadder.layout(available: 520, titles: four, scale: 1).rung == .full)
         #expect(PaneTabStripLadder.layout(available: 340, titles: five, scale: 1).rung == .compact)
@@ -54,8 +46,8 @@ import Design
     }
 
     @Test func aTabNeverGrowsPastItsCap() {
-        // A very wide pane with two tabs: without the cap they would be ~450pt each and the strip
-        // would read as a segmented control.
+        // A very wide pane with two tabs: uncapped they would be ~450pt each and the strip would
+        // read as a segmented control.
         let layout = PaneTabStripLadder.layout(available: 940, titles: ["A", "B"], scale: 1)
         #expect(layout.rung == .full)
         #expect(layout.tabWidth <= PaneTabStripLadder.maxTabWidth)
@@ -75,8 +67,8 @@ import Design
         #expect(layout.overflowCount == five.count - layout.visibleCount)
     }
 
-    /// The rail's rung: one named tab and a menu for the rest. What must survive at 220pt is
-    /// *which folder this pane is showing* — never a row of marks.
+    /// The rail's rung: one named tab and a menu for the rest. What must survive at 220pt is which
+    /// folder this pane is showing, never a row of marks.
     @Test func theRailGetsTheChipRungWithEveryOtherTabBehindTheCount() {
         let layout = PaneTabStripLadder.layout(available: 220, titles: five, scale: 1)
         #expect(layout.rung == .chip)
@@ -86,9 +78,8 @@ import Design
 
     // MARK: The two ladder properties
 
-    /// Monotonic: at every width from a wide pane down to the rail, what the strip draws never
-    /// grows as the pane shrinks. A ladder with an inversion has a rung that can never be chosen —
-    /// `PaneBarLadder` documents living with exactly that, and this one must not.
+    /// Monotonic: from a wide pane down to the rail, what the strip draws never grows as the pane
+    /// shrinks. A ladder with an inversion has a rung that can never be chosen.
     @Test func theLadderNeverWidensAsItSheds() {
         var previous = CGFloat.greatestFiniteMagnitude
         for width in stride(from: CGFloat(900), through: 180, by: -4) {
@@ -100,7 +91,7 @@ import Design
         }
     }
 
-    /// And it always fits: the whole point of shedding is that the row does not overflow its pane.
+    /// And it always fits: the point of shedding is that the row doesn't overflow its pane.
     @Test func everyRungFitsTheWidthItWasChosenFor() {
         for width in stride(from: CGFloat(900), through: 200, by: -4) {
             let layout = PaneTabStripLadder.layout(available: width, titles: five, scale: 1)
@@ -109,18 +100,11 @@ import Design
         }
     }
 
-    /// **`.compact` never draws a SINGLE chip beside a chevron** — the state `chipCeiling` exists
-    /// to refuse, in its own words "strictly worse than naming the active tab and menuing the rest".
-    ///
-    /// It was reachable, and the arithmetic is why: the ceiling was priced with
-    /// `gaps(children: 4)` while the narrowest compact row it stands in for —
-    /// `[tab] [tab] [overflow] [spacer] [＋]` — has FIVE children. One gap, 4pt, of daylight between
-    /// the two prices, and inside it `layout` skipped the chip rung, failed to fit the second chip,
-    /// and returned exactly the rung the ceiling had just declined to return. Twelve or more tabs at
-    /// 269–270pt, scale 1.0, seventeen (count, width) pairs.
-    ///
-    /// Swept rather than spot-checked at the two failing widths: the band is narrow and moves with
-    /// the scale, so a fixture pinned to 269 would pass the moment a font metric shifted it.
+    /// `.compact` never draws a single chip beside a chevron, the state `chipCeiling` refuses as
+    /// worse than naming the active tab and menuing the rest. The ceiling must be priced for the
+    /// narrowest compact row, `[tab] [tab] [overflow] [spacer] [＋]`, five children: priced a gap
+    /// short, `layout` falls into that state in a 4pt band. Swept rather than spot-checked, because
+    /// the band is narrow and moves with the scale.
     @Test(arguments: [CGFloat(1.0), 1.35]) func compactNeverDrawsOneChipBesideAChevron(scale: CGFloat) {
         for count in 1...8 {
             let titles = (0..<count).map { "Folder\($0)" }
@@ -134,14 +118,12 @@ import Design
         }
     }
 
-    /// **The trap.** The app scales its own type, so the same five tabs that fit at the default do
-    /// not at Large — and a chip's floor is its chrome plus a legible stub of a name, both of which
-    /// move with the font.
+    /// The trap. The app scales its own type, so five tabs that fit at the default don't at Large:
+    /// a chip's floor is its chrome plus a legible stub of a name, and both move with the font.
     @Test func aLargerFontShedsEarlier() {
         #expect(PaneTabStripLadder.floorWidth(scale: 1.35) > PaneTabStripLadder.floorWidth(scale: 1))
-        // The claim in the width the user actually sees: the same five tabs stop fitting in a WIDER
-        // pane once the type grows. A ladder of constants — the pane bar's shape — returns the same
-        // number at both scales, and this is the assertion it fails.
+        // The claim in the width the user sees: the same five tabs stop fitting in a wider pane
+        // once the type grows. A ladder of constants, the pane bar's shape, fails this.
         #expect(sheddingWidth(scale: 1.35) > sheddingWidth(scale: 1))
         // And at the wider pane where both are still `full`, the larger type gets the wider chip.
         let wide: CGFloat = 900
@@ -149,16 +131,16 @@ import Design
                 > PaneTabStripLadder.layout(available: wide, titles: five, scale: 1).tabWidth)
     }
 
-    /// The floor is a MEASUREMENT, not the constant 96 — that constant is only its lower bound.
-    /// A test that pinned 96 at every scale would pass with the measurement deleted.
+    /// The floor is a measurement, not the constant 96, which is only its lower bound. A test that
+    /// pinned 96 at every scale would pass with the measurement deleted.
     @Test func theFloorIsMeasuredNotAssumed() {
         #expect(PaneTabStripLadder.floorWidth(scale: 1) >= PaneTabStripLadder.minTabWidth)
         // At the largest text size the chrome plus a five-character stub exceeds the constant.
         #expect(PaneTabStripLadder.floorWidth(scale: 1.35) > PaneTabStripLadder.minTabWidth)
     }
 
-    /// A longer name asks for a wider chip, up to the cap — the measurement is of the actual title,
-    /// not of a placeholder.
+    /// A longer name asks for a wider chip, up to the cap: the measurement is of the actual title,
+    /// not a placeholder.
     @Test func aLongerNameWantsAWiderChip() {
         let brief = PaneTabStripLadder.naturalWidth(title: "US", scale: 1)
         let long = PaneTabStripLadder.naturalWidth(title: "Immigration Paperwork 2019", scale: 1)
@@ -168,9 +150,9 @@ import Design
 
     // MARK: The degenerate cases
 
-    /// **One tab still gets a real chip.** Usually there is no strip at all — the pane checks
-    /// `showsStrip` — but View ▸ Tab Bar keeps a one-tab strip on screen on purpose, and this
-    /// returned zero width for that case: a strip with nothing in it but its ＋.
+    /// One tab still gets a real chip. Usually there is no strip (the pane checks `showsStrip`),
+    /// but View ▸ Tab Bar keeps a one-tab strip on screen on purpose, and it must not be a strip
+    /// with nothing in it but its ＋.
     @Test func oneTabIsLaidOutLikeAnyOther() {
         let layout = PaneTabStripLadder.layout(available: 620, titles: ["Finance"], scale: 1)
         #expect(layout.rung == .full)
@@ -181,8 +163,8 @@ import Design
         #expect(layout.tabWidth <= PaneTabStripLadder.maxTabWidth)
     }
 
-    /// A one-tab strip in a narrow pane reserves no room for a count it will not draw — that track
-    /// belongs to the one thing this rung has to keep, the name.
+    /// A one-tab strip in a narrow pane reserves no room for a count it won't draw; that room
+    /// belongs to the one thing this rung must keep, the name.
     @Test func aOneTabChipRungReservesNoCount() {
         let narrow = PaneTabStripLadder.layout(available: 200, titles: ["Immigration"], scale: 1)
         let withCount = PaneTabStripLadder.layout(available: 200, titles: ["Immigration", "Photos"], scale: 1)
@@ -218,15 +200,10 @@ import Design
         let layout = PaneTabStripLadder.layout(available: 120, titles: five, scale: 1)
         #expect(layout.rung == .chip)
         #expect(layout.visibleCount == 1)
-        // **Not `>= 0`, which the production `max(0, min(…))` makes true by construction** — and
-        // it was this suite's only assertion on the chip rung's width. Shrink that rung by 24pt
-        // and at 120pt the name budget drops below the chrome width, leaving no room for any name
-        // at all, and `>= 0` would still have passed. The floor is the chrome the chip must carry
-        // plus something for the name; the arithmetic today leaves ~14pt of name against a
-        // declared 96pt minimum, which is the margin this pins.
-        // The chrome a chip must carry whatever its name: the mark, the close button, the gap
-        // between them and the padding on both sides. Anything at or below this leaves ZERO points
-        // for the name, which is the state this rung exists to avoid.
+        // Not `>= 0`, which the production `max(0, min(…))` makes true by construction. The chip
+        // must be wider than its chrome (mark, close button, the gap between them and padding on
+        // both sides), or it leaves no room for a name, the state this rung exists to avoid. Today
+        // ~14pt of name is left at 120pt; shrinking the rung by 24pt fails this.
         let chrome = PaneTabStripLadder.markSide + PaneTabStripLadder.closeSide
             + PaneTabStripLadder.contentGap + PaneTabStripLadder.tabPadding * 2
         #expect(layout.tabWidth > chrome,
@@ -235,14 +212,10 @@ import Design
 
     // MARK: Close Other Tabs, when the others are pinned
 
-    /// **Pins survive Close Other Tabs**, so the number of tabs is not the number it would close.
-    /// A `count < 2` gate leaves the item enabled on a strip where it does nothing — the one item
-    /// on that menu that would lie about being available.
-    ///
-    /// In *this* suite because `PaneTabStrip` is `@MainActor` and this one is too. Written into the
-    /// gesture suite below first, it compiled and then trapped at runtime in
-    /// `_swift_task_checkIsolatedSwift` — an isolation crash rather than a failure, which takes the
-    /// whole bundle down and reports as `signal code 5` with no test named.
+    /// Pins survive Close Other Tabs, so the number of tabs is not the number it would close. A
+    /// `count < 2` gate would leave the item enabled on a strip where it does nothing. In this
+    /// suite because `PaneTabStrip` is `@MainActor` and so is this one: from a nonisolated suite it
+    /// compiles, then traps in `_swift_task_checkIsolatedSwift`, taking the whole bundle down.
     @Test func closeOtherTabsCountsOnlyTheTabsItWouldActuallyClose() {
         func tab(_ title: String, pinned: Bool = false) -> PaneTabStrip.Item {
             PaneTabStrip.Item(id: UUID(), title: title, markImageName: "folder.fill",
@@ -258,28 +231,22 @@ import Design
         #expect(PaneTabStrip.closableOthers(of: target, in: [target, pinnedA, plain]) == 1)
         #expect(PaneTabStrip.closableOthers(of: target, in: [target]) == 0,
                 "a lone tab counted itself")
-        // A pinned tab's own menu still closes the unpinned others — pinning protects the tab, it
-        // does not disarm the gesture.
+        // A pinned tab's own menu still closes the unpinned others: pinning protects the tab, it
+        // doesn't disarm the gesture.
         #expect(PaneTabStrip.closableOthers(of: pinnedA, in: [pinnedA, pinnedB, plain]) == 1)
     }
 
-    /// **…and the MENU asks that rule**, which the test above cannot see.
-    ///
-    /// `closableOthers` had exactly one reader — the test. Putting `.disabled(items.count < 2)`
-    /// back on the item leaves the rule in place, every assertion above green, and the inert item
-    /// back on the menu: the "extracted for testability, one revert from unused" shape this repo
-    /// has shipped before. So this reads the REAL menu.
-    ///
-    /// Right-clicking a hosted SwiftUI view is the one interaction a unit test can drive here —
-    /// SwiftUI answers `NSView.menu(for:)` by hit-testing the point, which
-    /// `PaneBarCustomizeSheetTests` established and which also makes this a check that the chip is
-    /// aimable at all. A `TapGesture` would not be reachable; a context menu is.
+    /// …and the menu asks that rule, which the test above can't see: a `.disabled(items.count < 2)`
+    /// on the item would leave the rule unused and every assertion above green. So this reads the
+    /// real menu. A right-click is the one interaction a unit test can drive here: SwiftUI answers
+    /// `NSView.menu(for:)` by hit-testing the point (as in `PaneBarCustomizeSheetTests`), which
+    /// also checks the chip is aimable at all.
     @Test func theMenuDisablesCloseOtherTabsWhenEveryOtherTabIsPinned() throws {
         func tab(_ title: String, active: Bool = false, pinned: Bool = false) -> PaneTabStrip.Item {
             PaneTabStrip.Item(id: UUID(), title: title, markImageName: "folder.fill",
                               isActive: active, fullPath: "/r/\(title)", isPinned: pinned)
         }
-        /// Right-clicks the FIRST chip and returns its menu items by title and enablement.
+        /// Right-clicks the first chip and returns its menu items by title and enablement.
         func menuOnFirstChip(of items: [PaneTabStrip.Item]) throws -> [(String, Bool)] {
             let strip = PaneTabStrip(items: items,
                                      onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in },
@@ -287,7 +254,7 @@ import Design
                 .frame(width: 600, height: PaneTabStripLadder.stripHeight)
             let host = NSHostingView(rootView: AnyView(strip))
             host.frame = CGRect(x: 0, y: 0, width: 600, height: PaneTabStripLadder.stripHeight)
-            // Borderless and never ordered in: a `.titled` window cannot be parked off screen —
+            // Borderless and never ordered in: a `.titled` window can't be parked off screen, since
             // `constrainFrameRect` drags it back over whatever he is doing.
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                                   backing: .buffered, defer: false)
@@ -313,9 +280,9 @@ import Design
         let allPinned = try menuOnFirstChip(of: [tab("Target", active: true),
                                                  tab("Pinned A", pinned: true),
                                                  tab("Pinned B", pinned: true)])
-        // WHICH chip was hit, before anything is read off its menu: the target is the only unpinned
-        // tab in this fixture, so its menu offers "Pin Tab" where a pinned neighbour's would offer
-        // "Unpin Tab". Without this the assertions below could be answered by the wrong chip.
+        // Which chip was hit, before anything is read off its menu: the target is the only unpinned
+        // tab here, so its menu offers "Pin Tab" where a pinned neighbour's offers "Unpin Tab".
+        // Otherwise the wrong chip could answer the assertions below.
         #expect(allPinned.contains { $0.0 == "Pin Tab" },
                 "the right-click did not land on the unpinned target chip — found \(allPinned.map(\.0))")
         let closeOthers = try #require(allPinned.first { $0.0 == "Close Other Tabs" },
@@ -323,8 +290,8 @@ import Design
         #expect(!closeOthers.1,
                 "Close Other Tabs is enabled on a strip where every other tab is pinned")
 
-        // The control: one unpinned other, and the same item is live. Without this the check above
-        // would pass just as well on a menu whose every item was disabled.
+        // The control: one unpinned other, and the same item is live. Otherwise the check above
+        // would pass on a menu whose every item was disabled.
         let oneClosable = try menuOnFirstChip(of: [tab("Target", active: true),
                                                   tab("Pinned A", pinned: true),
                                                   tab("Plain")])
@@ -332,18 +299,11 @@ import Design
         #expect(live.1, "Close Other Tabs is disabled even though an unpinned other exists")
     }
 
-    /// **The chip nests concentrically inside the strip card**, on every corner and by arithmetic.
-    ///
-    /// A corner sits inside another without the two curves fighting when the inner radius is the
-    /// outer radius less the gap between them. The strip shipped unable to satisfy that on any
-    /// corner: the card is `Radius.card` (14), the horizontal gutter was `LiquidGlass.cardGutter`
-    /// (5) and the vertical inset `(34 - 26) / 2` (4), so the chip needed radius 9 across and 10
-    /// down — and carried `Radius.chip`, 6, which is neither.
-    ///
-    /// Matching the gutter to the vertical inset is what collapses those two answers into one. This
-    /// pins the whole relationship rather than the three numbers separately, because the numbers are
-    /// only correct together: any one of them moved on its own re-opens the mismatch, and the point
-    /// of putting them side by side on the ladder was that nothing should be able to.
+    /// The chip nests concentrically inside the strip card, on every corner, by arithmetic: an
+    /// inner corner sits inside an outer one without the curves fighting when its radius is the
+    /// outer radius less the gap. That needs the horizontal gutter to equal the vertical inset, so
+    /// one radius serves both. Pinned as a relationship rather than three numbers, because the
+    /// numbers are only right together: moving any one alone reopens the mismatch.
     @Test func theChipNestsConcentricallyInsideTheCard() {
         let verticalInset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
         #expect(PaneTabStripLadder.stripGutter == verticalInset, """
@@ -358,7 +318,7 @@ import Design
         // And the radius is a stop on the scale rather than a number invented for the strip.
         #expect(Radius.all.contains(PaneTabStripLadder.chipRadius),
                 "\(PaneTabStripLadder.chipRadius) is not on the radius scale")
-        // The rule then has to clear that corner — see `ruleInset`, and
+        // The rule then has to clear that corner: see `ruleInset`, and
         // `theRuleEndsInsideTheChipItMarks` for the pixels.
         #expect(PaneTabStripLadder.ruleInset > PaneTabStripLadder.chipRadius, """
                 the rule is inset \(PaneTabStripLadder.ruleInset)pt inside a \
@@ -368,22 +328,10 @@ import Design
 }
 
 
-/// **No gesture on a column row, ever** — the standing guard on a bug this repo has now fixed three
-/// times.
-///
-/// `b2c65766` and `c04574f0` removed a `TapGesture` from the TREE row in July 2026 after a live
-/// flag-bisect convicted it: *"that gesture still intermittently swallowed the mouse-up the List
-/// needs to commit a selection — so clicks with the slightest travel did nothing."* `743d8bde` then
-/// put one on the COLUMN row to make a plain click drill, and `668ccaa2` added a second, count-2 one
-/// beside it for ⌘-double-click. Between them they ate roughly nine of every ten ⌘/⇧ clicks.
-///
-/// **Measured 2026-09-08, live** — the numbers are in the note on `columnRow`, and the discriminator
-/// was the mouse-UP: a click the table handles has its up consumed by `NSTableView`'s tracking loop,
-/// a dead click's up arrives untouched. Gesture on, 28→3 / 43→5 / 8→1 selections; gesture off, 6→6.
-///
-/// A source scan, and unavoidably so: a `TapGesture` installs no recognizer an `NSEvent` can reach,
-/// so no unit test can exercise the failure. What a scan CAN do is refuse the construct outright,
-/// which is the only guarantee that has ever held here.
+/// No gesture on a column row, ever. A tap gesture on a row swallows the mouse-up the List needs to
+/// commit a selection, so most ⌘/⇧ clicks, and clicks with the slightest travel, select nothing
+/// (see the note on `columnRow`). A source scan, because a `TapGesture` installs no recognizer an
+/// `NSEvent` can reach, so no unit test can exercise the failure; the scan refuses the construct.
 @Suite struct PaneColumnRowHasNoGestureTests {
 
     private func source() throws -> String {
@@ -398,10 +346,9 @@ import Design
         #expect(try source().contains("struct PaneColumnsView"), "this is not the columns view — the scan is vacuous")
     }
 
-    /// Comment lines stripped, because the note on the row NAMES the constructs it forbids — and a
-    /// scan that reads prose convicts the explanation instead of the code. (`PaneTabWiringTests`
-    /// keeps a `codeOnly` for the same reason; this is the local copy rather than a new dependency
-    /// between two suites in different targets.)
+    /// Comment lines stripped, because the note on the row names the constructs it forbids, and a
+    /// scan that read prose would convict the explanation. A local copy of `PaneTabWiringTests`'
+    /// `codeOnly`, which lives in another target.
     private func codeOnly(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -409,7 +356,7 @@ import Design
     }
 
     /// The row itself carries no gesture of any kind. Scoped to the row's own modifier chain,
-    /// because `.onTapGesture` is legitimate elsewhere in the file — the trailing deselect filler is
+    /// because `.onTapGesture` is legitimate elsewhere in the file: the trailing deselect filler is
     /// not a row and has no List selection to protect.
     @Test func theColumnRowCarriesNoGesture() throws {
         let code = try source()
@@ -424,8 +371,8 @@ import Design
         }
     }
 
-    /// …and the navigation it used to do still exists, in the one place that actually ran it.
-    /// Removing the gesture without this would leave clicking a folder doing nothing at all.
+    /// …and the column drill lives in the List's selection commit, so clicking a folder still opens
+    /// its column.
     @Test func theListsSelectionCommitStillNavigates() throws {
         let code = try source()
         let setter = try #require(code.range(of: "set: { newValue in"), "the column selection binding is gone")
@@ -438,8 +385,8 @@ import Design
                 "the deferred navigation lost its staleness check")
     }
 
-    /// ⌘-double-click "Open in New Tab" went with the gesture, deliberately — but the feature has to
-    /// stay reachable, which is the trade `c04574f0` made when it removed the tree row's gesture.
+    /// With no gesture there is no ⌘-double-click, so Open in New Tab must stay reachable from the
+    /// row's menu.
     @Test func openInNewTabIsStillReachableFromTheRowMenu() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -451,30 +398,19 @@ import Design
 }
 
 
-/// The invariant the pane strip's travelling marker rests on. Separate from the ladder suite
-/// above because it is not about widths: `activeGround` carries a `matchedGeometryEffect` and is
-/// rendered only for the active item, so the effect is well-defined exactly while the active tab
-/// is among the ones drawn.
-/// **`@MainActor`, and not optionally.** `PaneTabStrip` is a SwiftUI `View`, so its members —
-/// including the static `visible(_:slots:)` — inherit main-actor isolation, and the explicit
-/// closure in `items.filter { !$0.isPinned }` carries that isolation with it. Calling it from a
-/// nonisolated test compiles cleanly and then **traps at runtime** inside
-/// `_swift_task_checkIsolatedSwift`, with no failed expectation and no message — the test host
-/// simply dies with `signal code 5`.
-///
-/// Worth spelling out because the first version of this suite was nonisolated and one of its two
-/// tests passed anyway: `morePinnedTabsThanSlots…` returns at the `pinned.count < slots` guard,
-/// which is *before* the isolated closure, and the key-path `filter(\.isPinned)` above it does not
-/// carry isolation the same way. A green test proved nothing about the isolation, and the sweep
-/// beside it was what surfaced the trap.
+/// The invariant the pane strip's travelling marker rests on, separate from the ladder suite
+/// because it isn't about widths. `@MainActor`, and not optionally: `PaneTabStrip` is a SwiftUI
+/// `View`, so `visible(_:slots:)` inherits main-actor isolation, and its closure in
+/// `items.filter { !$0.isPinned }` carries it. Called from a nonisolated test it compiles, then
+/// traps in `_swift_task_checkIsolatedSwift` with no message. A test that returns before that
+/// closure (as `morePinnedTabsThanSlots…` does) passes either way and proves nothing about it.
 @Suite @MainActor struct PaneTabStripActiveVisibilityTests {
 
 
-    /// **The sliding marker assumes exactly one source exists.** `activeGround` is rendered only for
+    /// The sliding marker assumes exactly one source exists. `activeGround` is rendered only for
     /// the active item and carries a `matchedGeometryEffect`, so the effect is well-defined only
-    /// while the active tab is among the ones actually drawn. `visible(_:slots:)` windows around
-    /// the active index precisely to keep it there — this pins that, because it is an invariant the
-    /// marker now depends on and not just a nicety about which tabs you can see.
+    /// while the active tab is among the ones drawn. `visible(_:slots:)` windows around the active
+    /// index to keep it there, an invariant the marker depends on.
     @Test func theActiveTabSurvivesEveryWindowWidth() {
         for count in 1...8 {
             let items = (0..<count).map { i in
@@ -497,10 +433,9 @@ import Design
         }
     }
 
-    /// The one branch where that is NOT true, stated so it is a known shape rather than a surprise:
-    /// with more PINNED tabs than slots the window is all pinned, and an unpinned active tab is not
-    /// drawn at all. Its marker goes with it — which is what the strip already did before the marker
-    /// travelled, so this is a record of the edge, not a claim that it is right.
+    /// The one branch where that doesn't hold, stated so it is a known shape: with more pinned tabs
+    /// than slots the window is all pinned, and an unpinned active tab isn't drawn, nor its marker.
+    /// A record of the edge, not a claim that it is right.
     @Test func morePinnedTabsThanSlotsDropsAnUnpinnedActiveTab() {
         let items = [
             PaneTabStrip.Item(id: UUID(), title: "P0", markImageName: "folder", isActive: false,

@@ -49,12 +49,11 @@ public final class UnansweredRealDisk: FileManaging, @unchecked Sendable {
         parked = true
         lock.unlock()
         entered.signal()
-        // A provider that has stopped never answers, so only `answerAtOnce()` or `finish` lets this
-        // go. The bound is for a listing that waits on the provider without the reads' deadline,
-        // which would otherwise hang its test: two minutes while the reads still hold the folder.
-        // Once they have given it up, the caller has stopped waiting, and only a starved pool keeps
-        // its test from the release — two minutes of that let this answer first and turned "came
-        // back while still parked" red (hosted CI, 2026-10-31) — so then it is half an hour.
+        // A stopped provider never answers, so only `answerAtOnce()` or `finish` lets this go.
+        // The bound keeps a listing that ignores the reads' deadline from hanging its test: two
+        // minutes while the reads still hold the folder. Once they have given it up, only a
+        // starved pool delays the release, and answering first would turn "came back while still
+        // parked" red, so then it is half an hour.
         let since = ContinuousClock.now
         while release.wait(timeout: .now() + .milliseconds(50)) == .timedOut {
             let givenUp = datalessFolderReads.unansweredPaths().contains(unansweredKey)
@@ -117,10 +116,9 @@ public final class OneThreadExecutor: TaskExecutor, @unchecked Sendable {
     /// it measured nothing.
     ///
     /// **Everything from the ask to the answer runs on a thread of its own, never the cooperative
-    /// pool.** The disk answers by itself after two minutes; when this waited for the ask, queued
-    /// the job and answered from the test's task, a pool starved for two minutes (hosted CI,
-    /// 2026-10-31) let it answer first, and a `body` that suspended was reported as one that held
-    /// its thread. Now a starved pool delays only the result.
+    /// pool.** The disk answers by itself after two minutes, so a starved pool running this part
+    /// could let it answer first and report a suspending `body` as one that held its thread. On
+    /// its own thread, a starved pool delays only the result.
     public static func letsAnotherJobRun<T: Sendable>(
         whileAsking disk: UnansweredRealDisk,
         _ body: @escaping @Sendable () async -> T

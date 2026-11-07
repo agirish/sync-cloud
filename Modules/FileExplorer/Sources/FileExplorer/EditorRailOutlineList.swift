@@ -4,14 +4,13 @@ import Design
 /// The rail's Outline tab: a scrolling list of an outline's rows, the current one marked, its
 /// place remembered per file.
 ///
-/// **One list for two kinds of outline** — a Markdown file's headings, and a PDF's bookmarks
-/// (``EditorPDFRailOutline``), which arrive as rows of the same type. Lifted out of
-/// ``EditorFileRailView`` for the PDF, so the scroll memory and the opening scroll are one piece of
-/// code rather than two that could disagree about where a reader left off.
+/// One list for two kinds of outline: a Markdown file's headings and a PDF's bookmarks
+/// (``EditorPDFRailOutline``), which arrive as rows of the same type, so the scroll memory and the
+/// opening scroll are one piece of code that can't disagree about where a reader left off.
 struct EditorRailOutlineList: View {
 
     let rows: [MarkdownOutlineEntry]
-    /// Which row the reader is in — the caret's heading, or the bookmark at the current page.
+    /// Which row the reader is in: the caret's heading, or the bookmark at the current page.
     let currentIndex: Int?
     /// The open file, which the scroll memory is keyed by.
     let path: String?
@@ -23,11 +22,11 @@ struct EditorRailOutlineList: View {
     let onSelect: (MarkdownOutlineEntry) -> Void
     /// What each row is, for VoiceOver and an untitled row: headings or bookmarks.
     var noun: Noun = .heading
-    /// Words drawn at a row's trailing edge, by row id — a bookmark's page number.
+    /// Words drawn at a row's trailing edge, by row id: a bookmark's page number.
     var trailing: [Int: String] = [:]
-    /// Rows that go nowhere — a bookmark with no page in this file. Drawn, and not clickable.
+    /// Rows that go nowhere (a bookmark with no page in this file). Drawn, and not clickable.
     var inert: Set<Int> = []
-    /// Esc: the keys back to the text or the PDF (TE154). `nil` leaves Esc to whoever is next.
+    /// Esc: the keys back to the text or the PDF. `nil` leaves Esc to whoever is next.
     var onEscape: (() -> Void)? = nil
 
     enum Noun {
@@ -35,25 +34,22 @@ struct EditorRailOutlineList: View {
         var untitled: String { self == .heading ? "Untitled heading" : "Untitled bookmark" }
     }
 
-    /// The outline's top row, as `.scrollPosition(id:)` reports and accepts it.
-    ///
-    /// **Per document — both call sites give the list `.id(path)`.** Kept across a change of file,
-    /// a top row from the last one survived into the next, and with a PDF's row ids running 0…n−1
-    /// it almost always named a row there too: PDF B opened scrolled to where A was left.
+    /// The outline's top row, as `.scrollPosition(id:)` reports and accepts it. Per document, since
+    /// both call sites give the list `.id(path)`: kept across files, a PDF's ids (0…n−1) would open
+    /// the next PDF scrolled to where the last was left.
     @State private var topRow: Int?
-    /// The section's height, as the scroll view reports it — the one input that decides how
-    /// many rows are on screen, and so whether the current row would be past the fold.
+    /// The section's height, as the scroll view reports it: how many rows are on screen, and so
+    /// whether the current row is past the fold.
     ///
-    /// **`onGeometryChange` on the scroll view, not a `GeometryReader` around it.** A reader is a
-    /// container with no intrinsic size of its own, and one wrapped around this rail collapsed it to
-    /// 10pt for anything asking its ideal height — the trap `EditorLayoutTests` caught when the
-    /// outline was first built. A modifier reads the same number and takes part in no layout.
+    /// `onGeometryChange`, not a `GeometryReader` around the scroll view: a reader has no
+    /// intrinsic size and collapses the rail to 10pt for anything asking its ideal height
+    /// (`EditorLayoutTests`). A modifier reads the same number and takes part in no layout.
     @State private var height: CGFloat = 0
-    /// Read again for the row-height arithmetic — how many rows fit is a question about the app's
-    /// text size as much as about the section's height.
+    /// Read for the row-height arithmetic: how many rows fit depends on the app's text size as much
+    /// as on the section's height.
     @Environment(\.appFontScale) private var fontScale
-    /// The list's keyboard focus, and the row its cursor is on (TE110, see ``EditorRailKeyboard``).
-    /// `nil` puts the cursor on the current row until an arrow moves it.
+    /// The list's keyboard focus, and the row its cursor is on (see ``EditorRailKeyboard``). `nil`
+    /// puts the cursor on the current row until an arrow moves it.
     @FocusState private var focused: Bool
     @State private var keyedRow: Int?
 
@@ -104,15 +100,14 @@ struct EditorRailOutlineList: View {
                 onEscape()
                 return .handled
             }
-            // **Both directions of one binding.** It accepts the row to open at, below, and it
-            // reports the top row as the reader scrolls, which is what the recording reads.
+            // Both directions of one binding: it takes the row to open at, below, and reports the
+            // top row as the reader scrolls, which the recording reads.
             .scrollPosition(id: $topRow)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            // **`initial: true` on the rows, not on the path.** A Markdown outline is CLEARED the
-            // instant the path changes and refilled 150ms later by a parse that runs off the main
-            // actor, so a restore hung on the path change would scroll a list with no rows in it
-            // and do nothing at all. This fires on the arrival, which is the first moment there is
-            // anything to scroll to — and on the tab coming back, where the rows are already there.
+            // `initial: true` on the rows, not on the path: a Markdown outline is cleared when the
+            // path changes and refilled ~150ms later by an off-main parse, so a restore on the path
+            // change would scroll an empty list. This fires when the rows arrive, and when the tab
+            // comes back with them already there.
             .onChange(of: rows, initial: true) { _, rows in
                 guard !rows.isEmpty else { return }
                 let fits = EditorOutlineScroll.rowsThatFit(height: height, scale: fontScale)
@@ -123,8 +118,8 @@ struct EditorRailOutlineList: View {
                     topRow = target
                 }
             }
-            // **The current row is kept in view as the reader moves** (TE179) — only once it has
-            // left the list's view, so a list on screen is never pulled about under the pointer.
+            // The current row is kept in view as the reader moves, but only once it has left the
+            // list's view, so the list is never pulled about under the pointer.
             .onChange(of: currentIndex) { _, _ in
                 let fits = EditorOutlineScroll.rowsThatFit(height: height, scale: fontScale)
                 if let target = EditorOutlineScroll.followTarget(current: currentRow, top: topRow,
@@ -132,9 +127,8 @@ struct EditorRailOutlineList: View {
                     proxy.scrollTo(target, anchor: .center)
                 }
             }
-            // **Recording is the binding reporting, not a second observation.** Every way the top
-            // row can change ends up here — the reader scrolling, and the opening scroll above —
-            // and both are worth remembering: the list is where it is either way.
+            // Recording is the binding reporting, not a second observation: the reader scrolling and
+            // the opening scroll both end up here, and both are worth remembering.
             .onChange(of: topRow) { _, top in
                 guard EditorOutlineScroll.recordsAnchor(path: path, outlineIsEmpty: rows.isEmpty,
                                                         top: top),
@@ -150,27 +144,27 @@ struct EditorRailOutlineList: View {
         path.flatMap { outlineAnchors[$0] }
     }
 
-    /// The current row as a row id rather than an index into the array — which is what the scroll
-    /// view speaks, and what makes "is it visible" a set membership test.
+    /// The current row as a row id rather than an array index: what the scroll view speaks, and
+    /// what makes "is it visible" a set membership test.
     private var currentRow: Int? {
         guard let currentIndex, rows.indices.contains(currentIndex) else { return nil }
         return rows[currentIndex].id
     }
 
-    /// A list with nothing in it, built only to reach ``row(_:isCurrent:)`` from
+    /// A list with nothing in it, built only to reach ``row(_:isCurrent:isKeyed:)`` from
     /// ``EditorFileRailView/outlineRowProbe(_:isCurrent:)``.
     static var probe: EditorRailOutlineList {
         EditorRailOutlineList(rows: [], currentIndex: nil, path: nil, emptyCaption: "",
                               outlineAnchors: .constant([:]), accent: .blue, onSelect: { _ in })
     }
 
-    /// The words a row draws: its title, or — for an empty `##` or a nameless bookmark — what it is.
+    /// The words a row draws: its title, or what it is for an empty `##` or a nameless bookmark.
     static func shownTitle(_ entry: MarkdownOutlineEntry, noun: Noun) -> String {
         entry.title.isEmpty ? noun.untitled : entry.title
     }
 
-    /// What VoiceOver reads for a row — the DRAWN title, so an empty heading reads "Untitled
-    /// heading" as it does on screen, rather than its level and then nothing (TE139).
+    /// What VoiceOver reads for a row: the drawn title, so an empty heading reads "Untitled
+    /// heading" as on screen rather than its level and then nothing.
     static func accessibilityLabel(_ entry: MarkdownOutlineEntry, noun: Noun) -> String {
         let title = shownTitle(entry, noun: noun)
         return noun == .heading ? "Heading level \(entry.level), \(title)" : "Bookmark, \(title)"
@@ -180,17 +174,16 @@ struct EditorRailOutlineList: View {
         let title = Self.shownTitle(entry, noun: noun)
         let goesNowhere = inert.contains(entry.id)
         return Button {
-            // The cursor follows a click (TE110), but focus does not: a heading sends the caret
-            // into the text, which takes the keys so typing goes where the reader was sent.
+            // The cursor follows a click, but focus doesn't: a heading sends the caret into the
+            // text, which takes the keys so typing goes where the reader was sent.
             keyedRow = entry.id
             onSelect(entry)
         } label: {
             HStack(spacing: 0) {
                 Color.clear.frame(width: CGFloat(entry.depth) * EditorFileRailView.outlineIndentStep,
                                   height: 1)
-                // **An empty heading keeps its row.** `##` on its own is legal and it is somewhere
-                // in the document you can go; a row with nothing in it would be unclickable-looking,
-                // so it says what it is instead of pretending it is not there.
+                // An empty heading keeps its row: `##` alone is legal and a place to go, and a blank
+                // row would look unclickable, so it says what it is.
                 Text(title)
                     .scaledFont(.system(size: 11,
                                         weight: isCurrent ? .semibold : .regular))

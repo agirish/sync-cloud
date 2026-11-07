@@ -5,16 +5,15 @@ import AppKit
 @Suite struct CountPillChevronTests {
 
     @Test func testNoChevronBeforeAScanHasRun() {
-        // Pre-scan the pill is a dead control (clicking does nothing), so no chevron may
-        // invite a click — regardless of any stale expansion state.
+        // Before a scan the pill does nothing, so no chevron may invite a click, whatever the
+        // stale expansion state.
         #expect(CountPillChevron.symbol(hasScanned: false, expanded: false) == nil)
         #expect(CountPillChevron.symbol(hasScanned: false, expanded: true) == nil)
     }
 
     @Test func testChevronPointsTheWayTheTotalsWillGo() {
-        // The per-side totals expand inline to the RIGHT of the pill and collapse back LEFT,
-        // so the affordance mirrors the motion of the next click: right when collapsed
-        // (clicking expands rightward), left when expanded (clicking collapses leftward).
+        // The per-side totals expand to the right of the pill and collapse back left, so the
+        // chevron points the way the next click moves them.
         #expect(CountPillChevron.symbol(hasScanned: true, expanded: false) == "chevron.right")
         #expect(CountPillChevron.symbol(hasScanned: true, expanded: true) == "chevron.left")
     }

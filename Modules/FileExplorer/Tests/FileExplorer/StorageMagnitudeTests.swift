@@ -5,10 +5,9 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// **The magnitude bar, the share figure, and the rule that hides the row's two glyphs.**
-///
-/// The rules are pure and asserted directly; the bar is then measured off a real render, because
-/// the one thing that can be wrong about a bar is its *length* and no source scan can see that.
+/// The magnitude bar, the share figure, and the rule that hides the row's two glyphs. The rules
+/// are pure and asserted directly; the bar is measured off a real render below, because what can be
+/// wrong with a bar is its length, and no source scan can see that.
 @Suite struct StorageMagnitudeRuleTests {
 
     /// Only the two size-ordered lists. `stale` arrives oldest-first, and a bar that rose and fell
@@ -24,15 +23,14 @@ import Design
         #expect(abs(StorageMagnitude.fraction(bytes: 225, largestBytes: 900) - 0.25) < 0.0001)
     }
 
-    /// A denominator that says nothing draws nothing — never a divide by zero, never a full bar
+    /// A denominator that says nothing draws nothing: never a divide by zero, never a full bar
     /// standing in for "unknown".
     @Test func anEmptySectionOrAZeroByteFileDrawsNoBar() {
         #expect(StorageMagnitude.fraction(bytes: 100, largestBytes: 0) == 0)
         #expect(StorageMagnitude.fraction(bytes: 0, largestBytes: 900) == 0)
     }
 
-    /// The yardstick is the section's own maximum, not the maximum still on screen. This is the
-    /// assertion that a future "just use `entries`" simplification has to get past: filtering the
+    /// The yardstick is the section's own maximum, not the maximum still on screen: filtering the
     /// biggest file away must not grow the survivors' bars.
     @Test func aQueryHidingTheBiggestFileDoesNotRescaleTheRestsBars() {
         let sectionMax = 900
@@ -71,12 +69,10 @@ import Design
     }
 }
 
-/// **The bar, measured off a render.**
-///
-/// A geometry assertion can say a bar view exists; only a bitmap can say it is the length the data
-/// asked for. The fixture is a 4:3:2:1 ladder, so a correct render draws four bars whose right
-/// edges stand in that ratio — and a `fraction` stuck at 1, or scaled to the wrong yardstick, puts
-/// them all at the same place.
+/// The bar, measured off a render. A geometry assertion can say a bar view exists; only a bitmap
+/// can say it is the length the data asked for. The fixture is a 4:3:2:1 ladder, so a correct
+/// render draws four bars whose right edges stand in that ratio, and a `fraction` stuck at 1 or
+/// scaled to the wrong yardstick puts them all in the same place.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct StorageMagnitudeRenderTests {
 
@@ -96,8 +92,8 @@ import Design
                                  reclaimableBytes: entries.reduce(0) { $0 + $1.bytes })
     }
 
-    /// The window background is not decoration: without one the content composites against the
-    /// borderless window's own buffer and every comparison reads as zero difference.
+    /// The window background matters: without one the content composites against the borderless
+    /// window's own buffer and every comparison reads zero difference.
     private func render(section: StorageSection) -> NSBitmapImageRep? {
         let manager = FileSyncManager()
         manager.storageLensReport = Self.report()
@@ -121,18 +117,11 @@ import Design
         return rep
     }
 
-    /// The rightmost chromatic pixel on each scanline — the bar's edge.
-    ///
-    /// Chroma rather than "is it blue": the ground is `Color.primary` at 4% over a neutral window
-    /// background and the row text is gray, so both are achromatic, while the bar is a hue at 16%.
-    /// That keeps the measurement true whichever accent hue the host's defaults happen to carry.
-    ///
-    /// **Scanlines above ``belowTheSwitcher`` are skipped, and that exclusion is new.** The section
-    /// switcher moved into the top of this card when Storage folded into Organize, and its selected
-    /// segment is an accent *fill* — chromatic, wide, and above every list. Left in, it read as a
-    /// fifth bar on the largest page and as the untouched page's only bar. So the capsule is
-    /// excluded by ROW exactly as the file-type glyphs are excluded by COLUMN: measured, not
-    /// guessed — the capsule inks device-y 33–70 and the first bar starts at 177.
+    /// The rightmost chromatic pixel on each scanline: the bar's edge. Chroma, not "is it blue":
+    /// the ground and the row text are achromatic while the bar is a hue at 16%, so this holds
+    /// whatever accent the host's defaults carry. Scanlines above ``belowTheSwitcher`` are skipped:
+    /// the section switcher's selected segment is a wide accent fill above every list and would
+    /// read as a bar. So the capsule is excluded by row, as the file-type glyphs are by column.
     private func chromaEdges(_ rep: NSBitmapImageRep) -> [Int: Int] {
         var edges: [Int: Int] = [:]
         for y in Self.belowTheSwitcher..<rep.pixelsHigh {
@@ -148,24 +137,17 @@ import Design
         return edges
     }
 
-    /// The first scanline below the section switcher, in **device** pixels (this bitmap is 2×).
-    ///
-    /// 120 sits in the gap between the capsule's last inked row (70) and the first bar's first (177)
-    /// — far enough from both that a few points of layout drift cannot move the boundary across
-    /// either. `theSwitcherIsAboveTheBandTheBarsAreMeasuredIn` is what stops it drifting silently
-    /// into the list and quietly deleting a bar from every count here.
+    /// The first scanline below the section switcher, in device pixels (this bitmap is 2×). 120
+    /// sits between the capsule's last inked row (70) and the first bar's first (177), far enough
+    /// from both that a few points of drift can't cross either.
+    /// `theSwitcherIsAboveTheBandTheBarsAreMeasuredIn` fails if it drifts into the list.
     static let belowTheSwitcher = 120
 
-    /// The distinct bar lengths on the page, largest first.
-    ///
-    /// Two calibrations, both learned from the first render rather than assumed. The bitmap is
-    /// **2× on this display**, so these are device pixels and a 620pt canvas is 1240 wide — the
-    /// tolerances below are in that unit. And a bar's rounded right corner spreads its edge over
-    /// about ten scanlines, so edges within 14px are one bar; a tighter bucket reported the top
-    /// bar three times and pushed the real ones out of the list.
-    ///
-    /// `beyondTheGlyph` drops the row's file-type glyph and the section header's icon, which are
-    /// the only other chromatic ink on the page and sit inside the first 100 pixels.
+    /// The distinct bar lengths on the page, largest first. The bitmap is 2× on this display, so
+    /// the tolerances are device pixels (a 620pt canvas is 1240 wide). A bar's rounded right corner
+    /// spreads its edge over about ten scanlines, so edges within 14px are one bar; a tighter
+    /// bucket counts the top bar several times. `beyondTheGlyph` drops the row's file-type glyph
+    /// and the section header's icon, the only other chromatic ink, inside the first 100 pixels.
     private func barEdges(_ rep: NSBitmapImageRep) -> [Int] {
         let beyondTheGlyph = 200
         var buckets: [Int] = []
@@ -175,13 +157,9 @@ import Design
         return buckets
     }
 
-    /// The bars stand in the ratio of the files they measure.
-    ///
-    /// Asserted on **differences** between edges rather than on the edges themselves, which is
-    /// what makes the numbers exact instead of approximate: every edge carries the row's left
-    /// inset, and `(e₀ − eₖ) / (e₀ − e₃)` cancels it. A 4:3:2:1 ladder must normalise to
-    /// 0, ⅓, ⅔, 1 — and a `fraction` stuck at 1, or measured against the wrong yardstick,
-    /// collapses that spread.
+    /// The bars stand in the ratio of the files they measure. Asserted on differences between
+    /// edges, so the row's left inset cancels: `(e₀ − eₖ) / (e₀ − e₃)` for a 4:3:2:1 ladder must
+    /// normalise to 0, ⅓, ⅔, 1, and a `fraction` stuck at 1 or on the wrong yardstick collapses it.
     @Test func theFourBarsStandInTheRatioOfTheFilesTheyMeasure() throws {
         let rep = try #require(render(section: .largest), "the largest page did not render")
         let edges = barEdges(rep)
@@ -197,9 +175,9 @@ import Design
         }
     }
 
-    /// The other half of `showsBar`, and the direction that catches the rule inverted: the same
-    /// four files, listed by age, draw no bar at all. Their file-type glyphs still paint — which is
-    /// why `barEdges` measures past them rather than counting chromatic pixels.
+    /// The other half of `showsBar`, which catches the rule inverted: the same four files listed by
+    /// age draw no bar. Their file-type glyphs still paint, which is why `barEdges` measures past
+    /// them rather than counting chromatic pixels.
     @Test func theAgeOrderedListDrawsNoBars() throws {
         let stale = try #require(render(section: .stale))
         let largest = try #require(render(section: .largest))
@@ -207,12 +185,10 @@ import Design
         #expect(barEdges(stale).isEmpty, "the untouched list is drawing bars: \(barEdges(stale))")
     }
 
-    /// The exclusion above cuts the switcher and nothing else.
-    ///
-    /// **A skipped band is a place bugs hide**, and this one was introduced to silence real ink. So
-    /// both edges are pinned: the capsule must be entirely inside the skipped band (or its fill
-    /// leaks back in as a phantom bar), and the band must contain no bar (or every count above is
-    /// quietly one short and the ratio test is measuring the wrong four).
+    /// The exclusion above cuts the switcher and nothing else. A skipped band is a place bugs hide,
+    /// so both edges are pinned: the capsule must sit entirely inside it (or its fill leaks back in
+    /// as a phantom bar), and it must hold no bar (or every count above is one short and the ratio
+    /// test measures the wrong four).
     @Test func theSwitcherIsAboveTheBandTheBarsAreMeasuredIn() throws {
         let rep = try #require(render(section: .largest))
         var chromatic: [Int] = []
@@ -226,8 +202,8 @@ import Design
         }
         let above = chromatic.filter { $0 < Self.belowTheSwitcher }
         let below = chromatic.filter { $0 >= Self.belowTheSwitcher }
-        // The capsule is there, and it is above the cut — not "there is nothing above the cut",
-        // which would also pass if the switcher had stopped rendering entirely.
+        // The capsule is there, above the cut; "nothing above the cut" would also pass if the
+        // switcher stopped rendering.
         #expect(!above.isEmpty,
                 "nothing chromatic above the cut — the section capsule is not drawing at all, so this exclusion is protecting nothing")
         #expect((above.max() ?? 0) < Self.belowTheSwitcher - 20,

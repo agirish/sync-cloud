@@ -6,18 +6,18 @@ import FileProvider
 import Foundation
 import Sync
 
-/// **The one status per provider**, shared by the panes, the source menu, the sidebar and
-/// Activity — and, later, one-way sync (RD67).
+/// The one status per provider, shared by the panes, the source menu, the sidebar, Activity and
+/// one-way sync's Dropbox gate.
 @MainActor
 public final class CloudAppMonitor: ObservableObject {
     public static let shared = CloudAppMonitor()
 
-    /// What the monitor asks of the system — swapped in tests.
+    /// What the monitor asks of the system; swapped in tests.
     public struct System: Sendable {
         public var isRunning: @Sendable (CloudApp) -> Bool
         public var iCloudAvailable: @Sendable () -> Bool
         /// Whether File Provider still knows this account folder. Blocks; asked off the pool, and a
-    /// "known" answer is kept until the sources change or the Mac wakes.
+        /// "known" answer is kept until the sources change or the Mac wakes.
         public var isLiveAccount: @Sendable (String) -> Bool
         public var reading: @Sendable (String) -> CloudAppStatusModel.UploadReading
         public var unanswered: @Sendable () -> [String]
@@ -25,9 +25,9 @@ public final class CloudAppMonitor: ObservableObject {
         /// Where the app is installed, or nil. A LaunchServices call; asked off the main thread.
         public var appURL: @Sendable (CloudApp) -> URL?
         /// When the app's running process started, or nil when unknown: the Dropbox gate's five
-        /// minutes count from it, not from when SyncCloud first saw it (RD67).
+        /// minutes count from it, not from when SyncCloud first saw it.
         public var startedAt: @Sendable (CloudApp) -> Date?
-        /// Forgets the unanswered folders under these source roots — asked when their app launches.
+        /// Forgets the unanswered folders under these source roots; asked when their app launches.
         public var forgetUnanswered: @Sendable ([String]) -> Void
         /// The files inside a folder SyncCloud put in place, at most the count. Blocks.
         public var filesInside: @Sendable (String, Int) -> [String]
@@ -77,7 +77,7 @@ public final class CloudAppMonitor: ObservableObject {
 
     /// A test's way to set what the monitor has seen, without a running app to see.
     func updateModelForTests(_ change: (inout CloudAppStatusModel) -> Void) { change(&model) }
-    /// The status as the rules hold it, for one-way sync's Dropbox gate (RD67).
+    /// The status as the rules hold it, for one-way sync's Dropbox gate.
     public var statusModel: CloudAppStatusModel { model }
     /// When the Mac last woke while SyncCloud ran: the gate's five minutes count from it too.
     public private(set) var lastWake: Date?
@@ -90,10 +90,10 @@ public final class CloudAppMonitor: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var runningApps: NSKeyValueObservation?
     /// File Provider's answer per account folder, asked again only when the sources change or the
-    /// Mac wakes: the call blocks its thread, measured over a second once, and an account does not
+    /// Mac wakes: the call blocks its thread, at times for over a second, and an account doesn't
     /// come and go between ticks.
     private var liveAccounts: [String: Bool] = [:]
-    /// Where each app is installed, read with the rest of a refresh — so a view asking whether it
+    /// Where each app is installed, read with the rest of a refresh, so a view asking whether it
     /// can offer Open never makes a LaunchServices call while it renders.
     private var appURLs: [CloudApp: URL] = [:]
     /// Who ran at the last refresh, so a launch or a quit is logged once.
@@ -132,11 +132,11 @@ public final class CloudAppMonitor: ObservableObject {
     /// tick. Idempotent.
     public func start() {
         guard ticker == nil else { return }
-        // **Key-value observing the running apps, not the launch and quit notifications.** macOS
-        // posts those for no app with `LSUIElement` — and Dropbox, OneDrive and Google Drive are all
-        // menu-bar apps: quit and reopened on 2026-10-30, not one notification arrived. The list
-        // itself does change for them. A change only asks for a refresh, which reads who runs off
-        // the main thread — so a launch clears its warning in that refresh, not at the next tick.
+        // Key-value observing the running apps, not the launch and quit notifications: macOS posts
+        // those for no `LSUIElement` app, and Dropbox, OneDrive and Google Drive are all menu-bar
+        // apps. The list itself does change for them. A change only asks for a refresh, which reads
+        // who runs off the main thread, so a launch clears its warning in that refresh, not at the
+        // next tick.
         runningApps = NSWorkspace.shared.observe(\.runningApplications, options: []) { [weak self] _, _ in
             Task { @MainActor in self?.requestRefresh() }
         }
@@ -161,14 +161,14 @@ public final class CloudAppMonitor: ObservableObject {
         }
     }
 
-    /// **The user asked about these sources** (decision DN) — picked one in a pane, opened a
-    /// source menu, or showed Settings ▸ Sources. Their apps are checked now, and one that is not
-    /// running says so at once, without the grace. Ids that are not a cloud app's are ignored.
+    /// The user asked about these sources: picked one in a pane, opened a source menu, or showed
+    /// Settings ▸ Sources. Their apps are checked now, and one that isn't running says so at once,
+    /// without the grace. Ids that aren't a cloud app's are ignored.
     public func checkNow(_ providerIds: [String]) {
         Task { await check(providerIds) }
     }
 
-    /// `checkNow`, awaitable — what a test drives.
+    /// `checkNow`, awaitable, for tests.
     func check(_ providerIds: [String]) async {
         let ids = Set(providerIds)
         let apps = Set(providers.filter { ids.contains($0.id) && !disabled.contains($0.id) }.compactMap { CloudApp($0.type) })
@@ -195,10 +195,10 @@ public final class CloudAppMonitor: ObservableObject {
 
     /// Re-reads the status, coalescing: a request while one runs runs once more after it.
     ///
-    /// **In two halves, so one stuck call cannot freeze it.** Who runs, the iCloud account and the
-    /// unanswered folders are read every time. Upload states, File Provider and LaunchServices —
-    /// calls into other processes that have hung before — go in a second half with its own
-    /// in-flight guard: while one is stuck, the first half still clears a warning on a launch.
+    /// In two halves, so one stuck call can't freeze it. Who runs, the iCloud account and the
+    /// unanswered folders are read every time. Upload states, File Provider and LaunchServices,
+    /// calls into other processes that can hang, go in a second half with its own in-flight
+    /// guard, so while one is stuck the first half still clears a warning on a launch.
     func requestRefresh() {
         guard refreshing == nil else { refreshAgain = true; return }
         refreshing = Task { [weak self] in
@@ -213,14 +213,14 @@ public final class CloudAppMonitor: ObservableObject {
         }
     }
 
-    /// Both halves, in turn — what a test awaits.
+    /// Both halves, in turn, for tests to await.
     func refresh() async {
         await refreshRunning()
         await refreshUploadsAndAccounts()
     }
 
     /// Coalescing like `requestRefresh`: one asked for while one runs runs once more after it, so
-    /// a change of sources during a slow run is not left to the next tick.
+    /// a change of sources during a slow run isn't left to the next tick.
     private func startSlowHalf() {
         guard slowHalf == nil else { slowHalfAgain = true; return }
         slowHalf = Task { [weak self] in
@@ -234,7 +234,7 @@ public final class CloudAppMonitor: ObservableObject {
         }
     }
 
-    /// Whether the slow half is out, and whether a refresh's fast half is — what a test waits on.
+    /// Whether the slow half is out, and whether a refresh's fast half is, for tests to wait on.
     var isRefreshingUploads: Bool { slowHalf != nil }
     var isRefreshingRunning: Bool { refreshing != nil }
 
@@ -243,7 +243,7 @@ public final class CloudAppMonitor: ObservableObject {
         let now = clock()
         let system = self.system
         // `.userInitiated`: a launch clears its warning through this half, and on a busy Mac a
-        // `.utility` thread waited minutes (hosted CI, 2026-10-30).
+        // `.utility` thread can wait minutes.
         let (running, iCloudAvailable, starts) = await Self.offPool(qos: .userInitiated) { () -> (Set<CloudApp>, Bool, [CloudApp: Date]) in
             let running = Set(CloudApp.allCases.filter(system.isRunning))
             var starts: [CloudApp: Date] = [:]
@@ -251,8 +251,8 @@ public final class CloudAppMonitor: ObservableObject {
             return (running, system.iCloudAvailable(), starts)
         }
         // Apps that were missing and run now: a folder that went unanswered while one was gone (or
-        // was asked of the process that quit) is read again, rather than "not responding" for the
-        // rest of the session because a stuck read never returns.
+        // was asked of the process that quit) is read again, rather than staying "not responding"
+        // for the session because a stuck read never returns.
         let launched = CloudApp.allCases.filter { running.contains($0) && model.missingSince[$0] != nil }
         for app in CloudApp.allCases { model.app(app, isRunning: running.contains(app), at: now, startedAt: starts[app]) }
         forgetUnanswered(of: launched)
@@ -288,9 +288,9 @@ public final class CloudAppMonitor: ObservableObject {
         let accounts = sources.compactMap { source in Self.accountFolder(of: source).map { (source.id, $0) } }
         let known = liveAccounts
         let (kept, unplaced, readings, asked, urls) = await Self.offPool {
-            // A change made through a link into an account — `~/Dropbox/…`, `~/OneDrive/…` — is
-            // spelled through the link; coverage knows the account by its real folder.
-            // The folder is resolved, not the file: a path whose last part is gone resolves nothing.
+            // A change made through a link into an account (`~/Dropbox/…`, `~/OneDrive/…`) is
+            // spelled through the link, while coverage knows the account by its real folder. The
+            // folder is resolved, not the file: a path whose last part is gone resolves nothing.
             var kept: [(String, Date)] = []
             var unplaced: [(path: String, at: Date)] = []
             for change in changes {
@@ -301,8 +301,8 @@ public final class CloudAppMonitor: ObservableObject {
                 if FileLocation.covering(path: real, in: coverage) != nil { kept.append((real, change.at)) } else { unplaced.append(change) }
             }
             // A folder copied or moved into a source is its files to upload: the ledger notes the
-            // folder, whose own state says nothing about them. Only inside a source, so a rename in a
-            // local folder lists nothing, and a watch list's worth at most per pass.
+            // folder, whose own state says nothing about them. Only inside a source, so a rename in
+            // a local folder lists nothing, and at most a watch list's worth per pass.
             var room = CloudAppStatusModel.watchLimit
             for (path, at) in kept where room > 0 {
                 let inside = system.filesInside(path, room)
@@ -352,7 +352,7 @@ public final class CloudAppMonitor: ObservableObject {
         }
         if skipped != self.skipped { self.skipped = skipped }
         // Activity's rows appear on their own, so they keep the grace even for an app the user
-        // asked about (DN); the panes, menus and sidebar do not.
+        // asked about; the panes, menus and sidebar don't.
         let unasked = model.problems(for: providers, disabled: disabled, now: now, waitingOutTheGrace: true)
         let current = CloudAppNotice.notices(problems: unasked, skipped: skipped, providers: providers, now: now)
         // A row that went away forgets its dismissal: the same problem coming back is a change.
@@ -367,7 +367,7 @@ public final class CloudAppMonitor: ObservableObject {
     public func canOpen(_ app: CloudApp) -> Bool { appURLs[app] != nil }
 
     /// Starts the app by bundle ID. The provider settings door opens nothing for Dropbox or
-    /// OneDrive, so this does not go through it.
+    /// OneDrive, so this doesn't go through it.
     public func open(_ app: CloudApp) {
         guard let url = appURLs[app] else { return }
         Logger.shared.info("Cloud app status: opening \(app.name)")
@@ -389,8 +389,8 @@ public final class CloudAppMonitor: ObservableObject {
 
     // MARK: File Provider
 
-    /// The CloudStorage account folder a source lives in, or nil when it is not in one (iCloud, a
-    /// Location moved elsewhere) — then there is nothing to ask File Provider.
+    /// The CloudStorage account folder a source lives in, or nil when it isn't in one (iCloud, a
+    /// Location moved elsewhere), and then there is nothing to ask File Provider.
     static func accountFolder(of provider: CloudProvider) -> String? {
         let components = (provider.rootPath as NSString).pathComponents
         for index in components.indices.dropLast().reversed()
@@ -403,8 +403,8 @@ public final class CloudAppMonitor: ObservableObject {
 
     /// Whether File Provider still knows `folder`. A failure means the account is gone and the
     /// folder a leftover. No answer in 5 s is taken as live: an unknown is never a reason to hide.
-    /// Blocks the calling thread — even the call itself, before its answer, held one 1.2 s
-    /// (sampled 2026-10-30) — so it is only ever asked through `offPool`.
+    /// Blocks the calling thread, at times for over a second even before its answer, so it is only
+    /// ever asked through `offPool`.
     nonisolated static func fileProviderKnows(_ folder: String) -> Bool {
         let answered = DispatchSemaphore(value: 0)
         let known = KnownBox()
@@ -423,7 +423,7 @@ public final class CloudAppMonitor: ObservableObject {
         var value: Bool { lock.lock(); defer { lock.unlock() }; return stored }
     }
 
-    /// Runs `body` on a dispatch thread, which may block, and hands back its answer — never on the
+    /// Runs `body` on a dispatch thread, which may block, and hands back its answer. Never on the
     /// cooperative pool, whose threads a blocked call to another process would take from every task.
     nonisolated static func offPool<T: Sendable>(qos: DispatchQoS.QoSClass = .utility,
                                                  _ body: @escaping @Sendable () -> T) async -> T {
@@ -433,15 +433,15 @@ public final class CloudAppMonitor: ObservableObject {
     }
 }
 
-/// **Which app bundles have a process running, asked of the kernel** — never of LaunchServices.
+/// Which app bundles have a process running, asked of the kernel, never of LaunchServices.
 ///
-/// Two LaunchServices routes failed here, both measured 2026-10-30: reading `bundleIdentifier` off
-/// every `NSRunningApplication` is a synchronous LaunchServices round trip each, and on the main
-/// thread it held the app 42 s while three cloud apps quit; and
-/// `NSRunningApplication.runningApplications(withBundleIdentifier:)`, asked off the main thread,
-/// answered "none running" and "all running" 4 ms apart at launch, again and again. So: every
-/// process's executable path from the kernel, the bundle it sits in, and that bundle's identifier
-/// from its own `Info.plist` — read once per bundle and kept.
+/// Both LaunchServices routes fail here. Reading `bundleIdentifier` off every
+/// `NSRunningApplication` is a synchronous LaunchServices round trip each, which can hold the main
+/// thread for many seconds while cloud apps quit; and
+/// `NSRunningApplication.runningApplications(withBundleIdentifier:)` off the main thread can flip
+/// between "none running" and "all running" milliseconds apart at launch. So: every process's
+/// executable path from the kernel, the bundle it sits in, and that bundle's identifier from its
+/// own `Info.plist`, read once per bundle and kept.
 final class RunningBundles: @unchecked Sendable {
     static let shared = RunningBundles()
 
@@ -473,7 +473,7 @@ final class RunningBundles: @unchecked Sendable {
         return id
     }
 
-    /// `/Applications/Dropbox.app/Contents/MacOS/Dropbox` → `/Applications/Dropbox.app`. The LAST
+    /// `/Applications/Dropbox.app/Contents/MacOS/Dropbox` → `/Applications/Dropbox.app`. The last
     /// `/Contents/MacOS/`, so an app nested inside another is its own bundle.
     static func bundlePath(ofExecutable path: String) -> String? {
         guard let range = path.range(of: "/Contents/MacOS/", options: .backwards) else { return nil }
@@ -507,8 +507,8 @@ final class RunningBundles: @unchecked Sendable {
         return earliest
     }
 
-    /// Every running process's executable path — this user's only: another user logged in on the
-    /// same Mac running Dropbox does not sync this user's Dropbox.
+    /// Every running process's executable path, this user's only: another user logged in on the
+    /// same Mac running Dropbox doesn't sync this user's Dropbox.
     static func executablePaths() -> [String] {
         let capacity = proc_listallpids(nil, 0)
         guard capacity > 0 else { return [] }

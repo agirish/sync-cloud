@@ -21,9 +21,9 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// **`.rtf` is the reason the text set is a written list rather than `UTType.text`
-    /// conformance.** It conforms — and it is markup, not lines: a text diff of one would show a
-    /// reader a wall of control words where Quick Look shows them their document.
+    /// `.rtf` is why the text set is a written list, not `UTType.text` conformance: it conforms,
+    /// but it is markup, so a text diff would show control words where Quick Look shows the
+    /// document.
     @Test func markupThatConformsToTextIsStillNotDiffableText() {
         #expect(PairContentKind.classify(ext: "rtf") == .other)
         #expect(PairContentKind.classify(ext: "webarchive") == .other)
@@ -40,9 +40,8 @@ import UniformTypeIdentifiers
         #expect(PairContentKind.classify(path: "/a/b/Makefile") == .other)
     }
 
-    /// **Only the kind with no canvas says nothing synchronises.** A caption on a synced viewer
-    /// would be a lie; no caption on an unsynced one is the surface pretending, which is the thing
-    /// the whole phasing note exists to avoid.
+    /// Only the kind with no canvas says nothing synchronises. A caption on a synced viewer would
+    /// be false, and none on an unsynced one would let the surface pretend it syncs.
     @Test func onlyTheUntypedKindWearsTheUnsyncedCaption() {
         #expect(PairContentKind.other.unsyncedCaption != nil)
         for kind in PairContentKind.allCases where kind != .other {
@@ -52,13 +51,12 @@ import UniformTypeIdentifiers
 
     // MARK: An image type is only an image if something can decode it
 
-    /// **SVG conforms to `public.image` and ImageIO cannot decode it** — so the typed viewer this
-    /// once earned mounted two image views over nil, with no caption, and a difference mode that
-    /// spun for ever. Quick Look renders SVG perfectly well, which is what `.other` gets it.
+    /// SVG conforms to `public.image` but ImageIO can't decode it, so a typed viewer would mount
+    /// two image views over nil, with no caption and a difference mode that never finishes. Quick
+    /// Look renders SVG, which is what `.other` gets it.
     ///
-    /// The premise is asserted first, so this cannot quietly become a test about SVG not being an
-    /// image at all: if a future macOS ships an SVG codec, the second half of this fails and says
-    /// to re-decide, rather than passing for the wrong reason.
+    /// The premise is asserted first: if a future macOS ships an SVG codec, this fails and says to
+    /// re-decide, rather than passing for the wrong reason.
     @Test func svgIsAnImageThatOnlyQuickLookCanRender() throws {
         let svg = try #require(UTType(filenameExtension: "svg"))
         #expect(svg.conforms(to: .image), "premise: SVG still conforms to public.image")
@@ -66,9 +64,8 @@ import UniformTypeIdentifiers
         #expect(PairContentKind.classify(ext: "svg") == .other)
     }
 
-    /// The positive control the test above needs: the decodable check is not simply answering
-    /// "no" to everything, which would send every image to Quick Look and silently retire the
-    /// image viewer.
+    /// The positive control for the test above: the decodable check doesn't answer "no" to
+    /// everything, which would send every image to Quick Look and retire the image viewer.
     @Test func theOrdinaryImageFormatsAreStillDecodable() throws {
         for ext in ["png", "jpg", "heic", "tiff", "gif"] {
             let type = try #require(UTType(filenameExtension: ext), "\(ext)")
@@ -76,27 +73,20 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// A camera RAW is the reason this asks ImageIO rather than carrying a list: the answer has to
-    /// track whatever codecs the OS actually has, and a written list is what stops covering a
-    /// format. The premise is asserted separately from the answer, so that this cannot become a
-    /// tautology about the classifier agreeing with itself — if a machine ever lacks the codec the
-    /// first line says so, rather than the second quietly expecting `.other`.
+    /// A camera RAW is why this asks ImageIO instead of carrying a list: the answer has to track
+    /// the codecs the OS actually has. The premise is asserted apart from the answer, so if a
+    /// machine lacks the codec the first line says so instead of the test agreeing with itself.
     @Test func aCameraRawGetsTheTypedViewer() throws {
         let raw = try #require(UTType(filenameExtension: "arw"))
         #expect(PairContentKind.imageIOCanDecode(raw), "premise: this machine decodes Sony RAW")
         #expect(PairContentKind.classify(ext: "arw") == .image)
     }
 
-    /// **The guard that no real listing can exercise.**
-    ///
-    /// `CGImageSourceCopyTypeIdentifiers` names 62 concrete formats on this machine and no
-    /// umbrella, so the drop of `public.image` in `decodableTypes(in:)` cannot fire against it —
-    /// remove that filter and every test above still passes. It is guarding a listing that could
-    /// name the umbrella, so the listing is supplied here.
-    ///
-    /// What it prevents is the SVG defect returning by the back door: `public.svg-image` conforms
-    /// to `public.image`, so an umbrella left in the resolved list answers "decodable" for it, for
-    /// `.rtf`-adjacent vector formats, and for every image type at once.
+    /// Covers the guard no real listing can exercise. `CGImageSourceCopyTypeIdentifiers` names only
+    /// concrete formats, no umbrella, so the drop of `public.image` in `decodableTypes(in:)` never
+    /// fires against it; the listing is supplied here. Without the drop, an umbrella in the
+    /// resolved list would answer "decodable" for `public.svg-image` and every other image type at
+    /// once.
     @Test func anUmbrellaInTheListingDoesNotReadmitEveryImageType() throws {
         let listing: Set<String> = ["public.image", "public.png"]
         let resolved = PairContentKind.decodableTypes(in: listing)

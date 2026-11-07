@@ -2,12 +2,12 @@ import Foundation
 import Sync
 import SwiftUI
 
-/// **What Save as PDF can turn into a PDF**, by the file's extension — and which engine does it
+/// What Save as PDF can turn into a PDF, by the file's extension, and which engine does it
 /// (``SaveAsPDFRender``).
 ///
-/// Written down rather than read off `UTType`, for `PairContentKind`'s reason: this decides whether
-/// a menu item appears, and an umbrella type would offer whatever a given Mac decides conforms.
-/// Only the kinds an engine here was measured on.
+/// Listed rather than read off `UTType`, for `PairContentKind`'s reason: this decides whether a
+/// menu item appears, and an umbrella type would offer whatever a given Mac thinks conforms. Only
+/// kinds an engine here was tested on.
 public enum SaveAsPDFKind: String, Equatable, Sendable, CaseIterable {
     /// `.txt` — set in the editor's own face by ``DocumentPDF``, the pages Edit's Print makes.
     case text
@@ -34,9 +34,8 @@ public enum SaveAsPDFKind: String, Equatable, Sendable, CaseIterable {
 
     /// The kind for a path, or `nil` when nothing here converts it.
     ///
-    /// **`~$` names are Office's lock files**, not documents: Word writes one beside every file it
-    /// has open, a few hundred bytes of owner name with a `.docx` extension. Quick Look reads none of
-    /// them, so offering one would only ever fail.
+    /// `~$` names are Office's lock files, not documents: a few hundred bytes of owner name with a
+    /// `.docx` extension beside every open file. Quick Look reads none, so offering one would fail.
     public static func of(path: String) -> SaveAsPDFKind? {
         let name = (path as NSString).lastPathComponent
         guard !name.hasPrefix("~$") else { return nil }
@@ -44,12 +43,12 @@ public enum SaveAsPDFKind: String, Equatable, Sendable, CaseIterable {
     }
 }
 
-/// **What a row's menu offers to save as PDF, or `nil` for no item at all** — hidden rather than
-/// greyed, as PDF Tools is (``PanePDFToolOffer``), and on the same three rules: any folder, any
-/// file nothing here can convert (a PDF among them — it keeps PDF Tools), or any cloud-only file
-/// hides it. A cloud-only row already offers Download, and an engine would have no bytes to read.
+/// What a row's menu offers to save as PDF, or `nil` for no item, hidden rather than greyed as
+/// PDF Tools is (``PanePDFToolOffer``). Any folder, any file nothing here converts (a PDF among
+/// them, which keeps PDF Tools), or any cloud-only file hides it: a cloud-only row already offers
+/// Download, and an engine would have no bytes to read.
 ///
-/// **File ▸ Save as PDF asks the same question**, through ``forSelection(_:)``, and greys where the
+/// File ▸ Save as PDF asks the same question through ``forSelection(_:)``, and greys where the
 /// row hides.
 public enum SaveAsPDFOffer: Equatable, Sendable {
     case single(path: String)
@@ -62,8 +61,8 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
         }
     }
 
-    /// The item's name, on the row and in File ▸ — a batch counts its files, in the words PDF Tools
-    /// counts them in ("PDF Tools · 3 files"), so the two items read as a pair (TE130).
+    /// The item's name, on the row and in File ▸. A batch counts its files as PDF Tools does ("PDF
+    /// Tools · 3 files"), so the two items read as a pair.
     public var title: String {
         switch self {
         case .single: return "Save as PDF"
@@ -71,10 +70,9 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
         }
     }
 
-    /// **The row menu's answer, and File ▸ Save as PDF's.** The cloud lookup is the row's own — the
-    /// badge's memo, else an `lstat`, read off the main thread and withheld when it does not answer
-    /// in time — and a batch's answer is held for a second, as PDF Tools' is
-    /// (``PanePDFSelectionCloud``).
+    /// The row menu's answer, and File ▸ Save as PDF's. The cloud lookup is the row's own (the
+    /// badge's memo, else an `lstat` off the main thread, withheld if it doesn't answer in time),
+    /// and a batch's answer is held for a second, as PDF Tools' is (``PanePDFSelectionCloud``).
     @MainActor
     public static func forSelection(_ nodes: [FileNode]) -> SaveAsPDFOffer? {
         forSelection(nodes, reads: .shared)
@@ -86,8 +84,8 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
         offer(for: nodes, anyCloudOnly: { PanePDFSelectionCloud.anyCloudOnly(nodes, reads: reads) })
     }
 
-    /// The cheap rules first — a flag the node holds and path math — so a selection with a folder or
-    /// a JPEG in it never pays a cloud lookup. Nil, too, when the lookup gave no answer.
+    /// The cheap rules first (a flag on the node, path math), so a selection with a folder or a
+    /// JPEG never pays a cloud lookup. Nil, too, when the lookup gave no answer.
     static func offer(for nodes: [FileNode], anyCloudOnly: () -> Bool?) -> SaveAsPDFOffer? {
         guard !nodes.isEmpty,
               nodes.allSatisfy({ !$0.isDirectory && SaveAsPDFKind.of(path: $0.id) != nil }),
@@ -98,14 +96,13 @@ public enum SaveAsPDFOffer: Equatable, Sendable {
     }
 }
 
-/// **Where a saved PDF goes: beside its original, under the original's name** — `Lease.docx`
-/// becomes `Lease.pdf` in the same folder (decision AN). A name already taken gets the app's one
-/// keep-both rule, `FileSyncManager.generateUniqueURL` — `Lease 2.pdf`, as Finder names it — and
-/// the write itself refuses anything that appears in between (``EditorPDFCopyWriter``).
+/// Where a saved PDF goes: beside its original, under its name, so `Lease.docx` becomes
+/// `Lease.pdf`. A taken name gets the app's keep-both rule, `FileSyncManager.generateUniqueURL`
+/// (`Lease 2.pdf`, as Finder names it), and the write refuses anything that appears in between
+/// (``EditorPDFCopyWriter``).
 enum SaveAsPDFName {
     /// `<base>.pdf` beside `original`, the base shortened a whole character at a time when the name
-    /// would pass the volume's limit — counted as ``EditorPDFCopyName`` counts, in the decomposed
-    /// UTF-16 the write sends.
+    /// would pass the volume's limit, counted as ``EditorPDFCopyName`` counts (decomposed UTF-16).
     static func firstChoice(for original: String) -> String {
         let folder = (original as NSString).deletingLastPathComponent
         var base = ((original as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -117,7 +114,7 @@ enum SaveAsPDFName {
         return (folder as NSString).appendingPathComponent(base + tail)
     }
 
-    /// Whether a PDF can be written into the original's folder at all — asked before a render, so a
+    /// Whether a PDF can be written into the original's folder, asked before a render so a
     /// read-only folder asks where to save instead (``PaneSaveAsPDF``).
     static func folderIsWritable(for original: String, fileManager: FileManager = .default) -> Bool {
         fileManager.isWritableFile(atPath: (original as NSString).deletingLastPathComponent)

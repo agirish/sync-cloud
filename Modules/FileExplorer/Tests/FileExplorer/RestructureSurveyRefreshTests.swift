@@ -4,10 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.7's Scaffolded card, given the button its own sentence promised (proposal O12).
-///
-/// The card states a wait — "the survey hasn't caught up yet, so this stays until it is
-/// updated" — and until now nothing on it ended that wait.
+/// The Scaffolded card's Update the Survey button. The card states a wait ("the survey hasn't
+/// caught up yet, so this stays until it is updated"), and the button is what ends it.
 @MainActor
 @Suite struct RestructureSurveyRefreshTests {
 
@@ -17,8 +15,8 @@ import Testing
                          detail: .backlog(scaffold: ["Claims"], looseFiles: 3))
     }
 
-    /// The help says the part a reader would not guess: this replaces the hand-built survey with
-    /// a derived one, which is the first thing a scaffold causes to do that.
+    /// The help says what a reader wouldn't guess: this replaces the hand-built survey with a
+    /// derived one, as applying a plan does.
     @Test func theHelpSaysItReplacesTheSurvey() {
         let help = RestructureLens.refreshSurveyHelp
         #expect(help.contains("Re-reads the tree"))
@@ -28,7 +26,7 @@ import Testing
                 "naming the precedent is what makes it not a surprise")
     }
 
-    /// The card still says what it said — the button ENDS the wait, it does not deny it.
+    /// The card's sentence stands: the button ends the wait, it doesn't deny it.
     @Test func theScaffoldedSentenceIsUnchanged() {
         #expect(RestructureLens.scaffoldLandedText.contains("hasn’t caught up"))
         #expect(RestructureLens.scaffoldLandedText.contains("until it is updated"))
@@ -46,10 +44,8 @@ import Testing
     }
 
     /// A refusal is a sentence on the card, not a queue: the guards are the landing's, so the
-    /// honest answer is "wait and press it again".
-    ///
-    /// Read off the drawn pixels rather than a `fittingSize` closer — with a width assertion this
-    /// passed just as happily when the refusal was dropped on the floor.
+    /// honest answer is "wait and press it again". Read off the drawn pixels, so a dropped refusal
+    /// fails.
     @Test func aRefusalRendersOnTheCardItCameFrom() throws {
         let without = try #require(RestructureRender.raster(
             Self.lens(refusal: nil), width: 640, height: 300))
@@ -62,9 +58,8 @@ import Testing
                 "the refusal sentence is on the card")
     }
 
-    /// **Keyed by card.** The refusal belongs to the card that asked; a refusal carrying another
-    /// subject must leave this one exactly as it was, or two Scaffolded cards would both show a
-    /// sentence one of them never asked for.
+    /// Keyed by card: a refusal carrying another subject leaves this card exactly as it was, or two
+    /// Scaffolded cards would both show a sentence one never asked for.
     @Test func aRefusalForAnotherCardLeavesThisOneAlone() throws {
         let none = try #require(RestructureRender.raster(
             Self.lens(refusal: nil), width: 640, height: 300))
@@ -75,9 +70,9 @@ import Testing
                 "another card's refusal draws nothing here")
     }
 
-    /// **The button only exists on a card that is waiting.** A backlog finding whose scaffold has
-    /// not landed offers the scaffold instead, and rendering the refresh there would offer to
-    /// re-derive a survey that is not stale.
+    /// The button exists only on a card that is waiting. A backlog finding whose scaffold hasn't
+    /// landed offers the scaffold instead; a refresh there would re-derive a survey that isn't
+    /// stale.
     @Test func theButtonBelongsToTheScaffoldedStateAlone() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -94,8 +89,8 @@ import Testing
                 "and not in the not-yet-scaffolded one")
     }
 
-    /// The host runs the manager's re-derive rather than a second walk of its own, and clears the
-    /// previous refusal before trying again.
+    /// The host runs the manager's re-derive rather than a walk of its own, and clears the previous
+    /// refusal before trying again.
     @Test func theHostAsksTheManagerToReDerive() throws {
         let host = try String(
             contentsOf: URL(fileURLWithPath: #filePath)
@@ -108,16 +103,9 @@ import Testing
                 "a stale refusal must not survive the next press")
     }
 
-    /// **Every call site reports the SUCCESS path, not only the refusal.**
-    ///
-    /// This is the bug he hit an hour after v5.0 shipped: "nothing happens when I click Update
-    /// the Survey". It had happened — four times, because he pressed it four times — and the
-    /// survey really did go from 3013 folders to 5021. The refresh returned `nil` on success and
-    /// both call sites read `if let refusal = … { banner }`, so the working path had no branch at
-    /// all. A five-second tree walk finished in silence.
-    ///
-    /// Asserted at the call sites rather than on `SurveyRefreshOutcome`, because the type cannot
-    /// make anyone render it — the previous type could not either, and that was the whole defect.
+    /// Every call site reports success, not only the refusal: a multi-second walk that finishes in
+    /// silence reads as a button that did nothing. Asserted at the call sites, not on
+    /// `SurveyRefreshOutcome`, because the type can't make anyone render it.
     @Test func everyRefreshCallSiteSaysSomethingWhenItWorked() throws {
         let host = try Self.hostSource()
         // Both closures destructure the outcome and both mention the success branch.
@@ -130,9 +118,8 @@ import Testing
         }
     }
 
-    /// The control that starts the walk is disabled while it runs, and says so. Without this the
-    /// only response to a button that looks dead is to press it again — which is what produced
-    /// eight `Another reorganisation is landing right now` refusals in one millisecond.
+    /// The control that starts the walk is disabled while it runs, and says so; otherwise a button
+    /// that looks dead gets pressed again, collecting a refusal per press.
     @Test func theRefreshControlsShowTheyAreBusy() throws {
         let lens = try Self.lensSource()
         #expect(lens.contains("var isRefreshing: Bool"),
@@ -150,8 +137,8 @@ import Testing
                 "the button's enabled state must be the engine's guard, or the two disagree")
     }
 
-    /// The positive control for the two source scans above: they read real files with real
-    /// content, so an empty result means absence rather than a path that resolved nowhere.
+    /// Positive control for the source scans above: they read real files, so an empty result means
+    /// absence rather than a path that resolved nowhere.
     @Test func theSourceScansAreReadingRealFiles() throws {
         #expect(try Self.hostSource().contains("struct LensWorkspaceView"))
         #expect(try Self.lensSource().contains("struct RestructureLens"))

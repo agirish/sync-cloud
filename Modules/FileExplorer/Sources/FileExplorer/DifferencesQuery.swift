@@ -5,20 +5,17 @@ import Sync
 /// predicate, the bulk "ignore all" set operation, and the selection-vs-filtered action
 /// target set. Kept free of SwiftUI so every rule is unit-testable.
 enum DifferencesQuery {
-    /// A difference is visible when it matches the active type filter AND the search query — which
-    /// is the structured token search (`kind:`, size, `only:`) plus free-text substring over the
-    /// text the table SHOWS: `relativePath` and the anchored Path-column text. `pathRootName` is
-    /// the same anchor the cells render with (no default — the caller must pass what it displays),
-    /// so a user who reads "Home/Legal" in the Path column and searches "Home" finds rows instead
-    /// of a silent empty result.
+    /// A difference is visible when it matches the type filter and the search query: tokens
+    /// (`kind:`, size, `only:`) plus free text over what the table shows, `relativePath` and the
+    /// anchored Path-column text. `pathRootName` is the anchor the cells render with, with no
+    /// default, so searching "Home" finds the rows whose Path column reads "Home/Legal".
     static func matches(_ difference: FileDifference, filter: DifferenceFilter, searchText: String,
                         pathRootName: String?, failedIDs: Set<UUID>) -> Bool {
         guard filter.matches(difference, failedIDs: failedIDs) else { return false }
         return DifferenceSearch.parse(searchText).matches(difference, pathRootName: pathRootName)
     }
 
-    /// Single O(n) pass over the whole list. The search query is parsed ONCE here (not per row) and
-    /// reused, so the token grammar costs nothing per difference.
+    /// One O(n) pass over the whole list, with the query parsed once rather than per row.
     static func filtered(_ differences: [FileDifference], filter: DifferenceFilter, searchText: String,
                          pathRootName: String?, failedIDs: Set<UUID>) -> [FileDifference] {
         let query = DifferenceSearch.parse(searchText)
@@ -27,12 +24,10 @@ enum DifferencesQuery {
         }
     }
 
-    /// Per-filter row counts for the filter menu (the `Identical (312)` parity ask): how many
-    /// differences each `DifferenceFilter` would show, tallied in ONE pass over the whole diff so
-    /// the header can label every dropdown row without running the filter predicate once per
-    /// filter per render. `searchText` is intentionally ignored — the counts reflect the entire
-    /// diff regardless of the search box, matching the Duplicates lens's filter menu. Filters with no matches are
-    /// absent from the dictionary; read with a `0` default.
+    /// Per-filter row counts for the filter menu, tallied in one pass so the header can label every
+    /// row without running each filter per render. The search is ignored on purpose: the counts
+    /// cover the whole diff, as the Duplicates lens's menu does. Filters with no matches are
+    /// absent; read with a `0` default.
     static func counts(_ differences: [FileDifference], failedIDs: Set<UUID>) -> [DifferenceFilter: Int] {
         var tally: [DifferenceFilter: Int] = [:]
         for difference in differences {
@@ -44,18 +39,13 @@ enum DifferencesQuery {
     }
 
     /// What the Path column prints for a row whose parent (relative to the compare roots) is
-    /// `parentPath`: the compared folder's own name ("Home") for a root-level row, and
-    /// "Home/Legal" for a nested one — so no row ever shows an empty location, which is exactly
-    /// the row that used to be unplaceable (a single root-level file draws no section header
-    /// and used to draw no prefix). `rootName` is nil or empty when the two compared folders
-    /// carry DIFFERENT names — anchoring at either would misname the other side — and the text
-    /// then falls back to the bare parent, with `DifferenceGrouping.rootLabel` standing in for
-    /// the root itself.
+    /// `parentPath`: the compared folder's name ("Home") at the root, "Home/Legal" when nested, so
+    /// no row shows an empty location. `rootName` is nil or empty when the two compared folders
+    /// have different names, since either would misname the other side; the text is then the bare
+    /// parent, with `DifferenceGrouping.rootLabel` for the root itself.
     static func pathColumnText(parentPath: String, rootName: String?) -> String {
-        // Engine-built relativePaths never lead with "/", but this is the second place that
-        // assumption gets load-bearing (DifferenceGrouping.split records the first going wrong),
-        // and here it would print "Home//Immigration". Dropping leading slashes is the whole
-        // defence — cheaper than sharing the grouping's splitter for one cosmetic join.
+        // Engine-built relativePaths never lead with "/", but one would print "Home//Immigration"
+        // here, so drop leading slashes.
         let parent = String(parentPath.drop(while: { $0 == "/" }))
         guard let rootName, !rootName.isEmpty else {
             return parent.isEmpty ? DifferenceGrouping.rootLabel : parent
@@ -73,29 +63,19 @@ enum DifferencesQuery {
         return updated
     }
 
-    /// What Space previews when it arrives at the Differences table — which, with the bottom pane
-    /// open, is very nearly always, because that table holds key focus and a pane row click does
-    /// not take it away.
+    /// What Space previews when it arrives at the Differences table, which is nearly always with
+    /// the bottom pane open: the table holds key focus and a pane row click doesn't take it.
     ///
-    /// Lives here rather than on `DifferencesView` for two reasons. It is pure query logic, which
-    /// is what this type is for; and a `static` on the View is `@MainActor`-isolated along with it,
-    /// so calling it from a plain test traps at runtime (SIGTRAP) rather than failing to compile —
-    /// a pure function has no business demanding the main actor.
+    /// **Not on `DifferencesView`:** a `static` there is `@MainActor`-isolated, and calling it from
+    /// a plain test traps at runtime (SIGTRAP) instead of failing to compile. Split out of the
+    /// `.onKeyPress` closure so tests can check which surface is asked, since the test host can't
+    /// make a window key.
     ///
-    /// Split out of the `.onKeyPress` closure so the *composition* is testable and not just
-    /// `CurrentSelection`'s arithmetic: the bug this fixes was never in the arithmetic, it was in
-    /// which surface the app asked about. A mounted key-window test is not available here (the
-    /// test host cannot make a window key), so this function is the seam that stands in for it.
-    ///
-    /// `rows` is the filtered+sorted table, and resolving the selection through it is load-bearing:
-    /// SwiftUI's `Table` does NOT prune its selection binding when rows disappear (measured), so a
-    /// difference that syncs away leaves a stale id behind. Looking the id up in `rows` yields nil
-    /// for a stale one, which falls through to the pane rather than previewing a row that is no
-    /// longer on screen.
-    ///
-    /// `singleSource` is deliberately not a parameter: `.differences` maps to `.compare` in
-    /// `TopPaneVisibility.mode(for:)`, so the single-source rail and this table can never be on screen at
-    /// once and the hidden-right-pane case cannot reach here.
+    /// `rows` is the filtered, sorted table. **`Table` doesn't prune its selection binding when
+    /// rows disappear**, so a row that syncs away leaves a stale id; looking it up in `rows` yields
+    /// nil and falls through to the pane. No `singleSource` parameter: `.differences` maps to
+    /// `.compare` in `TopPaneVisibility.mode(for:)`, so the single-source rail is never on screen
+    /// with this table.
     static func spaceQuickLookTarget(
         lastInteracted: SelectionSurface?,
         leftSelection: Set<String>,
@@ -115,9 +95,8 @@ enum DifferencesQuery {
 /// rows when any are selected (intersected with the current filter), otherwise the whole
 /// filtered list. The counts drive both the button labels and their enabled state.
 ///
-/// Scoping note: this operates purely on the already-filtered list. `anySyncing` (which
-/// disables the buttons while *any* sync is in flight, filtered out or not) stays a separate
-/// read over all differences — see `DifferencesSummary`.
+/// Works on the already-filtered list. `anySyncing`, which disables the buttons while any sync is
+/// in flight, filtered out or not, is a separate read over all differences (`DifferencesSummary`).
 struct DifferenceActionTargets: Equatable {
     /// The differences the header buttons would act on.
     let targets: [FileDifference]
@@ -134,19 +113,16 @@ struct DifferenceActionTargets: Equatable {
     let heldCount: Int
 
     init(filtered: [FileDifference], selection: Set<FileDifference.ID>) {
-        // Resolve the selection against the *visible* rows. A selection that resolves to no
-        // visible row — because a rescan replaced every id with a fresh UUID, the synced rows
-        // were removed from the list, or a filter now hides them all — falls back to the whole
-        // filtered set, so the header keeps actionable buttons instead of going dead until the
-        // next click.
+        // Resolve the selection against the visible rows. One that matches none (a rescan gave
+        // fresh ids, synced rows left the list, a filter hides them) falls back to the whole
+        // filtered set, so the header's buttons don't go dead until the next click.
         let matched = selection.isEmpty ? [] : filtered.filter { selection.contains($0.id) }
         let scoped = !matched.isEmpty
         let targets = scoped ? matched : filtered
         self.targets = targets
         self.isSelectionScoped = scoped
-        // One pass for all three counts. This initializes once per Differences render, which
-        // during a bulk sync happens per file over the whole filtered set, so folding three
-        // reduces into a single loop drops two extra O(n) walks of the targets each frame.
+        // One pass for every count: this runs once per Differences render, which during a bulk
+        // sync is once per file over the whole filtered set.
         var right = 0, left = 0, verifiable = 0, held = 0
         for difference in targets {
             if Self.headerTransfers(difference, .copyToRight) { right += 1 }
@@ -160,9 +136,8 @@ struct DifferenceActionTargets: Equatable {
         self.heldCount = held
     }
 
-    /// What the header says about the held rows it will not copy — "2 need your decision" — or nil
-    /// when there are none. Without it a header over 5 rows with 2 held read "Copy 3 →" and said
-    /// nothing of the other two, and one whose every row was held showed no button and no reason.
+    /// What the header says about the held rows it won't copy ("2 need your decision"), or nil
+    /// when there are none, so held rows are never silently absent from "Copy 3 →".
     var heldText: String? {
         switch heldCount {
         case 0: return nil
@@ -171,23 +146,20 @@ struct DifferenceActionTargets: Equatable {
         }
     }
 
-    /// The held rows a Copy/Move in `direction` leaves out — handed to the run beside
+    /// The held rows a Copy/Move in `direction` leaves out, handed to the run beside
     /// `transferItems` so its banner can say how many it left and why (`FileSyncManager.syncAll`
     /// filters them out itself and names them).
     func heldItems(_ direction: FileDifference.SyncAction) -> [FileDifference] {
         targets.filter { $0.action == direction && $0.heldBack != nil }
     }
 
-    /// What the header's Copy/Move in `direction` acts on — the rows its count is the count OF.
+    /// What the header's Copy/Move in `direction` acts on: the rows its count counts.
     ///
-    /// **A held row is not among them** (`FileDifference.heldBack`, FR39/FR40/FR8). Its direction
-    /// is a guess the user has to make, and the header is the one surface that acts on a SET: the
-    /// bulk run already left held rows out, but the counts still included them — "Copy 3 →" over
-    /// a run that copied two — and when exactly one row was targeted the header went through
-    /// `syncFile`, which copies whatever it is handed, so a held row was copied after all,
-    /// unasked. A held row is copied from its own right-click menu, either way its sides allow
+    /// **A held row is never among them** (`FileDifference.heldBack`): its direction is the user's
+    /// call, and with one row targeted the header goes through `syncFile`, which copies whatever
+    /// it is handed. A held row is copied from its own right-click menu
     /// (`DifferenceRowMenu.copyDirections`), or selected alone with ⌘← / ⌘→ the way its guess
-    /// points; ⌘→ and the bulk menu over a larger selection leave it out the same way
+    /// points; ⌘→ and the bulk menu over a larger selection leave it out too
     /// (`DifferencesShortcutRules.transferItems`).
     func transferItems(_ direction: FileDifference.SyncAction) -> [FileDifference] {
         targets.filter { Self.headerTransfers($0, direction) }
@@ -199,10 +171,9 @@ struct DifferenceActionTargets: Equatable {
         difference.action == direction && difference.heldBack == nil
     }
 
-    /// The direction carrying strictly more of the targets: the header renders that copy
-    /// button prominent and the other bordered, so a 559-vs-17 split shows in visual weight
-    /// instead of two equal solid primaries. Nil on a tie — neither dominates, both stay
-    /// prominent.
+    /// The direction carrying strictly more of the targets: the header draws that copy button
+    /// prominent and the other bordered, so a lopsided split shows in visual weight. Nil on a tie,
+    /// where both stay prominent.
     var dominantCopyDirection: FileDifference.SyncAction? {
         if copyToRightCount > copyToLeftCount { return .copyToRight }
         if copyToLeftCount > copyToRightCount { return .copyToLeft }
@@ -213,10 +184,9 @@ struct DifferenceActionTargets: Equatable {
 /// How Review's "Copy Remaining N" sends what is still pending: one decided row through
 /// `syncFile` (whose failure alert carries Retry), anything else through `syncAll`.
 ///
-/// **A held row never takes the single path.** `syncAll` leaves held rows out and says so, so two
-/// pending held rows were left while ONE went to `syncFile(confirmed: true)` and was copied — the
-/// same button deciding a guess or not by how many were left. One held row now goes to `syncAll`
-/// too, and is left out and named like the rest.
+/// A held row never takes the single path: `syncFile(confirmed: true)` would copy it, while
+/// `syncAll` leaves held rows out and names them. So one held row goes to `syncAll` too, and the
+/// button never decides a guess by how many rows are left.
 enum CopyRemainingRoute: Equatable {
     case single(FileDifference)
     case bulk
@@ -226,7 +196,7 @@ enum CopyRemainingRoute: Equatable {
         return .bulk
     }
 
-    /// The N the button names: the pending rows it will copy, the held ones left out (review E9).
+    /// The N the button names: the pending rows it will copy, the held ones left out.
     static func copyableCount(_ remaining: [FileDifference]) -> Int {
         remaining.filter { $0.heldBack == nil }.count
     }
@@ -236,9 +206,9 @@ enum CopyRemainingRoute: Equatable {
 /// computed properties on `FileDifference` so the Table's `sortOrder` (KeyPathComparator) can
 /// order rows by them and the same keys stay unit-testable without SwiftUI.
 extension FileDifference {
-    /// The file/folder name shown in the Name column and used as the Name sort key. Sliced off the
-    /// last "/" rather than `split`, since this is the sort key the Table re-reads O(n log n) times
-    /// per sort — allocating a `[Substring]` array on every comparison would dominate the sort.
+    /// The file or folder name in the Name column, and its sort key. Sliced at the last "/" rather
+    /// than `split`, since the Table reads it O(n log n) times per sort and an array per
+    /// comparison would dominate.
     var fileName: String {
         guard let slash = relativePath.lastIndex(of: "/") else { return relativePath }
         return String(relativePath[relativePath.index(after: slash)...])
@@ -251,17 +221,16 @@ extension FileDifference {
     }
 
     /// Description with the folder roll-up ("… — includes N items") appended. The Change cell
-    /// shows the bare `description` and keeps this full sentence as its hover help — the count
-    /// itself renders in the Size column (`enclosedItemsText`), where it can't truncate away.
+    /// shows the bare `description` with this as its hover help; the count itself is in the Size
+    /// column (`enclosedItemsText`), where it can't truncate away.
     var rolledUpDescription: String {
         guard let count = enclosedItemCount, count > 0 else { return description }
         return "\(description) — includes \(count) item\(count == 1 ? "" : "s")"
     }
 
-    /// The folder roll-up count as Size-column text ("5,301 items") — the one number that says
-    /// how big a folder copy is, moved out of the flexing Change column (where it truncated
-    /// mid-number) into the fixed Size column that used to show "—" for folders. Nil whenever
-    /// a real byte size exists or no roll-up count is known, so files are untouched.
+    /// The folder roll-up count as Size-column text ("5,301 items"), the number that says how big
+    /// a folder copy is, in the fixed-width column where it can't truncate. Nil when a real byte
+    /// size exists or no count is known, so files are untouched.
     var enclosedItemsText: String? {
         guard displaySize == nil, let count = enclosedItemCount, count > 0 else { return nil }
         return "\(count.formatted()) item\(count == 1 ? "" : "s")"

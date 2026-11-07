@@ -4,28 +4,20 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **What Organize forgot on every workspace switch, and the reset that has to keep working now
-/// that it does not.**
+/// Organize's narrowing survives a workspace switch, and the scan-start resets still clear it.
 ///
-/// `LensWorkspaceView` is mounted by `bottomPaneView`, inside one arm of `ContentView`'s layout
-/// switch. Leaving Organize destroys that arm, so everything the reader had set went back to its
-/// default: the match filter to All, the parked query gone, the unfolded sections re-folded, "freed
-/// this session" to zero, the filed/dismissed flags to false. The rail item and the scope survived —
-/// they are `@AppStorage` — which is what made it read as arbitrary rather than as a reset.
-///
-/// The state lives in ``LensWorkspaceSession`` now, held by `ContentView`, which is mounted once for
-/// the window. **That makes the scan-start resets load-bearing in a way they were not.** They always
-/// ran, but a fresh mount used to clear this state anyway, so an omission from `DuplicateScanReset`
-/// had a second net under it. There is no second net now: a narrowing that survives its scan is
-/// shown against results it was never aimed at, which is the exact defect that list was written for.
+/// `LensWorkspaceView` sits inside one arm of `ContentView`'s layout switch, so leaving Organize
+/// destroys it. Its state (match filter, parked query, unfolded sections, "freed this session", the
+/// filed and dismissed flags) lives in ``LensWorkspaceSession``, held by `ContentView`, which is
+/// mounted once per window. That makes the scan-start resets the only thing clearing it: an
+/// omission from `DuplicateScanReset` shows a narrowing against results it was never aimed at.
 @MainActor
 @Suite struct OrganizeSessionPersistenceTests {
 
     // MARK: The session holds what the reader set
 
-    /// The round trip, as a value: state written into a session is still there in the session a
-    /// later mount is handed. This is the whole fix — the view being rebuilt no longer takes the
-    /// narrowing with it, because the narrowing was never in the view.
+    /// State written into a session is still there in the session a later mount is handed: the view
+    /// being rebuilt can't take the narrowing with it, because the narrowing is not in the view.
     @Test func aSessionKeepsEveryNarrowingAcrossAMount() {
         let session = LensWorkspaceSession()
         session.filter = .versions
@@ -49,9 +41,8 @@ import Testing
         #expect(survivor.dismissedThisSession)
     }
 
-    /// A caller with no session of its own gets a fresh one — which is what every test that mounts
-    /// this view to ask about something else relies on, and is exactly the behaviour the state had
-    /// as `@State`.
+    /// A caller with no session of its own gets a fresh one, as `@State` would. Every test that
+    /// mounts this view to ask about something else relies on it.
     @Test func noHostSessionMeansPerMountState() {
         let first = LensWorkspaceView.startingSession(nil, seed: [:])
         first.filter = .versions
@@ -61,17 +52,11 @@ import Testing
         #expect(second.filter == .all, "an unhosted mount inherited another mount's narrowing")
     }
 
-    /// **A nested `ObservableObject` does not publish through its parent**, so the session has to
-    /// re-emit `automationsState`'s changes as its own.
-    ///
-    /// This mattered only once the state moved. As a `@StateObject` on the view, `automationsState`
-    /// was observed directly and "Preview all" flipped the lens into its results view immediately.
-    /// Held inside the session and observed only through it, the change reaches nobody: the button
-    /// writes `viewingResults`, the session says nothing, and the lens keeps drawing the rule list
-    /// until some unrelated publish happens to re-render it.
-    ///
-    /// Nothing rendered would notice the subscription going missing, and nothing else in this suite
-    /// touches it — deleting those four lines left the whole suite green, which is why this exists.
+    /// A nested `ObservableObject` does not publish through its parent, so the session must re-emit
+    /// `automationsState`'s changes as its own. Without that, "Preview all" writes
+    /// `viewingResults`, nobody hears it, and the lens keeps drawing the rule list until an
+    /// unrelated publish. Nothing rendered would notice; removing the forwarding subscription must
+    /// make this test fail.
     @Test func theSessionRepublishesTheAutomationsLensState() {
         let session = LensWorkspaceSession()
         var announcements = 0
@@ -86,17 +71,16 @@ import Testing
 
     // MARK: The seed
 
-    /// `initialSearchQueries` is the one way into a live query without typing, and SwiftUI cannot be
-    /// driven from a unit test — so it is what makes anything depending on a query testable at all.
+    /// `initialSearchQueries` is the one way into a live query without typing, and SwiftUI can't be
+    /// driven from a unit test, so it is what makes anything depending on a query testable.
     @Test func aSeededQueryReachesTheSession() {
         let session = LensWorkspaceView.startingSession(nil, seed: [.duplicates: "invoice"])
         #expect(session.searchQueries[.duplicates] == "invoice")
     }
 
-    /// **An empty seed may not clear a live query**, which is the failure mode of applying the seed
-    /// anywhere other than on first mount. The app passes no seed, so a seed written on every init
-    /// would wipe the reader's parked query the next time anything published — and something
-    /// publishes several times a second while a scan runs.
+    /// An empty seed may not clear a live query. The app passes no seed, so a seed applied anywhere
+    /// but on first mount would wipe the parked query at the next publish, and a running scan
+    /// publishes several times a second.
     @Test func anEmptySeedLeavesAParkedQueryAlone() {
         let session = LensWorkspaceSession()
         session.searchQueries[.duplicates] = "kind:pdf"
@@ -110,11 +94,9 @@ import Testing
     // MARK: The resets, which now have nothing under them
 
     /// A new scan retires the previous scan's narrowing even when the session outlives the view.
-    ///
-    /// Driven through the same `inout` call the view makes, because the interesting question is
-    /// whether the reset still reaches state that is no longer `@State` — computed forwarders pass
-    /// `inout` by get-modify-set, and a forwarder that read the session but wrote somewhere else
-    /// would compile and silently drop the reset.
+    /// Driven through the same `inout` call the view makes: computed forwarders pass `inout` by
+    /// get-modify-set, and one that read the session but wrote elsewhere would compile and silently
+    /// drop the reset.
     @Test func aFreshScanRetiresTheNarrowingHeldInTheSession() {
         let session = LensWorkspaceSession()
         session.filter = .versions
@@ -132,16 +114,11 @@ import Testing
                 "\"freed this session\" carried a previous scan's total")
     }
 
-    /// **The Organize-side scan-start reset still names every flag it has to.**
-    ///
-    /// Scanned rather than driven: those assignments live in `.onChange(of: isSuggestingFiles)`
-    /// inside a SwiftUI body, which a unit test cannot fire. What can be checked is that the handler
-    /// still clears each one — and that matters more than it did, because until now a fresh mount
-    /// cleared them regardless of what the handler said. An omission from that block used to be
-    /// invisible; it is now a stale "All filed" over a scan that filed nothing.
-    ///
-    /// The positive control is the `#require`: if the handler cannot be found at all, this fails
-    /// with that rather than passing on an empty search.
+    /// The Organize-side scan-start reset still names every flag it has to. Scanned rather than
+    /// driven: the assignments live in `.onChange(of: isSuggestingFiles)` inside a SwiftUI body,
+    /// which a unit test can't fire. An omission would show a stale "All filed" over a scan that
+    /// filed nothing. The `#require` is the positive control: a missing handler fails rather than
+    /// passing on an empty search.
     @Test func theScanStartHandlerStillRetiresEveryOrganizeSessionFlag() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

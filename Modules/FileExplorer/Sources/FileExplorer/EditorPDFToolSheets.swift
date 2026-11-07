@@ -4,9 +4,9 @@ import PDFToolkitCore
 import Design
 import Sync
 
-/// One sheet per tool that needs to ask something. **A sheet stays up while its run is in the
-/// lane** and closes when the run ends with a copy or a reason; a failure is shown in place, beside
-/// the field that caused it.
+/// One sheet per tool that needs to ask something. A sheet stays up while its run is in the lane
+/// and closes when the run ends with a copy or a reason; a failure is shown in place, beside the
+/// field that caused it.
 struct EditorPDFToolSheetView: View {
     @ObservedObject var tools: EditorPDFTools
     let sheet: EditorPDFToolSheet
@@ -29,16 +29,16 @@ struct EditorPDFToolSheetView: View {
         .padding(20)
         // A floor, not a fixed width: at the Large text size the radio rows and captions need more.
         .frame(minWidth: 400, idealWidth: 420)
-        // **No tint at the root.** A sheet-wide `.tint` reached every `.bordered` button inside and
-        // drew its words in the deepened fill, 2.9:1 on the dark bezel at Green. The default button
-        // takes the fill itself (``EditorPDFToolSheetFrame``); the radios and progress bars take the
-        // presenter's hue through `presentedNativeControlAccent`, which leaves words alone.
+        // No tint at the root: a sheet-wide `.tint` reaches every `.bordered` button's words, which
+        // then read too faintly on a dark bezel. The default button takes the fill itself
+        // (``EditorPDFToolSheetFrame``); radios and progress bars take the presenter's hue through
+        // `presentedNativeControlAccent`, which leaves words alone.
     }
 }
 
-/// The shared parts of a tool sheet: a title, what it writes, the content, a failure, two buttons
-/// — and while its run is in flight, a spinner and "Writing the copy…" beside them, since the
-/// banner that would say so is hidden while a sheet is up (``EditorPDFToolBannerView``).
+/// The shared parts of a tool sheet: a title, what it writes, the content, a failure, two buttons,
+/// and while its run is in flight a spinner and "Writing the copy…", since the banner that would
+/// say so is hidden while a sheet is up (``EditorPDFToolBannerView``).
 struct EditorPDFToolSheetFrame<Content: View>: View {
     @ObservedObject var tools: EditorPDFTools
     let title: String
@@ -46,7 +46,7 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     let canRun: Bool
     let failure: String?
     let run: () -> Void
-    /// A sheet that draws its own progress — Compress's page row — and so not the spinner too.
+    /// A sheet that draws its own progress (Compress's page row), and so not the spinner too.
     var drawsOwnProgress = false
     /// Whether this tool's copy loses the file's tags, layers and colour output intent, which the
     /// sheet then names (``EditorPDFTools/droppedPartsNote``).
@@ -54,8 +54,8 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
     @ViewBuilder let content: Content
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
-    /// The file a failure's Download fetches — the open one, when the failure is that it is only
-    /// in the cloud now (TE185); `nil` for every other failure.
+    /// The file a failure's Download fetches: the open one, when the failure is that it is only in
+    /// the cloud now; `nil` for every other failure.
     static func downloadPath(failure: String, tools: EditorPDFTools) -> String? {
         guard let path = tools.path, failure == EditorPDFTools.cloudOnlyReason(tools.name) else { return nil }
         return path
@@ -67,8 +67,8 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
         return started ? "Writing the copy…" : "Waiting for other PDF work…"
     }
 
-    /// What the copy won't keep: the parts the file has, or — for a file still locked to open, whose
-    /// catalog can't be read — any of them.
+    /// What the copy won't keep: the parts the file has, or any of them for a file still locked to
+    /// open, whose catalog can't be read.
     static func droppedNote(_ tools: EditorPDFTools) -> String? {
         tools.droppedPartsNote ?? (tools.encryption == .lockedToOpen ? EditorPDFTools.droppedPartsUnreadNote : nil)
     }
@@ -83,7 +83,7 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
-                    // A file only in the cloud now: Download beside the sentence (TE185).
+                    // A file only in the cloud now: Download beside the sentence.
                     if let path = Self.downloadPath(failure: failure, tools: tools) {
                         Spacer(minLength: 0)
                         Button(EditorPDFTools.downloadTitle) { tools.host.download(path) }
@@ -115,16 +115,15 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
                     if tools.running != nil { tools.cancelRun() } else { tools.sheet = nil }
                 }
                 .keyboardShortcut(.cancelAction)
-                // **Cancel's words take the hue at a depth they read at.** A `.bordered` button draws
-                // its tint as TEXT: the deepened fill measures 3.4:1 on Green's dark bezel, the raw
-                // one 2.3:1 on the light bezel. `buttonWordsTint` clears 4.5:1 in both.
+                // Cancel's words take the hue at a depth they read at: a `.bordered` button draws its
+                // tint as text, and neither the raw nor the deepened hue reaches 4.5:1 on both bezels.
+                // `buttonWordsTint` does.
                 .buttonWordsTint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 Button(action, action: run)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canRun || tools.running != nil)
-                    // AppKit lays a white label on the default button's fill, so the deepened accent
-                    // — on this button alone, so the sheet's other buttons keep their words in label
-                    // colour.
+                    // AppKit lays a white label on the default button's fill, so the deepened accent,
+                    // on this button alone so the others keep their words in label colour.
                     .accentedProminent()
             }
         }
@@ -134,7 +133,7 @@ struct EditorPDFToolSheetFrame<Content: View>: View {
 extension EditorPDFTools {
     var name: String { path.map { ($0 as NSString).lastPathComponent } ?? "" }
 
-    /// Runs a sheet's tool and closes the sheet unless it failed or the reader declined — what a
+    /// Runs a sheet's tool and closes the sheet unless it failed or the reader declined: what a
     /// sheet's button does. Returns the failure to show in place.
     func runFromSheet(_ tool: EditorPDFTool) async -> String? {
         let asked = sheet
@@ -176,8 +175,8 @@ struct EditorPDFPageRangeSheet: View {
                           : "Type pages and ranges split by commas, like “1, 4-6” — the order doesn’t matter")
                 Text(parsed.caption)
                     .scaledFont(.system(size: 11))
-                    // Blank is not an error yet — it is where an empty selection starts. The readable
-                    // red, as a sentence takes it (DS2).
+                    // Blank isn't an error yet: it is where an empty selection starts. The readable
+                    // red, as a sentence takes it.
                     .foregroundStyle(parsed.pages == nil && !parsed.isBlank
                                      ? AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
                                      : AnyShapeStyle(.secondary))
@@ -193,14 +192,12 @@ struct EditorPDFPageRangeSheet: View {
         Task { failure = await tools.runFromSheet(tool) }
     }
 
-    /// The pages typed, or why not — Extract keeps the order typed and allows a page twice, Delete
-    /// does not care about order. Blank is refused for both: blank-means-all would make Delete
-    /// "delete everything" and Extract a plain copy.
+    /// The pages typed, or why not. Extract keeps the order typed and allows a page twice; Delete
+    /// ignores order. Blank is refused for both: blank-means-all would make Delete "delete
+    /// everything" and Extract a plain copy. An en dash is read as a hyphen, since the copy's name
+    /// and this caption say "3–5" and `PageRangeParser` reads only "-".
     ///
-    /// **An en dash is read as a hyphen**: the copy's name and this sheet's own caption say "3–5", and
-    /// pasting that back used to fail — `PageRangeParser` reads only "-".
-    ///
-    /// With a dragged order pending, Delete's caption says the copy takes it — the run does
+    /// With a dragged order pending, Delete's caption says the copy takes it, as the run does
     /// (``EditorPDFTool/composing(_:arrangement:)``); Extract's order is the one typed either way.
     static func parse(_ text: String, action: EditorPDFPageAction, pageCount: Int,
                       arrangement: [Int]? = nil) -> (pages: [Int]?, caption: String, isBlank: Bool) {
@@ -223,7 +220,7 @@ struct EditorPDFPageRangeSheet: View {
             if case .arranged = tool { detail += ", in the new page order" }
             return (pages, "\(detail) — as “… (\(tool.suffix)).pdf”.", false)
         } catch PDFOperationError.invalidPageRange(let bad) {
-            // The toolkit's "Invalid page range: x" said what was wrong and not what to type.
+            // Says what to type; the toolkit's "Invalid page range: x" says only what is wrong.
             return (nil, "“\(bad)” isn’t a page or a range — type pages like 3-5, 1.", false)
         } catch PDFOperationError.pageOutOfBounds(let page) {
             return (nil, "This PDF has no page \(page) — it has \(EditorPDFDocument.pages(pageCount)).", false)
@@ -233,17 +230,17 @@ struct EditorPDFPageRangeSheet: View {
     }
 }
 
-/// Compress…: a strength, or a size to come in under — with the run's progress and Cancel.
+/// Compress…: a strength, or a size to come in under, with the run's progress and Cancel.
 struct EditorPDFCompressSheet: View {
     @ObservedObject var tools: EditorPDFTools
     @State private var byTarget = false
     @State private var quality = EditorPDFCompression.strengths[1].quality
-    /// Typed as text and read on the button, not a `value:` field — that commits only on Return
-    /// or focus loss, so a click on Compress could run at the number the field held before. Set
-    /// from the file's size once it is read (``EditorPDFCompression/startingTarget(forSize:)``).
+    /// Typed as text and read on the button, not a `value:` field, which commits only on Return or
+    /// focus loss, so a click on Compress could run at the old number. Set from the file's size once
+    /// read (``EditorPDFCompression/startingTarget(forSize:)``).
     @State private var typedMegabytes = EditorPDFCompression.startingTarget(forSize: nil)
     @State private var failure: String?
-    /// Read once when the sheet opens — the body redraws on every page of progress.
+    /// Read once when the sheet opens; the body redraws on every page of progress.
     @State private var size: Int?
 
     var body: some View {
@@ -284,15 +281,15 @@ struct EditorPDFCompressSheet: View {
     }
 }
 
-/// **Compress's settings** — a strength, or a size to come in under. One file's sheet and a
-/// batch's (``EditorPDFBatchSheet``) draw these same controls, so the two cannot drift.
+/// Compress's settings: a strength, or a size to come in under. One file's sheet and a batch's
+/// (``EditorPDFBatchSheet``) draw these same controls, so the two can't drift.
 struct EditorPDFCompressControls: View {
     @Binding var byTarget: Bool
     @Binding var quality: Double
     @Binding var typedMegabytes: String
     /// A batch's target is each file's, and says so.
     var perFile = false
-    /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
+    /// The window's hue, for the segmented picker; `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     /// For the size line's readable red.
     @Environment(\.colorScheme) private var colorScheme
@@ -316,8 +313,8 @@ struct EditorPDFCompressControls: View {
                     .multilineTextAlignment(.trailing)
                 Text("MB")
             }
-            // Why Save is greyed, in red as the page-range sheet says it (PD9) — the readable red: a
-            // sentence at 11 points, where bare `.red` falls short of 4.5:1 (DS2).
+            // Why Save is greyed, in the readable red as the page-range sheet says it: at 11 points,
+            // bare `.red` falls short of 4.5:1.
             let caption = EditorPDFCompression.targetCaption(typedMegabytes)
             Text(caption.text)
                 .scaledFont(.system(size: 11))
@@ -337,7 +334,7 @@ struct EditorPDFCompressControls: View {
     }
 }
 
-/// "Page 12 of 300", under a bar — Compress's progress as the lane reports it.
+/// "Page 12 of 300", under a bar: Compress's progress as the lane reports it.
 struct EditorPDFProgressRow: View {
     let progress: EditorPDFTools.Progress?
 
@@ -356,12 +353,12 @@ struct EditorPDFProgressRow: View {
     }
 }
 
-/// **Clean Metadata's fields on one file** (decision AW, 2026-10-20). They open cleared — as a
-/// batch clears every file's — with what the file says greyed in each as its placeholder, so the
-/// reader sees what goes; Keep Current Values puts the file's back, Clear All clears them again.
-/// Opening filled made the button straight away write a "cleaned" copy that said all the same.
+/// Clean Metadata's fields on one file. They open cleared, as a batch clears every file's, with the
+/// file's values greyed in as placeholders so the reader sees what goes; Keep Current Values puts
+/// them back, Clear All clears them again. Opened filled, the button would write a "cleaned" copy
+/// that said all the same.
 struct EditorPDFMetadataForm: Equatable, Sendable {
-    /// What the file says — each field's placeholder, and what Keep Current Values puts back.
+    /// What the file says: each field's placeholder, and what Keep Current Values puts back.
     let current: PDFMetadataFields
     /// What the copy will say.
     var fields = PDFMetadataFields.cleared
@@ -377,7 +374,7 @@ struct EditorPDFMetadataForm: Equatable, Sendable {
     var canKeepCurrentValues: Bool { Self.editable(fields) != Self.editable(current) }
     var canClearAll: Bool { !fields.isCleared }
 
-    /// The five fields a reader can type in — Producer and the dates are PDFKit's on every save.
+    /// The five fields a reader can type in; Producer and the dates are PDFKit's on every save.
     static func editable(_ fields: PDFMetadataFields) -> [String] {
         [fields.title, fields.author, fields.subject, fields.keywords, fields.creator]
     }
@@ -431,11 +428,10 @@ struct EditorPDFMetadataSheet: View {
         .task { await read() }
     }
 
-    /// What the copy keeps and loses besides the five fields (TE162). **Without a form**, PDFKit
-    /// writes the copy: Producer and the two dates are its own on every save, whatever is asked
-    /// for, and the embedded (XMP) metadata goes. **With one**, the toolkit writes it in place, so
-    /// the form stays fillable: the info holds the five fields and nothing else — Producer, the
-    /// dates and any other entry go — and the XMP stays.
+    /// What the copy keeps and loses besides the five fields. Without a form, PDFKit writes the
+    /// copy: Producer and the two dates are its own on every save, and the XMP metadata goes. With
+    /// one, the toolkit writes in place so the form stays fillable: the info holds the five fields
+    /// and nothing else, and the XMP stays.
     static func notes(_ fields: PDFMetadataFields, hasForm: Bool) -> [String] {
         if hasForm {
             return ["The copy has only what’s in the five fields above. Producer, the dates and any other "
@@ -458,14 +454,14 @@ struct EditorPDFMetadataSheet: View {
             form = EditorPDFMetadataForm(current: read.fields)
             hasForm = read.hasForm
         case .failure(let error):
-            // In Edit's words, the file named as opened (TE186) — not PDF Utils' "Could not open PDF".
+            // In Edit's words, the file named as opened, not PDF Utils' "Could not open PDF".
             failure = EditorPDFToolEngine.reason(error, tool: .cleanMetadata(.cleared), name: tools.name)
         }
     }
 
-    /// What the file says, and whether it has a form — one lane turn, by URL. **Never for a file
-    /// evicted since it opened**: the toolkit opening the placeholder downloads it, in the lane every
-    /// duplicate scan waits on, and nobody asked for that — the run refuses it the same way.
+    /// What the file says, and whether it has a form: one lane turn, by URL. **Never for a file
+    /// evicted since it opened**: opening the placeholder downloads it inside the lane every
+    /// duplicate scan waits on, unasked. The run refuses it the same way.
     static func read(path: String, isCloudOnly: (String) -> Bool) async -> Result<ReadFields, any Error> {
         if isCloudOnly(MaterializationStatus.linkTarget(of: path)) {
             return .failure(Refusal(EditorPDFTools.cloudOnlyReason((path as NSString).lastPathComponent)))
@@ -495,7 +491,7 @@ struct EditorPDFMetadataSheet: View {
     }
 }
 
-/// Protect with Password…: lock to open, or restrict editing — two secure fields and a strength
+/// Protect with Password…: lock to open, or restrict editing, with two secure fields and a strength
 /// hint. **The password lives in this sheet's state alone** and goes with the sheet.
 struct EditorPDFProtectSheet: View {
     @ObservedObject var tools: EditorPDFTools
@@ -503,7 +499,7 @@ struct EditorPDFProtectSheet: View {
     @State private var password = ""
     @State private var confirmation = ""
     @State private var failure: String?
-    /// The window's hue, for the segmented picker — `accentedSegments` takes the hue itself.
+    /// The window's hue, for the segmented picker; `accentedSegments` takes the hue itself.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     /// For the mismatch line's readable red.
     @Environment(\.colorScheme) private var colorScheme
@@ -542,7 +538,7 @@ struct EditorPDFProtectSheet: View {
                     EditorPDFStrengthMeter(strength: strength)
                     Text(!confirmation.isEmpty && !matches ? "The passwords don’t match." : strength.label)
                         .scaledFont(.system(size: 10))
-                        // The readable red, as a sentence takes it (DS2).
+                        // The readable red, as a sentence takes it.
                         .foregroundStyle(!confirmation.isEmpty && !matches
                                          ? AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
                                          : AnyShapeStyle(.secondary))
@@ -583,8 +579,8 @@ struct EditorPDFStrengthMeter: View {
     }
 }
 
-/// Remove Password…: the password, for a file locked to open; for a restricted one, nothing to type
-/// — the toolkit cannot check an owner password on a file that is not locked, so none is asked for.
+/// Remove Password…: the password, for a file locked to open. For a restricted one nothing is asked,
+/// since the toolkit can't check an owner password on a file that isn't locked.
 struct EditorPDFRemovePasswordSheet: View {
     @ObservedObject var tools: EditorPDFTools
     @State private var password = ""
@@ -602,8 +598,8 @@ struct EditorPDFRemovePasswordSheet: View {
                     Text("The copy opens without a password. SyncCloud uses this one only to write it.")
                         .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    // A locked file's form cannot be seen without the password, so the warning the
-                    // other rebuilding tools give only when there IS a form is said here always.
+                    // A locked file's form can't be seen without the password, so the warning other
+                    // rebuilding tools give only when there is a form is always said here.
                     Text("If this PDF has fillable form fields, they stop working in the copy.")
                         .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

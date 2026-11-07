@@ -4,29 +4,18 @@ import SwiftUI
 /// The "this provider will reject this name" marker, drawn beside a file's name wherever files are
 /// listed: both panes, the Columns view, and the Differences table.
 ///
-/// **Why it exists.** Folding Rename into Organize made a cloud-hostile name cheap to *act on* — a
-/// finding in Organize's header when the scan turns one up, and "Fix name" in any row's context
-/// menu. It did not make one cheap to *notice*: a name the cloud will reject looked exactly like
-/// every other name until you either ran Organize or right-clicked the file for an unrelated reason.
-/// This is the other half — the discovery.
+/// Organize's finding and the row's "Fix name" make a cloud-hostile name easy to act on; this
+/// makes it easy to notice.
 ///
-/// **Same finding, same clothes.** Glyph and colour are `RiskyNameGlyph.risky` and
-/// `SemanticColor.caution`, which is what Organize's own risky-names chip and its list rows already
-/// wear. A finding that changed appearance depending on which surface reported it would read as two
-/// different findings.
+/// Glyph and colour are `RiskyNameGlyph.risky` and `SemanticColor.caution`, as on Organize's
+/// risky-names chip and rows, so the same finding looks the same everywhere.
 ///
-/// **A bare glyph, not the mockup's tinted chip.** Every other per-row marker in this app — the
-/// cloud-only badge, the difference badge — is an unadorned tinted symbol, and a row is a dense
-/// place: a filled background here would be the only boxed thing on the line, and would have to
-/// fight the accent selection wash for contrast on a selected row. The wash is 0.22 opacity (see
-/// `PaneSelectionWash`), which is exactly why the difference glyphs keep their own colours on a
-/// selected row without special-casing; this one follows the same rule for the same reason.
+/// A bare tinted glyph, like the app's other per-row markers: a filled chip would be the only
+/// boxed thing on a dense row and would fight the 0.22-opacity selection wash
+/// (`PaneSelectionWash`).
 ///
-/// **Nothing is reserved when there is no badge.** Unlike the cloud badge — which arrives *after*
-/// the row, one `lstat` at a time, and so needs a slot held open or the trailing cluster ripples —
-/// this answer is known synchronously, at the moment the row is built. There is nothing to arrive
-/// late, so an absent badge takes no space rather than an empty 16pt of it on every clean name in
-/// the pane.
+/// No space is reserved when there is no badge: unlike the cloud badge, which arrives after the
+/// row, this answer is known when the row is built.
 struct RiskyNameBadge: View {
     @Environment(\.colorScheme) private var colorScheme
     /// Why the name is hostile; nil draws nothing at all.
@@ -38,13 +27,10 @@ struct RiskyNameBadge: View {
         if let reason {
             Image(systemName: RiskyNameGlyph.risky)
                 .font(fonts.riskyNameBadge)
-                // A GLYPH whose colour is the meaning: the 3:1 treatment, not the body-text one.
-                // (The audit listed this beside three prose sites; it is an `Image`, so the bar is
-                // different and so is the fix.)
+                // A glyph whose colour is the meaning: the 3:1 treatment, not the body-text one.
                 .foregroundStyle(ChromeInk.semantic(colorScheme, SemanticColor.caution))
                 // The reason itself, not a generic "risky name": the tooltip is the only place the
-                // *why* is available without opening a menu, and "ends with a space" is the part
-                // that makes the mark actionable rather than merely alarming.
+                // why shows without a menu, and "ends with a space" makes the mark actionable.
                 .help(reason)
                 .accessibilityLabel("Risky name. \(reason)")
         }

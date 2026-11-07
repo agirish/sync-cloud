@@ -2,10 +2,9 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Edits made in the editable preview, translated into edits of the Markdown source (TE67 §3.4–3.6).
-///
-/// **Each case states the SOURCE it must produce**, not just that something was accepted: the
-/// claim is about the file on disk, which is what the person audits.
+/// Edits made in the editable preview, translated into edits of the Markdown source. Each case
+/// states the source it must produce, not just that something was accepted: the claim is about the
+/// file on disk, which is what the person audits.
 @Suite struct PreviewEditTranslatorTests {
 
     // MARK: Helpers
@@ -46,8 +45,8 @@ import Foundation
 
     // MARK: Typing (A1) and escaping
 
-    /// C1: a `*` that would close emphasis is written escaped — and only because the parser said
-    /// the bare one rendered differently.
+    /// A `*` that would close emphasis is written escaped, and only because the parser said the
+    /// bare one rendered differently.
     @Test func anAsteriskThatWouldMakeEmphasisIsEscaped() {
         let source = "x *y"
         let p = project(source)
@@ -70,16 +69,16 @@ import Foundation
         #expect(result?.undo == .typing)
     }
 
-    /// C2: an intraword `_` is not emphasis to the parser, so it goes in bare.
+    /// An intraword `_` is not emphasis to the parser, so it goes in bare.
     @Test func anUnderscoreInsideAWordIsNotEscaped() {
         let source = "snake case"
         let p = project(source)
         let result = applied(type("_", at: after("snake", in: p), in: source))
-        // "snake_ case" — the underscore is not followed by a letter yet, and still renders bare.
+        // "snake_ case": the underscore is not followed by a letter yet, and still renders bare.
         #expect(result?.source == "snake_ case")
     }
 
-    /// C3: typing at the end of bold continues the bold.
+    /// Typing at the end of bold continues the bold.
     @Test func typingAtTheEndOfBoldContinuesIt() {
         let source = "Use **plenty** of"
         let p = project(source)
@@ -89,7 +88,7 @@ import Foundation
         #expect(typed?.source == "Use **plentyx** of")
     }
 
-    /// C4: at the end of a link's text, typing goes after the `)` — not into the link.
+    /// At the end of a link's text, typing goes after the `)`, not into the link.
     @Test func typingAtTheEndOfALinkGoesOutsideIt() {
         let source = "See [the docs](http://x.y) now"
         let p = project(source)
@@ -131,7 +130,7 @@ import Foundation
 
     // MARK: Deleting (A2)
 
-    /// C5: deleting across a span's edge removes characters and keeps the markers.
+    /// Deleting across a span's edge removes characters and keeps the markers.
     @Test func deletingAcrossBoldKeepsItsMarkers() {
         let source = "Use **plenty** of parmesan"
         let p = project(source)
@@ -142,7 +141,7 @@ import Foundation
         #expect(result?.source == "Use **ple** parmesan")
     }
 
-    /// C6: deleting all of a bold word takes its markers with it — no `****` left behind.
+    /// Deleting all of a bold word takes its markers with it: no `****` left behind.
     @Test func deletingAllOfASpanRemovesItsMarkers() {
         let source = "Use **plenty** of"
         let p = project(source)
@@ -161,7 +160,7 @@ import Foundation
         #expect(result?.source == "Use **lots** of")
     }
 
-    /// C22: the rendered `&` is the whole `&amp;`.
+    /// The rendered `&` is the whole `&amp;`.
     @Test func deletingARenderedEntityDeletesAllOfIt() {
         let source = "salt &amp; pepper"
         let p = project(source)
@@ -178,7 +177,7 @@ import Foundation
         #expect(result?.source == "onetwo")
     }
 
-    /// C12: Backspace at a block's start would join two blocks.
+    /// Backspace at a block's start would join two blocks.
     @Test func backspaceAtABlocksStartIsRefused() {
         let source = "one\n\ntwo"
         let p = project(source)
@@ -187,7 +186,7 @@ import Foundation
         #expect(refusal(outcome) == .joinsBlocks)
     }
 
-    /// C13: a selection across two paragraphs.
+    /// A selection across two paragraphs.
     @Test func typingOverTwoParagraphsIsRefused() {
         let source = "one\n\ntwo"
         let p = project(source)
@@ -204,7 +203,7 @@ import Foundation
 
     // MARK: Formatting (A3, A4)
 
-    /// C7: ⌘B on a rendered bold word takes the bold off in the source.
+    /// ⌘B on a rendered bold word takes the bold off in the source.
     @Test func boldOnABoldWordRemovesIt() {
         let source = "Use **plenty** of"
         let p = project(source)
@@ -225,7 +224,7 @@ import Foundation
         #expect(result?.renderedSelection == NSRange(location: at("plenty", in: p), length: 6))
     }
 
-    /// C8: ⌘B with nothing selected writes nothing; the next characters typed are bold.
+    /// ⌘B with nothing selected writes nothing; the next characters typed are bold.
     @Test func boldWithNothingSelectedWaitsForTyping() {
         let source = "a b"
         let p = project(source)
@@ -243,7 +242,7 @@ import Foundation
     }
 
     /// The Markup-verb undo rule (`MarkupVerbUndoTests`): a verb is its own step, so "foo" then
-    /// Bold then ⌘Z gives "foo" — typing coalesces, a verb never joins it.
+    /// Bold then ⌘Z gives "foo". Typing coalesces; a verb never joins it.
     @Test func typingCoalescesAndAVerbIsItsOwnStep() {
         let typed = applied(type("foo", at: 0, in: ""))
         #expect(typed?.undo == .typing)
@@ -262,7 +261,7 @@ import Foundation
 
     // MARK: Return (A5), ⇧Return (A6)
 
-    /// C9: Return at the end of a paragraph opens a phantom and leaves the file alone.
+    /// Return at the end of a paragraph opens a phantom and leaves the file alone.
     @Test func returnAtTheEndOfAParagraphChangesNothingYet() {
         let source = "one"
         let outcome = PreviewEditTranslator.translate(
@@ -274,7 +273,7 @@ import Foundation
         #expect(block == 0)
     }
 
-    /// C10: the first character typed into the phantom writes the blank line and the character.
+    /// The first character typed into the phantom writes the blank line and the character.
     @Test func typingIntoThePhantomWritesTheParagraph() {
         let result = applied(type("x", at: 3, in: "one", context: PreviewEditContext(phantomAfterBlock: 0)))
         #expect(result?.source == "one\n\nx")
@@ -300,7 +299,7 @@ import Foundation
         #expect(refusal(outcome) == .unverified)
     }
 
-    /// C11: Return at the end of a list item writes exactly what Return writes there in Source.
+    /// Return at the end of a list item writes exactly what Return writes there in Source.
     @Test func returnInAListItemMatchesSourceByteForByte() {
         let source = "- one\n- two"
         let p = project(source)
@@ -316,11 +315,10 @@ import Foundation
         #expect(result?.undo == .own)
     }
 
-    /// **The end of an item's last words carries the list on, whichever block holds them** (LST-8,
-    /// 2026-10-15) — a later paragraph of the item, or words that are a heading — byte for byte as
-    /// Source does. Preview opened a paragraph inside the item instead, so one Return wrote two
-    /// different documents depending on the half it was pressed in. Where TE54 offers nothing, it is
-    /// a paragraph's end as before.
+    /// The end of an item's last words carries the list on, whichever block holds them (a later
+    /// paragraph of the item, or words that are a heading), byte for byte as Source does, so one
+    /// Return writes the same document in either half. Where Source's list rule
+    /// (`MarkdownListEdits.returnEdit`) offers nothing, it is a paragraph's end.
     @Test(arguments: [("- a\n\n  more", "more"), ("- # Groceries\n- Hardware", "Groceries"),
                       ("1. Step\n\n   Notes on it", "Notes on it")])
     func returnAtTheEndOfAnItemsLaterWordsMatchesSource(_ source: String, _ needle: String) {
@@ -338,7 +336,7 @@ import Foundation
         #expect(result?.undo == .own)
     }
 
-    /// …and where the rule offers nothing — more of the item follows — it is a paragraph's end.
+    /// …and where the rule offers nothing (more of the item follows), it is a paragraph's end.
     @Test func returnInsideAnItemsLaterWordsStillOpensAParagraph() {
         let source = "- a\n\n  b\n\n  c"
         guard case .openPhantom = edit(NSRange(location: after("b", in: project(source)), length: 0), .returnKey,
@@ -349,11 +347,9 @@ import Foundation
     }
 
     /// Return on an empty sub-list item ends the sub-list, not the list: the line keeps the item's
-    /// indent, and a break after the caret keeps `- c` an item — the TE54 review's rule, byte for
-    /// byte what `carryOnList` writes in Source.
-    ///
-    /// **The empty item sits between two items.** Straight under a paragraph, `  - ` is a setext
-    /// underline to the parser — `- a\n  - ` makes `a` a heading — so it would never be an item.
+    /// indent, and a break after the caret keeps `- c` an item, byte for byte what `carryOnList`
+    /// writes in Source. The empty item sits between two items because straight under a paragraph
+    /// `  - ` is a setext underline (`- a\n  - ` makes `a` a heading), never an item.
     @Test func returnOnAnEmptySubItemEndsTheSubList() {
         let source = "- a\n  - b\n  - \n  - c"
         let p = project(source)
@@ -372,10 +368,10 @@ import Foundation
         #expect(result?.sourceSelection == NSRange(location: line.location + 3, length: 0))
     }
 
-    /// **Return at the end of an item with a sub-list shares Source's rule**: TE54 offers no
-    /// opening there, because `  - ` straight under `item` would make it a heading (2026-10-09),
-    /// so Preview refuses rather than writing one. Above a task sub-list the empty box is an item
-    /// as written, and the list carries on as in Source.
+    /// Return at the end of an item with a sub-list shares Source's rule, which offers no opening
+    /// there, because `  - ` straight under `item` would make it a heading, so Preview refuses
+    /// rather than writing one. Above a task sub-list the empty box is an item as written, and the
+    /// list carries on as in Source.
     @Test func returnAboveASubListSharesSourcesRule() {
         let source = "- item\n  - sub"
         let p = project(source)
@@ -389,11 +385,11 @@ import Foundation
         #expect(result?.projection.blocks.contains { if case .heading = $0.kind { return true } else { return false } } == false)
     }
 
-    /// **Text ▸ Continue Lists off is off in Preview too** (LST-3, 2026-10-15), as Help says it is.
-    /// Return at the end of an item writes no marker: it opens a paragraph after the item, as at the
-    /// end of any other block — at the item's own indent in a sub-list — and Tab and ⇧Tab move no
-    /// item. Where the item holds blocks under its words, a paragraph between would cut them off,
-    /// and Return is refused. On, the list carries on as ever.
+    /// Text ▸ Continue Lists off is off in Preview too, as Help says. Return at the end of an item
+    /// writes no marker: it opens a paragraph after the item, as at the end of any other block (at
+    /// the item's own indent in a sub-list), and Tab and ⇧Tab move no item. Where the item holds
+    /// blocks under its words, a paragraph between would cut them off, so Return is refused. On,
+    /// the list carries on.
     @Test func continueListsOffWritesNoMarkerInPreview() {
         let source = "- one\n- two"
         let p = project(source)
@@ -428,8 +424,7 @@ import Foundation
         #expect(applied(edit(NSRange(location: after("two", in: p), length: 0), .tab, in: source))?.source == "- one\n  - two")
     }
 
-    /// The session carries the setting into every edit — it is not part of the context each edit
-    /// resets (LST-3).
+    /// The session carries the setting into every edit: it isn't in the context each edit resets.
     @MainActor @Test func theSessionCarriesContinueListsIntoEveryEdit() {
         let source = EditorSourceStorage(text: "- one\n- two")
         let session = PreviewEditSession(source: source, undoManager: UndoManager())
@@ -445,9 +440,9 @@ import Foundation
         #expect(source.textStorage.string == "- one\n\nx\n\n- two\n\ny")
     }
 
-    /// **Tab moves an item from anywhere in its words** (LST-9, 2026-10-15) — on screen one
-    /// paragraph, in the file two lines. From the second, the caret mapped onto a line with no marker
-    /// on it, TE54 read none, and Tab did nothing. The caret stays on the character it was after.
+    /// Tab moves an item from anywhere in its words: on screen one paragraph, in the file two
+    /// lines, the second with no marker on it for Source's list rule to read. The caret stays on
+    /// the character it was after.
     @Test func tabMovesAWrappedItemFromAnyOfItsLines() {
         let source = "- Groceries\n- Preheat the oven\n  to 200 degrees"
         let p = project(source)
@@ -470,15 +465,15 @@ import Foundation
         #expect(result?.source == "1. one\n   ```\n   let x\n   \n   ```")
     }
 
-    /// C31: Preview writes LF. (A CRLF file is converted before the edit is measured — the view's
-    /// job, through `EditorSourceStorage` — so the translator never sees one.)
+    /// Preview writes LF. A CRLF file is converted before the edit is measured (the view's job,
+    /// through `EditorSourceStorage`), so the translator never sees one.
     @Test func newLinesAreLF() {
         let result = applied(type("x", at: 3, in: "one\n\ntwo",
                                   context: PreviewEditContext(phantomAfterBlock: 0)))
         #expect(result?.source == "one\n\nx\n\ntwo")
     }
 
-    /// Decision U: ⇧Return writes two trailing spaces, never `\`, and the text after it maps exactly.
+    /// ⇧Return writes two trailing spaces, never `\`, and the text after it maps exactly.
     @Test func shiftReturnWritesTwoSpacesAndTheNextLineStillMaps() {
         let source = "> one two"
         let p = project(source)
@@ -486,7 +481,7 @@ import Foundation
             RenderedEdit(range: NSRange(location: after("one", in: p), length: 0), action: .lineBreak),
             in: p))
         // The space that stood before `two` would start the new line, where it renders as nothing:
-        // it goes, rather than being left in the file (2026-10-09).
+        // it goes, rather than being left in the file.
         #expect(broken?.source == "> one  \n> two")
         guard let broken else { return }
         #expect(broken.projection.renderedString == "one\u{2028}two")
@@ -499,9 +494,8 @@ import Foundation
 
     // MARK: Tables (A1 in a cell, A7)
 
-    /// C14, decision T = re-align as you type (2026-10-05): typing in a cell of an aligned table
-    /// re-pads the whole table, so its pipes still line up — its compact delimiter row staying
-    /// compact (TBL-4; this pinned `| --- | --- |`).
+    /// Typing in a cell of an aligned table re-pads the whole table, so its pipes still line up,
+    /// and its compact delimiter row stays compact.
     @Test func typingInAnAlignedTableReAlignsIt() {
         let source = "| a | b |\n|---|---|\n| c | d |"
         let p = project(source)
@@ -522,7 +516,7 @@ import Foundation
         #expect(result?.source == "| a | b |\n|-|-|\n| cx | d |")
     }
 
-    /// C15: a typed `|` in a cell is `\|`.
+    /// A typed `|` in a cell is `\|`.
     @Test func aPipeTypedInACellIsEscaped() {
         let source = "| a | b |\n|-|-|\n| c | d |"
         let p = project(source)
@@ -530,7 +524,7 @@ import Foundation
         #expect(result?.source == "| a | b |\n|-|-|\n| c\\| | d |")
     }
 
-    /// C16: Tab in a row's last cell moves to the next row's first cell; the source is untouched.
+    /// Tab in a row's last cell moves to the next row's first cell; the source is untouched.
     @Test func tabMovesBetweenCells() {
         let source = "| a | b |\n|---|---|\n| c | d |"
         let p = project(source)
@@ -551,7 +545,7 @@ import Foundation
     }
 
     /// Return in a table's last row has no row to move down to: it opens a paragraph after the
-    /// table — a note ending in a table could not grow (review, 2026-10-09: refused).
+    /// table, so a note ending in a table can grow.
     @Test func returnInTheLastRowOpensAParagraphAfterTheTable() {
         let source = "| a |\n|---|\n| c |"
         let p = project(source)
@@ -582,7 +576,7 @@ import Foundation
         #expect(result?.projection.blocks.map(\.indent) == [0, 1])
     }
 
-    /// C25: a tick is an edit with its own undo step now.
+    /// A tick is an edit with its own undo step.
     @Test func tickingATaskTogglesItsBox() {
         let source = "- [ ] milk"
         let p = project(source)
@@ -612,7 +606,7 @@ import Foundation
         #expect(result?.source == "- x\n\n  ```\n  a\n  b\n  c\n  ```")
     }
 
-    /// C21: one of three matches is in front matter, so none of them is replaced.
+    /// One of three matches is in front matter, so none of them is replaced.
     @Test func replaceAllIsAllOrNothing() {
         let source = "---\nkey: cat\n---\ncat and cat"
         let p = project(source)
@@ -635,9 +629,9 @@ import Foundation
 
     // MARK: Undo arithmetic
 
-    /// The source before `edits`, rebuilt from the source after them — each edit's inverse
-    /// carries back the characters it replaced. Equal to `before` exactly when the edit list
-    /// describes the change and nothing else moved.
+    /// The source before `edits`, rebuilt from the source after them: each edit's inverse carries
+    /// back the characters it replaced. Equal to `before` exactly when the edit list describes the
+    /// change and nothing else moved.
     static func undo(_ edits: [PreviewSourceEdit], before: String, after: String) -> String {
         let old = before as NSString
         var shift = 0
@@ -652,8 +646,8 @@ import Foundation
         return PreviewEditTranslator.applied(inverse, to: after)
     }
 
-    /// A line verb on the empty paragraph Return opened starts the list THERE — a new paragraph
-    /// holding the marker — and leaves the paragraph above alone.
+    /// A line verb on the empty paragraph Return opened starts the list there, a new paragraph
+    /// holding the marker, and leaves the paragraph above alone.
     @Test func aLineVerbOnTheOpenedParagraphStartsItThere() {
         let p = project("one")
         for (verb, marker) in [(MarkupVerb.bulletList, "- "), (.numberedList, "1. "), (.taskItem, "- [ ] "),
@@ -676,7 +670,7 @@ import Foundation
                                         in: project(source), context: context)
     }
 
-    /// Typed text that the parser would take for HTML goes in escaped — never as a tag every other
+    /// Typed text that the parser would take for HTML goes in escaped, never as a tag every other
     /// renderer drops.
     @Test func typedTextThatWouldBeHTMLIsEscaped() {
         let source = "Use Vec<T"
@@ -685,7 +679,7 @@ import Foundation
         #expect(result?.projection.renderedString == "Use Vec<T>")
     }
 
-    /// ⌫ that would leave a space at a line's end takes the space too: it was refused.
+    /// ⌫ that would leave a space at a line's end takes the space too, rather than being refused.
     @Test func deletingTheLastWordTakesTheSpaceBeforeIt() {
         let source = "hello w\n\nnext"
         let p = project(source)
@@ -693,7 +687,7 @@ import Foundation
         #expect(result?.source == "hello\n\nnext")
     }
 
-    /// Quote and a Heading on the opened paragraph leave somewhere to type — in the new block.
+    /// Quote and a Heading on the opened paragraph leave somewhere to type, in the new block.
     @Test func quoteAndHeadingOnTheOpenedParagraphCanBeTypedInto() {
         for (verb, marker) in [(MarkupVerb.blockQuote, "> "), (.heading(2), "## ")] {
             let opened = applied(edit(NSRange(location: 3, length: 0), .format(verb), in: "one",
@@ -705,8 +699,8 @@ import Foundation
         }
     }
 
-    /// Typing over a selection that covers a whole link from before it replaces the link too —
-    /// no empty `[](…)` is left in the file.
+    /// Typing over a selection that covers a whole link from before it replaces the link too: no
+    /// empty `[](…)` is left in the file.
     @Test func typingOverAWholeLinkFromBeforeItReplacesIt() {
         let source = "See [docs](http://x.y) now"
         let p = project(source)
@@ -776,10 +770,9 @@ import Foundation
         #expect(result?.source == "one more two")
     }
 
-    /// Return at the end of an item with a sub-list under it is refused, not written: TE54's
-    /// opening there is the sub-list's, straight under the item's words, where `  - ` is a setext
-    /// underline — the words became a heading (found 2026-10-09, by the property test). Since
-    /// `0cfe5460` the list rule itself declines it, so nothing is offered to verify.
+    /// Return at the end of an item with a sub-list under it is refused, not written: an opening
+    /// there would sit straight under the item's words, where `  - ` is a setext underline that
+    /// makes the words a heading. Source's list rule declines it, so nothing is offered to verify.
     @Test func returnThatWouldMakeAnItemAHeadingIsRefused() {
         let source = "- item\n  - sub"
         let p = project(source)

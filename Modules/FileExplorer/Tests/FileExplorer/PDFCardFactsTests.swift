@@ -5,13 +5,8 @@ import PDFKit
 import Sync
 @testable import FileExplorer
 
-/// **What an Ask Claude PDF card says before the click** (TE294 step 3): a file's pages, size,
-/// protection and fields, a tool's losses for that file only, a bounded wait on the PDF lane, and
-/// the pages a card draws.
-///
-/// Serialized, because the reads take `PDFKitSerialAccess`'s one lane, and one test holds it.
 extension PDFFixtures {
-    /// One page whose catalog has an `/AcroForm` naming no fields — a form to the toolkit, with
+    /// One page whose catalog has an `/AcroForm` naming no fields: a form to the toolkit, with
     /// nothing in it to fill.
     static func writeEmptyAcroForm(_ path: String) throws {
         let objects = [
@@ -33,6 +28,9 @@ extension PDFFixtures {
     }
 }
 
+/// What an Ask Claude PDF card says before the click: a file's pages, size, protection and fields,
+/// a tool's losses for that file only, a bounded wait on the PDF lane, and the pages a card draws.
+/// Serialized, because the reads take `PDFKitSerialAccess`'s one lane, and one test holds it.
 @MainActor
 @Suite(.serialized) final class PDFCardFactsTests {
     let folder = NSTemporaryDirectory() + "pdf-card-facts-" + UUID().uuidString
@@ -61,7 +59,7 @@ extension PDFFixtures {
         return nil
     }
 
-    /// **A plain PDF: its pages, size, stamp — and nothing lost by Rotate.**
+    /// A plain PDF: its pages, size and stamp, and nothing lost by Rotate.
     @Test func readsAPlainFile() async throws {
         let file = path("Plain.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -76,8 +74,8 @@ extension PDFFixtures {
         #expect(read.folderIsWritable)
     }
 
-    /// **Compress always says its pages become pictures** — every file has text to lose — and a
-    /// form's loss is said only for a file with one, in the tool's own kind of loss.
+    /// Compress always says its pages become pictures, since every file has text to lose; a form's
+    /// loss is said only for a file with one, in the tool's own kind of loss.
     @Test func saysEachToolsLossesForThisFileOnly() async throws {
         let plain = path("Plain.pdf"), form = path("Form.pdf")
         PDFFixtures.write(plain, pages: 2)
@@ -102,9 +100,9 @@ extension PDFFixtures {
                 "Rotate keeps a form: \(rotateForm.losses)")
     }
 
-    /// **A form with no named fields is a form, as the run asks it** — a catalog `/AcroForm` with
-    /// an empty `/Fields`, as some generators write. The card said no loss while the run found
-    /// one, so the click was declined as "changed since the card said", every time.
+    /// A form with no named fields is still a form, as the run sees it: a catalog `/AcroForm` with
+    /// an empty `/Fields`, as some generators write. If the card said no loss while the run found
+    /// one, the click would be declined as "changed since the card said" every time.
     @Test func aFormWithNoFieldsLosesWhatTheRunSays() async throws {
         let file = path("Empty form.pdf")
         try PDFFixtures.writeEmptyAcroForm(file)
@@ -118,12 +116,13 @@ extension PDFFixtures {
             let said = read.losses.contains { $0 == PDFCardFactsReader.formFlattened || $0 == PDFCardFactsReader.formStopsWorking }
             #expect(said, "\(tool.logDetail): the card said \(read.losses), the run will ask about the form")
         }
-        // Clean Metadata cleans such a file in place, as the toolkit decides it: by the form, not its fields.
+        // Clean Metadata cleans such a file in place, as the toolkit decides: by the form, not its
+        // fields.
         let lane = try #require(await PDFKitSerialAccess.perform { PDFCardFactsReader.laneRead(url, tool: .cleanMetadataCleared) })
         #expect(lane.hasForm)
     }
 
-    /// **Protection, as the card needs it**: restricted opens and counts its pages, and a copy that
+    /// Protection, as the card needs it: restricted opens and counts its pages, and a copy that
     /// rebuilds it says the restrictions go; locked has no pages to count.
     @Test func readsProtection() async throws {
         let restricted = path("Restricted.pdf"), locked = path("Locked.pdf")
@@ -150,10 +149,10 @@ extension PDFFixtures {
         #expect(await PDFCardFactsReader.read(junk, for: .compress(.quality(0.6)), timeout: Self.wait, isCloudOnly: { _ in false }) == .unreadable)
     }
 
-    /// **A lane held by other work answers "busy" while it is still held, not after.** Said
-    /// without a clock: on a loaded
-    /// 3-core runner even the 200 ms timer can take seconds to fire, so the claim is that the
-    /// answer came back before the lane was let go, which a read that waited for it can't do.
+    /// A lane held by other work answers "busy" while it is still held, not after. Checked without
+    /// a clock: on a loaded 3-core runner even the 200 ms timer can take seconds to fire, so the
+    /// claim is that the answer came back before the lane was let go, which a read that waited
+    /// can't do.
     @Test func aHeldLaneAnswersBusyWhileItIsHeld() async throws {
         let file = path("Held.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -181,7 +180,7 @@ extension PDFFixtures {
 
     // MARK: Thumbnails
 
-    /// **The pages a card draws: each one acted on, one either side, and a gap for the rest.**
+    /// The pages a card draws: each one acted on, one either side, and a gap for the rest.
     @Test func showsEachPageWithOneEitherSide() {
         #expect(PDFCardThumbnails.shown([5], pageCount: 300) == [4, 5, 6])
         #expect(PDFCardThumbnails.shown([0, 299], pageCount: 300) == [0, 1, nil, 298, 299])
@@ -200,7 +199,7 @@ extension PDFFixtures {
         #expect(images[0].map { [40, 80].contains($0.height) } == true, "\(images[0].map(\.height) ?? -1) px tall")
     }
 
-    /// **A page turned a quarter is drawn on its side**, not squeezed into the unturned box.
+    /// A page turned a quarter is drawn on its side, not squeezed into the unturned box.
     @Test func drawsATurnedPageTurned() async throws {
         let file = path("Turned.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -221,7 +220,7 @@ extension PDFFixtures {
 
     // MARK: Planned names
 
-    /// **The name a card shows is the name the menus give** — before the keep-both rule's number.
+    /// The name a card shows is the name the menus give, before the keep-both rule's number.
     @Test func plansTheMenusNames() {
         #expect(PDFPlannedName.copy(of: "/d/Scan.pdf", tool: .compress(.quality(0.6))) == "Scan (compressed).pdf")
         #expect(PDFPlannedName.copy(of: "/d/Statement.pdf", tool: .extract([2, 3, 4])) == "Statement (pages 3–5).pdf")
@@ -235,7 +234,7 @@ extension PDFFixtures {
 
     // MARK: Pages typed
 
-    /// **Pages typed on a card read as Edit's sheet reads them** — an en dash, the order kept for
+    /// Pages typed on a card read as Edit's sheet reads them: an en dash, the order kept for
     /// Extract, and every page refused for Delete.
     @Test func readsTypedPagesAsEditDoes() throws {
         #expect(try PDFCardPages.parse("3–5, 1", extract: true, pageCount: 8).get() == [2, 3, 4, 0])

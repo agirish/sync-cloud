@@ -6,10 +6,9 @@ import Sync
 /// The "Find duplicates of this" landing: what the Duplicates lens decides about a request, and
 /// what it changes to show it.
 ///
-/// Every assertion here is about the REASON, not the container. "The workspace switched" is the
-/// coordinator's business (`DuplicateRevealCoordinatorTests`); what matters here is that the group
-/// holding the file is the one opened and marked, and that a file in no group lands on an answer
-/// that names it rather than on a list that is quietly empty.
+/// The workspace switch is `DuplicateRevealCoordinatorTests`' business. Here: the group holding the
+/// file is the one opened and marked, and a file in no group lands on an answer that names it, not
+/// a quietly empty list.
 @Suite struct DuplicateRevealTests {
 
     // MARK: Fixtures
@@ -28,8 +27,7 @@ import Sync
 
     // MARK: Outcome
 
-    /// Every fixture below scans `/a` (or `/b`), so the file it asks about is inside the scanned
-    /// root unless a case is deliberately about the opposite.
+    /// The scanned root for cases not about coverage: `/`, so every requested file is inside it.
     private static let scanned = "/"
 
     @Test func noRequestDecidesNothing() {
@@ -37,8 +35,8 @@ import Sync
                                         isScanning: false, scannedRoot: Self.scanned) == nil)
     }
 
-    /// The file's OWN group, not merely some group. Two groups are present and only one holds the
-    /// requested path — a resolver that took the first would pass a single-group fixture.
+    /// The file's own group, not just some group: of two groups only one holds the path, so a
+    /// resolver that took the first fails.
     @Test func theGroupHoldingTheFileIsTheOneRevealed() {
         let other = Self.group(["/a/other.txt", "/b/other.txt"], name: "other.txt")
         let mine = Self.group(["/a/x.txt", "/b/x.txt"], name: "x.txt")
@@ -48,8 +46,8 @@ import Sync
         #expect(outcome == .reveal(groupID: mine.id))
     }
 
-    /// A non-keeper copy is as good an anchor as the keeper — the user clicked the file they
-    /// clicked, and it is usually not the one the scan would keep.
+    /// A non-keeper copy anchors as well as the keeper: the file clicked is usually not the one the
+    /// scan would keep.
     @Test func aNonKeeperCopyRevealsItsGroupToo() {
         let mine = Self.group(["/a/x.txt", "/b/x.txt"], name: "x.txt")
         #expect(DuplicateReveal.outcome(for: DuplicateRevealRequest(path: "/b/x.txt"),
@@ -66,13 +64,10 @@ import Sync
         #expect(outcome == .notFound(name: "lonely.txt"))
     }
 
-    /// **`isScanning` is checked BEFORE the groups are searched.** During a scan the groups on
-    /// screen are the previous scan's, so looking there first answers `notFound` from results that
-    /// never saw this file — and `notFound` writes a search query, which would then filter the
-    /// results as they arrive.
-    ///
-    /// The fixture makes that concrete: the file IS absent from the stale groups, so a resolver
-    /// that searched first would confidently answer `notFound`.
+    /// `isScanning` is checked before the groups are searched. During a scan the groups on screen
+    /// are the previous scan's, so searching first would answer `notFound` from results that never
+    /// saw the file, and its search query would then filter the new results as they arrive. The
+    /// file is absent from the stale groups here.
     @Test func aRunningScanWaitsRatherThanAnsweringFromStaleResults() {
         let outcome = DuplicateReveal.outcome(
             for: DuplicateRevealRequest(path: "/a/x.txt"),
@@ -81,8 +76,8 @@ import Sync
         #expect(outcome == .waiting)
     }
 
-    /// …and the same inputs with the scan finished do NOT answer `.waiting` — otherwise the test
-    /// above passes against a resolver that never answers anything else.
+    /// The same inputs with the scan finished don't answer `.waiting`, or the test above would pass
+    /// against a resolver that never answers anything else.
     @Test func theSameInputsResolveOnceTheScanEnds() {
         let request = DuplicateRevealRequest(path: "/a/x.txt")
         let groups = [Self.group(["/a/old.txt", "/b/old.txt"], name: "old.txt")]
@@ -94,13 +89,10 @@ import Sync
 
     // MARK: "In no group" is only an answer if the scan looked
 
-    /// **The false-confidence bug this check exists for.** A scan of somewhere else says nothing
-    /// about this file, so answering `notFound` from it puts *No duplicates of “x.txt”* on screen
-    /// on the strength of results that never saw `x.txt`.
-    ///
-    /// Reachable in shipping code: `DuplicateRevealCoordinator.decide` waits for an already-running
-    /// scan, and cannot know its root — `duplicateScanRoot` is published on completion, not at
-    /// start. So the wait lands here, and this is what makes waiting safe.
+    /// A scan of somewhere else says nothing about this file, so `notFound` from it would put "No
+    /// duplicates of “x.txt”" on screen from results that never saw it. Reachable:
+    /// `DuplicateRevealCoordinator.decide` waits for a running scan whose root it can't know until
+    /// `duplicateScanRoot` publishes on completion, so this check is what makes waiting safe.
     @Test func aFileOutsideTheScannedRootIsNotAnswered() {
         let outcome = DuplicateReveal.outcome(
             for: DuplicateRevealRequest(path: "/Users/u/Projects/x.txt"),
@@ -109,8 +101,8 @@ import Sync
         #expect(outcome == .outsideScan(name: "x.txt"))
     }
 
-    /// The same file under a scan that DID cover it answers for real — otherwise the case above
-    /// would pass against a resolver that never answers `notFound` at all.
+    /// The same file under a scan that covered it answers for real, or the case above would pass
+    /// against a resolver that never answers `notFound`.
     @Test func theSameFileInsideTheScannedRootIsAnswered() {
         let outcome = DuplicateReveal.outcome(
             for: DuplicateRevealRequest(path: "/Users/u/Projects/x.txt"),
@@ -118,9 +110,8 @@ import Sync
         #expect(outcome == .notFound(name: "x.txt"))
     }
 
-    /// A CANCELLED scan is the second way in, and the current code got it wrong too:
-    /// `isFindingDuplicates` goes false with no root published, and the previous results (or none)
-    /// still on screen.
+    /// A cancelled scan is the second way in: `isFindingDuplicates` goes false with no root
+    /// published and the previous results (or none) still on screen.
     @Test func aCancelledScanLeavesNothingToAnswerFrom() {
         #expect(DuplicateReveal.outcome(for: DuplicateRevealRequest(path: "/a/x.txt"),
                                         groups: [], isScanning: false, scannedRoot: nil)
@@ -139,8 +130,8 @@ import Sync
                 == .outsideScan(name: "x.txt"))
     }
 
-    /// **Membership is its own proof.** A file found IN a group was demonstrably scanned, whatever
-    /// root is recorded — so the coverage check must not suppress a real reveal.
+    /// Membership is its own proof: a file found in a group was scanned, whatever root is recorded,
+    /// so the coverage check must not suppress a real reveal.
     @Test func aFileInAGroupRevealsEvenWhenTheRootLooksWrong() {
         let mine = Self.group(["/a/x.txt", "/b/x.txt"], name: "x.txt")
         #expect(DuplicateReveal.outcome(for: DuplicateRevealRequest(path: "/b/x.txt"),
@@ -148,9 +139,8 @@ import Sync
                 == .reveal(groupID: mine.id))
     }
 
-    /// `outsideScan` claims nothing about the file, so it must not pre-fill the field with its
-    /// name: filtering results that never covered it by its name surfaces whatever else shares
-    /// that name, dressing a non-answer up as one.
+    /// `outsideScan` claims nothing about the file, so it doesn't pre-fill the field with its name,
+    /// which would surface whatever else shares that name and dress a non-answer up as one.
     @Test func outsideScanClearsTheFieldRatherThanFilteringByName() {
         let plan = DuplicateReveal.plan(for: .outsideScan(name: "x.txt"), path: "/pane/x.txt")
         #expect(plan.searchQuery == "")
@@ -159,8 +149,7 @@ import Sync
         #expect(plan.expandsGroupID == nil)
     }
 
-    /// The two answers stay apart — collapsing "was not looked at" into "has no duplicates" is the
-    /// whole failure.
+    /// The two answers stay apart: "was not looked at" is not "has no duplicates".
     @Test func theTwoNamedAnswersAreDistinct() {
         #expect(DuplicateReveal.NamedEmptyState.noDuplicates(name: "x")
                 != DuplicateReveal.NamedEmptyState.notScanned(name: "x"))
@@ -176,14 +165,13 @@ import Sync
                                             listIsEmpty: true) == .noDuplicates(name: "lonely.txt"))
     }
 
-    /// **The gate.** Someone who lands on *No duplicates of “lonely.txt”* and then types something
-    /// else must be told THEIR query matched nothing — not handed an answer about the file they
-    /// clicked earlier. Written as a gate rather than as clearing rules because clearing needs one
-    /// at every write path, and the chip-removal path was in fact missed.
+    /// After landing on "No duplicates of “lonely.txt”", typing something else must say that query
+    /// matched nothing, not answer about the earlier file. A gate rather than clearing rules,
+    /// because clearing needs a rule at every write path and one is easily missed.
     @Test func aQueryTheHandoffDidNotWriteRetiresTheAnswer() {
         #expect(DuplicateReveal.namedAnswer(for: Self.landing, currentQuery: "something else",
                                             listIsEmpty: true) == nil)
-        // …including the empty query, which is what the ✕ and a chip removal can leave behind.
+        // Including the empty query, which the ✕ and a chip removal can leave behind.
         #expect(DuplicateReveal.namedAnswer(for: Self.landing, currentQuery: "",
                                             listIsEmpty: true) == nil)
     }
@@ -198,8 +186,8 @@ import Sync
         #expect(DuplicateReveal.namedAnswer(for: nil, currentQuery: "", listIsEmpty: true) == nil)
     }
 
-    /// `outsideScan` writes an EMPTY query, so its answer has to survive one — a gate written as
-    /// "a blank field retires the answer" would delete this one the instant it appeared.
+    /// `outsideScan` writes an empty query, so its answer must survive one; "a blank field retires
+    /// the answer" would delete it the instant it appeared.
     @Test func theNotScannedAnswerSurvivesItsOwnEmptyQuery() {
         let landing = DuplicateReveal.Landing(state: .notScanned(name: "x.txt"), query: "", path: "/pane/x.txt")
         #expect(DuplicateReveal.namedAnswer(for: landing, currentQuery: "", listIsEmpty: true)
@@ -222,9 +210,8 @@ import Sync
         #expect(plan.landing == nil)
     }
 
-    /// Not-found fills the field with the file's name and records the name for the empty state.
-    /// The name in BOTH places is what makes the landing self-explaining: the query says what was
-    /// asked, the empty state says what came back.
+    /// Not-found puts the file's name in the field and in the empty state, so the landing explains
+    /// itself: the query says what was asked, the empty state what came back.
     @Test func notFoundNamesTheFileInTheFieldAndInTheAnswer() {
         let plan = DuplicateReveal.plan(for: .notFound(name: "lonely.txt"), path: "/pane/lonely.txt")
         #expect(plan.searchQuery == "lonely.txt")
@@ -234,22 +221,15 @@ import Sync
         #expect(plan.revealedGroupID == nil)
     }
 
-    /// Waiting changes no NAVIGATION — what is on screen during a scan is the previous scan's
-    /// results and stays put — but it does retire the named answer and the mark, because a request
-    /// that cannot be answered yet is about a different file than whatever is being claimed.
-    ///
-    /// **Each field is asserted, not just `== Plan()`.** The equality alone says "this equals the
-    /// default" and leaves what the default MEANS somewhere else; the whole reason this needed
-    /// correcting is that `LensWorkspaceView` hand-wrote the two clearing lines beside an early return, so
-    /// this branch never ran and its doc drifted into describing the opposite behaviour. Spelling
-    /// out the four fields is what makes applying this plan and the old hand-written pair visibly
-    /// the same two writes.
+    /// Waiting navigates nowhere (the previous scan's results stay put) but retires the named
+    /// answer and the mark, which are about some other file. Each field is checked, not just
+    /// `== Plan()`, so what the default means is stated here.
     @Test func waitingRetiresTheAnswerAndNavigatesNowhere() {
         let plan = DuplicateReveal.plan(for: .waiting, path: "/pane/x.txt")
         // Retires the previous answer: `LensWorkspaceView.applyRevealPlan` assigns both unconditionally.
         #expect(plan.landing == nil)
         #expect(plan.revealedGroupID == nil)
-        // …and moves nothing the user set up.
+        // It moves nothing the user set up.
         #expect(plan.clearsFilterAndQuery == false)
         #expect(plan.searchQuery == nil)
         #expect(plan.expandsGroupID == nil)
@@ -257,18 +237,17 @@ import Sync
 
     // MARK: A request that started its own scan
 
-    /// `isScanning` alone has a hole the size of one main-actor turn: the coordinator sets the
-    /// request and starts the scan together, but the flag flips inside the scan task's first hop —
-    /// behind an await of the previous scan task, a real suspension whenever any earlier scan ran.
-    /// A resolve in that window used to answer `.outsideScan` from the PREVIOUS results and
-    /// consume the request, so the scan the click started landed with nobody left to reveal for.
+    /// `isScanning` alone leaves a one-turn gap: the coordinator sets the request and starts the
+    /// scan together, but the flag flips in the scan task's first hop, after awaiting any previous
+    /// scan task. A resolve in that gap would answer `.outsideScan` from the previous results and
+    /// consume the request, leaving the new scan nothing to reveal for.
     @Test func aRequestThatStartedAScanWaitsUntilANewCompletionPublishes() {
         let request = DuplicateRevealRequest(path: "/pane/x.txt",
                                              awaitsScanReplacing: .init(root: "/old"))
         // The window: flag not yet flipped, old results still published.
         #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
                                         scannedRoot: "/old") == .waiting)
-        // A new completion publishes (the started scan, or any later one) — the request resolves.
+        // A new completion publishes (the started scan, or any later one): the request resolves.
         #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
                                         scannedRoot: "/pane") == .notFound(name: "x.txt"))
     }
@@ -285,8 +264,7 @@ import Sync
                                         scannedRoot: "/pane") == .notFound(name: "x.txt"))
     }
 
-    /// A request that did NOT start a scan keeps today's semantics: whatever results are on
-    /// screen are what it resolves against.
+    /// A request that didn't start a scan resolves against whatever results are on screen.
     @Test func aRequestWithoutItsOwnScanResolvesImmediately() {
         let request = DuplicateRevealRequest(path: "/pane/x.txt")
         #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
@@ -295,10 +273,9 @@ import Sync
 
     // MARK: Which landings are worth keeping
 
-    /// An empty-query landing can only show while the WHOLE list is empty, so one applied over a
-    /// populated list shows now or never — kept, it sat latent until resolving the last group
-    /// emptied the list, then surfaced "wasn't in the last scan" over the all-clear, about a file
-    /// asked about an hour earlier.
+    /// An empty-query landing shows only while the whole list is empty, so one applied over a
+    /// populated list is dropped. Kept, it would surface "wasn't in the last scan" over the
+    /// all-clear once the last group resolved, about a file asked about long before.
     @Test func anEmptyQueryLandingIsDroppedWhenTheListHasRows() {
         let latent = DuplicateReveal.Landing(state: .notScanned(name: "x.txt"), query: "",
                                              path: "/pane/x.txt")
@@ -306,8 +283,8 @@ import Sync
         #expect(DuplicateReveal.landingToStore(latent, listIsEmpty: true) == latent)
     }
 
-    /// A NAMED-query landing is kept either way: it shows the moment its query takes effect, and
-    /// its claim is a scan-level fact that stays true however the list changes.
+    /// A named-query landing is kept either way: it shows once its query takes effect, and its
+    /// claim is a scan-level fact that stays true however the list changes.
     @Test func aNamedQueryLandingIsKeptRegardlessOfTheList() {
         let named = DuplicateReveal.Landing(state: .noDuplicates(name: "x.txt"), query: "x.txt",
                                             path: "/pane/x.txt")
@@ -316,9 +293,8 @@ import Sync
         #expect(DuplicateReveal.landingToStore(nil, listIsEmpty: true) == nil)
     }
 
-    /// A repeat ask about the same file is a new request. A bare path would compare equal to
-    /// itself and move nothing — so right-clicking the same file again after clearing the search
-    /// would do visibly nothing.
+    /// A repeat ask about the same file is a new request; a bare path would compare equal, so
+    /// asking again after clearing the search would do nothing.
     @Test func twoRequestsForOneFileAreNotEqual() {
         #expect(DuplicateRevealRequest(path: "/a/x.txt") != DuplicateRevealRequest(path: "/a/x.txt"))
     }

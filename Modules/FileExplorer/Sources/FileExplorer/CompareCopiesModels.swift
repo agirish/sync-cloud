@@ -4,27 +4,22 @@ import Design
 
 // MARK: - The facts strip
 
-/// The facts two compared copies differ (or agree) on — name, location, size, modified, and, when
-/// a typed reader can answer for it, page count.
+/// The facts two compared copies differ (or agree) on: name, location, size, modified, and page
+/// count when a typed reader can answer for it.
 ///
-/// **Pure, and built from the scan's own values with no I/O.** Two things follow from that. The
-/// strip renders instantly, in the same paint as the surface it heads — `DuplicateCopy` carries
-/// every row here except pages, so nothing waits on a stat. And the rule that decides which rows
-/// are *emphasised* is a value a test can call, rather than a colour chosen inside a `body` where
-/// nothing could hold it to its claims.
+/// Pure, built from the scan's own values with no I/O, so the strip renders in the same paint as
+/// the surface (`DuplicateCopy` carries every row but pages), and the rule for which rows are
+/// emphasised is a value a test can call.
 ///
-/// **`differs` compares the underlying values, never the rendered strings.** A byte count is
-/// formatted to three significant figures, so 1,200,000 and 1,200,400 both render "1.2 MB" — a
-/// strip that diffed its own labels would call those equal, at the top of a surface whose whole
-/// job is to say whether two files are the same. The dates are compared the same way, which is
-/// also why the modified row renders a TIME: two files edited six hours apart on one day are a
-/// difference the reader has to be able to see, and a date-only label hides it behind a row that
-/// says "differs".
+/// `differs` compares the underlying values, never the rendered strings: 1,200,000 and 1,200,400
+/// bytes both render "1.2 MB", and a strip that diffed its labels would call them equal. Dates are
+/// compared the same way, and the modified row shows a time so that two files edited hours apart
+/// on one day don't look identical on a row that says they differ.
 struct ComparePairFacts: Equatable {
 
     /// Which fact a row states. A closed set, so the surface can ask for one by name (the
-    /// identical-pair variant reads `size` and `modified`) instead of indexing into an array whose
-    /// order is a rendering decision.
+    /// identical-pair variant reads `size` and `modified`) rather than by an index whose order is a
+    /// rendering decision.
     enum Field: String, CaseIterable, Equatable {
         case name, location, size, modified, pages
     }
@@ -37,9 +32,8 @@ struct ComparePairFacts: Equatable {
         let right: String
         /// True when the two sides hold different values — what the strip emphasises.
         let differs: Bool
-        /// True while the value is still being resolved (only ever the page count, which needs the
-        /// PDF serial lane and may be queued behind a scan). A pending row claims nothing: it is
-        /// neither the same nor different until it answers.
+        /// True while the value is still being resolved: only the page count, which needs the PDF
+        /// serial lane and may queue behind a scan. A pending row is neither same nor different.
         let isPending: Bool
 
         var id: Field { field }
@@ -47,22 +41,14 @@ struct ComparePairFacts: Equatable {
 
     let rows: [Row]
 
-    /// The fields whose two sides differ — the surface's summary line ("size and date differ")
-    /// reads this rather than re-deriving it.
+    /// The fields whose two sides differ. The surface's summary line ("size and date differ") reads
+    /// this rather than re-deriving it.
     var differingFields: [Field] { rows.filter { $0.differs && !$0.isPending }.map(\.field) }
 
-    /// The bar's one line about this pair — ``summary(differing:)``, hedged while a row has not
-    /// answered.
-    ///
-    /// **A pending row is what this exists for.** `differingFields` excludes pending rows, by
-    /// design: a page count still being read is neither an agreement nor a disagreement. But that
-    /// leaves nothing to list, and the absolute sentence would then tell a reader that two
-    /// documents of different lengths match — the claim made loudest at the moment least is known.
-    /// So the claim waits for the row instead of being made without it.
-    ///
-    /// (This replaced an `everyResolvedRowAgrees` that no caller ever asked. It was exactly
-    /// `differingFields.isEmpty` — the same question spelled twice — and stating the intent as a
-    /// second predicate is what let the interface go on contradicting it.)
+    /// The bar's one line about this pair: ``summary(differing:)``, hedged while a row hasn't
+    /// answered. `differingFields` excludes pending rows, so with a page count still being read the
+    /// plain sentence would say two documents of different lengths match. The claim waits for the
+    /// row instead.
     var summary: String {
         let unnamed = differingFields.filter { $0 != .name }
         guard unnamed.isEmpty, rows.contains(where: \.isPending) else {
@@ -75,19 +61,19 @@ struct ComparePairFacts: Equatable {
     ///
     /// - Parameters:
     ///   - left/right: the two copies, in the order they are drawn.
-    ///   - scanRoot/providerName: how the location crumbs are anchored — the same derivation the
-    ///     card's breadcrumb uses (`DuplicateGroupCard.crumbs(of:scanRoot:providerName:)`), so the
-    ///     two surfaces cannot describe one file's home two ways.
-    ///   - pages: the two page counts, when a reader has answered. `nil` on either side leaves the
-    ///     row pending; passing `nil` for the pair omits the row entirely (the pair is not paged).
+    ///   - scanRoot/providerName: anchor the location crumbs, with the same derivation as the
+    ///     card's breadcrumb (`DuplicateGroupCard.crumbs(of:scanRoot:providerName:)`), so the two
+    ///     can't describe one file's home two ways.
+    ///   - pages: the two page counts, once a reader has answered. `nil` on either side leaves the
+    ///     row pending; `nil` for the pair omits the row (the pair isn't paged).
     static func make(left: DuplicateCopy, right: DuplicateCopy,
                      scanRoot: String?, providerName: String?,
                      pages: (left: Int?, right: Int?)? = nil) -> ComparePairFacts {
         func location(_ copy: DuplicateCopy) -> String {
             let crumbs = DuplicateGroupCard.crumbs(of: copy.path, scanRoot: scanRoot,
                                                    providerName: providerName)
-            // The file's own name is the last crumb and is already the row above; dropping it
-            // leaves the folder, which is the fact this row exists to state.
+            // The file's own name is the last crumb and already the row above; dropping it leaves
+            // the folder, the fact this row states.
             return crumbs.dropLast().joined(separator: " › ")
         }
         var rows: [Row] = [
@@ -95,8 +81,8 @@ struct ComparePairFacts: Equatable {
                 differs: left.name != right.name, isPending: false),
             Row(field: .location, label: "Location",
                 left: location(left), right: location(right),
-                // Compared on the PATHS, not on the rendered crumbs: two folders can crumb to the
-                // same string when one of them is outside the scan root and gets a tilde path.
+                // Compared on the paths, not the rendered crumbs: two folders can crumb to the
+                // same string when one is outside the scan root and gets a tilde path.
                 differs: (left.path as NSString).deletingLastPathComponent
                     != (right.path as NSString).deletingLastPathComponent,
                 isPending: false),
@@ -120,11 +106,9 @@ struct ComparePairFacts: Equatable {
 
     /// The `pages:` argument for one pair, from its kind and whatever the page lane has answered.
     ///
-    /// Three states, and the middle one is why this is a tuple of optionals inside an optional: a
-    /// pair with no pages omits the row entirely, a PDF whose counts are still in flight leaves it
-    /// PENDING, and a PDF that has answered states them. A locked or unopenable PDF answers 0,
-    /// which is a real count and reads as one — the pane beside it says it could not be opened, so
-    /// the row does not have to.
+    /// Three states, hence an optional tuple of optionals: a pair with no pages omits the row, a PDF
+    /// whose counts are in flight leaves it pending, and a PDF that has answered states them. A
+    /// locked or unopenable PDF answers 0, a real count; the pane beside it says it couldn't open.
     static func pages(for kind: PairContentKind,
                       pairing: PagePairing?) -> (left: Int?, right: Int?)? {
         guard kind == .pdf else { return nil }
@@ -132,15 +116,15 @@ struct ComparePairFacts: Equatable {
         return (left: pairing.leftPages, right: pairing.rightPages)
     }
 
-    /// "12 pages", "1 page", "…" while the lane has not answered. A static func rather than an
-    /// interpolation at the call site, because that is where this app's plural bugs live.
+    /// "12 pages", "1 page", "…" while the lane hasn't answered. A function rather than an
+    /// interpolation at the call site, where plural bugs creep in.
     static func pageText(_ count: Int?) -> String {
         guard let count else { return "…" }
         return "\(count) page\(count == 1 ? "" : "s")"
     }
 
-    /// Date AND time. A `.medium`/`.none` label renders two files edited six hours apart
-    /// identically, which would put two equal-looking strings on a row flagged as differing.
+    /// Date and time. A date-only label renders two files edited six hours apart identically, which
+    /// would put two equal-looking strings on a row flagged as differing.
     static func dateText(_ date: Date?) -> String {
         guard let date else { return "—" }
         return dateFormatter.string(from: date)
@@ -148,11 +132,9 @@ struct ComparePairFacts: Equatable {
 
     private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium, time: .short)
 
-    /// The one-line summary over the strip: what actually differs, in the reader's words.
-    ///
-    /// Name is deliberately excluded from the *summary* even though it is a row: a versions group
-    /// is built out of copies whose names differ, so "the names differ" is the premise rather than
-    /// a finding. The row still shows it.
+    /// The one-line summary over the strip: what actually differs, in the reader's words. Name is
+    /// left out even though it is a row: a versions group is made of copies whose names differ, so
+    /// that is the premise, not a finding.
     static func summary(differing: [Field]) -> String {
         let interesting = differing.filter { $0 != .name }
         guard !interesting.isEmpty else { return "Every fact the scan recorded matches." }
@@ -181,50 +163,38 @@ struct ComparePairFacts: Equatable {
 
 // MARK: - The destructive confirmation
 
-/// The wording of the Compare Copies surface's "Trash the Other Copy" confirmation — the last
-/// thing read before one of the user's files is destroyed.
+/// The wording of the Compare Copies surface's "Trash the Other Copy" confirmation, the last thing
+/// read before one of the user's files is destroyed.
 ///
-/// Here for the reason ``DuplicateRemovalPrompt`` is here: this vocabulary has drifted before. The
-/// card is careful about a same-text group — an unfilled seal, "bytes differ", a note asking the
-/// user to open both documents first — and the confirmation then called the other file a *redundant
-/// copy*, the identical group's word, asserting the very thing the group has not proved, at the
-/// point of no return. Composed inline in a view it was also untestable, which is why it went
-/// unnoticed for as long as it did.
-///
-/// The noun comes from ``DuplicateRemovalPrompt/itemWord(for:count:)`` rather than a second table
-/// of the same words: one file group's copy is called the same thing whichever door trashes it.
+/// A value for the same reason as ``DuplicateRemovalPrompt``: so a test can hold it to the claim.
+/// A same-text group's copy must never be called a *redundant copy*, the identical group's word,
+/// which would assert what the group hasn't proved. The noun comes from
+/// ``DuplicateRemovalPrompt/itemWord(for:count:)``, so a copy is called the same thing whichever
+/// door trashes it.
 enum DuplicateComparePrompt {
 
-    /// The longest the informative BLOCK may be. It means something because nothing in it is
-    /// unbounded: the two names are held to ``nameBudget`` and the two locations to
-    /// ``locationBudget``.
+    /// The longest the informative block may be. It holds because nothing in it is unbounded: the
+    /// names are held to ``nameBudget`` and the locations to ``locationBudget``.
     static let lengthBudget = 420
 
-    /// The longest a name may be before it is middle-truncated into the prompt. A dialog whose
-    /// question wraps to four lines is one the reader skims, and file names in this tree run past
-    /// 60 characters.
+    /// The longest a name may be before it is middle-truncated into the prompt. A question that
+    /// wraps to four lines gets skimmed, and file names here run past 60 characters.
     static let nameBudget = 44
 
     static func messageText(copyName: String) -> String {
         "Move “\(truncated(copyName))” to the Trash?"
     }
 
-    /// What is being destroyed and where it lives, then what survives and where — and, for a claim
-    /// weaker than byte-identity, what the user is actually agreeing to.
+    /// What is being destroyed and where it lives, then what survives and where, and for a claim
+    /// weaker than byte-identity, what the user is agreeing to.
     ///
-    /// **The doomed copy's LOCATION leads, and that is a correction.** This used to open "Keeps
-    /// “Car Lease.pdf” at …" — naming the survivor's path and never the victim's. His report: it
-    /// should say which file is being deleted, with its path. The title names the file; a reader
-    /// about to destroy one of two identically-sized copies with similar names needs to see WHICH
-    /// FOLDER is losing it, and that was the one fact the dialog withheld.
+    /// The doomed copy's location leads: the reader choosing between two similar copies needs to see
+    /// which folder is losing the file. One line per fact, because an `NSAlert`'s informative text
+    /// wraps and facts run together don't get separated.
     ///
-    /// Line-per-fact rather than a paragraph: an `NSAlert`'s informative text wraps, and three
-    /// facts run together are three facts nobody separates at the point of no return.
-    ///
-    /// The `⌘Z` promise is unconditional here for the same reason the card's is: the engine posts
-    /// the banner that carries the *real* undoability (`DeleteOutcome.isUndoable` is false on a
-    /// Trash-less volume), and this sentence is read BEFORE the volume is known. It says what the
-    /// ordinary case does; the banner afterwards is what promises the shortcut.
+    /// The `⌘Z` promise is unconditional, as on the card: this is read before the volume is known,
+    /// and the engine's banner afterwards carries the real undoability (`DeleteOutcome.isUndoable`
+    /// is false on a Trash-less volume). It describes the ordinary case.
     static func informativeText(kind: DuplicateMatchType.Kind,
                                 copyName: String,
                                 copyLocation: String,
@@ -250,11 +220,9 @@ enum DuplicateComparePrompt {
         return lines.joined(separator: "\n\n")
     }
 
-    /// The most a location may spend before it is shortened from the FRONT.
-    ///
-    /// Head-truncated, like the surface's own location row and for the same reason: the two copies
-    /// share their leading crumbs and differ in the trailing ones, so the tail is the part that
-    /// answers "which folder is losing this file".
+    /// The most a location may spend before it is shortened from the front, like the surface's own
+    /// location row: the two copies share their leading crumbs, so the tail is what answers "which
+    /// folder is losing this file".
     static let locationBudget = 68
 
     static func location(_ crumbs: String) -> String {
@@ -263,34 +231,30 @@ enum DuplicateComparePrompt {
     }
 
     /// The confirm button's verb. Never "Delete": the ordinary path is a Trash, and the one volume
-    /// where it is not raises its own permanent-delete confirmation afterwards.
+    /// where it isn't raises its own permanent-delete confirmation afterwards.
     static let confirmTitle = "Move to Trash"
 
-    /// The trash button's own title.
+    /// The trash button's own title, derived from the target, not the kind. The keeper is the
+    /// reader's to flip, so on a versions pair the target may be the older or the newer copy, and a
+    /// title from the kind alone would name the copy being kept.
     ///
-    /// **Derived from the TARGET, not from the kind — and that is a correction.** This switched on
-    /// the match kind alone, so a versions pair always read "Trash the Older Copy". The keeper is
-    /// the reader's to flip, and flipping it to the older revision makes the target the newer one:
-    /// the button then named the copy it was keeping. The dialog behind it was right throughout,
-    /// which is exactly why the label could stay wrong without anything failing.
-    ///
-    /// `targetIsOlder` is nil when the two dates cannot order the pair — one is missing, or they
-    /// are equal — and the title then says only "the other copy", which is true of every pair.
+    /// `targetIsOlder` is nil when the dates can't order the pair (one is missing, or they are
+    /// equal), and the title then says only "the other copy", which is true of every pair.
     static func trashTitle(kind: DuplicateMatchType.Kind, targetIsOlder: Bool?) -> String {
         guard kind == .versions, let targetIsOlder else { return "Trash the Other Copy" }
         return targetIsOlder ? "Trash the Older Copy" : "Trash the Newer Copy"
     }
 
-    /// The same title, from the two copies themselves — what the surface calls, so the ordering
-    /// that decides the word is a value a test can drive rather than a comparison written inside a
-    /// `body`. `target` is the copy the button would trash; `keeper` is the one it would keep.
+    /// The same title, from the two copies themselves. What the surface calls, so the ordering that
+    /// picks the word is a value a test can drive. `target` is the copy the button would trash;
+    /// `keeper` the one it would keep.
     static func trashTitle(kind: DuplicateMatchType.Kind,
                            keeper: DuplicateCopy?, target: DuplicateCopy?) -> String {
         trashTitle(kind: kind, targetIsOlder: targetIsOlder(keeper: keeper, target: target))
     }
 
-    /// Whether the doomed copy is the older of the two, or nil when the dates cannot order them —
-    /// one is missing, or both carry the same stamp.
+    /// Whether the doomed copy is the older of the two, or nil when the dates can't order them: one
+    /// is missing, or both carry the same stamp.
     static func targetIsOlder(keeper: DuplicateCopy?, target: DuplicateCopy?) -> Bool? {
         guard let keeperDate = keeper?.modificationDate,
               let targetDate = target?.modificationDate,
@@ -298,18 +262,17 @@ enum DuplicateComparePrompt {
         return targetDate < keeperDate
     }
 
-    /// Why the Trash button is unavailable, spelled out rather than left to a greyed control. A
-    /// copy inside a folder another group is KEEPING may never be offered for removal — the
-    /// recommendation excludes it for the same reason — and a disabled button with no reason reads
-    /// as the app being broken.
+    /// Why the Trash button is unavailable, spelled out rather than left to a greyed control. A copy
+    /// inside a folder another group is keeping may never be offered for removal (the
+    /// recommendation excludes it too), and a disabled button with no reason looks broken.
     static func disabledReason(copyIsProtected: Bool, copyName: String) -> String? {
         guard copyIsProtected else { return nil }
         return "“\(truncated(copyName))” sits inside a folder another duplicate group is keeping, "
             + "so removing it here would undo that."
     }
 
-    /// Middle-truncation, so both the stem and the extension survive — the end of a file name is
-    /// where "(1)" and ".pdf" live, which is exactly what tells two copies apart.
+    /// Middle-truncation, so the stem and the extension both survive: the end of a name is where
+    /// "(1)" and ".pdf" live, which is what tells two copies apart.
     static func truncated(_ name: String) -> String {
         guard name.count > nameBudget else { return name }
         let half = (nameBudget - 1) / 2
@@ -321,12 +284,10 @@ enum DuplicateComparePrompt {
 
 /// What a content verification of the two compared copies ended in.
 ///
-/// **Three distinct outcomes, because `filesHaveSameContent` collapses them into two.** It returns
-/// `Bool?` and answers nil when *either* side cannot be hashed — cloud-only, unreadable — or the
-/// check was stopped: different situations, none of which is "these files differ" and none of
-/// which the surface may flatten into a generic failure. So the surface asks for a
-/// ``FileContentVerifier/HashOutcome`` per side and maps the pair here, where the mapping is a
-/// value a test can call.
+/// Three outcomes, because `filesHaveSameContent` collapses them into two: it answers nil when
+/// either side can't be hashed (cloud-only, unreadable) or the check was stopped, and none of those
+/// means "these files differ". So the surface asks for a ``FileContentVerifier/HashOutcome`` per
+/// side and maps the pair here, as a value a test can call.
 enum ComparePairVerify: Equatable {
     /// Nothing asked yet.
     case idle
@@ -334,13 +295,13 @@ enum ComparePairVerify: Equatable {
     case running
     /// Both hashed, and the digests match.
     case matched
-    /// Both hashed, and the digests differ — the group is stale, and the honest offer is a rescan.
+    /// Both hashed, and the digests differ: the group is stale, and the honest offer is a rescan.
     case differed
-    /// At least one side could not be hashed. `reason` names WHICH side and WHY, never "failed".
+    /// At least one side couldn't be hashed. `reason` names which side and why, never "failed".
     case couldNotVerify(reason: String)
 
-    /// Why a side produced no digest — a bare cause, so the sentence can name one side or both.
-    /// nil for a hashed side.
+    /// Why a side produced no digest: a bare cause, so the sentence can name one side or both. nil
+    /// for a hashed side.
     static func cause(_ outcome: FileContentVerifier.HashOutcome) -> String? {
         switch outcome {
         case .hashed: return nil
@@ -351,12 +312,12 @@ enum ComparePairVerify: Equatable {
         }
     }
 
-    /// The pair's verdict. Sides are named "left"/"right" — the panes they sit in — rather than by
-    /// file name, which in an identical group is the same word twice.
+    /// The pair's verdict. Sides are named "left" and "right", for their panes, not by file name,
+    /// which in an identical group is the same word twice.
     static func outcome(left: FileContentVerifier.HashOutcome,
                         right: FileContentVerifier.HashOutcome) -> ComparePairVerify {
-        // A stopped check learned nothing about either copy, so it leaves the surface as it was
-        // before the question: Verify on offer again, no verdict claimed.
+        // A stopped check learned nothing about either copy, so the surface goes back to how it
+        // was: Verify on offer again, no verdict claimed.
         if left == .cancelled || right == .cancelled { return .idle }
         switch (cause(left), cause(right)) {
         case (nil, nil):
@@ -372,7 +333,7 @@ enum ComparePairVerify: Equatable {
         }
     }
 
-    /// The caption the surface prints. One place, so the three outcomes cannot drift into two.
+    /// The caption the surface prints. One place, so the three outcomes can't drift into two.
     var caption: String {
         switch self {
         case .idle: return ""
@@ -386,21 +347,18 @@ enum ComparePairVerify: Equatable {
 
 // MARK: - What the pair's match kind actually claims
 
-/// The claim the scan makes about this pair, in the pair's own terms — CC4's honesty rule, as a
-/// value.
+/// The claim the scan makes about this pair, in the pair's own terms.
 ///
-/// **The point is that the three kinds claim three different things, and only one of them is
-/// "these are the same file".** An identical pair was hashed; a same-text pair was proved to *read*
-/// the same, which the measured signed-copy and redacted-copy cases show is not the same as being
-/// the same document; and a versions pair is not a copy at all. A surface that showed two previews
-/// under one heading would let the weakest claim borrow the strongest one's confidence.
+/// The three kinds claim different things, and only one is "these are the same file". An identical
+/// pair was hashed; a same-text pair only reads the same, which a signed or redacted copy also
+/// does; a versions pair isn't a copy at all. Showing two previews under one heading would let the
+/// weakest claim borrow the strongest one's confidence.
 enum ComparePairClaim {
 
-    /// The headline over the two panes. nil when the kind makes no content claim worth stating
-    /// (versions and overlapping — the facts strip already says what differs).
-    ///
-    /// `contentUnverified` weakens the identical claim rather than deleting it: the scan DID group
-    /// these, and saying nothing would leave the reader to assume the strong form.
+    /// The headline over the two panes, or nil when the kind makes no content claim worth stating
+    /// (versions and overlapping: the facts strip already says what differs). `contentUnverified`
+    /// weakens the identical claim rather than dropping it: the scan did group these, and silence
+    /// would let the reader assume the strong form.
     static func headline(kind: DuplicateMatchType.Kind, contentUnverified: Bool) -> String? {
         switch kind {
         case .identical:
@@ -414,8 +372,7 @@ enum ComparePairClaim {
         }
     }
 
-    /// Whether the pair is one where the previews will look the same and the useful act is a
-    /// re-check rather than a read. Only a byte-identical claim earns that — a same-text pair is
-    /// exactly the pair worth looking at.
+    /// Whether the previews will look the same and the useful act is a re-check rather than a read.
+    /// Only a byte-identical claim earns that; a same-text pair is exactly the one worth looking at.
     static func offersVerify(kind: DuplicateMatchType.Kind) -> Bool { kind == .identical }
 }

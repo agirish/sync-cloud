@@ -3,7 +3,7 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// Search inside files (RD38): what the text half reads, what it never reads, and what it reports.
+/// Search inside files: what the text half reads, what it never reads, and what it reports.
 @Suite struct EditorContentSearchTests {
 
     // MARK: Fixtures
@@ -49,7 +49,7 @@ import Sync
 
     // MARK: Matching a line
 
-    /// Line numbers by the editor's count — CRLF one break, a lone CR one break — the column in
+    /// Line numbers by the editor's count (CRLF one break, a lone CR one break), the column in
     /// characters, and the highlight inside the snippet the row shows.
     @Test func linesAreNumberedAsTheEditorNumbersThem() {
         let text = "alpha\n  Red Lentils soup\r\nbeta\rgamma lentils\n"
@@ -93,7 +93,7 @@ import Sync
         #expect(count == 2)
     }
 
-    /// The first `keeping` lines are kept and every one is counted — the row says how many more.
+    /// The first `keeping` lines are kept and every one is counted, so the row says how many more.
     @Test func linesPastTheLimitAreCountedNotKept() {
         let text = (1...30).map { "line \($0) has the word" }.joined(separator: "\n")
         let (lines, count) = EditorContentSearch.matchingLines(in: text, needle: "word", keeping: 20)
@@ -138,9 +138,9 @@ import Sync
         #expect(summary?.stop == nil)
     }
 
-    /// **A file whose content is not on this Mac is never opened.** `SF_DATALESS` cannot be set
-    /// outside a File Provider, so the flag is reported by the seam for one real local file — which
-    /// holds the word, so reading it would show. It is counted, and the read never asks for it.
+    /// A file whose content is not on this Mac is never opened, only counted. `SF_DATALESS` can't
+    /// be set outside a File Provider, so the seam reports it for a real local file that holds the
+    /// word, so reading it would show.
     @Test func aFileNotDownloadedIsNeverRead() async throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -163,7 +163,7 @@ import Sync
         #expect(reads.paths == [local], "the positive control: the local file is read")
         #expect(summary?.notDownloaded == 1)
 
-        // And without the flag the same file is read and found — so the absence above is the flag.
+        // Without the flag the same file is read and found, so the absence above is the flag's.
         let (control, _) = await run("lentils", in: root)
         #expect(control.map(\.0.path) == [evicted, local])
     }
@@ -200,8 +200,8 @@ import Sync
         #expect(hits.first?.0.lines.first?.column == 5)
     }
 
-    /// **A folder reached twice through a link is searched once**, and a link back up the tree does
-    /// not walk for ever. Below a folder link the listing spells paths through the link, so the
+    /// A folder reached twice through a link is searched once, and a link back up the tree doesn't
+    /// walk forever. Below a folder link the listing spells paths through the link, so the
     /// same file has two names; the walk knows it by device and inode.
     @Test func aFolderLinkedTwiceIsSearchedOnce() async throws {
         let root = try scratch()
@@ -217,8 +217,8 @@ import Sync
         #expect(hits.count == 1, "found \(relative(hits, to: root))")
     }
 
-    /// A link to a folder outside is walked, and its files keep the link's spelling — iCloud Drive
-    /// links Desktop and Documents in this way.
+    /// A link to a folder outside is walked, and its files keep the link's spelling, as iCloud
+    /// Drive links Desktop and Documents.
     @Test func aLinkToAFolderOutsideIsWalkedUnderItsOwnName() async throws {
         let root = try scratch()
         let outside = try scratch()
@@ -233,8 +233,8 @@ import Sync
         #expect(relative(hits, to: root) == ["Documents/a.md"])
     }
 
-    /// The walk's limit stops it and says so; the file limit stops reading and says so — and a
-    /// limit met by the very last file is a search that looked everywhere.
+    /// The walk's limit stops it and says so; the file limit stops reading and says so; and a limit
+    /// met by the very last file is a search that looked everywhere.
     @Test func theLimitsStopTheSearchAndSaySo() async throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -256,14 +256,12 @@ import Sync
         #expect(walkSummary?.read == 3)
     }
 
-    /// **Dropping the stream stops the search**: no file is opened after the query changes.
+    /// Dropping the stream stops the search: no file is opened after the query changes.
     ///
-    /// Held, not timed: past the first ten reads every reader waits at a gate until the stream has
-    /// been dropped, so how many files are read cannot depend on how fast the consumer gets its
-    /// turn — in a full-package run that took 30 s. Released, the readers already waiting finish,
-    /// and no other file is opened: past the count at the drop, at most the readers that were
-    /// between the stop check and the read (on CI the consumer's turn outlasted a gate's wait, and
-    /// 28 files were read before the drop — the stop held, the old fixed bound did not).
+    /// Held, not timed: past the first ten reads every reader waits at a gate until the stream is
+    /// dropped, so the count can't depend on how fast the consumer gets its turn. Released, the
+    /// waiting readers finish and no other file opens: past the count at the drop, at most the
+    /// readers already between the stop check and the read.
     @Test func droppingTheStreamStopsTheReads() async throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }

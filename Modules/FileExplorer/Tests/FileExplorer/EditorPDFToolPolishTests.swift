@@ -6,13 +6,13 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// **The 2026-10-20 polish of the PDF tools** (TE99–TE142): what each sheet says while it works,
-/// what Clean Metadata opens with, where Compress's size starts, the Delete key's rule, a batch's
-/// reasons, and the sentences that name a run.
+/// The PDF tools' finer points: what each sheet says while it works, what Clean Metadata opens
+/// with, where Compress's size starts, the Delete key's rule, a batch's reasons, and the sentences
+/// that name a run.
 ///
-/// The sheets are hosted for real where AppKit can be read back — a SwiftUI `TextField` is an
-/// `NSTextField` and a `ProgressView` an `NSProgressIndicator` — so the rule and the view that
-/// draws it are held together. Serialized: every run is in `PDFKitSerialAccess`'s one lane.
+/// The sheets are hosted for real where AppKit can be read back (a SwiftUI `TextField` is an
+/// `NSTextField`, a `ProgressView` an `NSProgressIndicator`), so the rule and the view that draws
+/// it are checked together. Serialized: every run is in `PDFKitSerialAccess`'s one lane.
 @MainActor
 @Suite(.serialized) final class EditorPDFToolPolishTests {
 
@@ -46,7 +46,7 @@ import Sync
         return false
     }
 
-    /// A sheet in a window that is never ordered in — laid out and appeared, off everyone's screen.
+    /// A sheet in a window that is never ordered in: laid out and appeared, off everyone's screen.
     private func host(_ view: some View, width: CGFloat = 420, height: CGFloat = 420) -> (NSWindow, NSHostingView<AnyView>) {
         let host = NSHostingView(rootView: AnyView(view.frame(width: width, height: height)))
         host.frame = CGRect(x: 0, y: 0, width: width, height: height)
@@ -68,8 +68,8 @@ import Sync
 
     // MARK: TE99 — Clean Metadata on one file opens cleared
 
-    /// **The form opens cleared, with the file's values kept for the placeholders**, and each button
-    /// only does something when it would change the fields (decision AW).
+    /// The form opens cleared, with the file's values kept for the placeholders, and each button is
+    /// live only when it would change the fields.
     @Test func theMetadataFormOpensClearedAndKeepsTheFilesValuesToHand() {
         let file = PDFMetadataFields(title: "Quarterly", author: "A. Person", creator: "Microsoft Word", producer: "Quartz")
         var form = EditorPDFMetadataForm(current: file)
@@ -90,8 +90,8 @@ import Sync
                 "a file with no metadata offers to keep the none it has")
     }
 
-    /// **The sheet itself opens cleared, the file's title greyed in its field** — read from the hosted
-    /// `NSTextField`s, so a sheet that went back to filling its fields fails here, not only the model.
+    /// The sheet itself opens cleared, the file's title greyed in its field, read from the hosted
+    /// `NSTextField`s, so a sheet that filled its fields would fail here, not only the model.
     @Test func theMetadataSheetShowsTheFilesValuesAsPlaceholders() async throws {
         let file = path("Word.pdf")
         var box = CGRect(origin: .zero, size: PDFFixtures.letter)
@@ -123,9 +123,8 @@ import Sync
                 == "Waiting for other PDF work…")
     }
 
-    /// **A sheet that was silent while its run worked now spins** — Extract's, hosted, read while the
-    /// copy is being written. Idle it draws no spinner; Compress, which has its own progress row,
-    /// draws one, not two.
+    /// A sheet spins while its run works: Extract's, hosted, read while the copy is being written.
+    /// Idle it draws no spinner; Compress, which has its own progress row, draws one, not two.
     @Test func aRunningSheetDrawsItsSpinner() async throws {
         let file = path("Pages.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -157,8 +156,8 @@ import Sync
 
     // MARK: TE106 — the Delete key keeps the menus' rule
 
-    /// **Delete in the Pages tab does what the greyed menu item does: nothing** — on every page
-    /// selected, and on a one-page file. A selection that leaves a page asks for the sheet.
+    /// Delete in the Pages tab does what the greyed menu item does, nothing, with every page
+    /// selected or on a one-page file. A selection that leaves a page asks for the sheet.
     @Test func theDeleteKeyKeepsTheMenusRule() {
         let three = EditorPDFTools()
         three.attach(path: "/a/three.pdf", pageCount: 3, encryption: .none)
@@ -179,7 +178,7 @@ import Sync
         #expect(three.mayDelete([]), "the Tools menu's unselected Delete Pages… is offered on three pages")
     }
 
-    /// The key and both menus ask the one rule — read from their source, since a `.contextMenu` body
+    /// The key and both menus ask the one rule, read from their source, since a `.contextMenu` body
     /// and an `.onKeyPress` handler never run in a package test.
     @Test func theKeyAndBothMenusAskTheOneRule() throws {
         let rail = try EditorRailRowMenuTests.source("EditorPDFRailViews.swift")
@@ -191,8 +190,8 @@ import Sync
 
     // MARK: TE113 — a batch keeps its reasons
 
-    /// **An unreadable file fails with its reason named in the detail**, under a summary that only
-    /// counts — and "PDFKit" is nowhere in it (TE122).
+    /// An unreadable file fails with its reason named in the detail, under a summary that only
+    /// counts, and "PDFKit" is nowhere in it.
     @Test func aBatchNamesTheFileItCouldNotRead() async throws {
         let junk = path("Junk.pdf"), plain = path("Plain.pdf")
         try Data("not a PDF at all".utf8).write(to: URL(fileURLWithPath: junk))
@@ -229,8 +228,8 @@ import Sync
         #expect(target == 700_000)
     }
 
-    /// **The hosted sheet's field says it** — "To a size" chosen through its segmented control, then
-    /// the field read back: a sheet that still started at "2" fails here.
+    /// The hosted sheet's field says it: "To a size" chosen through its segmented control, then the
+    /// field read back, so a sheet that started at "2" fails here.
     @Test func theCompressSheetsFieldStartsUnderTheFile() async throws {
         let file = path("Scan.pdf")
         PDFFixtures.writeScan(file, pages: 1, pixels: 600)
@@ -286,15 +285,15 @@ import Sync
     @Test func thePageMenuNamesThePagesItRotates() {
         #expect(EditorPDFPageMenu.rotateTitle([1, 2, 3], "Left") == "Rotate 3 Selected Pages Left")
         #expect(EditorPDFPageMenu.rotateTitle([4], "by 180°") == "Rotate Page 5 by 180°")
-        // The Tools menu's noun for the same selection (PD8).
+        // The Tools menu's noun for the same selection.
         #expect(EditorPDFPageMenu.title("Extract", [1, 2, 3]) == "Extract 3 Selected Pages…")
     }
 
     // MARK: TE137 — the current page's ring sits inside the selected wash
 
-    /// **The ring's corners stay inside the wash's** — read in pixels from the mounted grid, the
-    /// first page current and selected. The ring's own box is found by its strong accent; the wash by
-    /// its pale one. Square corners 4 pt out sat on the wash's edge, past its rounding.
+    /// The current page's ring stays inside the selected wash, read in pixels from the mounted grid,
+    /// the first page current and selected. The ring's box is found by its strong accent, the wash's
+    /// by its pale one. Square corners 4 pt out would sit on the wash's edge, past its rounding.
     @Test func theCurrentPagesRingSitsInsideTheSelectedWash() async throws {
         let file = path("Ring.pdf")
         PDFFixtures.write(file, pages: 4)

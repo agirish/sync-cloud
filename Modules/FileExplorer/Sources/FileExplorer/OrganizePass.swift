@@ -1,58 +1,34 @@
 import Foundation
 
-/// One of Organize's scans, and the lenses whose answers it publishes.
+/// One of Organize's scans, and the lenses whose answers it publishes. The overview groups its
+/// offers by this, so it can only offer scans that exist: To File and Renames come from one walk
+/// (`LensWorkspaceView.RailCounts` marks both from `hasSuggestedFiling`), so they get one offer.
 ///
-/// **The overview offered five scans, and there are three.** Its footer drew one
-/// `Scan…` per unscanned lens — "To File — not scanned", "Names — not scanned",
-/// "Renames — not scanned" — which reads as three independent pieces of work you could
-/// choose between. They are one walk. `FileSyncManager+Filing.swift` says so at the site:
-/// *"Names, on the pass that is already here"*, and `LensWorkspaceView.RailCounts` flips two of the
-/// three from a single flag:
-///
-/// ```swift
-/// if syncManager.hasSuggestedFiling { ran.insert(.toFile); ran.insert(.renames) }
-/// ```
-///
-/// There is no way to scan Names without scanning To File, so offering that choice was
-/// offering something the machinery cannot do. This type is what the overview groups by, so
-/// the screen can only ever offer scans that exist.
-///
-/// ## Why a type and not three literals in the view
-///
-/// The mapping is asserted from two directions — ``lenses`` names what a pass answers, and
-/// ``init(producing:)`` names what answers a lens — and `OrganizePassTests` pins them as
-/// inverses over every case. A view that grouped by hand would let the two drift the moment a
-/// seventh lens arrives, and the failure would be silent: a lens missing from every pass
-/// simply never gets offered a scan, which looks exactly like a lens that has already run.
+/// ``lenses`` and ``init(producing:)`` state the mapping from both sides, and `OrganizePassTests`
+/// pins them as inverses. Grouping by hand in the view would fail silently: a lens missing from
+/// every pass is never offered a scan, which looks exactly like a lens that has already run.
 enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
 
-    /// One walk of the tree, publishing **two** lenses' answers together: the filing queue and the
+    /// One walk of the tree, publishing two lenses' answers together: the filing queue and the
     /// rename backlog, whose to-fix rows are the risky names found on the same pass.
-    ///
-    /// It said "three" until the risky names stopped being a lens of their own and became rows
-    /// inside Renames. Nothing depended on the number — ``answersOneLens`` counts ``lenses`` — so
-    /// the prose rotted quietly, which is the failure mode this whole type exists to make loud.
     case file
 
-    /// Hashing. The only pass that reads file *contents* rather than the tree's shape, and the
-    /// reason a single unpriced "scan everything" button was never honest.
+    /// Hashing. The only pass that reads file *contents* rather than the tree's shape, which is why
+    /// a single unpriced "scan everything" button would not be honest.
     case duplicates
 
-    /// The folder survey behind Restructure. **Not a scan of the tree** — Restructure runs no
-    /// walk of its own; it reads what the survey already learned, which is why the lens can be
-    /// reporting while every other lens has never run.
+    /// The folder survey behind Restructure. Not a scan of the tree: Restructure reads what the
+    /// survey already learned, so it can be reporting while every other lens has never run.
     case folderMemory
 
     var id: String { rawValue }
 
     /// The lenses this pass answers, in rail order.
     ///
-    /// **Two lenses appear in no pass, and that is the whole of their difference.** Rules is
-    /// configuration you keep, never a result a scan turned up. Storage does run an analysis, but
-    /// not one of *these* — its report has its own lifecycle, restored across launches, and its own
-    /// Re-analyze verb, so putting it in a pass would offer it through a scan button that cannot
-    /// produce it. Both exemptions are the distinction ``OrganizeLens/carriesBadge`` already draws,
-    /// which is why `countedLenses` needed no code to exclude either.
+    /// Rules and Storage are in no pass. Rules is configuration, not a scan result; Storage's
+    /// report has its own lifecycle and its own Re-analyze verb, so a scan button could not produce
+    /// it. That is the line ``OrganizeLens/carriesBadge`` already draws, so `countedLenses` needs
+    /// no code to exclude either.
     var lenses: [OrganizeLens] {
         switch self {
         case .file: return [.toFile, .renames]
@@ -62,61 +38,41 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Whether this pass answers exactly one lens, and can therefore be re-run from that lens's own
-    /// row without ambiguity.
+    /// row without ambiguity. This decides which finding rows carry a rescan.
     ///
-    /// **This is what decides which finding rows carry a rescan, and it is deliberately a property
-    /// of the pass rather than of the data.** The file pass answers more than one lens, so a rescan
-    /// on each of their rows would be several controls doing one identical thing — the old footer's
-    /// mistake, rebuilt on the other side of the screen. Its rescan therefore stays where it
-    /// already is, on row 2, where one control speaks for the whole walk.
-    ///
-    /// The tempting alternative was "offer it when this row is the pass's only reporting voice",
-    /// which is more permissive and worse: the button would appear and vanish as lenses started and
-    /// stopped reporting, so the control under the cursor would depend on the tree's contents. A
-    /// static rule means Duplicates always has its rescan and To File never does.
+    /// The file pass answers two lenses, so a rescan on each row would be two controls doing one
+    /// thing; its rescan stays on row 2, for the whole walk. A property of the pass, not the data:
+    /// "offer it when this row is the pass's only reporting lens" would make the button appear and
+    /// vanish with the tree's contents. Duplicates always has its rescan; To File never does.
     var answersOneLens: Bool { lenses.count == 1 }
 
     /// The words for re-running a pass whose answer is already on screen.
     ///
-    /// Not ``runTitle``: that offers a scan which has never happened here and names the pass to say
-    /// what it will produce. This one sits beside an answer, so it names the act.
+    /// Not ``runTitle``, which offers a scan that has never happened here and names the pass. This
+    /// one sits beside an answer, so it names the act.
     ///
-    /// **`.file`'s arm is unreachable and deliberately kept.** Only a pass with
-    /// ``answersOneLens`` is offered from a row, so the file pass never asks for these words; the
-    /// arm exists because the switch is total, and answering "Rescan" is what it would want if the
-    /// walk ever came to answer one lens. Do not read its presence as the file pass having a row
-    /// control — it has one control, on row 2, for every lens it answers.
+    /// `.file`'s arm is unreachable: only a pass with ``answersOneLens`` is offered from a row. It
+    /// exists because the switch is total; the file pass's one control stays on row 2.
     var rescanTitle: String {
         switch self {
         case .file, .duplicates: return "Rescan"
-        // Restructure runs no walk of its own, so "rescan" would name something that does not
-        // happen. Refreshing its answer means re-reading the folders — the same words the Rescan
-        // menu uses for the same action, so the two places cannot read as two features.
-        // "Refresh", not "Update folder memory". The old name leaked house vocabulary into the one
-        // control most people would press, and it named the artifact rather than the point: what
-        // this restores is what every lens reasons FROM, so a name tied to folders, to memory or to
-        // documents was narrower than the thing itself.
+        // Restructure runs no walk, so "rescan" would name something that doesn't happen. The
+        // Rescan menu uses the same word for the same action, so the two read as one feature.
+        // Not "Update folder memory": that is house vocabulary, and narrower than what it restores.
         case .folderMemory: return "Refresh"
         }
     }
 
-    /// What VoiceOver reads for that control. A button is its own accessibility element, and a bare
-    /// verb beside five other rows does not say which one it belongs to.
-    ///
-    /// **Generalised from a `== "Rescan"` literal, which had one verb in it and was about to have
-    /// two.** The rule was never about that word — it is "a bare verb needs its object, a
-    /// self-standing phrase already has one" — and encoded as a string comparison it would have
-    /// silently passed a bare "Refresh" straight through to VoiceOver as an objectless button.
-    /// A word count says what was meant and cannot go stale on the next rename.
+    /// What VoiceOver reads for that control. A bare verb beside five other rows doesn't say which
+    /// one it belongs to, so a one-word title gets the lens's name; a phrase already has its
+    /// object. Testing for a space, not a literal verb, keeps it right through a rename.
     func rescanAccessibilityLabel(for lens: OrganizeLens) -> String {
         let isBareVerb = !rescanTitle.contains(" ")
         return isBareVerb ? "\(rescanTitle) \(lens.title)" : rescanTitle
     }
 
-    /// The pass that produces this lens's answer, or `nil` for Rules — which has none.
-    ///
-    /// Deliberately the inverse of ``lenses`` rather than a second hand-written table; see the
-    /// type's own note for why the two are pinned against each other.
+    /// The pass that produces this lens's answer, or `nil` for Rules and Storage, which have none.
+    /// Derived from ``lenses`` rather than a second hand-written table.
     init?(producing lens: OrganizeLens) {
         guard let pass = Self.allCases.first(where: { $0.lenses.contains(lens) }) else {
             return nil
@@ -124,9 +80,8 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         self = pass
     }
 
-    /// The offer's headline, written for the state it is drawn in: this pass has not run
-    /// **here** — under whatever scope Organize is pointed at, which is not the same claim as
-    /// "has never run".
+    /// The offer's headline: this pass has not run *here*, under Organize's current scope, which
+    /// is not the same claim as "has never run".
     var offerTitle: String {
         switch self {
         case .file: return "The file pass hasn’t run here"
@@ -135,13 +90,9 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One line saying what the click buys, and — for the file pass — that it buys more than one
-    /// thing.
-    ///
-    /// **"Both" counts the rows under it**, which are ``lenses``. It said "all three" while the
-    /// card still drew a row for the folded Names lens, and then briefly counted a separate
-    /// presentation list while that fold was a filter rather than a deletion;
-    /// `theFileCardLedeCountsTheRows` pins the word to the list so the two cannot drift apart.
+    /// One line saying what the click buys, and for the file pass that it buys more than one thing.
+    /// "Both" counts the rows under it, which are ``lenses``; `theFileCardLedeCountsTheRows` pins
+    /// the word to the list.
     var offerLede: String {
         switch self {
         case .file:
@@ -153,12 +104,9 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// What the pass costs, stated on the card rather than in a tooltip.
-    ///
-    /// **The file pass is free.** That is worth stating because the surrounding lens spends: the
-    /// refine control is the one paid action in Organize, and `LensWorkspaceView.refineFilingSuggestions`
-    /// is explicit that "the scan that produced these rows was free and on-device". A card that
-    /// left the cost unsaid invites the assumption that any pass with a model behind it bills.
+    /// What the pass costs, stated on the card rather than in a tooltip. Saying the file pass is
+    /// free matters because the lens around it has the one paid action in Organize (refine), and
+    /// an unstated cost invites the assumption that any pass with a model behind it bills.
     var offerCost: String {
         switch self {
         case .file: return "Free, and on-device."
@@ -167,9 +115,8 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The run button's words. **Self-standing**, not "Run it": the button is also the
-    /// accessibility element, and a label that only makes sense beside the heading above it is a
-    /// label VoiceOver reads as nothing at all.
+    /// The run button's words. Self-standing, not "Run it": the button is also the accessibility
+    /// element, and VoiceOver reads it without the heading above.
     var runTitle: String {
         switch self {
         case .file: return "Run the File Pass"
@@ -179,25 +126,13 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The offer's glyph — borrowed from the control that already runs this pass elsewhere where
-    /// there is one to borrow, so the card and the button that do the same thing look the same.
+    /// The offer's glyph, borrowed where there is a control to borrow from, so the card and the
+    /// button that do the same thing look the same.
     ///
-    /// Duplicates **asks the rail item** rather than restating it. It said `wand.and.stars`, which
-    /// is Rules' glyph: the overview drew the duplicate-pass card and the rail's Rules item with
-    /// the same symbol, on one screen, meaning two different things — while the control this card
-    /// is supposed to look like sat a few points away wearing `doc.on.doc`. Restating a glyph is
-    /// how it drifts from the thing it is quoting; this cannot.
-    ///
-    /// **The file pass has nothing to borrow, which is why it gets a symbol of its own.** It wore
-    /// `FilingGlyph.lens` — `folder.badge.gearshape`, which is also `OrganizeLens.renames` — and
-    /// the two appear together on the overview, so that was the Rules collision again with
-    /// different pieces. Duplicates could be fixed by quoting its one lens; this pass answers
-    /// three, so there is no one rail item it is the picture of, and taking any of them would say
-    /// the walk is about that lens. `doc.text.magnifyingglass` names what the pass actually does
-    /// instead — read every file in the tree — and it collides with nothing here: the rail's six,
-    /// `brain`, `doc.on.doc` and the overview's `square.grid.2x2` are all shapes about places,
-    /// where this is a shape about looking. The rail item keeps its glyph, deliberately: rail
-    /// identities are what a user navigates by, and the card is the newer, less-learned picture.
+    /// Duplicates asks the rail item rather than restating its glyph, so the two can't drift. The
+    /// file pass answers two lenses, so no one rail item is its picture, and borrowing either would
+    /// say the walk is about that lens. `doc.text.magnifyingglass` names what it does, reading
+    /// every file, and collides with no other glyph on the overview or the rail.
     var symbol: String {
         switch self {
         case .file: return "doc.text.magnifyingglass"

@@ -3,14 +3,14 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// The repo's first bitmap comparison, on synthetic contexts — including the stride case that is
-/// the whole reason this is written as a buffer loop rather than assumed to be one.
+/// The bitmap comparison, on synthetic contexts, including the row-stride case the buffer loop
+/// exists to get right.
 @Suite struct BitmapDiffTests {
 
     /// Draws a white image of `width`×`height` with `fill` painted into `rect` (pixel coords).
     ///
-    /// `bytesPerRow: 0` deliberately, everywhere: it is what production uses, and it is what makes
-    /// the stride a thing that has to be read back rather than computed.
+    /// `bytesPerRow: 0` everywhere, as production uses, so the stride must be read back rather
+    /// than computed.
     private func image(width: Int, height: Int, fill: CGRect? = nil,
                        color: (Double, Double, Double) = (0, 0, 0)) throws -> CGImage {
         let ctx = try #require(CGContext(data: nil, width: width, height: height,
@@ -35,8 +35,7 @@ import Testing
         #expect(result.sizesDiffer == false)
     }
 
-    /// One region changed, and the rects name where — not the whole page. A comparison that
-    /// reported "something differs" without saying where would be a boolean with extra steps.
+    /// One region changed, and the rects name where, not the whole page.
     @Test func oneChangedRegionIsLocated() throws {
         let a = try image(width: 64, height: 64)
         let b = try image(width: 64, height: 64, fill: CGRect(x: 32, y: 32, width: 16, height: 16))
@@ -51,13 +50,12 @@ import Testing
         #expect(union.width >= 16 && union.height >= 16)
     }
 
-    /// **The trap this whole file is written around.** CoreGraphics pads the row stride, so a
-    /// width whose RGBA row is not already aligned gets `bytesPerRow > width * 4`. A loop indexing
-    /// `y * width * 4` walks progressively off each row and reports an identical pair as almost
-    /// entirely changed.
+    /// The stride trap: CoreGraphics pads the row stride, so a width whose RGBA row isn't already
+    /// aligned gets `bytesPerRow > width * 4`. A loop indexing `y * width * 4` walks off each row
+    /// and reports an identical pair as almost entirely changed.
     ///
-    /// The test asserts the premise first: if the platform ever stops padding this width, the case
-    /// stops exercising the trap and must be re-picked rather than silently passing.
+    /// The premise is asserted first: if the platform stops padding this width, the case must be
+    /// re-picked rather than silently passing.
     @Test func aStridePaddedWidthStillComparesCorrectly() throws {
         let width = 101   // 404 bytes a row unpadded — CoreGraphics rounds up
         let ctx = try #require(CGContext(data: nil, width: width, height: 40,
@@ -78,21 +76,20 @@ import Testing
         #expect(all.changedFraction > 0.99, "a fully repainted page reported \(all.changedFraction)")
     }
 
-    /// Anti-alias jitter is not a content change. A re-saved PDF re-embeds its fonts, and every
-    /// text edge then differs by a few levels while the page reads identically; at zero tolerance
-    /// such a pair reports "everything changed", which says nothing.
+    /// Anti-alias jitter is not a content change: a re-saved PDF re-embeds its fonts and every
+    /// text edge differs by a few levels, so at zero tolerance the pair would read as all changed.
     @Test func aFewLevelsOfJitterIsNotAChange() throws {
         let a = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.5, 0.5, 0.5))
-        // ~2/255 apart — well inside the tolerance.
+        // ~2/255 apart, well inside the tolerance.
         let b = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.508, 0.508, 0.508))
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.isIdentical, "\(result.changedFraction) of the page counted as changed")
     }
 
-    /// …and the other direction, without which the tolerance test above would pass just as well on
-    /// a comparison that never reports anything.
+    /// The other direction, without which the tolerance test above would pass on a comparison
+    /// that never reports anything.
     @Test func aRealChangeIsStillSeenAtTheSameSize() throws {
         let a = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.5, 0.5, 0.5))
@@ -102,9 +99,8 @@ import Testing
         #expect(result.changedFraction > 0.99)
     }
 
-    /// Mismatched sizes rescale to a common raster and SAY SO. A rescale resamples, so the
-    /// resulting figure is a weaker claim than a matched pair's and the viewer must be able to
-    /// disclose that rather than print a number that looks the same.
+    /// Mismatched sizes rescale to a common raster and say so: a resampled figure is a weaker
+    /// claim than a matched pair's, and the viewer must be able to disclose that.
     @Test func mismatchedSizesRescaleAndAreDisclosed() throws {
         let a = try image(width: 64, height: 64, fill: CGRect(x: 0, y: 0, width: 64, height: 64))
         let b = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32))
@@ -114,8 +110,8 @@ import Testing
         #expect(result.changedFraction < 0.02, "\(result.changedFraction)")
     }
 
-    /// A zero-sized side has no raster to compare, and that is nil — never "no difference". The
-    /// two must not be the same answer on a surface whose next button trashes a file.
+    /// A zero-sized side has no raster to compare, and that is nil, never "no difference": the two
+    /// must differ on a surface whose next button trashes a file.
     @Test func aZeroSizedSideIsNilAndNotIdentical() throws {
         let a = try image(width: 8, height: 8)
         let ctx = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
@@ -129,8 +125,7 @@ import Testing
 
     // MARK: The difference image
 
-    /// Identical pages produce black — the mode's whole premise, and the thing that makes a glow
-    /// mean something.
+    /// Identical pages produce black, which is what makes a glow mean something.
     @Test func theDifferenceOfIdenticalPagesIsBlack() throws {
         let a = try image(width: 16, height: 16, fill: CGRect(x: 2, y: 2, width: 6, height: 6))
         let b = try image(width: 16, height: 16, fill: CGRect(x: 2, y: 2, width: 6, height: 6))
@@ -145,8 +140,8 @@ import Testing
         #expect(try brightest(of: diff) > 200)
     }
 
-    /// Reads the brightest channel value in an image — through the image's OWN stride, for the
-    /// same reason the diff does.
+    /// Reads the brightest channel value in an image, through the image's own stride, as the
+    /// diff does.
     private func brightest(of image: CGImage) throws -> Int {
         let width = image.width, height = image.height
         let ctx = try #require(CGContext(data: nil, width: width, height: height,

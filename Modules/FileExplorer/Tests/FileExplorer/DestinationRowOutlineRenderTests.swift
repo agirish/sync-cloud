@@ -5,41 +5,29 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// The destination picker's chosen row, **rendered and measured at the corners**.
+/// The destination picker's chosen row, rendered and measured at the corners. Its chosen ground is
+/// a `Radius.chip` rounded rect, and its hover wash must be the same shape: `.segment`'s capsule
+/// default would draw a pill inside the rounded rect, its ends well inside the accent fill.
 ///
-/// `DestinationColumn`'s row drew a `Radius.chip` rounded rect for its chosen ground and then took
-/// `.segment`'s CAPSULE default for its hover wash. On a row this shape a capsule's radius is half
-/// the height — more than twice `Radius.chip` — so the wash pulled its ends well inside the accent
-/// fill and a chosen row showed a pill floating in a rounded rectangle, with its own highlight
-/// visible round the outside of the thing meant to be highlighting it.
+/// The wash itself can't be rendered here: `.onHover` needs an `NSTrackingArea`, and synthesised
+/// mouse events in an offscreen window move the render by zero pixels. So three checks, none
+/// sufficient alone:
 ///
-/// **The wash itself is not renderable, so no test here paints one.** `.onHover` is driven by an
-/// `NSTrackingArea`, and in an offscreen window there is no pointer to enter it: mounting the row
-/// and delivering a synthesised `mouseEntered`/`mouseMoved` to the hosting view — directly and
-/// through `sendEvent`, before and after `orderFrontRegardless()`, with `acceptsMouseMovedEvents`
-/// set — moves the render by exactly zero pixels, measured. The defect therefore has to be
-/// approached from three sides, and **no one of them is sufficient**:
+/// 1. `HoverAffordanceOutlineTests`: the outline draws what the style draws, and a capsule
+///    differs visibly from a `Radius.chip` rounded rect at this size.
+/// 2. `theChosenRowsGroundHasTheOutlineTheStyleIsHanded`: the ground the row paints matches
+///    rendered references. Blind to the wash: it stays green if `shape:` is dropped.
+/// 3. `theStyleIsHandedTheSameOutlineTheGroundIsDrawnFrom`: the style is handed the constant the
+///    ground is drawn from.
 ///
-/// 1. `HoverAffordanceOutlineTests` — the outline draws exactly what the style used to draw, and a
-///    capsule differs from a `Radius.chip` rounded rect over 732 pixels of a row this size.
-/// 2. Here, `theChosenRowsGroundHasTheOutlineTheStyleIsHanded` — the ground the row really paints
-///    is measured out of a live column and matched against rendered references. This pins the
-///    ground; it is **blind to the wash**, and stays green if `shape:` is dropped from the button
-///    style. That was verified by mutation, not assumed.
-/// 3. `theStyleIsHandedTheSameOutlineTheGroundIsDrawnFrom` — the half (2) cannot see: that the
-///    style is handed the same constant the ground is drawn from.
-///
-/// `.machinePinned(.pixelSampling)` on the tests that read pixels — the pin is per test rather than
-/// on the suite, so the two that read no pixels still run on CI.
+/// `.machinePinned(.pixelSampling)` is per test, so the two that read no pixels still run on CI.
 @MainActor
 @Suite(.serialized) struct DestinationRowOutlineRenderTests {
 
     static let columnWidth: CGFloat = 240
     static let columnHeight: CGFloat = 200
-    /// Pure blue, so the chosen row's accent ground is separable from grey text and folder glyphs
-    /// on one channel. Passed explicitly rather than defaulted for `PaneTabStripRenderTests`'
-    /// reason: the system accent is a machine setting, and a test reading blue out of it would be
-    /// reading System Settings.
+    /// Pure blue, so the accent ground separates from grey text and folder glyphs on one channel.
+    /// Passed explicitly, as in `PaneTabStripRenderTests`: the system accent is a machine setting.
     static let accent = Color(red: 0, green: 0, blue: 1)
 
     func listing(_ names: [String]) -> DestinationFolderListing {
@@ -47,12 +35,9 @@ import Sync
                                  outcome: .listed)
     }
 
-    /// Mounts a column with `chosen` highlighted and returns the bitmap.
-    ///
-    /// `controlActiveState` pinned for the reason `PaneTabStripRenderTests` measured: without it
-    /// SwiftUI renders the inactive-window desaturated variant and every colour read here is of
-    /// something the user never sees. The backdrop is a flat opaque fill rather than the picker's
-    /// card, because a glass wrapper renders its subject as white through a bare hosting view.
+    /// Mounts a column with `chosen` highlighted and returns the bitmap. `controlActiveState` is
+    /// pinned, as in `PaneTabStripRenderTests`, or SwiftUI renders the desaturated inactive variant.
+    /// The backdrop is flat, not the picker's card: glass renders white through a bare host.
     func render(names: [String], chosen: String) -> NSBitmapImageRep {
         let subject = DestinationColumn(directory: "/Users/x/Docs",
                                         listing: listing(names),
@@ -82,12 +67,9 @@ import Sync
     }
 
     /// Every pixel carrying the accent ground: bluer than white by a clear margin, and not the
-    /// near-black of the row's text or the saturated blue of its folder glyph.
-    ///
-    /// The ground is `accent` at `PaneSelectionWash.active` (0.22) over white, so it is a pale blue
-    /// — around 0.78 on red and green, 1.0 on blue. The glyph is the accent at full strength, which
-    /// is why red is bounded from BELOW as well: without that the test would trace the outline of
-    /// the folder icon.
+    /// row's near-black text or its saturated folder glyph. The ground is `accent` at
+    /// `PaneSelectionWash.active` over white, a pale blue; red is bounded from below too, or the
+    /// mask would trace the full-strength folder icon.
     func groundMask(_ rep: NSBitmapImageRep) -> [[Bool]] {
         var mask = [[Bool]](repeating: [Bool](repeating: false, count: rep.pixelsWide),
                             count: rep.pixelsHigh)
@@ -101,13 +83,9 @@ import Sync
         return mask
     }
 
-    /// The chosen row's ground, located and measured: its size in points, and how far its corner
-    /// runs before the edge reaches full width — which for a rounded rect is its radius.
-    ///
-    /// Scanlines are kept only when their run is at least half the widest run found, which is what
-    /// separates the ground from the antialiased fringe of the folder glyph on the row ABOVE it.
-    /// That fringe is accent-coloured and a few pixels wide; taking a naive bounding box over every
-    /// masked pixel put the top of the ground 40pt too high and reported a 105pt corner.
+    /// The chosen row's ground: its size in points, and how far its corner runs before the edge
+    /// reaches full width (for a rounded rect, its radius). Only scanlines at least half the widest
+    /// run are kept, which drops the accent-coloured fringe of the folder glyph on the row above.
     func groundGeometry(_ rep: NSBitmapImageRep) -> (size: CGSize, corner: CGFloat)? {
         let mask = groundMask(rep)
         var runs: [Int: (lo: Int, hi: Int)] = [:]
@@ -132,13 +110,9 @@ import Sync
                 CGFloat(full - top) / perPoint)
     }
 
-    /// The same corner measurement taken on a bare outline of known shape, so the row's corner is
-    /// compared against rendered references rather than against a number written down here.
-    ///
-    /// This matters more than it looks: a continuous rounded rect's corner does not run for exactly
-    /// its radius, and the topmost scanline is antialiased, so any hand-written expectation would be
-    /// a tolerance nobody could justify. Measuring both candidates the same way through the same
-    /// mask cancels all of it.
+    /// The same corner measurement on a bare outline of known shape, so the row is compared with
+    /// rendered references, not a written number. A continuous rounded rect's corner doesn't run
+    /// for exactly its radius and the top scanline is antialiased; measuring alike cancels both.
     func referenceCorner(_ shape: HoverAffordanceShape, size: CGSize) -> CGFloat? {
         let subject = shape.outline
             .fill(Self.accent.opacity(PaneSelectionWash.active))
@@ -163,13 +137,9 @@ import Sync
 
     // MARK: - The row's ground is the shape the style is handed
 
-    /// **The fix, measured.** The chosen row's ground is read out of a live column, its corner
-    /// measured, and compared against the same corner measured on the two candidate outlines: the
-    /// one the row now hands the style, and the capsule it used to take by default.
-    ///
-    /// The row must match its own outline and NOT the capsule. Asserting both directions is the
-    /// point — "close to a 6pt rounded rect" alone would also be satisfied by a ground that had
-    /// quietly squared off, and this is a test about two shapes agreeing, not about one of them.
+    /// The chosen row's ground, read from a live column, matches the outline it hands the style and
+    /// not the capsule. Both directions, because "close to a rounded rect" alone would also pass a
+    /// ground that had quietly squared off.
     @Test(.machinePinned(.pixelSampling)) func theChosenRowsGroundHasTheOutlineTheStyleIsHanded() throws {
         let rep = render(names: ["Invoices", "Receipts", "Statements"], chosen: "Receipts")
         let row = try #require(groundGeometry(rep),
@@ -178,8 +148,8 @@ import Sync
         let capsule = try #require(referenceCorner(.capsule, size: row.size))
 
         #expect(DestinationRowShape.kind == .roundedRect(Radius.chip))
-        // The two references must be far enough apart for the comparison below to mean anything —
-        // on a row this shape they are about 6pt and about half its height.
+        // The references must be far enough apart to mean anything: about 6pt and about half the
+        // row's height.
         #expect(capsule - chip > 4,
                 "the two candidate outlines measure \(chip)pt and \(capsule)pt on a \(row.size.width)×\(row.size.height) row; they are too close to tell apart, so the rest of this test proves nothing")
         #expect(abs(row.corner - chip) < 1.5,
@@ -188,29 +158,19 @@ import Sync
                 "the chosen row's corner (\(row.corner)pt) is nearer a capsule's \(capsule)pt than its own outline's \(chip)pt — the row is back on the capsule default")
     }
 
-    /// The two surfaces that draw a non-capsule ground name their outline once, and neither has
-    /// gone back to a capsule. A capsule here would mean the ground itself had changed, not just
-    /// the affordance.
+    /// The two surfaces that draw a non-capsule ground name their outline once, and neither is a
+    /// capsule.
     ///
-    /// **They no longer share a radius, and that is deliberate — do not "fix" this by making them
-    /// agree again.** This test used to assert both were `.roundedRect(Radius.chip)`, which read as
-    /// an invariant and was a coincidence: the two surfaces are unrelated. A picker row sits at 10pt
-    /// of horizontal padding inside a card of its own, while a tab chip is inset 4pt inside the
-    /// strip card's 14pt corner and takes `PaneTabStripLadder.chipRadius` (10) so the two corners are
-    /// concentric — see `theChipNestsConcentricallyInsideTheCard`. Tying the picker's radius to the
-    /// strip's would mean the next concentricity change silently dragged the picker along with it.
-    ///
-    /// What IS invariant is the pair below: each surface derives its drawable outline from the value
-    /// it hands the style, rather than restating it. That is what makes a drift unrepresentable
-    /// rather than merely untested, and it is what this file exists for.
+    /// They don't share a radius, on purpose: a tab chip takes `PaneTabStripLadder.chipRadius` to
+    /// nest concentrically in the strip card (`theChipNestsConcentricallyInsideTheCard`), while a
+    /// picker row sits in a card of its own. Tying them would drag the picker along with the strip.
+    /// What is invariant: each derives its drawable outline from the value it hands the style.
     @Test func eachSurfaceNamesItsOutlineOnceAndNeitherIsACapsule() {
-        // The picker's radius IS the shared token, so naming it here is a claim rather than an echo.
+        // The picker's radius is the shared token, so naming it is a claim, not an echo.
         #expect(DestinationRowShape.kind == .roundedRect(Radius.chip))
-        // The strip's is not: `chipShape` is *defined* as `.roundedRect(chipRadius)`, so writing
-        // that equality here would compare a constant to itself and pass whatever either becomes.
-        // The claim this file can honestly make about the strip is the SHAPE — a rounded rect, of
-        // some radius, and specifically not the capsule it shipped as before `153b5ae7`. Which
-        // radius is the ladder's question, and `theChipNestsConcentricallyInsideTheCard` answers it.
+        // The strip's is not: `chipShape` is defined as `.roundedRect(chipRadius)`, so that
+        // equality would compare a constant to itself. This file claims only the shape, a rounded
+        // rect and not a capsule; `theChipNestsConcentricallyInsideTheCard` checks the radius.
         for (name, shape) in [("the picker row", DestinationRowShape.kind),
                               ("the tab chip", PaneTabStrip.chipShape)] {
             switch shape {
@@ -223,13 +183,13 @@ import Sync
                              """)
             }
         }
-        // Derived, not restated — the whole reason a drift is unrepresentable rather than untested.
+        // Derived, not restated, so a drift is unrepresentable rather than untested.
         #expect(DestinationRowShape.outline.kind == DestinationRowShape.kind)
         #expect(PaneTabStrip.chipOutline.kind == PaneTabStrip.chipShape)
     }
 
-    /// Every `hoverAffordance(…)` call in `text`, each as its complete expression — opening paren
-    /// to the matching close, continuation lines and all.
+    /// Every `hoverAffordance(…)` call in `text`, each as its complete expression, from opening
+    /// paren to matching close.
     static func hoverAffordanceCalls(in text: String) -> [String] {
         calls(of: "hoverAffordance(", in: text)
     }
@@ -259,26 +219,13 @@ import Sync
 
     // MARK: - What the render above cannot see
 
-    /// **The render test is blind to the regression it was written for, and this is the half that
-    /// is not.**
+    /// The half the render test can't see. Dropping `shape:` from a `DestinationPicker` button style
+    /// leaves `theChosenRowsGroundHasTheOutlineTheStyleIsHanded` green: the ground still draws from
+    /// `DestinationRowShape.outline`, and the wash that would disagree is never painted offscreen.
     ///
-    /// Measured, not assumed: dropping `shape:` from any of `DestinationPicker`'s three button
-    /// styles — which is character for character the bug this whole audit is about — leaves
-    /// `theChosenRowsGroundHasTheOutlineTheStyleIsHanded` green. It has to. The ground still draws
-    /// itself from `DestinationRowShape.outline`, that constant still says `Radius.chip`, and the
-    /// affordance that would disagree with it is never painted, because `.onHover` is driven by an
-    /// `NSTrackingArea` and an offscreen window has no pointer to enter it. Seven ways of forcing
-    /// one were tried — `mouseEntered` and `mouseMoved` delivered to the hosting view directly and
-    /// through `sendEvent`, each before and after `orderFrontRegardless()`, with
-    /// `acceptsMouseMovedEvents` set and tracking areas refreshed — and every one moved the render
-    /// by exactly zero pixels.
-    ///
-    /// So the fact that the ground and the style share one value is checked where it is written.
-    /// This is a source scan and inherits the weaknesses of one. It counts the `.segment` sites in
-    /// each file it names, so a fourth appearing in either one fails here rather than sliding in —
-    /// but **it knows only about these two files**, and a control in a third that grows a rounded
-    /// ground is exactly as invisible as `DestinationPicker` was until today. The rule that would
-    /// have caught it is prose, on `HoverAffordanceShape.default(for:)`.
+    /// So the shared value is checked where it is written, by a source scan that counts the
+    /// `.segment` sites in each file it names; a new site fails here. It knows only these two
+    /// files: the rule for any other control is prose, on `HoverAffordanceShape.default(for:)`.
     @Test func theStyleIsHandedTheSameOutlineTheGroundIsDrawnFrom() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -289,33 +236,27 @@ import Sync
         // `shape:`; `declaration` is the positive control that the constant is still there to hand.
         let sites: [(path: String, declaration: String, expected: String, sites: Int)] = [
             ("Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift",
-             // 5 since 2026-11-01: the preview's actions and the new-folder row joined the
-             // three rows, both audited — they hand the same constant their grounds use.
+             // The three rows, the preview's actions and the new-folder row: all hand the
+             // constant their grounds use.
              "static let kind = HoverAffordanceShape.", "shape: DestinationRowShape.kind", 5),
             ("Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift",
              "static let chipShape = HoverAffordanceShape.", "shape: Self.chipShape", 1),
         ]
         for site in sites {
             let text = try String(contentsOf: repo.appendingPathComponent(site.path), encoding: .utf8)
-            // The positive control. A renamed constant or a moved file would otherwise make every
-            // check below vacuously true by matching nothing at all — an absence check that cannot
-            // tell "not there" from "not looked for" is worth nothing.
+            // The positive control: a renamed constant or moved file would otherwise make every
+            // check below pass by matching nothing.
             guard text.contains(site.declaration) else {
                 Issue.record("`\(site.declaration)` is gone from \(site.path) — this list is stale, not clean")
                 continue
             }
-            // **`.segment` is not always written as `.segment`, and a call site is not always one
-            // line.** Three of this file's call sites spell the variant `isSelected ? .filled :
-            // .segment`, so the obvious grep — the one the audit that produced this test started
-            // from — matches `hoverAffordance(.segment` and misses every one of them; two of the
-            // three were defects, unnoticed for exactly that reason. Two of them then wrap `shape:`
-            // onto a continuation line, so a line-at-a-time scan reports those two as defects that
-            // are not. Whole call expressions, matched by parenthesis balance, are the only reading
-            // that gets both right.
+            // `.segment` is not always written `.segment`, and a call is not always one line: a
+            // site may spell `isSelected ? .filled : .segment`, which a grep for
+            // `hoverAffordance(.segment` misses, and wrap `shape:` onto a continuation line, which a
+            // line scan misreads. Whole call expressions, matched by parenthesis balance, get both.
             //
-            // **And a choice in a selection-lens control takes `.segment` without spelling it:**
-            // `selectionLensChoiceButtonStyle` is `.filled` / `.segment` with the lens deciding which,
-            // and `.segment` unless told otherwise — the destination rail's rows, since they took a lens.
+            // `selectionLensChoiceButtonStyle` also takes `.segment` unless told otherwise (the
+            // destination rail's rows), without spelling it.
             let styled = Self.hoverAffordanceCalls(in: text).filter { $0.contains(".segment") }
                 + Self.calls(of: "selectionLensChoiceButtonStyle(", in: text)
                     .filter { !$0.contains("unselected:") || $0.contains("unselected: .segment") }

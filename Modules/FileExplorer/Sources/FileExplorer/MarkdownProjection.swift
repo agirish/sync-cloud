@@ -10,13 +10,13 @@ enum PreviewReadOnlyReason: String, Equatable, Sendable {
     case frontMatter
     case html
     case indentedCode
-    /// The parser's positions for this block could not be lined up with its source, character for
-    /// character. See ``MarkdownProjection`` — the block is shown, and left alone.
+    /// The parser's positions for this block couldn't be lined up with its source character for
+    /// character, so the block is shown and left alone (see ``MarkdownProjection``).
     case unalignable
-    /// A table wider than the text column: tab stops cannot wrap a cell, and a wrapped row would
-    /// break the grid, so it is drawn and left to Source (§3.8).
+    /// A table wider than the text column: tab stops can't wrap a cell, and a wrapped row would
+    /// break the grid, so it is drawn and left to Source.
     case wideTable
-    /// A code span that wraps a line: its newlines render as spaces, and v1 does not map them.
+    /// A code span that wraps a line: its newlines render as spaces, which the map doesn't cover.
     case multilineCode
     case inlineHTML
     /// A node the walk does not model, shown as the library's own plain rendering.
@@ -25,8 +25,8 @@ enum PreviewReadOnlyReason: String, Equatable, Sendable {
 
 /// One inline container the source wraps text in: `**…**`, `*…*`, `~~…~~`, `[…](…)`, `` `…` ``.
 ///
-/// **The full source range, delimiters included.** The translator needs the delimiters to decide
-/// what typing at an edge continues, and to delete them with the last character inside.
+/// The full source range, delimiters included: the translator needs them to decide what typing at
+/// an edge continues, and to delete them with the last character inside.
 struct PreviewInlineSpan: Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case strong, emphasis, strikethrough, code
@@ -39,9 +39,8 @@ struct PreviewInlineSpan: Equatable, Sendable {
 /// One piece of the rendered preview, and the source it came from.
 ///
 /// The segments are an ordered, gap-free cover of ``MarkdownProjection/rendered``. Source ranges
-/// increase and never overlap, but they do **not** cover the source: the Markdown syntax between
-/// them — a `**`, a `> `, a list marker, a `|` — is never inside a segment, which is why typing in
-/// the preview cannot touch it.
+/// increase and never overlap, but they do not cover the source: the syntax between them (a `**`,
+/// a `> `, a list marker, a `|`) is never inside a segment, so typing in the preview can't touch it.
 struct PreviewSegment: Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         /// Editable text. Rendered characters map onto source characters through ``charMap``.
@@ -71,9 +70,8 @@ struct PreviewSegment: Equatable, Sendable {
     /// Index into ``MarkdownProjection/blocks``. A block break belongs to the block it precedes.
     var block: Int
     /// For `.content` only: rendered UTF-16 boundary *i* → source offset relative to
-    /// `source.location`, `rendered.length + 1` entries. `nil` means identity — the common case,
-    /// where every rendered unit is the source unit at the same distance. A boundary that falls
-    /// inside an entity decoded to two units holds `-1`: there is no source position between them.
+    /// `source.location`, `rendered.length + 1` entries. `nil` means identity, the common case. A
+    /// boundary inside an entity decoded to two units holds `-1`: no source position lies between.
     var charMap: [Int]?
     /// For `.content` only: indices into ``MarkdownProjection/spans``, outermost first.
     var spans: [Int] = []
@@ -105,21 +103,21 @@ struct PreviewBlock: Equatable, Sendable {
     var kind: Kind
     var indent: Int
     var quoteDepth: Int
-    /// The 1-based line in the **file** this block starts on, as ``MarkdownBlock/line``.
+    /// The 1-based line in the file (not the body) this block starts on, as ``MarkdownBlock/line``.
     var line: Int?
-    /// UTF-16 range in the source. For a list item, the item's first line through its lead
-    /// paragraph — not the nested blocks, which are blocks of their own.
+    /// UTF-16 range in the source. For a list item, its first line through its lead paragraph; the
+    /// nested blocks are blocks of their own.
     var source: NSRange
     /// UTF-16 range in the rendered string, without the block break before it.
     var rendered: NSRange
-    /// Index of the document-level block this one sits in — the unit an edit re-parses.
+    /// Index of the document-level block this one sits in: the unit an edit re-parses.
     var topLevel: Int
     /// `nil` when the block takes a caret.
     var readOnly: PreviewReadOnlyReason?
-    /// For a fenced code block, what a new line of it needs in front to stay inside: what stands
-    /// before its opening fence — a list's indent, a quote's `> ` — with a list marker there turned
-    /// to spaces. An empty line inside the block often has none of it in the file, and a character
-    /// typed there without it would end the block, so the translator writes it first.
+    /// For a fenced code block, what a new line needs in front to stay inside: what stands before
+    /// its opening fence (a list's indent, a quote's `> `), a list marker there turned to spaces. An
+    /// empty line in the block often lacks it, and typing there without it would end the block, so
+    /// the translator writes it first.
     var linePrefix = ""
 }
 
@@ -127,27 +125,26 @@ extension NSAttributedString.Key {
     /// What block a rendered character belongs to: `paragraph`, `heading`, `listItem`, `code`,
     /// `table`, `rule`, `frontMatter`, `image`, `html`. The fragment delegate draws by it.
     static let previewBlock = NSAttributedString.Key("SyncCloud.preview.block")
-    /// Where a bar is drawn for each `>` level that encloses the character and is drawn — from the
-    /// text's left edge, outermost first, as `[CGFloat]`. Absent outside a quote.
+    /// Where a bar is drawn for each drawn `>` level enclosing the character: from the text's left
+    /// edge, outermost first, as `[CGFloat]`. Absent outside a quote.
     static let previewQuoteBars = NSAttributedString.Key("SyncCloud.preview.quoteBars")
     /// What a U+FFFC stands for: `task`, `taskDone`, `image`, `inlineImage`, `rule`, `frontMatter`.
     static let previewAttachment = NSAttributedString.Key("SyncCloud.preview.attachment")
     /// On a table's header row.
     static let previewTableHeader = NSAttributedString.Key("SyncCloud.preview.tableHeader")
     /// On a table's rows: where its columns start, and where the last ends, from the text's left
-    /// edge — `[CGFloat]`, for the grid the fragment draws.
+    /// edge, as `[CGFloat]`, for the grid the fragment draws.
     static let previewTableColumns = NSAttributedString.Key("SyncCloud.preview.tableColumns")
-    /// On every character of a block that cannot be edited here — for the arrow cursor over it,
-    /// and its tooltip. Set by the projection, so a block that turns read-only, or back, differs
-    /// in the rendering and is redrawn whole: a code block's other lines kept their old look when
-    /// only the decoration knew (review, 2026-10-09).
+    /// On every character of a block that can't be edited here, for the arrow cursor and tooltip.
+    /// Set by the projection, so a block that turns read-only, or back, differs in the rendering
+    /// and is redrawn whole; if only the decoration knew, its other lines would keep their old look.
     static let previewReadOnly = NSAttributedString.Key("SyncCloud.preview.readOnly")
-    /// On a fenced code block's first line: its language, for the fragment to draw above the code —
-    /// drawn, never text, so it cannot be typed into or selected.
+    /// On a fenced code block's first line: its language, for the fragment to draw above the code.
+    /// Drawn, never text, so it can't be typed into or selected.
     static let previewCodeLanguage = NSAttributedString.Key("SyncCloud.preview.codeLanguage")
     /// On an image block's U+FFFC: the image's source as written, for the view to load.
     static let previewImageSource = NSAttributedString.Key("SyncCloud.preview.imageSource")
-    /// On an image's U+FFFC — a block's or one in a sentence — its alt text, as plain text. Its
+    /// On an image's U+FFFC, a block's or one in a sentence: its alt text, as plain text. The
     /// attachment carries the same (``PreviewImageAttachment``); this makes a changed alt a changed
     /// rendering.
     static let previewImageAlt = NSAttributedString.Key("SyncCloud.preview.imageAlt")
@@ -158,34 +155,34 @@ extension NSAttributedString.Key {
 /// The editable preview's view of a Markdown source: what to draw, and which source characters
 /// each drawn character came from.
 ///
-/// **The source is the only document.** This is rebuilt from it, never edited on its own, and never
-/// trusted on its own either: every piece of text it calls editable has been lined up with the
-/// source character for character — escapes and entities included — and a block that does not line
-/// up becomes ``PreviewReadOnlyReason/unalignable``, shown but not editable. A wrong map would turn a
-/// keystroke into an edit somewhere else in the file; a missing one only sends the person to Source.
+/// The source is the only document. This is rebuilt from it, never edited or trusted on its own:
+/// every piece of text it calls editable is lined up with the source character for character,
+/// escapes and entities included, and a block that doesn't line up becomes
+/// ``PreviewReadOnlyReason/unalignable``, shown but not editable. A wrong map would turn a
+/// keystroke into an edit elsewhere in the file; a missing one only sends the person to Source.
 ///
-/// **The parser's inline positions are not used as given — two cases are wrong, both measured
-/// against swift-markdown 0.8.0 on 2026-10-04:**
+/// The parser's inline positions are not used as given; two cases are wrong in swift-markdown
+/// 0.8.0:
 ///
 /// 1. *A continuation line with leading whitespace.* In `foo\n   bar`, `>   text`, or any paragraph
 ///    whose first line is indented, the parser reports columns as offsets into the paragraph's
-///    content **after** each line's leading whitespace was stripped, measured from the paragraph's
-///    own first column. So `bar` comes back at column 1 rather than 4, and `cont` under
-///    `   indented` at column 4 rather than 3.
+///    content after each line's leading whitespace was stripped, from the paragraph's own first
+///    column. So `bar` comes back at column 1 rather than 4, and `cont` under `   indented` at
+///    column 4 rather than 3.
 /// 2. *After a backslash hard break.* `foo\` + newline does not advance the parser's line count:
-///    the next text is reported on the **same** line with a column past its end, and every later
+///    the next text is reported on the same line with a column past its end, and every later
 ///    line of the paragraph is one too high.
 ///
-/// The walk models both — see ``InlineLines`` — and then aligns each piece of text against the
-/// source from where the model says it starts. It never trusts a reported **end**: a table cell
-/// holding `b \| c` reports five bytes for six.
+/// The walk models both (``InlineLines``), then aligns each piece of text against the source from
+/// where the model says it starts. It never trusts a reported end: a table cell holding `b \| c`
+/// reports five bytes for six.
 struct MarkdownProjection {
 
     /// Styling the projection applies. The view adds colour; this carries only what decides layout.
     struct Style: Equatable {
         var scale: CGFloat = 1
-        /// The text column's width, which a table must fit to be editable. `nil` lays tables out
-        /// and calls none of them too wide — what a projection made with no view to fit has.
+        /// The text column's width, which a table must fit to be editable. `nil`, for a projection
+        /// with no view to fit, calls no table too wide.
         var columnWidth: CGFloat? = nil
     }
 
@@ -196,22 +193,22 @@ struct MarkdownProjection {
     let blocks: [PreviewBlock]
     let segments: [PreviewSegment]
     let spans: [PreviewInlineSpan]
-    /// How this was made from the projection before it (MarkdownProjectionReuse).
+    /// How this was made from the projection before it (`MarkdownProjectionReuse`).
     var lineage = Lineage()
-    /// What is worked out from this projection once and asked of it again — every field above is a
-    /// `let`, so a copy shares it rightly. Each projection made anew has its own.
+    /// What is worked out from this projection once and asked again. Every field above is a `let`,
+    /// so a copy rightly shares it; each projection made anew has its own.
     let memo = Memo()
 
     final class Memo {
-        /// ``PreviewEditTranslator/readOnlyPieces(_:)``: the projection a translation starts from is
-        /// asked once for every check it makes, up to three a keystroke (round 2, 2026-10-10).
+        /// ``PreviewEditTranslator/readOnlyPieces(_:)``, which a translation's starting projection
+        /// is asked for every check it makes, up to three a keystroke.
         var readOnlyPieces: PreviewPieceCount?
     }
 
     var renderedString: String { rendered.string }
 
     /// What an entity reference decodes to, asked of cmark once per reference and kept: the walk
-    /// met every `&amp;` in a document on every keystroke, and parsed a document for each.
+    /// meets every `&amp;` on every keystroke, and each answer costs a parse.
     static func decodedEntity(_ reference: String) -> String {
         entityLock.lock()
         defer { entityLock.unlock() }
@@ -223,17 +220,13 @@ struct MarkdownProjection {
     nonisolated(unsafe) private static var entities: [String: String] = [:]
     private static let entityLock = NSLock()
 
-    /// **One projection at a time, in the whole process** (2026-10-17). AppKit uniques attribute
-    /// dictionaries process-wide, so a run's `{font, previewReadOnly}` here is the very object
-    /// every other projection's equal run holds, whatever thread it is on (measured: one pointer
-    /// across two threads). A FileExplorer test process aborted with four projections building at
-    /// once on the cooperative pool and one of those shared dictionaries freed under the run that
-    /// held it, and this lock was taken to rule the other projections out. **It did not stop the
-    /// abort**: it came back on 2026-10-26 inside this lock, with no other projection building —
-    /// see "An attribute dictionary freed under a projection's own run — cause not found" in
-    /// docs/flaky-tests.md. Kept because it costs the app nothing: the app projects on the main
-    /// actor alone, so there it is never contended. Recursive: the re-read projects its part, or
-    /// the whole.
+    /// One projection at a time, in the whole process. AppKit uniques attribute dictionaries
+    /// process-wide, so a run's `{font, previewReadOnly}` here is the same object every other
+    /// projection's equal run holds, on any thread. The lock rules out concurrent projections, but
+    /// a test process can still abort with a shared dictionary freed under a run: see "An attribute
+    /// dictionary freed under a projection's own run — cause not found" in docs/flaky-tests.md.
+    /// The app projects on the main actor alone, so the lock costs it nothing. Recursive: the
+    /// re-read projects its part, or the whole.
     static func oneAtATime<T>(_ body: () -> T) -> T {
         building.lock()
         defer { building.unlock() }
@@ -252,7 +245,7 @@ struct MarkdownProjection {
         }
     }
 
-    /// What one stretch of the body projects to, in the file's own positions — the re-read
+    /// What one stretch of the body projects to, in the file's own positions: the re-read
     /// ``project(_:style:after:)`` makes in place of the whole document.
     struct Slice {
         var rendered: NSAttributedString
@@ -263,10 +256,10 @@ struct MarkdownProjection {
         var topLevelCount: Int
     }
 
-    /// `range` of `source` — whole lines, outside any front matter — projected as if it were the
-    /// document, with every position given in `source`: lines, source ranges and `topLevel` count
-    /// from `topLevel` and the line `range` starts on. Rendered ranges, block indices and span
-    /// indices start at 0.
+    /// `range` of `source` (whole lines, outside any front matter) projected as if it were the
+    /// document, with positions given in `source`: lines, source ranges and `topLevel` count from
+    /// `topLevel` and the line `range` starts on. Rendered ranges and block and span indices start
+    /// at 0.
     static func projectSlice(_ range: NSRange, of source: String, index: MarkdownSourceIndex, style: Style,
                              topLevel: Int, previousBlockSourceEnd: Int) -> Slice {
         oneAtATime {
@@ -287,7 +280,7 @@ private struct Builder {
     let index: MarkdownSourceIndex
     let style: MarkdownProjection.Style
     let source: String
-    /// Body line *n* is file line *n + lineOffset* — front matter is cut off before parsing.
+    /// Body line *n* is file line *n + lineOffset*, since front matter is cut off before parsing.
     var lineOffset = 0
 
     let out = NSMutableAttributedString()
@@ -306,8 +299,8 @@ private struct Builder {
         self.index = index ?? MarkdownSourceIndex(source)
     }
 
-    /// `body` — whole lines of ``source``, the first of them line `firstLine` — parsed as the
-    /// document: no front matter, and the positions of the file around it.
+    /// `body` (whole lines of ``source``, starting at line `firstLine`) parsed as the document: no
+    /// front matter, and the positions of the file around it.
     mutating func runSlice(_ body: String, firstLine: Int, topLevel: Int, previousBlockSourceEnd: Int) {
         lineOffset = firstLine - 1
         self.topLevel = topLevel
@@ -320,8 +313,8 @@ private struct Builder {
     }
 
     mutating func run() {
-        // The same split, and the same parser options, as `MarkdownBlocks` — no
-        // `.parseBlockDirectives`, for the reason its comment gives.
+        // The same split and parser options as `MarkdownBlocks`: no `.parseBlockDirectives`, for
+        // the reason its comment gives.
         let split = MarkdownFrontMatter.split(source)
         lineOffset = split.bodyStartLine - 1
         if split.frontMatter != nil {
@@ -342,12 +335,11 @@ private struct Builder {
         }
     }
 
-    /// **One line a projection, when anything in it is read-only for want of a map** — a block
-    /// that did not line up, a table too wide, a wrapped code span or tag, a node the walk does not
-    /// model — with how many of each: what a report of "Preview won't let me type here" needs.
-    /// Counts only, never the text. `.debug`, since a projection is made at every keystroke; nothing
-    /// at all for a note that maps throughout. Front matter, HTML blocks and indented code are
-    /// read-only by design, and not counted.
+    /// One line per projection when anything in it is read-only for want of a map (a block that
+    /// didn't line up, a table too wide, a wrapped code span or tag, a node the walk doesn't model),
+    /// with how many of each, for a report of "Preview won't let me type here". Counts only, never
+    /// text; `.debug`, since a projection is made at every keystroke. Front matter, HTML blocks and
+    /// indented code are read-only by design and not counted.
     func logReadOnly(of what: String) {
         var counts: [String: Int] = [:]
         for block in blocks {
@@ -371,7 +363,7 @@ private struct Builder {
 
     /// The UTF-16 offset of a body-relative parser location, taken at its word.
     ///
-    /// Right for **block** starts, which is all it is used for: the two wrong cases are inline.
+    /// Right for block starts, which is all it is used for: the two wrong cases are inline.
     func offset(_ location: SourceLocation) -> Int? {
         index.utf16Offset(line: location.line + lineOffset, utf8Column: location.column)
     }
@@ -388,9 +380,9 @@ private struct Builder {
                                      line: Int?, source: NSRange, tag: String) -> Int {
         let blockIndex = blocks.count
         if blockIndex > 0 {
-            // The break's source is everything between the two blocks — blank lines, the next
-            // block's marker. Clamped, so a nested block that starts inside its parent's range
-            // still yields an increasing, non-overlapping cover.
+            // The break's source is everything between the two blocks: blank lines, the next
+            // block's marker. Clamped, so a nested block starting inside its parent's range still
+            // yields an increasing, non-overlapping cover.
             let start = min(previousBlockSourceEnd, source.location)
             // An empty block before it has no characters of its own: this break is its line, and
             // carries its look, or the line is drawn as nothing in particular (see `endBlock`).
@@ -422,11 +414,10 @@ private struct Builder {
         if range.length > 0 {
             out.addAttributes(attributes, range: range)
         } else {
-            // **An empty block is drawn on the next block's break** — the `\n` that ends its line.
-            // Left plain, an item just made by Return showed no number and set the caret at the
-            // margin, and the items after it counted from 1 again; an empty `## ` had no heading
-            // size, an empty `> ` no bar (review, 2026-10-09). The last block has no break after
-            // it, and its line is the view's to style.
+            // An empty block is drawn on the next block's break, the `\n` that ends its line. Left
+            // plain, an item just made by Return would show no number, put the caret at the margin
+            // and restart the count after it; an empty `## ` would lose its size, an empty `> ` its
+            // bar. The last block has no break after it, and its line is the view's to style.
             attributes[.font] = blockFont(blocks[blockIndex].kind)
             emptyBlockAttributes = attributes
         }
@@ -437,10 +428,10 @@ private struct Builder {
     private var currentTag = ""
     private var currentQuoteBars: [CGFloat] = []
     /// The list indent each `>` level the walk is inside opened at, outermost first: a quote in a
-    /// list item has its bar at the item's text, not out at the bullet (review, 2026-10-09).
+    /// list item has its bar at the item's text, not out at the bullet.
     private var quoteIndents: [Int] = []
     private var currentParagraphStyle = NSParagraphStyle()
-    /// The lists of the block just ended — whether the next item continues TextKit's count.
+    /// The lists of the block just ended: whether the next item continues TextKit's count.
     private var lastBlockLists: [NSTextList] = []
     /// The look of the block just ended, when it rendered nothing: for the break after it.
     private var emptyBlockAttributes: [NSAttributedString.Key: Any]?
@@ -496,11 +487,10 @@ private struct Builder {
             lists.append(textList)
             var number = Int(list.startIndex)
             for item in list.listItems {
-                // **TextKit numbers an item by the unbroken run of paragraphs carrying its list**, so
-                // anything between two items without it — a second paragraph, a code block, a task
-                // item, which carries none — started the count again, and `2.` was drawn `1.`
-                // (review, 2026-10-09). After such a break the list goes on as a new one, from the
-                // number the parser gives the item.
+                // TextKit numbers an item by the unbroken run of paragraphs carrying its list, so
+                // anything between two items without it (a second paragraph, a code block, a task
+                // item) would restart the count and draw `2.` as `1.`. After such a break the list
+                // goes on as a new one, from the number the parser gives the item.
                 if number > Int(list.startIndex), !lastBlockLists.contains(where: { $0 === lists[lists.count - 1] }) {
                     let next = NSTextList(markerFormat: textList.markerFormat, options: 0)
                     next.startingItemNumber = number
@@ -519,8 +509,8 @@ private struct Builder {
             for child in quote.children {
                 append(child, indent: indent, quoteDepth: quoteDepth + 1)
             }
-            // An empty quote — `> ` just written by Quote on an opened paragraph — has no block to
-            // type into, and the caret would map onto the paragraph above (review): give it one.
+            // An empty quote (`> ` just written by Quote on an opened paragraph) has no block to
+            // type into, and the caret would map onto the paragraph above, so give it one.
             if quote.childCount == 0, let source = range(of: quote) {
                 let block = beginBlock(.paragraph, indent: indent, quoteDepth: quoteDepth + 1, line: line,
                                        source: source, tag: "paragraph")
@@ -575,15 +565,15 @@ private struct Builder {
             return
         }
         if markup.childCount == 0 {
-            // A heading with no words yet — `## ` just written by a Heading verb: somewhere to type.
+            // A heading with no words yet (`## ` just written by a Heading verb): somewhere to type.
             appendEmptyAnchor(atEndOfLineFrom: source.location, block: block, font: font)
         }
         endBlock(block)
     }
 
     /// An insertion point at the end of the line holding `offset`, as an empty list item and an
-    /// empty cell have one — but only after a space, so a word typed there stays part of the block
-    /// (typed onto `##` it would make `##x`, which is no heading).
+    /// empty cell have, but only after a space, so a word typed there stays in the block (typed
+    /// onto `##` it would make `##x`, which is no heading).
     private mutating func appendEmptyAnchor(atEndOfLineFrom offset: Int, block: Int, font: NSFont) {
         let end = index.line(index.lineNumber(containing: offset))?.end ?? offset
         guard end > offset, [0x20, 0x09].contains(index.units[end - 1]) else { return }
@@ -591,15 +581,13 @@ private struct Builder {
                    block: block)
     }
 
-    /// The block shown as `text` and not editable — **every read-only block, in one place.** There
-    /// were four copies of this, and one of them, a list item's, kept neither its task box nor its
-    /// text on one line (review, 2026-10-09).
+    /// The block shown as `text` and not editable: every read-only block, in one place.
     ///
-    /// `replacing` takes back the editable attempt made since that mark, which did not line up.
-    /// `box` is a task item's `[ ]`, which stays a box — ticking it is three characters the
-    /// translator checks, whatever the words after it are. A newline in `text` is drawn as a line
-    /// separator, so the block stays one paragraph — a second one would be another list item, with
-    /// a bullet of its own — except where lines are the block's own: code, HTML, a table's rows.
+    /// `replacing` takes back the editable attempt made since that mark, which didn't line up.
+    /// `box` is a task item's `[ ]`, which stays a box: ticking it is three characters the
+    /// translator checks, whatever the words after it. A newline in `text` is drawn as a line
+    /// separator so the block stays one paragraph (a second would be another list item, with its
+    /// own bullet), except where lines are the block's own: code, HTML, a table's rows.
     private mutating func readOnlyBlock(_ kind: PreviewBlock.Kind, indent: Int, quoteDepth: Int, line: Int?,
                                         tag: String, source: NSRange, text: String, font: NSFont,
                                         reason: PreviewReadOnlyReason, box: (what: String, source: NSRange)? = nil,
@@ -626,7 +614,7 @@ private struct Builder {
         endBlock(block, readOnly: reason)
     }
 
-    /// `text` with every paragraph separator — `\r\n`, `\n`, `\r`, U+2029, U+0085 — drawn as a line
+    /// `text` with every paragraph separator (`\r\n`, `\n`, `\r`, U+2029, U+0085) drawn as a line
     /// separator instead, and in a table cell every tab as a space (see ``drawn(_:inCell:)``).
     static func oneParagraph(_ text: String, inCell: Bool = false) -> String {
         let units = Array(text.replacingOccurrences(of: "\r\n", with: "\u{2028}").utf16).map { drawn($0, inCell: inCell) }
@@ -634,10 +622,10 @@ private struct Builder {
     }
 
     /// What a unit of text is drawn as, where the text system would read it as layout:
-    /// - U+2028 for a unit it ends a paragraph at — as `PreviewEditSession.endsParagraph` counts
-    ///   them — which would make a second paragraph of one block;
-    /// - in a table cell, a space for a tab, which would jump to the next column's stop, and which
-    ///   the grid splits its rows at (review, 2026-10-09).
+    /// - U+2028 for a unit it ends a paragraph at (as `PreviewEditSession.endsParagraph` counts
+    ///   them), which would make a second paragraph of one block;
+    /// - in a table cell, a space for a tab, which would jump to the next column's stop and which
+    ///   the grid splits its rows at.
     ///
     /// One unit for one, so text drawn this way still maps unit for unit (see ``align``).
     static func drawn(_ unit: UInt16, inCell: Bool) -> UInt16 {
@@ -652,8 +640,8 @@ private struct Builder {
         if lead != nil { children.removeFirst() }
         let line = item.range.map { $0.lowerBound.line + lineOffset }
         let itemStart = item.range.flatMap { offset($0.lowerBound) } ?? previousBlockSourceEnd
-        // The item's own extent: its first line through the lead paragraph. The nested blocks are
-        // blocks of their own, and an item range that swallowed them would overlap theirs.
+        // The item's own extent: its first line through the lead paragraph. Nested blocks are
+        // blocks of their own, and a range that swallowed them would overlap theirs.
         let firstLineEnd = index.line(index.lineNumber(containing: itemStart))?.end ?? itemStart
         let leadEnd = lead.flatMap { range(of: $0) }.map(NSMaxRange) ?? firstLineEnd
         let source = NSRange(location: itemStart, length: max(0, leadEnd - itemStart))
@@ -677,7 +665,7 @@ private struct Builder {
         if aligned, let lead {
             aligned = inlineContent(of: lead, block: block, font: bodyFont, inTable: false) != nil
         } else if aligned {
-            // An item with no words yet — `- ` just written by Bullets, say: somewhere to type, at
+            // An item with no words yet (`- ` just written by Bullets, say): somewhere to type, at
             // the end of its marker line. Typed onto a bare `-`, a word would turn it into text.
             appendEmptyAnchor(atEndOfLineFrom: itemStart, block: block, font: bodyFont)
         }
@@ -714,10 +702,9 @@ private struct Builder {
         let language = code.language.flatMap { $0.isEmpty ? nil : $0 }
         let source = range(of: code) ?? NSRange(location: previousBlockSourceEnd, length: 0)
         let text = Self.droppingFinalNewline(code.code)
-        // **Fenced when its fence lines are not code.** Starting on a backtick is not enough: an
-        // indented block whose first line is ```` ```foo ```` starts on one too, and was taken for a
-        // fence and shown as unalignable (review, 2026-10-09). Every line of an indented block is
-        // code; a fenced block's opening line never is.
+        // Fenced when its fence lines are not code. Starting on a backtick isn't enough: an
+        // indented block whose first line is ```` ```foo ```` starts on one too. Every line of an
+        // indented block is code; a fenced block's opening line never is.
         let lines = code.range.map { $0.upperBound.line - $0.lowerBound.line + 1 } ?? 0
         let codeLines = code.code.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         let fence = source.length >= 3 && index.units.indices.contains(source.location)
@@ -744,11 +731,10 @@ private struct Builder {
         }
     }
 
-    /// **The language over a code block, as the read-only Preview draws it** (review, 2026-10-09: the
-    /// editable one dropped it). Room is made above the first line, and the fragment draws the name
-    /// in it — an attribute, not characters, so it is never text anyone types into. A block with no
-    /// characters has its line on the break after it (see `endBlock`), which is not in its range,
-    /// and goes without.
+    /// The language over a code block, as the read-only Preview draws it. Room is made above the
+    /// first line and the fragment draws the name there: an attribute, not characters, so nobody
+    /// types into it. A block with no characters has its line on the break after it (see
+    /// `endBlock`), outside its range, and goes without.
     private mutating func labelFirstLine(of block: Int, language: String) {
         let range = blocks[block].rendered
         guard range.length > 0 else { return }
@@ -765,13 +751,11 @@ private struct Builder {
     /// The room a code block's language takes above its first line.
     static let languageLabelHeight: CGFloat = 14
 
-    /// What a later line of a block opened after `opening` — the fence line's text before its
-    /// backticks — needs in front of it to stay in that block: the quote markers and whitespace as
-    /// written, and a space for every other character.
-    ///
-    /// **A list marker becomes its own width in spaces.** Copied as written, a fence opened on the
-    /// marker line — `- ```swift` — gave every new line a `- ` of its own, which is a new list item:
-    /// Return in the code was refused, and so was typing on a blank line of it (review, 2026-10-09).
+    /// What a later line of a block opened after `opening` (the fence line's text before its
+    /// backticks) needs in front to stay in that block: the quote markers and whitespace as
+    /// written, and a space for every other character. So a list marker becomes its own width in
+    /// spaces: copied as written, a fence on `- ```swift` would give each new line a `- `, a new
+    /// list item.
     static func continuationPrefix(_ opening: ArraySlice<UInt16>) -> String {
         let units = opening.map { [0x3E, 0x20, 0x09].contains($0) ? $0 : 0x20 }
         return String(utf16CodeUnits: units, count: units.count)
@@ -779,25 +763,23 @@ private struct Builder {
 
     /// Maps each line of a fenced block onto its source line.
     ///
-    /// **A code line is always the TAIL of its source line** — a quote's `> `, a list item's
-    /// indentation and the fence's own indent are all prefixes the parser strips — so each line is
-    /// found as a suffix rather than through the parser's columns. A line that is not a suffix (a
-    /// tab the parser expanded to spaces) fails the whole block, which becomes read-only.
+    /// A code line is always the tail of its source line (a quote's `> `, a list item's indent and
+    /// the fence's own indent are prefixes the parser strips), so each line is found as a suffix,
+    /// not through the parser's columns. A line that isn't a suffix (a tab the parser expanded to
+    /// spaces) fails the whole block, which becomes read-only.
     ///
-    /// `hasLine` says the parser gave the block a line: an empty one, ```` ```\n\n``` ````, as the
+    /// `hasLine` says the parser gave the block a line: an empty one, ```` ```\n\n``` ```` as the
     /// Code Block verb writes it, has one to type on.
     private mutating func fencedCodeLines(_ text: String, block: Int, source: NSRange, hasLine: Bool) -> Bool {
         let startLine = index.lineNumber(containing: source.location)
         let codeLines = text.isEmpty ? [] : text.components(separatedBy: "\n")
         guard !codeLines.isEmpty else {
-            // An empty block: an insertion point on the line after the fence, at its end — past any
-            // quote marker or indent, which is where a code line's text goes. **Only where that line
-            // is the block's own**: its one empty line, or the blank last line of a fence left open
-            // at the end of the file. In ```` ```\n``` ```` it is the closing fence, and in an open
-            // ```` ``` ```` with nothing after it there is none, so the point stood on a fence line —
-            // typing went into the closing fence, or the language name, and every such edit was
-            // refused once its re-read showed nothing typed (review, 2026-10-09). Now nothing is
-            // built. Typing there would need a line ending written first, which is the translator's.
+            // An empty block: an insertion point at the end of the line after the fence, past any
+            // quote marker or indent, where a code line's text goes. Only where that line is the
+            // block's own: its one empty line, or the blank last line of a fence left open at the
+            // end of the file. In ```` ```\n``` ```` that line is the closing fence, and an open
+            // ```` ``` ```` with nothing after has none; a point there would type into a fence,
+            // so nothing is built. Typing there needs a line ending first, the translator's job.
             if let line = index.line(startLine + 1),
                hasLine || (line.start..<line.end).allSatisfy({ [0x20, 0x09, 0x3E].contains(index.units[$0]) }) {
                 appendText("", attributes: [:], segment: (.content, NSRange(location: line.end, length: 0)),
@@ -882,9 +864,8 @@ private struct Builder {
                         ![0x20, 0x09, 0x7C].contains(index.units[$0])
                     }
                     if let first = written.first, let last = written.last {
-                        // Written, and drawn as nothing — a `^` the parser takes for a row span:
-                        // nowhere to type, since a character beside it ends the span (review,
-                        // 2026-10-09: the point stood before the `^`, and every keystroke was refused).
+                        // Written, and drawn as nothing (a `^` the parser takes for a row span):
+                        // nowhere to type, since a character beside it would end the span.
                         appendText("", attributes: [:],
                                    segment: (.readOnly(.unknown), NSRange(location: first, length: last + 1 - first)),
                                    block: block)
@@ -932,10 +913,10 @@ private struct Builder {
         layOutColumns(of: block, alignments: table.columnAlignments, columns: columns)
     }
 
-    /// **Tab stops per table** (§3.8): each column as wide as its widest cell plus padding, so the
-    /// cells line up under one another, and `:---:` / `---:` honoured with centre and right tabs —
-    /// the read-only preview ignores both. The first column is leading-aligned whatever it says: a
-    /// row starts at the indent, not at a tab. A table that does not fit the column is read-only.
+    /// Tab stops per table: each column as wide as its widest cell plus padding, so cells line up,
+    /// and `:---:` / `---:` honoured with centre and right tabs (the read-only preview ignores
+    /// both). The first column is leading-aligned whatever it says: a row starts at the indent, not
+    /// at a tab. A table that doesn't fit the column is read-only.
     private mutating func layOutColumns(of block: Int, alignments: [Table.ColumnAlignment?], columns: Int) {
         let range = blocks[block].rendered
         guard range.length > 0, columns > 0 else { return }
@@ -973,9 +954,9 @@ private struct Builder {
         out.addAttribute(.paragraphStyle, value: paragraph, range: range)
         out.addAttribute(.previewTableWidth, value: edges[edges.count - 1], range: range)
         if let column = style.columnWidth, edges[edges.count - 1] > column {
-            // Too wide: left to Source, and no grid — its cells wrap, and lines drawn at the stops
-            // would cross them. Marked as `endBlock` marks a read-only block, which it was not yet
-            // there: the pointer stayed an I-beam over it, with no tooltip (review, 2026-10-09).
+            // Too wide: left to Source, and no grid, since its cells wrap and lines at the stops
+            // would cross them. Marked as `endBlock` marks a read-only block (which ran before this
+            // was known), so the pointer and tooltip say so.
             blocks[block].readOnly = .wideTable
             out.addAttribute(.previewReadOnly, value: true, range: range)
         } else {
@@ -983,8 +964,8 @@ private struct Builder {
         }
     }
 
-    /// How wide `text` is drawn, an attachment at its bounds — which measuring the text leaves out
-    /// while the attachment has no image, as every one the projection makes has none yet.
+    /// How wide `text` is drawn, counting an attachment at its bounds, which measuring the text
+    /// leaves out while the attachment has no image (none the projection makes has one yet).
     private static func width(of text: NSAttributedString) -> CGFloat {
         let measured = NSMutableAttributedString(attributedString: text)
         var attachments: CGFloat = 0
@@ -999,8 +980,8 @@ private struct Builder {
 
     // MARK: Inline
 
-    /// Walks a block's inline children into the rendered string, or returns `nil` — having appended
-    /// a partial block the caller rolls back — when any piece fails to line up with the source.
+    /// Walks a block's inline children into the rendered string, or returns `nil` (leaving a
+    /// partial block the caller rolls back) when any piece fails to line up with the source.
     private mutating func inlineContent(of container: any Markup, block: Int, font: NSFont,
                                         inTable: Bool) -> Void? {
         guard let start = container.range?.lowerBound, let containerStart = offset(start) else {
@@ -1047,10 +1028,9 @@ private struct Builder {
         defer { walker.unpositionedStart = max(walker.unpositionedStart, walker.sourceEnd) }
         switch markup {
         case let text as Markdown.Text:
-            // **A text node can arrive with no range** — measured: an unmatched `~~` in a table cell
-            // comes back as text with none. It can only start where the last piece ended, and the
-            // alignment below is what checks that it does.
-            // An entity can decode to a newline — `&#10;` — and the file can hold a U+2029: each is
+            // A text node can arrive with no range (an unmatched `~~` in a table cell does). It can
+            // only start where the last piece ended, and the alignment below checks that it does.
+            // An entity can decode to a newline (`&#10;`) and the file can hold a U+2029: each is
             // drawn as a line separator, unit for unit, so the block stays one paragraph. A tab in a
             // cell is drawn as a space.
             let units = text.string.utf16.map { Self.drawn($0, inCell: walker.inTable) }
@@ -1108,8 +1088,8 @@ private struct Builder {
             var attributes = inlineAttributes(walker)
             attributes[.font] = monoFont
             let range = NSRange(location: start, length: units.count)
-            // A tag can wrap a line — `<span\nclass=x>` — and its newline drawn as one would make a
-            // second paragraph of the block: another bullet, in a list (review, 2026-10-09).
+            // A tag can wrap a line (`<span\nclass=x>`), and its newline drawn as one would make a
+            // second paragraph of the block: another bullet, in a list.
             appendText(Self.oneParagraph(html.rawHTML, inCell: walker.inTable), attributes: attributes,
                        segment: (.readOnly(.inlineHTML), range), block: block)
             walker.sourceEnd = NSMaxRange(range)
@@ -1164,8 +1144,8 @@ private struct Builder {
             walker.sourceEnd = end
 
         default:
-            // A node the walk has no map for. Refusing the block is the safe answer: anything
-            // guessed here would be a guess about where the person's keystrokes land.
+            // A node the walk has no map for. Refusing the block is the safe answer: a guess here
+            // would be a guess about where the person's keystrokes land.
             return nil
         }
         return ()
@@ -1173,8 +1153,8 @@ private struct Builder {
 
     /// Places a code span: its backtick runs, and the content between them.
     ///
-    /// `content` is `nil` when the span wraps a line — its newline renders as a space, which v1
-    /// does not map — and the span is then read-only.
+    /// `content` is `nil` when the span wraps a line (its newline renders as a space, which the map
+    /// doesn't cover), and the span is then read-only.
     private func codeSpan(_ code: String, at start: Int, inTable: Bool)
         -> (whole: NSRange, content: (start: Int, end: Int, map: [Int]?)?)? {
         let units = index.units
@@ -1218,9 +1198,9 @@ private struct Builder {
     /// Returns where the source run ends and the boundary map (`nil` when every unit matched its
     /// own). `nil` when the two cannot be lined up before `limit`.
     ///
-    /// **Escape before literal, and that is the parser's own order:** `\*` in text is always an
-    /// escaped asterisk, never a backslash followed by one. Escapes are off in code spans, where a
-    /// backslash is literal — except `\|` in a table cell, which the table extension unescapes first.
+    /// Escape before literal, the parser's own order: `\*` in text is always an escaped asterisk,
+    /// never a backslash then one. Escapes are off in code spans, where a backslash is literal,
+    /// except `\|` in a table cell, which the table extension unescapes first.
     ///
     /// `rendered` is drawn as ``drawn(_:inCell:)`` draws it: a unit it changed matches the one it
     /// came from. `cells` says it was drawn for a table cell.
@@ -1270,10 +1250,10 @@ private struct Builder {
 
     /// How many source units the parser's smart punctuation turned into `rendered`, or `nil`.
     ///
-    /// **swift-markdown parses with smart punctuation on** — measured: `Don't "x" -- --- ...`
-    /// renders `Don’t “x” – — …` — so the read-only preview has always shown curly quotes, and the
-    /// projection has to line them up with the straight ones in the file. A run of hyphens is split
-    /// by the parser into en and em dashes; matching one rendered dash at a time follows its split.
+    /// swift-markdown parses with smart punctuation on (`Don't "x" -- --- ...` renders
+    /// `Don’t “x” – — …`), so the projection lines curly quotes up with the straight ones in the
+    /// file. The parser splits a run of hyphens into en and em dashes; matching one rendered dash
+    /// at a time follows its split.
     private static func smartPunctuation(_ source: [UInt16], at offset: Int, limit: Int,
                                          rendered: UInt16) -> Int? {
         func run(_ unit: UInt16, _ count: Int) -> Bool {
@@ -1294,8 +1274,8 @@ private struct Builder {
             || (0x5B...0x60).contains(unit) || (0x7B...0x7E).contains(unit)
     }
 
-    /// An entity reference at `offset` — `&name;`, `&#123;`, `&#x1F;` — decoded by the parser
-    /// itself, so the table of two thousand HTML names is cmark's to be right about.
+    /// An entity reference at `offset` (`&name;`, `&#123;`, `&#x1F;`), decoded by the parser
+    /// itself, so the table of two thousand HTML names is cmark's to get right.
     private static func entity(in source: [UInt16], at offset: Int, limit: Int)
         -> (end: Int, decoded: [UInt16])? {
         var cursor = offset + 1
@@ -1322,8 +1302,8 @@ private struct Builder {
         let location = out.length
         out.append(NSAttributedString(string: text, attributes: attributes))
         if case .readOnly = segment.kind, out.length > location {
-            // A read-only piece of an editable block — a code span or a tag that wraps a line — says
-            // so under the pointer as a read-only block does (review, 2026-10-09).
+            // A read-only piece of an editable block (a code span or tag that wraps a line) says so
+            // under the pointer, as a read-only block does.
             out.addAttribute(.previewReadOnly, value: true, range: NSRange(location: location, length: out.length - location))
         }
         segments.append(PreviewSegment(kind: segment.kind,
@@ -1379,7 +1359,7 @@ private struct Builder {
         NSFont.systemFont(ofSize: size * style.scale, weight: weight)
     }
 
-    /// The font a block's text is set in — for a block with no text, the line it would be on.
+    /// The font a block's text is set in; for a block with no text, the line it would be on.
     private func blockFont(_ kind: PreviewBlock.Kind) -> NSFont {
         switch kind {
         case .heading(let level): return font(size: MarkdownBlockView.headingSize(level), weight: .semibold)
@@ -1410,9 +1390,9 @@ private struct Builder {
                                 quoteDepth: Int) -> NSParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
         // Indentation as numbers, as the read-only preview carries it: a list level and a quote
-        // level each push the text in. The fragment delegate draws the quote bar in the gap.
-        // **Capped at the read-only Preview's depth** — a forwarded mail thread is eight to fifteen
-        // `>` deep, and uncapped the words were squeezed to one a line (review, 2026-10-09).
+        // level each push the text in, and the fragment delegate draws the quote bar in the gap.
+        // Capped at the read-only Preview's depth, or a deep mail thread squeezes the words to one
+        // a line.
         var lead = CGFloat(MarkdownBlockView.drawnDepth(quoteDepth)) * Self.quoteStep
             + CGFloat(MarkdownBlockView.drawnDepth(indent)) * Self.indentStep
         switch kind {
@@ -1465,13 +1445,13 @@ private struct Builder {
 /// Turns the parser's inline positions into source offsets, correcting the two cases
 /// ``MarkdownProjection`` documents.
 ///
-/// **The model, which every measured case fits.** The parser numbers a paragraph's inline content in
-/// *reported lines*. A reported line is one or more real lines — more when a backslash break joins
-/// them, because that break does not advance the count. On the block's first reported line a column
-/// is the real column; on every later one it is `paragraphColumn` plus a byte offset into the line's
-/// content **after** its leading whitespace and quote markers are stripped. Within a reported line
-/// that spans several real lines, the offset runs on through each stripped line in turn, its
-/// terminator included — as one byte, whatever the terminator is.
+/// The model, which every measured case fits: the parser numbers a paragraph's inline content in
+/// reported lines. A reported line is one or more real lines (more when a backslash break joins
+/// them, since that break doesn't advance the count). On the first reported line a column is the
+/// real column; on every later one it is `paragraphColumn` plus a byte offset into the line's
+/// content after its leading whitespace and quote markers are stripped. Within a reported line
+/// spanning several real lines, the offset runs on through each stripped line in turn, its
+/// terminator counted as one byte, whatever it is.
 struct InlineLines {
     private let index: MarkdownSourceIndex
     /// Body line *n* is file line *n + lineOffset*.
@@ -1480,14 +1460,14 @@ struct InlineLines {
     /// The real (file) lines that make up the current reported line, and where each one's content
     /// starts. More than one only after a backslash break.
     private var group: [(line: Int, contentStart: Int)]
-    /// The current reported line, body-relative — the parser's own numbering.
+    /// The current reported line, body-relative: the parser's own numbering.
     private var reportedLine: Int
     private var isFirstGroup = true
     /// How many `>` a continuation line can open with as quote markers: the paragraph's quote depth.
     private let quoteDepth: Int
     /// Where each `\|` in a table cell sits. The table extension unescapes the pipes before the
-    /// inline parser runs, so every position after one is reported a unit early — measured: in
-    /// `*x*\|*y*` the second emphasis comes back at the pipe, not after it.
+    /// inline parser runs, so every position after one is reported a unit early: in `*x*\|*y*` the
+    /// second emphasis comes back at the pipe, not after it.
     var pipeEscapes: [Int] = []
 
     init(index: MarkdownSourceIndex, firstBodyLine: Int, lineOffset: Int, paragraphColumn: Int, quoteDepth: Int = 0) {
@@ -1508,8 +1488,8 @@ struct InlineLines {
         for (position, entry) in group.enumerated() {
             guard let line = index.line(entry.line) else { return nil }
             let last = position == group.count - 1
-            // A line ending is one byte to the parser, `\r\n` included — measured 2026-10-09: after
-            // `foo\` and a CRLF, every later column was a byte short of the model's.
+            // A line ending is one byte to the parser, `\r\n` included: after `foo\` and a CRLF,
+            // counting two would put every later column a byte off.
             let width = index.utf8Count(from: entry.contentStart, to: line.end)
                 + (last || line.terminatorLength == 0 ? 0 : 1)
             if last ? remaining <= width : remaining < width {
@@ -1555,7 +1535,7 @@ struct InlineLines {
         return NSRange(location: start, length: contentStart - start)
     }
 
-    /// Moves to a later reported line without a break node — a code span or raw HTML that wrapped.
+    /// Moves to a later reported line without a break node: a code span or raw HTML that wrapped.
     mutating func advanceReportedLines(to bodyLine: Int) {
         let delta = bodyLine - reportedLine
         guard delta > 0 else { return }
@@ -1568,10 +1548,10 @@ struct InlineLines {
 
     /// Where a continuation line's content starts: after its quote markers and leading whitespace.
     ///
-    /// **At most `quoteDepth` `>` are markers.** A paragraph line cannot begin with a `>` that would
-    /// open a quote — but one after four spaces opens nothing, and is text: `a` then `    >b` is a
-    /// paragraph reading "a >b", and skipping that `>` with the markers made it read-only (review,
-    /// 2026-10-09). Outside a quote, no `>` is a marker.
+    /// At most `quoteDepth` `>` are markers. A paragraph line can't begin with a `>` that would
+    /// open a quote, but one after four spaces opens nothing and is text: `a` then `    >b` reads
+    /// "a >b", and skipping that `>` would make the block unalignable. Outside a quote, no `>` is a
+    /// marker.
     static func contentStart(of line: MarkdownSourceIndex.Line, in index: MarkdownSourceIndex,
                              quoteDepth: Int) -> Int {
         var offset = line.start

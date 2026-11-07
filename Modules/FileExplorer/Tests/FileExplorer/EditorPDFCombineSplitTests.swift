@@ -4,8 +4,8 @@ import PDFKit
 import Sync
 @testable import FileExplorer
 
-/// **Combine and Split** (TE294, decision IC) — from a pane's menu: the sheet's rules, the files
-/// they write and what they say.
+/// Combine and Split, from a pane's menu: the sheet's rules, the files they write and what they
+/// say.
 ///
 /// Serialized, because every run takes `PDFKitSerialAccess`'s one lane.
 @MainActor
@@ -39,7 +39,7 @@ import Sync
 
     // MARK: Split's parts
 
-    /// **"4, 9" on 12 pages: pages 1–3, 4–8, 9–12** — each start is the first page of a new file.
+    /// "4, 9" on 12 pages gives pages 1–3, 4–8, 9–12: each start is the first page of a new file.
     @Test func splitsAtThePagesTyped() throws {
         #expect(try EditorPDFCombineSplit.parts("4, 9", pageCount: 12).get()
                 == [[0, 1, 2], [3, 4, 5, 6, 7], [8, 9, 10, 11]])
@@ -84,8 +84,8 @@ import Sync
 
     // MARK: Combine
 
-    /// **The files in the order the sheet set, into one new file where the first one is** — the
-    /// originals as they were, and the banner saying what it made.
+    /// The files, in the sheet's order, go into one new file beside the first; the originals are
+    /// untouched and the banner says what it made.
     @Test func combinesInTheOrderSet() async throws {
         let a = path("A.pdf"), b = path("B.pdf"), c = path("C.pdf")
         PDFFixtures.write(a, pages: 1, size: CGSize(width: 300, height: 400))
@@ -113,7 +113,7 @@ import Sync
         #expect(!model.isBusy)
     }
 
-    /// **A name that's taken gets the next number**, and a typed name is used as typed.
+    /// A name that's taken gets the next number, and a typed name is used as typed.
     @Test func aTakenNameGetsTheNextNumber() async throws {
         let a = path("A.pdf"), b = path("B.pdf")
         PDFFixtures.write(a, pages: 1)
@@ -126,7 +126,7 @@ import Sync
         #expect(try Data(contentsOf: URL(fileURLWithPath: path("Trip.pdf"))) == Data("mine".utf8))
     }
 
-    /// **A file locked to open stops the run with its name** — the merge can't open it — and
+    /// A file locked to open stops the run with its name, since the merge can't open it, and
     /// nothing is written.
     @Test func aLockedFileStopsCombineByName() async throws {
         let a = path("A.pdf"), locked = path("Locked.pdf")
@@ -149,7 +149,8 @@ import Sync
         #expect(apart.rowsShowFolders)
     }
 
-    /// **While Combine runs it is in the capsule**, in the PDF tools' slot — not while its sheet is up.
+    /// While Combine runs it is in the capsule, in the PDF tools' slot, but not while its sheet is
+    /// up.
     @Test func combineIsInTheCapsuleOnceItsSheetGoes() async throws {
         let a = path("A.pdf"), b = path("B.pdf")
         PDFFixtures.write(a, pages: 1)
@@ -169,8 +170,8 @@ import Sync
 
     // MARK: Split
 
-    /// **Split is Extract per part**: each part named and written as an extract of its pages is,
-    /// next to the original — after the sheet, which the lane's read readies.
+    /// Split is Extract per part: each part is named and written as an extract of its pages would
+    /// be, next to the original, once the sheet (readied by the lane's read) is answered.
     @Test func splitsIntoExtractsNamedForTheirPages() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -191,7 +192,7 @@ import Sync
         #expect(try Data(contentsOf: URL(fileURLWithPath: file)) == before)
     }
 
-    /// **Stop ends Split after the part in hand**; the parts written stay, and the banner says how many.
+    /// Stop ends Split after the part in hand; the parts written stay, and the banner says how many.
     @Test func stopKeepsThePartsWritten() async throws {
         let file = path("Long.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -220,7 +221,7 @@ import Sync
         }
     }
 
-    /// **A file changed since the sheet read it is not split by its old page numbers.**
+    /// A file changed since the sheet read it is not split by its old page numbers.
     @Test func aFileChangedSinceTheSheetIsNotSplit() async throws {
         let file = path("Moving.pdf")
         PDFFixtures.write(file, pages: 3)

@@ -2,11 +2,9 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// What the status line says about the buffer: the counts, the caret, and the line endings.
-///
-/// **Every rule here is one somebody would otherwise get wrong once and ship.** A trailing newline
-/// that invents a line, a CRLF file reported as mixed, a column that counts an emoji twice — each
-/// is invisible in the fixture you would write by hand and wrong in a file of his.
+/// What the status line says about the buffer: the counts, the caret, and the line endings. Each
+/// rule is easy to get wrong unseen: a trailing newline that invents a line, a CRLF file reported
+/// as mixed, a column that counts an emoji twice.
 @Suite struct EditorDocumentFactsTests {
 
     // MARK: Line endings
@@ -17,8 +15,8 @@ import Foundation
         #expect(EditorLineEnding.detect(in: "a\rb\r") == .cr)
     }
 
-    /// The one that a naive scan gets wrong: every CRLF contains a CR, so counting CRs and LFs
-    /// separately reports a perfectly ordinary Windows file as mixed.
+    /// Every CRLF contains a CR, so counting CRs and LFs separately would report an ordinary
+    /// Windows file as mixed.
     @Test func aWindowsFileIsCRLFRatherThanMixed() {
         #expect(EditorLineEnding.detect(in: "one\r\ntwo\r\nthree\r\n") == .crlf)
     }
@@ -26,7 +24,7 @@ import Foundation
     @Test func genuinelyMixedIsReportedAsMixed() {
         #expect(EditorLineEnding.detect(in: "one\r\ntwo\nthree\n") == .mixed)
         #expect(EditorLineEnding.detect(in: "one\rtwo\nthree") == .mixed)
-        // The status line says what is mixed; a single kind is its own short name (ED12).
+        // The status line says what is mixed; a single kind is its own short name.
         #expect(EditorLineEnding.mixed.statusCaption == "Mixed endings")
         #expect(EditorLineEnding.crlf.statusCaption == "CRLF")
     }
@@ -49,8 +47,7 @@ import Foundation
         #expect(facts.words == 4, "counted \(facts.words) words")
     }
 
-    /// Stated on the label and pinned here: markup is words. The alternative would mean this type
-    /// knowing what Markdown is.
+    /// Markup is words, as the label says; anything else would mean this type knowing Markdown.
     @Test func markupCountsAsWords() {
         #expect(EditorDocumentFacts.of("## Heading\n", encoding: nil).words == 2)
     }
@@ -61,8 +58,7 @@ import Foundation
         #expect(facts.characters == 1, "counted \(facts.characters) characters")
     }
 
-    /// `"a\n"` is one line. Splitting on the separator answers two, which is the bug this count
-    /// exists to avoid.
+    /// `"a\n"` is one line; splitting on the separator would answer two.
     @Test func aTrailingNewlineDoesNotOpenANewLine() {
         #expect(EditorDocumentFacts.lineCount(of: "a\n") == 1)
         #expect(EditorDocumentFacts.lineCount(of: "a\nb") == 2)
@@ -87,8 +83,8 @@ import Foundation
         #expect(EditorCaret.at(utf16Offset: 9, in: text) == EditorCaret(line: 3, column: 2))
     }
 
-    /// The reason the conversion counts UTF-16 in and characters out: an emoji is two UTF-16 units
-    /// and one column. A column derived straight from the `NSRange` reads 3 here.
+    /// The conversion takes UTF-16 in and gives characters out: an emoji is two UTF-16 units and
+    /// one column. A column taken straight from the `NSRange` would read 3 here.
     @Test func anEmojiIsOneColumnNotTwo() {
         let text = "a😀b"
         #expect(EditorCaret.at(utf16Offset: 3, in: text) == EditorCaret(line: 1, column: 3))
@@ -100,9 +96,8 @@ import Foundation
         #expect(EditorCaret.at(utf16Offset: 5, in: text) == EditorCaret(line: 2, column: 1))
     }
 
-    /// An offset past the end cannot come from a text view describing its own buffer, but the
-    /// conversion is called with a remembered offset after the document has been replaced — so it
-    /// answers the end rather than trapping.
+    /// A remembered offset can outlive the document it came from, so one past the end answers the
+    /// end rather than trapping.
     @Test func anOffsetPastTheEndLandsAtTheEnd() {
         #expect(EditorCaret.at(utf16Offset: 999, in: "abc") == EditorCaret(line: 1, column: 4))
     }
@@ -126,8 +121,8 @@ import Foundation
         #expect(EditorStatusLine.caretCaption(EditorCaret(line: 48, column: 12)) == "Line 48, Col 12")
     }
 
-    /// VoiceOver gets one sentence rather than five stops, and the two segments that can be absent
-    /// are absent from it too — a label reading "nil line endings" is worse than one that stops.
+    /// VoiceOver gets one sentence rather than five stops, and the segments that can be absent are
+    /// left out of it, never read as "nil line endings".
     @Test func theAccessibilityLabelSkipsWhatIsNotThere() {
         let bare = EditorDocumentFacts.of("one two", encoding: nil)
         let label = EditorStatusLine.accessibilityLabel(facts: bare,

@@ -4,42 +4,28 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The row's trailing detail — a folder's date, a file's size — and which presentation carries it:
-/// Columns withholds both, the tree keeps both.
+/// The row's trailing detail (a folder's date, a file's size) and which presentation carries it:
+/// Columns withholds both, the tree keeps both. Measured in pixels, since the detail sits behind a
+/// `Spacer` and a row is equally wide with or without it. Positive controls
+/// (`theTreeRowStillPaintsTheFolderDate`, `aRowWithoutAChevronDoesNotReachTheEdge`) stop a harness
+/// that paints nothing from passing the zero-difference checks.
 ///
-/// **Pixels, not geometry, for the call site.** `FileRowView` lays the secondary text out behind a
-/// `Spacer`, so a row with no date is exactly as wide as one with a date — `fittingSize` cannot
-/// tell them apart, and neither can a width assertion on the column. Only what is painted can.
-///
-/// The suite deliberately holds a POSITIVE control (`theTreeRowStillPaintsTheFolderDate`) beside
-/// the zero-difference assertions. A bitmap harness that renders nothing at all reports "no
-/// difference" for every pair, which would pass the two claims below while measuring nothing; the
-/// control fails first in that case, and it is the reason a broken harness cannot read as a green
-/// suite here. `aRowWithoutAChevronDoesNotReachTheEdge` is the same guard for the trailing-edge
-/// measurement.
-///
-/// **Known boundary:** these construct `ColumnRowView` directly, so they pin what that row paints,
-/// not that `PaneColumnsView.columnRow` is still the thing building it. A refactor that stopped
-/// routing column rows through `ColumnRowView` would leave every test here green — and nothing else
-/// closes that: a dozen suites do mount a real `PaneColumnsView`, but every one of them asserts
-/// navigation, selection, scrolling or layout, and not one asserts anything a row draws. Rendering
-/// a whole pane per assertion is what closing it would cost, on the package's slowest suite; this
-/// suite's neighbours (`FileRowAccessoryStabilityTests`) draw the line in the same place for the
-/// same reason.
+/// Known boundary: these build `ColumnRowView` directly, so they don't pin that
+/// `PaneColumnsView.columnRow` still uses it. No pane-mounting suite checks what a row draws, and
+/// closing that would mean a whole pane per assertion (`FileRowAccessoryStabilityTests` draws the
+/// same line).
 @MainActor
 @Suite struct ColumnRowDateTests {
 
-    /// Wide enough that a medium-style date has somewhere to land: at 260pt the name, the date and
-    /// the chevron all fit without truncation, so a missing date is the only thing a difference can
-    /// be attributed to.
+    /// Wide enough that the name, a medium-style date and the chevron fit without truncation, so a
+    /// difference can only be a missing date.
     private static let canvas = CGSize(width: 260, height: 24)
 
     /// A fixed instant, so the formatted string cannot vary with the day the suite runs.
     private static let stamp = Date(timeIntervalSince1970: 1_700_000_000)
 
-    /// Built independently of the app's formatter, for the same reason `theTreesDateKeepsItsFormat`
-    /// builds one: the string is locale- and timezone-dependent, so a literal would pin this suite
-    /// to the Mac that wrote it.
+    /// Built independently of the app's formatter, as in `theTreesDateKeepsItsFormat`: the string is
+    /// locale- and timezone-dependent, so a literal would pin the suite to one Mac.
     private static let reference: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -61,11 +47,9 @@ import Sync
         PaneRow(side: .left, version: 0, node: node, children: nil)
     }
 
-    /// Renders a row and returns its bitmap.
-    ///
-    /// The window background is not decoration: without one the row composites against a borderless
-    /// window's own buffer and every comparison reads as zero — the "diffs against BLACK" trap that
-    /// would make every claim here vacuous in the direction they are asserted.
+    /// Renders a row and returns its bitmap. The window background matters: without it the row
+    /// composites against a borderless window's buffer and every comparison reads zero, making the
+    /// zero-difference claims vacuous.
     private func bitmap<V: View>(_ view: V, width: CGFloat? = nil) -> NSBitmapImageRep? {
         let size = CGSize(width: width ?? Self.canvas.width, height: Self.canvas.height)
         let subject = view
@@ -87,8 +71,7 @@ import Sync
     }
 
     /// The rightmost pixel column holding anything other than the window background, or nil for a
-    /// bitmap that painted nothing at all — which `#require` then turns into a failure rather than
-    /// a silently passing measurement.
+    /// bitmap that painted nothing, which `#require` turns into a failure.
     private func rightmostPaintedColumn(_ rep: NSBitmapImageRep) -> Int? {
         guard let ground = rep.colorAt(x: 1, y: 1) else { return nil }
         for x in stride(from: rep.pixelsWide - 1, through: 0, by: -1) {
@@ -119,13 +102,10 @@ import Sync
 
     // MARK: - The rule
 
-    /// All four cases of `secondaryText`, so the one place that decides between a date and a size
-    /// is pinned independently of anything that draws it.
-    ///
-    /// Columns withholds BOTH halves since 2026-09-27 — the file size followed the folder date out —
-    /// so the flag now gates the whole detail. The tree's two answers are asserted as literals of
-    /// their kind (a date for the folder, the SIZE for the file) so a future edit cannot quietly
-    /// swap which string a kind of row asks for while "not nil" stays true.
+    /// All four cases of `secondaryText`, the one place that picks a date or a size, pinned apart
+    /// from anything that draws it. The flag gates the whole detail. The tree's answers are checked
+    /// by kind (a date for the folder, the size for the file), so they can't swap while "not nil"
+    /// stays true.
     @Test func theRuleWithholdsBothDetailsInColumnsAndNeitherInTheTree() {
         let datedFolder = FileRowInfo(folder(dated: true))
         let sizedFile = FileRowInfo(file(sized: true))
@@ -141,14 +121,9 @@ import Sync
                 "The tree must still ask for the size")
     }
 
-    /// The tree's date is the SAME date it always was — medium, no time.
-    ///
-    /// Extracting the rule into a static function moved the formatter reference; the refactor is
-    /// only behaviour-preserving if the string is unchanged, and "not nil" cannot see a formatter
-    /// that quietly gained a time or dropped to `.short`. The expectation is built from an
-    /// independently constructed formatter rather than a hardcoded literal, because the app's
-    /// string is locale- and timezone-dependent and a literal would pin this suite to whichever
-    /// Mac wrote it.
+    /// The tree's date is medium style with no time; "not nil" can't see a formatter that gained a
+    /// time or dropped to `.short`. Built from an independent formatter, since a literal would pin
+    /// the suite to one Mac's locale and timezone.
     @Test func theTreesDateKeepsItsFormat() {
         let reference = DateFormatter()
         reference.dateStyle = .medium
@@ -158,8 +133,7 @@ import Sync
                     == reference.string(from: Self.stamp))
     }
 
-    /// A folder the scan never dated is nil either way — the fallback must not be confusable with
-    /// the withheld answer by anything reading this rule.
+    /// A folder the scan never dated is nil under either setting.
     @Test func anUndatedFolderIsNilUnderEitherSetting() {
         let undated = FileRowInfo(folder(dated: false))
         #expect(FileRowView.secondaryText(for: undated, showsSecondaryText: true) == nil)
@@ -168,25 +142,14 @@ import Sync
 
     // MARK: - The call sites
 
-    /// **What the withheld date actually buys the name, measured — this is where the release
-    /// notes' number comes from.**
+    /// What withholding the date buys the name. The date ("Nov 14, 2023", `caption` with monospaced
+    /// digits) plus its 10pt gap costs the name about 76pt, enough at the 210pt
+    /// `PaneViewMode.defaultColumnWidth` to truncate "Vehicle Registration Card", which fits
+    /// without it.
     ///
-    /// The date is `caption` with monospaced digits: "Nov 14, 2023" is 66.35pt, and the row puts a
-    /// 10pt gap in front of it at comfortable density, so it costs the name about 76pt. A 210pt
-    /// column is `PaneViewMode.defaultColumnWidth`, and at that width the cost is enough to
-    /// truncate "Vehicle Registration Card" — a name that fits comfortably without the date.
-    ///
-    /// **This used to be "Birth Certificate" (92.9pt), and the change is the row getting better,
-    /// not the claim getting weaker.** Until 2026-09-27 the row also spent ~28pt of spacing around
-    /// two views that draw nothing (see `FileRowView.body`), so a much shorter name truncated
-    /// beside the date. With that spacing gone, "Birth Certificate" and its date both fit at
-    /// 210pt; the date's own ~76pt is exactly what it was.
-    ///
-    /// **Asserted as a shape, not as a pixel count.** At a width where nothing truncates, the two
-    /// rows differ only where the date is drawn and the name region is pixel-identical; at 210pt
-    /// the name region differs too, which it can only do by rendering different glyphs. Comparing
-    /// the totals alone would pass just as well if the date merely got wider, and pinning the
-    /// counts themselves would break on any font revision.
+    /// Asserted as a shape, not a pixel count: at 260pt only the date's region differs, and at
+    /// 210pt the name's region differs too, which only different glyphs can do. Totals would pass
+    /// if the date merely widened; exact counts would break on a font revision.
     @Test(.machinePinned(.pixelSampling)) func theFoldersDateCostsA210ptColumnItsName() throws {
         let name = "Vehicle Registration Card"
         func info(_ dated: Bool) -> FileRowInfo {
@@ -217,7 +180,7 @@ import Sync
         #expect(FileRowView.secondaryText(for: info(true), showsSecondaryText: true)
                     == Self.reference.string(from: Self.stamp))
 
-        // Roomy: the date is drawn, and it is the ONLY thing that changes.
+        // Roomy: the date is drawn, and it is the only thing that changes.
         let wideDated = try rendered(true, width: 260)
         let wideUndated = try rendered(false, width: 260)
         #expect(pixelsDiffering(wideDated, wideUndated) > 0, "the date must actually be painted at 260pt")
@@ -235,15 +198,10 @@ import Sync
                 """)
     }
 
-    /// The positive control, and the reason the zero-difference claims below mean anything: the
-    /// tree's row DOES paint a folder date, so this harness demonstrably renders one.
-    ///
-    /// It also pins the DEFAULT, which is the whole of what the tree's date rests on:
-    /// `FileTreeView.treeRow` passes no `showsSecondaryText` at all, so flipping the default to false
-    /// would strip dates from both tree panes and the Organize rail — and this test, which likewise
-    /// passes nothing, is what fails. What no test here covers is `treeRow` starting to pass `false`
-    /// explicitly; that is a deliberate design change rather than a regression, and guarding it
-    /// would only make the flag harder to use for the thing it exists for.
+    /// Positive control for the zero-difference claims below: the tree's row does paint a folder
+    /// date. It also pins the default: `FileTreeView.treeRow` passes no `showsSecondaryText`, so a
+    /// default of false would strip dates from both tree panes and the Organize rail. `treeRow`
+    /// passing `false` explicitly would be a design change, so it isn't guarded.
     @Test(.machinePinned(.pixelSampling)) func theTreeRowStillPaintsTheFolderDate() throws {
         let dated = try #require(bitmap(FileRowView(
             node: FileRowInfo(folder(dated: true)), isIgnored: false, diffStatus: nil,
@@ -255,7 +213,7 @@ import Sync
                 "The tree row stopped drawing folder dates — the Columns change was not supposed to reach it")
     }
 
-    /// The change itself: in Columns a dated folder is painted identically to an undated one.
+    /// In Columns a dated folder is painted identically to an undated one.
     @Test(.machinePinned(.pixelSampling)) func theColumnRowPaintsNoFolderDate() throws {
         let dated = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
@@ -267,17 +225,10 @@ import Sync
                 "ColumnRowView is painting the folder date — it must pass showsSecondaryText: false")
     }
 
-    /// The chevron reaches the row's trailing edge — the other half of what this change is for.
-    ///
-    /// It is placed by construction rather than by a spacer of its own: `FileRowView` ends in a
-    /// `Spacer` and takes all the slack, so the chevron that follows it in `ColumnRowView`'s HStack
-    /// is pushed flush. "By construction" is precisely the kind of claim that stops being true
-    /// without anyone noticing — anything appended after the chevron, or a reserved slot that grows
-    /// on folder rows, moves it inward and no other test here would fail.
-    ///
-    /// Measured as the rightmost painted column, against a canvas whose own trailing padding is
-    /// zero (the List supplies the row inset in the app, not the row). 3pt of tolerance covers the
-    /// glyph's own right side bearing.
+    /// The chevron reaches the row's trailing edge. It is flush by construction: `FileRowView` ends
+    /// in a `Spacer` that takes the slack. Anything appended after the chevron, or a reserved slot
+    /// on folder rows, would move it inward unnoticed. Measured as the rightmost painted column on a
+    /// canvas with no trailing padding (the List supplies the inset); 3pt covers the glyph's bearing.
     @Test(.machinePinned(.pixelSampling)) func theChevronReachesTheTrailingEdge() throws {
         let rep = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
@@ -288,16 +239,10 @@ import Sync
                 "The chevron is \(gap)pt short of the trailing edge — something is being drawn after it, or reserving width beside it")
     }
 
-    /// The same measurement with the chevron taken away, which is what makes the one above mean
-    /// something: "flush" has to be a property of the chevron rather than of every row this harness
-    /// renders.
-    ///
-    /// The A/B is the SAME folder with `showsChevron` flipped, not a file row. A file row is the
-    /// more realistic subject but a confounded one — it reserves the cloud badge's slot
-    /// (`reservesCloudSlot: !isDirectory`), so its gap would be evidence about that slot, and
-    /// removing the reservation later would fail this test for a reason having nothing to do with
-    /// the chevron. Production always pairs a folder with a chevron, so this configuration is
-    /// synthetic on purpose: it changes exactly one thing.
+    /// The same measurement without the chevron, so "flush" is shown to be the chevron's doing and
+    /// not every row's. The same folder with `showsChevron` flipped, not a file row, which reserves
+    /// the cloud badge's slot (`reservesCloudSlot: !isDirectory`) and would confound it. Synthetic
+    /// on purpose: it changes exactly one thing.
     @Test(.machinePinned(.pixelSampling)) func aRowWithoutAChevronDoesNotReachTheEdge() throws {
         let rep = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
@@ -308,10 +253,7 @@ import Sync
                 "A chevron-less row is flush to the edge too, so the trailing-edge measurement proves nothing")
     }
 
-    /// The size left Columns too (2026-09-27): a sized file paints exactly as an unsized one.
-    ///
-    /// Held beside its positive control below — a harness that painted nothing would pass this
-    /// zero-difference claim while measuring nothing, and the control fails first in that case.
+    /// In Columns a sized file paints exactly as an unsized one. Its positive control follows.
     @Test(.machinePinned(.pixelSampling)) func theColumnRowPaintsNoFileSize() throws {
         let sized = try #require(bitmap(ColumnRowView(
             row: row(file(sized: true)), isIgnored: false, diffStatus: nil,
@@ -323,8 +265,7 @@ import Sync
                 "ColumnRowView is painting the file size — it must pass showsSecondaryText: false")
     }
 
-    /// The positive control for the claim above, and the half that is a keep: the TREE row still
-    /// paints a file's size, so this harness demonstrably renders one.
+    /// Positive control for the test above: the tree row still paints a file's size.
     @Test(.machinePinned(.pixelSampling)) func theTreeRowStillPaintsAFileSize() throws {
         let sized = try #require(bitmap(FileRowView(
             node: FileRowInfo(file(sized: true)), isIgnored: false, diffStatus: nil,

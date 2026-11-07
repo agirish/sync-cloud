@@ -2,11 +2,11 @@ import AppKit
 import SwiftUI
 import Design
 
-/// **Where the page and zoom capsule floats** (Phase 6a, mockup H): the four corners, the middle of
-/// the top and the bottom, and the middle of each side — each inset ``EditorPDFFloating/inset``
-/// from the canvas's edges. Bottom centre until it is moved.
+/// Where the page and zoom capsule floats: the four corners, the middle of the top and the bottom,
+/// and the middle of each side, each inset ``EditorPDFFloating/inset`` from the canvas's edges.
+/// Bottom centre until it is moved.
 ///
-/// **A place, never points**, which is what makes it safe to remember: the canvas changes size with
+/// A place, never points, which is what makes it safe to remember: the canvas changes size with
 /// the window, the rail and the text size, and "bottom right" is bottom right at every one of them.
 /// Stored under ``EditorPDFSettings/capsulePlaceKey`` by its raw value.
 public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
@@ -33,16 +33,16 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
         }
     }
 
-    /// **Upright only in the middle of a side** — there a row would reach across the page it is
-    /// meant to stay out of the way of. In a corner the capsule sits along the top or bottom edge,
-    /// so it stays a row.
+    /// Upright only in the middle of a side, where a row would reach across the page it is meant to
+    /// stay out of the way of. In a corner the capsule sits along the top or bottom edge, so it stays
+    /// a row.
     public var isVertical: Bool { self == .leading || self == .trailing }
 
     /// Which way the capsule slides to keep clear of another floating piece: along the edge it is
     /// docked to (``EditorPDFFloating/clear(_:of:sliding:within:)``).
     var slideAxis: Axis { isVertical ? .vertical : .horizontal }
 
-    /// Whether it sits along the bottom edge — where its menu opens upwards.
+    /// Whether it sits along the bottom edge, where its menu opens upwards.
     var isAtBottom: Bool { self == .bottomLeading || self == .bottom || self == .bottomTrailing }
 
     var isAtTop: Bool { self == .topLeading || self == .top || self == .topTrailing }
@@ -61,8 +61,8 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
         }
     }
 
-    /// **Where a capsule of `size` sits at this place on a `canvas`**, in the canvas's own
-    /// top-left-origin space — the frame ``alignment`` gives it inside the inset, worked out rather
+    /// Where a capsule of `size` sits at this place on a `canvas`, in the canvas's own
+    /// top-left-origin space: the frame ``alignment`` gives it inside the inset, worked out rather
     /// than read back, so the overlap rule and the drop can use it without a measurement.
     func frame(size: CGSize, in canvas: CGSize, inset: CGFloat = EditorPDFFloating.inset) -> CGRect {
         let left = inset, centreX = (canvas.width - size.width) / 2, right = canvas.width - inset - size.width
@@ -81,13 +81,13 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
         return CGRect(origin: origin, size: size)
     }
 
-    /// **The place a capsule dropped with its centre at `point` snaps to**: the one whose own centre
-    /// is nearest — measured on the capsule as it would sit there, upright at the sides, so on a
-    /// narrow canvas, where a corner and the middle of its edge nearly coincide, a drop does not
-    /// wander from one to the other.
+    /// The place a capsule dropped with its centre at `point` snaps to: the one whose own centre is
+    /// nearest, measured on the capsule as it would sit there (upright at the sides), so on a narrow
+    /// canvas, where a corner and the middle of its edge nearly coincide, a drop doesn't wander from
+    /// one to the other.
     ///
-    /// `vertical` is the upright capsule's size, or `.zero` when it has not been drawn yet — then
-    /// the row's size turned on its side stands in.
+    /// `vertical` is the upright capsule's size, or `.zero` when it hasn't been drawn yet; then the
+    /// row's size turned on its side stands in.
     static func nearest(to point: CGPoint, horizontal: CGSize, vertical: CGSize,
                         in canvas: CGSize) -> EditorPDFCapsulePlace {
         let upright = vertical == .zero ? CGSize(width: horizontal.height, height: horizontal.width) : vertical
@@ -100,9 +100,9 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
     }
 }
 
-/// **The two pieces a reader can move over the canvas** — the page and zoom capsule (6a) and Fill
-/// & Sign's palette (6b). Each has its own place in the view state, its own place to go back to,
-/// and its own words on the grip; the grip, its menu and its accessibility actions are one for both.
+/// The two pieces a reader can move over the canvas: the page and zoom capsule and Fill & Sign's
+/// palette. Each has its own place in the view state, its own place to go back to, and its own words
+/// on the grip; the grip, its menu and its accessibility actions are one for both.
 enum EditorPDFMovable: CaseIterable, Sendable {
     case capsule
     case palette
@@ -138,36 +138,36 @@ enum EditorPDFMovable: CaseIterable, Sendable {
     }
 }
 
-/// **The page and zoom capsule** (Phase 6a, mockups C, D, E and H) — the reader's page, zoom and
-/// view menu, floating in glass over the canvas instead of sharing the header with the file's own
-/// actions: a grip, ‹, the page field ("N of M", "6–7 of 64" for a spread), ›, a divider, −, the
-/// zoom label ▾ and +. Always fully visible — no fading.
+/// The page and zoom capsule: the reader's page, zoom and view menu, floating in glass over the
+/// canvas rather than sharing the header with the file's own actions. A grip, ‹, the page field
+/// ("N of M", "6–7 of 64" for a spread), ›, a divider, −, the zoom label ▾ and +. Always fully
+/// visible, never faded.
 ///
-/// **Its own view, observing the view state alone**, as the header controls it replaced were: a
-/// page turn re-renders this and row 2's paper, and nothing else above the pages.
+/// Its own view, observing the view state alone, so a page turn re-renders this and row 2's paper
+/// and nothing else above the pages.
 ///
-/// **Upright in the middle of a side** (``EditorPDFCapsulePlace/isVertical``): ‹ › become ˄ ˅, "N"
-/// sits over "of M", + is on top, and the label says the percentage — "86%" — so the capsule stays
-/// narrow. Its menu still ticks the fit.
+/// Upright in the middle of a side (``EditorPDFCapsulePlace/isVertical``): ‹ › become ˄ ˅, "N" sits
+/// over "of M", + is on top, and the label says the percentage ("86%") so the capsule stays narrow.
+/// Its menu still ticks the fit.
 ///
-/// **What a narrow canvas takes, in order** (decided 2026-10-19): − and + first — Zoom In and Zoom
-/// Out are in the menu and on ⌘+ and ⌘− — then ‹ and ›, which ⌥← and ⌥→ and the field stand in
-/// for. "N of M" and the zoom label always stay, and "Fit Page" is never cut to "Fit".
+/// What a narrow canvas drops, in order: − and + first (Zoom In and Zoom Out are in the menu and on
+/// ⌘+ and ⌘−), then ‹ and ›, which ⌥← and ⌥→ and the field stand in for. "N of M" and the zoom label
+/// always stay, and "Fit Page" is never cut to "Fit".
 struct EditorPDFCapsule: View {
     @ObservedObject var state: EditorPDFViewState
     let pageCount: Int
     let accent: Color
-    /// The grip's drag as it goes, and where it was let go — the canvas moves and snaps it.
+    /// The grip's drag as it goes, and where it was let go; the canvas moves and snaps it.
     var onDrag: (CGSize) -> Void = { _ in }
     var onDrop: (CGSize) -> Void = { _ in }
-    /// Forces a rung — for the tests that measure each one. `nil` picks by the room there is.
+    /// Forces a rung, for the tests that measure each one. `nil` picks by the room there is.
     var forcedRung: Rung?
     @State private var typedPage = ""
     @FocusState private var pageFieldFocused: Bool
     /// Where the view menu opens from.
     private let zoomAnchor = EditorHeadingMenuAnchor()
 
-    /// The capsule's readings, widest first — what a narrow canvas drops, in the order it goes.
+    /// The capsule's readings, widest first: what a narrow canvas drops, in the order it goes.
     enum Rung: CaseIterable {
         case full
         case noZoomSteps
@@ -179,8 +179,8 @@ struct EditorPDFCapsule: View {
 
     private var isVertical: Bool { state.capsulePlace.isVertical }
 
-    /// A page or zoom step's square, and the room between the capsule's pieces — what the keys
-    /// over them must fit (TE194).
+    /// A page or zoom step's square, and the room between the capsule's pieces, which the keycaps
+    /// over them must fit.
     static let stepSize: CGFloat = 20
     static let pieceGap: CGFloat = 2
 
@@ -200,8 +200,8 @@ struct EditorPDFCapsule: View {
             .onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }
     }
 
-    /// The rung the room allows — measured along the capsule's own length, which is its height
-    /// when it stands upright.
+    /// The rung the room allows, measured along the capsule's own length, which is its height when
+    /// it stands upright.
     @ViewBuilder
     private var rungs: some View {
         if let forcedRung {
@@ -265,7 +265,7 @@ struct EditorPDFCapsule: View {
 
     // MARK: The page
 
-    /// ‹ and › — ˄ and ˅ upright: the spread before or after the one on screen.
+    /// ‹ and › (˄ and ˅ upright): the spread before or after the one on screen.
     private func pageStep(forward: Bool) -> some View {
         let label = forward ? "Next page" : "Previous page"
         let symbol = isVertical ? (forward ? "chevron.down" : "chevron.up")
@@ -276,17 +276,17 @@ struct EditorPDFCapsule: View {
                 .frame(width: Self.stepSize, height: Self.stepSize)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-        // ⌥ shows ⌥← and ⌥→ (TE194) only while the pages have the keyboard — the reader answers
-        // them itself, so nowhere else do they turn the page.
+        // ⌥ shows ⌥← and ⌥→ only while the pages have the keyboard: the reader answers them itself,
+        // so nowhere else do they turn the page.
         .shortcutKeycap(Self.pageStepKeycap(forward: forward), compact: true, shown: state.hasFocus)
         .disabled(!state.canTurnPage(forward: forward))
         .accessibilityLabel(label)
         .help(Self.pageStepHelp(forward: forward))
     }
 
-    /// ⌥← and ⌥→, which turn the page from the keyboard (`ReaderPDFView.keyDown`) — named in the
-    /// tooltip because a narrow column drops these buttons on the strength of those keys (TE123).
-    /// Chords built here, not registered: the reader answers them itself, not a menu.
+    /// ⌥← and ⌥→, which turn the page from the keyboard (`ReaderPDFView.keyDown`), named in the
+    /// tooltip because a narrow column drops these buttons on the strength of those keys. Built
+    /// here, not registered: the reader answers them itself, not a menu.
     static let pageStepChords = (previous: AppChord(.leftArrow, .option), next: AppChord(.rightArrow, .option))
 
     static func pageStepKeycap(forward: Bool) -> String {
@@ -310,7 +310,7 @@ struct EditorPDFCapsule: View {
             .monospacedDigit()
             .frame(width: Self.fieldWidth(pageCount: pageCount, twoUp: state.layout.isTwoUp))
             .focused($pageFieldFocused)
-            // Text ▸ Go to Page… is ⌃⌘L wherever the PDF is (TE194).
+            // Text ▸ Go to Page… is ⌃⌘L wherever the PDF is.
             .shortcutKeycap(AppChord.goToLine.display, compact: true)
             .onSubmit { go() }
             // Esc puts the number back and hands the keyboard to the pages, as Return does.
@@ -344,13 +344,13 @@ struct EditorPDFCapsule: View {
         .padding(.horizontal, isVertical ? 0 : 2)
     }
 
-    /// What the field says: "7", or "6–7" for a spread — one-based, as the reader counts.
+    /// What the field says: "7", or "6–7" for a spread, one-based, as the reader counts.
     static func pageText(_ pages: ClosedRange<Int>) -> String {
         pages.count == 1 ? String(pages.lowerBound + 1) : "\(pages.lowerBound + 1)–\(pages.upperBound + 1)"
     }
 
-    /// Wide enough for the longest number this document has — or two of them and a dash, in a
-    /// two-page layout — and no wider.
+    /// Wide enough for the longest number this document has (or two of them and a dash, in a
+    /// two-page layout) and no wider.
     static func fieldWidth(pageCount: Int, twoUp: Bool = false) -> CGFloat {
         let digits = max(String(pageCount).count, 2)
         return CGFloat(twoUp ? 2 * digits + 1 : digits) * 8 + 14
@@ -364,9 +364,9 @@ struct EditorPDFCapsule: View {
         pageFieldFocused = false
     }
 
-    /// **Return in the page field: the page, and the keyboard back to the pages** — ⌃⌘L is Go to
-    /// Line's twin, whose popover hands the caret back to the text. Left in the field, ⌥← and ⌥→
-    /// did nothing and ⌘+ changed the whole app's text size. False for no number at all.
+    /// Return in the page field: go to the page and hand the keyboard back to the pages, as Go to
+    /// Line's popover hands the caret back to the text. Left in the field, ⌥← and ⌥→ would do nothing
+    /// and ⌘+ would change the whole app's text size. False for no number at all.
     @discardableResult
     static func go(typed: String, pageCount: Int, state: EditorPDFViewState) -> Bool {
         guard let page = page(typed: typed, pageCount: pageCount) else { return false }
@@ -376,12 +376,13 @@ struct EditorPDFCapsule: View {
     }
 
     /// The zero-based page a typed number names, clamped into the document; `nil` for no number.
-    /// The FIRST number counts, so a spread's own "6–7" sent back unchanged goes to 6 — the spread
-    /// it already is.
+    /// The first number counts, so a spread's own "6–7" sent back unchanged goes to 6, the spread it
+    /// already is.
     ///
-    /// Any script's decimal digits count — a Japanese keyboard's "３" is 3, Arabic's "٣" too — and a
+    /// Any script's decimal digits count (a Japanese keyboard's "３" is 3, Arabic's "٣" too), and a
     /// number too long for `Int` is past the last page, so it goes there rather than being ignored.
-    /// Only digits: "十二" or "Ⅻ" are numbers but not digits, and read one at a time "十二" was 102.
+    /// Only digits: "十二" or "Ⅻ" are numbers but not digits, and "十二" read one character at a time
+    /// would be 102.
     static func page(typed: String, pageCount: Int) -> Int? {
         let digits = typed.drop { digit($0) == nil }.prefix { digit($0) != nil }
         guard pageCount > 0, !digits.isEmpty else { return nil }
@@ -410,8 +411,8 @@ struct EditorPDFCapsule: View {
                 .frame(width: Self.stepSize, height: Self.stepSize)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-        // ⌥ shows ⌘+ and ⌘− (TE194) only while the pages have the keyboard: anywhere else they
-        // are View ▸ Text Size's, and change the app's type.
+        // ⌥ shows ⌘+ and ⌘− only while the pages have the keyboard: anywhere else they are View ▸
+        // Text Size's, and change the app's type.
         .shortcutKeycap(Self.zoomStepKeycap(in: zoomingIn), compact: true, shown: state.hasFocus)
         .disabled(!state.canZoom(in: zoomingIn))
         .accessibilityLabel(label)
@@ -428,8 +429,8 @@ struct EditorPDFCapsule: View {
                   : ShortcutHint.tooltip("Zoom out", AppChord.textSmaller.display)
     }
 
-    /// The label that opens the view menu (mockup E): the fit, or the percentage — always the
-    /// percentage upright, where "Fit Width" would widen the whole capsule.
+    /// The label that opens the view menu: the fit, or the percentage. Always the percentage
+    /// upright, where "Fit Width" would widen the whole capsule.
     private var zoomLabel: some View {
         let said = EditorPDFZoom.label(fit: state.fit, scale: state.scale)
         return Button {
@@ -438,9 +439,9 @@ struct EditorPDFCapsule: View {
             HStack(spacing: 3) {
                 ZStack {
                     // Upright, the label is the capsule's widest piece, and the capsule's width is
-                    // the side band a fit is measured inside: a label as wide as its digits fed
-                    // back into Fit Width — "99%" narrowed the band, the refit read "100%", which
-                    // widened it again, forever. So it is as wide as the widest scale's, always.
+                    // the side band a fit is measured inside. A label as wide as its digits would
+                    // feed back into Fit Width ("99%" narrows the band, the refit reads "100%",
+                    // which widens it again, forever), so it is always as wide as the widest scale's.
                     if isVertical {
                         Text(EditorPDFZoom.percent(EditorPDFViewState.maxScale))
                             .monospacedDigit()
@@ -472,9 +473,9 @@ struct EditorPDFCapsule: View {
         .help("\(said) — zoom, the fits and Page Layout")
     }
 
-    /// **Opens `menu` on the side of the label away from the edge the capsule is docked to** —
-    /// above it at the bottom, so Page Layout, the menu's last row, is the one nearest the capsule
-    /// (mockup E); below it at the top; beside it at the sides.
+    /// Opens `menu` on the side of the label away from the edge the capsule is docked to: above it at
+    /// the bottom, so Page Layout, the menu's last row, is the one nearest the capsule; below it at
+    /// the top; beside it at the sides.
     static func present(_ menu: NSMenu, from view: NSView?, place: EditorPDFCapsulePlace) {
         guard let view else { return }
         menu.popUp(positioning: nil, at: menuOrigin(menu: menu.size, in: view.bounds, flipped: view.isFlipped, place: place),
@@ -482,9 +483,9 @@ struct EditorPDFCapsule: View {
     }
 
     /// Where ``present(_:from:place:)`` opens a menu of `menu`'s size from a control of `bounds`:
-    /// above or below it on the top and bottom edges, beside it at the side middles — and **at a
-    /// right-hand corner, ending at the control's right edge rather than starting at its left**, so
-    /// it opens away from the edge the piece is docked to, as the palette's flyouts promise.
+    /// above or below it on the top and bottom edges, beside it at the side middles, and at a
+    /// right-hand corner ending at the control's right edge rather than starting at its left, so it
+    /// opens away from the edge the piece is docked to, as the palette's flyouts promise.
     static func menuOrigin(menu size: CGSize, in bounds: CGRect, flipped: Bool, place: EditorPDFCapsulePlace) -> NSPoint {
         let top = flipped ? bounds.minY : bounds.maxY
         let bottom = flipped ? bounds.maxY : bounds.minY
@@ -505,11 +506,11 @@ struct EditorPDFCapsule: View {
 
 // MARK: - The grip
 
-/// **The one part of a movable piece that drags** — the buttons never do. Its dots are drawn here;
-/// the handling is ``EditorPDFGripView``'s, laid over them: the drag, the double-click that resets,
-/// the right-click Move To menu and the same items as accessibility actions. `upright` is the
-/// piece's own form: a column's grip is a short row of dots across its top, a row's a short column
-/// at its start.
+/// The one part of a movable piece that drags; the buttons never do. Its dots are drawn here; the
+/// handling is ``EditorPDFGripView``'s, laid over them: the drag, the double-click that resets, the
+/// right-click Move To menu and the same items as accessibility actions. `upright` is the piece's
+/// own form: a column's grip is a short row of dots across its top, a row's a short column at its
+/// start.
 struct EditorPDFGripHandle: View {
     let state: EditorPDFViewState
     let piece: EditorPDFMovable
@@ -539,7 +540,7 @@ struct EditorPDFGripHandle: View {
     }
 }
 
-/// The grip's handling, as an AppKit view laid over its dots — see ``EditorPDFGripView``.
+/// The grip's handling, as an AppKit view laid over its dots; see ``EditorPDFGripView``.
 struct EditorPDFGrip: NSViewRepresentable {
     let state: EditorPDFViewState
     var piece: EditorPDFMovable = .capsule
@@ -564,24 +565,24 @@ struct EditorPDFGrip: NSViewRepresentable {
     }
 }
 
-/// **A movable piece's grip: the drag, the double-click, Move To, and their accessibility actions**
-/// — the capsule's, and Fill & Sign's palette's (``piece``).
+/// A movable piece's grip: the drag, the double-click, Move To, and their accessibility actions,
+/// for the capsule and Fill & Sign's palette (``piece``).
 ///
-/// **AppKit rather than a SwiftUI gesture**, for three reasons that are each a test: a drag that
-/// starts on the grip and never on a button is the view's own mouse handling, not a gesture racing
-/// the buttons beside it; a double-click is `clickCount`, which a test can send; and the right-click
+/// AppKit rather than a SwiftUI gesture, for three reasons that are each a test: a drag that starts
+/// on the grip and never on a button is the view's own mouse handling, not a gesture racing the
+/// buttons beside it; a double-click is `clickCount`, which a test can send; and the right-click
 /// menu and the accessibility actions are ordinary `NSMenu` items and `NSAccessibilityCustomAction`s,
-/// which a test can read and fire — a hosted SwiftUI `Menu`'s body never runs offscreen.
+/// which a test can read and fire, where a hosted SwiftUI `Menu`'s body never runs offscreen.
 final class EditorPDFGripView: NSView {
     weak var state: EditorPDFViewState?
-    /// Which piece this grip moves — whose place it sets and where it goes back to.
+    /// Which piece this grip moves: whose place it sets and where it goes back to.
     var piece = EditorPDFMovable.capsule
     var onDrag: (CGSize) -> Void = { _ in }
     var onDrop: (CGSize) -> Void = { _ in }
     private var start: NSPoint?
     private var isDragging = false
 
-    /// How far the pointer moves before a press is a drag — under it, a click is only a click, and
+    /// How far the pointer moves before a press is a drag. Under it, a click is only a click, and
     /// the first half of a double-click moves nothing.
     static let dragThreshold: CGFloat = 3
 
@@ -609,10 +610,10 @@ final class EditorPDFGripView: NSView {
         onDrag(moved)
     }
 
-    /// **A grip taken out of the window drops the drag it was in** — the palette went mid-drag, a
-    /// save landing. AppKit sends the rest of a drag to the view that took the press, so a late
-    /// `mouseDragged` restarted it and a late `mouseUp` dropped the piece at a place reckoned from
-    /// a frame that was no longer there.
+    /// A grip taken out of the window drops the drag it was in (the palette goes when a save lands
+    /// mid-drag). AppKit sends the rest of a drag to the view that took the press, so a late
+    /// `mouseDragged` would restart it and a late `mouseUp` would drop the piece at a place reckoned
+    /// from a frame that is no longer there.
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil {
@@ -643,8 +644,8 @@ final class EditorPDFGripView: NSView {
         state.map { EditorPDFCapsuleMenu.menu(for: $0, piece: piece) }
     }
 
-    /// Double-click and Reset Position: the piece's own place again — bottom centre for the
-    /// capsule, the middle of the left side for the palette.
+    /// Double-click and Reset Position: the piece's own place again, bottom centre for the capsule
+    /// and the middle of the left side for the palette.
     func resetPosition() {
         state?[keyPath: piece.place] = piece.home
     }
@@ -656,8 +657,8 @@ final class EditorPDFGripView: NSView {
     override func accessibilityLabel() -> String? { piece.accessibilityLabel }
     override func accessibilityValue() -> Any? { state?[keyPath: piece.place].title }
 
-    /// **Move To's places and Reset Position, as actions** — so moving the capsule never needs a
-    /// drag, with VoiceOver or anything else.
+    /// Move To's places and Reset Position, as actions, so moving the capsule never needs a drag,
+    /// with VoiceOver or anything else.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard let state else { return nil }
         return EditorPDFCapsuleMenu.actions(for: state, piece: piece).map { action in
@@ -669,9 +670,9 @@ final class EditorPDFGripView: NSView {
     }
 }
 
-/// **The grip's right-click menu** (mockup H): Move To ▸ the eight places, the current one ticked,
-/// and Reset Position — and the same items as the grip's accessibility actions. The capsule's and
-/// the palette's, each moving its own piece.
+/// The grip's right-click menu: Move To ▸ the eight places, the current one ticked, and Reset
+/// Position, with the same items as the grip's accessibility actions. The capsule's and the
+/// palette's, each moving its own piece.
 @MainActor
 enum EditorPDFCapsuleMenu {
     static let moveToTitle = "Move To"

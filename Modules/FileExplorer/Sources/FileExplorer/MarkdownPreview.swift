@@ -3,33 +3,28 @@ import Design
 
 /// The rendered Markdown, in the app's own type ramp.
 ///
-/// **SwiftUI text, not a web view**, which is the whole design of this surface: a `WKWebView` would
-/// bring its own fonts, its own selection behaviour and its own scroll physics into a window that
-/// has spent a lot of effort on all three — and would render the document at a size unrelated to
-/// Settings ▸ Text size.
+/// SwiftUI text, not a web view: a `WKWebView` would bring its own fonts, selection and scroll
+/// physics into the window, and ignore Settings ▸ Text size.
 ///
-/// **Read-only except for one thing: a task item's checkbox.** Everything else here draws from the
-/// document's text and cannot write back, so the buffer stays the single source of truth and
-/// toggling modes cannot lose an edit. The checkbox is the exception because a checklist you can
-/// read and not tick is a checklist you have to switch modes to use — and it is a safe one: the
-/// click leaves through ``onToggleTask``, which flips the box on exactly one line through
-/// ``MarkdownEdits/taskToggle(onLine:in:)`` — converting a file's carriage returns too, as any first
-/// edit does (``EditorLineEndings``) — and it is withheld entirely on a document that cannot be saved.
+/// Read-only except for a task item's checkbox, so the buffer stays the single source of truth and
+/// switching modes can't lose an edit. A click on the box goes through ``onToggleTask``, which
+/// flips exactly one line via ``MarkdownEdits/taskToggle(onLine:in:)`` (converting a file's
+/// carriage returns, as any first edit does; see ``EditorLineEndings``). A document that can't be
+/// saved gets no control at all.
 struct MarkdownPreview: View {
 
     let blocks: [MarkdownBlock]
     let accent: Color
     /// Which source line the preview should bring into view, or `nil` to leave it where it is.
     ///
-    /// Carries a token for the reason ``PlainTextEditor/scrollRequest`` does — and in split mode it
-    /// changes constantly, once per line scrolled past on the other side.
+    /// Carries a token for the reason ``PlainTextEditor/scrollRequest`` does. In split mode it
+    /// changes once per line scrolled past on the other side.
     var scrollRequest: EditorScrollRequest?
-    /// Ticks or unticks the task on a source line, or `nil` when this document must not be edited —
-    /// which is what makes the checkbox a picture rather than a control on a read-only file.
+    /// Ticks or unticks the task on a source line, or `nil` when this document must not be edited,
+    /// which makes the checkbox a picture rather than a control.
     var onToggleTask: ((Int) -> Void)?
-    /// The folder the open document lives in, which is what a relative image path is relative to.
-    /// `nil` when nothing is open, and then no image resolves — a path with nothing to resolve
-    /// against is not a path.
+    /// The folder the open document lives in, which a relative image path is relative to. `nil`
+    /// when nothing is open, and then no relative image path resolves.
     var documentFolder: String?
     /// Sends the reader to a heading in this same document, for a `#fragment` link.
     var onFollowAnchor: ((String) -> Void)?
@@ -37,40 +32,32 @@ struct MarkdownPreview: View {
     var body: some View {
         ScrollViewReader { proxy in
             scroller
-                // **The one place a link is decided.** A fragment names a heading in the document
-                // already on screen, so following it is a scroll rather than a launch; everything
-                // else is handed to the system. Returning `.systemAction` rather than opening it
-                // here is what keeps the app out of the business of deciding which schemes are
-                // acceptable — that is the system's job and it already asks.
+                // The one place a link is decided. A fragment names a heading on screen, so it is a
+                // scroll, not a launch; anything else returns `.systemAction`, leaving the system to
+                // judge which schemes are acceptable, as it already does.
                 .environment(\.openURL, OpenURLAction { url in openLink(url) })
-                // **One scroll per request, not two.** An `.onChange(of: scrollRequest)` sat here
-                // as well, and it fired for exactly the requests the `.task` below already answers
-                // — the task's id carries the same request — so every scroll ran twice: once
-                // against rows that may not exist yet, then again a turn later. In split that is
-                // two `scrollTo`s per line scrolled past on the other side. The task is the one
-                // that is correct on its own (it yields first, so the `LazyVStack` rows named
-                // below have been built), so it is the one that stayed.
+                // The `.task` alone answers a request; an `.onChange(of: scrollRequest)` beside it
+                // would scroll twice, once against rows that may not exist yet. The task yields
+                // first, so the `LazyVStack` rows it names have been built.
                 .task(id: EditorPreviewScrollKey(request: scrollRequest, count: blocks.count)) {
                     // One turn, so the rows named below have been built.
                     await Task.yield()
-                    // **A request is answered ONCE** (CHR-1). The count is in the key so a request
-                    // made before its blocks were parsed is answered when they arrive — not so an
-                    // answered one is asked again: a change from elsewhere that added a paragraph
-                    // (TE59's quiet reload) re-ran this with the same standing request, and the
-                    // preview left wherever the reader had scrolled to for a heading chosen long
-                    // before, now at a line that named something else.
+                    // A request is answered once. The count is in the key so a request made before
+                    // its blocks were parsed is answered when they arrive, not so an answered one is
+                    // asked again: a quiet reload that adds a paragraph must not yank the reader
+                    // back to a heading chosen long before.
                     guard Self.shouldScroll(scrollRequest, answered: answeredRequest) else { return }
                     if scroll(to: scrollRequest, with: proxy) { answeredRequest = scrollRequest }
                 }
         }
     }
 
-    /// The last request this preview scrolled for — see ``shouldScroll(_:answered:)``. View state, so
-    /// a preview a mode switch builds starts with none and opens where its request says.
+    /// The last request this preview scrolled for (see ``shouldScroll(_:answered:)``). View state,
+    /// so a preview built by a mode switch starts with none and opens where its request says.
     @State private var answeredRequest: EditorScrollRequest?
 
-    /// **Whether a request still needs a scroll: one that has not been answered.** A request carries
-    /// a token, so asking for the same line again is a new request and is answered again.
+    /// Whether a request still needs a scroll: whether it is unanswered. A request carries a token,
+    /// so asking for the same line again is a new request and is answered again.
     static func shouldScroll(_ request: EditorScrollRequest?, answered: EditorScrollRequest?) -> Bool {
         guard let request else { return false }
         return request != answered
@@ -78,7 +65,7 @@ struct MarkdownPreview: View {
 
     /// What a click on a link does.
     private func openLink(_ url: URL) -> OpenURLAction.Result {
-        // A fragment-only link — `[go](#the-two-numbers)` — has no scheme and no path.
+        // A fragment-only link, `[go](#the-two-numbers)`, has no scheme and no path.
         let isFragmentOnly = url.scheme == nil && url.path.isEmpty
         if isFragmentOnly, let fragment = url.fragment, let onFollowAnchor {
             onFollowAnchor(fragment)
@@ -87,16 +74,16 @@ struct MarkdownPreview: View {
         return .systemAction
     }
 
-    /// Where a scroll lands, or nothing when the request names a document this preview has not
-    /// rendered yet — and whether it scrolled, so an unanswered request waits for the blocks.
+    /// Scrolls to the request's block, or does nothing when its blocks aren't rendered yet; returns
+    /// whether it scrolled, so an unanswered request waits for the blocks.
     @discardableResult
     private func scroll(to request: EditorScrollRequest?, with proxy: ScrollViewProxy) -> Bool {
         guard let request,
               let index = MarkdownOutline.blockIndex(forLine: request.line, in: blocks) else {
             return false
         }
-        // **No animation.** In split this fires on every line scrolled past on the other side, and
-        // an animated scroll chasing a scroll wheel lags behind it and then overshoots.
+        // No animation: in split this fires on every line scrolled past on the other side, and an
+        // animated scroll chasing a scroll wheel lags and then overshoots.
         proxy.scrollTo(index, anchor: .top)
         return true
     }
@@ -109,25 +96,24 @@ struct MarkdownPreview: View {
 
     private var scroller: some View {
         ScrollView {
-            // **Lazy, because the read cap is 4 MiB.** A plain `VStack` materialises every block
-            // on the main actor in one pass — moving the *parse* off it says nothing about the
-            // render, and a large document is tens of thousands of blocks.
+            // Lazy, because the read cap is 4 MiB: a plain `VStack` would build every one of tens of
+            // thousands of blocks on the main actor in one pass, parse off it or not.
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
-                    // The arms themselves are `MarkdownBlockView`'s — shared with the printed
-                    // page so that File ▸ Print's claim to be "the preview" stays true.
+                    // `MarkdownBlockView` is shared with the printed page, so File ▸ Print's claim
+                    // to be "the preview" stays true.
                     MarkdownBlockView(block: block, accent: accent, documentFolder: documentFolder,
                                       onToggleTask: onToggleTask, onFollowAnchor: onFollowAnchor)
-                        // The scroll target. The index rather than the source line, because a
-                        // block does not have to have one — see ``MarkdownBlock/line``.
+                        // The scroll target: the index, not the source line, which a block may
+                        // lack (``MarkdownBlock/line``).
                         .id(index)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 22)
             .padding(.vertical, 18)
-            // The measure a reader's eye can hold. Wider than this and long paragraphs become hard
-            // to track back to the start of the next line.
+            // The measure a reader's eye can hold; wider, long paragraphs get hard to track back to
+            // the start of the next line.
             .frame(maxWidth: 720, alignment: .leading)
         }
     }
@@ -136,20 +122,14 @@ struct MarkdownPreview: View {
 
 /// One image from the document's own folder, or the reason it is not being drawn.
 ///
-/// **Resolved AND loaded off the main actor, and only when the row is built.** The preview is a
-/// `LazyVStack`, so a note with forty screenshots touches the two that are on screen.
-///
-/// **Resolving used to happen in the preview's `body`**, which meant `MarkdownImageSource.resolve`
-/// — an existence check, a cloud-placeholder check, a symlink resolve and a `stat`, four filesystem
-/// calls — ran for every visible image on every render pass. In preview or split mode that is every
-/// keystroke. It is a question about a file on disk, so it belongs beside the decode, in the task
-/// that already goes off the main actor for it.
-///
-/// The one visible consequence: a source that cannot be drawn now shows "Loading…" for the frame
-/// before the answer arrives, where before the reason was known by the time anything was drawn.
+/// Resolved and loaded off the main actor, and only when the row is built: the preview is a
+/// `LazyVStack`, so a note with forty screenshots touches only those on screen. Resolving
+/// (`MarkdownImageSource.resolve`, four filesystem calls) sits beside the decode in the task, not
+/// in a `body` that runs on every keystroke. So a source that can't be drawn shows "Loading…" for
+/// a frame before its reason arrives.
 struct MarkdownImageView: View {
 
-    /// The raw `![alt](source)` text, unresolved — see the note above.
+    /// The raw source from `![alt](source)`, unresolved; see the note above.
     let source: String
     /// The open document's folder, which is what a relative source resolves against.
     let folder: String?
@@ -157,13 +137,12 @@ struct MarkdownImageView: View {
     let accent: Color
     /// An image already resolved and decoded by somebody else, or `nil` to load it here.
     ///
-    /// **Paper's route in.** The load below is a `.task`, and a task does not run during an
-    /// offscreen render — an image drawn that way would be the "Loading…" placeholder on every
-    /// printed page, forever, with nothing on screen to say so. ``DocumentPDF`` resolves and
-    /// decodes through the same two calls this view uses and hands the answer over.
+    /// Paper's route in. The load below is a `.task`, which doesn't run in an offscreen render, so
+    /// every printed page would show "Loading…". ``DocumentPDF`` resolves and decodes through the
+    /// same two calls this view uses and hands the answer over.
     var preloaded: Preloaded?
 
-    /// A resolved image, or the reason there is not one — the two states ``load()`` produces.
+    /// A resolved image, or the reason there isn't one: the two states ``load()`` produces.
     enum Preloaded: Equatable {
         case image(NSImage)
         case refused(String)
@@ -175,9 +154,9 @@ struct MarkdownImageView: View {
 
     /// The tallest an image is drawn, whatever its own size.
     ///
-    /// **A cap on the DRAWN height, which is a different question from the file's byte cap.** A
-    /// tall narrow image — a phone screenshot — would otherwise take four screens of a document
-    /// somebody is reading for its words. Width is the column's; the aspect ratio is kept.
+    /// A cap on the drawn height, separate from the file's byte cap: a tall phone screenshot would
+    /// otherwise take four screens of a document read for its words. Width is the column's; the
+    /// aspect ratio is kept.
     static let maxHeight: CGFloat = 420
 
     var body: some View {
@@ -196,13 +175,9 @@ struct MarkdownImageView: View {
             }
         }
         .padding(.vertical, 6)
-        // **On the `Group`, not inside the `else` arm.** Hung inside the branch that draws the
-        // placeholder, the task is torn down the instant the image arrives and the branch swaps —
-        // which is harmless while it has finished, and is exactly the kind of arrangement that
-        // stops re-running when the source changes under a drawn image.
-        // **Skipped entirely when the answer was handed over.** A preloaded image is one that
-        // has already been resolved and decoded; re-doing both in a task would be four filesystem
-        // calls and a decode to arrive at the picture already on screen.
+        // On the `Group`, not inside the placeholder's arm, where the task would be torn down when
+        // the image arrives and not re-run when the source changes under a drawn image. Skipped
+        // when the answer was handed over: it is already resolved and decoded.
         .task(id: MarkdownImageKey(source: source, folder: folder)) {
             guard preloaded == nil else { return }
             await load()
@@ -221,10 +196,8 @@ struct MarkdownImageView: View {
         var folder: String?
     }
 
-    /// The alt text and the reason, in the preview's own type — never a broken-image glyph.
-    ///
-    /// **The alt text leads.** It is what the document's author wrote to stand for the picture, so
-    /// it is the more useful half when the picture is missing; the reason is why, in smaller type.
+    /// The alt text and the reason, in the preview's own type, never a broken-image glyph. The alt
+    /// text leads, since the author wrote it to stand for the picture; the reason follows, smaller.
     private func placeholder(_ reason: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "photo")
@@ -243,7 +216,7 @@ struct MarkdownImageView: View {
         .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.3)))
     }
 
-    /// Resolves the source, then decodes it — both off the main actor.
+    /// Resolves the source, then decodes it, both off the main actor.
     private func load() async {
         let raw = source
         let against = folder
@@ -259,9 +232,8 @@ struct MarkdownImageView: View {
             return
         }
         let loaded = await Task.detached(priority: .userInitiated) {
-            // `NSImage(contentsOfFile:)` and not `contentsOf:` — the path has already been resolved
-            // and checked; building a URL here only to have AppKit take it apart again invites a
-            // second, different opinion about what the path meant.
+            // `NSImage(contentsOfFile:)`, not `contentsOf:`: the path is already resolved and
+            // checked, and a URL round trip could give a second opinion about what it means.
             NSImage(contentsOfFile: path)
         }.value
         guard !Task.isCancelled else { return }

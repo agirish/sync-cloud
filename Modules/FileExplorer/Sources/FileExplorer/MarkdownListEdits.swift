@@ -1,10 +1,10 @@
 import Foundation
 
 /// A list item's opening, read off its line: where the marker is, what it is, and where the text
-/// after it starts (TE54).
+/// after it starts.
 ///
-/// **Only the shape of ONE line** — whether that line really opens a list item is the parser's to
-/// say (``MarkdownSourceContext``). `- - -` matches here and is a rule; `    - x` after a paragraph
+/// Only the shape of one line; whether it really opens a list item is the parser's call
+/// (``MarkdownSourceContext``). `- - -` matches here and is a rule; `    - x` after a paragraph
 /// matches here and is code. Every edit below asks both.
 struct MarkdownListLine {
 
@@ -17,15 +17,15 @@ struct MarkdownListLine {
     /// The leading spaces and tabs, as written.
     var indent: String
     var marker: Marker
-    /// The whitespace after the marker, as written — at least one character.
+    /// The whitespace after the marker, as written: at least one character.
     var spacing: String
-    /// The task box, `[ ]`, `[x]` or `[X]`, and the whitespace after it — `nil` on a plain item.
+    /// The task box, `[ ]`, `[x]` or `[X]`, and the whitespace after it; `nil` on a plain item.
     var task: (box: String, spacing: String)?
     /// Everything after the marker and the box: the item's words. Empty on an empty item.
     var text: String
 
-    /// Whether nothing but spaces and tabs follows the marker (and the box) — CommonMark's two
-    /// whitespace characters, not Unicode's: an ideographic space is content to the parser.
+    /// Whether nothing but spaces and tabs follows the marker (and the box): CommonMark's two
+    /// whitespace characters, not Unicode's, since an ideographic space is content to the parser.
     var isEmpty: Bool { text.allSatisfy { $0 == " " || $0 == "\t" } }
 
     /// The marker as written.
@@ -40,14 +40,14 @@ struct MarkdownListLine {
     /// Everything before the item's words: indent, marker, spacing and box.
     var lead: String { indent + markerText + spacing + (task.map { $0.box + $0.spacing } ?? "") }
 
-    /// The line's indent in COLUMNS, a tab advancing to the next multiple of four — CommonMark's
-    /// tab stop, and the unit every indent rule below is stated in.
+    /// The line's indent in columns, a tab advancing to the next multiple of four (CommonMark's tab
+    /// stop). Every indent rule below is stated in columns.
     var indentColumns: Int { Self.columns(of: indent) }
 
-    /// **The column the item's words start at, by CommonMark's rule** — what a child item's marker
-    /// must reach to nest under this one, and what Tab indents to. The marker's width plus the
-    /// spaces after it, unless there are five or more: then the content is one space in and the
-    /// rest is an indented code block inside the item, so the content column is marker + 1.
+    /// The column the item's words start at, by CommonMark's rule: what a child's marker must
+    /// reach to nest under this item, and what Tab indents to. The marker's width plus the spaces
+    /// after it, unless there are five or more (the rest is then an indented code block inside the
+    /// item) or the item is empty and has no box; then it is marker + 1.
     var contentColumn: Int {
         let markerEnd = indentColumns + markerText.count
         let after = Self.columns(of: spacing, startingAt: markerEnd) - markerEnd
@@ -57,9 +57,9 @@ struct MarkdownListLine {
 
     /// Reads a list item's opening off `line`, or `nil` when the line does not have one.
     ///
-    /// **A marker with no whitespace after it is not taken**, `-` alone included: CommonMark allows
-    /// an empty item written that way, but a lone `-` is also how a rule or a setext underline
-    /// starts being typed, and a Return there should do what a Return does.
+    /// A marker with no whitespace after it is not taken, `-` alone included: CommonMark allows that
+    /// empty item, but a lone `-` is also how a rule or a setext underline starts being typed, and
+    /// Return there should stay a plain Return.
     static func parse(_ line: String) -> MarkdownListLine? {
         let scalars = Array(line.unicodeScalars)
         var index = 0
@@ -107,11 +107,10 @@ struct MarkdownListLine {
         return MarkdownListLine(indent: indent, marker: marker, spacing: spacing, task: task, text: text)
     }
 
-    /// **The opening a new item beside this one gets**: the same indent, marker and spacing, the
-    /// number counted on when `countingOn` (the item after this one) or kept when not (a new first
-    /// item before it), and an empty box for a task.
-    ///
-    /// `nil` when the number cannot be counted on — a tenth digit is not a list marker.
+    /// The opening a new item beside this one gets: the same indent, marker and spacing, the number
+    /// counted on when `countingOn` (the item after this one) or kept when not (a new first item
+    /// before it), and an empty box for a task. `nil` when counting on would need a tenth digit,
+    /// which is not a list marker.
     func opening(countingOn: Bool) -> String? {
         let next: String
         switch marker {
@@ -127,7 +126,7 @@ struct MarkdownListLine {
         return indent + next + spacing + box
     }
 
-    /// **A leading zero is kept** — `01.` counts on to `02.` — and nothing else is padded.
+    /// A leading zero is kept (`01.` counts on to `02.`); nothing else is padded.
     private static func number(_ value: Int, digits: Int) -> String {
         let plain = String(value)
         return plain.count < digits ? String(repeating: "0", count: digits - plain.count) + plain : plain
@@ -143,71 +142,63 @@ struct MarkdownListLine {
     }
 }
 
-/// What Return, Tab and ⇧Tab do inside a Markdown list (TE54) — pure functions over a buffer and a
-/// selection, as ``MarkdownEdits`` is, so every rule is asserted character for character without a
-/// text view.
-///
-/// **They take the buffer as an `NSString`**, because the text view's storage is one: handed
-/// `textStorage.mutableString`, nothing here copies the document to answer a keystroke.
+/// What Return, Tab and ⇧Tab do inside a Markdown list: pure functions over a buffer and a
+/// selection, like ``MarkdownEdits``, so every rule is asserted character for character without a
+/// text view. They take an `NSString` so that, handed `textStorage.mutableString`, nothing copies
+/// the document to answer a keystroke.
 enum MarkdownListEdits {
 
     /// Told each time ``returnEdit(in:selection:)`` or ``tabEdit(in:selection:outdent:)`` reads the
-    /// buffer — a test's count of what one key costs (LST-14). Task-local, so tests running side by
-    /// side never count each other's keys.
+    /// buffer, so a test can count what one key costs. Task-local, so parallel tests never count
+    /// each other's keys.
     @TaskLocal static var onRead: (@Sendable () -> Void)?
 
     /// What Return does on a list item.
     enum ReturnEdit: Equatable {
-        /// Insert the newline exactly as Return would, then this opening — the two as ONE undo step,
-        /// apart from the typing before it, so one ⌘Z takes back the Return and what it added.
+        /// Insert the newline exactly as Return would, then this opening, as one undo step apart
+        /// from the typing before it, so one ⌘Z takes back the Return and what it added.
         case continueWith(String)
-        /// The item is empty: its opening (this range) comes off and the Return goes in after it —
-        /// so the line it was on is the blank line that ends the list, and what is typed next is a
-        /// paragraph of its own rather than more of the item above.
+        /// The item is empty: its opening (this range) comes off and the Return goes in after it,
+        /// so its line becomes the blank line that ends the list and what is typed next is a
+        /// paragraph of its own.
         ///
-        /// `indent` goes in after that Return: in a sub-list, the empty item's own indent, so what is
-        /// typed is a paragraph of the item the sub-list is in — the sub-list ends, not the list, and
-        /// the items after it keep their places. Empty at the top level.
+        /// `indent` goes in after that Return: in a sub-list, the empty item's own indent, so only
+        /// the sub-list ends and what is typed belongs to its parent item. Empty at the top level.
         ///
-        /// `separatesNext` when a line with something on it follows: a second line break goes in
-        /// AFTER the caret too, or that line would read as more of what is typed — `3. Bake` cannot
-        /// start a list under a paragraph, and would become its words.
+        /// `separatesNext` when a non-blank line follows: a second line break goes in after the
+        /// caret too, or that line would read as more of what is typed (`3. Bake` can't start a
+        /// list under a paragraph, and would become its words).
         case endList(NSRange, indent: String, separatesNext: Bool)
     }
 
     /// What Return does at `selection`, or `nil` for "what Return always did".
     ///
-    /// **Only with the caret at the end of an item**, nothing selected — at the end of its words,
-    /// whichever line they end on. A Return in the middle of an item, or over a selection, does what
-    /// it did before this existed: the rule is narrow on purpose, because this is the one place Edit
-    /// writes characters nobody typed. "The middle" includes the end of a line the item's words carry
-    /// on from (`- Preheat the oven to` above `  200 degrees`) — the parser's answer, not the line's.
+    /// Only with the caret at the end of an item's words, nothing selected, whichever line they end
+    /// on. Anywhere else, or over a selection, Return is a plain Return: the rule is narrow because
+    /// this is the one place Edit writes characters nobody typed. The end of a line the words carry
+    /// on from (`- Preheat the oven to` above `  200 degrees`) is the middle, by the parser's say.
     ///
-    /// **An item with children carries on as its first child**, in the child's own indent and
-    /// marker, rather than as a sibling the children would then belong to — but only where that
-    /// child is an item as written, empty. Under words that are a paragraph only a task box is;
-    /// anywhere it is not, Return is a Return (decided 2026-10-10). Tab, asked the same question,
-    /// nests an empty item there anyway (decided 2026-10-12): see `anEmptyNestedItemStillMoves`.
+    /// An item with children carries on as its first child, in the child's indent and marker, not
+    /// as a sibling the children would then belong to, but only where that child is an item as
+    /// written, empty. Under paragraph words only a task box is; elsewhere Return is a Return. Tab
+    /// nests an empty item there anyway: see `anEmptyNestedItemStillMoves`.
     ///
-    /// **The same holds for a sibling**: an empty item's content column is one past its marker, so
-    /// after `-\th` or `-   wide`, whose words start further in, the `  - b` that was their sibling
-    /// would become the new item's child. The parser is asked there too; see ``opensAnItem``.
+    /// The same holds for a sibling: an empty item's content column is one past its marker, so after
+    /// `-\th` or `-   wide` the sibling `  - b` would become the new item's child. The parser is
+    /// asked there too; see ``opensAnItem``.
     static func returnEdit(in ns: NSString, selection: NSRange) -> ReturnEdit? {
         onRead?()
         guard selection.length == 0, MarkdownEdits.isValid(selection, in: ns) else { return nil }
         let line = MarkdownSourceLines.line(containing: selection.location, in: ns)
         guard selection.location == NSMaxRange(line.content) else { return nil }
         let own = MarkdownListLine.parse(ns.substring(with: line.content))
-        // **A blank line is no item's words** (LST-1, 2026-10-15). cmark ends an item on the line
-        // before whatever closes it, so the blank line under a list is the last item's to the
-        // parser — and Return there wrote a marker above the paragraph after the list, which the
-        // first word typed then made the new item's words. Only an empty item's own line, which
-        // has its marker on it, is blank and still an item's.
+        // A blank line is no item's words. cmark gives the blank line under a list to its last
+        // item, and a marker written there would swallow the paragraph after the list once a word
+        // is typed. Only an empty item's own line, which has its marker, is blank and an item's.
         guard own != nil || !isBlank(ns.substring(with: line.content)) else { return nil }
-        // **No parse for a line no item can hold**: one at the left edge with no list line above it
-        // in its run of written lines — a lazy line follows its item without a blank line between,
-        // and every other line of an item is indented. Return at the end of a paragraph's line is
-        // most Returns, and a parse is 15ms a megabyte.
+        // No parse for a line no item can hold: one at the left edge with no list line above it in
+        // its run of written lines (a lazy line follows its item with no blank line between; every
+        // other item line is indented). Most Returns end a paragraph line, and a parse is 15 ms a MB.
         guard own != nil || mightBeInAnItem(line, in: ns),
               let place = MarkdownSourceContext.itemAtLineEnd(at: selection.location, in: ns,
                                                                asIfWritten: own?.isEmpty == true) else { return nil }
@@ -216,31 +207,27 @@ enum MarkdownListEdits {
             ? own
             : MarkdownSourceLines.line(place.itemLine, from: line, number: place.line, in: ns)
                 .flatMap { MarkdownListLine.parse(ns.substring(with: $0.content)) }
-        // **The opening read off the line must be the item's own.** A line can open an item inside
-        // another — `- 2.`, `- - a` — and its first marker is then the OUTER item's, while the
-        // caret ends the inner one: carried on, it wrote a new outer item below the inner, which
-        // is neither (2026-10-12, the 50,000-run property test). The inner item's own opening is
-        // not a line's to rewrite, so Return does what it always did.
+        // The opening read off the line must be the item's own. A line can open an item inside
+        // another (`- 2.`, `- - a`); its first marker is then the outer item's while the caret ends
+        // the inner one, and carrying it on would write the wrong item. Return stays a Return.
         guard let opening, place.markerOffset == opening.indent.utf8.count else { return nil }
 
         if place.itemLine == place.line, opening.isEmpty {
             // The word the empty item was read with can make the line under it a lazy line of that
             // word; only a line indented to the item's content column is really the item's.
             let next = MarkdownSourceLines.line(after: line, in: ns)
-            // **And nothing after a blank line is an empty item's** (LST-12, 2026-10-15): an item
-            // that opens on a blank line may open on one only, so the blank line under `- ` ends it,
-            // and `  more` after it is a paragraph after the list — which the word made the item's,
-            // and Return left the bullet standing. A box is content, so a task is read as written.
+            // And nothing after a blank line is an empty item's: an item that opens blank may have
+            // only that one blank line, so `  more` after a blank line under `- ` is a paragraph
+            // after the list, not the item's. A box is content, so a task is read as written.
             let opensBlank = opening.task == nil
                 && (next.map { isBlank(ns.substring(with: $0.content)) } ?? true)
             let written = opensBlank ? nil : next.flatMap { firstWritten(from: $0, in: ns) }
             let reallyBelow = written.map { indentColumns(of: $0, in: ns) >= opening.contentColumn } ?? false
             guard place.below == .nothing || !reallyBelow else { return nil }
-            // **Not where it is all an empty item holds** (LST-13, 2026-10-15). Ending a sub-list
-            // leaves a blank line where the empty sub-item was; under a parent that opens on a blank
-            // line of its own — `- ` and nothing else — that is its second, which ends the parent
-            // too, and the sub-items after went to the top level. Its first content line is right
-            // under it, so the line above says.
+            // Not under a parent that is itself an empty `- `: ending the sub-list leaves a blank
+            // line, the parent's second, which would end the parent too and send the sub-items
+            // after it to the top level. The parent's first content line is right under it, so the
+            // line above says.
             if place.nested, let above = MarkdownSourceLines.line(before: line, in: ns),
                let parent = MarkdownListLine.parse(ns.substring(with: above.content)),
                parent.isEmpty, parent.task == nil, parent.indentColumns < opening.indentColumns {
@@ -252,19 +239,17 @@ enum MarkdownListEdits {
         switch place.below {
         case .nothing:
             guard let next = opening.opening(countingOn: true) else { return nil }
-            // **Asked of the parser only where a line below reaches the new item's content column**
-            // — none that does not can become its own, and most Returns are spared the parse.
+            // Asked of the parser only where a line below reaches the new item's content column; no
+            // other line can become its own, so most Returns skip the parse.
             let following = MarkdownSourceLines.line(after: line, in: ns)
             let below = following.flatMap { firstWritten(from: $0, in: ns) }
             let column = MarkdownListLine.parse(next)?.contentColumn ?? 0
             let reaches = below.map { indentColumns(of: $0, in: ns) >= column }
             guard reaches != true || opensAnItem(next, at: selection, on: place.line, in: ns) else { return nil }
-            // **And it must still take no line once a word is typed in it** (LST-4, 2026-10-15). An
-            // empty item has no paragraph for the line straight under it to run on into; the word
-            // does. Where the item carried on ends in a heading or a rule — no paragraph either — the
-            // line under it was a paragraph of its own (`- # Groceries` over `Some text`), and the
-            // first word typed made it the new item's. Asked only where a line right under could run
-            // on: a list line short of the new item's words is an item of the list, never words.
+            // And it must still take no line once a word is typed in it: the word gives the line
+            // straight under it a paragraph to run on into. Under `- # Groceries` over `Some text`,
+            // that paragraph would become the new item's. Asked only where the line right under
+            // could run on; a list line short of the new item's words is an item, never words.
             if let following, !isBlank(ns.substring(with: following.content)),
                MarkdownListLine.parse(ns.substring(with: following.content)) == nil
                 || indentColumns(of: following, in: ns) >= column {
@@ -276,17 +261,14 @@ enum MarkdownListEdits {
             for _ in place.line..<childLine { child = child.flatMap { MarkdownSourceLines.line(after: $0, in: ns) } }
             guard let first = child.flatMap({ MarkdownListLine.parse(ns.substring(with: $0.content)) })
             else { return nil }
-            // **The sub-list's own number first** (LST-10, 2026-10-15), so a sub-list that starts at 3
-            // still does, the new item taking the 3 as any item put in a numbered list takes its
-            // place. Only where that does not open an item is it numbered 1: right under the item's
-            // words, where only a list starting at 1 may interrupt a paragraph. Renumbered every
-            // time, a heading's sub-list at 3 restarted at 1 and every sub-item's number fell by one.
+            // The sub-list's own number first, so a sub-list that starts at 3 still does, the new
+            // item taking the 3. Numbered 1 only where that alone opens an item: right under the
+            // item's words, where only a list starting at 1 may interrupt a paragraph.
             //
-            // **Only where the opening is an item as it stands, empty.** Under the item's words it
-            // almost never is: an empty item may not interrupt a paragraph, so `  - ` there is a
-            // setext underline that makes the words a heading, and `  * ` or `  1. ` are more of the
-            // words (found 2026-10-09). A task box is content, and words that are a `#` heading are
-            // no paragraph; those carry on.
+            // Only where the opening is an item as it stands, empty. Under paragraph words it rarely
+            // is: an empty item may not interrupt a paragraph, so `  - ` is a setext underline and
+            // `  * ` or `  1. ` are more words. A task box is content, and a `#` heading is no
+            // paragraph; those carry on.
             let numbered = first.renumbered(1)
             for candidate in numbered.marker == first.marker ? [first] : [first, numbered] {
                 guard let opening = candidate.opening(countingOn: false) else { continue }
@@ -300,48 +282,42 @@ enum MarkdownListEdits {
 
     /// What Tab (or ⇧Tab, `outdent`) does in a list.
     enum TabEdit: Equatable {
-        /// Replace `range` with `text` — one undo step — and select `selection` afterwards.
+        /// Replace `range` with `text` as one undo step, then select `selection`.
         case rewrite(range: NSRange, text: String, selection: NSRange)
-        /// The caret is in a list item that cannot move that way — the first item of its list for
-        /// Tab, an item at the top level for ⇧Tab. The key is taken and nothing changes, rather than
-        /// a tab character landing in the middle of a list.
+        /// The caret is in a list item that can't move that way (the first item of its list for
+        /// Tab, a top-level item for ⇧Tab). The key is taken and nothing changes, rather than a tab
+        /// character landing in the middle of a list.
         case unchanged
     }
 
     /// What Tab or ⇧Tab does at `selection`, or `nil` for "what the key always did".
     ///
-    /// **Anywhere on an item's opening line, the item moves** — with nothing selected or with a
-    /// selection inside that line. A selection over several lines is today's Tab.
+    /// Anywhere on an item's opening line, with nothing selected or a selection inside that line,
+    /// the item moves. A selection over several lines is a plain Tab.
     ///
-    /// **The indent is the one CommonMark nests by**, read from the neighbour rather than fixed at
-    /// two or four: Tab lines the marker up with the PREVIOUS item's words (two columns under `- `,
-    /// three under `1. `), which makes it that item's child; ⇧Tab lines it up with the marker of the
-    /// item its list is nested in, which makes it that item's sibling.
+    /// The indent is the one CommonMark nests by, read from the neighbour rather than fixed: Tab
+    /// lines the marker up with the previous item's words (two columns under `- `, three under
+    /// `1. `), making it that item's child; ⇧Tab lines it up with the parent item's marker, making
+    /// it that item's sibling.
     ///
-    /// **The item's own lines go with it, and only those** — which the parser decides
-    /// (``MarkdownSourceContext/itemExtent(at:in:)``): its children and their text, a lazy line, a
-    /// code block inside it; not a note indented under the list but outside its last item.
+    /// The item's own lines go with it, and only those, as the parser decides
+    /// (``MarkdownSourceContext/itemExtent(at:in:asIfWritten:body:)``): its children, a lazy line,
+    /// a code block inside it; not a note indented under the list but outside its last item.
     ///
-    /// **And the result is read back by the parser before it is offered**, because CommonMark has
-    /// a rule the column arithmetic does not see: a list that interrupts a paragraph may only start
-    /// at `1.`. So `   2. b` under `1. a` would be the words "a 2. b" — and after ⇧Tab, the item
-    /// that followed the moved one, now the first of a sub-list under it, would be words too. Such
-    /// an item is renumbered `1.`, its number alone; if even that does not land, nothing moves.
+    /// The parser reads the result back before it is offered, because a list that interrupts a
+    /// paragraph may only start at `1.`: `   2. b` under `1. a` would be the words "a 2. b". Such an
+    /// item is renumbered `1.`, its number alone; if even that doesn't land, nothing moves.
     ///
-    /// **What it costs: a parse of the text up to the line, one of the whole body, and one per
-    /// candidate** — at cmark's optimised speed, about 15ms a megabyte each (measured 2026-10-04):
-    /// a few milliseconds in a note of ordinary length, about 60ms in a 1 MB one, a quarter of a
-    /// second at the 4 MiB the editor opens. Kept whole-document on purpose: the check is what
-    /// caught the arithmetic three review passes running, and a window onto part of the document
-    /// is a second set of rules about which blocks a move can reach.
+    /// Cost: a parse up to the line, one of the whole body, and one per candidate, about 15 ms a MB
+    /// each (a quarter of a second at the editor's 4 MiB limit). Kept whole-document on purpose: a
+    /// window onto part of it would be a second set of rules about which blocks a move can reach.
     static func tabEdit(in ns: NSString, selection asked: NSRange, outdent: Bool) -> TabEdit? {
         onRead?()
         guard MarkdownEdits.isValid(asked, in: ns) else { return nil }
         let line = MarkdownSourceLines.line(containing: asked.location, in: ns)
-        // **A selection that ends just past the line's break is that line** (LST-2, 2026-10-15) —
-        // what a triple-click selects. Read as a selection over two lines it was today's Tab, which
-        // replaced the item with a tab character, and the item under it, now behind that tab, went
-        // in under the one above. Moved here, the selection keeps its break.
+        // A selection that ends just past the line's break, as a triple-click selects, is that
+        // line; read as two lines, a plain Tab would replace the item with a tab character. Moved
+        // here, the selection keeps its break.
         let takesBreak = asked.length > 0 && line.terminatorLength > 0 && NSMaxRange(asked) == line.end
         let selection = takesBreak
             ? NSRange(location: asked.location, length: NSMaxRange(line.content) - asked.location) : asked
@@ -365,8 +341,8 @@ enum MarkdownListEdits {
                   sibling.contentColumn > current else { return .unchanged }
             target = sibling.contentColumn
         }
-        // An empty item is read as though a word followed its marker, here as everywhere: CommonMark
-        // gives it no lines of its own otherwise.
+        // An empty item is read as though a word followed its marker, as everywhere: otherwise
+        // CommonMark gives it no lines of its own.
         let extent = MarkdownSourceContext.itemExtent(at: line.content.location, in: ns, asIfWritten: item.isEmpty,
                                                       body: body)
         let lines = ownLines(after: line, number: context.line, through: extent?.lastLine ?? context.line, in: ns)
@@ -374,8 +350,8 @@ enum MarkdownListEdits {
         let following = after.flatMap { firstWritten(from: $0, in: ns) }
         let followingItem = following.flatMap { MarkdownListLine.parse(ns.substring(with: $0.content)) }
 
-        // What the document reads as now — read off the extent's own parse of the same text — and
-        // which of its blocks are this item's.
+        // What the document reads as now (from the extent's own parse of the same text), and which
+        // of its blocks are this item's.
         let before = extent?.leaves ?? MarkdownSourceContext.leaves(in: item.isEmpty ? written(ns, at: line) : ns, body: body)
         let moved = context.line...(context.line + lines.count)
 
@@ -390,10 +366,9 @@ enum MarkdownListEdits {
             candidates.append((false, true))
             if ordered(item) { candidates.append((true, true)) }
         }
-        // **A numbered item Tab makes the first of a new sub-list is numbered 1** (LST-11,
-        // 2026-10-15), as Help says — not only where it must be. Under a blank line nothing is
-        // interrupted, so `2. b` kept its 2 and the new sub-list started at 2. A move that keeps the
-        // number and opens a list is held back while a renumbered one is tried; ⇧Tab keeps it.
+        // A numbered item Tab makes the first of a new sub-list is numbered 1, as Help says, even
+        // where nothing forces it (under a blank line). A move that keeps the number and opens a
+        // list is held back while a renumbered one is tried; ⇧Tab keeps the number.
         var heldBack: TabEdit?
         for (renumberItem, renumberFollowing) in candidates {
             let edit = rewrite(item, renumbered: renumberItem, on: line, lines: lines, firstLine: context.line,
@@ -421,11 +396,11 @@ enum MarkdownListEdits {
         return heldBack ?? .unchanged
     }
 
-    /// **The same document with the item moved, and nothing else** — every block still there, on
-    /// its line, of its kind, with its words or code byte for byte; the moved item's own blocks one
-    /// list level deeper (Tab) or shallower (⇧Tab), every other block at its level. Whatever the
-    /// column arithmetic got wrong — a tab stop, a marker that changed width, a block the extent
-    /// missed — this is where it is caught, and the key then changes nothing.
+    /// The same document with the item moved and nothing else: every block still there, on its
+    /// line, of its kind, its words or code byte for byte; the moved item's blocks one level deeper
+    /// (Tab) or shallower (⇧Tab), every other block at its level. Whatever the column arithmetic got
+    /// wrong (a tab stop, a marker that changed width, a block the extent missed) is caught here,
+    /// and the key then changes nothing.
     private static func sameDocument(_ before: [MarkdownSourceContext.Leaf], _ after: [MarkdownSourceContext.Leaf],
                                       moved: ClosedRange<Int>, by step: Int) -> Bool {
         guard before.count == after.count else { return false }
@@ -435,7 +410,7 @@ enum MarkdownListEdits {
         }
     }
 
-    /// `ns` with a word after the empty item on `line` — so the parser sees the item it is about to
+    /// `ns` with a word after the empty item on `line`, so the parser sees the item it is about to
     /// be. No line moves.
     private static func written(_ ns: NSString, at line: MarkdownSourceLines.Line) -> NSString {
         ns.replacingCharacters(in: NSRange(location: NSMaxRange(line.content), length: 0), with: "x") as NSString
@@ -473,14 +448,13 @@ enum MarkdownListEdits {
         MarkdownListLine.columns(of: String(ns.substring(with: line.content).prefix { $0 == " " || $0 == "\t" }))
     }
 
-    /// **Whether `opening`, written after a Return at `selection` on line `number`, is an item as it
-    /// stands** — empty, nothing typed after it — **that ends where it opens**, taking no line
-    /// below as its own. Asked of the parser, over the text up to the next written line, because
-    /// CommonMark has two rules the column arithmetic does not see: an empty item may not
-    /// interrupt a paragraph, and its content column is one past its marker whatever followed it.
+    /// Whether `opening`, written after a Return at `selection` on line `number`, is an item as it
+    /// stands (empty, nothing typed after it) that ends where it opens, taking no line below.
+    /// Asked of the parser, because CommonMark has two rules the column arithmetic doesn't see: an
+    /// empty item may not interrupt a paragraph, and its content column is one past its marker.
     ///
-    /// - Parameter typed: ask it of the item with a word typed after the opening — what it will be a
-    ///   keystroke later, when a line under it can run on into that word (LST-4).
+    /// - Parameter typed: ask it of the item with a word typed after the opening, as it will be a
+    ///   keystroke later, when a line under it can run on into that word.
     private static func opensAnItem(_ opening: String, typed: Bool = false, at selection: NSRange, on number: Int,
                                     in ns: NSString) -> Bool {
         let opening = typed ? opening + "x" : opening
@@ -491,8 +465,8 @@ enum MarkdownListEdits {
     }
 
     /// Whether `line` could be part of a list item without being an item's opening: indented, or
-    /// with a list line somewhere above it before a blank line (a lazy line). Shape only — the
-    /// parser decides; this only spares it the lines it could not say yes to.
+    /// with a list line somewhere above it before a blank line (a lazy line). Shape only: the
+    /// parser decides, and this spares it the lines it could not say yes to.
     private static func mightBeInAnItem(_ line: MarkdownSourceLines.Line, in ns: NSString) -> Bool {
         let text = ns.substring(with: line.content)
         if text.first == " " || text.first == "\t" { return true }
@@ -509,12 +483,11 @@ enum MarkdownListEdits {
 
     /// The rewrite that puts `item`'s marker at column `target` and moves its own lines with it.
     ///
-    /// **Everything under the item moves by its CONTENT column, not by its marker's.** Each of its
-    /// lines indented to the old content column has exactly those columns taken off — a tab that
-    /// straddles the edge split into the spaces left of it — and the new content column put on, as
-    /// spaces. So whatever is inside the item reads the same to the parser, tabs and code included:
-    /// a code line keeps every byte past the edge. A lazy line, indented less, is left as it is.
-    /// The opening keeps its spacing; a tab there becomes the spaces it was worth.
+    /// Everything under the item moves by its content column, not its marker's. Each line indented
+    /// to the old content column has exactly those columns taken off (a tab straddling the edge
+    /// split into spaces) and the new content column put on as spaces, so the item's insides read
+    /// the same to the parser; a code line keeps every byte past the edge. A lazy line, indented
+    /// less, is left alone. The opening keeps its spacing; a tab there becomes the spaces it was.
     private static func rewrite(_ item: MarkdownListLine, renumbered: Bool, on line: MarkdownSourceLines.Line,
                                 lines: [MarkdownSourceLines.Line], firstLine: Int,
                                 extent: MarkdownSourceContext.ItemExtent?,
@@ -525,17 +498,17 @@ enum MarkdownListEdits {
         let oldContent = item.contentColumn
         let markerEnd = item.indentColumns + item.markerText.count
         let spacingColumns = MarkdownListLine.columns(of: item.spacing, startingAt: markerEnd) - markerEnd
-        // **A tab after the marker becomes the spaces it was**: its width depends on the column it
-        // starts at, and the marker is about to start at another. Spaces are kept as written.
+        // A tab after the marker becomes the spaces it was: its width depends on the column it
+        // starts at, and the marker is about to move. Spaces are kept as written.
         let spacing = item.spacing.contains("\t") && spacingColumns < 5
             ? String(repeating: " ", count: spacingColumns) : item.spacing
-        // The new content column, which everything under the item is re-based on — so its children
+        // The new content column, which everything under the item is re-based on, so its children
         // stay its own whatever width the marker now has. Five or more columns of spacing is code in
         // the first line, and the content column is then one past the marker (CommonMark's rule).
         let newMarkerEnd = target + opening.markerText.count
         let newSpacing = MarkdownListLine.columns(of: spacing, startingAt: newMarkerEnd) - newMarkerEnd
-        // An empty item's content column is one past its marker, whatever follows it — CommonMark's
-        // rule for an item that opens on a blank line, as `contentColumn` reads the old one.
+        // An empty item's content column is one past its marker, whatever follows it: CommonMark's
+        // rule for an item that opens blank, as `contentColumn` reads the old one.
         let newContent = newMarkerEnd + ((item.isEmpty && item.task == nil) || !(1...4).contains(newSpacing) ? 1 : newSpacing)
         let oldIndent = (item.indent as NSString).length
         let oldMarker = (item.markerText as NSString).length
@@ -553,8 +526,8 @@ enum MarkdownListEdits {
             let number = firstLine + 1 + index
             let mode: LineMode = extent?.verbatimLines.contains(number) == true ? .verbatim
                 : extent?.indentedCodeLines.contains(number) == true ? .indentedCode : .indentation
-            // A blank line is left as it is — unless it is inside code, where whitespace past the
-            // edge is the code's own and has to move with it.
+            // A blank line is left as it is, unless it is inside code, where whitespace past the
+            // edge is the code's own and must move with it.
             rebuilt += isBlank(body) && mode == .indentation ? body : moved(body, from: oldContent, to: newContent, mode: mode)
             last = next
         }
@@ -588,9 +561,8 @@ enum MarkdownListEdits {
         return (range, rebuilt, NSRange(location: start, length: end - start))
     }
 
-    /// The list line a neighbour sits on, walked to from the caret's — `nil` when the line the parser
-    /// named does not read as a list item here, which would mean the two disagree about lines and
-    /// nothing should move.
+    /// The list line a neighbour sits on, walked to from the caret's; `nil` when the line the parser
+    /// named doesn't read as a list item here, so the two disagree and nothing should move.
     private static func neighbour(_ target: Int, from line: MarkdownSourceLines.Line, number: Int,
                                   in ns: NSString) -> MarkdownListLine? {
         guard let found = MarkdownSourceLines.line(target, from: line, number: number, in: ns) else { return nil }
@@ -603,16 +575,15 @@ enum MarkdownListEdits {
         case indentation
         /// An indented code block's: its first four columns are indentation, the rest is code.
         case indentedCode
-        /// Content — a fenced block's code, raw HTML — kept byte for byte.
+        /// Content (a fenced block's code, raw HTML), kept byte for byte.
         case verbatim
     }
 
     /// A line inside the item, its first `from` columns of indentation swapped for `to` columns of
-    /// spaces — a tab across that edge split into the spaces right of it, as the parser itself
-    /// splits one. Past the edge, `mode` decides: indentation is written as spaces at the columns it
-    /// had (a tab's width depends on where it starts, and the line is about to start somewhere
-    /// else), and content keeps every byte. A line not indented as far as the edge is a lazy line,
-    /// and is returned as it is.
+    /// spaces, a tab across that edge split into the spaces right of it as the parser splits one.
+    /// Past the edge, `mode` decides: indentation becomes spaces at the columns it had (a tab's
+    /// width depends on where it starts), and content keeps every byte. A line not indented as far
+    /// as the edge is a lazy line, returned as it is.
     private static func moved(_ line: String, from: Int, to: Int, mode: LineMode) -> String {
         var column = 0
         var index = line.startIndex
@@ -648,7 +619,7 @@ enum MarkdownListEdits {
 }
 
 extension MarkdownListLine {
-    /// The same opening numbered `number` with no padding — the `1.` a list must start at to
+    /// The same opening numbered `number` with no padding: the `1.` a list must start at to
     /// interrupt a paragraph. A bullet is returned as it is.
     func renumbered(_ number: Int) -> MarkdownListLine {
         guard case .ordered(_, _, let delimiter) = marker else { return self }

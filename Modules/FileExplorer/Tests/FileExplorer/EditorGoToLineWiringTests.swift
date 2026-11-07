@@ -5,10 +5,10 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **TE61 — Go to Line, from the press to the caret.** The field on its own (focus, Return, Escape),
-/// then a whole mounted workspace: Text ▸ Go to Line…'s request opens the field, Return in it closes
-/// it and puts Source's caret on the line. The rules each step calls are tested on their own in
-/// `EditorGoToLineTests`; this is what connects them, so a revert at any call site turns it red.
+/// Go to Line, from the press to the caret. The field on its own (focus, Return, Escape), then a
+/// mounted workspace: Text ▸ Go to Line…'s request opens the field, and Return closes it and puts
+/// Source's caret on the line. `EditorGoToLineTests` tests the rules; this connects them, so a
+/// revert at any call site turns it red.
 @MainActor
 @Suite(.serialized) struct EditorGoToLineWiringTests {
 
@@ -72,7 +72,7 @@ import FileExplorerTestSupport
         return window(for: host)
     }
 
-    /// **It takes focus as it appears, Return goes with what was typed, and junk goes nowhere.**
+    /// It takes focus as it appears, Return goes with what was typed, and junk goes nowhere.
     @Test func theFieldTakesFocusAndReturnGoes() throws {
         let heard = Heard()
         let window = mountField(heard)
@@ -91,7 +91,7 @@ import FileExplorerTestSupport
         #expect(heard.cancels == 0)
     }
 
-    /// **Escape closes it**, and goes nowhere.
+    /// Escape closes it, and goes nowhere.
     @Test func escapeCloses() throws {
         let heard = Heard()
         let window = mountField(heard)
@@ -148,8 +148,7 @@ import FileExplorerTestSupport
         spin(mounted.window)
     }
 
-    /// **The menu's press opens the field**, once per press — the workspace turns the request into
-    /// the field being up.
+    /// The menu's press opens the field, once per press.
     @Test func theMenusPressOpensTheField() throws {
         let mounted = try mountWorkspace()
         defer { dismiss(mounted.window) }
@@ -158,7 +157,7 @@ import FileExplorerTestSupport
         #expect(popovers().count == 1, "the press opened \(popovers().count) fields")
     }
 
-    /// **Return closes the field and puts the caret on the line and column typed.**
+    /// Return closes the field and puts the caret on the line and column typed.
     @Test func goingClosesTheFieldAndMovesTheCaret() throws {
         let mounted = try mountWorkspace()
         defer { dismiss(mounted.window) }
@@ -169,8 +168,8 @@ import FileExplorerTestSupport
         #expect(popovers().isEmpty, "the field stayed up after going")
     }
 
-    /// **A line past the end with no column lands on the last line** — a request without a column
-    /// is a heading's, which finds no line 400 and goes nowhere, so going must always carry one.
+    /// A line past the end with no column lands on the last line. A request without a column is a
+    /// heading's, which finds no line 400 and goes nowhere, so going must always carry one.
     @Test func aLinePastTheEndLandsOnTheLastLine() throws {
         let mounted = try mountWorkspace()
         defer { dismiss(mounted.window) }

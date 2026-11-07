@@ -4,9 +4,8 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Coverage for FileTreeView's otherPaneName resolution — the copy/move target shown in
-/// the context menu. When no provider name is plumbed in, it must fall back to the
-/// spatial label of the OPPOSITE pane (the historical wording).
+/// FileTreeView's otherPaneName resolution, the copy/move target shown in the context menu. With no
+/// provider name plumbed in, it falls back to the spatial label of the opposite pane.
 @MainActor
 @Suite struct FileTreeViewPaneNameTests {
 
@@ -56,23 +55,23 @@ import Sync
         #expect(treeView(isLeft: false, otherPaneName: nil).otherPaneName == "Left")
     }
 
-    /// The RECEIVING side of the download scoping. `CloudDownloadRoutingTests` pins the routing
+    /// The receiving side of the download scoping. `CloudDownloadRoutingTests` pins the routing
     /// decision, but only against tokens a test made up: a pane that derived its own token wrongly
-    /// — hardcoded, or reading the wrong flag — would route perfectly, to the wrong pane.
+    /// (hardcoded, or reading the wrong flag) would route perfectly, to the wrong pane.
     @Test func testEachPaneSurfaceDerivesItsOwnToken() {
         #expect(treeView(isLeft: true, otherPaneName: nil).paneToken == .left)
         #expect(treeView(isLeft: false, otherPaneName: nil).paneToken == .right)
-        // The single-source rail passes isLeft: true and must NOT be confusable with the left pane.
+        // The single-source rail passes isLeft: true and must not be confusable with the left pane.
         #expect(treeView(isLeft: true, otherPaneName: nil, isSingleSource: true).paneToken == .singleSource)
     }
 
-    /// The receiving half of the shipped default: a pane built the way `ContentView` builds one —
-    /// passing no `downloadChannel` — subscribes to the app's own `NotificationCenter`.
+    /// The receiving half of the shipped default: a pane built the way `ContentView` builds one,
+    /// passing no `downloadChannel`, subscribes to the app's own `NotificationCenter`.
     ///
-    /// Every suite that MOUNTS a pane now hands it a private channel instead (mechanism 9), which
-    /// is what keeps them out of each other's posts and also means not one of them touches this
-    /// default any more. Retarget it — `= NotificationCenter()` on the parameter — and every one of
-    /// those suites stays green while the app's panes go deaf to the app's own Download button.
+    /// Every suite that mounts a pane hands it a private channel instead ("A mounted view is a live
+    /// subscriber, in every suite at once" in `docs/flaky-tests.md`), so none of them touches this
+    /// default. Retarget it (`= NotificationCenter()` on the parameter) and every one of those
+    /// suites stays green while the app's panes go deaf to the app's own Download button.
     ///
     /// Constructed, not mounted: a `FileTreeView` value holds no subscription until SwiftUI builds
     /// its body, so reading the property here puts nothing on `.default`.
@@ -80,10 +79,9 @@ import Sync
         #expect(treeView(isLeft: true, otherPaneName: nil).downloadChannel === NotificationCenter.default)
     }
 
-    /// A republish's badge-memo clear is scoped to the folder the pane is SHOWING, not to its
+    /// A republish's badge-memo clear is scoped to the folder the pane is showing, not to its
     /// provider root. The two diverge whenever a pane is focused on a subfolder, and clearing the
-    /// provider root would drop entries no row of this pane can serve — the over-broad clear the
-    /// scoping exists to stop.
+    /// provider root would drop entries no row of this pane can serve.
     @Test func testTheBadgeMemoClearIsScopedToTheShownFolder() {
         let focused = treeView(isLeft: true, otherPaneName: nil,
                                currentPath: "/provider/sub", rootPath: "/provider")

@@ -5,24 +5,15 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// Organize's two scanning screens — the duplicate pass and the file pass — must paint their
-/// spinner, status line and Cancel button onto the lens surface and nothing else.
+/// Organize's two scanning screens, the duplicate pass and the file pass, must paint their
+/// spinner, status line and Cancel button onto the lens surface and nothing else. A material card
+/// has nothing to blur on an empty lens, so it renders as a flat gray slab. The pane's placeholder
+/// is covered by `PaneScanningPlaceholderRenderTests`; this is the Organize half.
 ///
-/// They used to wear a `.regularMaterial` card with a shadow, copied from the file pane's
-/// "Scanning Directory…" placeholder for consistency. Both were wrong the same way: a material
-/// has nothing to blur on an empty lens, so it renders as a flat gray slab. The pane's copy is
-/// covered by `PaneScanningPlaceholderRenderTests`; this is the Organize half.
-///
-/// Measured the same way — render over a magenta backdrop nothing in the UI uses, then count the
-/// pixels below the chip header that are not that backdrop. Ink and the Cancel capsule come to
-/// 11,702 of 1,148,000 in the band in light and 14,746 in dark; the card took those to 75,051 and
-/// 77,998. Each screen was mutated on its own and failed only its own test, in both appearances,
-/// so neither of these is measuring the other's view. The floor guards the opposite failure: a
-/// canvas that renders nothing would sail past a ceiling alone.
-/// `.machinePinned(.pixelSampling)` — for the reason its sibling
-/// `PaneScanningPlaceholderRenderTests` carries it: the assertions are a measured ink COUNT
-/// corridor (`> 2_000`, `< 40_000`) bracketing the 11,702 / 14,746 this Mac paints against the
-/// 75,051 / 77,998 a card would. Both ends move with font rasterization and backing scale.
+/// Renders over a magenta backdrop and counts the non-backdrop pixels below the chip header: about
+/// 12k–15k for ink and the Cancel capsule, about 75k with a card. The floor catches a canvas that
+/// renders nothing. `.machinePinned(.pixelSampling)`, like its sibling, because both ends of the
+/// count move with font rasterization and backing scale.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct OrganizeScanningPlaceholderRenderTests {
 

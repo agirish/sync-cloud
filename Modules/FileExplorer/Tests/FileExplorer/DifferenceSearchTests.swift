@@ -3,8 +3,8 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// Coverage for the structured token search behind the Differences search field: size parsing,
-/// tokenizing, matching, backward-compatible free text, and chip removal.
+/// The structured token search behind the Differences search field: size parsing, tokenizing,
+/// matching, plain free text, and chip removal.
 @Suite struct DifferenceSearchTests {
 
     private func diff(
@@ -64,8 +64,8 @@ import Sync
     }
 
     @Test func invalidTokenishWordsStayFreeText() {
-        // ">report" is not a valid size and "kind:" has no value → both are plain text, no tokens,
-        // so the legacy substring search is preserved verbatim.
+        // ">report" is not a valid size and "kind:" has no value, so both are plain text and the
+        // substring search runs on the query verbatim.
         let query = DifferenceSearch.parse(">report kind:")
         #expect(query.tokens.isEmpty)
         #expect(query.freeText == ">report kind:")
@@ -111,33 +111,32 @@ import Sync
     }
 
     @Test func kindImageClassMatchesAnyImageExtension() {
-        // `kind:image` is the same class alias the lens search resolves — one vocabulary across
-        // surfaces (it used to be Tidy-only, so `kind:image` in Compare matched nothing).
+        // `kind:image` is the class alias the lens search resolves: one vocabulary across surfaces.
         let query = DifferenceSearch.parse("kind:image")
         #expect(query.matches(diff("Photos/a.jpg"), pathRootName: nil))
         #expect(query.matches(diff("Photos/a.PNG"), pathRootName: nil))
         #expect(query.matches(diff("Photos/a.heic"), pathRootName: nil))
         #expect(!query.matches(diff("Docs/a.pdf"), pathRootName: nil))
-        // No extension named "image" would ever match literally — the alias owns the word.
+        // No extension named "image" matches literally: the alias owns the word.
         #expect(!query.matches(diff("Docs/noext"), pathRootName: nil))
     }
 
     @Test func kindClassTableIsSharedWithTheLensSearch() {
-        // Both surfaces resolve `kind:` aliases through the same table; if they ever fork, the
-        // "one vocabulary" promise (and the shared suggestion copy) silently breaks.
+        // Both surfaces resolve `kind:` aliases through one table; a fork would silently break the
+        // shared vocabulary and suggestion copy.
         #expect(DuplicateSearch.kindClasses == DifferenceSearch.kindClasses)
     }
 
     // MARK: kind: is last-wins
 
     @Test func repeatedKindTokensAreLastWins() {
-        // A path has ONE extension, so two conjunctive kind: tokens are a guaranteed dead-end;
-        // parse keeps only the last, like the lens and Log families.
+        // A path has one extension, so two conjunctive kind: tokens could never match; parse keeps
+        // only the last, like the lens and Log searches.
         let query = DifferenceSearch.parse("kind:pdf kind:png")
         #expect(query.tokens == [.kind("png")])
         #expect(query.matches(diff("a.png"), pathRootName: nil))
         #expect(!query.matches(diff("a.pdf"), pathRootName: nil))
-        // Size and only: stay conjunctive — ranges are legitimate.
+        // Size and only: tokens stay conjunctive, since ranges are legitimate.
         let range = DifferenceSearch.parse(">1mb <5mb")
         #expect(range.tokens == [.sizeAtLeast(1_000_000), .sizeAtMost(5_000_000)])
     }
@@ -171,18 +170,16 @@ import Sync
     }
 
     @Test func removingDropsEveryOccurrenceOfTheWord() {
-        // Chips are keyed by raw text, so one ✕ must clear all duplicates of that word — removing
-        // only the first would leave the effective filter unchanged (the survivor still parses).
+        // Chips are keyed by raw text, so one ✕ clears every duplicate of that word; removing only
+        // the first would leave the filter unchanged.
         #expect(DifferenceSearch.removing("kind:pdf report kind:pdf", word: "kind:pdf") == "report")
     }
 
     // MARK: parse ↔ chips snapshot
 
-    /// Full-grammar characterization, mirroring DuplicateSearchTests' snapshot: ONE composite
-    /// query exercising every token family (`kind:` twice — the second being the `image` class
-    /// alias — both size comparators, an only: side), multi-word free text — pinning the parsed
-    /// query AND the chips() output (raw, token, isActive) together, so tokenization, the alias
-    /// set, last-wins, size parsing, and chip marking can't drift apart unnoticed.
+    /// Full-grammar snapshot, like `DuplicateSearchTests`': one query with every token family
+    /// (`kind:` twice, the second the `image` alias; both size comparators; an only: side) and
+    /// multi-word free text, pinning the parsed query and `chips()` together so none drifts.
     @Test func fullGrammarSnapshotPinsParseAndChipsTogether() {
         let raw = "kind:JPG >500kb <2mb kind:image only:left draft copy"
 
@@ -200,9 +197,9 @@ import Sync
             DifferenceSearch.Chip(raw: "only:left", token: .onlyLeft, isActive: true),
         ])
 
-        // The effective query behaves as the active chips read: the kind is the class alias (a
-        // PNG matches — the superseded kind:JPG must not still filter), size bounds apply, the
-        // side token maps to missing-on-right, and the free text matches the path.
+        // The query behaves as the active chips read: the kind is the class alias (a PNG matches;
+        // the superseded kind:JPG must not filter), size bounds apply, the side token maps to
+        // missing-on-right, and the free text matches the path.
         #expect(query.matches(diff("Photos/draft copy.png", type: .missingOnRight, leftSize: 1_000_000), pathRootName: nil))
         #expect(!query.matches(diff("Photos/draft copy.pdf", type: .missingOnRight, leftSize: 1_000_000), pathRootName: nil))  // not an image
         #expect(!query.matches(diff("Photos/draft copy.png", type: .missingOnRight, leftSize: 400_000), pathRootName: nil))    // below >500kb
@@ -212,16 +209,15 @@ import Sync
 
     // MARK: The Path column's anchor is searchable
 
-    /// Free text must match what the table SHOWS. The anchor ("Home") and the root fallback
-    /// ("Top level") appear in no `relativePath` — before this, a user reading "Home/Legal" in
-    /// the Path column and typing "Home" got a silent empty list.
+    /// Free text matches what the table shows. The anchor ("Home") and root fallback ("Top level")
+    /// appear in no `relativePath`, so typing "Home" after reading "Home/Legal" must still match.
     @Test func testFreeTextMatchesTheAnchoredPathColumnText() {
         #expect(DifferenceSearch.parse("home").matches(diff("Legal/lease.pdf"), pathRootName: "Home"))
         #expect(DifferenceSearch.parse("home/legal").matches(diff("Legal/lease.pdf"), pathRootName: "Home"))
-        // Root rows with no anchor read "Top level" — visible, so findable.
+        // Root rows with no anchor read "Top level": visible, so findable.
         #expect(DifferenceSearch.parse("top level").matches(diff("loose.pdf"), pathRootName: nil))
         // No anchor on a nested row: the Path cell shows only the bare parent, and text that
-        // appears nowhere must keep NOT matching.
+        // appears nowhere must not match.
         #expect(!DifferenceSearch.parse("home").matches(diff("Legal/lease.pdf"), pathRootName: nil))
     }
 }

@@ -3,9 +3,8 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// **Activity's Recent** (Run Room TE222, TE223, CL, CM, CS, R9, R13, R14): what is kept, what
-/// folds, what lights the toolbar's dot, and when a row's Undo may act. A fresh center per test —
-/// the app's is `.shared`.
+/// Activity's Recent: what is kept, what folds, what lights the toolbar's dot, and when a row's
+/// Undo may act. A fresh center per test, because the app's is `.shared`.
 @MainActor
 @Suite struct ActivityCenterTests {
 
@@ -13,7 +12,7 @@ import Sync
         ActivityMessage(message: text, severity: severity)
     }
 
-    /// Every message is kept, newest first, until there are fifty (CM).
+    /// Every message is kept, newest first, until there are fifty.
     @Test func keepsTheNewestFiftyNewestFirst() {
         let center = ActivityCenter()
         for index in 1...55 { center.record(message("Deleted “\(index).md”"), seen: true) }
@@ -22,7 +21,7 @@ import Sync
         #expect(center.recent.last?.message == "Deleted “6.md”")
     }
 
-    /// The same refusal again and again folds into one row with a count (R14) — but only in a row:
+    /// The same refusal again and again folds into one row with a count, but only in a row:
     /// another message between them starts a new one.
     @Test func repeatsInARowFold() {
         let center = ActivityCenter()
@@ -35,7 +34,7 @@ import Sync
         #expect(center.recent.map(\.repeats) == [1, 1, 4])
     }
 
-    /// The dot is for a problem nobody saw (CS): a failure that showed where the reader was looking
+    /// The dot is for a problem nobody saw: a failure that showed where the reader was looking
     /// leaves none, a success never does, and opening Activity takes it away.
     @Test func onlyAnUnseenProblemLightsTheDot() {
         let center = ActivityCenter()
@@ -48,7 +47,7 @@ import Sync
         #expect(!center.hasUnseenProblem)
     }
 
-    /// The button and ⌘L reopen the last tab used — or Now while a problem waits (CT).
+    /// The button and ⌘L reopen the last tab used, or Now while a problem waits.
     @Test func opensOnTheLastTabOrNowForAProblem() {
         let center = ActivityCenter()
         center.tab = .log
@@ -57,8 +56,8 @@ import Sync
         #expect(center.tabForOpening() == .now)
     }
 
-    /// A history run is linked to the first message after it records, and to no later one — an
-    /// old run's records must not hang off an unrelated message (R13).
+    /// A history run is linked to the first message after it records, and to no later one, so an
+    /// old run's records never hang off an unrelated message.
     @Test func aRunIsLinkedOnceToTheMessageThatReportedIt() {
         let center = ActivityCenter()
         let run = (token: UUID(), runId: UUID(), recordedAt: Date())
@@ -67,8 +66,8 @@ import Sync
         #expect(center.recent.map(\.runId) == [nil, run.runId])
     }
 
-    /// **A run that said nothing is not the next message's run** (R13): a Sync All that ended in an
-    /// alert posts no message, and the rename made minutes later must not offer its records.
+    /// A run that said nothing is not the next message's run: a Sync All that ended in an alert
+    /// posts no message, and the rename made minutes later must not offer its records.
     @Test func aRunRecordedLongBeforeTheMessageIsNotLinked() {
         let center = ActivityCenter()
         let now = Date()
@@ -80,7 +79,7 @@ import Sync
         #expect(center.recent[0].runId == fresh.runId)
     }
 
-    /// Show in Log spans the run that just ended, from its start (R13).
+    /// Show in Log spans the run that just ended, from its start.
     @Test func theLogSpanReachesBackToTheRunsStart() {
         let center = ActivityCenter()
         let now = Date()
@@ -94,7 +93,7 @@ import Sync
         #expect(center.recent[0].span.lowerBound == now.addingTimeInterval(-60))
     }
 
-    /// **A row's Undo acts only while its step is the newest** (TE223): a newer step greys it with
+    /// A row's Undo acts only while its step is the newest: a newer step greys it with
     /// that step's name, undoing the newer one brings it back, and once it is undone itself it says
     /// so. Driven on a real `UndoManager` through the notifications the center watches.
     @Test func aRowsUndoFollowsTheStack() {
@@ -103,7 +102,7 @@ import Sync
         undo.groupsByEvent = false
         center.watchUndo(undo)
         let target = NSObject()
-        // Each action registers its inverse, as the app's do — so a redo has something to redo.
+        // Each action registers its inverse, as the app's do, so a redo has something to redo.
         func reversible() { undo.registerUndo(withTarget: target) { _ in reversible() } }
         func step(_ name: String) {
             undo.beginUndoGrouping()
@@ -131,8 +130,8 @@ import Sync
         #expect(center.undoRefusal(for: deleted) == nil)
     }
 
-    /// **A run the reader stopped ends grey, not as a problem** (TE221): its sentence says so in the
-    /// app's own words, or its run was cancelled — and it never lights the dot, unseen or not.
+    /// A run the reader stopped ends grey, not as a problem: its sentence says so in the app's own
+    /// words, or its run was cancelled, and it never lights the dot, seen or unseen.
     @Test func aStopIsGreyAndNeverAProblem() {
         #expect(ActivityMessage.saysStopped("Stopped. Saved 2 of 6 as PDF."))
         #expect(ActivityMessage.saysStopped("Canceled. Saved 1 rotated copy"))
@@ -154,8 +153,8 @@ import Sync
         #expect(center.hasUnseenProblem)
     }
 
-    /// **Only the stopped run's own ending is a stop** (TE221): a failure a moment later is a
-    /// problem, and lights the dot.
+    /// Only the stopped run's own ending is a stop: a failure a moment later is a problem, and
+    /// lights the dot.
     @Test func aMessageAfterAStoppedRunsEndingIsNotAStop() {
         let center = ActivityCenter()
         let now = Date()
@@ -169,8 +168,8 @@ import Sync
         #expect(center.hasUnseenProblem)
     }
 
-    /// **A stop that also failed is a problem** (TE221): the reader's Stop did not cause the
-    /// failure, so it keeps its red and lights the dot.
+    /// A stop that also failed is a problem: the reader's Stop didn't cause the failure, so it
+    /// keeps its red and lights the dot.
     @Test func aStopThatFailedStaysAProblem() {
         let center = ActivityCenter()
         center.record(OperationBanner(message: "Canceled. Nothing was saved · 2 not done · 1 failed", severity: .error),
@@ -185,7 +184,7 @@ import Sync
         #expect(center.recent[0].isStopped)
     }
 
-    /// A notification for a repeat folded into an earlier row picks out that row (TE227, R14).
+    /// A notification for a repeat folded into an earlier row picks out that row.
     @Test func aFoldedRepeatsNotificationPicksOutItsRow() {
         let center = ActivityCenter()
         let first = OperationBanner.success("Copied “a.txt” to Backup")
@@ -197,7 +196,7 @@ import Sync
         #expect(center.highlighted == center.recent[0].id)
     }
 
-    /// A folded row's Show in Log covers its last repeat too (R13, R14).
+    /// A folded row's Show in Log covers its last repeat too.
     @Test func aFoldedRowsSpanCoversEveryRepeat() {
         let center = ActivityCenter()
         let now = Date()
@@ -266,7 +265,7 @@ import Sync
         #expect(center.dotHeldFor == nil && !center.showsDot)
     }
 
-    /// The arriving message's row flashes — a repeat folded into an earlier row flashes that row.
+    /// The arriving message's row flashes; a repeat folded into an earlier row flashes that row.
     @Test func aFlashPicksOutTheArrivingRowAndFiresOncePerArrival() {
         let center = ActivityCenter()
         let first = OperationBanner.success("Copied “a.txt” to Backup")

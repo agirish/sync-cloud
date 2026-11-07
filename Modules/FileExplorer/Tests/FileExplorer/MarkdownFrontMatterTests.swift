@@ -25,18 +25,17 @@ import Foundation
         #expect(split.frontMatter == nil)
     }
 
-    /// Splitting on `"\n"` leaves the `\r` on every line of a Windows file, so front matter in one
-    /// went entirely unrecognised until the comparison trimmed it.
+    /// Splitting on `"\n"` leaves the `\r` on every line of a Windows file, so front matter is only
+    /// recognised there because the comparison trims it.
     @Test func aWindowsFileIsRecognisedToo() {
         let split = MarkdownFrontMatter.split("---\r\ntitle: Plan\r\n---\r\n\r\n# Body\r\n")
         #expect(split.frontMatter == "title: Plan\r")
         #expect(split.bodyStartLine == 4)
     }
 
-    /// **A file with classic Mac line endings — `\r` alone — is recognised too** (CHR-5). Split on
-    /// `\n` alone it was one line, so the block went unrecognised and its last key, underlined by
-    /// the closer, became a setext heading: the outline listed `title: Plan` and the status line
-    /// named it as the section a caret in the block was in. The body starts on the file's own line.
+    /// A file with classic Mac line endings (`\r` alone) is recognised too. Split on `\n` alone it
+    /// would be one line, and the block's last key, underlined by the closer, would become a setext
+    /// heading in the outline and the status line. The body starts on the file's own line.
     @Test func aClassicMacFileIsRecognisedToo() {
         let source = "---\rtitle: Plan\rauthor: A\r---\r\r# Real\rbody\r"
         let split = MarkdownFrontMatter.split(source)
@@ -69,9 +68,9 @@ import Foundation
 
     // MARK: What it does to the blocks
 
-    /// The defect this feature exists for: a paragraph followed by a line of dashes is a setext
-    /// heading, so the closing fence turned the last YAML key into an H2 — and the outline listed
-    /// it as a section of the document.
+    /// The case this feature exists for: a paragraph followed by a line of dashes is a setext
+    /// heading, so without front matter the closing fence would turn the last YAML key into an H2
+    /// that the outline lists as a section.
     @Test func aYamlKeyIsNoLongerParsedAsAHeading() {
         let blocks = MarkdownBlocks.blocks(from: "---\ntitle: Plan\n---\n\n# Real\n")
         let headings = MarkdownOutline.entries(from: blocks)
@@ -89,8 +88,8 @@ import Foundation
         #expect(blocks.first?.line == 1)
     }
 
-    /// Every line below the block has to be reported in the FILE's numbering, or the outline, the
-    /// task toggle and the split sync all land the same distance too high.
+    /// Every line below the block is reported in the file's numbering, or the outline, the task
+    /// toggle and the split sync all land the same distance too high.
     @Test func linesBelowTheBlockAreInTheFilesOwnNumbering() {
         let source = "---\ntitle: Plan\nauthor: A\n---\n\n# Real\n\n- [ ] task\n"
         let blocks = MarkdownBlocks.blocks(from: source)

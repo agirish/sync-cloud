@@ -34,8 +34,8 @@ import Foundation
         #expect(document.stamp?.size == 8)
     }
 
-    /// **Dirty is a comparison, not a flag.** A flag set on the first keystroke would survive an
-    /// undo back to the original text and go on claiming the file had changed.
+    /// Dirty is a comparison, not a flag: a flag set on the first keystroke would survive an undo
+    /// back to the original text.
     @Test func undoingEveryEditMakesTheDocumentCleanWithoutSaving() {
         let document = EditorDocument()
         document.open(.editable(text: "original\n", stamp: stamp(9), encoding: .utf8), at: "/tmp/a.md")
@@ -45,8 +45,8 @@ import Foundation
         #expect(!document.isDirty, "a document typed back to its saved text still reads as changed")
     }
 
-    /// A lossy decode is shown and never saved, so it is never dirty however much is typed into it
-    /// — which is what keeps ⌘S greyed out rather than offering to destroy the file.
+    /// A lossy decode is shown and never saved, so it is never dirty however much is typed into it.
+    /// That keeps ⌘S greyed out rather than offering to overwrite the file with the lossy text.
     @Test func aReadOnlyDocumentIsNeverDirty() {
         let document = EditorDocument()
         document.open(.readOnly(text: "caf\u{FFFD}\n", reason: EditorFileStore.lossyReason),
@@ -102,16 +102,10 @@ import Foundation
         }
     }
 
-    /// **The dirty answer is memoised, so it has to follow both halves of what it is derived from.**
-    ///
-    /// It is read six times in one body pass — the rail's dot, the header's dot, that dot's
-    /// accessibility label, the meta row's word twice, and the autosave driver — and a body pass
-    /// happens on every keystroke, against a buffer that can be 4 MiB. Each read walked it, because
-    /// `text.utf8.count` is only O(1) for a natively-stored string and the one an `NSTextView`
-    /// hands back is bridged from UTF-16 storage. So the answer is computed once per
-    /// (buffer, saved state) pair — and a memo keyed on only one of those two would answer with a
-    /// stale value in the state the other one moved, which is a dot that stays lit after a save or
-    /// goes out while there is still typing to write.
+    /// The dirty answer is memoised per (buffer, saved state) pair, since it is read several times
+    /// per keystroke and an `NSTextView`'s bridged string makes each read walk the buffer. A memo
+    /// keyed on only one half would go stale when the other moved: a dot still lit after a save, or
+    /// out while there is typing left to write.
     @Test func theDirtyAnswerFollowsBothTheBufferAndTheSavedText() {
         let document = EditorDocument()
         document.open(.editable(text: "a\n", stamp: stamp(2), encoding: .utf8), at: "/tmp/a.md")
@@ -123,8 +117,8 @@ import Foundation
         document.markSaved(text: "b\n", stamp: stamp(2))
         #expect(!document.isDirty, "the answer did not follow a save")
 
-        // A save recorded against a snapshot that is NOT what the buffer now holds — which is what
-        // a background autosave does when a keystroke lands while it is writing.
+        // A save of a snapshot that is not what the buffer now holds, as when a keystroke lands
+        // during a background autosave.
         document.text = "c\n"
         document.markSaved(text: "b\n", stamp: stamp(2))
         #expect(document.isDirty, "a save of an older snapshot left the buffer reading clean")
@@ -136,13 +130,10 @@ import Foundation
         #expect(document.isDirty, "an equal-length change was missed")
     }
 
-    /// **A change Unicode calls equivalent is still a change to the file** (P54). Swift's `==` on
-    /// two Strings is canonical equivalence, so a buffer whose bytes differ from the file's only in
-    /// how an accent is written — `é` as one scalar or as `e` and a combining mark — read clean
-    /// whenever the two came to the same UTF-8 length: no dot, ⌘S greyed out, autosave never
-    /// writing it, and a close that did not ask. Both pairs keep the length and change the bytes:
-    /// one accent written each way round, and two marks on one letter in the other order. Each is
-    /// typed both as a Swift string and as the app's buffer holds it — bridged from a text storage.
+    /// A change Unicode calls equivalent is still a change to the file. Swift's `==` is canonical
+    /// equivalence, so a same-length buffer differing only in how an accent is written would read
+    /// clean: no dot, ⌘S greyed, no autosave, no ask on close. Both pairs keep the UTF-8 length and
+    /// change the bytes; each is typed as a Swift string and as bridged from a text storage.
     @Test(arguments: [("e\u{301}\u{E9}\n", "\u{E9}e\u{301}\n"), ("a\u{301}\u{316}\n", "a\u{316}\u{301}\n")],
           [false, true])
     func aChangeOnlyInHowUnicodeIsWrittenIsDirty(_ pair: (String, String), fromStorage: Bool) {

@@ -4,34 +4,27 @@ import Sync
 /// "Find duplicates of this" from a pane row: the file the Duplicates lens has been asked to
 /// show, and what it should do about it.
 ///
-/// A request rather than a path so a REPEAT ask re-fires. The user right-clicking the same file
-/// twice — after a rescan, or after clearing the search — is asking again, and a bare `String?`
-/// compares equal to itself and moves nothing.
+/// A request rather than a path so a repeat ask re-fires: right-clicking the same file again, after
+/// a rescan or a cleared search, is asking again, and a bare `String?` equals itself.
 public struct DuplicateRevealRequest: Equatable, Identifiable, Sendable {
     public let id: UUID
     /// The absolute path of the file whose group to reveal.
     public let path: String
-    /// Set when the ask STARTED a scan (`Decision.scanThenReveal`): the completed scan root as it
-    /// stood at that moment, so `outcome` can tell "my scan has not landed yet" apart from "no
-    /// scan is running".
+    /// Set when the ask started a scan (`Decision.scanThenReveal`): the completed scan root at that
+    /// moment, so `outcome` can tell "my scan hasn't landed yet" from "no scan is running".
     ///
-    /// Why `isScanning` alone cannot: the coordinator sets this request and *starts* the scan in
-    /// the same turn, but the scan flag flips inside the scan task's own first hop — and
-    /// `restartedScanTask` awaits the previous task before that, a real suspension whenever any
-    /// earlier scan ran this session. The lens's resolve task can run in that window, see
-    /// `isScanning == false` over the PREVIOUS results, answer `.outsideScan`, and consume the
-    /// request — so the scan the user's click paid for lands with nobody left to reveal for.
-    /// Comparing roots closes it without touching the scan lifecycle: until a NEW completion
-    /// publishes, `scannedRoot` still equals this snapshot and the request keeps waiting. The two
-    /// can never legitimately be equal afterwards — `scanThenReveal` is chosen exactly when the
-    /// old root does not contain the file, and the started scan's root does.
-    ///
-    /// nil-and-not-applicable for the other two decisions, whose behaviour is unchanged.
+    /// `isScanning` alone can't: the coordinator starts the scan in the same turn it sets this
+    /// request, but the flag flips only on the scan task's first hop, after `restartedScanTask`
+    /// awaits the previous task. The lens's resolve task can run in that gap, see `isScanning ==
+    /// false` over the previous results, answer `.outsideScan` and consume the request, so the scan
+    /// lands with nobody to reveal for. Until a new completion publishes, `scannedRoot` still
+    /// equals this snapshot and the request keeps waiting; afterwards they can't be equal, because
+    /// `scanThenReveal` is chosen only when the old root doesn't contain the file. Nil for the
+    /// other two decisions.
     public let awaitsScanReplacing: ScannedRootSnapshot?
 
-    /// A `String?` that must itself be optional on the request, wrapped so the two layers of
-    /// optionality cannot collapse: "not waiting on a scan" and "waiting, and no scan had ever
-    /// completed" are different facts, and `String??` flattens at every touch point.
+    /// The root, wrapped so the two layers of optionality can't collapse: "not waiting on a scan"
+    /// and "waiting, and no scan had ever completed" are different facts, and `String??` flattens.
     public struct ScannedRootSnapshot: Equatable, Sendable {
         public let root: String?
         public init(root: String?) { self.root = root }
@@ -47,14 +40,13 @@ public struct DuplicateRevealRequest: Equatable, Identifiable, Sendable {
     }
 }
 
-/// What the Duplicates lens does with a `DuplicateRevealRequest`, as pure functions over the
-/// scan state — so the whole handoff is decided somewhere a test can reach, and `LensWorkspaceView` only
-/// applies the answer.
+/// What the Duplicates lens does with a `DuplicateRevealRequest`, as pure functions over the scan
+/// state, so the handoff is decided where a test can reach it and `LensWorkspaceView` only applies
+/// the answer.
 ///
-/// The two halves are separate on purpose. `outcome` asks *what is true* (is the scan still
-/// running, is the file in a group); `plan` says *what to change* about the lens. Keeping them
-/// apart is what lets the "no duplicates of X" case be asserted as a decision rather than inferred
-/// from an empty list — an empty list is exactly what this must never quietly become.
+/// `outcome` asks what is true (is the scan running, is the file in a group); `plan` says what to
+/// change about the lens. Kept apart so "no duplicates of X" is asserted as a decision, never
+/// inferred from an empty list.
 public enum DuplicateReveal {
 
     /// What the current scan state says about the requested file.
@@ -65,8 +57,8 @@ public enum DuplicateReveal {
         case reveal(groupID: UUID)
         /// The scan covered this file and it is in no group. Not an empty list: a named answer.
         case notFound(name: String)
-        /// The results on screen were scanned from somewhere else, so they say NOTHING about this
-        /// file — see `outcome(for:groups:isScanning:scannedRoot:)`.
+        /// The results on screen were scanned from somewhere else, so they say nothing about this
+        /// file; see `outcome(for:groups:isScanning:scannedRoot:)`.
         case outsideScan(name: String)
     }
 
@@ -74,8 +66,8 @@ public enum DuplicateReveal {
     public enum NamedEmptyState: Equatable, Sendable {
         /// The scan looked at this file and found no other copy of it.
         case noDuplicates(name: String)
-        /// The scan never looked at this file. A different claim entirely, and the one that must
-        /// not be collapsed into the other.
+        /// The scan never looked at this file. A different claim, and one that must never be
+        /// collapsed into the other.
         case notScanned(name: String)
 
         public var name: String {
@@ -87,26 +79,22 @@ public enum DuplicateReveal {
 
     /// The outcome for a request against the scan state, or nil when nothing has been asked.
     ///
-    /// **`isScanning` is checked before the group lookup, not after.** The groups array during a
-    /// scan is the PREVIOUS scan's, still on screen (`findDuplicates` publishes results only on
-    /// completion, so a cancelled scan leaves the prior state intact). Looking there first would
-    /// answer from stale results a moment before the real answer arrived.
+    /// `isScanning` is checked before the group lookup: during a scan the groups are the previous
+    /// scan's, still on screen (`findDuplicates` publishes only on completion, so a cancelled scan
+    /// leaves the prior state intact), and looking there first would answer from stale results.
     ///
-    /// **"In no group" is only an ANSWER if the scan looked at the file**, which is what
-    /// `scannedRoot` establishes. Without that check the lens says *No duplicates of “x.txt”* on
-    /// the strength of results that never saw `x.txt` — the most confident possible way to be
-    /// wrong, and precisely the claim this feature exists not to make. Three ways to reach it, all
-    /// real:
+    /// "In no group" is an answer only if the scan looked at the file, which `scannedRoot`
+    /// establishes. Without that check the lens would say *No duplicates of “x.txt”* from results
+    /// that never saw it. Ways to reach that state:
     ///
-    /// - A scan of a *different* folder was already running when the user asked.
-    ///   `DuplicateRevealCoordinator.decide` cannot tell: `duplicateScanRoot` is published on
-    ///   completion, so an in-flight scan has no root to compare against. It waits, and this is
-    ///   the check that makes waiting safe.
-    /// - The user cancelled the scan. `isFindingDuplicates` goes false with the previous scan's
-    ///   results — or none — still on screen.
-    /// - Any future caller that reveals against whatever happens to be loaded.
+    /// - A scan of a different folder was already running when the user asked.
+    ///   `DuplicateRevealCoordinator.decide` can't tell, since `duplicateScanRoot` is published on
+    ///   completion; it waits, and this check makes waiting safe.
+    /// - The user cancelled the scan. `isFindingDuplicates` goes false with the previous results,
+    ///   or none, still on screen.
+    /// - Any future caller that reveals against whatever is loaded.
     ///
-    /// Being IN a group needs no such check: membership is itself proof the file was scanned.
+    /// Being in a group needs no such check: membership proves the file was scanned.
     public static func outcome(
         for request: DuplicateRevealRequest?,
         groups: [DuplicateGroup],
@@ -115,9 +103,8 @@ public enum DuplicateReveal {
     ) -> Outcome? {
         guard let request else { return nil }
         if isScanning { return .waiting }
-        // A request that started its own scan keeps waiting until a NEW completion has published —
-        // `isScanning` alone misses the turn between the coordinator starting the scan and the
-        // scan task's first hop flipping the flag. See `awaitsScanReplacing`.
+        // A request that started its own scan waits until a new completion publishes; `isScanning`
+        // misses the turn before the scan task flips it. See `awaitsScanReplacing`.
         if let snapshot = request.awaitsScanReplacing, scannedRoot == snapshot.root {
             return .waiting
         }
@@ -132,17 +119,15 @@ public enum DuplicateReveal {
 
     /// A named answer on screen, and the query it was written to describe.
     ///
-    /// The query travels with the answer because the answer is only true *of that query's
-    /// results*. Holding it here is what lets `namedAnswer(for:currentQuery:listIsEmpty:)` be a
-    /// pure test of whether the answer still applies, instead of a set of clearing rules spread
-    /// across every place the query can be written.
+    /// The query travels with the answer because the answer is true only of that query's results.
+    /// That lets `namedAnswer(for:currentQuery:listIsEmpty:)` be a pure test of whether it still
+    /// applies, instead of clearing rules spread across every place the query is written.
     public struct Landing: Equatable, Sendable {
         public let state: NamedEmptyState
         public let query: String
-        /// The absolute path of the file the answer is about. The `notScanned` empty state's
-        /// recovery button scans this file's own folder, and by the time it is pressed the request
-        /// that carried the path has been consumed — the landing is what is still on screen, so
-        /// the landing carries the path.
+        /// The absolute path of the file the answer is about. The `notScanned` state's recovery
+        /// button scans this file's folder, and by then the request is consumed, so the landing
+        /// carries it.
         public let path: String
 
         public init(state: NamedEmptyState, query: String, path: String) {
@@ -155,14 +140,11 @@ public enum DuplicateReveal {
     /// Whether a freshly planned landing is worth keeping, given whether the visible list is
     /// empty at the moment it is applied.
     ///
-    /// A landing with a NAMED query shows the moment the plan's query takes effect (or the user
-    /// re-types it), and its claim — "the scan covered this file and found no other copy" — is a
-    /// scan-level fact that stays true however the list changes. An EMPTY-query landing is
-    /// different: it can only ever show when the whole list is empty, so if the list has rows at
-    /// apply time it shows *now or never* — kept, it sits latent until resolving the last group
-    /// empties the list, and then surfaces "«X» wasn't in the last scan" over the all-clear state,
-    /// about a question asked an hour earlier. True, but unasked-for; the all-clear the user just
-    /// earned is the answer they are owed at that point.
+    /// A landing with a named query shows whenever that query is in the field, and its claim (the
+    /// scan covered this file and found no other copy) stays true however the list changes. An
+    /// empty-query landing can show only when the whole list is empty, so if the list has rows at
+    /// apply time it is dropped: kept, it would surface "«X» wasn't in the last scan" over the
+    /// all-clear once the last group is resolved, answering a question asked long before.
     public static func landingToStore(_ landing: Landing?, listIsEmpty: Bool) -> Landing? {
         guard let landing else { return nil }
         guard landing.query.isEmpty else { return landing }
@@ -171,11 +153,10 @@ public enum DuplicateReveal {
 
     /// The named answer to show now, or nil to show the ordinary states.
     ///
-    /// **Declarative, and that is the point.** The answer names one file and describes one query's
-    /// results, so it must disappear the moment either stops being current. Written as clearing
-    /// rules instead, it needs one at every path that can write the field — typing, the ✕, chip
-    /// removal, a scan reset, another handoff — and the chip-removal path was in fact missed. A
-    /// gate cannot be missed: a query the handoff did not write simply is not this query.
+    /// Declarative on purpose. The answer names one file and describes one query's results, so it
+    /// must disappear once either stops being current. Clearing rules would need one at every path
+    /// that writes the field (typing, the ✕, chip removal, a scan reset, another handoff); a gate
+    /// can't be missed, because a query the handoff didn't write is simply not this query.
     public static func namedAnswer(
         for landing: Landing?,
         currentQuery: String,
@@ -189,21 +170,18 @@ public enum DuplicateReveal {
     public struct Plan: Equatable, Sendable {
         /// The group to add to the expanded set, so its copies are on screen.
         public var expandsGroupID: UUID?
-        /// The group to scroll to and mark. Same id as `expandsGroupID` today; separate fields
-        /// because "which row is open" and "which row was I sent to" are different questions, and
-        /// the mark is what makes a reveal into a landing rather than a scroll.
+        /// The group to scroll to and mark. Same id as `expandsGroupID` today; separate because
+        /// "which row is open" and "which row was I sent to" are different questions, and the mark
+        /// is what makes a reveal a landing rather than a scroll.
         public var revealedGroupID: UUID?
-        /// Whether to drop the lens's match-type filter and its parked query.
-        ///
-        /// **A reveal that lands behind a filter has not revealed anything.** The Duplicates lens
-        /// keeps a per-lens query and a match-type filter across workspace switches, deliberately;
-        /// either can hide the group this request names, and the user did not type them in
-        /// response to this question.
+        /// Whether to drop the lens's match-type filter and its parked query. Both survive
+        /// workspace switches, either can hide the group this request names, and the user didn't
+        /// set them in answer to this question; a reveal behind a filter reveals nothing.
         public var clearsFilterAndQuery: Bool = false
         /// What to put in the search field, or nil to leave it alone.
         public var searchQuery: String?
-        /// The named answer to put on screen, with the query it describes. Nil in every other
-        /// outcome, so a stale answer cannot outlive the request that produced it.
+        /// The named answer to put on screen, with the query it describes. Nil for every other
+        /// outcome, so a stale answer can't outlive its request.
         public var landing: Landing?
 
         public init(expandsGroupID: UUID? = nil, revealedGroupID: UUID? = nil,
@@ -219,19 +197,16 @@ public enum DuplicateReveal {
 
     /// What to change about the lens to show `outcome`.
     ///
-    /// `waiting` plans no NAVIGATION — no filter change, no query, no expansion; the results on
-    /// screen during a scan are the previous scan's and are still the truthful thing to show. What
-    /// it does carry is the absence of a landing and of a mark, and applying that clears both,
-    /// because a request that cannot be answered yet names a different file than whatever answer is
-    /// on screen. (A request already answered never reaches here — the caller's applied-id guard
-    /// returns first — so waiting on one's OWN scan does not flicker the answer away.)
+    /// `waiting` plans no navigation: no filter change, query or expansion, since the results on
+    /// screen during a scan are the previous scan's and still the truthful thing to show. Applying
+    /// it clears the landing and the mark, because a request not yet answerable names a different
+    /// file than any answer on screen. A request already answered never reaches here (the caller's
+    /// applied-id guard returns first), so waiting on its own scan doesn't flicker the answer away.
     ///
-    /// That clearing used to be hand-written in `LensWorkspaceView.applyRevealRequest` alongside an early
-    /// return, which made this branch unreachable and left this doc describing behaviour that never
-    /// ran. Every outcome now goes through the same apply; only whether the request is RECORDED as
-    /// applied differs, which is the caller's bookkeeping rather than a decision about the lens.
-    /// `path` is the request's file — the landings carry it so the `notScanned` recovery button
-    /// can still name a folder to scan after the request itself has been consumed.
+    /// Every outcome goes through the same apply; only whether the request is recorded as applied
+    /// differs, and that is the caller's bookkeeping. `path` is the request's file, carried by the
+    /// landings so the `notScanned` recovery button can name a folder after the request is
+    /// consumed.
     public static func plan(for outcome: Outcome, path: String) -> Plan {
         switch outcome {
         case .waiting:
@@ -240,19 +215,17 @@ public enum DuplicateReveal {
             return Plan(expandsGroupID: groupID, revealedGroupID: groupID,
                         clearsFilterAndQuery: true, searchQuery: "")
         case .notFound(let name):
-            // The field is filled with the file's name rather than left empty: the answer is about
-            // one file, and a list of every other group with the query blank would read as though
-            // the question had been dropped. What comes back is either nothing — the named empty
-            // state below — or the groups that genuinely share that name, under a query the user
-            // can see and clear.
+            // The field gets the file's name, not blank: the answer is about one file, and every
+            // other group under a blank query would read as though the question was dropped. What
+            // comes back is the named empty state, or the groups that really share that name under
+            // a visible query.
             return Plan(clearsFilterAndQuery: true, searchQuery: name,
                         landing: Landing(state: .noDuplicates(name: name), query: name, path: path))
         case .outsideScan(let name):
-            // The query is CLEARED here, not filled with the name. Filtering results that never
-            // covered this file by its name would surface whatever else happens to share it, under
-            // a question about a file the scan never saw — dressing a non-answer up as one. The
-            // real results are shown instead, and the named state below explains why they do not
-            // answer the question when the list turns out to be empty.
+            // The query is cleared, not filled with the name: filtering results that never covered
+            // this file by its name would pass off whatever else shares it as an answer. The real
+            // results show instead, and the named state explains why they don't answer when the
+            // list is empty.
             return Plan(clearsFilterAndQuery: true, searchQuery: "",
                         landing: Landing(state: .notScanned(name: name), query: "", path: path))
         }

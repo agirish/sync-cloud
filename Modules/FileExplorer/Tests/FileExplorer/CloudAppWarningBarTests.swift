@@ -3,8 +3,8 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// **The pane bar's words and button** (RD68). The not-running sentence is the approved design's,
-/// word for word; the button is the one thing that fixes the state, or none.
+/// The pane bar's words and button. The not-running sentence is the approved design's, word for
+/// word; the button is the one thing that fixes the state, or none.
 @Suite struct CloudAppWarningBarTests {
 
     @Test func notRunningSaysTheApprovedSentenceAndOffersToOpenTheApp() {
@@ -31,8 +31,8 @@ import Sync
         #expect(CloudAppWarningBar.action(for: problem, canOpen: { _ in true }) == .show(["/a", "/b", "/c"]))
     }
 
-    /// **One line, not a card** (TE236): the short form says what is wrong and what it means; the
-    /// approved sentence above is its tooltip.
+    /// One line, not a card: the short form says what is wrong and what it means; the approved
+    /// sentence above is its tooltip.
     @Test func theLineIsTheShortForm() {
         let line = CloudAppWarningBar.line(for: .notRunning(.dropbox), sourceName: "Dropbox", now: Date())
         #expect(line.lead + line.rest == "Dropbox isn’t running · files may be out of date")

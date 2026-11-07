@@ -4,8 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.4's mapping editor, made navigable: how many rows are mapped, a filter past a dozen, and
-/// near-identical names sorted adjacent (proposal O8).
+/// The plan sheet's mapping editor, made navigable: how many rows are mapped, a filter past a
+/// dozen, and near-identical names sorted adjacent.
 @MainActor
 @Suite struct RestructureMappingEditorTests {
 
@@ -15,8 +15,8 @@ import Testing
 
     // MARK: The count
 
-    /// Keep is the default, so "9 of 24" is the difference between a plan half-made and one
-    /// deliberately left mostly alone — and a row mapped to its OWN name changed nothing.
+    /// Keep is the default, so "9 of 24" tells a half-made plan from one left mostly alone on
+    /// purpose; a row mapped to its own name changes nothing and isn't counted.
     @Test func theCountCountsRowsThatWouldChangeSomething() {
         var rows = Self.rows(["A", "B", "C"])
         #expect(RestructurePlanSheet.mappedCount(rows).hasPrefix("0 of 3"))
@@ -39,8 +39,8 @@ import Testing
         #expect(key("DS-160 Form") == key("DS 160 Form"))
     }
 
-    /// And the discriminating direction — genuinely different names must NOT collapse, or the
-    /// editor would sort unrelated rows together and claim they are the same name.
+    /// And the other direction: different names must not collapse, or the editor would sort
+    /// unrelated rows together as one name.
     @Test func genuinelyDifferentNamesDoNot() {
         let key = RestructurePlanSheet.similarKey
         #expect(key("Payments") != key("Statements"))
@@ -51,8 +51,8 @@ import Testing
 
     // MARK: Adjacency
 
-    /// Similar rows become neighbours; everything else keeps the disk's own order, so the list
-    /// does not otherwise rearrange itself under the reader.
+    /// Similar rows become neighbours; everything else keeps the disk's order, so the list doesn't
+    /// otherwise rearrange itself under the reader.
     @Test func similarRowsAreSortedAdjacentAndNothingElseMoves() {
         let ordered = RestructurePlanSheet.adjacentOrder(
             Self.rows(["Payment", "Receipts", "Payments", "Statements", "Receipt"]))
@@ -67,10 +67,9 @@ import Testing
         #expect(!RestructurePlanSheet.hasSimilarNeighbour(rows[2], in: rows))
     }
 
-    /// **The whole-list form and the per-row rule are the SAME rule.** The editor drew the link
-    /// marker by asking the per-row question once per row — O(rows²) similar-key reductions per
-    /// render, per keystroke in the filter — and now asks once for the list. If the two ever
-    /// answered differently, the marker would be claiming an adjacency the sort did not make.
+    /// The whole-list form and the per-row rule are the same rule. The editor asks once for the
+    /// list, not once per row (O(rows²) per keystroke); if the two disagreed, the link marker
+    /// would claim an adjacency the sort didn't make.
     @Test func theWholeListNeighbourSetAgreesWithThePerRowRule() {
         let names = ["Payment", "Payments", "Statements", "Form W-2", "Form W2", "Receipts",
                      "Bus", "Bu", "Taxes", "Tax"]
@@ -81,10 +80,9 @@ import Testing
                         == RestructurePlanSheet.hasSimilarNeighbour(row, in: rows),
                     "\(row.source): the list form and the per-row rule disagree")
         }
-        // And the answers themselves — an agreement between two functions that are both wrong is
-        // still an agreement. Two pairs the plural fold deliberately does NOT make are in the
-        // fixture: `Bus`/`Bu` (the fold needs a real stem left, so `Bus` does not become `Bu`)
-        // and `Taxes`/`Tax` (`tax` is under the four-character bar, so nothing folds).
+        // And the answers themselves, since two wrong functions can still agree. The fixture holds
+        // two pairs the plural fold doesn't make: `Bus`/`Bu` (the fold needs a real stem left) and
+        // `Taxes`/`Tax` (`tax` is under the four-character bar).
         #expect(set == ["Payment", "Payments", "Form W-2", "Form W2"])
     }
 
@@ -95,13 +93,10 @@ import Testing
 
     // MARK: The merge margin
 
-    /// **"merges into Forms in 3 members", derived once for the plan rather than once per row.**
-    ///
-    /// The margin used to walk every action in the manifest to answer for one row — the whole
-    /// manifest re-scanned per visible row per render. The table is built in one pass, and these
-    /// are the shapes that pass has to get right: the member is the FIRST path component under
-    /// the family and the source name the second, a `move-dir` counts as well as a `move-file`,
-    /// and one source merging in three members counts three, not three files.
+    /// "merges into Forms in 3 members", derived in one pass for the plan rather than per row.
+    /// The pass must get these right: the member is the first path component under the family and
+    /// the source name the second, a `move-dir` counts as well as a `move-file`, and one source
+    /// merging in three members counts three members, not its files.
     @Test func theMergeMarginTableCountsMembersNotFiles() {
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shape,
@@ -111,7 +106,7 @@ import Testing
                 .init(action: .moveFile, src: "F/2014/State Tax/c.pdf", dst: "F/2014/Forms/c.pdf"),
                 .init(action: .moveDir, src: "F/2015/State Tax/Sub", dst: "F/2015/Forms/Sub"),
                 .init(action: .moveFile, src: "F/2013/Payments/d.pdf", dst: "F/2013/Forms/d.pdf"),
-                // Not under the family, and a rename — neither is a merge.
+                // Not under the family, and a rename: neither is a merge.
                 .init(action: .moveFile, src: "Other/2013/State Tax/e.pdf", dst: "X/e.pdf"),
                 .init(action: .renameDir, src: "F/2016/State Tax", dst: "F/2016/Forms"),
                 // One component deep: no member/source pair to read.
@@ -138,15 +133,15 @@ import Testing
 
     // MARK: The filter
 
-    /// It narrows by the same key the sorting uses, so typing `w2` finds `Form W-2` — the pair
-    /// the editor exists to reconcile is exactly the one a literal search would miss.
+    /// It narrows by the same key the sorting uses, so `w2` finds `Form W-2`: the pairs the editor
+    /// reconciles are the ones a literal search would miss.
     @Test func theFilterMatchesAcrossPunctuationAndCase() {
         #expect(RestructurePlanSheet.matches("Form W-2", filter: "w2"))
         #expect(RestructurePlanSheet.matches("Form W-2", filter: "FORM"))
         #expect(!RestructurePlanSheet.matches("Statements", filter: "w2"))
     }
 
-    /// An empty filter shows everything — including while it is being typed and cleared.
+    /// An empty filter shows everything, including while it is being typed and cleared.
     @Test func anEmptyFilterHidesNothing() {
         #expect(RestructurePlanSheet.matches("anything", filter: ""))
         #expect(RestructurePlanSheet.matches("anything", filter: "   "))
@@ -154,9 +149,9 @@ import Testing
                 "punctuation alone reduces to nothing and must not hide every row")
     }
 
-    /// **The filter narrows the VIEW, never the plan.** `rows` stays canonical and complete, so
-    /// the derived manifest is identical with a filter active — a filter that changed what
-    /// Apply does would be the worst defect this feature could have.
+    /// The filter narrows the view, never the plan. `rows` stays canonical and complete, so the
+    /// derived manifest is the same with a filter active; a filter that changed what Apply does
+    /// would be the worst defect this feature could have.
     @Test func theFilterCannotReachTheDerivedManifest() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -165,13 +160,11 @@ import Testing
         let text = try String(contentsOf: source, encoding: .utf8)
         // The derivation reads `rows` whole...
         #expect(text.contains("mapping: RestructureMapping(rows: rows)"))
-        // ...and the filter is applied only where rows are RENDERED.
+        // ...and the filter is applied only where rows are rendered.
         #expect(text.contains("if Self.matches(row.source, filter: filterText)"),
                 "the filter is applied at the row, in the list")
-        // **The derivation's own body, read directly.** The previous form of this test compared
-        // two file offsets with an `||`, and because the render use genuinely does sit earlier in
-        // the file its first disjunct was always true — the half that checked anything never ran.
-        // Slicing the property's body and looking inside it has no such escape.
+        // The derivation's own body, sliced and read directly, rather than comparing file
+        // offsets, which the render use sitting earlier in the file would satisfy.
         let derived = try #require(text.range(of: "private var derived:"))
         let afterDerived = text[derived.upperBound...]
         let bodyEnd = try #require(afterDerived.range(of: "\n    }\n"))
@@ -181,10 +174,9 @@ import Testing
                 "the derivation must not consult the filter — Apply does not narrow with the view")
     }
 
-    /// **The filter narrows what the list draws** — checked at the rule, because the sheet's
-    /// `filterText` is `@State` with no way in, so a render test naming two states could only
-    /// ever produce one. The previous version of this did exactly that, and `matches` returning
-    /// `true` unconditionally survived it.
+    /// The filter narrows what the list draws, checked at the rule: the sheet's `filterText` is
+    /// `@State` with no way in, so a render test could only produce one state. `matches` returning
+    /// `true` unconditionally must fail this.
     @Test func theFilterHidesTheRowsItDoesNotMatch() {
         let rows = ["Payment", "Payments", "Transcripts", "Form W-2"]
         #expect(rows.filter { RestructurePlanSheet.matches($0, filter: "pay") }
@@ -213,8 +205,7 @@ import Testing
             finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
             profileId: "p", accent: .blue,
             onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 700))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }

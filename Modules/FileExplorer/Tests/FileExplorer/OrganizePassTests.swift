@@ -4,11 +4,9 @@ import SwiftUI
 
 /// The scans the overview is allowed to offer.
 ///
-/// **The screen this replaces offered five and there are three**, which is the defect worth
-/// pinning: its footer drew a `Scan…` per unscanned lens, so "To File", "Names" and "Renames" read
-/// as three pieces of work you could pick between when one walk publishes all three. Nothing in the
-/// old code was wrong about any single line — each said something true about its own lens — and the
-/// screen as a whole described a machine that does not exist.
+/// There are three passes, and the overview offers each once. A `Scan…` per unscanned lens would
+/// make "To File" and "Renames" read as separate pieces of work when one walk publishes both, each
+/// line true about its lens and the screen describing a machine that doesn't exist.
 ///
 /// These are pure: no render, no manager, no defaults.
 @MainActor
@@ -16,12 +14,10 @@ import SwiftUI
 
     // MARK: The mapping, from both directions
 
-    /// Every lens that can report has a pass, and Rules does not.
-    ///
-    /// The `carriesBadge` pairing is the load-bearing half. Rules is excluded from passes for the
-    /// same reason it carries no badge and takes no overview section — it is configuration, not a
-    /// result — so if a later change gives it a scan, three places have to move together and this
-    /// is the one that says so.
+    /// Every lens that can report has exactly one pass, and the badgeless ones have none. Rules has
+    /// no pass for the reason it carries no badge and takes no overview section: it is
+    /// configuration, not a result. Giving it a scan means moving all three together, and this says
+    /// so.
     @Test func everyReportingLensHasExactlyOnePassAndRulesHasNone() {
         for lens in OrganizeLens.allCases {
             let passes = OrganizePass.allCases.filter { $0.lenses.contains(lens) }
@@ -34,11 +30,9 @@ import SwiftUI
         }
     }
 
-    /// `init(producing:)` is the inverse of `lenses`, over every case.
-    ///
-    /// Two tables that must agree, asserted rather than assumed — the failure mode if they drift is
-    /// silent: a lens missing from every pass simply never gets offered a scan, which on screen
-    /// looks exactly like a lens that has already run.
+    /// `init(producing:)` is the inverse of `lenses`, over every case. If the two tables drift, a
+    /// lens missing from every pass is never offered a scan, which looks exactly like a lens that
+    /// has run.
     @Test func producingIsTheInverseOfLenses() {
         for pass in OrganizePass.allCases {
             for lens in pass.lenses {
@@ -49,13 +43,9 @@ import SwiftUI
         #expect(OrganizePass(producing: .rules) == nil)
     }
 
-    /// The file pass answers **two** lenses, and that is the whole point of the type.
-    ///
-    /// Pinned as a literal rather than derived, because the number is the claim: `FileSyncManager`
-    /// publishes the filing queue and the rename backlog — risky names included, as that backlog's
-    /// to-fix rows — from one walk, and an offer that promised fewer would be the old footer's
-    /// mistake told the other way round. (The prose said "three" while the assertion said two, from
-    /// back when risky names were a lens rather than rows inside Renames.)
+    /// The file pass answers two lenses, which is the point of the type. A literal, because the
+    /// number is the claim: `FileSyncManager` publishes the filing queue and the rename backlog
+    /// (risky names included, as its to-fix rows) from one walk.
     @Test func theFilePassAnswersBothOfItsLenses() {
         #expect(OrganizePass.file.lenses == [.toFile, .renames])
         #expect(OrganizePass.duplicates.lenses == [.duplicates])
@@ -73,13 +63,9 @@ import SwiftUI
         }
     }
 
-    /// **A card names only lenses you can go to.** Every lens is one now, and that is the point:
-    /// this assertion would have failed for the whole of P10, when `lenses` correctly named the
-    /// folded Names case — a lens with no rail item and no overview section — and the card listed
-    /// it as a destination anyway.
-    ///
-    /// Derived from `railItems` rather than written out, so folding a lens again without giving
-    /// this card a presentation list of its own fails here rather than on screen.
+    /// A card names only lenses you can go to. Derived from `railItems` rather than written out, so
+    /// folding a lens without giving this card a presentation list of its own fails here rather
+    /// than on screen.
     @Test func aPassCardListsOnlyLensesThatHaveAPlaceToGo() {
         for pass in OrganizePass.allCases {
             #expect(pass.lenses.allSatisfy { OrganizeLens.railItems.contains($0) },
@@ -92,13 +78,9 @@ import SwiftUI
 
     // MARK: The words on the offer
 
-    /// **The file card's lede counts the rows underneath it**, and this is what keeps the two
-    /// honest.
-    ///
-    /// It read "One walk of the tree answers all three" while the card had already stopped drawing
-    /// three rows — the sentence went on asserting the shape of a list that had changed under it,
-    /// which is the exact failure a literal count invites. Asserted against ``OrganizePass/lenses``
-    /// so a third row fails here rather than shipping a card that miscounts itself.
+    /// The file card's lede counts the rows underneath it. Asserted against
+    /// ``OrganizePass/lenses``, so a change in the row count fails here rather than shipping a card
+    /// that miscounts itself.
     @Test func theFileCardLedeCountsTheRows() {
         let lede = OrganizePass.file.offerLede
         let n = OrganizePass.file.lenses.count
@@ -114,12 +96,10 @@ import SwiftUI
         }
     }
 
-    /// Every pass states a cost, and the file pass's says it is free.
-    ///
-    /// **Not decoration.** The lens this offer leads to contains the one control in Organize that
-    /// spends money, and `LensWorkspaceView.refineButton` is explicit that "the scan that produced these
-    /// rows was free and on-device". A card that left the cost unsaid invites the opposite
-    /// assumption about the button directly above it.
+    /// Every pass states a cost, and the file pass's says it is free. The lens this offer leads to
+    /// holds the one control in Organize that spends money, and `LensWorkspaceView.refineButton`
+    /// says the scan was free and on-device; a card that left the cost unsaid would invite the
+    /// opposite assumption.
     @Test func everyPassStatesACostAndTheFilePassIsFree() {
         for pass in OrganizePass.allCases {
             #expect(!pass.offerCost.isEmpty)
@@ -130,10 +110,9 @@ import SwiftUI
         #expect(OrganizePass.duplicates.offerCost.lowercased().contains("free"))
     }
 
-    /// The run buttons stand on their own.
-    ///
-    /// A button is its own accessibility element, so a label that only parses beside the heading
-    /// above it ("Run it") is read out as nothing useful. Each names its pass.
+    /// The run buttons stand on their own: a button is its own accessibility element, so a label
+    /// that only parses beside its heading ("Run it") reads out as nothing useful. Each names its
+    /// pass.
     @Test func runTitlesAreSelfStanding() {
         for pass in OrganizePass.allCases {
             #expect(pass.runTitle.split(separator: " ").count >= 2,
@@ -142,8 +121,8 @@ import SwiftUI
         #expect(OrganizePass.file.runTitle == "Run the File Pass")
     }
 
-    /// No glyph draws digits beside a count — the same deny-list `OrganizeLens.symbol` carries,
-    /// which caught `textformat.123` rendering as the literal "123" next to a number.
+    /// No glyph draws digits beside a count, the rule `OrganizeLens.symbol` follows too:
+    /// `textformat.123` renders as a literal "123" next to a number.
     @Test func noPassGlyphDrawsDigits() {
         for pass in OrganizePass.allCases {
             let hasDigit = pass.symbol.contains { $0.isNumber }
@@ -153,11 +132,9 @@ import SwiftUI
 
     // MARK: Re-running a pass whose answer is already on screen
 
-    /// Only a pass answering **one** lens can be re-run from that lens's row.
-    ///
-    /// The file pass answers three, so a rescan on each of their rows would be three controls
-    /// running one identical walk — the defect this whole type exists to remove, rebuilt on the
-    /// other side of the screen. Its rescan stays on row 2, where one control speaks for the walk.
+    /// Only a pass answering one lens can be re-run from that lens's row. The file pass answers
+    /// two, so a rescan on each row would be two controls running one walk. Its rescan stays on row
+    /// 2, where one control speaks for the walk.
     @Test func onlySingleLensPassesCanBeRerunFromARow() {
         #expect(OrganizePass.duplicates.answersOneLens)
         #expect(OrganizePass.folderMemory.answersOneLens)
@@ -165,17 +142,9 @@ import SwiftUI
                 "the file pass would put an identical Rescan on three rows")
     }
 
-    /// The rule is a property of the **pass**, not of how much happens to be reporting.
-    ///
-    /// The permissive alternative — "offer it when this row is the pass's only reporting voice" —
-    /// makes the button appear and vanish as lenses start and stop reporting, so which control sits
-    /// under the cursor depends on the tree's contents.
-    ///
-    /// **The first version of this test was vacuous** and review caught it: it bound a loop
-    /// variable of reporting sets, discarded it with `_ =`, and then asserted `answersOneLens`
-    /// three times over. It compared the model to itself and would have passed against the
-    /// permissive rule it exists to reject. This one varies the data and asks the view which rows
-    /// actually carry the control.
+    /// The rule is a property of the pass, not of how much is reporting. "Offer it when this row is
+    /// the pass's only reporting voice" would make the button appear and vanish as lenses start and
+    /// stop reporting. This varies the data and asks the view which rows carry the control.
     @Test func theRescanRuleDoesNotMoveWithTheData() {
         let configurations: [[OrganizeLens]] = [
             [.duplicates],
@@ -196,8 +165,8 @@ import SwiftUI
                 "which rows offer a rescan moved with the data: \(answers)")
     }
 
-    /// To File never carries one however it is arranged — the file pass answers three lenses, and
-    /// three buttons running one walk is the defect this whole type removes.
+    /// No file-pass lens carries one, however it is arranged: the file pass answers two lenses, and
+    /// two buttons running one walk is what this type exists to prevent.
     @Test func aFilePassLensNeverOffersItsOwnRescan() {
         for lens in OrganizePass.file.lenses {
             let subject = overview([section(lens, .findings(count: 3, headline: "3", examples: []))])
@@ -218,7 +187,7 @@ import SwiftUI
         #expect(!subject.offersRescan(for: busy))
     }
 
-    /// A lens with no answer yet is offered its pass as a **card**, never as a row rescan — the two
+    /// A lens with no answer yet is offered its pass as a card, never as a row rescan — the two
     /// controls say different things and must not both appear for one lens.
     @Test func anUnansweredRowOffersNoRescan() {
         let subject = overview([section(.duplicates, .notScanned)])
@@ -233,10 +202,9 @@ import SwiftUI
         #expect(!overview([answered], runnable: [.file]).offersRescan(for: answered))
     }
 
-    /// Restructure's refresh is **not** called a rescan, because it runs no scan.
-    ///
-    /// It reads the folder survey; the honest verb is the survey's own, and it is the same wording
-    /// the Rescan menu already uses for the same action so the two cannot read as two features.
+    /// Restructure's refresh is not called a rescan, because it runs no scan: it reads the folder
+    /// survey. The verb matches the Rescan menu's for the same action, so the two can't read as two
+    /// features.
     @Test func restructureRefreshesBySurveyingNotScanning() {
         #expect(OrganizePass.folderMemory.rescanTitle == "Refresh")
         #expect(OrganizePass.duplicates.rescanTitle == "Rescan")
@@ -247,21 +215,15 @@ import SwiftUI
     @Test func theRescanControlNamesItsLens() {
         #expect(OrganizePass.duplicates.rescanAccessibilityLabel(for: .duplicates)
                 == "Rescan Duplicates")
-        // A bare verb, so the lens IS appended — which is the whole point of the rule, and what
-        // a `== "Rescan"` literal would have missed the moment a second short verb arrived.
+        // A bare verb, so the lens is appended; a `== "Rescan"` check alone would miss a second
+        // short verb.
         #expect(OrganizePass.folderMemory.rescanAccessibilityLabel(for: .restructure)
                 == "Refresh Restructure")
     }
 
-    /// The Rescan menu's item keeps its object, where the card's button drops it.
-    ///
-    /// **The rename that produced "Refresh" had nothing pinning the menu.** Every suite stayed
-    /// green with the menu carrying any string at all, so the one place the object still has to
-    /// survive — a row beside "Ignore saved suggestions", with no card title above it to supply
-    /// the noun — was the one place the rename could have quietly turned into a bare verb.
-    ///
-    /// A source scan, because `Menu` content is not built until the menu is opened: a mounted
-    /// header renders nothing here to assert against.
+    /// The Rescan menu's item keeps its object, where the card's button drops it: beside "Ignore
+    /// saved suggestions" there is no card title to supply the noun, so a bare verb would say
+    /// nothing. A source scan, because `Menu` content isn't built until the menu opens.
     @Test func theRescanMenuItemKeepsItsObject() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()                   // …/Tests/FileExplorer
@@ -293,8 +255,7 @@ import SwiftUI
                          runnablePasses: runnable, onOpen: { _ in }, onRun: { _ in })
     }
 
-    /// The screenshot's state: duplicates and restructure answered, the file pass never run.
-    /// **One offer, not one per lens** — the defect this whole type exists to prevent.
+    /// Duplicates and Restructure answered, the file pass never run: one offer, not one per lens.
     @Test func theUnscannedFileLensesProduceOneOffer() {
         let subject = overview([
             section(.toFile, .notScanned),
@@ -305,11 +266,9 @@ import SwiftUI
         #expect(subject.pendingPasses == [.file])
     }
 
-    /// A pass is offered only when running it would change **every** lens behind it.
-    ///
-    /// The `allSatisfy` half of the rule, and the direction that cannot arise today: one flag
-    /// publishes both of the file pass's. Asserted anyway, because a card headed "hasn't run here"
-    /// over a lens holding an answer would be false about the lens it names.
+    /// A pass is offered only when running it would change every lens behind it. One flag publishes
+    /// both of the file pass's today, so this can't arise yet; asserted anyway, because a card
+    /// headed "hasn't run here" over a lens holding an answer would be false.
     @Test func aPartlyAnsweredPassIsNotOffered() {
         let subject = overview([
             section(.toFile, .findings(count: 4, headline: "4 files", examples: [])),
@@ -327,9 +286,8 @@ import SwiftUI
         #expect(subject.pendingPasses == [.file, .duplicates, .folderMemory])
     }
 
-    /// A clean lens is **not** an offer. `clean` and `notScanned` are the distinction this whole
-    /// screen is careful about, and collapsing them here would put "hasn't run here" over a check
-    /// that ran and came back empty.
+    /// A clean lens is not an offer: collapsing `clean` and `notScanned` would put "hasn't run
+    /// here" over a check that ran and came back empty.
     @Test func aCleanLensIsNotOffered() {
         let subject = overview([
             section(.toFile, .clean), section(.renames, .clean),
@@ -341,12 +299,9 @@ import SwiftUI
 
     // MARK: A pass is never offered without a way to run it
 
-    /// **No card is ever drawn for a pass this host cannot start.**
-    ///
-    /// The regression review found: the folder-memory card appears when there is no profile, and
-    /// `ContentView` withholds `onUpdateFolderMemory` in exactly that state — so every machine that
-    /// has never been surveyed carried a permanent card offering a scan that
-    /// `resurveyFilingMemory` returns early from anyway.
+    /// No card is ever drawn for a pass this host can't start. With no profile, `ContentView`
+    /// withholds `onUpdateFolderMemory`, so a never-surveyed machine would otherwise carry a
+    /// permanent folder-memory card offering a scan `resurveyFilingMemory` returns early from.
     @Test func noPassIsOfferedWithoutAWayToRunIt() {
         let nothingScanned = OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, .notScanned)
@@ -356,15 +311,14 @@ import SwiftUI
             let offered = Set(overview(nothingScanned, runnable: runnable).pendingPasses)
             #expect(offered.isSubset(of: runnable),
                     "offered \(offered) with only \(runnable) runnable")
-            // **A subset assertion passes on an empty set**, so it would survive `pendingPasses`
-            // breaking entirely. This is the half that proves the offers are still being made.
+            // A subset assertion passes on an empty set, so it would survive `pendingPasses`
+            // breaking entirely. This half proves the offers are still being made.
             #expect(offered == runnable,
                     "with nothing scanned, every runnable pass should be offered: \(offered)")
         }
     }
 
-    /// …and the lens does not lose its report as a result: it falls back to the quiet footer line,
-    /// which is what the screen showed before the card existed.
+    /// …and the lens doesn't lose its report as a result: it falls back to the quiet footer line.
     @Test func anUnrunnablePassStillReportsThatItHasNotRun() {
         let subject = overview(OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, $0 == .restructure ? .notScanned : .clean)
@@ -374,27 +328,14 @@ import SwiftUI
                 "the unrunnable lens stopped saying it had not run")
     }
 
-    /// **One offer per pass, even in the footer.**
+    /// One offer per pass, even in the footer: written per row, it could put two identical "Run the
+    /// file pass" buttons on two stranded lenses of one walk. This asks
+    /// ``OrganizeOverview/offersPassRun(for:)``, the expression the footer branches on.
     ///
-    /// Written per row, the footer could put two identical "Run the file pass" buttons on two
-    /// stranded lenses of one walk — the defect this screen replaced, rebuilt inside its
-    /// replacement. Not reachable from today's flags, which is exactly why it needs a test rather
-    /// than a comment.
-    /// **The first version of this could not fail**, and review caught it by deleting the dedupe
-    /// from the view and watching all 29 tests stay green. It counted rows equal to
-    /// `firstStrandedLens(of:)` — a single optional — so the count it asserted was `1` could only
-    /// ever be 0 or 1, and it branched on its own restatement of the rule rather than on the
-    /// footer's condition. This one asks ``OrganizeOverview/offersPassRun(for:)``, which is the
-    /// expression the footer itself branches on.
-    ///
-    /// **The state it is asserted over changed when Names was retired.** The file pass had three
-    /// lenses, one of which could be answered while the other two stranded — two rows of one walk,
-    /// with the pass still runnable. With two lenses left, either both are unscanned (so the pass
-    /// is `pending` and takes a card, stranding nothing) or one has answered (so exactly one row
-    /// can strand). The remaining way to strand both is a pass this host cannot start, which is the
-    /// folder-memory-without-a-profile case generalised — and there the footer must offer nothing
-    /// at all, because `offersPassRun` requires runnability. That is what is pinned here; the
-    /// at-most-once rule itself is pinned over every pass by the test below.
+    /// With two file-pass lenses, either both are unscanned (the pass is pending and takes a card)
+    /// or one has answered (one row strands). Both strand only when the host can't start the pass,
+    /// and then the footer must offer nothing, because `offersPassRun` requires runnability. The
+    /// at-most-once rule is pinned over every pass by the test below.
     @Test func anUnrunnablePassStrandsItsLensesAndOffersNoRun() {
         let subject = overview([section(.toFile, .notScanned),
                                 section(.duplicates, .clean),
@@ -405,8 +346,8 @@ import SwiftUI
         let offers = subject.sections.filter { subject.offersPassRun(for: $0) }
         #expect(offers.isEmpty,
                 "the footer offered to run a pass this host cannot start: \(offers.map(\.lens.title))")
-        // Non-vacuity: the same fixture with the pass runnable offers it — so the emptiness above
-        // is the runnability gate and not a fixture that produces no rows at all.
+        // Non-vacuity: the same fixture with the pass runnable offers it, so the emptiness above is
+        // the runnability gate and not a fixture that produces no rows at all.
         let runnable = overview([section(.toFile, .notScanned),
                                  section(.duplicates, .clean),
                                  section(.renames, .notScanned)])
@@ -419,17 +360,13 @@ import SwiftUI
     /// The same rule stated over every pass at once, so a second pass stranding two lenses cannot
     /// slip through a fixture built around the file pass alone.
     @Test func noPassIsEverOfferedTwiceInTheFooter() {
-        // **The fixture has to reach the rule.** This was built with `runnable: []`, which makes
-        // `offersPassRun` return false at its guard for every section — so `offers.count <= 1` held
-        // at zero, by construction, and the dedupe the test names was never executed. A rule
-        // asserted over an empty set is the same shape as the one `offersPassRun` was extracted to
-        // replace.
+        // The fixture has to reach the rule: with `runnable: []`, `offersPassRun` returns false at
+        // its guard for every section and `offers.count <= 1` holds at zero by construction.
         //
-        // The file pass is the only one that answers two lenses, so it is the only pass that can
-        // strand more than one row — and it strands rather than takes a card when SOME of its
-        // lenses have answered, which is what puts it in the footer at all. Duplicates and
-        // Restructure are left unscanned WITH their passes runnable, so they take cards and drop
-        // out of `strandedUnscanned`, which is what makes this a fixture about the file pass.
+        // The file pass is the only one that answers two lenses, so the only one that can strand
+        // more than one row, and it strands rather than takes a card when some of its lenses have
+        // answered. Duplicates and Restructure are left unscanned with their passes runnable, so
+        // they take cards and drop out of `strandedUnscanned`.
         let subject = overview([
             section(.toFile, .findings(count: 12, headline: "12 files", examples: ["a"])),
             section(.renames, .notScanned),
@@ -445,15 +382,11 @@ import SwiftUI
             #expect(offers.count <= 1, "\(pass.rawValue) offered \(offers.count) times")
             total += offers.count
         }
-        // **What this can and cannot catch, measured rather than assumed.** `offersPassRun`
-        // returning true unconditionally IS caught: both of the file pass's lenses are in the
-        // fixture, so the count goes to 2. Replacing `firstStrandedLens(of:) == section.lens` with
-        // a plain "is this lens stranded" — the dedupe itself — is NOT, and no fixture can catch it
-        // here, because two lenses of one pass cannot strand while that pass is runnable: with both
-        // unscanned the pass enters `pendingPasses` and takes a card instead, and with the pass not
-        // runnable the guard above returns false for both. That is the "which the flags cannot
-        // produce today but which the shape of the rule allows" case `strandedUnscanned` documents.
-        // The loop is kept as the statement of the rule; the two expectations below are the
+        // `offersPassRun` returning true unconditionally is caught: both file-pass lenses are in
+        // the fixture, so the count goes to 2. Replacing `firstStrandedLens(of:) == section.lens`
+        // with "is this lens stranded" (the dedupe itself) can't be caught here: two lenses of one
+        // pass can't strand while that pass is runnable (both unscanned take a card; not runnable,
+        // the guard returns false). The loop states the rule; the two expectations below are the
         // falsifiable part.
         #expect(total == 1,
                 "the footer made \(total) run offers — with the file pass half-answered it should make exactly one, and a zero here means the loop above asserted nothing")
@@ -461,26 +394,24 @@ import SwiftUI
                 "the stranded rename lens is the row that carries the file pass's offer")
     }
 
-    /// A stranded lens whose pass this host cannot run says so and offers nothing — the quiet line
-    /// on its own, which is the state a machine with no filing profile lands in.
+    /// A stranded lens whose pass this host can't run says so and offers nothing: the quiet line on
+    /// its own, as on a machine with no filing profile.
     @Test func aStrandedLensWithNoRunnablePassOffersNothing() {
         let subject = overview([section(.restructure, .notScanned)], runnable: [.file, .duplicates])
         #expect(subject.strandedUnscanned.map(\.lens) == [.restructure])
         #expect(!subject.offersPassRun(for: subject.sections[0]))
     }
 
-    /// A lens that has already answered never draws the footer's *run* offer — that control says
-    /// "this has not run", and the row's own Rescan is what an answered lens gets.
+    /// A lens that has already answered never draws the footer's run offer, which says "this has
+    /// not run"; an answered lens gets the row's own Rescan.
     @Test func anAnsweredLensDrawsNoRunOffer() {
         let answered = section(.duplicates, .findings(count: 3, headline: "3", examples: []))
         #expect(!overview([answered]).offersPassRun(for: answered))
     }
 
-    /// The ledger counts a **clean** lens as run.
-    ///
-    /// The commonest way to get this wrong is to count the reporting ones, which would leave a
-    /// fully-scanned clean tree reading "0 of 5 checks have run" — the screen contradicting its own
-    /// "every check that has run came back clean" in the line below.
+    /// The ledger counts a clean lens as run. Counting only the reporting ones would leave a
+    /// fully-scanned clean tree reading "0 of 4 checks have run", contradicting "every check that
+    /// has run came back clean" in the line below.
     @Test func aCleanLensCountsAsRun() {
         let ledger = OrganizeOverview.Ledger.derived(
             from: [section(.toFile, .clean),
@@ -491,22 +422,18 @@ import SwiftUI
         #expect(ledger.checksRun == 2)
     }
 
-    /// The denominator is the lenses that can run — four of the six.
-    ///
-    /// Count them all and a tree where every check has completed reads "4 of 6" forever: a screen
-    /// permanently claiming outstanding work that no button can ever discharge.
+    /// The denominator is the lenses that can run, four of the six. Counting them all, a fully
+    /// checked tree would read "4 of 6" forever, claiming work no button can discharge.
     @Test func theDenominatorExcludesTheLensesThatCannotRun() {
         let ledger = OrganizeOverview.Ledger.derived(from: [],
                                                      runnablePasses: Set(OrganizePass.allCases),
                                                      reclaimable: nil, scopeFolders: nil)
-        // Four. **Two lenses are excluded, not one**, and they are excluded by the same gate:
-        // `countedLenses` keeps only badge-carriers, so Rules (configuration) and Storage (a
-        // report with no verb) both stay out of the meter with no ledger code of their own.
+        // Four: two lenses are excluded by the same gate. `countedLenses` keeps only
+        // badge-carriers, so Rules (configuration) and Storage (a report with no verb) both stay
+        // out of the meter with no ledger code of their own.
         #expect(ledger.checksTotal == 4)
-        // Derived from the badge rule rather than from `railItems.count - 1`. The subtraction was
-        // an arithmetic way of saying "there is exactly one exemption", which stopped being true
-        // the day Storage folded in — and would have gone on reading as arithmetic rather than as
-        // the claim it was. State the rule; let the count follow it.
+        // Derived from the badge rule, not from arithmetic on `railItems.count`: state the rule and
+        // let the count follow it.
         #expect(ledger.checksTotal == OrganizeLens.railItems.filter(\.carriesBadge).count)
         #expect(OrganizeLens.railItems.filter { !$0.carriesBadge } == [.rules, .storage],
                 "a third lens stopped carrying a badge — it has silently left this denominator too, so decide deliberately whether the meter should still be counting it")
@@ -521,8 +448,8 @@ import SwiftUI
         #expect(ledger.checksRun == ledger.checksTotal)
     }
 
-    /// The strip stays away when it would say nothing — nothing run, no profile, nothing to
-    /// reclaim. "0 of 5" over an empty pane is chrome.
+    /// The strip stays away when it would say nothing: nothing run, no profile, nothing to reclaim.
+    /// "0 of 4" over an empty pane is chrome.
     @Test func anUnscannedTreeHasNoLedgerToDraw() {
         let empty = OrganizeOverview.Ledger.derived(
             from: OrganizeLens.allCases.filter(\.carriesBadge).map { section($0, .notScanned) },
@@ -534,14 +461,10 @@ import SwiftUI
                      reclaimable: nil, scopeFolders: 3_013).isEmpty)
     }
 
-    /// **The ratio closes on a machine that cannot run every check.**
-    ///
-    /// Restructure's pass is the folder survey, which needs a profile this machine may never have
-    /// had — `ContentView` withholds the handler in exactly that state. Counted anyway, the ledger
-    /// read "4 of 5 checks have run" **permanently**: a standing claim of outstanding work against
-    /// a button that does not exist anywhere in the app. Review caught it; the numerator has to
-    /// drop the same lens as the denominator, or the ratio reads "4 of 4" while one of the four is
-    /// the excluded one.
+    /// The ratio closes on a machine that can't run every check. Restructure's pass is the folder
+    /// survey, which needs a profile this machine may never have had (`ContentView` withholds the
+    /// handler then). Counted anyway, the ledger would read "3 of 4" permanently, against a button
+    /// that exists nowhere. The numerator drops the same lens as the denominator.
     @Test func theRatioClosesWhenAPassCannotBeRunHere() {
         let sections = OrganizeLens.railItems.filter(\.carriesBadge).map {
             section($0, $0 == .restructure ? .notScanned : .clean)
@@ -553,8 +476,8 @@ import SwiftUI
         #expect(ledger.checksRun == 3, "the ratio does not close on a fully-scanned tree")
     }
 
-    /// And an unrunnable lens that *has* an answer is not counted as a check either — the numerator
-    /// and denominator are taken over one set, so neither can include what the other drops.
+    /// And an unrunnable lens that has an answer isn't counted as a check either: the numerator and
+    /// denominator are taken over one set, so neither can include what the other drops.
     @Test func anUnrunnableLensIsCountedInNeitherHalf() {
         let sections = OrganizeLens.railItems.filter(\.carriesBadge).map { section($0, .clean) }
         let ledger = OrganizeOverview.Ledger.derived(from: sections,
@@ -571,12 +494,9 @@ import SwiftUI
         #expect(OrganizeOverview.exampleLimit == 3)
     }
 
-    /// **No two things on the overview wear the same glyph.**
-    ///
-    /// The overview draws the pass cards and the rail together, so a symbol shared between a pass
-    /// and an unrelated lens is two meanings for one picture on one screen. The duplicate pass
-    /// carried `wand.and.stars` — Rules' glyph — while the Duplicates rail item it is quoting sat
-    /// beside it wearing `doc.on.doc`.
+    /// No two things on the overview wear the same glyph. The overview draws the pass cards and the
+    /// rail together, so a symbol shared between a pass and an unrelated lens is two meanings for
+    /// one picture on one screen.
     @Test func noPassSharesAGlyphWithAnUnrelatedLens() {
         var byGlyph: [String: [String]] = [:]
         for pass in OrganizePass.allCases { byGlyph[pass.symbol, default: []].append("pass.\(pass)") }
@@ -584,15 +504,8 @@ import SwiftUI
         #expect(byGlyph.count > 5, "the tables are implausibly small — this scan would be near-vacuous")
 
         // The one pair that legitimately shares, because one is quoting the other: the duplicate
-        // pass card and the Duplicates rail item are the same act.
-        //
-        // `["pass.file", "lens.renames"]` used to sit here too — the file pass wore
-        // `FilingGlyph.lens`, which `OrganizeLens.renames` also wears, and the two draw together on
-        // the overview meaning different things. It was recorded rather than fixed because picking
-        // a replacement is a visual decision; the pass has one of its own now
-        // (`doc.text.magnifyingglass`, chosen for the pass and not for any single lens, since it
-        // answers three), so the allowance goes with it. Leaving a stale entry here would let the
-        // collision come back unnoticed.
+        // pass card and the Duplicates rail item are the same act. Keep this list exact: a stale
+        // entry would let a collision come back unnoticed.
         let quoted: Set<Set<String>> = [
             ["pass.duplicates", "lens.duplicates"],
         ]
@@ -602,12 +515,9 @@ import SwiftUI
         }
     }
 
-    /// And the quote is a quote: the pass reads the lens rather than restating its glyph.
-    ///
-    /// Asserting `OrganizePass.duplicates.symbol == OrganizeLens.duplicates.symbol` would compare
-    /// the model to itself — production is literally `return OrganizeLens.duplicates.symbol`, so a
-    /// hard-coded copy of the same string passes it too. What carries the claim is that the glyph
-    /// is NOT the one it used to restate, plus the source reading as a delegation.
+    /// And the quote is a quote: the pass reads the lens rather than restating its glyph. Comparing
+    /// the two symbols would compare the model to itself (a hard-coded copy passes too), so this
+    /// checks the glyph isn't Rules' and the source reads as a delegation.
     @Test func theDuplicatePassWearsTheDuplicatesLensGlyph() throws {
         #expect(OrganizePass.duplicates.symbol != OrganizeLens.rules.symbol,
                 "the duplicate pass card wears the Rules glyph again")

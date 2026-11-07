@@ -6,24 +6,13 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// A republish while the pane is in COLUMNS must leave the window's layout settled.
-///
-/// Every occurrence of the AppKit display-cycle crash has been taken with both panes in Columns
-/// (`paneViewModeLeft/Right = columns`), preview shown, compact density. The 2026-08-02 21:37 report
-/// named the mechanism:
-///
-/// ```
-/// OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)
-///   ← NSHostingView._willUpdateConstraintsForSubtree()   // inside the pass
-/// AppKitPlatformViewHost.enqueueLayoutInvalidation()      // …which schedules another
-/// ```
-///
-/// and the log named the trigger — twice, identically: "switched right provider to iCloud" →
-/// "reset navigation to root" → the pane's tree is dropped and replaced by a shallow 19-node one.
-///
-/// The earlier fixtures missed it by running the pane in TREE mode at COMFORTABLE density. This one
-/// uses the configuration the crashes were actually taken under, less the pane's own preview
-/// column, which the app no longer draws (TE317 C: the preview is the Info inspector's).
+/// A republish while the pane is in Columns must leave the window's layout settled. The AppKit
+/// display-cycle crash comes from a cell's ideal-height update inside a constraints pass scheduling
+/// another (`OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)` under
+/// `NSHostingView._willUpdateConstraintsForSubtree()`, then
+/// `AppKitPlatformViewHost.enqueueLayoutInvalidation()`), triggered by a provider switch that drops
+/// the pane's tree for a shallow one. So this runs Columns at compact density, the configuration
+/// the crash needs; Tree mode at comfortable density doesn't reproduce it.
 @MainActor
 @Suite struct ColumnsRepublishLayoutLoopTests {
 
@@ -46,7 +35,7 @@ import Sync
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
-    /// The user's stored values, verbatim, from `com.abhishekgirish.SyncCloud`.
+    /// The column width from the app's real defaults (`com.abhishekgirish.SyncCloud`).
     private static let realColumnWidth: CGFloat = 210
 
     final class Box: ObservableObject {
@@ -56,7 +45,7 @@ import Sync
         init(tree: PaneTree) { self.tree = tree }
     }
 
-    /// A real on-disk root, as the crashes were taken over.
+    /// A real on-disk root, as in the app.
     final class Fixture {
         let root: String
         init(files: Int) {
@@ -139,13 +128,10 @@ import Sync
         return counts
     }
 
-    /// **This driver cannot see the AppKit display-cycle guard, and that is measured.**
-    /// `layoutIfNeeded()` runs constraint updates with the runaway guards disarmed: a deliberate
-    /// never-settling sibling ping-pong survives 400 rounds of it (469,000 `updateConstraints`
-    /// calls) without raising, while one second of the RUNLOOP raises on the first cycle. So a low
-    /// round count here says the tree stops dirtying itself under a manual pump — worth having, and
-    /// not the same claim as "this window will not blow AppKit's pass budget". The runloop-driven
-    /// counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
+    /// **This driver can't see AppKit's display-cycle guard.** `layoutIfNeeded()` runs constraint
+    /// updates with the runaway guard disarmed, so a low round count says the tree stops dirtying
+    /// itself under a manual pump, not that the window stays inside AppKit's pass budget. The
+    /// run-loop counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
     private func roundsToSettle(_ window: NSWindow, cap: Int = 500) -> Int {
         var rounds = 0
         while rounds < cap, dirtyCount(window.contentView!) > 0 {

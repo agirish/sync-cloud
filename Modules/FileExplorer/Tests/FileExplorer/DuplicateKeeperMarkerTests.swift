@@ -6,24 +6,20 @@ import Testing
 /// Pins the pure marker mapping behind the Duplicates card's keeper column: only rows the user can
 /// actually pick draw a radio; groups without a keeper choice get a plain dot instead.
 @Suite struct DuplicateKeeperMarkerTests {
-    /// **A radio only where a radio means something.** A filled radio is a promise that an empty
-    /// one exists to click, and this returned one for the keeper of every group — including the
-    /// kinds that allow no choice at all. His report on a merge card: "Why is there a checkbox,
-    /// especially if we can't choose among the rows?"
-    ///
-    /// All four combinations, because the fix is one `guard` and getting it backwards would make
-    /// the pickable groups the inert ones.
+    /// A radio only where it means something: a filled radio promises an empty one to click, so a
+    /// group that allows no choice draws none, not even for its keeper. All four combinations,
+    /// because the rule is one `guard`, and backwards it would make the pickable groups inert.
     @Test func aRadioIsDrawnOnlyWhereAKeeperCanBePicked() {
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: true) == .keeper)
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false) == .selectable)
-        // No choice: neither row advertises one, which is what this type's doc always claimed.
+        // No choice: neither row advertises one.
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: true) == .inert)
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
     }
 
-    /// And the group kinds land on the right side of it: an overlapping group cannot re-aim its
-    /// keeper (which copy is "unique" comes from hashes the scan does not retain), so its rows are
-    /// inert — while an identical group's are pickable.
+    /// The group kinds land on the right side: an overlapping group can't re-aim its keeper (which
+    /// copy is "unique" comes from hashes the scan doesn't keep), so its rows are inert, while an
+    /// identical group's are pickable.
     @Test func theKindsThatAllowAChoiceAreTheOnesWithRadios() {
         func marker(_ type: DuplicateMatchType, keeper: Bool) -> DuplicateKeeperMarker {
             let g = DuplicateGroup(matchType: type, name: "x", isDirectory: true, copies: [],
@@ -57,8 +53,8 @@ import Testing
         #expect(one?.hasPrefix("1 not content-verified") == true)
         let three = DuplicateUnverifiedNote.text(unverifiedCount: 3)
         #expect(three?.hasPrefix("3 not content-verified") == true)
-        // Both reasons stay: a cloud-only copy and an unreadable one are fixed by different
-        // things. And no size reason: nothing is skipped for size since the hasher's cap went.
+        // Both reasons stay, since a cloud-only copy and an unreadable one are fixed differently.
+        // No size reason: the hasher skips nothing for size.
         #expect(one?.contains("unreadable") == true && one?.contains("not downloaded") == true)
         #expect(one?.contains("too large") == false)
     }
@@ -76,29 +72,24 @@ import Testing
     @Test func listsOnlyTheReasonsThatOccurred() {
         let cloudOnly = DuplicateScanSkipNote.text(Skips(cloudOnly: 3))
         #expect(cloudOnly == "3 files outside duplicate detection: 3 cloud-only (not downloaded). Duplicates among them are not detected.")
-        // Hard links joined the ledger in round 6: dropped files must never just quietly
-        // shrink the results ("over-report beats hide" applies to the accounting too).
+        // Hard links are counted too: dropped files must never just quietly shrink the results.
         let links = DuplicateScanSkipNote.text(Skips(multiLink: 2))
         #expect(links == "2 files outside duplicate detection: 2 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
     }
 
-    /// **The verdict that used to fall through a bare `break`.** A file that was gone, unreadable,
-    /// replaced between the stat and the open, or rewritten mid-read left the scan counted by
-    /// nothing: no pill, no note, no log — the results simply got smaller. The mid-read coherence
-    /// check then added two more ways to reach it, widening a drain nobody could see. It is a skip
-    /// like every other skip, so it says so.
+    /// A file that was gone, unreadable, replaced between stat and open, or rewritten mid-read is a
+    /// skip like any other and is counted, or the results would just get smaller with no pill,
+    /// note or log saying why.
     @Test func filesThatCouldNotBeReadAreCountedLikeEveryOtherSkip() {
         let note = DuplicateScanSkipNote.text(Skips(unverifiable: 4))
         #expect(note == "4 files outside duplicate detection: 4 unreadable or changed while being read. Duplicates among them are not detected.")
     }
 
-    /// And it is in the total, because the total is defined as "files no duplicate claim of any kind
-    /// could be made about" — which is exactly what these are.
+    /// They are in the total, which counts files no duplicate claim of any kind could be made about.
     @Test func unreadableFilesAreInTheTotalUnlikeTheTextOnlyDeclines() {
         #expect(Skips(unverifiable: 4).total == 4)
         #expect(Skips(cloudOnly: 2, multiLink: 3, unverifiable: 4).total == 9)
-        // The contrast that makes the rule legible: a text-only decline is NOT in the total,
-        // because those files were hashed and grouped normally.
+        // A text-only decline is not in the total: those files were hashed and grouped normally.
         #expect(Skips(textUnreadable: 853).total == 0)
     }
 
@@ -113,18 +104,16 @@ import Testing
     }
 
     @Test func documentsThatSaidTooLittleGetTheirOwnSentenceAndNoneOfTheCount() {
-        // These files WERE hashed and grouped; only the weaker same-text comparison was declined.
-        // Folding them into the total would make the pill claim a much larger blindness than the
-        // scan actually has — 853 of 10,569 on the tree this was measured against.
+        // These files were hashed and grouped; only the weaker same-text comparison was declined.
+        // Counting them would make the pill claim far more blindness than the scan has.
         let note = DuplicateScanSkipNote.text(Skips(cloudOnly: 1, textUnreadable: 853))
         #expect(note?.hasPrefix("1 file outside duplicate detection") == true)
         #expect(note?.contains("A further 853 documents were hashed but said too little") == true)
     }
 
     @Test func nothingSkippedStaysSilentEvenWhenDocumentsSaidTooLittle() {
-        // The pill counts files outside detection, and there are none — so no pill, and the
-        // declined-text sentence has nowhere to hang. Deliberate: an image-only scan not being
-        // comparable by text is the ordinary state of a tree full of scans, not a warning.
+        // No files outside detection means no pill, so the declined-text sentence has nowhere to
+        // hang. On purpose: image-only scans not comparing by text is ordinary, not a warning.
         #expect(DuplicateScanSkipNote.text(Skips(textUnreadable: 853)) == nil)
     }
 
@@ -152,8 +141,8 @@ import Testing
     }
 }
 
-/// The destructive confirmation's wording. Pure, so it can be held to the claim the group actually
-/// makes — which is the whole reason it was lifted out of the view.
+/// The destructive confirmation's wording, kept pure so it can be held to the claim the group
+/// actually makes.
 @Suite struct DuplicateRemovalPromptTests {
 
     @Test func aSameTextCopyIsNeverCalledRedundant() {
@@ -182,7 +171,7 @@ import Testing
         #expect(sameText.contains("402 KB"))
         #expect(sameText.hasSuffix("This can be undone with ⌘Z."))
 
-        // …and does not lecture where the claim IS byte-identity.
+        // It doesn't lecture where the claim is byte identity.
         let identical = DuplicateRemovalPrompt.informativeText(
             kind: .identical, keeperName: "Jul 2023.pdf",
             keeperLocation: "Utilities ▸ PG&E", reclaimText: "402 KB")
@@ -190,15 +179,14 @@ import Testing
         #expect(identical.hasSuffix("This can be undone with ⌘Z."))
     }
 
-    /// The batch dialog's two pluralizations, at 1 and at many. They are the words a "clean up
-    /// everything" confirmation is read on, and until this pair moved into the prompt type they
-    /// were interpolated inline in the view where nothing could reach them.
+    /// The batch dialog's two pluralizations, at 1 and at many: the words a "clean up everything"
+    /// confirmation is read on.
     @Test func theBatchQuestionCountsGroupsAndNamesTheProvider() {
         #expect(DuplicateRemovalPrompt.batchMessageText(groupCount: 1, providerName: "Dropbox")
                 == "Clean up 1 group in Dropbox?")
         #expect(DuplicateRemovalPrompt.batchMessageText(groupCount: 12, providerName: "Dropbox")
                 == "Clean up 12 groups in Dropbox?")
-        // No provider name to say — never an empty gap in the sentence.
+        // No provider name: never an empty gap in the sentence.
         #expect(DuplicateRemovalPrompt.batchMessageText(groupCount: 2, providerName: nil)
                 == "Clean up 2 groups in this provider?")
     }
@@ -209,14 +197,12 @@ import Testing
         let many = DuplicateRemovalPrompt.batchInformativeText(copyCount: 9, reclaimText: "1.2 GB")
         #expect(many.hasPrefix("Moves 9 redundant copies to the Trash"))
         #expect(many.contains("1.2 GB"))
-        // The two claims that make the batch safe to agree to. **The exclusion list used to name
-        // two of the four kinds it excludes**: `isRecommendedForBatch` admits only `.identical`,
-        // so versions and same-text groups are left untouched as well, and a dialog that listed
-        // half of them read as if the other half were included.
+        // The claims that make the batch safe to agree to. `isRecommendedForBatch` admits only
+        // `.identical`, so the dialog must name every other kind as excluded, or the unnamed ones
+        // read as included.
         #expect(many.contains("Only byte-identical groups are included"))
-        // **Every kind the batch excludes, derived rather than listed.** The hand-written list
-        // said four and kept saying "name-only" after that kind was deleted — a stale word in the
-        // last sentence before a destructive batch, held there by this very assertion.
+        // The excluded kinds are derived from `Kind.allCases`, not listed, so a deleted kind's
+        // name can't linger in the last sentence before a destructive batch.
         let excluded = DuplicateMatchType.Kind.allCases.filter { kind in
             let g = DuplicateGroup(matchType: DuplicateSections.representative(kind), name: "x",
                                    isDirectory: false, copies: [], reclaimableBytes: 0)
@@ -233,8 +219,7 @@ import Testing
     }
 
     @Test func everyMatchKindHasAWordAndNoneSaysNothing() {
-        // A new match type must not fall through to a default that borrows another's vocabulary —
-        // the failure this whole helper exists to prevent.
+        // A new match type must not fall through to a default that borrows another's words.
         for kind in DuplicateMatchType.Kind.allCases {
             let word = DuplicateRemovalPrompt.itemWord(for: kind, count: 1)
             #expect(!word.isEmpty)
@@ -244,22 +229,19 @@ import Testing
 }
 
 
-/// The breadcrumb under a copy's name — his report: "the 2 paths aren't correctly listed; rather
-/// it's relative to selected directory to organize, but that should be indicated clearly."
+/// The breadcrumb under a copy's name is relative to the scanned folder and says so: the folder
+/// itself is a crumb. Without it, a copy directly in the root reads as the provider alone, as if at
+/// the top of the cloud, and looks unrelated to a neighbour deeper in the same trunk.
 ///
-/// Stripping the scanned root silently made a folder sitting directly in it read as the provider
-/// alone, as though it lived at the top of the cloud, while its neighbour six levels down read as
-/// a full path. The pair looked unrelated when in fact they share a trunk.
-///
-/// **The call site is not pinned** — `crumbs(_:)` is a one-line forward to this, and a bitmap
-/// cannot read text back. What is pinned is the rule.
+/// The call site isn't pinned (`crumbs(_:)` is a one-line forward, and a bitmap can't read text
+/// back); the rule is.
 @Suite struct DuplicateBreadcrumbTests {
 
     private func crumbs(_ path: String, root: String?, provider: String? = "iCloud") -> [String] {
         DuplicateGroupCard.crumbs(of: path, scanRoot: root, providerName: provider)
     }
 
-    /// His two paths. Before, the first was `iCloud` alone.
+    /// Two real paths: the first must not read as `iCloud` alone.
     @Test func theScannedFolderIsACrumb() {
         let root = "/Users/x/Documents/Immigration"
         #expect(crumbs("\(root)/Visa", root: root) == ["iCloud", "Immigration", "Visa"])
@@ -275,8 +257,8 @@ import Testing
         #expect(crumbs("\(home)/a.pdf", root: home) == ["iCloud", "a.pdf"])
     }
 
-    /// The boundary rule the root-stripping has always carried: a sibling whose name merely starts
-    /// with the root's is not inside it, and must not be stripped into a false relative path.
+    /// A sibling whose name merely starts with the root's is not inside it, and must not be
+    /// stripped into a false relative path.
     @Test func aSiblingWithASharedPrefixIsNotInsideTheRoot() {
         let out = crumbs("/data/DocsBackup/a.pdf", root: "/data/Docs")
         #expect(!out.contains("Docs"), "stripped as though it were inside: \(out)")

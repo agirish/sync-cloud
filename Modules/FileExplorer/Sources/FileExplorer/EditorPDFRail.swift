@@ -14,20 +14,16 @@ public struct EditorPDFOutlineEntry: Equatable, Sendable {
     /// The page it goes to, zero-based — `nil` for a bookmark with no page in this file (a link to
     /// a web address, or a destination PDFKit cannot resolve). Drawn, and not clickable.
     public var pageIndex: Int?
-    /// Where on that page it goes, in page space — the top-left of what it shows, as its heading is
-    /// (TE187). `nil` for a bookmark that names only a page (`/Fit`, or no height), which goes to
-    /// the page's top.
+    /// Where on that page it goes, in page space: the top-left of what it shows. `nil` for a
+    /// bookmark that names only a page (`/Fit`, or no height), which goes to the page's top.
     public var point: CGPoint? = nil
 }
 
 enum EditorPDFOutline {
 
-    /// The PDF's bookmarks, depth-first in the order the file gives them. **Called inside the lane
-    /// only** — `outlineRoot` is a parse like any other.
-    ///
-    /// **A loop over an explicit stack, not recursion**: the nesting is the file's to choose, and a
-    /// damaged or hostile outline nested a few thousand deep would otherwise take the lane's thread
-    /// down with it.
+    /// The PDF's bookmarks, depth-first in the file's order. **Call it inside the lane only**:
+    /// `outlineRoot` is a parse like any other. An explicit stack, not recursion, so a damaged or
+    /// hostile outline nested thousands deep can't overflow the lane's thread.
     nonisolated static func flatten(_ document: PDFDocument) -> [EditorPDFOutlineEntry] {
         guard let root = document.outlineRoot else { return [] }
         var rows: [EditorPDFOutlineEntry] = []
@@ -45,18 +41,17 @@ enum EditorPDFOutline {
         (0..<node.numberOfChildren).compactMap { node.child(at: $0) }
     }
 
-    /// The page a bookmark goes to. `destination` covers both ways a file can say it — PDFKit
-    /// fills it from a go-to action too (measured: an action-only fallback here changed nothing,
-    /// and was removed as dead).
+    /// The page a bookmark goes to. `destination` covers both ways a file can say it: PDFKit fills
+    /// it from a go-to action too.
     private nonisolated static func pageIndex(of node: PDFOutline, in document: PDFDocument) -> Int? {
         guard let page = node.destination?.page else { return nil }
         let index = document.index(for: page)
         return index == NSNotFound ? nil : index
     }
 
-    /// The place a destination names on its page — PDFKit gives an `/XYZ`'s left and top, and
-    /// says "unspecified" for each it leaves out and for every other kind. With no top there is no
-    /// place; with no left, the page's own left edge.
+    /// The place a destination names on its page. PDFKit gives an `/XYZ`'s left and top, and
+    /// "unspecified" for each it leaves out and for every other kind. No top means no place; no
+    /// left means the page's left edge.
     nonisolated static func point(of destination: PDFDestination) -> CGPoint? {
         let point = destination.point
         guard point.y != kPDFDestinationUnspecifiedValue else { return nil }
@@ -64,8 +59,7 @@ enum EditorPDFOutline {
         return CGPoint(x: point.x == kPDFDestinationUnspecifiedValue ? left : point.x, y: point.y)
     }
 
-    /// One line, as a rail row can draw it: a label with a line break in it is common in files
-    /// made by a scanner's software.
+    /// One line, as a rail row can draw it: scanner software often puts line breaks in labels.
     private nonisolated static func title(_ label: String?) -> String {
         (label ?? "").split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -73,9 +67,8 @@ enum EditorPDFOutline {
             .joined(separator: " ")
     }
 
-    /// **What the Outline tab draws from the bookmarks, worked out once per load** — not on every
-    /// page turn, which redraws the tab: a manual with thousands of bookmarks walked them four
-    /// times per turn when this was computed in the view.
+    /// What the Outline tab draws from the bookmarks, worked out once per load rather than on every
+    /// page turn, which redraws the tab and would walk thousands of bookmarks each time.
     struct Rail: Equatable {
         let rows: [MarkdownOutlineEntry]
         /// Each bookmark's page number, one-based, by row id.
@@ -95,9 +88,9 @@ enum EditorPDFOutline {
         }
     }
 
-    /// The bookmarks as the rail's outline rows draw them — the Markdown outline's row type, so the
-    /// Outline tab's list, its scroll memory and its opening scroll serve both kinds of file. The
-    /// row's id is its position in the list (`line`), which is what the scroll memory keys on.
+    /// The bookmarks as the Markdown outline's row type, so the Outline tab's list and its scroll
+    /// memory serve both kinds of file. A row's id is its position (`line`), which the scroll
+    /// memory keys on.
     static func rows(_ entries: [EditorPDFOutlineEntry]) -> [MarkdownOutlineEntry] {
         entries.enumerated().map { index, entry in
             MarkdownOutlineEntry(line: index, level: entry.depth + 1,
@@ -105,9 +98,9 @@ enum EditorPDFOutline {
         }
     }
 
-    /// The bookmark the reader is in: the one going to the latest page at or before `page`, the
-    /// first in the list among bookmarks that go to the same page — a chapter rather than its first
-    /// section, both of which start there. `nil` before the first bookmark's page.
+    /// The bookmark the reader is in: the one going to the latest page at or before `page`, and of
+    /// several going to that page the first, so a chapter wins over its first section. `nil`
+    /// before the first bookmark's page.
     static func currentIndex(page: Int, in entries: [EditorPDFOutlineEntry]) -> Int? {
         var best: (index: Int, page: Int)?
         for (index, entry) in entries.enumerated() {
@@ -117,11 +110,9 @@ enum EditorPDFOutline {
         return best?.index
     }
 
-    /// What the Outline tab says for a PDF with no rows — why there are none.
-    ///
-    /// **Out of sight since the tab became conditional** (asked 2026-10-17): a PDF shows Outline
-    /// only with ``EditorRailTab/minimumPDFBookmarks`` or more, so the list is never drawn empty.
-    /// Kept because the list needs a caption to hold and the phases still name the right reason.
+    /// What the Outline tab says for a PDF with no rows, and why. Not normally seen: a PDF shows
+    /// Outline only with ``EditorRailTab/minimumPDFBookmarks`` or more. Kept because the list needs
+    /// a caption to hold.
     static func emptyCaption(phase: EditorPDFDocument.Phase) -> String {
         switch phase {
         case .open: return "This PDF has no bookmarks."
@@ -134,12 +125,10 @@ enum EditorPDFOutline {
 
 // MARK: - The Pages tab's layout
 
-/// **How the Pages tab lays out a PDF's pages** (asked 2026-10-17): a grid, which gains columns as
-/// the side column is dragged wider, or a list, one page under another at the column's width.
-///
-/// The geometry lives here rather than in the view so the thumbnails can be asked for at the size
-/// the cells draw them: a list page at full width is two to five times a grid cell's, and drawn
-/// from a grid-sized image it would be a blur.
+/// How the Pages tab lays out a PDF's pages: a grid that gains columns as the side column widens,
+/// or a list, one page under another at the column's width. The geometry lives here so the
+/// thumbnails are asked for at the size the cells draw them: a list page is two to five times a
+/// grid cell, and drawn from a grid-sized image it would blur.
 public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
     case grid, list
 
@@ -151,8 +140,8 @@ public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
     static let sidePadding: CGFloat = 12
     static let columnGap: CGFloat = 10
     static let cellInset: CGFloat = 4
-    /// The current page's ring, this far out from the page: 1 pt inside the cell's edge, where the
-    /// selected wash's rounded corners are — 4 pt out, on the edge, its corners poked past them.
+    /// The current page's ring, this far out from the page: 1 pt inside the cell's edge, so its
+    /// corners stay inside the selected wash's rounded ones.
     static let currentRingOutset: CGFloat = cellInset - 1
     /// The wash's corner radius (``EditorFileRailView/rowShape``, 7 pt) less that 1 pt, so the two
     /// curves run side by side.
@@ -177,10 +166,9 @@ public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
         return max(1, (inner - (count - 1) * Self.columnGap) / count - 2 * Self.cellInset)
     }
 
-    /// The long edge, in pixels, the thumbnails are asked for: a Letter page at ``imageWidth``, on
-    /// a Retina screen, rounded up to a step of ``EditorPDFThumbnails/longEdge`` so a drag asks for
-    /// a new size a handful of times rather than on every point. The default grid gets exactly the
-    /// size it always had.
+    /// The long edge, in pixels, the thumbnails are asked for: a Letter page at ``imageWidth`` on a
+    /// Retina screen, rounded up to a step of ``EditorPDFThumbnails/longEdge`` so a drag asks for a
+    /// new size a handful of times, not on every point. The default grid gets exactly one step.
     func renderEdge(railWidth: CGFloat) -> CGFloat {
         let step = EditorPDFThumbnails.longEdge
         let needed = imageWidth(railWidth: railWidth) * 2 * 1.3
@@ -190,16 +178,13 @@ public enum EditorPDFPagesLayout: String, CaseIterable, Sendable {
 
 // MARK: - The lane, as a value
 
-/// **The turn-taker the reader's own lane work goes through — the thumbnails and the find — as a
-/// value, so a test need not hold the process's lane.** Holding `PDFKitSerialAccess` to make a turn
-/// wait blocks every PDF suite in the package, and a hold that then waits on the main actor — which
-/// any test of a `@MainActor` pump must — lasts as long as the main actor is crowded: measured on CI
-/// 2026-10-17, three such holds in the thumbnails' tests made a print test's 10 s budget run out
-/// twice, on a run twice its usual length. Only `thumbnailsRenderThroughTheLane` and
-/// `aFindPageRunsThroughTheLane` use the real lane, each holding it from a detached task.
+/// The lane the reader's thumbnails and find go through, as a value, so a test can hold a private
+/// one. Holding `PDFKitSerialAccess` itself blocks every PDF suite in the package, and a hold that
+/// waits on the main actor lasts as long as the main actor is crowded, running other suites out of
+/// time. Only `thumbnailsRenderThroughTheLane` and `aFindPageRunsThroughTheLane` use the real lane.
 ///
-/// **Type-erased to a `Void` turn**, so one seam serves turns that bring back different things:
-/// ``perform(_:)`` carries the result out in a box.
+/// Type-erased to a `Void` turn so one seam serves every result type: ``perform(_:)`` carries the
+/// result out in a box.
 struct EditorPDFLane: Sendable {
     let run: @Sendable (@escaping @Sendable () -> Void) async -> Void
 
@@ -215,43 +200,34 @@ struct EditorPDFLane: Sendable {
 
 // MARK: - The thumbnails
 
-/// **The Pages tab's thumbnails — rendered in the PDFKit lane, a page at a time, only for the pages
-/// near the ones on screen, and released with the PDF.**
+/// The Pages tab's thumbnails: rendered in the PDFKit lane a page at a time, only near the pages on
+/// screen, and released with the PDF.
 ///
-/// **Never `PDFThumbnailView`.** It draws its pages on AppKit's schedule, outside
-/// `PDFKitSerialAccess`, and a parse outside the lane is what made 4.5–6.3% of fingerprints change
-/// between runs. Each thumbnail here is one lane turn, drawn the way `PagePairRaster` draws a
-/// compare raster: a bitmap context, a white ground, the page drawn into it.
+/// **Never `PDFThumbnailView`.** It parses on AppKit's schedule, outside `PDFKitSerialAccess`, and a
+/// parse outside the lane makes fingerprints change between runs. Each thumbnail is one lane turn,
+/// drawn as `PagePairRaster` draws: a bitmap context, a white ground, the page.
 ///
-/// **From a document of its own, not the reader's.** The page view draws the reader's document on
-/// the main thread, on its own schedule — the lane's documented exception — so drawing that same
-/// document here at the same moment would be two threads in one `PDFDocument`. This one is opened
-/// in the lane on the first thumbnail and only ever touched there. A locked file's copy is
-/// unlocked in the same lane turn as the reader's (``EditorPDFDocument/unlock(password:)``), so the
-/// password is still used once and kept nowhere.
+/// From a document of its own, not the reader's: the page view draws the reader's document on the
+/// main thread (the lane's documented exception), so drawing it here too would put two threads in
+/// one `PDFDocument`. A locked file's copy is unlocked in the reader's lane turn
+/// (``EditorPDFDocument/unlock(password:)``), so the password is used once and kept nowhere.
 ///
-/// **One turn in flight at a time.** The lane is shared with a duplicate scan and a folder survey,
-/// so a fast scroll through a 300-page scan must not queue 300 turns ahead of them. A single pump
-/// asks for the most wanted page that has no image, waits for it, and asks again; a page scrolled
-/// away before its turn is never asked for, and the one in flight is skipped at the head of its
-/// turn if it is no longer wanted by then.
-///
-/// **Bounded.** At most ``capacity`` images are held; past that, those farthest from what is on
-/// screen go first. ``detach()`` — every close, open and reload of the PDF — drops them all, and
-/// the document with them.
+/// One turn in flight at a time, so a fast scroll can't queue hundreds of turns ahead of a
+/// duplicate scan or folder survey sharing the lane; a turn no longer wanted skips itself. At most
+/// ``capacity`` images are held, farthest from the screen evicted first, and ``detach()`` drops
+/// them all with the document.
 @MainActor
 public final class EditorPDFThumbnails: ObservableObject {
 
     /// The rendered pages, by zero-based index.
     @Published private(set) var images: [Int: SendableImage] = [:]
-    /// Bumped by every ``attach``. **The Pages grid re-asks on it**: a PDF changed on disk reloads
-    /// under a grid that stays mounted, so no cell appears again to say what is on screen, and the
-    /// fresh document would otherwise draw nothing until the list was scrolled.
+    /// Bumped by every ``attach``, and the Pages grid re-asks on it: a reload under a mounted grid
+    /// brings no cell on screen again, so the fresh document would draw nothing until a scroll.
     @Published private(set) var attachments = 0
 
     /// The long edge a thumbnail is rendered to, in pixels, at the narrowest: twice the ~110pt a
-    /// page gets in the rail's two columns, for a Retina screen. Wider cells ask for more — see
-    /// ``renderEdge`` — in steps of this.
+    /// page gets in two columns, for Retina. Wider cells ask for more (``renderEdge``) in steps of
+    /// this.
     nonisolated static let longEdge: CGFloat = 240
     /// How many pages either side of the visible ones are rendered ahead of a scroll, at
     /// ``longEdge``. Bigger pages look fewer ahead: ``margin(forEdge:)``.
@@ -262,13 +238,13 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     /// The long edge the Pages tab's cells need now — ``longEdge`` until it says otherwise.
     private(set) var renderEdge: CGFloat = EditorPDFThumbnails.longEdge
-    /// The edge each held image was drawn at, so a page drawn small is drawn again when its cell
-    /// grows — and kept on screen, upscaled, until the sharper one lands.
+    /// The edge each held image was drawn at, so a page drawn small is redrawn when its cell grows,
+    /// shown upscaled until the sharper one lands.
     private var drawnEdge: [Int: CGFloat] = [:]
 
-    /// **The image cap scales with the pixels in an image**, so the bytes held stay near the grid's
-    /// ~10 MB — with a floor of 8, a list's window: a page or two on screen and two either side.
-    /// At the widest list (1,440px) that floor is ~40 MB, held only while the list is.
+    /// The image cap scales with the pixels per image, so the bytes held stay near the grid's
+    /// ~10 MB, with a floor of 8 for a list's window. At the widest list (1,440px) that floor is
+    /// ~40 MB, held only while the list is.
     static func capacity(forEdge edge: CGFloat) -> Int {
         let ratio = longEdge / max(edge, longEdge)
         return max(8, Int(Double(capacity) * Double(ratio * ratio)))
@@ -291,14 +267,11 @@ public final class EditorPDFThumbnails: ObservableObject {
     }
 
     /// The document thumbnails are drawn from, created on the main actor and then touched only
-    /// inside the lane — the box is how it crosses there.
+    /// inside the lane; the box is how it crosses there.
     ///
-    /// **Reopened every ``recycleEvery`` pages drawn.** A `PDFDocument` keeps what it decoded for
-    /// every page it has drawn, so one document drawing a whole scan grows with it: measured
-    /// 2026-10-17 on a 31 MB, 300-page scan, **56 MB** after all 300 pages from one document, and
-    /// a flat **~25 MB** reopened every 48. The images are capped; this caps the document. A copy
-    /// unlocked with a password cannot be reopened — the password is kept nowhere — so that one is
-    /// kept, and pays the growth until the PDF closes.
+    /// Reopened every ``recycleEvery`` pages drawn, because a `PDFDocument` keeps what it decoded
+    /// for every page it drew and would grow with a whole scan. A password-unlocked copy can't be
+    /// reopened (the password is kept nowhere), so it is kept and grows until the PDF closes.
     final class Source: @unchecked Sendable {
         let path: String
         /// Opened in the lane on the first render — or handed in already unlocked.
@@ -308,18 +281,17 @@ public final class EditorPDFThumbnails: ObservableObject {
         let reopens: Bool
         /// Pages drawn from ``document`` since it was opened. Lane only.
         var drawnSinceOpen = 0
-        /// Pages begun, counted inside the render itself — test instrumentation readable from any
-        /// thread, so a test holding the lane can ask "did anything draw around it?" without
-        /// waiting on the main actor while it holds.
+        /// Pages begun, counted inside the render. Test instrumentation readable from any thread,
+        /// so a test holding the lane needn't wait on the main actor to ask.
         let draws = OSAllocatedUnfairLock(initialState: 0)
         /// Times ``document`` was opened from ``path``. Test instrumentation, as ``draws`` is.
         let opens = OSAllocatedUnfairLock(initialState: 0)
-        /// Asked in the lane before every open from ``path`` — see ``EditorPDFThumbnails/isCloudOnly``.
+        /// Asked in the lane before every open from ``path``; see ``EditorPDFThumbnails/isCloudOnly``.
         let isCloudOnly: @Sendable (String) -> Bool
         init(path: String, unlocked: PDFDocument? = nil,
              isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
             self.path = path
-            // The file a link points to (TE206): opening the link opens that.
+            // Asked of the file a link points to, since opening the link opens that.
             self.isCloudOnly = { isCloudOnly(MaterializationStatus.linkTarget(of: $0)) }
             self.document = unlocked
             self.opened = unlocked != nil
@@ -330,8 +302,8 @@ public final class EditorPDFThumbnails: ObservableObject {
     /// Pages drawn before the thumbnails' document is let go and reopened — see ``Source``.
     nonisolated static let recycleEvery = 48
 
-    /// The pages wanted now, readable from inside the lane — so a turn that comes up for a page
-    /// scrolled away since can skip itself before it draws anything.
+    /// The pages wanted now, readable inside the lane, so a turn for a page scrolled away since can
+    /// skip itself before drawing.
     final class Wanted: Sendable {
         private let pages = OSAllocatedUnfairLock<Set<Int>>(initialState: [])
         func set(_ wanted: Set<Int>) { pages.withLock { $0 = wanted } }
@@ -341,9 +313,9 @@ public final class EditorPDFThumbnails: ObservableObject {
     /// What one lane turn did.
     enum Render: Sendable {
         case image(SendableImage)
-        /// The page could not be drawn — not asked for again until the PDF is reopened.
+        /// The page could not be drawn; not asked for again until the PDF is reopened.
         case failed
-        /// The file is in the cloud only, so nothing was opened — asked for again on the next
+        /// The file is in the cloud only, so nothing was opened. Asked for again on the next
         /// ``show(_:)``, so a download brings the pages back with the next scroll.
         case notDownloaded
         /// No longer wanted when its turn came: nothing was drawn.
@@ -352,9 +324,8 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     private var source: Source?
     private var pageCount = 0
-    /// **One per attachment, never shared across them.** A turn still queued from the PDF before a
-    /// reload holds the set it was given; if that were the live one, the new PDF's pages would make
-    /// the old turn wanted again and it would draw from the old document for nothing.
+    /// One per attachment, never shared: a turn still queued from before a reload holds the set it
+    /// was given, and if that were the live one it would draw from the old document for nothing.
     private var wanted = Wanted()
     /// The wanted pages in the order they are asked for: the visible ones from the top, then the
     /// margin pages nearest first.
@@ -367,21 +338,21 @@ public final class EditorPDFThumbnails: ObservableObject {
     private var pump: Task<Void, Never>?
     private var generation = 0
 
-    /// Pages drawn in the lane since the last ``attach``, in the order they were drawn — test
-    /// instrumentation; a cancelled page has no other outside signature.
+    /// Pages drawn in the lane since the last ``attach``, in order. Test instrumentation: a
+    /// cancelled page has no other outside sign.
     private(set) var drawn: [Int] = []
     /// Turns that came up for a page no longer wanted, and skipped. Test instrumentation.
     private(set) var skippedTurns = 0
-    /// The page whose turn is out in the lane now, if any — so a test can know a turn is queued
-    /// before it scrolls away from it.
+    /// The page whose turn is out in the lane now, if any, so a test knows a turn is queued before
+    /// it scrolls away.
     private(set) var asking: Int?
-    /// Whether a document is held to draw from — none after ``detach()``.
+    /// Whether a document is held to draw from; none after ``detach()``.
     var holdsSource: Bool { source != nil }
     /// The source itself, for a test that reads ``Source/draws`` off the main actor.
     var currentSource: Source? { source }
 
-    /// Where a turn runs. **Always the process-wide PDFKit lane in the app** (``Lane/pdfKit``); a
-    /// test hands in a private one it can hold — see ``EditorPDFLane``.
+    /// Where a turn runs: always the process-wide PDFKit lane in the app (``Lane/pdfKit``); a test
+    /// hands in a private one it can hold (``EditorPDFLane``).
     private let lane: Lane
 
     typealias Lane = EditorPDFLane
@@ -390,11 +361,10 @@ public final class EditorPDFThumbnails: ObservableObject {
 
     init(lane: Lane) { self.lane = lane }
 
-    /// **A file evicted while open draws no thumbnails** rather than being downloaded to draw them:
-    /// the source is reopened from the path every ``recycleEvery`` pages, and `PDFDocument(url:)`
-    /// on a dataless file downloads it there and then, in the lane. Its pages are asked for again
-    /// at the next scroll (``Render/notDownloaded``), so once it is downloaded they draw. Injectable,
-    /// as the reader's is.
+    /// A file evicted while open draws no thumbnails rather than being downloaded for them: the
+    /// source reopens from the path every ``recycleEvery`` pages, and `PDFDocument(url:)` on a
+    /// dataless file downloads it in the lane. Its pages are asked again at the next scroll
+    /// (``Render/notDownloaded``). Injectable, as the reader's is.
     var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
 
     /// Starts over for a newly opened (or reloaded, or unlocked) PDF of `pageCount` pages.
@@ -428,7 +398,7 @@ public final class EditorPDFThumbnails: ObservableObject {
     }
 
     /// The pages on screen now. Renders those and ``margin`` either side, nearest first, and lets
-    /// go of what is no longer near. An empty set — the tab put away — stops asking for anything.
+    /// go of what is no longer near. An empty set (the tab put away) stops asking.
     func show(_ visible: Set<Int>) {
         let onScreen = visible.filter { $0 >= 0 && $0 < pageCount }.sorted()
         guard let first = onScreen.first, let last = onScreen.last else {
@@ -473,9 +443,9 @@ public final class EditorPDFThumbnails: ObservableObject {
         guard pump == nil, source != nil, nextPage() != nil else { return }
         let generation = self.generation
         pump = Task { [weak self] in
-            // **`self` is held only between turns, never across one.** A turn can wait behind a
-            // duplicate scan for minutes, and a strong reference held through that wait would keep
-            // this object and its images alive past the model that owns them.
+            // `self` is held only between turns, never across one: a turn can wait minutes behind a
+            // duplicate scan, and holding it would keep this object and its images alive past the
+            // model that owns them.
             while let ask = self?.nextAsk(generation) {
                 let result = await Self.render(page: ask.page, source: ask.source, wanted: ask.wanted,
                                                longEdge: ask.edge, lane: ask.lane)
@@ -487,7 +457,7 @@ public final class EditorPDFThumbnails: ObservableObject {
         }
     }
 
-    /// The next turn to ask for in `generation`, or `nil` when there is none — and marks it asked.
+    /// The next turn to ask for in `generation`, or `nil` when there is none. Marks it asked.
     private func nextAsk(_ generation: Int) -> (page: Int, source: Source, wanted: Wanted, edge: CGFloat, lane: Lane)? {
         guard generation == self.generation, let page = nextPage(), let source else { return nil }
         asking = page
@@ -551,17 +521,12 @@ public final class EditorPDFThumbnails: ObservableObject {
         return (page.rotation / 90) % 2 != 0 ? CGSize(width: box.height, height: box.width) : box.size
     }
 
-    /// One page as the reader sees it, at `longEdge`: the crop box, turned by the page's rotation.
+    /// One page as the reader sees it, at `longEdge`: the crop box (the `PDFView` default), turned
+    /// by the page's rotation, drawn as `PagePairRaster.render` draws. Call it inside the lane only.
     ///
-    /// `PagePairRaster.render`'s drawing — a bitmap context, a white ground, the page drawn into
-    /// it — with the two things a thumbnail must match the page view on and a compare raster need
-    /// not: the box PDFKit displays (`cropBox`, the `PDFView` default) and the page's rotation.
-    ///
-    /// **`draw(with:to:)` applies both itself** — the rotation and the box's origin. This first
-    /// shipped with `transform(for:)` concatenated before it as well, and measured 2026-10-17 with
-    /// a page marked in one corner, that applied them TWICE: a quarter-turned page drew blank and a
-    /// cropped one drew shifted. `aRotatedOrCroppedPageDrawsWhereTheReaderSeesIt` reads pixels.
-    /// Called inside the lane only.
+    /// **Don't concatenate `transform(for:)` first**: `draw(with:to:)` applies the rotation and the
+    /// box's origin itself, and doing it twice draws a turned page blank and a cropped one shifted.
+    /// `aRotatedOrCroppedPageDrawsWhereTheReaderSeesIt` reads the pixels.
     nonisolated static func drawThumbnail(_ page: PDFPage, longEdge: CGFloat) -> SendableImage? {
         let shown = shownSize(of: page)
         guard shown.width > 1, shown.height > 1 else { return nil }

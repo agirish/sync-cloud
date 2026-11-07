@@ -4,17 +4,17 @@ import Events
 import PDFToolkitCore
 import Sync
 
-/// **A page as the reader sees it, and the arithmetic between that and the page's own space.**
+/// A page as the reader sees it, and the arithmetic between that and the page's own space.
 ///
-/// Fill & Sign's items live in **display space**: the page's crop box turned by its rotation, y up,
-/// origin at the displayed page's bottom-left corner — upright, the way the reader placed them. The
-/// toolkit takes rects in PAGE space (``FillSignItem/rect``) and maps text back into display space
+/// Fill & Sign's items live in display space: the page's crop box turned by its rotation, y up,
+/// origin at the displayed page's bottom-left corner, upright the way the reader placed them. The
+/// toolkit takes rects in page space (``FillSignItem/rect``) and maps text back into display space
 /// itself (`PDFToolkit.displayRect`), so text keeps the rect it was placed with; a drawn signature
 /// is mapped point by point through the page's transform, so its strokes are turned here first and
 /// it comes out upright on a turned page rather than lying on its side.
 public struct EditorPDFPageBox: Equatable, Sendable {
     public var cropBox: CGRect
-    /// 0, 90, 180 or 270 — `PDFPage.rotation`, clockwise.
+    /// 0, 90, 180 or 270: `PDFPage.rotation`, clockwise.
     public var rotation: Int
 
     public init(cropBox: CGRect, rotation: Int) {
@@ -29,7 +29,7 @@ public struct EditorPDFPageBox: Equatable, Sendable {
 
     public var displayBounds: CGRect { CGRect(origin: .zero, size: displaySize) }
 
-    /// Page space → display space — the toolkit's `displayRect` for a bare point.
+    /// Page space → display space: the toolkit's `displayRect` for a bare point.
     public func displayPoint(page p: CGPoint) -> CGPoint {
         let c = cropBox
         switch rotation {
@@ -63,8 +63,8 @@ public struct EditorPDFPageBox: Equatable, Sendable {
         CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 
-    /// **Strokes normalized to `display` (0…1, y down) as the toolkit wants them**: normalized to
-    /// the same rect in page space. On an unturned page the two are the same numbers.
+    /// Strokes normalized to `display` (0…1, y down) as the toolkit wants them: normalized to the
+    /// same rect in page space. On an unturned page the two are the same numbers.
     func pageStrokes(_ strokes: [[CGPoint]], in display: CGRect) -> [[CGPoint]] {
         let page = pageRect(display: display)
         guard page.width > 0, page.height > 0 else { return strokes }
@@ -78,7 +78,7 @@ public struct EditorPDFPageBox: Equatable, Sendable {
     }
 }
 
-/// The two inks the palette offers (mockup 17): a dark blue, as a pen signs, and near-black.
+/// The two inks the palette offers: a dark blue, as a pen signs, and near-black.
 public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
     case blue
     case black
@@ -95,7 +95,7 @@ public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
         return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
     }
 
-    /// The Ink menu's line — "Blue", under a menu that already says Ink (TE126).
+    /// The Ink menu's line: "Blue", under a menu that already says Ink.
     public var title: String {
         switch self {
         case .blue: return "Blue"
@@ -103,14 +103,14 @@ public enum EditorPDFFillColor: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// "Blue ink" — where nothing else on screen says Ink: the Add sheet's swatches.
+    /// "Blue ink", where nothing else on screen says Ink: the Add sheet's swatches.
     public var inkTitle: String { "\(title) ink" }
 }
 
-/// **The Mac's own handwriting faces a typed signature can take** (TE88; decision AQ, 2026-10-19:
-/// built-in faces only, nothing bundled). SignPainter is left out (decision AT, 2026-10-19): on a PDF
-/// with form fields a typed item is saved as a FreeText annotation, and Preview, Chrome and Acrobat
-/// all drew its ligature letters ("ir", "or") garbled or not at all.
+/// The Mac's own handwriting faces a typed signature can take: built-in faces only, nothing
+/// bundled. SignPainter is left out: on a PDF with form fields a typed item is saved as a FreeText
+/// annotation, and Preview, Chrome and Acrobat draw its ligature letters ("ir", "or") garbled or
+/// not at all.
 public enum EditorPDFSignatureFace: String, CaseIterable, Codable, Sendable {
     case snellRoundhand
     case savoye
@@ -147,7 +147,7 @@ public enum EditorPDFSignatureFace: String, CaseIterable, Codable, Sendable {
     var toolkit: FillSignFont { .named(postScriptName) }
 }
 
-/// **A drawn signature's pen** (TE90). Medium is the width every signature had before.
+/// A drawn signature's pen. Medium is the default, and what a signature saved without a pen gets.
 public enum EditorPDFPen: String, CaseIterable, Codable, Sendable {
     case fine
     case medium
@@ -170,13 +170,13 @@ public enum EditorPDFPen: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// The pen's width on the Add Signature pad, in points — medium is the pad's old 2.2.
+    /// The pen's width on the Add Signature pad, in points; medium is 2.2.
     var padWidth: CGFloat { 2.2 * widthFraction / FillSignSignature.defaultPenWidthFraction }
 }
 
-/// **The font of placed text and dates** (TE93). Serif is Charter, not New York: New York has only
-/// a private system name, which a form's FreeText annotation can't carry — measured 2026-10-19, it
-/// came out as Helvetica in Preview, Chrome and Acrobat. Charter came through in all three.
+/// The font of placed text and dates. Serif is Charter, not New York: New York has only a private
+/// system name, which a form's FreeText annotation can't carry, so Preview, Chrome and Acrobat show
+/// it as Helvetica. Charter comes through in all three.
 public enum EditorPDFTextFont: String, CaseIterable, Codable, Sendable {
     case sans
     case serif
@@ -194,7 +194,7 @@ public enum EditorPDFTextFont: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// `nil` is the system font, as every text item was before.
+    /// `nil` is the system font.
     var toolkit: FillSignFont? {
         switch self {
         case .sans: return nil
@@ -208,8 +208,8 @@ public enum EditorPDFTextFont: String, CaseIterable, Codable, Sendable {
     func font(size: CGFloat) -> NSFont { PDFToolkit.font(size: size, script: false, font: toolkit) }
 }
 
-/// **A signature or a set of initials** — drawn with the pointer or typed in a script face. Saved
-/// ones are kept on this Mac only (``EditorPDFSignatureStore``), as pen strokes or the typed words.
+/// A signature or a set of initials, drawn with the pointer or typed in a script face. Saved ones
+/// are kept on this Mac only (``EditorPDFSignatureStore``), as pen strokes or the typed words.
 public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
     public enum Kind: String, Codable, Sendable, Identifiable {
         case signature
@@ -220,8 +220,8 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
     }
 
     public enum Look: Hashable, Codable, Sendable {
-        /// Pen strokes normalized to the ink's own box — 0…1, y down — and that box's width over
-        /// its height, so it is placed at the shape it was drawn.
+        /// Pen strokes normalized to the ink's own box (0…1, y down), and that box's width over its
+        /// height, so it is placed at the shape it was drawn.
         case drawn(strokes: [[CGPoint]], aspect: CGFloat)
         /// Words drawn in a script face (``face``).
         case typed(String)
@@ -230,9 +230,9 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
     public var id: UUID
     public var kind: Kind
     public var look: Look
-    /// A typed one's face — Snell Roundhand, the one face there was, for one saved before faces.
+    /// A typed one's face; Snell Roundhand for one saved without a face.
     public var face: EditorPDFSignatureFace
-    /// A drawn one's pen — Medium, the one width there was, for one saved before pens.
+    /// A drawn one's pen; Medium for one saved without a pen.
     public var pen: EditorPDFPen
 
     public init(id: UUID = UUID(), kind: Kind, look: Look, face: EditorPDFSignatureFace = .snellRoundhand,
@@ -246,8 +246,8 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case id, kind, look, face, pen }
 
-    /// **Signatures saved before faces and pens decode as Snell Roundhand and Medium** — and a face
-    /// this build doesn't know (a later one's) as Snell too, rather than losing every saved one.
+    /// Signatures saved without a face or pen decode as Snell Roundhand and Medium, and a face this
+    /// build doesn't know (a later one's) as Snell too, rather than losing every saved one.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -257,9 +257,9 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         pen = (try? c.decodeIfPresent(EditorPDFPen.self, forKey: .pen)) ?? .medium
     }
 
-    /// **Strokes from the pad, in its own points (y down), fitted to their own box** — `nil` when
-    /// nothing was drawn. A flat stroke (a dash, an underline) keeps a box at least a fifth as tall
-    /// as it is wide, so it is not placed a hair high.
+    /// Strokes from the pad, in its own points (y down), fitted to their own box; `nil` when nothing
+    /// was drawn. A flat stroke (a dash, an underline) keeps a box at least a fifth as tall as it is
+    /// wide, so it is not placed a hair high.
     public static func drawn(_ strokes: [[CGPoint]], kind: Kind, pen: EditorPDFPen = .medium) -> EditorPDFSignature? {
         let points = strokes.flatMap { $0 }
         guard let first = points.first else { return nil }
@@ -273,9 +273,9 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         return EditorPDFSignature(kind: kind, look: .drawn(strokes: normalized, aspect: width / height), pen: pen)
     }
 
-    /// **The trackpad's wobble smoothed out** (TE91): each point averaged with its neighbours, then
-    /// its corners cut once, so the pen's line runs in gentle curves. The ends stay where they were
-    /// drawn, and a dot or a two-point dash is left as it is.
+    /// The trackpad's wobble smoothed out: each point averaged with its neighbours, then its corners
+    /// cut once, so the pen's line runs in gentle curves. The ends stay where they were drawn, and a
+    /// dot or a two-point dash is left as it is.
     public static func smoothed(_ strokes: [[CGPoint]]) -> [[CGPoint]] {
         strokes.map { stroke in
             guard stroke.count >= 3 else { return stroke }
@@ -296,16 +296,16 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         }
     }
 
-    /// **"AG" for "Abhishek Girish"** (TE94): the first letter of each word, at most three.
+    /// "AG" for "Abhishek Girish": the first letter of each word, at most three.
     public static func initials(of name: String) -> String {
         name.split(whereSeparator: \.isWhitespace).compactMap { $0.first(where: \.isLetter) }
             .prefix(3).map { $0.uppercased() }.joined()
     }
 
-    /// **What VoiceOver and the menus call it** (decision BD, 2026-10-20): a typed one by its words;
-    /// a drawn one by its place among the drawn ones of its kind in `saved` — newest first, as the
-    /// menus list them — and its pen: "Drawn signature 2, bold pen". Every drawn one was read as
-    /// "Drawn signature", so two could not be told apart, in the menu or in its Delete submenu.
+    /// What VoiceOver and the menus call it: a typed one by its words; a drawn one by its place among
+    /// the drawn ones of its kind in `saved` (newest first, as the menus list them) and its pen:
+    /// "Drawn signature 2, bold pen". So two drawn ones can be told apart, in the menu and in its
+    /// Delete submenu.
     public func spokenName(among saved: [EditorPDFSignature]) -> String {
         guard case .drawn = look else {
             if case .typed(let words) = look { return words }
@@ -318,26 +318,26 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
-/// One thing placed on a page with Fill & Sign — not written anywhere until Save Filled Copy.
+/// One thing placed on a page with Fill & Sign, not written anywhere until Save Filled Copy.
 public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
     public enum Content: Equatable, Sendable {
-        /// Typed text, a date, or a mark — all drawn as text, which is all the toolkit's text is.
+        /// Typed text, a date, or a mark: all drawn as text, which is all the toolkit's text is.
         case text(String)
         case signature(EditorPDFSignature)
-        /// New words over a patch hiding old ones (TE83).
+        /// New words over a patch hiding old ones.
         case correction(EditorPDFCorrection)
     }
 
     public let id: UUID
     /// Zero-based.
     public var page: Int
-    /// In the page's display space — ``EditorPDFPageBox``.
+    /// In the page's display space; see ``EditorPDFPageBox``.
     public var rect: CGRect
     public var content: Content
     /// Text's point size, and a typed signature's. A drawn signature is sized by its rect.
     public var fontSize: CGFloat
     public var color: EditorPDFFillColor
-    /// Text's font (TE93). A typed signature's face is its signature's.
+    /// Text's font. A typed signature's face is its signature's.
     public var font: EditorPDFTextFont
 
     public init(id: UUID = UUID(), page: Int, rect: CGRect, content: Content, fontSize: CGFloat,
@@ -351,7 +351,7 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         self.font = font
     }
 
-    /// The words this item draws, and whether in the script face — `nil` for a drawn signature.
+    /// The words this item draws, and whether in the script face; `nil` for a drawn signature.
     public var words: (string: String, script: Bool)? {
         switch content {
         case .text(let string): return (string, false)
@@ -381,21 +381,21 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
 
     public var isCorrection: Bool { correction != nil }
 
-    /// **The ink the words are drawn in**: the palette's — or a correction's original, until the
-    /// Ink tool chooses another.
+    /// The ink the words are drawn in: the palette's, or a correction's original until the Ink tool
+    /// chooses another.
     public var ink: EditorPDFRGB {
         if let correction, correction.keepsOriginalInk { return correction.ink }
         let c = color.components
         return EditorPDFRGB(red: c.red, green: c.green, blue: c.blue)
     }
 
-    /// **The face this item's words are drawn in, at `size`** — the toolkit's own choice, so the
-    /// screen draws what Save writes.
+    /// The face this item's words are drawn in, at `size`: the toolkit's own choice, so the screen
+    /// draws what Save writes.
     func nsFont(size: CGFloat) -> NSFont {
         PDFToolkit.font(size: max(4, size), script: words?.script ?? false, font: toolkitFont)
     }
 
-    /// A ✓, ✗ or • — text, but a mark keeps the system font: not every face has its glyph.
+    /// A ✓, ✗ or •: text, but a mark keeps the system font, since not every face has its glyph.
     public var isMark: Bool {
         if case .text(let string) = content { return EditorPDFFillMark(rawValue: string) != nil }
         return false
@@ -409,8 +409,8 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
 
     public var isSignature: Bool { signature != nil }
 
-    /// **What VoiceOver calls it**: "Check Mark", "Text, Lease ends 1 May", "Signature, Ada Quill",
-    /// or a drawn one by its name among `saved` (``EditorPDFSignature/spokenName(among:)``).
+    /// What VoiceOver calls it: "Check Mark", "Text, Lease ends 1 May", "Signature, Ada Quill", or a
+    /// drawn one by its name among `saved` (``EditorPDFSignature/spokenName(among:)``).
     public func spokenName(among saved: [EditorPDFSignature]) -> String {
         switch content {
         case .text(let string):
@@ -437,8 +437,8 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// **What the toolkit draws for this item**, on a page turned as `box` says — a correction's
-    /// patch first, then its words.
+    /// What the toolkit draws for this item, on a page turned as `box` says: a correction's patch
+    /// first, then its words.
     public func toolkitItems(on box: EditorPDFPageBox) -> [FillSignItem] {
         guard let correction else { return [toolkitItem(on: box)] }
         let patch = FillSignItem(id: Self.patchID(id), pageIndex: page, rect: box.pageRect(display: correction.cover),
@@ -447,14 +447,14 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         return [patch, toolkitItem(on: box)]
     }
 
-    /// The patch's id: the item's, its first byte turned over — the same every save.
+    /// The patch's id: the item's, its first byte turned over, the same every save.
     static func patchID(_ id: UUID) -> UUID {
         var bytes = id.uuid
         bytes.0 ^= 0xFF
         return UUID(uuid: bytes)
     }
 
-    /// **What the toolkit draws for this item's words or strokes**, on a page turned as `box` says.
+    /// What the toolkit draws for this item's words or strokes, on a page turned as `box` says.
     public func toolkitItem(on box: EditorPDFPageBox) -> FillSignItem {
         let ink = self.ink
         let pageRect = box.pageRect(display: rect)
@@ -480,11 +480,11 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         return FillSignItem(id: id, pageIndex: page, rect: pageRect, content: content)
     }
 
-    /// **The box words of `fontSize` need** in the face the toolkit draws them with. The toolkit
+    /// The box words of `fontSize` need in the face the toolkit draws them with. The toolkit
     /// word-wraps inside the rect and draws only what fits, so a box too small drops the end of the
-    /// words (`wordsPlacedAtTheirMeasuredBoxComeOutWhole`). Measured 2026-10-18, the exact measured
-    /// box already comes out whole; the room over it is for the screen — the typing field's own
-    /// insets, and the selection ring kept off the glyphs.
+    /// words (`wordsPlacedAtTheirMeasuredBoxComeOutWhole`). The exact measured box already comes out
+    /// whole; the room over it is for the screen: the typing field's own insets, and the selection
+    /// ring kept off the glyphs.
     public static func size(of string: String, fontSize: CGFloat, script: Bool, font: FillSignFont? = nil) -> CGSize {
         let measured = measure(string, fontSize: fontSize, script: script, font: font)
         return CGSize(width: ceil(measured.width + fontSize * 0.3 + 2), height: ceil(measured.height + 1))
@@ -500,8 +500,8 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
         return NSAttributedString(string: string.isEmpty ? "M" : string, attributes: [.font: face]).size()
     }
 
-    /// **The point size that sets `string` in `face` as wide as `reference` sets it at `size`** —
-    /// every face placed at one width (TE88), so Zapfino's loops don't make a bigger signature.
+    /// The point size that sets `string` in `face` as wide as `reference` sets it at `size`: every
+    /// face is placed at one width, so Zapfino's loops don't make a bigger signature.
     static func fittedSize(_ string: String, face: EditorPDFSignatureFace, matching reference: EditorPDFSignatureFace,
                            at size: CGFloat) -> CGFloat {
         guard face != reference else { return size }
@@ -514,18 +514,18 @@ public struct EditorPDFFillItem: Identifiable, Equatable, Sendable {
 
 /// What the next click on a page places.
 public enum EditorPDFFillTool: Equatable, Sendable {
-    /// A click fills the PDF's own field under it (Phase 5c) — first in the palette, and what Fill &
-    /// Sign opens on when the file has fields it can fill.
+    /// A click fills the PDF's own field under it: first in the palette, and what Fill & Sign opens
+    /// on when the file has fields it can fill.
     case formFields
     case text
-    /// A click picks the line of words under it to retype (TE82).
+    /// A click picks the line of words under it to retype.
     case replace
     case date
     case mark(EditorPDFFillMark)
     case signature(EditorPDFSignature)
 }
 
-/// ✓ ✗ • — drawn as text, as the toolkit draws every word (mockup 17).
+/// ✓ ✗ •, drawn as text, as the toolkit draws every word.
 public enum EditorPDFFillMark: String, CaseIterable, Sendable {
     case check = "✓"
     case cross = "✗"
@@ -540,27 +540,26 @@ public enum EditorPDFFillMark: String, CaseIterable, Sendable {
     }
 }
 
-/// **Saved signatures and initials — on this Mac, and only here.** Kept in the app's own defaults
-/// as pen strokes or typed words; never synced, never logged.
+/// Saved signatures and initials, on this Mac and only here. Kept in the app's own defaults as pen
+/// strokes or typed words; never synced, never logged.
 @MainActor
 public final class EditorPDFSignatureStore: ObservableObject {
     public static let key = "editorPDFSavedSignatures"
-    /// The most of each kind kept; adding past it lets the oldest go — said on the Add sheet first
-    /// (``isFull(_:)``, TE100).
+    /// The most of each kind kept; adding past it lets the oldest go, which the Add sheet says first
+    /// (``isFull(_:)``).
     static let limit = 6
 
     @Published public private(set) var saved: [EditorPDFSignature]
-    /// Where they are kept — and the Add Signature sheet's last face, pen and smoothing.
+    /// Where they are kept, along with the Add Signature sheet's last face, pen and smoothing.
     let defaults: UserDefaults
     nonisolated(unsafe) private var change: NSObjectProtocol?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         saved = Self.read(defaults)
-        // **A removal from the domain takes them while the app runs**, not at the next launch: when
-        // Reset All Settings still took them (it keeps them now, `SettingsResetKeeps`), the list
-        // held here kept offering a removed signature to place, until a relaunch. Any
-        // change to the domain is looked at; only a list that differs from the stored one moves.
+        // A removal from the domain takes them while the app runs, not at the next launch, so the
+        // list held here never offers a removed signature to place. Any change to the domain is
+        // looked at; only a list that differs from the stored one moves.
         change = observeDefaultsChanges(of: defaults) { [weak self] in self?.reread() }
     }
 
@@ -580,9 +579,8 @@ public final class EditorPDFSignatureStore: ObservableObject {
     /// Whether adding one more of `kind` lets the oldest go.
     public func isFull(_ kind: EditorPDFSignature.Kind) -> Bool { saved(kind).count >= Self.limit }
 
-    /// Newest first. **Built on what is stored, not on what was read at launch**: when Settings ▸
-    /// Reset All Settings still emptied the domain under a store that was already up (it keeps them
-    /// now), the next add wrote the signatures it had just removed back with the new one.
+    /// Newest first. Built on what is stored, not on what was read at launch, so a domain emptied
+    /// under a running store doesn't get the removed signatures written back with the new one.
     public func add(_ signature: EditorPDFSignature) {
         var next = [signature] + Self.read(defaults).filter { $0.id != signature.id }
         let overflow = next.filter { $0.kind == signature.kind }.dropFirst(Self.limit).map(\.id)
@@ -592,14 +590,14 @@ public final class EditorPDFSignatureStore: ObservableObject {
 
     public func delete(_ id: UUID) { write(Self.read(defaults).filter { $0.id != id }) }
 
-    /// **A saved one restyled in place** (decision AS) — where it was in the list, under its id.
-    /// One deleted meanwhile stays deleted.
+    /// A saved one restyled in place, where it was in the list, under its id. One deleted meanwhile
+    /// stays deleted.
     public func replace(_ signature: EditorPDFSignature) {
         write(Self.read(defaults).map { $0.id == signature.id ? signature : $0 })
     }
 
-    /// The Add Signature sheet's last face, pen and smoothing — remembered for next time (TE88, TE90,
-    /// TE91), on this Mac like the signatures.
+    /// The Add Signature sheet's last face, pen and smoothing, remembered for next time on this Mac,
+    /// like the signatures.
     public static let faceKey = "editorPDFSignatureFace"
     public static let penKey = "editorPDFSignaturePen"
     public static let smoothKey = "editorPDFSignatureSmoothing"
@@ -610,22 +608,22 @@ public final class EditorPDFSignatureStore: ObservableObject {
     }
 }
 
-/// **Fill & Sign: the items placed on the open PDF, and the palette's state** (mockups 17, 18 and
-/// F). A sibling of ``EditorPDFTools`` on ``EditorPDFDocument``, observed by the palette, the save
-/// pill, the header's button and the page view's overlay.
+/// Fill & Sign: the items placed on the open PDF, and the palette's state. A sibling of
+/// ``EditorPDFTools`` on ``EditorPDFDocument``, observed by the palette, the save pill, the
+/// header's button and the page view's overlay.
 ///
-/// **Nothing is written until Save Filled Copy**, which is a tool run like any other —
-/// ``EditorPDFTool/fillAndSign(_:)`` through ``EditorPDFTools/run(_:bannerFailures:)`` — so the copy
-/// is named, written and reported by the one rule every tool follows, and the open file stays
-/// exactly as it was. Placing, moving and deleting are undone with ⌘Z on this object's own stack
+/// Nothing is written until Save Filled Copy, which is a tool run like any other
+/// (``EditorPDFTool/fillAndSign(_:pictures:unlinksPatches:keepsComments:)`` through
+/// ``EditorPDFTools/run(_:bannerFailures:)``), so the copy is named, written and reported by the one
+/// rule every tool follows, and the open file stays exactly as it was. Placing, moving and deleting are undone with ⌘Z on this object's own stack
 /// (``undoManager``), never the window's, which holds the file operations'.
 @MainActor
 public final class EditorPDFFillSign: ObservableObject {
 
     /// Whether the palette is up.
     @Published public private(set) var isOn = false
-    /// Told of each filled copy saved, original then copy — so Ask Claude can tell Claude about the
-    /// form it opened (TE294). Nil unless the app sets it.
+    /// Told of each filled copy saved, original then copy, so Ask Claude can tell Claude about the
+    /// form it opened. Nil unless the app sets it.
     public var didSave: (@MainActor (_ original: String, _ copy: String) -> Void)?
     @Published public private(set) var items: [EditorPDFFillItem] = []
     @Published public var selection: UUID?
@@ -633,20 +631,19 @@ public final class EditorPDFFillSign: ObservableObject {
     @Published public var armed: EditorPDFFillTool? {
         didSet { if armed != .replace { replaceNote = nil } }
     }
-    /// **Why the last click with Replace picked nothing** (TE87) — said in the note card until the
-    /// next pick, or another tool.
+    /// Why the last click with Replace picked nothing, said in the note card until the next pick or
+    /// another tool.
     @Published public private(set) var replaceNote: String?
-    /// **The pages to save as pictures** (TE85, decision AK): the words corrections cover there go
-    /// from the copy, and so does every other word's text on the page.
+    /// The pages to save as pictures: the words corrections cover there go from the copy, and so
+    /// does every other word's text on the page.
     @Published public private(set) var pictures: Set<Int> = []
-    /// **Whether the copy leaves out the links under corrections** (FR56, decided 2026-10-25): off
-    /// by default, chosen in the note card for the next save only — a save, Discard or another file
-    /// puts it back off. It is read only while ``offersUnlinking``.
+    /// Whether the copy leaves out the links under corrections: off by default, chosen in the note
+    /// card for the next save only; a save, Discard or another file puts it back off. Read only
+    /// while ``offersUnlinking``.
     @Published public var unlinksCorrections = false
-    /// **Whether the copy keeps the file's comments as comments** (FR57, decided 2026-10-25): off
-    /// by default — they are drawn into the pages, as they always were — chosen in the note card
-    /// for the next save only, as ``unlinksCorrections`` is. It is read only while
-    /// ``offersKeepingComments`` and nothing refuses it (``keepCommentsRefusal``).
+    /// Whether the copy keeps the file's comments as comments: off by default (they are drawn into
+    /// the pages), chosen in the note card for the next save only, as ``unlinksCorrections`` is.
+    /// Read only while ``offersKeepingComments`` and nothing refuses it (``keepCommentsRefusal``).
     @Published public var keepsComments = false
     /// The item whose words are being typed, or `nil`.
     @Published public private(set) var editing: UUID?
@@ -654,32 +651,32 @@ public final class EditorPDFFillSign: ObservableObject {
     @Published public var addingSignature: EditorPDFSignature.Kind? {
         // The sheet put away without Add: the field it was opened from is no longer being signed.
         // And File ▸ PDF Tools, which observes only the tools, greys under this sheet
-        // (`EditorPDFToolsMenuEntry.entries`) — so the tools are told it moved.
+        // (`EditorPDFToolsMenuEntry.entries`), so the tools are told it moved.
         didSet {
             if addingSignature == nil { signing = nil }
             if (oldValue == nil) != (addingSignature == nil) { tools?.objectWillChange.send() }
         }
     }
-    /// **The signature field being signed** (TE107): where the signature chosen from its menu — or
-    /// added on the sheet it opened — is placed, instead of arming the Signature tool.
+    /// The signature field being signed: where the signature chosen from its menu, or added on the
+    /// sheet it opened, is placed, instead of arming the Signature tool.
     @Published public var signing: SigningTarget?
     /// What the next item is drawn in, and what A− / A+ and the inks last chose.
     @Published public private(set) var color: EditorPDFFillColor = .blue
     @Published public private(set) var fontSize: CGFloat = EditorPDFFillSign.defaultFontSize
-    /// The next text's font, and what the Aa tool last chose for text (TE93).
+    /// The next text's font, and what the Aa tool last chose for text.
     @Published public private(set) var textFont: EditorPDFTextFont = .sans
-    /// Why Fill & Sign is off for this file, or `nil` — said when its button is pressed.
+    /// Why Fill & Sign is off for this file, or `nil`; said when its button is pressed.
     @Published public private(set) var refusal: String?
 
     // MARK: The PDF's own form (Phase 5c)
 
-    /// The file's fields, read in the lane with the facts — ``EditorPDFForm/none`` for a flat file.
+    /// The file's fields, read in the lane with the facts; ``EditorPDFForm/none`` for a flat file.
     @Published public private(set) var form = EditorPDFForm.none
-    /// **The values typed into the form's fields and not yet saved**, by fully qualified name —
-    /// only those that differ from the file's own. Draft state: nothing reaches the reader's
-    /// document or the file until Save Filled Copy hands them to `fillFormData`.
+    /// The values typed into the form's fields and not yet saved, by fully qualified name, only
+    /// those that differ from the file's own. Draft state: nothing reaches the reader's document or
+    /// the file until Save Filled Copy hands them to `fillFormData`.
     @Published public private(set) var values: [String: FormFieldValue] = [:]
-    /// The field the keyboard is on — Tab and ⇧Tab move it, Space and Return act on it.
+    /// The field the keyboard is on: Tab and ⇧Tab move it, Space and Return act on it.
     @Published public private(set) var focusedField: String?
     /// The text field being typed into, or `nil`.
     @Published public private(set) var editingField: String?
@@ -687,11 +684,11 @@ public final class EditorPDFFillSign: ObservableObject {
     /// text and signatures be placed on its pages (``EditorPDFFacts/allowsFormEntry``).
     @Published public private(set) var allowsFormEntry = true
     @Published public private(set) var allowsCommenting = true
-    /// The review comments already on the file's pages, read in the lane with the facts (FR57).
+    /// The review comments already on the file's pages, read in the lane with the facts.
     @Published public private(set) var comments = EditorPDFComments.none
 
     public let store: EditorPDFSignatureStore
-    /// Placing, moving, deleting — undone with ⌘Z while the pages have the keyboard.
+    /// Placing, moving, deleting: undone with ⌘Z while the pages have the keyboard.
     public let undoManager = UndoManager()
     /// The run that writes the copy. Set by the document.
     weak var tools: EditorPDFTools?
@@ -699,19 +696,19 @@ public final class EditorPDFFillSign: ObservableObject {
     private(set) var path: String?
     /// Each page's crop box and rotation, read in the lane with the facts.
     private(set) var boxes: [EditorPDFPageBox] = []
-    /// The items before a drag or a typing session began — what its one undo step restores.
+    /// The items before a drag or a typing session began, which its one undo step restores.
     private var gestureBefore: [EditorPDFFillItem]?
     private var editBefore: [EditorPDFFillItem]?
-    /// The values before a field's typing began — what its one undo step restores.
+    /// The values before a field's typing began, which its one undo step restores.
     private var fieldEditBefore: [String: FormFieldValue]?
 
     var today: () -> Date = Date.init
-    /// Today in the Mac’s short date format with a four-digit year — "17/10/2026" here, "10/17/2026" in the US.
+    /// Today in the Mac’s short date format with a four-digit year: "17/10/2026" here, "10/17/2026" in the US.
     var formatDate: (Date) -> String = { EditorPDFFillSign.placedDate($0) }
-    /// Puts a refusal to the reader — an alert in the app, recorded in a test.
+    /// Puts a refusal to the reader: an alert in the app, recorded in a test.
     lazy var presentRefusal: @MainActor (String) -> Void = { [unowned self] in self.alertRefusal($0) }
-    /// Asks what to do with unsaved items — an alert in the app, a canned answer in a test. `count`
-    /// is the items placed and the fields changed together.
+    /// Asks what to do with unsaved items: an alert in the app, a canned answer in a test. `count` is
+    /// the items placed and the fields changed together.
     lazy var askLeaving: @MainActor (_ name: String, _ count: Int) -> LeaveAnswer = { [unowned self] name, _ in
         EditorPDFFillSign.alertLeaving(name: name, fields: self.values.count, placed: self.placedParts,
                                        corrected: self.onlyCorrections)
@@ -719,7 +716,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     public enum LeaveAnswer: Sendable { case save, discard, cancel }
 
-    /// Asks before a saved signature is deleted — an alert in the app, a canned answer in a test.
+    /// Asks before a saved signature is deleted: an alert in the app, a canned answer in a test.
     public var confirmDeletingSaved: @MainActor (_ signature: EditorPDFSignature, _ name: String) -> Bool = { signature, name in
         EditorPDFFillSign.deleteSavedAlert(signature, name: name).runModal() == .alertSecondButtonReturn
     }
@@ -729,41 +726,41 @@ public final class EditorPDFFillSign: ObservableObject {
     /// A drawn signature's width when placed, and initials', in page points.
     static let signatureWidth: CGFloat = 150
     static let initialsWidth: CGFloat = 54
-    /// A typed signature's point size when placed, and typed initials' — in Snell Roundhand; every
-    /// other face is placed at the width Snell would take (TE88).
+    /// A typed signature's point size when placed, and typed initials', in Snell Roundhand; every
+    /// other face is placed at the width Snell would take.
     static let signatureFontSize: CGFloat = 28
     static let initialsFontSize: CGFloat = 20
 
     public init(store: EditorPDFSignatureStore) {
         self.store = store
-        // **One step per change, grouped here** rather than by the run loop's event: a placement and
-        // the drag that follows it in one pass — a test's, or a synthesized event's — were one step.
+        // One step per change, grouped here rather than by the run loop's event, so a placement and
+        // a drag that follows it in one pass (a test's, or a synthesized event's) stay two steps.
         undoManager.groupsByEvent = false
     }
 
     // MARK: The file
 
-    /// `allowsFilling` is the file's own permissions — read in the lane with the facts — and `form`,
-    /// `allowsFormEntry` and `allowsCommenting` its form and the permissions' two halves (5c).
+    /// `allowsFilling` is the file's own permissions, read in the lane with the facts; `form`,
+    /// `allowsFormEntry` and `allowsCommenting` are its form and the permissions' two halves.
     func attach(path: String, boxes: [EditorPDFPageBox], encryption: PDFEncryptionState, allowsFilling: Bool,
                 form: EditorPDFForm = .none, allowsFormEntry: Bool = true, allowsCommenting: Bool = true,
                 comments: EditorPDFComments = .none) {
         let reloaded = self.path == path
-        // **What there was before either drop below**, for the one banner that says it all: a
-        // reload that changed both the form and the pages cleared the fields first, and the items'
-        // banner then said only "the items you placed" over the fields' own. What the pill counts —
-        // a text box opened and left empty is no lost work.
+        // What there was before either drop below, for the one banner that says it all: a reload
+        // that changed both the form and the pages clears the fields first, and the items' banner
+        // must still name both. Counted as the pill counts: a text box opened and left empty is no
+        // lost work.
         let filledBefore = values.count, placedBefore = unsaved.count
         if self.path == path, boxes != self.boxes || form != self.form {
-            // **The undo steps go with the pages and the form they were taken on** — with nothing
-            // to drop now as well. A Discard, or a placement undone, left steps that ⌘Z then played
-            // back onto pages that had changed: counted as unsaved, drawn nowhere, and left out of
+            // The undo steps go with the pages and the form they were taken on, even with nothing
+            // to drop now. Steps left from a Discard, or a placement undone, would let ⌘Z play them
+            // back onto pages that have changed: counted as unsaved, drawn nowhere, and left out of
             // the copy without a word.
             undoManager.removeAllActions()
         }
         if self.path == path, form != self.form, !values.isEmpty {
-            // **A reload whose form is no longer the one the values were typed into** — a field
-            // renamed, a value changed elsewhere. Said, as the items' drop is.
+            // A reload whose form is no longer the one the values were typed into (a field renamed,
+            // a value changed elsewhere). Said, as the items' drop is.
             Logger.shared.info("Edit dropped \(Self.fields(values.count)) filled with Fill & Sign on "
                                + "\(EditorPDFTools.logName(path)) — the file changed on disk")
             values = [:]
@@ -775,9 +772,9 @@ public final class EditorPDFFillSign: ObservableObject {
                                                 kind: .note)
         }
         if self.path == path, boxes != self.boxes, !items.isEmpty {
-            // **A reload whose pages are no longer the ones the items were placed on.** A file that
-            // changed but kept every page as it was keeps its items.
-            // `clear()` takes the filled fields too, so the log and the banner name them as well.
+            // A reload whose pages are no longer the ones the items were placed on. A file that
+            // changed but kept every page as it was keeps its items. `clear()` takes the filled
+            // fields too, so the log and the banner name them as well.
             let lost = [placedBefore > 0 ? "\(Self.count(placedBefore)) placed" : nil,
                         values.isEmpty ? nil : "\(Self.fields(values.count)) filled"].compactMap { $0 }
             if !lost.isEmpty {
@@ -794,11 +791,11 @@ public final class EditorPDFFillSign: ObservableObject {
                 tools?.banner = EditorPDFToolBanner(
                     message: "The file changed on disk, so the items you placed were dropped.", kind: .note)
             case (false, true):
-                // The pages changed and the form did not: `clear()` took the fields all the same.
+                // The pages changed and the form didn't: `clear()` took the fields all the same.
                 tools?.banner = EditorPDFToolBanner(
                     message: "The file changed on disk, so the fields you filled were cleared.", kind: .note)
             case (false, false):
-                // Only an empty text box went — no work.
+                // Only an empty text box went: no work.
                 break
             }
         } else if self.path != path {
@@ -812,16 +809,16 @@ public final class EditorPDFFillSign: ObservableObject {
         self.allowsCommenting = allowsCommenting
         self.comments = comments
         // An owner who forbids commenting gets no placed items, form or not: a file with no form
-        // allowed only "form entry" has nothing that permission covers, and took items flattened
-        // into an unrestricted copy — the inconsistency `nothingToFillReason` closed for forms.
+        // that allows only "form entry" has nothing that permission covers, and would otherwise take
+        // items flattened into an unrestricted copy, as `nothingToFillReason` prevents for forms.
         refusal = Self.refusal(encryption: encryption, allowsFilling: allowsFilling)
             ?? (!allowsCommenting && !offersFormFields
                 ? (form.hasFields ? Self.nothingToFillReason : Self.restrictedReason) : nil)
         if refusal != nil, reloaded, let lost = unsavedWork {
-            // **A reload that now refuses the file takes what was placed.** The palette and the
-            // pill go with `isOn`, and the overlay draws only while on, so the items were kept out
-            // of sight — yet File ▸ Save Filled Copy and the leave question could still flatten them
-            // into a copy of a file whose owner now forbids it.
+            // A reload that now refuses the file takes what was placed. The palette, the pill and the
+            // overlay go with `isOn`, so the items would be out of sight, yet File ▸ Save Filled Copy
+            // and the leave question could still flatten them into a copy of a file whose owner now
+            // forbids it.
             Logger.shared.info("Edit dropped \(lost) with Fill & Sign on \(EditorPDFTools.logName(path)) — "
                                + "the file changed on disk and no longer allows it")
             clear()
@@ -830,8 +827,8 @@ public final class EditorPDFFillSign: ObservableObject {
                 kind: .note)
         }
         if refusal == nil, reloaded, form.hasFields, items.contains(where: \.isCorrection) {
-            // **A reload that now has a form takes the corrections** (decision AV): Replace is off
-            // on a form, so the save refused them every time, and only Discard got out.
+            // A reload that now has a form takes the corrections: Replace is off on a form, so the
+            // save would refuse them every time, and only Discard would get out.
             let corrections = items.filter(\.isCorrection).count
             Logger.shared.info("Edit dropped \(corrections == 1 ? "1 correction" : "\(corrections) corrections") with "
                                + "Fill & Sign on \(EditorPDFTools.logName(path)) — the file changed on disk and now has a fillable form")
@@ -849,10 +846,10 @@ public final class EditorPDFFillSign: ObservableObject {
         if refusal != nil { isOn = false }
     }
 
-    /// What a ``detach()`` now would throw away — "2 items and 1 field" — or `nil` with nothing
+    /// What a ``detach()`` now would throw away ("2 items and 1 field"), or `nil` with nothing
     /// unsaved: the words for the banner when the file goes from under the reader.
     var unsavedWork: String? {
-        // What the pill counts: an item with nothing in it yet — text box just opened — is not work.
+        // What the pill counts: an item with nothing in it yet (a text box just opened) is not work.
         let parts = placedParts + (values.isEmpty ? [] : [Self.fields(values.count)])
         return parts.isEmpty ? nil : parts.joined(separator: " and ")
     }
@@ -898,20 +895,19 @@ public final class EditorPDFFillSign: ObservableObject {
     }
 
     static let restrictedTitle = "This PDF doesn’t allow filling"
-    /// **A form whose owner forbids commenting and has no field that can be filled** — every field
-    /// read-only or a signature. Placed items would have to be flattened into the pages, against the
-    /// owner's "no commenting", and a form with a fillable field already refuses them for exactly
-    /// that; this used to be the one form where they were taken (his call, 2026-10-18, to match).
+    /// A form whose owner forbids commenting and has no field that can be filled (every field
+    /// read-only or a signature). Placed items would have to be flattened into the pages, against
+    /// the owner's "no commenting", and a form with a fillable field already refuses them for that.
     static let nothingToFillReason = "Its owner doesn’t allow adding text or signatures to its pages, and its form "
         + "has no field that can be filled. \(removePasswordStep)"
-    /// No password is asked for: Remove Password… lifts an owner's restrictions without one (TE167).
+    /// No password is asked for: Remove Password… lifts an owner's restrictions without one.
     static let restrictedReason = "Its owner restricted editing, so Fill & Sign is off for it. \(removePasswordStep)"
-    /// The engine's sentence, so Fill & Sign and the tools name one path — the menu bar's PDF Tools.
+    /// The engine's sentence, so Fill & Sign and the tools name one path: the menu bar's PDF Tools.
     nonisolated static let removePasswordStep = EditorPDFToolEngine.liftRestrictionsStep
 
-    /// A file locked to open is opened by URL in the lane, where unlocking the reader's copy does
-    /// not reach — so it is refused for the tools' reason. One whose owner forbade both comments
-    /// and form filling is refused for its owner's.
+    /// A file locked to open is opened by URL in the lane, where unlocking the reader's copy doesn't
+    /// reach, so it is refused for the tools' reason. One whose owner forbade both comments and form
+    /// filling is refused for its owner's.
     static func refusal(encryption: PDFEncryptionState, allowsFilling: Bool) -> String? {
         if encryption == .lockedToOpen { return EditorPDFTools.lockedReason }
         return allowsFilling ? nil : restrictedReason
@@ -919,7 +915,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: On and off
 
-    /// The header's button. On arms Text (mockup 17); off with unsaved items asks first.
+    /// The header's button. On arms Text; off with unsaved items asks first.
     public func toggle() {
         guard mayToggle else { return }
         if isOn {
@@ -934,27 +930,26 @@ public final class EditorPDFFillSign: ObservableObject {
         }
         guard hasPages else { return }
         isOn = true
-        // A file with fields it can fill opens on them (mockup 19); any other on Text, as in 5b.
+        // A file with fields it can fill opens on them; any other on Text.
         armed = offersFormFields ? .formFields : .text
     }
 
-    /// A file with pages to place on — what ``toggle()`` needs to turn on, and what File ▸ Fill &
-    /// Sign is greyed without.
+    /// A file with pages to place on: what ``toggle()`` needs to turn on, and what File ▸ Fill & Sign
+    /// is greyed without.
     var hasPages: Bool { path != nil && !boxes.isEmpty }
 
-    /// **Not off while a tool run is writing** — Save Filled Copy's own, most of all. Turning it off
-    /// then asked whether to save the items being saved: Save was refused as "still running", and
-    /// Discard cleared what the copy was taking. The button and File ▸ Fill & Sign grey with it.
+    /// Not off while a tool run is writing, Save Filled Copy's own most of all. Turning it off then
+    /// would ask whether to save the items being saved: Save would be refused as "still running",
+    /// and Discard would clear what the copy is taking. The button and File ▸ Fill & Sign grey with it.
     public var mayToggle: Bool { !(isOn && tools?.running != nil) }
 
-    /// **The refusal as a menu line** — see ``menuLine(_:)``.
+    /// The refusal as a menu line; see ``menuLine(_:)``.
     var menuReason: String? { refusal.map(Self.menuLine) }
 
-    /// **Fill & Sign's refusal as one short clause, the one rule for every menu that says it**
-    /// (F-E7): File ▸ Fill & Sign's line and the right-click Replace Text… row
-    /// (``replaceMenuLine(_:)``). The alert's own title for an owner's restriction, whose reason is
-    /// two sentences, and the locked reason's first sentence alone — the two rules said a locked
-    /// file two ways.
+    /// Fill & Sign's refusal as one short clause, the one rule for every menu that says it: File ▸
+    /// Fill & Sign's line and the right-click Replace Text… row (``replaceMenuLine(_:)``). The
+    /// alert's own title for an owner's restriction, whose reason is two sentences, and the locked
+    /// reason's first sentence alone.
     static func menuLine(_ refusal: String) -> String {
         switch refusal {
         case restrictedReason, nothingToFillReason: return restrictedTitle
@@ -963,10 +958,10 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **Esc: stops typing, then lets go of the selection, then of the tool — and with nothing left
-    /// to let go of, puts Fill & Sign away** (TE98) through ``toggle()``, which asks about unsaved
-    /// work. `first` is the reader's own Esc, tried before that last step: an open find card closes
-    /// before the palette goes.
+    /// Esc: stops typing, then lets go of the selection, then of the tool, and with nothing left to
+    /// let go of, puts Fill & Sign away through ``toggle()``, which asks about unsaved work. `first`
+    /// is the reader's own Esc, tried before that last step: an open find card closes before the
+    /// palette goes.
     @discardableResult
     public func escape(first: () -> Bool = { false }) -> Bool {
         if editingField != nil { endFieldEditing(); return true }
@@ -982,15 +977,15 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Counting
 
-    /// The items that would draw something — what Save Filled Copy writes and the save pill counts.
+    /// The items that would draw something: what Save Filled Copy writes and the save pill counts.
     public var unsaved: [EditorPDFFillItem] { items.filter(\.hasInk) }
     public var hasUnsavedItems: Bool { !unsaved.isEmpty }
 
-    /// Items placed or fields changed — what Save Filled Copy writes and a leave asks about.
+    /// Items placed or fields changed: what Save Filled Copy writes and a leave asks about.
     public var hasUnsavedChanges: Bool { hasUnsavedItems || !values.isEmpty }
 
-    /// "4 items not saved" — the save pill's words while Fill & Sign holds some — and with a form,
-    /// "2 fields changed" (mockup 19), or both.
+    /// "4 items not saved", the save pill's words while Fill & Sign holds some, and with a form,
+    /// "2 fields changed", or both.
     public var unsavedCaption: String? {
         let n = unsaved.count, f = values.count
         switch (f, n) {
@@ -1001,14 +996,14 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// The same, shorter, for a pill with less room — "2 fields · 1 item".
+    /// The same, shorter, for a pill with less room: "2 fields · 1 item".
     public var unsavedShortCaption: String? {
         let f = values.count
         let parts = (f == 0 ? [] : [Self.fields(f)]) + placedParts
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// "2 items", "1 correction", "2 items and 1 correction" — what is placed, corrections apart (TE84).
+    /// "2 items", "1 correction", "2 items and 1 correction": what is placed, corrections apart.
     private var placed: String { placedParts.joined(separator: " and ") }
 
     var placedParts: [String] {
@@ -1016,8 +1011,8 @@ public final class EditorPDFFillSign: ObservableObject {
         return (others == 0 ? [] : [Self.count(others)]) + (corrections == 0 ? [] : [Self.corrections(corrections)])
     }
 
-    /// **Only corrections to save** — the pill's button says Save Corrected Copy, and the copy is
-    /// named "(corrected)" (TE84).
+    /// Only corrections to save: the pill's button says Save Corrected Copy, and the copy is named
+    /// "(corrected)".
     public var onlyCorrections: Bool { values.isEmpty && !unsaved.isEmpty && unsaved.allSatisfy(\.isCorrection) }
 
     /// The save pill's button.
@@ -1031,13 +1026,13 @@ public final class EditorPDFFillSign: ObservableObject {
 
     public func box(_ page: Int) -> EditorPDFPageBox? { boxes.indices.contains(page) ? boxes[page] : nil }
 
-    /// **The armed tool's item, at `point` in the display space of `page`.** Text starts at the
-    /// click, the way a caret lands, and is typed straight away; a mark or a signature is centred
-    /// on it. Text, dates and marks stay chosen for the next click; a signature is placed once.
+    /// The armed tool's item, at `point` in the display space of `page`. Text starts at the click,
+    /// the way a caret lands, and is typed straight away; a mark or a signature is centred on it.
+    /// Text, dates and marks stay chosen for the next click; a signature is placed once.
     @discardableResult
     public func place(at point: CGPoint, page: Int) -> UUID? {
         guard isOn, let armed, let box = box(page) else { return nil }
-        // The owner allows the form but not marks on its pages: nothing is placed (5c).
+        // The owner allows the form but not marks on its pages: nothing is placed.
         guard armed == .formFields || offersPlacing else { return nil }
         endEditing()
         endFieldEditing()
@@ -1060,22 +1055,22 @@ public final class EditorPDFFillSign: ObservableObject {
         return item.id
     }
 
-    /// **The item placed last, while it is still the one selected by placing it** — Return on it
-    /// places another rather than typing into it (decision BA). Let go by a click or Tab onto any item.
+    /// The item placed last, while it is still the one selected by placing it: Return on it places
+    /// another rather than typing into it. Let go by a click or Tab onto any item.
     public private(set) var lastPlaced: UUID?
 
     /// Where an item of `extent` goes for a point on the page: text from the point, as a caret
-    /// lands; anything else centred on it — kept on the page.
+    /// lands; anything else centred on it; kept on the page.
     static func placedRect(extent: CGSize, at point: CGPoint, caret: Bool, in box: EditorPDFPageBox) -> CGRect {
         let origin = caret ? CGPoint(x: point.x - 2, y: point.y - extent.height / 2)
                            : CGPoint(x: point.x - extent.width / 2, y: point.y - extent.height / 2)
         return FillSignGeometry.clamped(CGRect(origin: origin, size: extent), in: box.displayBounds)
     }
 
-    /// **Return with a tool chosen** (decision BA, 2026-10-20): the item at `center` — the middle of
-    /// what can be seen of `page`, which the overlay works out — selected, so the arrows move it and
-    /// a text box takes the typing. **Not on top of one already there**: it goes just below what it
-    /// would cover, and below that, so a second Return with Date still chosen is seen as a second date.
+    /// Return with a tool chosen: the item at `center` (the middle of what can be seen of `page`,
+    /// which the overlay works out), selected, so the arrows move it and a text box takes the
+    /// typing. Not on top of one already there: it goes just below what it would cover, and below
+    /// that, so a second Return with Date still chosen is seen as a second date.
     @discardableResult
     public func placeFromKeyboard(around center: CGPoint, page: Int) -> UUID? {
         guard isOn, let armed, armed != .formFields, offersPlacing, let box = box(page),
@@ -1134,14 +1129,14 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Signing a form's signature field (TE107)
 
-    /// A form's signature field, in the display space of its page — where its signature goes.
+    /// A form's signature field, in the display space of its page: where its signature goes.
     public struct SigningTarget: Equatable, Sendable {
         public var page: Int
         public var rect: CGRect
     }
 
-    /// **Whether a click on `field` signs it**: a signature field, on a file whose owner lets
-    /// signatures be placed on its pages.
+    /// Whether a click on `field` signs it: a signature field, on a file whose owner lets signatures
+    /// be placed on its pages.
     public func signs(_ field: FormField) -> Bool { isOn && field.kind == .signature && offersPlacing }
 
     /// The box a signature put in `widget` fills, or `nil` for a page the file doesn't have.
@@ -1149,7 +1144,7 @@ public final class EditorPDFFillSign: ObservableObject {
         box(widget.pageIndex).map { SigningTarget(page: widget.pageIndex, rect: $0.displayRect(page: widget.rect)) }
     }
 
-    /// **`signature` placed in a signature field** — as big as the field's box takes it, keeping its
+    /// `signature` placed in a signature field: as big as the field's box takes it, keeping its
     /// shape, at the box's left edge and centred on its height. An ordinary item from then on: it
     /// moves, resizes and deletes as one placed with the Signature tool does.
     @discardableResult
@@ -1179,8 +1174,8 @@ public final class EditorPDFFillSign: ObservableObject {
         return item.id
     }
 
-    /// The largest point size, in half points, whose words' box fits inside `room` — at least 4,
-    /// the smallest the words are drawn.
+    /// The largest point size, in half points, whose words' box fits inside `room`; at least 4, the
+    /// smallest the words are drawn.
     static func fittedFontSize(of item: EditorPDFFillItem, in room: CGSize) -> CGFloat {
         guard let unit = item.wordsSize(fontSize: 10), unit.width > 0, unit.height > 0 else { return item.fontSize }
         var size = max(4, (10 * min(room.width / unit.width, room.height / unit.height) * 2).rounded(.down) / 2)
@@ -1198,21 +1193,21 @@ public final class EditorPDFFillSign: ObservableObject {
         }
         let width = signature.kind == .signature ? signatureWidth : initialsWidth
         let natural = CGSize(width: width, height: width / max(aspect, 0.2))
-        // **A tall, narrow drawing keeps its shape, no taller than the box is wide** — initials
-        // drawn as one upright stroke came out 54 × 270 pt, a signature 150 × 750, most of a page.
+        // A tall, narrow drawing keeps its shape, no taller than the box is wide: else initials
+        // drawn as one upright stroke would come out 54 × 270 pt, a signature 150 × 750.
         guard natural.height > width else { return natural }
         return CGSize(width: width * width / natural.height, height: width)
     }
 
     // MARK: Typing
 
-    /// Starts typing into a placed text item — a double-click.
+    /// Starts typing into a placed text item: a double-click.
     public func beginEditing(_ id: UUID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         if case .signature = item.content { return }
         endEditing()
-        // **One thing types at a time**: a form field left typing took the keyboard straight back,
-        // and the text box closed as it opened.
+        // One thing types at a time: a form field left typing would take the keyboard straight
+        // back, and the text box would close as it opened.
         endFieldEditing()
         focusedField = nil
         editBefore = items
@@ -1220,7 +1215,7 @@ public final class EditorPDFFillSign: ObservableObject {
         selection = id
     }
 
-    /// The words as typed, every keystroke — the box grows with them. No undo step per key: the
+    /// The words as typed, every keystroke; the box grows with them. No undo step per key: the
     /// whole session is one, taken by ``endEditing()``.
     public func type(_ string: String, into id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
@@ -1254,8 +1249,8 @@ public final class EditorPDFFillSign: ObservableObject {
         if items != before { register(before, wasNew ? placed : items.contains { $0.id == id } ? "Typing" : "Delete") }
     }
 
-    /// **Esc in a correction's retype box**: the page as it was before the box opened — a new
-    /// correction goes, one being retyped keeps its words. Text's Esc keeps what was typed
+    /// Esc in a correction's retype box: the page as it was before the box opened, so a new
+    /// correction goes and one being retyped keeps its words. Text's Esc keeps what was typed
     /// (``endEditing()``).
     public func cancelEditing() {
         guard let id = editing else { return }
@@ -1271,11 +1266,11 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Replace (TE82–TE87)
 
-    /// **Why Replace is off for this file**, or `nil` (TE87): Fill & Sign's own refusal, or a
-    /// fillable form — where Fill & Sign keeps what is placed as notes another app can delete, so a
-    /// correction would peel off (decision AV, 2026-10-20). An owner who forbids adding to the pages
-    /// needs no line of its own: ``offersPlacing`` is false only on a form, which the form's line
-    /// refuses, and `attach` refuses such an owner's file without one outright (``refusal``).
+    /// Why Replace is off for this file, or `nil`: Fill & Sign's own refusal, or a fillable form,
+    /// where Fill & Sign keeps what is placed as notes another app can delete, so a correction would
+    /// peel off. An owner who forbids adding to the pages needs no line of its own: ``offersPlacing``
+    /// is false only on a form, which the form's line refuses, and `attach` refuses such an owner's
+    /// file without one outright (``refusal``).
     public var replaceRefusal: String? {
         if let refusal { return refusal }
         if form.hasFields { return Self.formReplaceReason }
@@ -1285,10 +1280,10 @@ public final class EditorPDFFillSign: ObservableObject {
     static let formReplaceReason = "This PDF has a fillable form. Corrections would be saved as notes another app "
         + "can delete, so Replace is off here."
 
-    /// **Why Replace is off, as a menu line** (PD14) — a menu row does not wrap, so the right-click
-    /// menu says it short, as the Tools menu keeps its reasons short; the palette and its tooltip
-    /// keep ``replaceRefusal``'s full sentences. Read from ``replaceRefusal`` so the two agree on
-    /// whether Replace is off.
+    /// Why Replace is off, as a menu line: a menu row doesn't wrap, so the right-click menu says it
+    /// short, as the Tools menu keeps its reasons short; the palette and its tooltip keep
+    /// ``replaceRefusal``'s full sentences. Read from ``replaceRefusal`` so the two agree on whether
+    /// Replace is off.
     var replaceMenuReason: String? { replaceRefusal.map(Self.replaceMenuLine) }
 
     /// Each of ``replaceRefusal``'s sentences as one short clause: the form's own line, and else
@@ -1300,9 +1295,9 @@ public final class EditorPDFFillSign: ObservableObject {
     static let formReplaceMenuReason = "Off for a PDF with a fillable form"
     static let lockedMenuReason = "Remove the password first"
 
-    /// **The words a click or a right-click picked, opened for retyping** (TE83): a box exactly
-    /// over them, holding them, in their size and ink — and their font when this Mac has it. Return
-    /// places the correction, Esc leaves the page as it was; the two are one undo step.
+    /// The words a click or a right-click picked, opened for retyping: a box exactly over them,
+    /// holding them, in their size and ink, and their font when this Mac has it. Return places the
+    /// correction, Esc leaves the page as it was; the two are one undo step.
     @discardableResult
     public func beginCorrection(_ pick: EditorPDFReplacePick) -> UUID? {
         guard isOn, replaceRefusal == nil, let box = box(pick.page) else { return nil }
@@ -1310,7 +1305,7 @@ public final class EditorPDFFillSign: ObservableObject {
         endFieldEditing()
         replaceNote = nil
         // Words already corrected open their correction again, rather than a second patch on the
-        // first — on the same line: a cover a font's full height tall reaches the next line in
+        // first, on the same line only: a cover a font's full height tall reaches the next line in
         // single-spaced text, and that line is words of its own.
         if let existing = items.first(where: { item in
             guard item.page == pick.page, let correction = item.correction else { return false }
@@ -1330,20 +1325,20 @@ public final class EditorPDFFillSign: ObservableObject {
         return item.id
     }
 
-    /// A click with Replace that picked nothing, and why — said in the note card.
+    /// A click with Replace that picked nothing, and why, said in the note card.
     public func refuseReplace(_ refusal: EditorPDFReplaceRefusal) {
         replaceNote = refusal.reason
     }
 
-    /// **Return with Replace chosen and nothing to retype**: Replace has no spot of its own to use,
-    /// as the other tools do — it needs the words — so the note card says how to pick them.
+    /// Return with Replace chosen and nothing to retype: Replace has no spot of its own to use, as
+    /// the other tools do, since it needs the words, so the note card says how to pick them.
     public func explainReplaceFromKeyboard() {
         replaceNote = Self.replaceByKeyboardNote
     }
 
     static let replaceByKeyboardNote = "Click or drag across the words to replace."
 
-    /// **Right-click ▸ Replace Text…**: Fill & Sign on, with Replace chosen and these words picked.
+    /// Right-click ▸ Replace Text…: Fill & Sign on, with Replace chosen and these words picked.
     public func replace(_ pick: EditorPDFReplacePick) {
         guard replaceRefusal == nil, hasPages else { return }
         if !isOn { isOn = true }
@@ -1354,8 +1349,8 @@ public final class EditorPDFFillSign: ObservableObject {
     /// The pages that carry a correction not yet saved, in order.
     public var correctedPages: [Int] { Array(Set(unsaved.filter(\.isCorrection).map(\.page))).sorted() }
 
-    /// **The note card's lines for the corrections** (TE85): per page, the covered words are still in
-    /// the copy, with the button that makes the page a picture — or, once chosen, that it will be one.
+    /// The note card's lines for the corrections: per page, the covered words are still in the copy,
+    /// with the button that makes the page a picture, or, once chosen, that it will be one.
     public var correctionNotes: [EditorPDFCorrectionNote] {
         correctedPages.map { page in
             let number = page + 1
@@ -1367,9 +1362,9 @@ public final class EditorPDFFillSign: ObservableObject {
                     button: "Keep Page \(number) as Text", pictured: true)
             }
             let corrections = unsaved.compactMap { $0.page == page ? $0.correction : nil }
-            // A link under a patch is kept and still opens where it did (FR56) — said, since the
-            // words over it now read otherwise — unless the reader chose to leave it out. A picture
-            // drops it, so the pictured line above doesn't.
+            // A link under a patch is kept and still opens where it did, which is said, since the
+            // words over it now read otherwise, unless the reader chose to leave it out. A picture
+            // drops it, so the pictured line above doesn't say it.
             let link = !corrections.contains(where: \.overLink) ? ""
                 : " " + (unlinksCorrections ? Self.linkRemovedNote : Self.linkUnderPatchNote)
             if corrections.count == 1 {
@@ -1390,40 +1385,41 @@ public final class EditorPDFFillSign: ObservableObject {
     static let linkUnderPatchNote = "A link under the patch still opens where it did."
     static let linkRemovedNote = "The link under the patch won’t be in the copy."
 
-    /// **Whether the note card offers to leave the links under corrections out** (FR56): a
-    /// correction on a page that stays text has a link under its patch.
+    /// Whether the note card offers to leave the links under corrections out: a correction on a page
+    /// that stays text has a link under its patch.
     public var offersUnlinking: Bool {
         unsaved.contains { item in
             item.correction?.overLink == true && !picturesToSave.contains(item.page)
         }
     }
 
-    /// The note card's checkbox, in the owner's words (decided 2026-10-25), and its tooltip.
+    /// The note card's checkbox, in the owner's words, and its tooltip.
     public static let unlinkTitle = "Also remove links under corrections"
     public static let unlinkHelp = "Leave the links under your corrections out of the copy, so the new words don’t "
         + "open the old address. On macOS 26 the copy may then lose this PDF’s page labels, attached files, "
         + "viewer settings and language."
 
-    /// **The note card's line under the links box while it is ticked, on macOS 26 only** (F5): the
-    /// rewrite that takes the links out drops the catalog parts there, and a tooltip alone hid it.
+    /// The note card's line under the links box while it is ticked, on macOS 26 only: the rewrite
+    /// that takes the links out drops the catalog parts there, which a tooltip alone would hide.
     /// `nil` from 27, as Protect's sheet's line is (``EditorPDFTool/protectedCopyNote(osMajor:)``).
     public var unlinkLossNote: String? {
         offersUnlinking && unlinksCorrections && osMajor < 27 ? Self.unlinkLossLine : nil
     }
     static let unlinkLossLine = "On macOS 26 the copy may lose this PDF’s page labels, attached files, viewer settings and language."
-    /// The macOS the card speaks for — a test sets another.
+    /// The macOS the card speaks for; a test sets another.
     var osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
 
-    /// **Whether the note card offers to keep the file's comments as comments** (FR57): a save that
-    /// redraws the pages — no form — of a file that has some.
+    /// Whether the note card offers to keep the file's comments as comments: a save that redraws the
+    /// pages (no form) of a file that has some.
     public var offersKeepingComments: Bool { !usesFormPath && comments.any }
 
-    /// **Why the choice is greyed, or `nil`** (FR57): a page saved as a picture, or a link under a
-    /// correction to be removed. Both passes copy the pages through PDFKit, which rewrites the kept
-    /// comments — their names and their popups' links go — and on macOS 26 drops the page labels
-    /// and attached files the keep tooltip promises; a picture page also draws its own in. So while
-    /// either is chosen the copy flattens them all, and the checkbox says why rather than vanishing
-    /// under the reader. The engine holds the same rule (``EditorPDFToolEngine/output(of:input:staging:fillAndSign:progress:isCancelled:)``).
+    /// Why the choice is greyed, or `nil`: a page saved as a picture, or a link under a correction to
+    /// be removed. Both passes copy the pages through PDFKit, which rewrites the kept comments (their
+    /// names and their popups' links go) and on macOS 26 drops the page labels and attached files the
+    /// keep tooltip promises; a picture page also draws its own in. So while either is chosen the
+    /// copy flattens them all, and the checkbox says why rather than vanishing under the reader. The
+    /// engine holds the same rule
+    /// (``EditorPDFToolEngine/output(of:input:staging:fillAndSign:progress:isCancelled:)``).
     public var keepCommentsRefusal: String? {
         if !picturesToSave.isEmpty { return Self.keepCommentsPictureReason }
         if offersUnlinking && unlinksCorrections { return Self.keepCommentsUnlinkReason }
@@ -1433,8 +1429,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// What the save does: keep them only when offered, chosen and not refused.
     var keepsCommentsOnSave: Bool { offersKeepingComments && keepCommentsRefusal == nil && keepsComments }
 
-    /// The note card's checkbox and its tooltip (FR57, decided 2026-10-25), and the line under it
-    /// while it is greyed.
+    /// The note card's checkbox and its tooltip, and the line under it while it is greyed.
     public static let keepCommentsTitle = "Keep comments as comments"
     public static let keepCommentsHelp = "Keep this PDF’s highlights, sticky notes, drawings and other comments in the copy "
         + "as comments, with their text, popups and replies, so they can still be edited, instead of drawing them "
@@ -1445,7 +1440,7 @@ public final class EditorPDFFillSign: ObservableObject {
     /// Words quoted in a note: a long passage is cut.
     static func quoted(_ words: String) -> String { words.count > 40 ? String(words.prefix(40)) + "…" : words }
 
-    /// **The note card's warnings for Replace**: why the last click picked nothing, and a patch on a
+    /// The note card's warnings for Replace: why the last click picked nothing, and a patch on a
     /// ground that isn't plain.
     public var replaceNotes: [String] {
         var out: [String] = []
@@ -1458,7 +1453,7 @@ public final class EditorPDFFillSign: ObservableObject {
 
     static let patternedNote = "The background here isn’t plain, so the patch will show."
 
-    /// **The note card's button**: a page to save as a picture, or back as text — one undo step.
+    /// The note card's button: a page to save as a picture, or back as text, as one undo step.
     public func setPicture(_ page: Int, _ on: Bool) {
         guard on != pictures.contains(page) else { return }
         let before = pictures
@@ -1482,35 +1477,34 @@ public final class EditorPDFFillSign: ObservableObject {
     /// owner allows entry into the form.
     public var offersFormFields: Bool { allowsFormEntry && !form.fillable.isEmpty }
     /// Whether Text, Date, the marks and the signatures are offered. A form's copy keeps them as
-    /// annotations, which an owner who forbids commenting forbids; a flat file's copy draws them
-    /// into the page, as 5b always has.
+    /// annotations, which an owner who forbids commenting forbids; a flat file's copy draws them into
+    /// the page.
     public var offersPlacing: Bool { !usesFormPath || allowsCommenting }
 
-    /// **Whether Save fills the form in place (`fillFormData`) rather than flattening (5b's
-    /// `fillAndSignData`)**: a file with fields, where the in-place fill can carry something — a
-    /// field to fill, or items its owner lets it keep as annotations. A form with neither — every
-    /// field read-only or a signature, and commenting forbidden — is refused at `attach`
-    /// (``nothingToFillReason``): flattening was the one way anything could be placed on it, and it
-    /// went against the same "no commenting" a fillable form's refusal honours.
+    /// Whether Save fills the form in place (`fillFormData`) rather than flattening
+    /// (`fillAndSignData`): a file with fields, where the in-place fill can carry something, a field
+    /// to fill or items its owner lets it keep as annotations. A form with neither (every field
+    /// read-only or a signature, and commenting forbidden) is refused at `attach`
+    /// (``nothingToFillReason``): flattening would be the only way to place anything on it, against
+    /// the same "no commenting" a fillable form's refusal honours.
     public var usesFormPath: Bool { form.hasFields && (offersFormFields || allowsCommenting) }
 
-    /// The note card's lines, under the save pill while the palette is up (Phase 6b, decided
-    /// 2026-10-19): what Save would refuse, said as the reader types rather than after Save — then
-    /// the file's own caveats.
+    /// The note card's lines, under the save pill while the palette is up: what Save would refuse,
+    /// said as the reader types rather than after Save, then the file's own caveats.
     public var formNotes: [String] {
         var out: [String] = []
         if let formProblem, !Self.isNothingYet(formProblem) {
             out.append(EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: [])))
         }
-        // Without a form the pages are redrawn, and the copy loses what a redraw can't keep — the
-        // file's own comments among it, unless the reader keeps them (FR57).
+        // Without a form the pages are redrawn, and the copy loses what a redraw can't keep, the
+        // file's own comments among it unless the reader keeps them.
         guard usesFormPath else {
             return out + [comments.note(kept: keepsCommentsOnSave), tools?.droppedPartsNote].compactMap { $0 }
         }
         if !offersPlacing { out.append(Self.noCommentingReason + ".") }
         if !allowsFormEntry, !form.fillable.isEmpty { out.append(Self.noFormEntryReason + ".") }
         if form.hasXFA { out.append(Self.xfaNote) }
-        // The in-place fill keeps the catalog — except on macOS 26 (FR53).
+        // The in-place fill keeps the catalog, except on macOS 26.
         if EditorPDFTool.fillForm(values: [:], items: []).dropsCatalogParts(fileHasForm: true),
            let note = tools?.droppedPartsNote {
             out.append(note)
@@ -1524,7 +1518,7 @@ public final class EditorPDFFillSign: ObservableObject {
         return false
     }
 
-    /// **What `fillFormData` would refuse in the values and items as they stand**, or `nil` — the
+    /// What `fillFormData` would refuse in the values and items as they stand, or `nil`: the
     /// toolkit's own checks, run here so Save never surprises (``EditorPDFForm/problem``).
     var formProblem: PDFOperationError? {
         guard usesFormPath else { return nil }
@@ -1533,9 +1527,8 @@ public final class EditorPDFFillSign: ObservableObject {
                                      file: URL(fileURLWithPath: path ?? "/"))
     }
 
-    /// Whether Save Filled Copy has something to write and nothing the toolkit would refuse.
-    /// **Save Filled Copy's tooltip: why it is greyed, when a form would refuse it** — the note
-    /// card's sentence, where the greyed button said what it would write; otherwise what it writes.
+    /// Save Filled Copy's tooltip: when a form would refuse it, why it is greyed, in the note card's
+    /// sentence; otherwise what it writes.
     public var saveHelp: String {
         if let formProblem, !Self.isNothingYet(formProblem) {
             return EditorPDFToolEngine.reason(formProblem, tool: .fillForm(values: values, items: []))
@@ -1546,8 +1539,9 @@ public final class EditorPDFFillSign: ObservableObject {
             : "Write a copy with these items beside the original — the original isn’t changed"
     }
 
+    /// Whether Save Filled Copy has something to write and nothing the toolkit would refuse.
     public var canSave: Bool {
-        // Never for a refused file — File ▸ Save Filled Copy is live exactly where the pill's is.
+        // Never for a refused file: File ▸ Save Filled Copy is live exactly where the pill's is.
         guard hasUnsavedChanges, refusal == nil else { return false }
         return formProblem == nil
     }
@@ -1589,13 +1583,13 @@ public final class EditorPDFFillSign: ObservableObject {
         return field
     }
 
-    /// Sets a field's draft — dropped again when it matches the file's own, so a field typed back
-    /// to what it was is not "changed".
+    /// Sets a field's draft, dropped again when it matches the file's own, so a field typed back to
+    /// what it was is not "changed".
     private func set(_ value: FormFieldValue, for field: FormField) {
         if value == EditorPDFForm.original(field) { values[field.name] = nil } else { values[field.name] = value }
     }
 
-    /// Puts the keyboard on a field — or on none.
+    /// Puts the keyboard on a field, or on none.
     public func focusField(_ name: String?) {
         if editingField != nil, editingField != name { endFieldEditing() }
         endEditing()
@@ -1603,8 +1597,8 @@ public final class EditorPDFFillSign: ObservableObject {
         focusedField = name
     }
 
-    /// **Starts typing into a text field** — or an editable combo's own value. The whole session is
-    /// one undo step, taken by ``endFieldEditing()``.
+    /// Starts typing into a text field, or an editable combo's own value. The whole session is one
+    /// undo step, taken by ``endFieldEditing()``.
     public func beginFieldEditing(_ name: String) {
         guard let field = fillableField(name), Self.isTyped(field) else { return }
         if editingField == name { return }
@@ -1622,9 +1616,9 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **The words as typed, every keystroke** — returned as the field accepts them: cut at the
-    /// field's `/MaxLen`, and on one line unless the field is multiline. The typing field shows what
-    /// comes back, so a 9-character field stops at nine.
+    /// The words as typed, every keystroke, returned as the field accepts them: cut at the field's
+    /// `/MaxLen`, and on one line unless the field is multiline. The typing field shows what comes
+    /// back, so a 9-character field stops at nine.
     @discardableResult
     public func typeField(_ string: String) -> String {
         guard let name = editingField, let field = form.field(named: name) else { return string }
@@ -1675,11 +1669,11 @@ public final class EditorPDFFillSign: ObservableObject {
         case item(UUID)
     }
 
-    /// **Tab's ring** (decision BB, 2026-10-20): the fillable fields in the form's own order, then
-    /// what is placed, in the order it was placed. A file with no form has the items alone.
+    /// Tab's ring: the fillable fields in the form's own order, then what is placed, in the order it
+    /// was placed. A file with no form has the items alone.
     ///
-    /// **Signature fields are on it, in the form's order** (decision BK, TE164) — wherever a
-    /// signature can be placed, even on a form whose owner doesn't allow filling its fields.
+    /// Signature fields are on it, in the form's order, wherever a signature can be placed, even on
+    /// a form whose owner doesn't allow filling its fields.
     public var tabStops: [TabStop] {
         guard isOn else { return [] }
         let fillable = allowsFormEntry ? Set(form.fillable.map(\.name)) : []
@@ -1694,9 +1688,9 @@ public final class EditorPDFFillSign: ObservableObject {
         return selection.map(TabStop.item)
     }
 
-    /// **Tab and ⇧Tab: the next stop on the ring**, round from the last to the first. A text field
-    /// takes the typing straight away, as Acrobat's does; an item is selected, for the arrows,
-    /// Delete and Return. Typing in a text box ends first — an empty one goes, off the ring.
+    /// Tab and ⇧Tab: the next stop on the ring, round from the last to the first. A text field takes
+    /// the typing straight away, as Acrobat's does; an item is selected, for the arrows, Delete and
+    /// Return. Typing in a text box ends first; an empty one goes, off the ring.
     public func focusNext(forward: Bool = true) {
         endEditing()
         let ring = tabStops
@@ -1765,13 +1759,13 @@ public final class EditorPDFFillSign: ObservableObject {
         selection = nil
     }
 
-    /// The start of a drag — what its one undo step goes back to.
+    /// The start of a drag: what its one undo step goes back to.
     public func beginGesture() {
         endEditing()
         gestureBefore = items
     }
 
-    /// Moves an item to `rect`, kept on its page — every step of a drag, without undo steps.
+    /// Moves an item to `rect`, kept on its page: every step of a drag, without undo steps.
     public func moveLive(_ id: UUID, to rect: CGRect) {
         // A correction stays over the words it covers.
         guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isCorrection,
@@ -1779,8 +1773,8 @@ public final class EditorPDFFillSign: ObservableObject {
         items[index].rect = FillSignGeometry.clamped(rect, in: box.displayBounds)
     }
 
-    /// **Resizes from the corner handle** — the far corner dragged to `corner`, the other one held.
-    /// Words take the point size that fills the new height; a drawn signature keeps its shape.
+    /// Resizes from the corner handle: the far corner dragged to `corner`, the other one held. Words
+    /// take the point size that fills the new height; a drawn signature keeps its shape.
     public func resizeLive(_ id: UUID, anchor: CGPoint, corner: CGPoint) {
         guard let index = items.firstIndex(where: { $0.id == id }), !items[index].isCorrection,
               let box = box(items[index].page) else { return }
@@ -1818,11 +1812,11 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// The size the selected item's words are in, else the next item's — what Smaller and Bigger
+    /// The size the selected item's words are in, else the next item's: what Smaller and Bigger
     /// step from and what the size flyout ticks.
     public var currentFontSize: CGFloat { selected.flatMap { $0.words != nil ? $0.fontSize : nil } ?? fontSize }
 
-    /// Smaller and Bigger: the selected item's words a step smaller or bigger — and the next item's.
+    /// Smaller and Bigger: the selected item's words a step smaller or bigger, and the next item's.
     public func stepFontSize(bigger: Bool) {
         let current = currentFontSize
         let next = bigger ? Self.fontSizes.first { $0 > current + 0.01 } : Self.fontSizes.last { $0 < current - 0.01 }
@@ -1830,7 +1824,7 @@ public final class EditorPDFFillSign: ObservableObject {
         setFontSize(next, undoName: bigger ? "Bigger Text" : "Smaller Text")
     }
 
-    /// A size chosen in the size flyout (Phase 6b): the selected item's words, and the next item's.
+    /// A size chosen in the size flyout: the selected item's words, and the next item's.
     public func setFontSize(_ size: CGFloat) {
         guard abs(size - currentFontSize) > 0.01 else { return }
         setFontSize(size, undoName: "Text Size")
@@ -1843,7 +1837,7 @@ public final class EditorPDFFillSign: ObservableObject {
                 items[index].fontSize = next
                 Self.resizeToWords(&items[index], in: box(items[index].page))
             }
-            // A correction's size is the covered words', not the next text's — as its font is.
+            // A correction's size is the covered words', not the next text's, as its font is.
             if selected?.isSignature == false, selected?.isCorrection == false { fontSize = next }
         } else {
             fontSize = next
@@ -1869,7 +1863,7 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **The Ink tool's "Original" for a selected correction**: back to the covered words' ink.
+    /// The Ink tool's "Original" for a selected correction: back to the covered words' ink.
     public func useOriginalInk() {
         guard let id = selection else { return }
         change("Ink") { items in
@@ -1880,11 +1874,10 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **Add on the Add Signature sheet**: saved unless unticked — with initials made from a typed
-    /// signature in its face when asked (TE94) — chosen, so the next click places it, and its ink
-    /// the next item's (TE89). The palette's ink, not the selected item's: adding a signature
-    /// recolours nothing already placed.
-    /// **Opened from a signature field, it is placed in that field** (TE107) instead.
+    /// Add on the Add Signature sheet: saved unless unticked (with initials made from a typed
+    /// signature in its face when asked), chosen so the next click places it, and its ink becomes the
+    /// next item's. The palette's ink, not the selected item's: adding a signature recolours nothing
+    /// already placed. Opened from a signature field, it is placed in that field instead.
     public func add(_ signature: EditorPDFSignature, keep: Bool, makeInitials: Bool, ink: EditorPDFFillColor) {
         if keep {
             store.add(signature)
@@ -1904,9 +1897,9 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **The Signature or Initials tool pressed, or a signature field clicked, with none of `kind`
-    /// saved**: the Add sheet, straight away (TE141) — there is nothing for a menu to offer but Add.
-    /// `true` when it opened. From a field, what is added is placed in it.
+    /// The Signature or Initials tool pressed, or a signature field clicked, with none of `kind`
+    /// saved: the Add sheet, straight away, since a menu would offer nothing but Add. `true` when it
+    /// opened. From a field, what is added is placed in it.
     @discardableResult
     public func addFirst(_ kind: EditorPDFSignature.Kind, signing target: SigningTarget? = nil) -> Bool {
         guard store.saved(kind).isEmpty else { return false }
@@ -1914,23 +1907,23 @@ public final class EditorPDFFillSign: ObservableObject {
         return true
     }
 
-    /// The Add sheet for `kind` — for a field, when `target` names one.
+    /// The Add sheet for `kind`, for a field when `target` names one.
     public func startAdding(_ kind: EditorPDFSignature.Kind, signing target: SigningTarget? = nil) {
         addingSignature = kind
         signing = target
     }
 
-    /// **Delete a Saved Signature asks first** (decision BE, 2026-10-20): it took effect on the
-    /// choice, with no way back, and from the keyboard or VoiceOver the wrong line is easy to land on.
+    /// Delete a Saved Signature asks first: there is no way back, and from the keyboard or VoiceOver
+    /// the wrong line is easy to land on.
     public func deleteSaved(_ signature: EditorPDFSignature) {
         guard confirmDeletingSaved(signature, signature.spokenName(among: store.saved)) else { return }
         store.delete(signature.id)
     }
 
-    /// The question, built but not run — a test reads its buttons. **Esc cancels and Return does
-    /// nothing** (decision BU, the rule of the PDF's leave questions): Cancel keeps the Esc AppKit
-    /// gives a button of that name, and Delete, marked destructive, has no key — so no keypress
-    /// deletes. Cancel can't hold Return too: a button has one key.
+    /// The question, built but not run, so a test reads its buttons. Esc cancels and Return does
+    /// nothing, the rule of the PDF's leave questions: Cancel keeps the Esc AppKit gives a button of
+    /// that name, and Delete, marked destructive, has no key, so no keypress deletes. Cancel can't
+    /// hold Return too: a button has one key.
     static func deleteSavedAlert(_ signature: EditorPDFSignature, name: String) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = "Delete the saved \(signature.kind == .signature ? "signature" : "initials") “\(name)”?"
@@ -1943,8 +1936,8 @@ public final class EditorPDFFillSign: ObservableObject {
         return alert
     }
 
-    /// **Whether Add Signature offers to make initials too** (TE94): for a signature, while no
-    /// initials are saved.
+    /// Whether Add Signature offers to make initials too: for a signature, while no initials are
+    /// saved.
     public func offersInitials(with kind: EditorPDFSignature.Kind) -> Bool {
         kind == .signature && store.saved(.initials).isEmpty
     }
@@ -1953,14 +1946,14 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Style (TE92, TE93)
 
-    /// **What the Aa tool changes now**: the selected item's face, pen or font — or, with nothing
+    /// What the Aa tool changes now: the selected item's face, pen or font, or, with nothing
     /// selected, the next text's font, as Size and Ink do.
     public enum StyleTarget: Equatable, Sendable {
         case nextText
         case text(UUID)
         case typedSignature(UUID)
         case drawnSignature(UUID)
-        /// A ✓, ✗ or • — it keeps the system font.
+        /// A ✓, ✗ or •, which keeps the system font.
         case mark
         /// A correction: its original's face while this Mac has it, or an Aa font.
         case correction(UUID)
@@ -1985,7 +1978,7 @@ public final class EditorPDFFillSign: ObservableObject {
         return textFont
     }
 
-    /// A font for the selected text, and the next — one undo step, as Size's. A correction takes
+    /// A font for the selected text, and the next, as one undo step, as Size's. A correction takes
     /// it in place of its original's face; the next text's font stays as it was.
     public func setTextFont(_ font: EditorPDFTextFont) {
         if case .correction(let id) = styleTarget {
@@ -2009,7 +2002,7 @@ public final class EditorPDFFillSign: ObservableObject {
         textFont = font
     }
 
-    /// **The Aa tool's "Original" for a selected correction**: back to the covered words' own face.
+    /// The Aa tool's "Original" for a selected correction: back to the covered words' own face.
     public func useOriginalFont() {
         guard case .correction(let id) = styleTarget else { return }
         change("Font") { items in
@@ -2021,7 +2014,7 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **Another face for the selected typed signature**, kept at the width it was placed at (TE88).
+    /// Another face for the selected typed signature, kept at the width it was placed at.
     public func setFace(_ face: EditorPDFSignatureFace) {
         guard case .typedSignature(let id) = styleTarget, let item = selected, var signature = item.signature,
               case .typed(let words) = signature.look, signature.face != face else { return }
@@ -2030,7 +2023,7 @@ public final class EditorPDFFillSign: ObservableObject {
         restyle(id, to: signature, name: "Face") { $0.fontSize = size }
     }
 
-    /// Another pen for the selected drawn signature (TE92).
+    /// Another pen for the selected drawn signature.
     public func setPen(_ pen: EditorPDFPen) {
         guard case .drawnSignature(let id) = styleTarget, var signature = selected?.signature, signature.pen != pen else {
             return
@@ -2039,14 +2032,14 @@ public final class EditorPDFFillSign: ObservableObject {
         restyle(id, to: signature, name: "Pen") { _ in }
     }
 
-    /// **Whether restyling the selected signature changes the saved one too** — decision AS,
-    /// 2026-10-19: it does, when it was saved; one placed without saving changes on the page only.
+    /// Whether restyling the selected signature changes the saved one too: it does when it was
+    /// saved; one placed without saving changes on the page only.
     public var restyleChangesSaved: Bool {
         guard let id = selected?.signature?.id else { return false }
         return store.saved.contains { $0.id == id }
     }
 
-    /// The placed signature restyled — and the saved one with it — as ONE undo step: ⌘Z puts both
+    /// The placed signature restyled, and the saved one with it, as one undo step: ⌘Z puts both
     /// back, so a face tried and undone leaves the next file's signature as it was.
     private func restyle(_ id: UUID, to signature: EditorPDFSignature, name: String,
                          _ adjust: (inout EditorPDFFillItem) -> Void) {
@@ -2078,8 +2071,8 @@ public final class EditorPDFFillSign: ObservableObject {
         Self.resizeToWords(&items[index], in: box(items[index].page))
     }
 
-    /// Fits a text item's box to its words, held by its top-left corner — a correction's by the
-    /// covered words' baseline and left edge, so its words sit where theirs did at any size.
+    /// Fits a text item's box to its words, held by its top-left corner; a correction's is held by
+    /// the covered words' baseline and left edge, so its words sit where theirs did at any size.
     static func resizeToWords(_ item: inout EditorPDFFillItem, in box: EditorPDFPageBox?) {
         guard let size = item.wordsSize(fontSize: item.fontSize) else { return }
         if let correction = item.correction {
@@ -2103,10 +2096,10 @@ public final class EditorPDFFillSign: ObservableObject {
     private func change(_ name: String, _ body: (inout [EditorPDFFillItem]) -> Void) {
         let before = items
         body(&items)
-        // **Inside an open box, the box's own step takes it**: ``endEditing()`` registers one step
+        // Inside an open box, the box's own step takes it: ``endEditing()`` registers one step
         // against `editBefore`, and Esc on a correction puts `editBefore` back. A step of its own
-        // here — Text Size chosen while retyping — held the half-typed words, so ⌘Z after Esc
-        // brought back the correction Esc had cancelled.
+        // here (Text Size chosen while retyping) would hold the half-typed words, so ⌘Z after Esc
+        // would bring back the correction Esc cancelled.
         if items != before, editing == nil || editBefore == nil { register(before, name) }
     }
 
@@ -2118,9 +2111,9 @@ public final class EditorPDFFillSign: ObservableObject {
         register(before, beforeValues, pictures, name)
     }
 
-    /// **One undo step for items, field values and the pages made pictures together** — placing,
-    /// filling and the note card's button share the one ⌘Z stack, so a step back is a step back
-    /// whichever was done last.
+    /// One undo step for items, field values and the pages made pictures together: placing, filling
+    /// and the note card's button share the one ⌘Z stack, so a step back is a step back whichever
+    /// was done last.
     private func register(_ before: [EditorPDFFillItem], _ beforeValues: [String: FormFieldValue],
                           _ beforePictures: Set<Int>, _ name: String) {
         undoManager.beginUndoGrouping()
@@ -2144,9 +2137,9 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Dates
 
-    /// **Today's date as Date places it** (decision BM, TE192): the Mac's own short format — one
-    /// set in System Settings included — with a two-digit year widened to four: "10/17/2026" in the
-    /// US, where the short format alone gives "10/17/26".
+    /// Today's date as Date places it: the Mac's own short format, one set in System Settings
+    /// included, with a two-digit year widened to four: "10/17/2026" in the US, where the short
+    /// format alone gives "10/17/26".
     nonisolated static func placedDate(_ date: Date, locale: Locale = .autoupdatingCurrent,
                                        timeZone: TimeZone = .autoupdatingCurrent) -> String {
         let formatter = DateFormatter()
@@ -2158,7 +2151,7 @@ public final class EditorPDFFillSign: ObservableObject {
         return formatter.string(from: date)
     }
 
-    /// `pattern` with each "yy" made "yyyy" — only a run of exactly two, outside quoted text, so
+    /// `pattern` with each "yy" made "yyyy": only a run of exactly two, outside quoted text, so
     /// "yyyy", "y" and a quoted 'yy' stay as they are.
     nonisolated static func fourDigitYear(_ pattern: String) -> String {
         var out = "", quoted = false
@@ -2186,13 +2179,13 @@ public final class EditorPDFFillSign: ObservableObject {
 
     static let changedWhileSavingNote = "It doesn’t include what changed while it was saving. Everything is still here, unsaved."
 
-    /// **Save Filled Copy**: the items, as the toolkit draws them, through the tools' one run. On a
-    /// copy written, the items go and the palette goes down; the copy is the banner's to open.
+    /// Save Filled Copy: the items, as the toolkit draws them, through the tools' one run. On a copy
+    /// written, the items go and the palette goes down; the copy is the banner's to open.
     ///
-    /// **Only if nothing changed while the copy was being written.** The run takes a lane turn and a
+    /// Only if nothing changed while the copy was being written. The run takes a lane turn and a
     /// detached write, and the pages stay live meanwhile, so an item placed or a field typed during
-    /// it is not in the copy. Clearing then deleted it with no word; now everything stays, still
-    /// counted as unsaved, and the leave question still asks about it.
+    /// it is not in the copy. Clearing then would delete it without a word, so everything stays,
+    /// still counted as unsaved, and the leave question still asks about it.
     @discardableResult
     public func save() async -> EditorPDFToolOutcome {
         endEditing()
@@ -2204,14 +2197,14 @@ public final class EditorPDFFillSign: ObservableObject {
         let path = self.path
         let tool: EditorPDFTool
         if usesFormPath, placed.contains(where: \.isCorrection) {
-            // Replace is off on a form (decision AV): a correction kept as a note would peel off. One
-            // here came from before the file, reloaded, had a form.
+            // Replace is off on a form: a correction kept as a note would peel off. One here was
+            // placed before the file, reloaded, had a form.
             let reason = Self.formReplaceReason
             tools.banner = EditorPDFToolBanner(message: reason, kind: .failure)
             return .failed(reason)
         } else if usesFormPath {
-            // **A file with its own form is filled in place** — `fillFormData`, so the copy's form
-            // stays fillable — and what the toolkit would refuse is said before a lane turn.
+            // A file with its own form is filled in place (`fillFormData`, so the copy's form stays
+            // fillable), and what the toolkit would refuse is said before a lane turn.
             tool = .fillForm(values: values, items: toolkit)
             if let problem = formProblem, let path {
                 Logger.shared.info("Edit refused \(tool.logDetail) of \(EditorPDFTools.logName(path)) — "
@@ -2232,7 +2225,7 @@ public final class EditorPDFFillSign: ObservableObject {
             } else if let path {
                 Logger.shared.info("Edit kept Fill & Sign on \(EditorPDFTools.logName(path)) — it changed "
                                    + "while the filled copy was being written, so the copy does not carry everything")
-                // **The saved banner says so** (TE191): it named the copy as if it held everything.
+                // The saved banner says so, rather than naming the copy as if it held everything.
                 if case .wrote? = tools.banner?.kind, let said = tools.banner?.message {
                     tools.banner?.message = (said.hasSuffix(".") ? said : said + ".") + " " + Self.changedWhileSavingNote
                 }
@@ -2261,15 +2254,14 @@ public final class EditorPDFFillSign: ObservableObject {
 
     // MARK: Leaving
 
-    /// **Asks before unsaved items are lost** — closing the PDF, opening another file, leaving
-    /// Edit or quitting (``EditorPDFTools/mayLeave(quitting:thenRetry:)`` asks this).
+    /// Asks before unsaved items are lost: closing the PDF, opening another file, leaving Edit or
+    /// quitting (``EditorPDFTools/mayLeave(quitting:thenRetry:)`` asks this).
     ///
-    /// **Save Filled Copy saves, then leaves** (decision AX, 2026-10-20). The leave is a question
-    /// the save cannot answer in time, and leaving while it runs would cancel it — so the answer is
-    /// still "stay", and once the copy has landed with nothing changed meanwhile, `retry` asks for
-    /// the leave again, which then goes: nothing is left to ask about. A save that fails, is
-    /// declined or is cancelled stays on the PDF with its banner, as does one the reader placed
-    /// more on while it ran; `retry` is not called.
+    /// Save Filled Copy saves, then leaves. The leave is a question the save can't answer in time,
+    /// and leaving while it runs would cancel it, so the answer is still "stay", and once the copy
+    /// has landed with nothing changed meanwhile, `retry` asks for the leave again, which then goes:
+    /// nothing is left to ask about. A save that fails, is declined or is cancelled stays on the PDF
+    /// with its banner, as does one the reader placed more on while it ran; `retry` is not called.
     public func mayLeave(thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {
         endEditing()
         endFieldEditing()
@@ -2300,8 +2292,8 @@ public final class EditorPDFFillSign: ObservableObject {
         }
     }
 
-    /// **The refusal, with Remove Password… beside OK** (TE167) — the one tool that gets past it —
-    /// unless a tool is running. Return chooses Remove Password…, Esc OK.
+    /// The refusal, with Remove Password… beside OK (the one tool that gets past it) unless a tool
+    /// is running. Return chooses Remove Password…, Esc OK.
     static func refusalAlert(_ reason: String, offersRemovePassword: Bool) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = reason == restrictedReason || reason == nothingToFillReason
@@ -2325,8 +2317,8 @@ public final class EditorPDFFillSign: ObservableObject {
         if alert.runModal() == .alertFirstButtonReturn, offers { tools?.sheet = .removePassword }
     }
 
-    /// `fields` is the changed fields, `placed` what the pill counts of the rest — "2 items", "1
-    /// correction" (TE166); `corrected` says every one of them is a correction.
+    /// `fields` is the changed fields, `placed` what the pill counts of the rest ("2 items",
+    /// "1 correction"); `corrected` says every one of them is a correction.
     static func leaveQuestion(name: String, fields: Int = 0, placed: [String] = [], corrected: Bool = false) -> (title: String, detail: String) {
         let parts = (fields == 0 ? [] : ["\(Self.fields(fields)) you filled"]) + placed
         let what = parts.count > 1 ? parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
@@ -2336,14 +2328,14 @@ public final class EditorPDFFillSign: ObservableObject {
                 "\(what) \(one ? "isn’t" : "aren’t") saved. The original file hasn’t been changed.")
     }
 
-    /// **The close alert's buttons** (TE166): added Save, Cancel, Don't Save — AppKit stacks a
-    /// three-button alert with Cancel last, so they show Save, Don't Save, Cancel. Return saves, Esc
-    /// cancels, and Don't Save takes ⌘D and is marked destructive.
+    /// The close alert's buttons: added Save, Cancel, Don't Save, since AppKit stacks a three-button
+    /// alert with Cancel last, so they show Save, Don't Save, Cancel. Return saves, Esc cancels, and
+    /// Don't Save takes ⌘D and is marked destructive.
     static func leaveButtonTitles(corrected: Bool) -> [String] {
         [corrected ? "Save Corrected Copy" : "Save Filled Copy", "Cancel", "Don’t Save"]
     }
 
-    /// Which answer a button is — the third discards; anything else but the first stays.
+    /// Which answer a button is: the third discards; anything else but the first stays.
     static func leaveAnswer(for response: NSApplication.ModalResponse) -> LeaveAnswer {
         switch response {
         case .alertFirstButtonReturn: return .save

@@ -7,16 +7,15 @@ import Sync
 
 /// Pins `PaneListKeyFocus`: a click in a pane list hands that list the keyboard.
 ///
-/// **Every mounted test starts by taking focus AWAY.** A test window is not a real one: AppKit makes
-/// the first key view in it the first responder on its own, so a freshly mounted pane already has
-/// its table focused — the one state the app never reaches, and the reason every headless probe of
-/// the ⇧↑ report passed while the app ignored the key. `unfocused(_:)` puts the window where the
-/// app's is after a click, and asserts it got there, so no assertion below can pass on the harness's
-/// gift.
+/// Every mounted test starts by taking focus away. A test window is not a real one: AppKit makes
+/// the first key view the first responder on its own, so a freshly mounted pane already has its
+/// table focused, a state the app never reaches after a click, and a probe would pass while the app
+/// ignored the key. `unfocused(_:)` puts the window where the app's is after a click, and asserts
+/// it got there.
 ///
 /// `.serialized` because first responder is per-window state these tests move deliberately, and
-/// because key events sent through a shared `NSApp` by parallel tests land in each other's windows —
-/// which once produced a false reproduction of this very bug.
+/// key events sent through a shared `NSApp` by parallel tests land in each other's windows, which
+/// can fake a reproduction.
 @MainActor
 @Suite(.serialized) struct PaneListKeyFocusTests {
 
@@ -38,7 +37,7 @@ import Sync
         return (box, window, table)
     }
 
-    /// Puts focus on the window itself — the app's state after a click — and proves it.
+    /// Puts focus on the window itself, the app's state after a click, and proves it.
     private func unfocused(_ window: NSWindow) -> Bool {
         window.makeFirstResponder(nil)
         return window.firstResponder === window
@@ -55,7 +54,7 @@ import Sync
                                 isARepeat: false, keyCode: code)!
     }
 
-    /// A left mouse-up at the centre of `row`, in window coordinates — what the monitor receives.
+    /// A left mouse-up at the centre of `row`, in window coordinates: what the monitor receives.
     private func mouseUp(onRow row: Int, of table: NSTableView, in window: NSWindow) -> NSEvent {
         let rect = table.rect(ofRow: row)
         let point = table.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
@@ -67,9 +66,8 @@ import Sync
 
     // MARK: - The outcome
 
-    /// **The report, end to end, with its own control.** ⇧↓ sent to the window does nothing while
-    /// the window holds focus — the app as it was — and extends the selection once a click on a
-    /// row has gone through the monitor's path.
+    /// End to end, with its own control: ⇧↓ sent to the window does nothing while the window holds
+    /// focus, and extends the selection once a click on a row has gone through the monitor's path.
     @Test("A click on a row gives the list the keyboard, and ⇧↓ then extends the selection",
           arguments: [PaneViewMode.tree, .columns])
     func clickThenShiftArrowExtends(_ mode: PaneViewMode) async {
@@ -78,7 +76,7 @@ import Sync
         _ = await LayoutPumpWait.pump(window, upTo: 5) { box.selection.count == 1 }
         #expect(unfocused(window), "\(mode): could not put focus on the window")
 
-        // Control: the app before the fix. The key reaches the window and is dropped.
+        // Control: the key reaches the focused window and is dropped.
         window.sendEvent(key(125, shift: true, in: window))
         _ = await LayoutPumpWait.pump(window, upTo: 3) { box.selection.count > 1 }
         #expect(box.selection.count == 1,
@@ -96,9 +94,9 @@ import Sync
 
     // MARK: - Where the claim stops
 
-    /// A caret in a field inside the list keeps the keys — driven through the DOOR, because the
-    /// caret rule lives in one place now. `target(forHit:)` no longer repeats it, so asking that
-    /// function about a field would pass whatever the door does.
+    /// A caret in a field inside the list keeps the keys. Driven through the door, because the
+    /// caret rule lives in one place: `target(forHit:)` doesn't repeat it, so asking that function
+    /// about a field would pass whatever the door does.
     @Test("A click into an editable field inside the list does not take its keys")
     func editableFieldKeepsTheClick() async {
         guard let (_, window, table) = await mountedPane(.tree) else { return }
@@ -107,7 +105,7 @@ import Sync
         let field = NSTextField(frame: NSRect(x: inWindow.x - 40, y: inWindow.y - 11, width: 80, height: 22))
         field.isEditable = true
         // On the window, not inside the table: the point is in window coordinates, and a field
-        // parented to the table would sit somewhere else entirely (measured — the click missed it).
+        // parented to the table would sit somewhere else entirely, so the click would miss it.
         window.contentView?.addSubview(field)
         defer { field.removeFromSuperview() }
         #expect(unfocused(window))
@@ -144,9 +142,9 @@ import Sync
         #expect(window.firstResponder === editor)
     }
 
-    /// **A list can leave the window between the click and the claim** — two runloop turns is long
-    /// enough for a Columns drill to close the column that was clicked. The claim asks whose window
-    /// the table is in NOW, not which window the click came from.
+    /// A list can leave the window between the click and the claim: two runloop turns is long
+    /// enough for a Columns drill to close the clicked column. The claim asks whose window the
+    /// table is in now, not which window the click came from.
     @Test("The claim refuses a list that is no longer in the clicked window")
     func claimRefusesATableFromAnotherWindow() async {
         guard let (_, window, table) = await mountedPane(.tree) else { return }
@@ -161,7 +159,7 @@ import Sync
                 "control: the same table in its own window is claimable, so the refusal was the window check")
     }
 
-    /// The monitor has to ASK for both buttons; `noteClick` being right about a right-click proves
+    /// The monitor has to ask for both buttons; `noteClick` being right about a right-click proves
     /// nothing if no right-click ever reaches it.
     @Test("The monitor watches the left button's up and the right button's down")
     func theMonitorWatchesBothButtons() {
@@ -171,8 +169,8 @@ import Sync
                 "the left DOWN would claim mid-drag, before the selection it is about exists")
     }
 
-    /// A right-click leaves the keys on the list it opened a menu over, which is what every other
-    /// Mac list does — and what makes the menu's verbs and the keys agree about their subject.
+    /// A right-click leaves the keys on the list it opened a menu over, as every other Mac list
+    /// does, so the menu's verbs and the keys agree about their subject.
     @Test("A right-click on a row gives that list the keyboard too")
     func rightClickClaims() async {
         guard let (_, window, table) = await mountedPane(.tree) else { return }
@@ -206,10 +204,9 @@ import Sync
 
     // MARK: - The call site
 
-    /// **Every list a Columns pane opens is registered, not only the first.** The resolver once
-    /// reached only column 0 (`PaneListResolver`'s doc has the measurement); a claim that worked in
-    /// the root column and nowhere a user had drilled to would look fixed in exactly the place anyone
-    /// tries it first.
+    /// Every list a Columns pane opens is registered, not only the first (see `PaneListResolver`'s
+    /// doc). A claim that worked in the root column and nowhere a user had drilled to would look
+    /// fixed in exactly the place anyone tries it first.
     @Test("Every column of a Columns pane registers its list")
     func everyColumnRegisters() async {
         let box = Fixture.Box()

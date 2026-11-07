@@ -5,19 +5,13 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// RD46.11 — in Frosted and Clear a rail item's count ARRIVES: when a scan finds something while
-/// the rail is on screen, the badge drops out of the item on the lens's lead spring, and when the
-/// count goes to zero it melts back in. Solid keeps today's instant badge.
-///
-/// Mounted through the real `LensWorkspaceView`, because the animation is the rail's — keyed on
-/// which items report, so the neighbours an item pushes move with it, and the selection lens with
-/// them — and a test of `RailItemLabel` alone would pass with the rail's half missing. A count is
-/// made to arrive by handing the live manager a duplicate group, which is what a finished
-/// Duplicates scan does.
-///
-/// What is measured is the accent in the rail's band: a reporting item paints its glyph and its
-/// digits in it. Captured in the same synchronous turn as the change, an arriving badge has not
-/// arrived (Frosted) or is already there (Solid); once the change has settled, both rails agree.
+/// In Frosted and Clear a rail item's count arrives: when a scan finds something while the rail is
+/// on screen, the badge drops out of the item on the lens's lead spring, and melts back in when the
+/// count goes to zero. Solid keeps today's instant badge. Mounted through the real
+/// `LensWorkspaceView`: the animation is keyed on which items report, so neighbours and the lens
+/// move with it, and `RailItemLabel` alone would miss that half. A duplicate group handed to the
+/// live manager stands in for a finished Duplicates scan. Measured as accent pixels in the rail's
+/// band: in the change's own turn an arriving badge is absent in glass and present in Solid.
 @MainActor
 @Suite(.serialized) struct SelectionLensRailCountTests {
 
@@ -77,10 +71,10 @@ import Design
         /// The selection lens's box in the rail's band.
         func lens() -> CGRect? { rig.box(rows: SelectionLensRailCountTests.railBand, Pixel.lensProbe) }
 
-        /// The rail's accent once a change has finished moving — waited for in main-actor TURNS,
-        /// not seconds: in a full parallel run the main queue is drained back to back, the display
-        /// link that advances the animation gets no turn, and a fixed wait read the first frame as
-        /// the last (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
+        /// The rail's accent once a change has finished moving, waited for in main-actor turns, not
+        /// seconds: in a full parallel run the display link that advances the animation can get no
+        /// turn, and a fixed wait reads the first frame as the last (`docs/flaky-tests.md`, "Fixed
+        /// pumps and fixed sleeps").
         func settled(from start: Int, margin: Int = 40) async -> (count: Int, pumps: Int) {
             var last = accent()
             let wait = await LayoutPumpWait.pump(rig.host, upTo: 15) {
@@ -147,12 +141,10 @@ import Design
         #expect(reporting - quiet > 40, "a rail drawn already reporting hid its count — \(quiet) vs \(reporting)")
     }
 
-    /// **The lens rides the row's spring.** With Renames chosen, a count arriving on Duplicates —
-    /// to its left — pushes Renames along. The spring that moves it must move the lens too: the
-    /// first version scoped the animation inside the lens's host, so the item sprang and the lens,
-    /// drawn in the host's background, jumped straight to where the item would end up. Read the
-    /// turn the change lands: the lens is still where it was, and it gets to the item's new place
-    /// only as the item does.
+    /// The lens rides the row's spring. With Renames chosen, a count arriving on Duplicates, to its
+    /// left, pushes Renames along, and the same spring must move the lens. Scoped inside the lens's
+    /// host, the animation would spring the item while the lens, drawn in the host's background,
+    /// jumped straight to the end. So in the turn the change lands, the lens is still where it was.
     @Test(.machinePinned(.pixelSampling))
     func theLensRidesTheRowWhenAnItemBeforeItGrowsACount() async throws {
         let rig = Rig(level: .frosted, groups: [], selected: .renames)

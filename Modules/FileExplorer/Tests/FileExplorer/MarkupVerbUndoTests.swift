@@ -3,23 +3,19 @@ import SwiftUI
 import AppKit
 @testable import FileExplorer
 
-/// A markup verb is **its own undo step** — never part of the typing before it, and never the
-/// start of the typing after it — through every door that reaches it.
+/// A markup verb is its own undo step, never part of the typing before it nor the start of the
+/// typing after it, through every door that reaches it. `PlainTextEditor.apply` inserts through
+/// `insertText(_:replacementRange:)`, the path typing takes, and `NSTextView` coalesces typing
+/// across events, so without a boundary "foo" then Bold would come back as one ⌘Z.
 ///
-/// **The defect this pins.** `PlainTextEditor.apply` inserts through `insertText(_:replacementRange:)`,
-/// the path typing takes, and `NSTextView` coalesces typing into one undo action across events. So
-/// "foo" typed and then Markup ▸ Bold over the empty selection after it came back as ONE ⌘Z: the
-/// `****` and the "foo" went together. Reported by review on 2026-10-04.
+/// Driven through a real `NSTextView` in a window, with the coordinator as delegate, because
+/// mounting the representable in this process segfaults (as in `PlainTextEditorBridgeTests`). A
+/// run-loop turn separates every edit and ⌘Z: the undo manager groups by event, so without one
+/// every edit is a single group and "one ⌘Z" proves nothing.
 ///
-/// **Driven through a real `NSTextView` in a window, with the coordinator as delegate**, for
-/// `PlainTextEditorBridgeTests`' reason — mounting the representable in this process segfaults —
-/// and with a run-loop turn between every edit and every ⌘Z: the undo manager groups by event, so
-/// without one every edit in a test is a single group and "one ⌘Z" proves nothing.
-///
-/// **What the document holds after every ⌘Z is asserted too.** On TextKit 2 an undo edits the
-/// storage without `shouldChangeText` or `didChangeText` (measured 2026-10-04), so while the buffer
-/// followed `textDidChange` it kept the undone text until the next keystroke. The buffer follows the
-/// storage now (TE67.0, ``EditorSourceStorage``), and `undo(_:)` checks it against the screen.
+/// The document is checked after every ⌘Z too: on TextKit 2 an undo edits the storage without
+/// `shouldChangeText` or `didChangeText`, so the buffer follows the storage
+/// (``EditorSourceStorage``), and `undo(_:)` checks it against the screen.
 @MainActor
 @Suite(.serialized) struct MarkupVerbUndoTests {
 
@@ -39,7 +35,7 @@ import AppKit
         case markupMenu
         /// The text view's own context menu, through `Coordinator.applyMarkup(_:)` and the item's tag.
         case contextMenu
-        /// TE52's format bar, through `EditorTextViewHandle.applyMarkup(_:)`.
+        /// The format bar, through `EditorTextViewHandle.applyMarkup(_:)`.
         case formatBar
         var testDescription: String { rawValue }
     }
@@ -107,7 +103,7 @@ import AppKit
         spin()
     }
 
-    /// ⌘Z as AppKit sends it: `undo:` up the responder chain from the text view (UND-10).
+    /// ⌘Z as AppKit sends it: `undo:` up the responder chain from the text view.
     private func undo(_ rig: Rig, sourceLocation: SourceLocation = #_sourceLocation) {
         _ = rig.window.firstResponder?.tryToPerform(EditorUndoCommands.undo, with: nil)
         spin()
@@ -115,8 +111,8 @@ import AppKit
                 sourceLocation: sourceLocation)
     }
 
-    /// The review's case: "foo", then Bold over the empty selection after it. One ⌘Z takes back the
-    /// `****` and leaves "foo"; the typing inside the delimiters is a step of its own too.
+    /// "foo", then Bold over the empty selection after it. One ⌘Z takes back the `****` and leaves
+    /// "foo"; the typing inside the delimiters is a step of its own too.
     @Test(arguments: Door.allCases)
     func boldAfterTypingIsItsOwnUndoStep(_ door: Door) {
         let rig = rig("")
@@ -137,8 +133,8 @@ import AppKit
         #expect(!rig.undo.canUndo, "something else was recorded with the typing")
     }
 
-    /// **TE125: Undo is named after the verb in Source too** — "Undo Bold", as in Preview, not
-    /// "Undo Typing" — through every door, and the redo after it.
+    /// Undo is named after the verb in Source too ("Undo Bold", as in Preview, not "Undo Typing"),
+    /// through every door, and the redo after it.
     ///
     /// Mutation: drop `setActionName(verb.title)` from `PlainTextEditor.apply` and this reads "Typing".
     @Test(arguments: Door.allCases)
@@ -158,10 +154,10 @@ import AppKit
         #expect(rig.undo.undoActionName == "Link", "TE124: Undo reads “Undo \(rig.undo.undoActionName)”")
     }
 
-    /// **⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left** (UND-9).
-    /// The view's own undo of a replacement leaves a bare caret, so undoing Bold dropped the very
-    /// words the reader meant to press something else on. A word and a caret, through every
-    /// door, undone, redone and undone again — and no step of its own for the selection.
+    /// ⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left. The view's
+    /// own undo of a replacement leaves a bare caret, which would drop the words the reader meant
+    /// to press something else on. A word and a caret, through every door, undone, redone and
+    /// undone again, with no undo step of its own for the selection.
     ///
     /// Mutation: drop either `registerSelection` call from `PlainTextEditor.apply` and the undo or
     /// the redo selection fails.
@@ -198,9 +194,9 @@ import AppKit
         }
     }
 
-    /// **The other boundary: typing straight on from the END of what a verb inserted.** A rule
-    /// leaves the caret after its own `---` line, so the next keystroke lands exactly where the
-    /// insertion stopped — the one place typing would extend the verb's step rather than start one.
+    /// The other boundary: typing straight on from the end of what a verb inserted. A rule leaves
+    /// the caret after its own `---` line, exactly where the insertion stopped, the one place
+    /// typing could extend the verb's step rather than start one.
     @Test(arguments: Door.allCases)
     func typingStraightAfterARuleIsItsOwnUndoStep(_ door: Door) {
         let rig = rig("A paragraph.")

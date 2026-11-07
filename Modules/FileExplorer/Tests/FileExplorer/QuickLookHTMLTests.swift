@@ -2,11 +2,11 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **A wedged `qlmanage` is killed and run once more** (`QuickLookHTML.attempts`). A stand-in for the
-/// tool wedges as the real one does — idle, for good — on the runs it is told to, and otherwise
-/// writes a preview as `qlmanage -p -o <folder> <file>` does. Its wedge is a 600 s `sleep`, which
-/// counts time the Mac spends asleep while the guard's clock does not: at 60 s, a 27-minute sleep
-/// mid-run (2026-10-21) let the wedge end by itself before the guard fired.
+/// A wedged `qlmanage` is killed and run once more (`QuickLookHTML.attempts`). A stand-in tool
+/// wedges as the real one does, idle for good, on the runs it is told to, and otherwise writes a
+/// preview as `qlmanage -p -o <folder> <file>` does. Its wedge is a 600 s `sleep`: `sleep` counts
+/// time the Mac spends asleep while the guard's clock doesn't, so a short wedge can end by itself
+/// across a long sleep before the guard fires.
 struct QuickLookHTMLTests {
     /// Long enough for the stand-in's good run on a loaded machine; short enough to wait out twice.
     private static let timeout: TimeInterval = 5
@@ -68,8 +68,8 @@ struct QuickLookHTMLTests {
         let started = ContinuousClock.now
         #expect(await standIn.preview()?.deletingLastPathComponent().lastPathComponent == "run2.qlpreview")
         // About 11 s here: the guard, the 5 s grace, a second run. Unkilled, the wedge would end at
-        // 600 s, which is all this bound is for. It was 120 s until GitHub's hosted VMs took 127 s
-        // twice (2026-10-29/30) with the guard working; where that time went was not measured.
+        // 600 s, which is all this bound is for; it is loose because hosted CI VMs have taken over
+        // 120 s with the guard working.
         #expect(ContinuousClock.now - started < .seconds(300), "the wedged run was left to end on its own")
         #expect(standIn.runCount == 2)
         #expect(standIn.alive.isEmpty)

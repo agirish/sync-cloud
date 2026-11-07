@@ -2,40 +2,38 @@ import PDFKit
 import SwiftUI
 import Design
 
-/// **The find bar for a PDF, drawn as a card floating in the canvas's top-right corner** (Phase 6a,
-/// mockup G, as Safari's): the field, the count, ‹ › and ×. It floats over the pages instead of
-/// pushing them down a row, so opening it moves nothing (`theFindCardLeavesThePageWhereItWas`); the
-/// capsule slides clear of it if it is docked there (``EditorPDFFloating/clear(_:of:sliding:within:)``).
+/// The find bar for a PDF: a card floating in the canvas's top-right corner, as Safari's, holding
+/// the field, the count, ‹ › and ×. It floats over the pages rather than pushing them down, so
+/// opening it moves nothing (`theFindCardLeavesThePageWhereItWas`); a capsule docked there slides
+/// clear of it (``EditorPDFFloating/clear(_:of:sliding:within:)``).
 ///
-/// **The app's own control, not `NSTextFinder`'s bar**: that one drives an `NSTextFinderClient`,
-/// and a `PDFView` is not one — nor could it be without its text being extracted on the main
-/// thread. The searching is ``EditorPDFFind``'s, in the PDFKit lane.
+/// The app's own control, not `NSTextFinder`'s bar: that drives an `NSTextFinderClient`, which a
+/// `PDFView` is not, and could only be by extracting its text on the main thread. The searching is
+/// ``EditorPDFFind``'s, in the PDFKit lane.
 ///
-/// Typing searches once it settles; Return goes to the next match; Esc and × put the card away
-/// and clear the highlights. While the lane is busy with other PDF work the count says so, inside
-/// the card.
+/// Typing searches once it settles; Return goes to the next match; Esc and × put the card away and
+/// clear the highlights. While the lane is busy with other PDF work, the count says so.
 struct EditorPDFFindBar: View {
     @ObservedObject var find: EditorPDFFind
     let accent: Color
     @State private var typed = ""
     @FocusState private var focused: Bool
 
-    /// The count's width — enough for "3 of 9 so far" on one line, and the waiting note on a
-    /// second. **Fixed, not a ceiling**: the card's width is what the capsule slides clear of, so a
-    /// count as wide as its words made a capsule docked beside it hop sideways, unanimated, at
-    /// every step of a search — "Searching…", "1 of 12 so far", "1 of 12". Sized with the
-    /// field's least width so the card, count and all, fits the narrowest column (`fieldMinWidth`).
+    /// The count's width: "3 of 9 so far" on one line, the waiting note on a second. Fixed, not a
+    /// ceiling, because the capsule slides clear of the card's width: a count as wide as its words
+    /// would make a capsule docked beside it hop sideways at every step of a search. Sized with
+    /// `fieldMinWidth` so the whole card fits the narrowest column.
     static let captionWidth: CGFloat = 140
     /// The field's least width — with the fixed count, what keeps the card inside a 368pt column.
     static let fieldMinWidth: CGFloat = 100
-    /// The room between the two match arrows, and between them and Close Find — what the keys over
-    /// them must fit (TE194). Close Find is 18pt. 4, not the capsule's 2: "⇧⌘G" and "⌘G" met at 2.
+    /// The room between the two match arrows, and between them and Close Find, which the keycaps
+    /// over them must fit. Close Find is 18pt. 4, not the capsule's 2: at 2 "⇧⌘G" and "⌘G" touch.
     static let stepGap: CGFloat = 4
     static let cardGap: CGFloat = 6
     static let closeSize: CGFloat = 18
 
-    /// What of the count changes the card's size: none, one line, or two with the waiting note —
-    /// what the card slides for (TE159), rather than for every new count.
+    /// What of the count changes the card's size: none, one line, or two with the waiting note.
+    /// The card slides for a change of shape, not for every new count.
     static func shape(caption: String) -> Int {
         caption.isEmpty ? 0 : caption.contains(EditorPDFFind.waitingCaption) ? 2 : 1
     }
@@ -129,7 +127,7 @@ struct EditorPDFFindBar: View {
                 .frame(width: EditorPDFCapsule.stepSize, height: EditorPDFCapsule.stepSize)
         }
         .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-        // ⌥ shows ⌘G and ⇧⌘G (TE194), compact: the two arrows sit 22pt apart.
+        // ⌥ shows ⌘G and ⇧⌘G, compact: the two arrows sit 22pt apart.
         .shortcutKeycap(forward ? AppChord.findNext.display : AppChord.findPrevious.display, compact: true)
         .disabled(find.matches.isEmpty)
         .accessibilityLabel(label)

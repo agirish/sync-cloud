@@ -33,13 +33,8 @@ struct StorageLensView: View {
     private let onReveal: (String) -> Void
     /// Presents a Quick Look preview for a file path. nil hides the per-row Preview button.
     private let onQuickLook: ((String) -> Void)?
-    /// Which ranked list is showing, or nil for all three under the treemap.
-    ///
-    /// **A `Binding` since the switcher came into this card.** It was a value passed down from
-    /// `LensWorkspaceView`, which owned both the storage rail and the `@AppStorage` behind it; the
-    /// rail is gone and the capsule that replaced it lives here, so the write has to travel back
-    /// up. The storage stayed exactly where it was — same key, same owner — and only the direction
-    /// of the wire changed.
+    /// Which ranked list is showing, or nil for all three under the treemap. A `Binding` because
+    /// the switcher lives in this card while `LensWorkspaceView` owns the `@AppStorage` behind it.
     @Binding private var section: StorageSection?
 
     init(
@@ -69,10 +64,8 @@ struct StorageLensView: View {
     private var report: StorageLensReport? { syncManager.storageLensReport }
 
     var body: some View {
-        // The toolbar card that used to head this view is gone: the shared LensHeaderCard now
-        // carries Storage's Re-analyze control, its total/largest/reclaim pills and its search, so
-        // this view renders the content card alone. That's what makes Storage's header the same
-        // 81pt as the other four lenses — it used to have no header at all until a report landed.
+        // The shared LensHeaderCard carries Storage's Re-analyze control, pills and search, so
+        // this view is the content card alone and its header matches the other lenses.
         contentCard
     }
 
@@ -84,13 +77,8 @@ struct StorageLensView: View {
             if syncManager.isBuildingStorageLens {
                 buildingState
             } else if let report {
-                // **Above the ScrollView, not inside it.** The switcher is how you get to a list,
-                // so scrolling the list must not take it off screen — the header rail it replaced
-                // was fixed for the same reason, and putting it in the scroll would have made
-                // "click Untouched" require scrolling back up first.
-                //
-                // Only with a report in hand: before one there are no sections to switch between,
-                // and the intro card is already asking the one question that matters.
+                // Above the ScrollView, so scrolling a list never takes the switcher off screen.
+                // Only with a report: before one there are no sections to switch between.
                 sectionBar
                 reportBody(report)
             } else {
@@ -118,8 +106,8 @@ struct StorageLensView: View {
     // MARK: Intro / building states
 
     private var introState: some View {
-        // The setup card (P12): job, safety contract, one trigger, and sample rows in the
-        // ranked-list shape — plus the read-only promise where it is most load-bearing.
+        // The setup card: job, safety contract, one trigger, and sample rows in the ranked-list
+        // shape, plus the read-only promise.
         LensSetupCard(
             intro: LensIntros.storage(providerName: providerName),
             accent: glassHue.accentColor,
@@ -188,16 +176,11 @@ struct StorageLensView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // The treemap takes the report's own nodes, unfiltered and deliberately so:
-                    // it answers "where does my space go?" for the whole scanned tree, and drawing
-                    // it from a query's subset would silently change what every proportion in it
-                    // means. The ranked lists below are what the query narrows.
-                    // **The rail decides what this page is.** With no section picked it is the
-                    // page it has always been — the treemap over all three ranked lists. With one
-                    // picked it is that list alone, and the treemap goes with the others: it
-                    // answers "where does my space go?" for the whole tree, so leaving it above a
-                    // single list would put a whole-tree proportion over a filtered one and invite
-                    // the two to be read together.
+                    // The treemap takes the report's nodes unfiltered: it answers "where does my
+                    // space go?" for the whole tree, so a query's subset would misstate every
+                    // proportion. The query narrows only the ranked lists. With a section picked
+                    // the page is that list alone and the treemap goes too, so a whole-tree
+                    // proportion never sits over a filtered list.
                     if section == nil { treemapSection(report) }
                     ForEach(StorageSection.allCases.filter { section == nil || section == $0 }) { s in
                         listSection(s, entries: s.entries(in: report).filter { query.matches($0) },
@@ -231,30 +214,18 @@ struct StorageLensView: View {
 
     // MARK: List sections
 
-    /// - Note: **Collapsing applies to the All page only.** The fold is for triaging three lists
-    ///   stacked under a treemap — hiding one to get at another. On a page the rail has narrowed to
-    ///   a single section there is nothing to get past, and a fold left set from the All page made
-    ///   the rail item look broken: click "Untouched", get a lone collapsed header and an otherwise
-    ///   empty page, with the thing you asked for hidden by a decision you made somewhere else.
-    ///   The set is remembered rather than cleared, so going back to All restores the folds.
+    /// - Note: Collapsing applies to the All page only. The fold is for triaging three stacked
+    ///   lists; on a page narrowed to one section, a fold left over from All would show a lone
+    ///   collapsed header for the list just picked. The set is kept, so All restores its folds.
     ///
-    ///   **Both halves, not just the read.** Gating only the display left the header still writing:
-    ///   on a narrowed page `isCollapsed` is false by construction, so every click ran the `insert`
-    ///   arm. Nothing happened where the user clicked — the chevron kept pointing down and the list
-    ///   stayed open — and the section was folded on the All page by a click they never experienced
-    ///   as one, which no second click there could undo.
-    ///
-    ///   A control that cannot act does not offer to, and on a narrowed page this one is not a
-    ///   control at all: no button, no hover wash, no chevron. Not a *disabled* button, which was
-    ///   the first attempt — that still announces an unavailable control to VoiceOver and still
-    ///   makes Full Keyboard Access step over the row, and the title, caption and count are only
-    ///   reachable through it.
+    ///   On a narrowed page the header is not a control at all, so a click there can't fold the
+    ///   section on All unseen. Not a disabled button either: that still announces itself to
+    ///   VoiceOver and costs Full Keyboard Access a stop.
     private func listSection(_ section: StorageSection, entries: [StorageEntry],
                              report: StorageLensReport) -> some View {
         let canCollapse = self.section == nil
-        // The bar's yardstick is the section's own biggest file — `entries` here is already
-        // narrowed by the query, and measuring against that would rescale every bar as someone
-        // types. See `StorageMagnitude.fraction`.
+        // The bar's yardstick is the section's own biggest file, not the query-narrowed
+        // `entries`, so the bars don't rescale as someone types. See `StorageMagnitude.fraction`.
         let largestBytes = StorageMagnitude.showsBar(section)
             ? (section.entries(in: report).map(\.bytes).max() ?? 0) : 0
         let isCollapsed = canCollapse && collapsed.contains(section)
@@ -272,11 +243,8 @@ struct StorageLensView: View {
                 .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
                 .help(isCollapsed ? "Show this section’s files" : "Hide this section’s files")
             } else {
-                // **Not a disabled button — not a button.** A `.disabled` `Button` still announces
-                // itself to VoiceOver as an unavailable control and Full Keyboard Access still has
-                // to skip it, and the title, caption and count are only reachable through it. On a
-                // page where the fold does not apply there is nothing to announce: the same row,
-                // drawn as the plain header `treemapSection` already uses.
+                // Not a disabled button, which VoiceOver would announce as unavailable: the same
+                // row drawn plain, as `treemapSection`'s header is.
                 listSectionHeader(section, count: count,
                                   canCollapse: false, isCollapsed: false)
             }
@@ -314,16 +282,11 @@ struct StorageLensView: View {
         }
     }
 
-    /// One list-section header row, drawn identically whether or not it is wrapped in a button.
+    /// One list-section header row, drawn the same whether or not a button wraps it. The chevron
+    /// shows only where the fold applies; the trailing `Spacer` keeps the title from shifting.
     ///
-    /// The chevron is the only part that depends on the fold, and it is absent where the fold does
-    /// not apply — a control that cannot act does not offer to. Its width is not given back: the
-    /// trailing `Spacer` already claims the row, so the title line does not shuffle sideways when
-    /// the page narrows.
-    ///
-    /// `canCollapse` is a parameter rather than a re-read of the view's own `section`, because the
-    /// unlabelled first parameter shadows it: `self.` was load-bearing and invisible, and dropping
-    /// it compiles with only a warning while silently taking the chevron off the All page.
+    /// `canCollapse` is passed in rather than re-read from the view's `section`, which the first
+    /// parameter shadows: a dropped `self.` would compile and take the chevron off the All page.
     @ViewBuilder
     private func listSectionHeader(_ section: StorageSection, count: StorageSection.PillCount,
                                    canCollapse: Bool, isCollapsed: Bool) -> some View {
@@ -342,8 +305,7 @@ struct StorageLensView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            // The C1 mini pill, not a bare gray numeral floating after the caption — the same
-            // dress every other section count in the app wears. Neutral tint: a list size,
+            // The mini pill every section count in the app wears. Neutral tint: a list size,
             // never urgency.
             Pill(.mini, tint: .secondary, text: count.text, isNumeric: true)
                 .accessibilityLabel(count.speech)
@@ -392,34 +354,20 @@ struct StorageLensView: View {
 
 // MARK: - Section bar
 
-/// Storage's section switcher: **All · Largest · Untouched · Reclaim**, as a capsule at the top of
-/// the content card.
+/// Storage's section switcher, All · Largest · Untouched · Reclaim, as a capsule at the top of the
+/// content card. It lives here, not in the header, because the header's rail slot belongs to
+/// Organize and two rails in one header would shed by different rules (`OrganizeRailMetrics`).
 ///
-/// **It used to be a rail in the header, and it could not stay there.** While Storage was a
-/// workspace of its own, `LensHeaderCard`'s rail slot was free and Storage borrowed it. Folding
-/// Storage into Organize gives that slot to the Organize rail, and the alternative — a second rail
-/// row nested under the first — is precisely the shape `OrganizeRailMetrics` warns against in its
-/// own words: *"the one thing worse than a rail that sheds is two rails in one header that shed by
-/// different rules."* So the switcher comes down into the content it switches, where the Editor's
-/// mode capsule already established the idiom.
+/// Follows ``EditorModeBar``'s three choices:
 ///
-/// Modelled on ``EditorModeBar`` and deliberately copying its three load-bearing choices, each of
-/// which was a bug there first:
+/// - `ViewThatFits` over two rungs, labelled then glyph-only, rather than width arithmetic.
+/// - Semibold in both selection states, because weight changes width and a bolded selection
+///   would move everything beside it on every click. The fill marks the selection.
+/// - Glyphs in a framed box (``CapsuleGlyph``), because the four symbols draw at different widths
+///   and an unframed row would resize as the selection moves. Shared with the Editor's capsule.
 ///
-/// - **`ViewThatFits` over two rungs**, labelled then glyph-only, rather than width arithmetic.
-///   This sits in an ordinary `HStack` that is handed a real width, so it can simply ask.
-/// - **Semibold in both selection states.** Weight changes width, so a capsule that bolded only
-///   the selected segment measures a different width depending on which one that is — and
-///   everything beside it moves on every click. The fill marks the selection; the weight was
-///   saying it twice and charging for it.
-/// - **Glyphs in a framed box** (``CapsuleGlyph``), because these four symbols draw at four
-///   different widths and an unframed row would resize as the selection moved through it. Shared
-///   with the Editor's capsule rather than copied a second time — the copy is how both bars came
-///   to hold a hard `13` that did not grow with the app's text size.
-///
-/// `nil` is All, matching ``StorageSection/defaultsKey``'s "absent means all three" — there is no
-/// value to write for "no section picked", and inventing one makes the unselected state something
-/// you can fail to migrate.
+/// `nil` is All, matching ``StorageSection/defaultsKey``: there is no value for "no section
+/// picked" to write, so nothing to migrate.
 struct StorageSectionBar: View {
 
     @Binding var section: StorageSection?
@@ -433,9 +381,8 @@ struct StorageSectionBar: View {
     /// The two rungs, named so a test can ask for one rather than trying to provoke it.
     enum Rung { case labelled, glyphOnly }
 
-    /// The segments in order, `nil` first. A computed list rather than a literal so a fourth
-    /// section is a segment the day it is added — the same argument `StorageSection.allCases`
-    /// carries for the lists themselves.
+    /// The segments in order, `nil` first. Built from `StorageSection.allCases`, so a new section
+    /// is a segment the day it is added.
     private var segments: [StorageSection?] { [nil] + StorageSection.allCases }
 
     var body: some View {
@@ -455,7 +402,7 @@ struct StorageSectionBar: View {
                 segment(candidate, labelled: labelled)
             }
         }
-        // Frosted and Clear: one glass lens that glides between sections (RD46).
+        // Frosted and Clear: one glass lens that glides between sections.
         .selectionLensHost(Self.lensChannel, selected: Self.lensID(section), style: .fill(.capsule, color: accentFill))
         .padding(2)
         // Frosted and Clear: a glass track, like the bar's other controls (`ChromeGlass`).
@@ -468,15 +415,14 @@ struct StorageSectionBar: View {
     /// The bar's selection lens in Frosted and Clear — see `SelectionLens`.
     static let lensChannel = SelectionLensChannel("storage.sections")
 
-    /// A segment's lens identity. All is not a ``StorageSection`` — it is the absence of one — so
-    /// it needs a name of its own, or "All selected" would read as "nothing selected" and draw no
-    /// lens at all.
+    /// A segment's lens identity. All is the absence of a ``StorageSection``, so it needs a name
+    /// of its own, or "All selected" would read as nothing selected and draw no lens.
     static func lensID(_ candidate: StorageSection?) -> String {
         candidate?.rawValue ?? "all"
     }
 
-    /// The label for a segment. All is not a ``StorageSection``, so its words live here — the same
-    /// reason `OrganizeRailMetrics.overviewTitle` exists rather than being inferred.
+    /// The label for a segment. All is not a ``StorageSection``, so its word lives here, as
+    /// `OrganizeRailMetrics.overviewTitle` does for Organize.
     private func title(_ candidate: StorageSection?) -> String {
         candidate?.railTitle ?? "All"
     }
@@ -508,8 +454,7 @@ struct StorageSectionBar: View {
         }
         // `.filled` for the chosen section at Solid; under the lens, `.segment` (`SelectionLens`).
         .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: accentFill)
-        // Once the word is shed the glyph is the only thing naming the section, so the name has to
-        // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
+        // Once the word is shed, the tooltip and the accessibility label still name the section.
         .help(title(candidate))
         .accessibilityLabel(title(candidate))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -519,23 +464,18 @@ struct StorageSectionBar: View {
 // MARK: - Sections
 
 /// The three ranked lists under the treemap, each with its own glyph, tint, and copy.
-///
-/// **Internal, and `CaseIterable`, because Storage has a rail now.** These were the section
-/// headings of one long scroll and nothing outside this file needed them; the rail turns each into
-/// a destination, so `LensWorkspaceView` builds its items from `allCases` — a fourth section is then a rail
-/// item the day it is added rather than a heading someone has to remember to announce.
+/// `CaseIterable` because the section switcher builds its segments from `allCases`.
 enum StorageSection: String, Hashable, CaseIterable, Identifiable {
     case largest, stale, reclaim
 
     var id: String { rawValue }
 
-    /// The defaults key holding the rail selection. **Absent means All**, exactly as
-    /// ``OrganizeLens/defaultsKey`` does: there is no value to write for "no section picked", and
-    /// inventing one makes the unselected state something you can fail to migrate.
+    /// The defaults key holding the switcher's selection. Absent means All, as with
+    /// ``OrganizeLens/defaultsKey``: inventing a value for "no section picked" would only make
+    /// something to migrate.
     static let defaultsKey = "selectedStorageSection"
 
-    /// The rail's label — shorter than ``title``, which is a heading over a list and can afford the
-    /// words. "Untouched for a long time" is a sentence; a rail item is a place.
+    /// The switcher's label, shorter than ``title``, which heads a list and can afford the words.
     var railTitle: String {
         switch self {
         case .largest: return "Largest"
@@ -544,8 +484,8 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
         }
     }
 
-    /// The rail's glyph. Unfilled, matching Organize's rail — ``icon`` keeps the filled variant for
-    /// the section heading, where it sits at 13pt against a tint.
+    /// The switcher's glyph. Unfilled, matching Organize's rail; ``icon`` keeps the filled variant
+    /// for the section heading.
     var railSymbol: String {
         switch self {
         case .largest: return "arrow.up.circle"
@@ -554,16 +494,11 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
         }
     }
 
-    /// "N of M" for whatever the page is showing: `section` nil means all three lists.
+    /// "N of M" for whatever the page is showing: `section` nil means all three lists, one means
+    /// that list only. Pure, so `theOfMCountsFollowTheRail` can assert it directly.
     ///
-    /// **Pure, and separate from the view, because this is where a regression landed.** The header
-    /// summed all three lists unconditionally, which was right while the page was always all three;
-    /// once the rail could narrow it to one, the unchanged sum described a page nobody was looking
-    /// at — "3 of 164" over a single list of 50. The arithmetic lives here so it can be asserted
-    /// directly rather than inferred from a rendered number, and `theOfMCountsFollowTheRail` does.
-    ///
-    /// `matching` is the search predicate: the selection decides *which lists*, the query narrows
-    /// *within them*, and N-of-M needs both.
+    /// `matching` is the search predicate: the selection picks the lists, the query narrows within
+    /// them, and N-of-M needs both.
     static func counts(in report: StorageLensReport, section: StorageSection?,
                        matching: (StorageEntry) -> Bool) -> (filtered: Int, total: Int) {
         let lists = (section.map { [$0] } ?? allCases).map { $0.entries(in: report) }
@@ -571,8 +506,8 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
                 lists.reduce(0) { $0 + $1.count })
     }
 
-    /// This section's entries in a report — the one place the mapping lives, so the rail's badge and
-    /// the list below it cannot count different things.
+    /// This section's entries in a report: the one place the mapping lives, so a count and its
+    /// list can't disagree.
     func entries(in report: StorageLensReport) -> [StorageEntry] {
         switch self {
         case .largest: return report.largest
@@ -591,13 +526,10 @@ enum StorageSection: String, Hashable, CaseIterable, Identifiable {
         }
     }
 
-    /// A section header's count pill: "20 of 318" when the list is the top of a longer one.
-    ///
-    /// **The lists are capped at 20 rows; the Overview counts the whole tree.** A pill reading
-    /// "20" under an Overview reading "318 untouched" made the two disagree about one thing. The
-    /// total shows only when it says something: not when it equals the list (nothing was cut), not
-    /// on a report without totals, and not while a search narrows the rows — the search reaches
-    /// the 20 listed, not the 318, so "3 of 318" would claim it searched them all.
+    /// A section header's count pill: "20 of 318" when the capped list is the top of a longer one,
+    /// so it agrees with the Overview's whole-tree count. The total shows only when it says
+    /// something: not when it equals the list, not on a report without totals, and not during a
+    /// search, which reaches only the listed rows.
     struct PillCount: Equatable {
         let text: String
         let speech: String
@@ -677,8 +609,7 @@ private struct StorageEntryRow: View {
     /// The scanned folder's name — what the share figure is a share *of*, for the tooltip and the
     /// spoken label, where a bare "18%" says nothing.
     let scannedName: String
-    /// Row measurements per the appearance density setting (D4). Comfortable must render this row
-    /// pixel-identical to the pre-density look.
+    /// Row measurements per the appearance density setting.
     let densityMetrics: ListDensityMetrics
     let onReveal: () -> Void
     let onPreview: (() -> Void)?
@@ -699,8 +630,8 @@ private struct StorageEntryRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // The shared medium vocabulary (FileTypeGlyph): in a ranked list of mixed types,
-            // shape + tint is scent — "that big audio file" is findable without reading rows.
+            // FileTypeGlyph: in a ranked list of mixed types, shape and tint find "that big audio
+            // file" without reading rows.
             FileTypeGlyph.view(name: entry.name, isDirectory: false, pointSize: 16)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
@@ -708,8 +639,8 @@ private struct StorageEntryRow: View {
                     .scaledFont(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                // The folder + age line is the secondary detail compact hides (D4); the name and
-                // size still identify the file and its weight.
+                // The folder and age line is the secondary detail compact hides; name and size
+                // still identify the file.
                 if densityMetrics.showsSecondaryDetail {
                     HStack(spacing: 6) {
                         Text(relativeFolder)
@@ -729,10 +660,8 @@ private struct StorageEntryRow: View {
                 .scaledFont(.system(size: 12, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
-            // The share rides beside the size rather than under it: a second line here would
-            // change the row's height, and this row's height is what `densityMetrics` owns.
-            // Fixed-width so the sizes above it stay in a column — "<1%" and "100%" are the
-            // widest strings it can hold.
+            // Beside the size, not under it: a second line would change the row height that
+            // `densityMetrics` owns. Fixed width, sized for "<1%" and "100%", keeps a column.
             if let shareText {
                 Text(shareText)
                     .scaledFont(.system(size: 11, weight: .medium))
@@ -776,23 +705,18 @@ private struct StorageEntryRow: View {
             }
         }
         .padding(.horizontal, 12)
-        // This row's comfortable padding (8) is smaller than the shared card-row metric (11), so
-        // clamp rather than substitute: comfortable stays exactly 8; compact tightens to the
-        // metric's 6.
+        // Clamped, not substituted: this row's comfortable padding (8) is under the shared
+        // metric (11), so comfortable stays 8 and compact takes the metric's 6.
         .padding(.vertical, min(8, densityMetrics.cardRowVerticalPadding))
         .background { rowGround }
         .onHover { isHovered = $0 }
     }
 
-    /// The row's ground, and the magnitude bar drawn on it.
+    /// The row's ground and the magnitude bar on it. The `GeometryReader` in `.background` reads
+    /// the row's width without proposing a size back to it.
     ///
-    /// A `GeometryReader` inside `.background` reads the row's laid-out width without proposing
-    /// anything back to it, so the bar can be a fraction of a height the row decided for itself.
-    ///
-    /// A nonzero bar never falls below a hairline — the same 3pt floor and for the same reason as
-    /// `TreemapView.tile`: a real file that rounds to no bar reads as absent rather than tiny.
-    /// It is drawn with the same corner radius as the ground and clipped to it, so a full-width
-    /// bar has square inner corners nowhere.
+    /// A nonzero bar keeps a 3pt floor, as `TreemapView.tile` does, so a real file never reads as
+    /// absent. Clipped to the ground's corner radius, so a full-width bar has no square corners.
     private var rowGround: some View {
         GeometryReader { geo in
             let shape = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)

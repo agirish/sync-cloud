@@ -4,9 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// **The file row's menu offers Copy Path (BR15).** It was on tabs, the Info sidebar and the
-/// Differences rows, but not on the row itself — and a comment in `DetailsSidebar` claimed the row
-/// menu had it. Read off the real row menu through `NSHostingMenu`.
+/// The file row's menu offers Copy Path, as tabs, the Info sidebar and the Differences rows do.
+/// Read off the real row menu through `NSHostingMenu`.
 @MainActor
 @Suite struct RowCopyPathTests {
 
@@ -51,7 +50,7 @@ import Testing
         #expect(titles.dropFirst(quickLook + 1).first == "Copy Path", "the menu reads \(titles)")
     }
 
-    /// The control: a selection of two has no single path, so no Copy Path — the item rides on the
+    /// The control: a selection of two has no single path, so no Copy Path; the item rides on the
     /// single-row branch, not on every menu.
     @Test func aSelectionOfTwoOffersNone() {
         let a = FileNode(id: "/a/x.txt", name: "x.txt", isDirectory: false)
@@ -61,7 +60,7 @@ import Testing
         #expect(!titles.contains("Copy Path"))
     }
 
-    /// The item writes the absolute path as text — on a private pasteboard, never his clipboard.
+    /// The item writes the absolute path as text, on a private pasteboard, never the real clipboard.
     @Test func itCopiesTheAbsolutePathAsText() {
         let board = NSPasteboard(name: NSPasteboard.Name("RowCopyPathTests-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }

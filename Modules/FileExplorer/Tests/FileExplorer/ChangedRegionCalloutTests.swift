@@ -5,10 +5,8 @@ import Testing
 
 /// Merging changed cells into pointable regions, and putting them on screen where the change is.
 ///
-/// **The rects were computed, tested and drawn nowhere** — the field's own doc promised "the
-/// difference view's callouts" while nothing consumed it. Two halves are pinned here: the merge,
-/// because a cell is not a region, and the aspect-fit mapping, because an outline that is
-/// plausibly NEAR the change rather than on it looks exactly like a working feature.
+/// Two halves: the merge, because a cell is not a region, and the aspect-fit mapping, because an
+/// outline near the change rather than on it looks just like a working feature.
 @Suite struct ChangedRegionCalloutTests {
 
     private func image(width: Int, height: Int, fills: [CGRect] = []) throws -> CGImage {
@@ -25,9 +23,9 @@ import Testing
 
     // MARK: The merge
 
-    /// **A cell is not a region.** One edited sentence spans several 16px cells, and "8 regions
-    /// differ" about one edit is a worse answer than "something differs". A 64×16 change crosses
-    /// four cells horizontally and must come back as ONE rect.
+    /// A cell is not a region: one edited sentence spans several 16px cells, and "8 regions
+    /// differ" about one edit is wrong. A 64×16 change crosses four cells and must come back as
+    /// one rect.
     @Test func adjacentCellsMergeIntoOneRegion() throws {
         let a = try image(width: 128, height: 128)
         let b = try image(width: 128, height: 128, fills: [CGRect(x: 16, y: 16, width: 64, height: 16)])
@@ -36,8 +34,8 @@ import Testing
                 "one change came back as \(result.changedRects.count) regions")
     }
 
-    /// **The positive control on the merge.** A rule that merged everything into one rect would
-    /// pass the test above and be useless — two changes at opposite corners have to stay two.
+    /// The positive control on the merge: a rule that merged everything into one rect would pass
+    /// the test above, so two changes at opposite corners must stay two.
     @Test func separatedChangesStayTwoRegions() throws {
         let a = try image(width: 128, height: 128)
         let b = try image(width: 128, height: 128,
@@ -49,7 +47,7 @@ import Testing
 
     /// Eight-connectivity, not four: a line of text lights a ragged edge of cells, and a diagonal
     /// step between two of them is the same edit. Two cells touching only at a corner are one
-    /// region — under four-connectivity this same input comes back as two.
+    /// region; under four-connectivity this input would come back as two.
     @Test func diagonallyTouchingCellsAreOneRegion() {
         // A 2×2 cell grid with only the two diagonal cells touched.
         let touched = [true, false, false, true]
@@ -106,7 +104,7 @@ import Testing
     }
 
     /// A raster can be nil-sized while a render is in flight, and the view mounts before it is
-    /// laid out — neither is a divide by zero.
+    /// laid out; neither is a divide by zero.
     @Test(arguments: [CGSize(width: 0, height: 100), CGSize(width: 100, height: 0)])
     func aDegenerateSizeIsNoRect(bad: CGSize) {
         #expect(ChangedRegionCallouts.fittedRect(imageSize: bad, in: CGSize(width: 10, height: 10))
@@ -115,21 +113,21 @@ import Testing
                     .isNull)
     }
 
-    /// **The mapping the whole file exists for.** A region at the image's top-left lands at the
-    /// letterbox's top-left, scaled — and the y axis is NOT flipped, because a `CGBitmapContext`'s
-    /// buffer starts at the image's top row, the same direction SwiftUI lays out in. A flip would
-    /// look correct on a symmetric page and be wrong on every real one.
+    /// A region at the image's top-left lands at the letterbox's top-left, scaled, and the y axis
+    /// is **not** flipped: a `CGBitmapContext`'s buffer starts at the image's top row, the
+    /// direction SwiftUI lays out in. A flip would look right on a symmetric page and be wrong on
+    /// every real one.
     @Test func aRegionMapsOntoTheSamePixelsTheImageIsDrawnOn() throws {
         let drawn = ChangedRegionCallouts.drawable(
             regions: [CGRect(x: 10, y: 20, width: 30, height: 40)],
             imageSize: CGSize(width: 100, height: 100),
             in: CGSize(width: 400, height: 200))
-        // Fitted rect is (100, 0, 200, 200) — scale 2, x offset 100, y offset 0.
+        // Fitted rect is (100, 0, 200, 200): scale 2, x offset 100, y offset 0.
         #expect(drawn == [CGRect(x: 120, y: 40, width: 60, height: 80)])
     }
 
-    /// Past the cap the outlines stop being callouts and become a mesh, so none is drawn — while
-    /// the caption still reports the count, which is the half the reader can act on.
+    /// Past the cap the outlines would be a mesh, so none is drawn, while the caption still
+    /// reports the count.
     @Test func tooManyRegionsAreCountedButNotDrawn() {
         let many = (0...ChangedRegionCallouts.maxDrawn).map {
             CGRect(x: $0 * 4, y: 0, width: 2, height: 2)
@@ -140,7 +138,7 @@ import Testing
                                                in: CGSize(width: 100, height: 100)).isEmpty)
         #expect(ChangedRegionCallouts.caption(regionCount: many.count)?
                     .contains("too many to outline") == true)
-        // And exactly at the cap it still draws — the boundary, from both sides.
+        // Exactly at the cap it still draws: the boundary, from both sides.
         #expect(ChangedRegionCallouts.drawable(regions: Array(many.dropLast()),
                                                imageSize: CGSize(width: 100, height: 100),
                                                in: CGSize(width: 100, height: 100)).count

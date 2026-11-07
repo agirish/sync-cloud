@@ -56,11 +56,10 @@ private func diff(
     }
 
     @Test func testFoldedFallbackBadgesCaseVariantDestinationFolders() {
-        // A missing row's expected path carries the SOURCE side's ancestor casing ("Docs/x.txt"
-        // credited under <root>/Docs), so the destination pane's REAL folder — spelled "docs" —
-        // matched no exact key and showed no contained-diff badge. With foldsCase (the pane's
-        // volume is case-insensitive) the folded fallback finds it; without it (case-sensitive
-        // volume, where "Docs" and "docs" are distinct real folders) the exact behavior stands.
+        // A missing row's expected path carries the source side's ancestor casing ("Docs"), so
+        // the destination's real folder "docs" matches no exact key. With foldsCase (a
+        // case-insensitive volume) the folded fallback finds it; without it, where "Docs" and
+        // "docs" are distinct folders, the exact match stands.
         let differences = [diff("Docs/x.txt", type: .missingOnRight)]
 
         let folding = DiffStatusIndex(differences: differences, rootPath: "/r", foldsCase: true)
@@ -73,11 +72,10 @@ private func diff(
     }
 
     @Test func testFoldedCountsMergeSplitCasingsOfOneRealFolder() {
-        // One real folder's differences can be keyed under TWO casings at once: an existing
-        // pair keys under the pane's real spelling (sideAlignedPath), while a missing row's
-        // expected path carries the source side's spelling. The exact-first shortcut returned
-        // only its own casing's share (1 of 2) — on a folding pane the folded sum is
-        // authoritative, whatever casing the node id uses.
+        // One real folder's differences can be keyed under two casings at once: an existing pair
+        // under the pane's real spelling (sideAlignedPath), a missing row under the source side's.
+        // On a folding pane the folded sum is authoritative, whatever casing the node id uses;
+        // an exact-first shortcut would return only one casing's share.
         let differences = [
             diff("Docs/x.txt", type: .missingOnRight),     // source-cased ancestor: /r/Docs
             diff("docs/y.txt", type: .differentDates),     // pane-cased ancestor:   /r/docs
@@ -88,8 +86,8 @@ private func diff(
     }
 
     @Test func testNameConflictBadgesBothSidesRealSpellings() {
-        // A name conflict's two sides spell the name differently; relativePath carries only
-        // the LEFT spelling. Each pane's index must badge its OWN node's real path.
+        // A name conflict's two sides spell the name differently, and relativePath carries only
+        // the left spelling. Each pane's index must badge its own node's real path.
         let conflict = FileDifference(
             relativePath: "Fitness/Swimming ",
             leftItemPath: "/left/Fitness/Swimming ",
@@ -104,8 +102,8 @@ private func diff(
 
         let rightIndex = DiffStatusIndex(differences: [conflict], rootPath: "/right")
         #expect(rightIndex.status(forNodeId: "/right/Fitness/Swimming") == .nameConflict)
-        // The naive join (root + left-spelled relative) must NOT be what the right pane
-        // badges — no node has that id there.
+        // The naive join (root + left-spelled relative) must not be what the right pane badges:
+        // no node has that id there.
         #expect(rightIndex.status(forNodeId: "/right/Fitness/Swimming ") == nil)
         #expect(rightIndex.containedDiffCount(forNodeId: "/right/Fitness") == 1)
     }
@@ -178,9 +176,8 @@ private func diff(
     }
 
     @Test func testCaseVariantPairKeysEachPaneWithItsOwnSideCasing() {
-        // relativePath always carries LEFT-side casing; on a case-insensitive volume the
-        // right side of a pair can differ in case, and the right pane's node ids carry
-        // that right-side casing.
+        // relativePath always carries left-side casing; on a case-insensitive volume the right
+        // side of a pair can differ in case, and the right pane's node ids carry that casing.
         let difference = FileDifference(
             relativePath: "Sub/File.txt",
             leftItemPath: "/left/Sub/File.txt",
@@ -202,7 +199,7 @@ private func diff(
     }
 
     @Test func testSideAlignedPathPrefersExactThenCaseInsensitiveSideMatch() {
-        // Exact match keeps the join byte-identical (left index unchanged by the fix).
+        // An exact match keeps the join byte-identical.
         #expect(DiffStatusIndex.sideAlignedPath(
             joined: "/l/A.txt", left: "/l/A.txt", right: "/r/a.txt") == "/l/A.txt")
         // Case-insensitive side match re-aligns to that side's real casing.

@@ -4,10 +4,9 @@ import Sync
 
 /// What one column of the destination picker decides to draw.
 ///
-/// The column has three states and used to have two: a listing that came back with no folders was
-/// drawn as **"Empty"** whether the folder held nothing or could not be opened at all. Since a
-/// SwiftUI view cannot be driven from a unit test, the decision is a value the body switches over,
-/// and this asserts the value.
+/// Three states: loading, a message, or rows. A folder that can't be opened must not say "Empty".
+/// A SwiftUI view can't be driven from a unit test, so the decision is a value the body switches
+/// over, and this asserts the value.
 @Suite struct DestinationColumnStateTests {
 
     private func column(_ listing: DestinationFolderListing?) -> DestinationColumn {
@@ -28,8 +27,7 @@ import Sync
     @Test func aFolderThatCouldNotBeReadDoesNotSayItIsEmpty() {
         let unreadable = DestinationFolderListing(folders: [], outcome: .unreadable)
 
-        // The words matter — this is the whole user-visible half of the fix — so they are asserted
-        // rather than merely "some message".
+        // The words are the user-visible half, so they are asserted, not just "some message".
         #expect(column(unreadable).state == .message("Can’t be read"))
         #expect(column(unreadable).state != .message("Empty"))
     }

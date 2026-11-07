@@ -3,12 +3,9 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **Compare's count pill says "scanning…" only once the scan is shown as running.**
-///
-/// The pill read `isScanning`, and most rescans finish in a few hundred milliseconds, so it flashed
-/// "scanning…" over the count and straight back. `ScanShownTests` holds when `isScanShown` rises;
-/// this holds that the pill reads it — the call-site half, without which the rule could be right
-/// and unused.
+/// Compare's count pill says "scanning…" only once the scan is shown as running. Most rescans
+/// finish in a few hundred milliseconds, so reading `isScanning` would flash it over the count.
+/// `ScanShownTests` holds when `isScanShown` rises; this holds that the pill reads it.
 @MainActor
 @Suite struct CompareScanShownPillTests {
 

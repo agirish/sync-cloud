@@ -4,18 +4,17 @@ import Sync
 
 /// *Undo this reorganisation*, from the Applied card and from Organize ▸ Undo This Reorganisation.
 ///
-/// **One path, and it asks first.** Both surfaces used to call the engine directly: one click on a
-/// plain text link — or one menu item — ran a landing's stored inverse, which can move hundreds of
-/// files, with no question and no redo. And a success said nothing at all, so from the menu with
-/// Restructure off screen the files moved and the window stayed silent.
+/// The one path to the engine's undo, and it asks first: a landing's stored inverse can move
+/// hundreds of files and has no redo. It always leaves a banner, success included, because from
+/// the menu Restructure may be off screen.
 ///
-/// `confirmChange`, not `confirmDestructive`: the inverse moves files back to where they were and
-/// trashes nothing, and the red caution style is kept for the dialogs that really do.
+/// `confirmChange`, not `confirmDestructive`: the inverse moves files back and trashes nothing,
+/// and the red caution style is kept for dialogs that do.
 @MainActor
 public enum ReorganisationUndo {
 
-    /// What the question says — the family, when the landing was, and the ledger's own sentence for
-    /// what it did, so the person can see what is about to be reversed.
+    /// The question: the family, when it landed, and the ledger's own sentence for what it did, so
+    /// the person sees what is about to be reversed.
     static func question(for record: RestructureStore.AppliedRecord,
                          now: Date = Date()) -> (title: String, detail: String) {
         let family = record.manifest.family
@@ -56,9 +55,8 @@ public enum ReorganisationUndo {
     }
 
     /// Asks, then runs the inverse and reports. A record the ledger no longer has is not asked
-    /// about: the engine refuses it and says why, which is the answer worth showing. Nor is one the
-    /// engine would refuse at once — a scan or Verify All running — which says why instead of
-    /// asking a question whose Yes cannot be acted on.
+    /// about: the engine refuses it and says why. Nor is one the engine would refuse at once (a
+    /// scan or Verify All running); that says why instead of asking a question whose Yes can't act.
     public static func run(
         manifestId: String,
         on manager: FileSyncManager,

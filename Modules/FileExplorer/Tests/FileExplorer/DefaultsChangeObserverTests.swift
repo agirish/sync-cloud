@@ -9,14 +9,13 @@ struct DefaultsChangeObserverTests {
         var lateWriteLanded = false
     }
 
-    /// **A burst of writes off the main thread queues one reread, and it reads the last write.**
-    /// Each post used to schedule its own main-thread reread, so fifty writes in a row queued fifty
-    /// per observer — and the signature store's decodes every saved signature. Main is held while
-    /// they land, so every reread they schedule is queued before the first can run.
+    /// A burst of writes off the main thread queues one reread, which reads the last write. One
+    /// reread per post would queue fifty per observer, and the signature store's decodes every
+    /// saved signature. Main is held while they land, so all are queued before the first runs.
     ///
-    /// A write that lands just after a reread has read must still be followed: the first reread
-    /// makes one from another thread before it returns. The flag released only after the reread,
-    /// or never, would swallow it and leave 50 on screen with 51 stored.
+    /// A write just after a reread has read must still be followed: the first reread makes one
+    /// from another thread. A flag released after the reread, or never, would leave 50 on screen
+    /// with 51 stored.
     @Test func aBurstOfWritesOffTheMainThreadQueuesOneRereadOfTheLastValue() async throws {
         let scratch = ScratchDefaults("DefaultsChangeObserverBurst")
         let rereads = Rereads()
@@ -50,7 +49,7 @@ struct DefaultsChangeObserverTests {
                 "\(rereads.seen.count) rereads, reading \(rereads.seen.prefix(3))…\(rereads.seen.suffix(2))")
     }
 
-    /// Waits on the main thread without letting anything queued for it run — synchronous, since a
+    /// Waits on the main thread without letting anything queued for it run. Synchronous, since a
     /// semaphore wait is unavailable in an async test.
     private func holdingTheMainThread(until done: DispatchSemaphore) -> DispatchTimeoutResult {
         done.wait(timeout: .now() + 5)

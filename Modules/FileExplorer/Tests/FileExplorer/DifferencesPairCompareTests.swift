@@ -6,8 +6,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The second host — ROADMAP §11's diff pane, which is the Duplicates compare surface above its
-/// verdict bar.
+/// The second host of the shared compare viewer: Differences' diff pane, the Duplicates compare
+/// surface above its own verdict bar.
 @MainActor
 @Suite struct DifferencesPairCompareTests {
 
@@ -35,8 +35,8 @@ import Testing
         #expect(pair.subtitle == "iCloud vs Dropbox")
     }
 
-    /// **A row missing on a side has nothing to compare.** Offering it would open a surface whose
-    /// pane says "no longer at its scanned location" — a worse answer than not offering the item.
+    /// A row missing on a side has nothing to compare. Offering it would open a pane that says "no
+    /// longer at its scanned location", which is worse than not offering it.
     @Test func aRowMissingOnASideIsNotOffered() {
         #expect(DifferencesPairCompare.pair(for: difference(type: .missingOnLeft),
                                             paneNames: paneNames) == nil)
@@ -44,9 +44,9 @@ import Testing
                                             paneNames: paneNames) == nil)
     }
 
-    /// **And a folder is out, on either side.** There is no page to raster, no text to diff, and
-    /// Quick Look draws an icon — while Compare already has a whole workspace for two folders. The
-    /// row's per-side folder facts decide, not `enclosedItemCount`, which an empty folder lacks.
+    /// A folder on either side is not offered: there is nothing to raster or diff, and Compare has a
+    /// workspace for folders. The row's per-side folder facts decide, not `enclosedItemCount`, which
+    /// an empty folder lacks.
     @Test func aFolderRowIsNotOffered() {
         #expect(DifferencesPairCompare.pair(for: difference(enclosed: 42, leftIsDirectory: true),
                                             paneNames: paneNames) == nil)
@@ -60,7 +60,7 @@ import Testing
     }
 
     /// The same, on rows the real engine builds: two empty folders whose names differ invisibly
-    /// carry no count and were offered Compare… on a pair of directories (2026-09-25).
+    /// carry no count, and must still not be offered Compare….
     @Test func engineBuiltFolderRowsAreNotOffered() throws {
         let rows = EngineRows()
         #expect(DifferencesPairCompare.pair(for: try rows.nameConflictedFolders(), paneNames: paneNames) == nil)
@@ -105,9 +105,8 @@ import Testing
         deinit { try? FileManager.default.removeItem(at: dir) }
     }
 
-    /// **A stat, not the row's recorded sizes.** `FileDifference` carries no dates at all, so a
-    /// strip built from the row would print "—" on both date rows — the surface admitting it did
-    /// not look, at the top of a viewer whose job is to say what is true now.
+    /// The facts come from a stat, not the row: `FileDifference` carries no dates, so a strip built
+    /// from it would print "—" on both date rows.
     @Test func theFactsComeFromAFreshStatOfBothSides() async throws {
         let fixture = try Fixture()
         let pair = DifferencePair.acrossPanes(leftPath: fixture.left, rightPath: fixture.right,
@@ -120,9 +119,8 @@ import Testing
         #expect(copies.left.isRecommendedKeeper == false, "there is no keeper concept in this host")
     }
 
-    /// A vanished side stats to nothing rather than trapping — the row can go stale between the
-    /// menu being drawn and the item being clicked, which is the same window every other menu here
-    /// resolves against live rows for.
+    /// A vanished side stats to nothing rather than trapping: the row can go stale between the menu
+    /// being drawn and the item being clicked.
     @Test func aVanishedSideStatsToZeroRatherThanFailing() async {
         let pair = DifferencePair.acrossPanes(leftPath: "/nope/gone.txt",
                                               rightPath: "/nope/also.txt",
@@ -134,9 +132,8 @@ import Testing
 
     // MARK: Mounted
 
-    /// The shared viewer really mounts here, with two panes and no keeper picker — the whole claim
-    /// of the extraction. Without this, "one component, two hosts" would be a sentence in a commit
-    /// message.
+    /// The shared viewer really mounts in this host, with two panes and no keeper picker, so "one
+    /// component, two hosts" is checked rather than assumed.
     @Test func theSharedViewerMountsWithTwoPanesAndNoKeeper() async throws {
         let fixture = try Fixture()
         let pair = DifferencePair.acrossPanes(leftPath: fixture.left, rightPath: fixture.right,
@@ -161,14 +158,14 @@ import Testing
             return walk(host).compactMap { $0 as? QLPreviewView }
         }
         // Through `LayoutPumpWait`: the panes mount on main-actor turns, and a wall-clock deadline
-        // buys almost none of them under full-package congestion — the way this test first failed.
+        // buys almost none of them under full-package load.
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 5) { previews().count == 2 }
         #expect(held, "expected two preview panes, found \(previews().count) (\(pumps) pumps)")
     }
 }
 
-/// The two review findings that had no test until they were found: a keeper picker offered where
-/// there is no keeper, and a destructive confirmation composed inline where nothing could drive it.
+/// The compare viewer's seams: no keeper arrows where there is no keeper, and a trash confirmation
+/// a test can drive and decline.
 @MainActor
 @Suite struct FilePairCompareSeamTests {
 
@@ -193,16 +190,13 @@ import Testing
             isARepeat: false, keyCode: keyCode)!)
     }
 
-    /// **A surface with no keeper must not answer ←/→.** The Differences host has no group and
-    /// nothing being kept; a viewer that still took the arrows would be swallowing keys nobody
-    /// else can then have, for an act that does not exist.
+    /// A surface with no keeper must not answer ←/→: the Differences host keeps nothing, so taking
+    /// the arrows would swallow keys for an act that does not exist.
     @Test(arguments: [false, true])
     func aHostWithNoKeeperIgnoresTheKeeperArrows(allowsChoice: Bool) async throws {
-        // Both arguments matter, and the SECOND is the one that pins the fix. With
-        // `allowsKeeperChoice: false` — the Differences host's real configuration — that flag
-        // alone would refuse the key even if the nil check were deleted. With it true, the
-        // `keeperPath != nil` guard is the only thing between → and a keeper pick on a surface
-        // that has no keeper.
+        // The `true` case is the one that matters: with `allowsKeeperChoice: false` (the real
+        // Differences configuration) the flag alone refuses the key, so only with it true does
+        // deleting the `keeperPath != nil` guard make this fail.
         let recorder = Recorder()
         let view = FilePairCompareView(
             left: copy("/L/x.txt"), right: copy("/R/x.txt"), title: "x.txt", subtitle: "A vs B",
@@ -229,9 +223,8 @@ import Testing
         #expect(recorder.keeperPicks.isEmpty, "a host with no keeper answered → anyway")
     }
 
-    /// **A declined confirmation destroys nothing.** The one destructive path on this surface, and
-    /// until `confirmTrash` became a seam it could not be driven at all: `confirmDestructive` is a
-    /// blocking modal, so a test reaching this line would have hung on an alert.
+    /// A declined confirmation trashes nothing. Driven through the `confirmTrash` seam, because the
+    /// real `confirmDestructive` is a blocking modal a test would hang on.
     @Test func decliningTheConfirmationTrashesNothing() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("FilePairCompareSeamTests-\(UUID().uuidString)")
@@ -276,15 +269,12 @@ import Testing
 
 // MARK: - Esc while the opening stat is outstanding
 
-/// **The surface's keys are on the pair view, which is not mounted until the stat lands.**
+/// Esc must close the overlay while its opening stat is still outstanding. The surface's keys live
+/// on the pair view, which isn't mounted until the stat lands, and a dead SMB or unmounted cloud
+/// volume can block that stat indefinitely: exactly when the reader wants out.
 ///
-/// That looks harmless until you read why the stat is off the main actor at all: a dead SMB or
-/// unmounted cloud volume can block it indefinitely, and it is exactly then that the reader wants
-/// out. The scrim click still worked — nobody was trapped — but esc, which closes every other
-/// panel in the app, did nothing on the one surface that can sit there for a minute.
-///
-/// Driven through a real window's responder chain, like `CompareCopiesKeyTests`: the question is
-/// whether the key ARRIVES, and only a real chain answers that.
+/// Driven through a real window's responder chain, like `CompareCopiesKeyTests`, because the
+/// question is whether the key arrives.
 @MainActor
 @Suite(.serialized) struct DifferencesPairCompareWaitingKeyTests {
 
@@ -349,11 +339,8 @@ import Testing
         #expect(recorder.closes == 1)
     }
 
-    /// **The positive control on the test above.** A `sendEvent` that reached nothing would leave
-    /// `closes` at 0 whatever the source said, so a green there has to be distinguishable from a
-    /// harness that delivers no keys at all — a modified esc must arrive and be REFUSED, which
-    /// only a live handler can do. `isPlainKeystroke`, the same guard every handler on the pair
-    /// view carries.
+    /// The control for the test above: a modified esc is refused by `isPlainKeystroke` (the guard
+    /// every handler on the pair view carries), while a plain one on the same view still closes.
     @Test func aModifiedEscIsIgnored() async {
         let recorder = Recorder()
         let window = host(blockedOverlay(recorder))
@@ -364,8 +351,8 @@ import Testing
             characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
             isARepeat: false, keyCode: 53)!)
         #expect(recorder.closes == 0)
-        // And the plain key still works on the same mounted view, so the refusal above is the
-        // modifier being read rather than the handler being absent.
+        // The plain key still works, so the refusal above is the modifier being read, not the
+        // handler being absent.
         sendEscape(window)
         #expect(recorder.closes == 1)
     }

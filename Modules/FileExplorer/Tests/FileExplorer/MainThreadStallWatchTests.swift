@@ -71,7 +71,7 @@ import Testing
         let stack = try String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8)
         // The stack is OF the stall: the in-process half, taken the moment it was noticed, has the
         // sleep in it. `sample`'s half is not asserted on: it attaches half a second late, which
-        // is why the in-process half exists, and a 1.5 s stall can be over by then.
+        // is why the in-process half exists, and a short stall can be over by then.
         let inProcess = try #require(stack.components(separatedBy: "---- /usr/bin/sample").first)
         #expect(inProcess.contains("Main thread, sampled in-process"), "\(inProcess.prefix(300))")
         #expect(inProcess.contains("__semwait_signal") || inProcess.contains("nanosleep"),
@@ -209,8 +209,8 @@ import Testing
         #expect(!parked(try #require(lines.thread)), "a sleep read as idle")
     }
 
-    /// The false stalls of 10-28: a heartbeat held back while the watched thread sits idle in its
-    /// run loop. No line, no file, no sample spent — and the count reaches the next real line.
+    /// A heartbeat held back by the system while the watched thread sits idle in its run loop is
+    /// not a stall: no line, no file, no sample spent, and the count reaches the next real line.
     @Test("An overdue heartbeat over an idle run loop is not sampled")
     func anIdleRunLoopIsNotAStall() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -226,7 +226,7 @@ import Testing
         let port = idle.startAndWait()
         defer { idle.finish() }
         let lines = Lines()
-        // The heartbeats queue here and never run, as the system held them on 10-28.
+        // The heartbeats queue here and never run, as when the system holds them.
         let held = DispatchQueue(label: "stall-watch-held")
         held.suspend()
         var heldResumed = false
@@ -323,9 +323,9 @@ import Testing
         let ended = try #require(instants["ended"])
         // Dated from the busy look (up to `stallAfter` into the sleep) and ended at the idle
         // stack after it, the line spans at most the sleep as it ran, plus the lag of that look.
-        // Dated from the hold, it would add the hold: the first heartbeat, a beat after arming, to
-        // the sleep. Bounded halfway between, both measured here, not against a wall-clock 3.2 s:
-        // a 3 s sleep was logged as 3.41 s on the 3-vCPU hosted VM.
+        // Dated from the hold, it would add the hold (the first heartbeat, a beat after arming).
+        // Bounded halfway between, both measured here, not against a fixed wall-clock figure,
+        // which a loaded hosted VM overshoots.
         let slept = ended - began, hold = began - armed - configuration.beat
         #expect(seconds > 0.5 && seconds < slept + hold / 2,
                 "\(line) — slept \(String(format: "%.2f", slept)) s after a \(String(format: "%.2f", hold)) s hold")
@@ -335,7 +335,7 @@ import Testing
     }
 
     /// The sampler found the stall's end; the system held the heartbeat on after it. The late
-    /// heartbeat must not move the end it found — on 10-29 a 2.0 s stall was logged as 2.89 s.
+    /// heartbeat must not move the end it found, or the stall is logged longer than it was.
     @Test("A heartbeat held past a stall's end does not stretch it")
     func aHeldHeartbeatDoesNotStretchTheStall() async throws {
         let directory = FileManager.default.temporaryDirectory

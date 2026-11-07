@@ -9,11 +9,8 @@ import Sync
 
     // MARK: Organize ▸ To File
 
-    /// The placeholder must never advertise what the parser doesn't recognize — the placeholder
-    /// IS the vocabulary lesson, so a token named there that doesn't bind is a lie.
-    ///
-    /// Asked of `.filing` since the standalone rename lens was retired: the rename backlog and its
-    /// to-fix rows are filing-pass output and park in that grammar's slot.
+    /// The placeholder is the vocabulary lesson, so it must never advertise a token the parser
+    /// doesn't bind. Asked of `.filing`, whose slot holds the rename backlog and its to-fix rows.
     @Test func filingPlaceholderAdvertisesOnlyBindableTokens() {
         let placeholder = LensSearch.placeholder(for: .filing)
         #expect(placeholder.contains("kind:"))
@@ -94,10 +91,9 @@ import Sync
         #expect(!AutomationSearch.parse("is:disabled").matches(on))
     }
 
-    /// A rule matches a KIND, so `kind:` binds to `FileKind` here — not to an extension. `kind:pdf`
-    /// works; `kind:jpg` is not a FileKind and so is plain free text in this lens even though it's
-    /// a real token in Duplicates. That asymmetry is the per-lens-honesty rule, and the placeholder
-    /// only ever advertises `kind:pdf`.
+    /// A rule matches a kind, so `kind:` binds to `FileKind` here, not to an extension: `kind:jpg`
+    /// is plain free text in this lens though it's a real token in Duplicates. That asymmetry is
+    /// the per-lens honesty rule, and the placeholder only advertises `kind:pdf`.
     @Test func automationsKindBindsToFileKindNotExtension() {
         let pdfRule = rule("Invoices", conditions: [.kindIs(.pdf), .contentContains("invoice")])
         #expect(AutomationSearch.parse("kind:pdf").matches(pdfRule))
@@ -109,11 +105,9 @@ import Sync
         #expect(AutomationSearch.chips("kind:jpg").isEmpty)
     }
 
-    /// The spec expected `rule.summary` alone to carry name + conditions + destination. It does
-    /// NOT — `summary` is built from the conditions and the destination and never reads the rule's
-    /// name. So a rule NAMED "Invoices" whose conditions mention only "bill" has no "invoice"
-    /// anywhere in its summary, and searching `invoice` would silently miss it. Matching name ∪
-    /// summary is what delivers the intended "by name, by condition, or by destination".
+    /// `rule.summary` is built from the conditions and destination and never reads the name, so a
+    /// rule named "Invoices" whose conditions say only "bill" must still be found by `invoice`.
+    /// Free text matches name ∪ summary.
     @Test func automationsFreeTextFindsRulesByName() {
         let byName = rule("Invoices", conditions: [.contentContains("bill")], destination: "Documents/Paid")
         #expect(!byName.summary.localizedCaseInsensitiveContains("invoice"),
@@ -178,12 +172,10 @@ import Sync
         #expect(StorageSearch.removing(">100mb kind:mov", word: ">100mb") == "kind:mov")
     }
 
-    /// Last-wins dimming within a family, exactly as Duplicates/Compare/Log do it: two `is:` words
-    /// mean the last one, and the earlier chip reads as superseded rather than as an active filter.
-    ///
-    /// Asked of Automations since `RiskyNameSearch` was retired: it carries the same shape of
-    /// family — two mutually exclusive `is:` words — which is what the rule is about. The `kind:`
-    /// half of the same rule is pinned by `DuplicateSearchTests` and `DifferenceSearchTests`.
+    /// Last-wins dimming within a family, as Duplicates, Compare and Log do it: two `is:` words
+    /// mean the last one, and the earlier chip reads as superseded. Asked of Automations, whose two
+    /// `is:` words are mutually exclusive; the `kind:` half is pinned by `DuplicateSearchTests` and
+    /// `DifferenceSearchTests`.
     @Test func supersededChipsDimPerFamily() {
         let chips = AutomationSearch.chips("is:enabled is:disabled")
         #expect(chips.count == 2)

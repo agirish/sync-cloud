@@ -1,35 +1,26 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The one file-type glyph vocabulary (v4.0 polish P7): a medium-symbol SF glyph plus an
-/// identity tint per kind of file, shared by every lens row that leads with "what kind of
-/// thing is this" — Storage's ranked lists and the Duplicates group rows.
+/// The one file-type glyph vocabulary: an SF Symbol for the medium plus an identity tint per kind,
+/// shared by every lens row that leads with the kind of file (Storage's ranked lists, Duplicates'
+/// group rows). A shape reads as document, photo, audio or video at 17pt, where a shrunken raster
+/// icon reads as a rectangle.
 ///
-/// **Symbols name the medium where a letter or a raster icon can't be consistent.** Storage
-/// drew every file as the same gray `doc.fill` while Duplicates drew NSWorkspace's raster
-/// icons — two surfaces, one file, two vocabularies. A shape says *document / photo / audio /
-/// video* at 17pt where a shrunken raster thumbnail says mostly "rectangle".
-///
-/// **The tints are identity, not semantics.** Like `ProviderHue` and the treemap's palette,
-/// these hues identify a category; they are deliberately not drawn from `SemanticColor`'s
-/// tiers even where the hue coincides (a red PDF glyph is not an error). Context carries the
-/// difference: these lead a row as iconography, tiers color claims.
+/// The tints are identity, not semantics: like `ProviderHue`, they name a category and are not
+/// drawn from `SemanticColor`'s tiers even where the hue matches (a red PDF glyph is not an error).
 enum FileTypeGlyph {
 
-    /// The mediums the vocabulary distinguishes. Everything else stays a quiet generic doc —
-    /// an unknown extension must not invent a colorful category.
-    ///
-    /// `CaseIterable` so the sweeps over this vocabulary — one shape per kind, one legible tint per
-    /// kind — walk the enum itself. Written out by hand in the tests they were a copy of the table
-    /// they were checking, which is the shape of scan that cannot see the case it is missing.
+    /// The mediums the vocabulary distinguishes. Everything else stays a quiet generic doc: an
+    /// unknown extension must not invent a colorful category. `CaseIterable` so the tests' sweeps
+    /// (one shape and one legible tint per kind) can't miss a case.
     enum Kind: Equatable, CaseIterable {
         case pdf, image, audio, video, wordProcessing, spreadsheet, presentation, archive
         case folder, generic
     }
 
-    /// Pure classification by lowercased path extension. UTType conformance does the heavy
-    /// lifting (metadata-only, no disk I/O); the word-processing set is by extension because
-    /// there is no single UTType umbrella for "a written document" that excludes plain data.
+    /// Pure classification by lowercased extension, through UTType conformance (no disk I/O). The
+    /// word-processing set is listed by extension because no UTType covers "a written document"
+    /// without plain data.
     nonisolated static func classify(ext: String, isDirectory: Bool) -> Kind {
         if isDirectory { return .folder }
         let ext = ext.lowercased()
@@ -48,16 +39,9 @@ enum FileTypeGlyph {
         return .generic
     }
 
-    /// The SF Symbol for a kind. Filled variants so the tint carries at row-glyph sizes.
-    ///
-    /// **Every kind draws a different shape, because the tint is not allowed to be the
-    /// distinction.** `.pdf` and `.wordProcessing` both answered `doc.text.fill`, so the one pair
-    /// of mediums this vocabulary most often puts side by side was told apart by red-versus-blue
-    /// alone — against this type's own premise, and invisible to anyone who does not separate those
-    /// two hues. `.wordProcessing` takes `doc.richtext.fill`: the ruled-page-with-a-heading shape,
-    /// which is what a word processor's own icons draw, and it stays a document rather than
-    /// becoming some unrelated object. `.pdf` keeps `doc.text.fill` — it is the kind these lists
-    /// hold most of, so it is the one whose shape is worth not relearning.
+    /// The SF Symbol for a kind. Filled variants so the tint carries at row-glyph sizes. Every kind
+    /// draws a different shape, so tint is never the only difference: a reader who can't tell red
+    /// from blue must still tell a PDF from a Word file.
     nonisolated static func symbol(for kind: Kind) -> String {
         switch kind {
         case .pdf:            return "doc.text.fill"
@@ -73,20 +57,15 @@ enum FileTypeGlyph {
         }
     }
 
-    /// The identity tint, or nil for the kinds that stay in secondary ink (generic files and
-    /// plain folders — the vocabulary's job is to make *distinct* mediums findable, not to
-    /// paint every row).
+    /// The identity tint, or nil for kinds that stay in secondary ink (generic files and plain
+    /// folders): the point is to make distinct mediums findable, not to paint every row.
     ///
-    /// ## Measured against the dark card fill, because half of these are dark values
+    /// ## Measured against the card fill, dark and light
     ///
-    /// Eight fixed sRGB tints minted outside `Design` is exactly the shape that produced the
-    /// `ChromeInk` hazard — an ink tuned on a light card, drawn at 13–17pt on a dark one, that
-    /// nobody measured until a screenshot. So they are measured. The surface is
-    /// `NSColor.controlBackgroundColor`, which is what `lensCard` fills a card with (rgb 0.118 in
-    /// dark, white in light), and `groundedGlassCard` too in light and at Solid; the floor is the
-    /// 3:1 a graphical object carrying meaning needs. In dark at Frosted and Clear a floating
-    /// panel's ground is the window's tinted one (`glassPanelGround`), tuned so that no glyph reads
-    /// worse on it than on this charcoal. Contrast of the tint against that fill, dark then light:
+    /// The surface is `NSColor.controlBackgroundColor`, which `lensCard` fills with (and
+    /// `groundedGlassCard` in light and at Solid); the floor is the 3:1 a meaningful graphic needs.
+    /// In dark at Frosted and Clear, `glassPanelGround` is tuned so no glyph reads worse than here.
+    /// Contrast of each tint against that fill:
     ///
     /// | kind | dark | light |
     /// |---|---|---|
@@ -99,19 +78,14 @@ enum FileTypeGlyph {
     /// | presentation | 5.37 | 3.10 |
     /// | archive | 4.06 | 4.11 |
     ///
-    /// **Every one clears 3:1 in both appearances, so none is routed through `ChromeInk`** — which
-    /// would flatten it to `.primary` in dark and delete the identity this table exists to carry.
-    /// The margins are thin and worth knowing: `video` (3.16) and `wordProcessing` (3.21) are the
-    /// floor in dark, `presentation` (3.10) in light, and any of the three is one "slightly richer"
-    /// nudge away from failing. `FileTypeGlyphContrastTests` recomputes this against the live
-    /// system colours rather than trusting the table above, so a tint edited past the floor fails
-    /// there rather than shipping.
+    /// Every one clears 3:1 in both appearances, so none goes through `ChromeInk`, which would
+    /// flatten it to `.primary` in dark. The margins are thin: `video`, `wordProcessing` (dark) and
+    /// `presentation` (light) are one nudge from failing. `FileTypeGlyphContrastTests` recomputes
+    /// this against the live system colours, so a tint edited past the floor fails there.
     ///
-    /// The one thing the numbers do not cover: a card carrying a heavy Tint-slider hue wash is a
-    /// much lighter surface than `controlBackgroundColor` in dark, and against it these tints lose
-    /// most of their separation. That is a property of the wash rather than of this table — it
-    /// takes `.secondary` and the accent down with it, which is the case `ChromeInk` was written
-    /// for — and it is not fixable one tint at a time.
+    /// Not covered: a heavy Tint-slider wash makes a dark card much lighter, and these tints lose
+    /// most of their separation. That is the wash's problem (it takes `.secondary` and the accent
+    /// down too, the case `ChromeInk` handles), not fixable one tint at a time.
     nonisolated static func tint(for kind: Kind) -> Color? {
         switch kind {
         case .pdf:            return Color(red: 0.76, green: 0.25, blue: 0.25)
@@ -126,10 +100,9 @@ enum FileTypeGlyph {
         }
     }
 
-    /// Classification, cached by lowercased extension. `classify` is a Launch Services
-    /// metadata lookup — cheap alone, but paid per row per render pass without this, which is
-    /// the cost `FileIconCache` exists to remove one shelf over. Bounded by the number of
-    /// distinct extensions on screen; directories bypass it (no lookup to save).
+    /// Classification, cached by lowercased extension: `classify` is a Launch Services lookup,
+    /// cheap alone but paid per row per render without this (as with `FileIconCache`). Bounded by
+    /// distinct extensions; folders bypass it.
     @MainActor
     private static var kindCache: [String: Kind] = [:]
 

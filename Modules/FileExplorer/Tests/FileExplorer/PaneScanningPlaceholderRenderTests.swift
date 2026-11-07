@@ -5,26 +5,12 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// An empty pane being read must paint its busy indicator's spinner and label and *nothing else*.
-///
-/// Since 2026-10-15 that indicator is the corner chip (`PaneBusyIndicator`), not a centred
-/// placeholder, and over an empty pane it goes unbacked for exactly the reason below; where it
-/// sits is `PaneBusyChipRenderTests`' business, and this keeps measuring that it brings no fill.
-///
-/// The centred placeholder it replaced used to wear a `.regularMaterial` card with a shadow. A material has nothing to blur on an
-/// empty pane, so what it actually drew was a flat gray slab in the middle of a white surface —
-/// visible in the shipped app, and the reason this test renders rather than inspects the view
-/// tree. Geometry cannot see a fill; only pixels can.
-///
-/// The measurement: render the pane over a backdrop no part of the UI uses (magenta), then count
-/// the pixels that are not that backdrop. Ink alone comes to ~3.2k of 504k; the card came to
-/// ~53k — a 16× gap, so the 12k ceiling below is nowhere near either number. The floor is there
-/// for the opposite failure: a render that draws nothing would otherwise pass this test with a
-/// perfect zero.
-/// `.machinePinned(.pixelSampling)` — the corridor above is a measured ink COUNT, not a presence
-/// check. `> 800` and `< 12_000` bracket the ~3.2k this Mac paints, against the ~53k a card would;
-/// both ends move with font rasterization and backing scale, so the verdict is only meaningful on
-/// the machine the numbers were read on.
+/// An empty pane being read must paint its busy indicator (`PaneBusyIndicator`) as spinner and
+/// label and nothing else; where the chip sits is `PaneBusyChipRenderTests`' business. A material
+/// card has nothing to blur on an empty pane and draws a flat gray slab, which only pixels can see,
+/// so this renders over a magenta backdrop and counts the pixels that aren't it: ink is ~3.2k of
+/// 504k, a card ~53k. The floor stops a render that draws nothing from passing. Machine-pinned:
+/// both bounds move with font rasterization and backing scale.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct PaneScanningPlaceholderRenderTests {
 
@@ -59,12 +45,11 @@ import Sync
         )
     }
 
-    /// Pixels in the render that are not the magenta backdrop — i.e. everything the pane painted.
+    /// Pixels in the render that are not the magenta backdrop: everything the pane painted.
     private func paintedPixels(appearance: NSAppearance.Name) throws -> Int {
         let size = CGSize(width: 420, height: 300)
-        // Pinned, not inherited: the pane's own `@AppStorage` reads the Tint slider, and a tint
-        // above 0 washes the whole surface — which is a fill covering the canvas, and would fail
-        // this test for a reason that has nothing to do with the placeholder.
+        // Pinned, not inherited: a Tint above 0 washes the whole surface and would fail this test
+        // for a reason unrelated to the placeholder.
         let defaults = ScratchDefaults("PaneScanning-\(appearance.rawValue)")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         defaults.set(0.0, forKey: LiquidGlass.tintKey)
@@ -104,7 +89,7 @@ import Sync
         let painted = try paintedPixels(appearance: appearance)
         // Floor: the spinner and its label really rendered, so a blank canvas cannot pass.
         #expect(painted > 800, "\(appearance.rawValue): placeholder painted almost nothing (\(painted) px)")
-        // Ceiling: no slab behind them. The material card measured ~53k here.
+        // Ceiling: no slab behind them. A material card paints ~53k here.
         #expect(painted < 12_000, "\(appearance.rawValue): placeholder is painting a fill (\(painted) px)")
     }
 }

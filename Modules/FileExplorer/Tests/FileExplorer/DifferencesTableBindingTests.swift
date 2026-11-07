@@ -4,26 +4,20 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// Does a selection-aware modifier still bind when it is applied to the `Group` that chooses
-/// between the differences table's two forms, rather than to each `Table` inside it?
+/// Does a selection-aware modifier still bind when it is applied to a `Group` that chooses between
+/// two forms of a differences table, rather than to each `Table` inside it?
 ///
-/// `DifferencesView.standardTableSection` branches between a sectioned Table
-/// (`Table(of:selection:sortOrder:columns:rows:)`) and a flat one (`Table(_:selection:sortOrder:)`)
-/// inside a `Group { if … else … }`, and hangs `.contextMenu(forSelectionType:)` and the ⌘←/⌘→
-/// `.onKeyPress` off the Group. The columns cannot be hoisted (a `@TableColumnBuilder` result is
-/// generic over its row type), so the alternative is duplicating both modifiers into both branches.
-/// This suite is what says that duplication is unnecessary — and what will say so again if a future
-/// macOS changes its mind.
+/// The shape: a sectioned Table (`Table(of:selection:sortOrder:columns:rows:)`) and a flat one
+/// (`Table(_:selection:sortOrder:)`) inside a `Group { if … else … }`, with
+/// `.contextMenu(forSelectionType:)` and an `.onKeyPress` on the Group. If this holds, neither
+/// modifier needs duplicating into each branch.
 ///
-/// **This characterises SwiftUI, not `DifferencesView`.** The view's own structure is private and
-/// needs a live `FileSyncManager`; what is reproduced here is the SHAPE it depends on. That makes
-/// this a canary rather than a proof of the shipped view, and it is worth having precisely because
-/// the failure it watches for is silent: a context menu that never opens and a shortcut that never
-/// fires look exactly like a table nobody right-clicked.
+/// This characterises SwiftUI, not `DifferencesView`, which now builds one `Table(of:)` for both
+/// shapes. It is a canary for a silent failure: a context menu that never opens and a shortcut that
+/// never fires look exactly like a table nobody right-clicked.
 ///
-/// Every assertion below is paired with a control that must come out the other way — a subject with
-/// no menu attached, a subject with no key handler. Without them a probe that returned "bound" for
-/// everything would read as a clean pass.
+/// Each assertion has a control that must come out the other way (no menu attached, no key
+/// handler), so a probe that reported "bound" for everything can't pass.
 @MainActor
 @Suite(.serialized) struct DifferencesTableBindingTests {
 
@@ -36,8 +30,7 @@ import Sync
                        description: "test")
     }
 
-    /// One folder, so the sectioned form has exactly ONE header — which is what makes the row
-    /// arithmetic below (`section header at 0, data from 1`) legible.
+    /// One folder, so the sectioned form has one header: row 0 is the header, data starts at 1.
     private static let rows: [FileDifference] = (0..<8).map { diff("Work/file-\($0).pdf") }
 
     /// What the menu builder and the key handler were handed. A reference type: the closures are
@@ -72,7 +65,7 @@ import Sync
         }
     }
 
-    /// The shipped shape: both modifiers on the Group that chooses the branch.
+    /// The shape under test: both modifiers on the Group that chooses the branch.
     private func groupWrapped(grouped: Bool, into recorder: Recorder?) -> some View {
         Group {
             table(grouped: grouped, selection: .constant([]))
@@ -87,7 +80,7 @@ import Sync
         }
     }
 
-    /// The control the review proposed: each modifier applied inside each branch instead.
+    /// The alternative: the menu modifier applied inside each branch instead.
     @ViewBuilder
     private func perBranch(grouped: Bool, into recorder: Recorder) -> some View {
         table(grouped: grouped, selection: .constant([]))
@@ -140,8 +133,7 @@ import Sync
 
     // MARK: Right-click
 
-    /// The headline: right-clicking a data row opens a menu in BOTH branches, with the modifier
-    /// where it ships — on the Group.
+    /// Right-clicking a data row opens a menu in both branches, with the modifier on the Group.
     @Test func rightClickOpensAMenuThroughTheGroupInBothBranches() {
         for grouped in [true, false] {
             let menu = rightClick(groupWrapped(grouped: grouped, into: nil), row: grouped ? 1 : 0)
@@ -150,9 +142,7 @@ import Sync
         }
     }
 
-    /// The control that makes the test above mean something: the same harness, the same tables, no
-    /// `.contextMenu` — and it must find nothing. A probe that cannot report absence cannot report
-    /// presence either.
+    /// The control for the test above: the same tables with no `.contextMenu` must find nothing.
     @Test func aTableWithNoContextMenuReportsNone() {
         for grouped in [true, false] {
             let bare = Group { table(grouped: grouped, selection: .constant([])) }
@@ -160,13 +150,9 @@ import Sync
         }
     }
 
-    /// Binding is not enough — `.contextMenu(forSelectionType:)` is SELECTION-aware, and the whole
-    /// differences context menu is built from the ids it hands over. An empty set would render a
-    /// menu that opens and offers nothing.
-    ///
-    /// Row indices differ by branch because the sectioned table counts its header as a row: with one
-    /// folder, table row 0 is the "Work" header and data starts at 1. (Row 0 of the sectioned table
-    /// really does deliver an empty set — correctly, a header is not a difference.)
+    /// The menu builder gets the clicked row's id: the differences menu is built from those ids, so
+    /// an empty set would open a menu that offers nothing. The sectioned table counts its header
+    /// as row 0, which correctly delivers an empty set.
     @Test func theClickedRowIsDeliveredToTheMenuBuilder() {
         for grouped in [true, false] {
             for dataIndex in 0..<3 {
@@ -182,9 +168,8 @@ import Sync
         }
     }
 
-    /// On the Group and on the Table are the same thing. This is the comparison that says moving the
-    /// modifier into each branch would buy nothing — if the two ever diverge, THAT is the signal to
-    /// duplicate them.
+    /// On the Group and on each Table deliver the same selection, so moving the modifier into each
+    /// branch buys nothing. If the two ever diverge, that is the signal to duplicate it.
     @Test func theGroupAndPerBranchFormsDeliverTheSameSelection() {
         for grouped in [true, false] {
             let onGroup = Recorder(), onTable = Recorder()
@@ -198,13 +183,9 @@ import Sync
 
     // MARK: A key handler hung off the Group
 
-    /// A `.onKeyPress` on the Group reaches its handler in both branches, with modifiers intact.
-    ///
-    /// **Written for ⌘←/⌘→, which no longer use this route** — the directional transfers became
-    /// menu items in v4.2, so their chord is a key equivalent now. The property is still live and
-    /// still worth pinning: `DifferencesView` hangs its Quick Look handler off the same Group with
-    /// the same technique, and a press arriving stripped of its modifiers would silently do
-    /// nothing there in exactly the same way.
+    /// A `.onKeyPress` on the Group reaches its handler in both branches, with modifiers intact. A
+    /// press stripped of its modifiers would silently do nothing. (⌘←/⌘→ in the app are menu key
+    /// equivalents, not `.onKeyPress`.)
     @Test func arrowKeysReachTheHandlerThroughTheGroup() {
         for grouped in [true, false] {
             let recorder = Recorder()

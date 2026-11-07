@@ -5,159 +5,116 @@ import Events
 
 /// The writable text surface: an `NSTextView` in a scroll view, kept plain on purpose.
 ///
-/// **Why AppKit and not `TextEditor`.** SwiftUI's editor gives no access to the undo manager, no
-/// way to switch smart substitutions off, and no first responder to hand the standard editing
-/// chords to. All three matter here — see ``Coordinator/undoManager(for:)`` for the one that
-/// matters most.
-///
-/// **⌘X / ⌘C / ⌘V / ⌘A arrive with the responder, not from a registration.** `TextEditingChord`
-/// routes those four by asking whether the first responder `is NSTextView`; being one is the whole
-/// qualification, so there is deliberately nothing to register here.
+/// AppKit, not `TextEditor`: SwiftUI's editor gives no access to the undo manager, no way to switch
+/// smart substitutions off, and no first responder for the standard editing chords (see
+/// ``Coordinator/undoManager(for:)`` for the one that matters most). ⌘X / ⌘C / ⌘V / ⌘A need no
+/// registration: `TextEditingChord` routes them to any first responder that `is NSTextView`.
 struct PlainTextEditor: NSViewRepresentable {
 
-    /// **The open document's text storage, which this view is built around rather than owning one**
-    /// (TE67.0) — see ``EditorSourceStorage``.
+    /// The open document's text storage, which this view is built around rather than owning (see
+    /// ``EditorSourceStorage``).
     ///
-    /// It used to be a binding to the buffer's `String`, handed into a storage the text view made
-    /// for itself. Edit and Split mount this view from two `switch` arms, so every mode switch built
-    /// a new view with a new storage, while the undo stack (below) was shared — and an `NSTextView`
-    /// registers undo against its own storage. ⌘Z after a switch reverted the discarded view's text
-    /// and left the screen and the document as they were. The storage now outlives the view, so every
-    /// view of a document edits the same one, and the buffer follows it.
+    /// Edit and Split mount this view from two `switch` arms, so a mode switch builds a new view,
+    /// and an `NSTextView` registers undo against its own storage. With a storage per view, ⌘Z after
+    /// a switch would revert text nobody can see; this one outlives the view, so every view of a
+    /// document edits the same storage and the buffer follows it.
     var source: EditorSourceStorage
-    /// Read-only documents are shown, not hidden — a lossy decode is still worth reading.
+    /// Read-only documents are shown, not hidden: a lossy decode is still worth reading.
     var isEditable: Bool
     /// Settings ▸ Text size, so the monospace ramp scales with the rest of the app.
     var fontScale: CGFloat
 
-    /// **Which document these keystrokes belong to** — the open file's path, or nil when none is.
-    ///
-    /// The undo stack is cleared when this changes, and *only* when this changes. It used to be
-    /// cleared inside `if view.string != text`, which is the one condition that is false exactly
-    /// when the document changes without the buffer's contents changing: open `a.md`, edit it, then
-    /// open `b.md` holding an identical copy, and ⌘Z replayed the edit made against `a.md` into a
-    /// file the user never touched. The codebase already knew this case existed — `EditorParseKey`
-    /// was invented for it, in the same words — and the reasoning reached the parse key and not the
-    /// text bridge.
+    /// Which document these keystrokes belong to: the open file's path, or nil when none is. A path,
+    /// not the text, since two files can hold identical bytes (the case `EditorParseKey` exists
+    /// for). The coordinator reads it to decide whether the Markup verbs apply.
     var documentID: String?
 
-    /// **The editor's own undo stack, owned by the WINDOW rather than by this view.**
+    /// The editor's own undo stack, owned by the window rather than this view.
     ///
-    /// Two reasons, and the first is why the stack is separate at all. An `NSTextView` with
-    /// `allowsUndo` vends an undo manager to the responder chain, and the window's manager is bound
-    /// to `FileSyncManager` — the one the operation banner's Undo button reads and the one the
-    /// engine matches file operations against by `undoActionName`. Left to shadow each other, ⌘Z
-    /// inside the editor and the banner's Undo button would be two names for two different stacks,
-    /// and a typo could sit where "undo the last move" was expected.
+    /// Separate because an `NSTextView` with `allowsUndo` vends its manager to the responder chain,
+    /// and the window's manager is bound to `FileSyncManager`: the banner's Undo button reads it,
+    /// and the engine matches file operations by `undoActionName`. Shadowing each other, ⌘Z in the
+    /// editor and the banner's Undo would act on two different stacks.
     ///
-    /// The second is why it is passed IN rather than held by the coordinator. `surfaces(for:)`
-    /// mounts this view from two different `switch` arms, so `.edit` and `.split` are two
-    /// structural identities and switching between them built a fresh coordinator with a fresh,
-    /// empty stack — clicking Split to check the render and clicking back silently ended the undo
-    /// history. `document`, `mode` and the split fraction were all hoisted to the host so a
-    /// workspace switch could not reset them; this is the fourth thing that needed it.
-    ///
-    /// **Sharing the stack was half the fix**, and the half that showed: the stack survived the
-    /// switch while the text storage its actions named did not, so ⌘Z after a switch was used up
-    /// reverting text nobody could see. ``source`` is the other half.
+    /// Passed in, not held by the coordinator, because `surfaces(for:)` mounts this view from two
+    /// `switch` arms, so a coordinator's own stack would end the history at every Source ↔ Split
+    /// switch. ``source`` keeps the storage the stack's actions name.
     var undoManager: UndoManager
 
     /// Called whenever the selection moves, with its UTF-16 range in the buffer.
     ///
-    /// **The only way out of an `NSTextView` for where the caret is.** SwiftUI's `TextEditor` has
-    /// no selection at all, which is one of the reasons this is AppKit; the status line's line and
-    /// column, and the outline's idea of which heading you are in, both start here.
+    /// The status line's line and column, and the outline's current heading, both start here.
     var onSelectionChange: (NSRange) -> Void = { _ in }
-    /// **How many ranges are selected** — more than one after an ⌥-drag (a column) or a ⌘-drag —
-    /// reported with every selection change, just before ``onSelectionChange`` hands over the first.
-    /// The status line counts only a single selection (TE60), so it needs to know when there are more.
+    /// How many ranges are selected (more than one after an ⌥-drag or a ⌘-drag), reported just
+    /// before ``onSelectionChange`` hands over the first. The status line counts only a single
+    /// selection, so it needs to know when there are more.
     var onSelectionRangeCount: (Int) -> Void = { _ in }
 
     /// Where to put the caret next, or `nil` for "leave it alone".
     ///
-    /// **A request carrying a token, not a line number**, for the reason `namingFocus` is a counter
-    /// rather than a flag: clicking the same outline row twice is two requests for the same line,
-    /// and a plain `Int?` would be unchanged between them — so the second click, the one somebody
-    /// makes precisely because they have scrolled away since the first, would do nothing.
+    /// A request carrying a token, not a line number, for the reason `namingFocus` is a counter:
+    /// clicking the same outline row twice is two requests, and a plain `Int?` would not change, so
+    /// the second click (made after scrolling away) would do nothing.
     var scrollRequest: EditorScrollRequest?
 
-    /// Where to put the caret when this text view is **created** — a UTF-16 offset, 0 for the top.
+    /// Where to put the caret when this text view is created: a UTF-16 offset, 0 for the top.
     ///
-    /// **Always applied, never conditional**, and that is the second thing this member got wrong.
-    /// It was optional, with nil meaning "leave the caret wherever AppKit put it" — and where AppKit
-    /// puts it is the END of the assigned text (see `restoreCaret`). So "no anchor" opened a file
-    /// with the caret invisibly at the bottom, which nobody chose and which the status line, seeded
-    /// from the same number as this, would then disagree with. A caller with nothing remembered
-    /// passes 0 and gets the top, which is both deterministic and what a reader expects.
+    /// Always applied, never optional: left alone, AppKit puts the caret at the end of the assigned
+    /// text (see `restoreCaret`), invisibly, and the status line would disagree. A caller with
+    /// nothing remembered passes 0; ``EditorCaretAnchors/offset(for:)`` answers nil for an unread
+    /// file, and the host decides that means the top.
     ///
-    /// The optional still exists where it means something: ``EditorCaretAnchors/offset(for:)``
-    /// answers nil for a file nobody has read, and it is the HOST that decides nil means the top.
-    ///
-    /// **Read by `makeNSView` alone, and that is the whole design.** A workspace switch destroys the
-    /// representable and builds a new one, so `makeNSView` is exactly the moment "the reader is
-    /// coming back to this file" happens, and nothing else. Read in `updateNSView` as well it would
-    /// be a second, permanent authority on the caret, fighting every click and arrow key that
-    /// disagreed with it.
-    ///
-    /// Distinct from ``scrollRequest`` on purpose: that is a *request*, carrying a token so the same
-    /// line can be asked for twice, and it means "somebody clicked an outline row". This means "put
-    /// it back where it was", is asked once per view, and loses to a scroll request arriving in the
-    /// same pass — see the end of `updateNSView`, which runs after this and overwrites it.
-    ///
-    /// The caller clamps against the text; this clamps against the storage. See
-    /// ``EditorCaretAnchors/clamped(_:in:)`` for why the store itself cannot.
+    /// Read by `makeNSView` alone: a workspace switch rebuilds the representable, which is when the
+    /// reader comes back; read in `updateNSView` too, it would fight every click and arrow key. It
+    /// loses to a ``scrollRequest`` in the same pass, which `updateNSView` applies after it. The
+    /// caller clamps against the text, this against the storage (see
+    /// ``EditorCaretAnchors/clamped(_:in:)`` for why the store can't).
     var initialSelection: Int = 0
 
     /// Called when the topmost visible line changes, which is what the split's preview follows.
     ///
-    /// Fired from the clip view's own bounds notification rather than polled: the text view scrolls
-    /// for reasons SwiftUI never hears about — a scroll wheel, a trackpad flick, the caret being
-    /// dragged past the bottom edge.
+    /// Fired from the clip view's bounds notification rather than polled: the text view scrolls for
+    /// reasons SwiftUI never hears about (a scroll wheel, a trackpad flick, a drag past the bottom).
     ///
-    /// **`nil` when nobody is listening, and that is the gate rather than a check downstream.** Only
-    /// `.split` follows the text; the host used to hand a closure that returned early in the other
-    /// two modes, which meant the line was *computed* on every scroll tick of every mode before
-    /// anything looked at it — and computing it was a walk of the whole buffer. The work is now
-    /// skipped where the answer is not wanted, which is the only place it can honestly be skipped.
+    /// `nil` when nobody is listening, which is the gate: only `.split` follows the text, and in the
+    /// other modes the line is then never computed on a scroll tick.
     var onVisibleLineChange: ((Int) -> Void)?
 
     /// Where every line begins, for the two questions that would otherwise walk the buffer.
     ///
-    /// Rebuilt off the main actor on the same debounce as the status line's counts, so it can lag a
-    /// burst of typing by a few hundred milliseconds — see ``EditorLineIndex``. The scroll sync
-    /// accepts that; the caret does not, and checks the length before trusting it.
+    /// Rebuilt off the main actor on the status line's debounce, so it can lag a burst of typing
+    /// (see ``EditorLineIndex``). The scroll sync accepts that; the caret checks the length first.
     var lineIndex: EditorLineIndex = .empty
 
     /// Bumped to open the find bar. A counter for the reason ``scrollRequest`` carries a token:
-    /// asking twice is two requests, and the second one is the one made after the bar was closed.
+    /// asking twice is two requests, and the second comes after the bar was closed.
     var findRequest: Int = 0
 
-    /// Whether the markup verbs are offered on the context menu. `false` on a document that cannot
-    /// be saved — see ``EditorDocument/readOnlyReason``.
+    /// Whether the markup verbs are offered on the context menu. `false` on a document that can't
+    /// be saved (see ``EditorDocument/readOnlyReason``).
     var offersMarkup: Bool = true
 
-    /// Whether the open file is Markdown — which turns on the four edits in
-    /// `PlainTextEditor+MarkdownTyping`: lists carried on and moved (TE54), a web address pasted
-    /// onto words (TE55), an image dropped or pasted (TE56). Each also checks the view is editable.
+    /// Whether the open file is Markdown, which turns on the edits in
+    /// `PlainTextEditor+MarkdownTyping`: lists carried on and moved, a web address pasted onto
+    /// words, an image dropped or pasted. Each also checks the view is editable.
     var editsMarkdown: Bool = false
 
-    /// Where a dropped or pasted image goes, or `nil` when images are not taken here — see
-    /// ``EditorImageImporter``.
+    /// Where a dropped or pasted image goes, or `nil` when images are not taken here (see
+    /// ``EditorImageImporter``).
     var imageImport: EditorImageImporter?
 
-    /// Split, with Preview editable: bring this line to the top as the person scrolls Preview —
-    /// **the view only**. Not ``scrollRequest``, which means "go to this heading" and so moves the
-    /// caret and takes focus; following must touch neither, or scrolling Preview would pull the
-    /// caret out of it (TE67.4).
+    /// Split, with Preview editable: bring this line to the top as the person scrolls Preview, the
+    /// view only. Not ``scrollRequest``, which moves the caret and takes focus: following must do
+    /// neither, or scrolling Preview would pull the caret out of it.
     var followRequest: EditorScrollRequest? = nil
 
-    /// Where this view leaves a weak reference to its text view, for the format bar above it — see
-    /// ``EditorTextViewHandle``. `nil` where nothing beside the text acts on it.
+    /// Where this view leaves a weak reference to its text view, for the format bar above it (see
+    /// ``EditorTextViewHandle``). `nil` where nothing beside the text acts on it.
     var textViewHandle: EditorTextViewHandle?
 
-    /// **Room under the last line for what floats over the text's foot** — the disk banner
-    /// (TE210). The scroll view's own content inset, so the text runs under the banner and its last
-    /// lines scroll clear of it, and nothing on screen moves when it comes or goes.
+    /// Room under the last line for what floats over the text's foot: the disk banner. The scroll
+    /// view's content inset, so the text runs under the banner, its last lines scroll clear of it,
+    /// and nothing moves when it comes or goes.
     var bottomInset: CGFloat = 0
 
     // Read here rather than threaded in, the way `EditorWorkspaceView` reads the window's glass
@@ -179,56 +136,50 @@ struct PlainTextEditor: NSViewRepresentable {
     /// monospace reading size and matches the keycaps elsewhere in the app.
     static let baseFontSize: CGFloat = 13
 
-    /// **Through `FontSize.scaledPointSize`, not a bare multiply.** Every other string in the app
-    /// goes through that curve, which damps growth above an 11pt knee — a plain `base * scale` put
-    /// the editor's text 11% larger than its own header and rail at the Larger setting (17.55pt
-    /// against the ramp's 15.85). Below 1.0 the two agree, which is why a multiply reads fine at
-    /// Small and Default and only parts company at the sizes someone chooses because they need it.
+    /// Through `FontSize.scaledPointSize`, not a bare multiply: every other string in the app takes
+    /// that curve, which damps growth above an 11pt knee. The two agree below 1.0, but at Larger a
+    /// multiply would draw the text noticeably bigger than the editor's own header and rail.
     static func font(scale: CGFloat) -> NSFont {
         .checkedMonospacedSystemFont(ofSize: FontSize.scaledPointSize(baseFontSize, scale: scale),
                                      weight: .regular)
     }
 
-    // `@MainActor` because it holds an `UndoManager`, whose initialiser is main-actor isolated —
-    // and because every delegate callback below arrives on the main thread anyway.
+    // `@MainActor` because it holds an `UndoManager`, whose initialiser is main-actor isolated, and
+    // every delegate callback below arrives on the main thread anyway.
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, NSMenuItemValidation {
-        /// The storage the text view shows — re-assigned every pass, like ``onSelectionChange``.
+        /// The storage the text view shows, re-assigned every pass like ``onSelectionChange``.
         var source: EditorSourceStorage
         /// The window's editor stack, handed over so text edits never reach the engine's.
         var undoManager: UndoManager
         /// The document the stack currently holds edits for.
         var documentID: String?
-        /// Re-assigned on every update pass, like ``text`` — a closure captured once at
+        /// Re-assigned on every update pass, like ``source``: a closure captured once at
         /// construction would go on writing into the view that built it after a re-render.
         var onSelectionChange: (NSRange) -> Void
         /// Re-assigned every pass, like ``onSelectionChange``.
         var onSelectionRangeCount: (Int) -> Void = { _ in }
-        /// `nil` in every mode but `.split` — see ``PlainTextEditor/onVisibleLineChange``.
+        /// `nil` in every mode but `.split` (see ``PlainTextEditor/onVisibleLineChange``).
         var onVisibleLineChange: ((Int) -> Void)?
         /// The last request acted on, so the same one is not replayed on every render pass.
         var lastScrollRequest: EditorScrollRequest?
         var lastFollowRequest: EditorScrollRequest?
-        /// The last find request acted on — **seeded with the request standing when this view was
-        /// built**, so a text view answers only presses made while it is on screen. See
-        /// ``PlainTextEditor/makeCoordinator()`` for the find bar that opened by itself without it.
+        /// The last find request acted on, seeded with the request standing when this view was
+        /// built, so a text view answers only presses made while it is on screen (see
+        /// ``PlainTextEditor/makeCoordinator()``).
         var lastFindRequest: Int = 0
         /// The last line reported upward, so an ordinary scroll does not publish the same number
         /// sixty times a second.
         var lastVisibleLine: Int?
-        /// Where every line begins, so the bounds observer — which fires outside a render pass —
-        /// can do line maths without reaching back into SwiftUI, and without walking the buffer.
-        ///
-        /// This replaced a whole second copy of the text (`currentText`) kept here for the same
-        /// job: a 4 MiB string held alive to answer a question a table of offsets answers, and to
-        /// answer it by walking every grapheme in it.
+        /// Where every line begins, so the bounds observer, which fires outside a render pass, can
+        /// do line maths without reaching back into SwiftUI or walking the buffer.
         var lineIndex: EditorLineIndex = .empty
         /// The view these callbacks belong to. Weak: the coordinator outlives a torn-down view, and
         /// a strong reference here would be a retain cycle through the delegate.
         weak var textView: NSTextView?
-        /// Re-assigned every pass, like ``offersMarkup`` — see ``PlainTextEditor/editsMarkdown``.
+        /// Re-assigned every pass, like ``offersMarkup`` (see ``PlainTextEditor/editsMarkdown``).
         var editsMarkdown = false
-        /// Text ▸ Continue Lists (TE54). Return, Tab and ⇧Tab do what they always did while off.
+        /// Text ▸ Continue Lists. While off, Return, Tab and ⇧Tab do what they normally do.
         var continuesLists = EditorTextSettings.continuesListsDefault
         /// See ``PlainTextEditor/imageImport``.
         var imageImport: EditorImageImporter?
@@ -248,10 +199,8 @@ struct PlainTextEditor: NSViewRepresentable {
 
         /// Drops the bounds observer.
         ///
-        /// **Called from `dismantleNSView`, not from `deinit`.** A block-based observer has to be
-        /// removed by hand, and a nonisolated `deinit` may not touch a main-actor stored property —
-        /// so the tear-down hook AppKit already provides is both the correct place and the only
-        /// legal one.
+        /// Called from `dismantleNSView`, not `deinit`: a block-based observer must be removed by
+        /// hand, and a nonisolated `deinit` may not touch a main-actor stored property.
         func stopWatchingScrolling() {
             boundsObserver.map(NotificationCenter.default.removeObserver)
             boundsObserver = nil
@@ -259,9 +208,8 @@ struct PlainTextEditor: NSViewRepresentable {
 
         /// Starts reporting the topmost visible line.
         ///
-        /// **`postsBoundsChangedNotifications` has to be turned on**; a clip view does not post by
-        /// default, and an observer registered without it is a silent no-op — the split would
-        /// simply never sync, with nothing anywhere saying why.
+        /// `postsBoundsChangedNotifications` has to be turned on: a clip view doesn't post by
+        /// default, and without it the observer silently never fires and the split never syncs.
         func watchScrolling(of scroll: NSScrollView, textView: NSTextView) {
             scroll.contentView.postsBoundsChangedNotifications = true
             boundsObserver = NotificationCenter.default.addObserver(
@@ -271,11 +219,9 @@ struct PlainTextEditor: NSViewRepresentable {
             ) { [weak self, weak textView] _ in
                 guard let self, let textView else { return }
                 MainActor.assumeIsolated {
-                    // **Nothing is computed when nothing follows the text.** Only `.split` mounts a
-                    // preview beside this view, and this notification arrives once per scrolled row
-                    // — and, at the end of a long file, once per keystroke, because typing there
-                    // autoscrolls. The `line != lastVisibleLine` dedupe below is downstream of the
-                    // work rather than upstream of it, so it never saved any of it.
+                    // Nothing is computed when nothing follows the text. This fires once per
+                    // scrolled row, and at the end of a long file once per keystroke (typing there
+                    // autoscrolls); the dedupe below comes after the work, so it saves none of it.
                     guard let report = self.onVisibleLineChange else { return }
                     guard let line = Self.topVisibleLine(of: textView, using: self.lineIndex) else {
                         return
@@ -289,37 +235,19 @@ struct PlainTextEditor: NSViewRepresentable {
 
         /// The 1-based source line at the top of what is on screen.
         ///
-        /// **`characterIndexForInsertion(at:)`, not the layout manager** — and that is not a style
-        /// preference. `NSTextView.layoutManager` is TextKit 1's; on a view AppKit built with
-        /// TextKit 2, merely *reading* that property drops the view back to the TextKit 1
-        /// compatibility path for the rest of its life. Asking through a public method that both
-        /// engines answer keeps the split's scroll sync from quietly re-engineering the editor
-        /// underneath it.
+        /// `characterIndexForInsertion(at:)`, not the layout manager: on a TextKit 2 view, merely
+        /// reading `NSTextView.layoutManager` drops it to TextKit 1 for the rest of its life. Not
+        /// from the scroll offset and a line height either: soft-wrapped lines have no fixed height.
         ///
-        /// Not computed from the scroll offset and a line height either: the view soft-wraps, so
-        /// one source line can occupy four rows and there is no height to divide by.
-        ///
-        /// **The offset becomes a line through the table, not through a walk.**
-        /// `EditorCaret.at(utf16Offset:in:)` breaks graphemes from index 0, so on a 4 MiB document
-        /// it walked the whole buffer on the main thread for every scroll tick. `index` is a binary
-        /// search of ``EditorLineIndex`` instead, which answers the same question on the same rules.
-        ///
-        /// **A table that has not caught up yet is accepted here on purpose.** It is rebuilt on the
-        /// status line's 150 ms debounce, so during a burst of typing it can describe the buffer as
-        /// it was a moment ago — and the consequence is that the preview beside the text follows by
-        /// a line for that moment. The alternative is the walk this exists to remove. Exactness is
-        /// required of the caret, not of a scroll, and the caret path checks before it trusts.
-        /// **The upper bound went with the walk, and it was measuring the wrong string anyway.**
-        /// It read `(text as NSString).length` — an O(n) UTF-16 count of the coordinator's copy of
-        /// the buffer, per tick — to reject an offset past the end. The table cannot be indexed out
-        /// of range: ``EditorLineIndex/line(atUTF16Offset:)`` is total, and an offset past the end
-        /// answers "the last line", which is where such a point is. The lower bound stays, because
-        /// `characterIndexForInsertion(at:)` genuinely can answer `NSNotFound`.
+        /// The offset becomes a line by a binary search of ``EditorLineIndex``, not a grapheme walk
+        /// on every scroll tick. A table that hasn't caught up with a burst of typing is accepted:
+        /// the preview follows a line off for a moment, and only the caret needs exactness.
+        /// ``EditorLineIndex/line(atUTF16Offset:)`` is total, so no upper bound is needed; the
+        /// lower bound stays because `characterIndexForInsertion(at:)` can answer `NSNotFound`.
         static func topVisibleLine(of view: NSTextView, using index: EditorLineIndex) -> Int? {
             guard let clip = view.enclosingScrollView?.contentView else { return nil }
-            // A point just inside the top-left of what is visible, in the text view's own
-            // coordinates — past the container inset, or the answer is the character nearest a
-            // point in the margin above the first line.
+            // A point just inside the top-left of what is visible, in the text view's coordinates,
+            // past the container inset, or the answer is the character nearest the margin above.
             let point = NSPoint(x: view.textContainerInset.width + 1,
                                 y: clip.bounds.origin.y + view.textContainerInset.height + 1)
             let offset = view.characterIndexForInsertion(at: point)
@@ -329,17 +257,12 @@ struct PlainTextEditor: NSViewRepresentable {
 
         func undoManager(for view: NSTextView) -> UndoManager? { undoManager }
 
-        /// **The buffer is published by the storage now, not from here** — see
-        /// ``EditorSourceStorage``. This only catches up an edit the storage held back while an
-        /// input method was composing. **A net, and measured as one:** in the factory's view the
-        /// commit and `unmarkText` both arrive with the composition already cleared, so the storage
-        /// publishes them itself and this finds nothing to do (one integer compare); a hand-built
-        /// TextKit 2 view delivered `unmarkText`'s edit still marked (2026-10-04), which without
-        /// this would leave the committed word out of the document until the next keystroke.
-        ///
-        /// It used to be the only way the buffer heard of an edit, and on TextKit 2 an `NSTextView`
-        /// undo never sends it (measured 2026-10-04) — so after ⌘Z the screen showed the old text
-        /// while the document, autosave and the dirty dot kept the new, until the next keystroke.
+        /// The storage publishes the buffer (see ``EditorSourceStorage``); this only catches up an
+        /// edit it held back while an input method was composing. A safety net: in the factory's
+        /// view the composition is already cleared by then, so this is one integer compare, but a
+        /// TextKit 2 view can deliver `unmarkText`'s edit still marked, which would otherwise leave
+        /// the committed word out of the document until the next keystroke. Never the only path:
+        /// on TextKit 2 an `NSTextView` undo doesn't send this at all.
         func textDidChange(_ notification: Notification) {
             source.publishIfNeeded()
         }
@@ -348,18 +271,13 @@ struct PlainTextEditor: NSViewRepresentable {
 
         /// The Markup section of the text view's context menu.
         ///
-        /// **The delegate hook, not an `NSTextView` subclass.** AppKit asks the delegate before it
-        /// shows the menu, so the standard items — Cut, Copy, Look Up, the spelling submenu — are
-        /// still AppKit's own and keep working; a subclass overriding `menu(for:)` would have to
-        /// rebuild them or risk dropping one.
+        /// The delegate hook, not an `NSTextView` subclass: AppKit asks the delegate before showing
+        /// the menu, so the standard items (Cut, Copy, Look Up, spelling) stay AppKit's own, where a
+        /// `menu(for:)` override would have to rebuild them.
         ///
-        /// **The key equivalents are the Markup menu's, read from the verb.** They were blank while
-        /// nothing registered them — a context menu advertising `⌘B` for a chord nothing answered
-        /// would have been telling the reader something untrue — and they are drawn now for the
-        /// opposite reason: the menu bar registers each one (`MarkupVerb.chord`), so a context menu
-        /// that hid them would be the one surface in the app not saying so. AppKit does not
-        /// dispatch keys to a context menu's items; these are a display, and the registration that
-        /// answers the key is the menu bar's.
+        /// The key equivalents are the Markup menu's, read from `MarkupVerb.chord`. They are only a
+        /// display: AppKit doesn't dispatch keys to a context menu, and the menu bar's registration
+        /// answers them.
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent,
                       at charIndex: Int) -> NSMenu? {
             guard offersMarkup else {
@@ -382,16 +300,12 @@ struct PlainTextEditor: NSViewRepresentable {
             return menu
         }
 
-        /// The switches that change how the text is DRAWN rather than what it says — Wrap Lines,
-        /// Readable Line Length beside it (TE51), Check Spelling While Typing.
+        /// The switches that change how the text is drawn rather than what it says: Wrap Lines,
+        /// Readable Line Length, Check Spelling While Typing, and Format Bar where it applies.
         ///
-        /// **Above the standard items and below Markup**, because that is the order they are
-        /// reached in: the verbs act on the selection you right-clicked, these act on the view you
-        /// right-clicked in, and Cut/Copy/Look Up act on the word under the pointer.
-        ///
-        /// Offered on a read-only document too — unlike the markup verbs. Wrapping and spell
-        /// checking change nothing on disk, so there is no reason a file you can only read should
-        /// be harder to read.
+        /// Below Markup and above the standard items: the verbs act on the selection, these on the
+        /// view, and Cut/Copy/Look Up on the word under the pointer. Offered on a read-only document
+        /// too, unlike the verbs, since none of them changes anything on disk.
         func insertTextSettings(into menu: NSMenu, at index: Int) {
             let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
                 ?? EditorTextSettings.wrapsDefault
@@ -407,8 +321,8 @@ struct PlainTextEditor: NSViewRepresentable {
                                           action: #selector(toggleReadableLineLength(_:)), keyEquivalent: "")
             readableItem.target = self
             readableItem.state = Self.storedReadableLineLength(in: defaults) ? .on : .off
-            // Greyed while lines do not wrap, where it changes nothing — said here for a menu that
-            // does not validate, and by `validateMenuItem` for the one AppKit hands over, which does.
+            // Greyed while lines don't wrap, where it changes nothing: here for a menu that doesn't
+            // validate, and by `validateMenuItem` for the one AppKit hands over, which does.
             readableItem.isEnabled = Self.readableLineLengthApplies(in: defaults)
 
             let spellItem = NSMenuItem(title: "Check Spelling While Typing",
@@ -420,10 +334,9 @@ struct PlainTextEditor: NSViewRepresentable {
             menu.insertItem(readableItem, at: index)
             menu.insertItem(wrapItem, at: index)
             var next = index + 3
-            // **Format Bar, where the bar can be drawn: a writable Markdown file.** Hidden from its
-            // own right-click menu, the bar takes that menu with it, so without this the only way
-            // back was the menu bar's Format Bar — on screen, nothing pointed there. Right-clicking the
-            // text is where somebody looking for the bar will try next.
+            // Format Bar, where the bar can be drawn: a writable Markdown file. A hidden bar takes
+            // its own right-click menu with it, and right-clicking the text is where somebody
+            // looking for it will try next.
             if offersMarkup && editsMarkdown {
                 let shows = defaults.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
                     ?? EditorTextSettings.showsFormatBarDefault
@@ -437,10 +350,10 @@ struct PlainTextEditor: NSViewRepresentable {
             menu.insertItem(.separator(), at: next)
         }
 
-        /// The item's title — View ▸ Format Bar's, so the two read as one switch.
+        /// The item's title: View ▸ Format Bar's, so the two read as one switch.
         static let formatBarTitle = "Format Bar"
 
-        /// View ▸ Format Bar's setting, flipped — and said, since this is the way back from the
+        /// View ▸ Format Bar's setting, flipped and logged, since this is the way back from the
         /// bar's own Hide Format Bar.
         @objc func toggleFormatBar(_ sender: NSMenuItem) {
             let shows = !(defaults.object(forKey: EditorTextSettings.showsFormatBarKey) as? Bool
@@ -449,17 +362,16 @@ struct PlainTextEditor: NSViewRepresentable {
             Logger.shared.info("[edit] Format bar \(shows ? "shown" : "hidden") from the text's right-click menu")
         }
 
-        /// **Written to `UserDefaults`, not to the view.** The `@AppStorage` properties on
-        /// `PlainTextEditor` observe that store, so the write re-renders every mounted editor and
-        /// `updateNSView` applies it — which is what keeps the two halves of a split in step
-        /// instead of leaving the one that was not right-clicked wrapping differently.
+        /// Written to `UserDefaults`, not the view: `PlainTextEditor`'s `@AppStorage` observes it,
+        /// so every mounted editor re-renders and `updateNSView` applies it, keeping both halves of
+        /// a split in step.
         @objc func toggleWrapping(_ sender: NSMenuItem) {
             let current = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
                 ?? EditorTextSettings.wrapsDefault
             defaults.set(!current, forKey: EditorTextSettings.wrapsKey)
         }
 
-        /// The item's title — Text ▸ Readable Line Length's, so the two read as one switch.
+        /// The item's title: Text ▸ Readable Line Length's, so the two read as one switch.
         static let readableLineLengthTitle = "Readable Line Length"
 
         static func storedReadableLineLength(in defaults: UserDefaults) -> Bool {
@@ -468,16 +380,16 @@ struct PlainTextEditor: NSViewRepresentable {
         }
 
         /// Written to `UserDefaults` like ``toggleWrapping(_:)``, for the same reason: every mounted
-        /// editor — both halves of a split — re-renders from the key.
+        /// editor, both halves of a split, re-renders from the key.
         @objc func toggleReadableLineLength(_ sender: NSMenuItem) {
             let on = !Self.storedReadableLineLength(in: defaults)
             defaults.set(on, forKey: EditorTextSettings.readableLineLengthKey)
             Logger.shared.info("[edit] Readable Line Length \(on ? "on" : "off") from the text's right-click menu")
         }
 
-        /// **Readable Line Length is greyed while Wrap Lines is off**, as the Text menu greys it.
-        /// The text view's own context menu enables its items automatically, which asks this and
-        /// ignores `isEnabled`; every other item here is always available.
+        /// Readable Line Length is greyed while Wrap Lines is off, as in the Text menu. The text
+        /// view's own context menu auto-enables its items, which asks this and ignores `isEnabled`;
+        /// every other item here is always available.
         func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
             guard menuItem.action == #selector(toggleReadableLineLength(_:)) else { return true }
             return Self.readableLineLengthApplies(in: defaults)
@@ -496,29 +408,19 @@ struct PlainTextEditor: NSViewRepresentable {
 
         /// The Markup submenu, built from ``MarkupVerb/menuOrder`` with each verb's chord drawn on
         /// its item. Static so a test can build it without a text view and read the key
-        /// equivalents back — the claim "the context menu shows the chords the menu bar registers"
-        /// is about these items, and nothing else can see them.
+        /// equivalents back.
         ///
-        /// **The table verbs go in a Table submenu** (TE65, TE66), drawn where their run starts in
-        /// ``MarkupVerb/menuOrder`` — between Link and Divider — and divided where
-        /// ``MarkupVerb/tableSections`` divides them, each item tagged with its place in
-        /// `menuOrder` like the rest. Enabled only if it is in `tables`, the items that would do
-        /// something at the selection, since a right-click knows where the caret is. `nil` enables
-        /// them all.
-        ///
-        /// **And with `inTable`, the verbs that would break a table are greyed** (TE76), as the
-        /// format bar greys them — ``MarkupVerb/breaksTables``, refused there by the verbs
-        /// themselves. So the Markup submenu enables its items by hand too. With `abutsTable`, the
-        /// list and quote verbs are greyed too: the paragraph runs into a table they would swallow
-        /// (FMT-2, ``MarkupVerb/continuesLazily``).
-        ///
-        /// **`enabled: false` greys every item** — a file that is not Markdown (FMT-18), where the
-        /// verbs would write `**` and `- ` into a `.txt`, a `.yaml` or a `.json`. The submenu stays,
-        /// so the right-click menu reads the same in every file and says, by its grey, that the
-        /// verbs do not apply here.
-        ///
-        /// **And with `crossesCells`, the marks and Link are greyed** (FMT-1): the selection runs
-        /// across a table's cells, where wrapping it would break the table.
+        /// The table verbs go in a Table submenu where their run starts in `menuOrder`, divided by
+        /// ``MarkupVerb/tableSections``, each item tagged with its place in `menuOrder`. A table item
+        /// is enabled only if it is in `tables` (what would do something at the selection); `nil`
+        /// enables them all. The rest are enabled by hand, as the format bar does:
+        /// - `inTable` greys the verbs that would break a table (``MarkupVerb/breaksTables``).
+        /// - `abutsTable` greys the list and quote verbs, which would swallow the table the
+        ///   paragraph runs into (``MarkupVerb/continuesLazily``).
+        /// - `crossesCells` greys the marks and Link, which would break the table they cross.
+        /// - `enabled: false` greys every item, for a file that isn't Markdown, where the verbs
+        ///   would write `**` into a `.txt` or `.json`. The submenu stays, so the menu reads the
+        ///   same in every file.
         static func markupMenu(target: AnyObject?, action: Selector, tables: Set<TableVerb>? = nil,
                                inTable: Bool = false, crossesCells: Bool = false, abutsTable: Bool = false,
                                enabled: Bool = true) -> NSMenu {
@@ -556,10 +458,10 @@ struct PlainTextEditor: NSViewRepresentable {
             return markup
         }
 
-        /// **Whether the open file is Markdown, read off its path** (FMT-18) — what decides that the
-        /// Markup verbs apply to it at all. The path, not ``editsMarkdown``: that flag is the
-        /// typing features', assigned on each update pass and `false` until the first, while a
-        /// coordinator always knows its document. No path, no document to refuse for.
+        /// Whether the open file is Markdown, read off its path: what decides that the Markup verbs
+        /// apply at all. The path, not ``editsMarkdown``, which is assigned on each update pass and
+        /// `false` until the first, while a coordinator always knows its document. No path, no
+        /// document to refuse for.
         var isMarkdownDocument: Bool {
             documentID.map { PairContentKind.isMarkdown(path: $0) } ?? true
         }
@@ -581,14 +483,11 @@ struct PlainTextEditor: NSViewRepresentable {
 
     /// Turns soft wrapping on or off.
     ///
-    /// **Five properties, and leaving any one of them out gets you a view that half-wraps.** The
-    /// container has to stop tracking the view's width AND be given unbounded width, the view has
-    /// to become horizontally resizable, and the scroll view has to grow a horizontal scroller —
-    /// otherwise the long line is laid out and then clipped, with no way to reach the end of it.
-    ///
-    /// Going back the other way, the view's width must be reset to the visible width: an
-    /// unwrapped view has grown to the width of its longest line, and a container that starts
-    /// tracking that width again wraps at the wrong column.
+    /// Leave any of these properties out and the view half-wraps. Off: the container stops
+    /// tracking the view's width and gets unbounded width, the view becomes horizontally
+    /// resizable, and the scroll view grows a horizontal scroller, or long lines are clipped. On:
+    /// the view's width is reset to the visible width, since an unwrapped view has grown to its
+    /// longest line and a container tracking that would wrap at the wrong column.
     static func applyWrapping(_ wraps: Bool, to view: NSTextView, in scroll: NSScrollView) {
         guard let container = view.textContainer else { return }
         let visible = scroll.contentSize.width
@@ -609,35 +508,35 @@ struct PlainTextEditor: NSViewRepresentable {
                               height: CGFloat.greatestFiniteMagnitude)
     }
 
-    /// The widest the text may run here, or `nil` for edge to edge — see ``EditorReadableColumn``.
+    /// The widest the text may run here, or `nil` for edge to edge (see ``EditorReadableColumn``).
     var readableColumn: CGFloat? {
         EditorReadableColumn.column(enabled: readableLineLength, wraps: wrapsLines, fontScale: fontScale)
     }
 
-    /// Applies a markup verb to the view's selection, as ONE edit the view can undo — on its own,
-    /// never merged with the typing before or after it.
+    /// Applies a markup verb to the view's selection as one undoable edit, never merged with the
+    /// typing either side.
     ///
-    /// **The one implementation, reached from three doors.** The context menu's items land here
-    /// through `Coordinator.applyMarkup`, and the menu bar's Markup items and the format bar through
-    /// `EditorDocumentSurface.applyMarkup(_:in:)`; a second copy would be a second place for the undo
-    /// grouping or the selection arithmetic to drift.
+    /// The one implementation, reached from three doors: the context menu through
+    /// `Coordinator.applyMarkup`, the menu bar and the format bar through
+    /// `EditorDocumentSurface.applyMarkup(_:in:)`, so the undo grouping and selection arithmetic
+    /// live in one place.
     ///
-    /// - Returns: whether the verb applied — `false` when `MarkdownEdits` has nothing to do for
-    ///   this selection, in which case the buffer and the undo stack are untouched.
+    /// - Returns: whether the verb applied; `false` when `MarkdownEdits` has nothing to do for this
+    ///   selection, and the buffer and undo stack are untouched.
     @discardableResult
     static func apply(_ verb: MarkupVerb, to view: NSTextView) -> Bool {
-        // A CRLF file becomes LF before the verb reads it: the selection it hands back is measured
-        // on the text it read (see `EditorLineEndings`). Asked first on the converted text, so a
-        // verb with nothing to do converts nothing. **The storage is asked whether there is a CR**,
-        // not `view.string`: an LF file — nearly every file — pays no copy and no scan for it.
+        // A CRLF file becomes LF before the verb reads it, since the selection it hands back is
+        // measured on the text it read (see `EditorLineEndings`). Asked first on the converted text,
+        // so a verb with nothing to do converts nothing. The storage is asked for a CR, not
+        // `view.string`, so an LF file pays no copy and no scan.
         if let editor = view as? EditorTextView, case let changes = editor.pendingCarriageReturns(),
            !changes.isEmpty {
             guard MarkdownEdits.apply(verb, to: EditorLineEndings.normalized(view.string),
                                       selection: EditorLineEndings.mapped(view.selectedRange(), through: changes)) != nil
             else { return false }
-            // **Not while a word is being composed** (2026-10-09): the conversion waits for the
-            // marked text, and the verb, written anyway, put LF breaks into a CRLF file — mixed. An
-            // LF file needs no conversion, and there the verb commits the word and applies as before.
+            // Not while a word is being composed: the conversion waits for the marked text, and the
+            // verb written anyway would put LF breaks into a CRLF file. An LF file needs no
+            // conversion, so there the verb commits the word and applies.
             guard !editor.convertLineEndingsToLF(on: "Markup ▸ \(verb.title)").isEmpty else {
                 Logger.shared.info("Markup ▸ \(verb.title) did nothing: "
                                    + (view.hasMarkedText()
@@ -650,37 +549,31 @@ struct PlainTextEditor: NSViewRepresentable {
         let selected = view.selectedRange()
         guard let edit = MarkdownEdits.apply(verb, to: text, selection: selected) else { return false }
         let change = MarkdownEdits.minimalReplacement(from: text, to: edit.text)
-        // **⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left**
-        // (UND-9). The view's own undo of a replacement leaves a bare caret, so undoing a verb
-        // dropped the very selection the next verb was meant for. Registered either side of the
-        // edit, in its group: the undo replays them last-first, so the one registered BEFORE the
-        // edit runs after the text is back, and the one registered AFTER runs last on redo.
+        // ⌘Z gives back the selection the verb was pressed over, and ⌘⇧Z the one it left; the
+        // view's own undo of a replacement leaves a bare caret. Registered either side of the edit,
+        // in its group: undo replays last-first, so the one registered before the edit runs after
+        // the text is back, and the one registered after runs last on redo.
         let undo = view.undoManager
         if let undo { registerSelection(of: view, undoTo: selected, redoTo: nil, in: undo) }
-        // **`insertText(_:replacementRange:)`, which is the path typing takes.** It registers
-        // the undo, applies the view's own typing attributes to what it inserts, and posts the
-        // change notification that pushes the new buffer back into the document — three things
-        // a direct `textStorage` splice would each have to be made to do by hand.
-        //
-        // **And so the view takes it for typing, and coalesces it with the typing either side.**
-        // "foo" then Bold came back as one ⌘Z that took the `****` and the "foo" together, and
-        // typing on from the end of a rule extended the rule's step. The breaks make the verb its
-        // own step: `MarkupVerbUndoTests` pins both sides, through all three doors.
+        // `insertText(_:replacementRange:)`, the path typing takes: it registers the undo, applies
+        // the typing attributes, and posts the change notification that updates the document,
+        // three things a direct `textStorage` splice would do by hand. The view then coalesces it
+        // with the typing either side, so the breaks make the verb its own step
+        // (`MarkupVerbUndoTests` pins both sides, through all three doors).
         view.breakUndoCoalescing()
         view.insertText(change.text, replacementRange: change.range)
         view.breakUndoCoalescing()
         view.setSelectedRange(edit.selection)
         if let undo { registerSelection(of: view, undoTo: nil, redoTo: edit.selection, in: undo) }
-        // **Named after the verb, as Preview names it** (TE125): the insert above is typing as far
-        // as the view is concerned, and Edit ▸ Undo read "Undo Typing" after Bold in Source.
+        // Named after the verb, as Preview names it: to the view the insert is typing, so Edit ▸
+        // Undo would otherwise read "Undo Typing" after Bold.
         undo?.setActionName(verb.title)
         return true
     }
 
     /// One half of a verb's selection in its undo step: on undo it selects `undoTo`, if any, and
-    /// files its mirror image for redo, which selects `redoTo` — so the pair keeps answering
-    /// however many times the step is undone and redone. A range the text no longer holds is left
-    /// alone rather than set.
+    /// files its mirror for redo, which selects `redoTo`, so the pair holds however many times the
+    /// step is undone and redone. A range the text no longer holds is left alone.
     private static func registerSelection(of view: NSTextView, undoTo: NSRange?, redoTo: NSRange?,
                                           in undo: UndoManager) {
         undo.registerUndo(withTarget: view) { [weak undo] view in
@@ -692,33 +585,22 @@ struct PlainTextEditor: NSViewRepresentable {
         }
     }
 
-    /// Opens the find bar over the text view, **with its Replace row showing**.
+    /// Opens the find bar over the text view, with its Replace row showing.
     ///
-    /// **Through a tagged sender, which is the only way in.** `performTextFinderAction(_:)` reads
-    /// which action to run off the sender's `tag` — there is no typed entry point — so a menu item
-    /// that is never in a menu is the standard way to ask for one by hand.
-    ///
-    /// **`.showReplaceInterface`, not `.showFindInterface`, and the difference is not cosmetic.**
-    /// This shipped as the latter, on the reasonable-sounding assumption that the bar carries both
-    /// rows and lets the reader reveal the second. Measured, it does not: AppKit builds the Replace
-    /// field either way, and under `.showFindInterface` it is `isHidden` and parked at y = -22 with
-    /// no control in the bar to bring it back. So the one button in the document header — whose
-    /// tooltip says "Find and replace in this document", and whose Help entry promises replace and
-    /// replace-all — opened a bar that could only find. `theFindBarOpensWithItsReplaceRowShowing`
-    /// pins it by measuring the field rather than by trusting the action's name.
-    ///
-    /// The find field still takes the caret, so opening this for a plain find costs one extra row
-    /// and no keystrokes.
+    /// Through a tagged sender: `performTextFinderAction(_:)` reads the action off the sender's
+    /// `tag`, with no typed entry point. `.showReplaceInterface`, not `.showFindInterface`, under
+    /// which AppKit hides the Replace field with no control to bring it back, though the header's
+    /// button promises find and replace. `theFindBarOpensWithItsReplaceRowShowing` measures the
+    /// field. The find field still takes the caret, so a plain find costs one row, no keystrokes.
     public static func showFindBar(in view: NSTextView) {
         let sender = NSMenuItem()
         sender.tag = NSTextFinder.Action.showReplaceInterface.rawValue
         view.performTextFinderAction(sender)
     }
 
-    /// **Sets the room under the last line** (``bottomInset``) — only when it changed, so an
-    /// update that leaves it alone does not retile the scroll view. The automatic insets go off
-    /// for good once one is set: they follow the window's title bar, which this card is nowhere
-    /// near, so the top stays where it was.
+    /// Sets the room under the last line (``bottomInset``), only when it changed, so an update
+    /// that leaves it alone doesn't retile the scroll view. The automatic insets go off once one is
+    /// set: they follow the window's title bar, which this card is nowhere near.
     static func applyBottomInset(_ inset: CGFloat, to scroll: NSScrollView) {
         guard scroll.contentInsets.bottom != inset else { return }
         scroll.automaticallyAdjustsContentInsets = false
@@ -729,19 +611,18 @@ struct PlainTextEditor: NSViewRepresentable {
 
     /// Ends the find bar's work over `view`, for a text view that is about to be let go.
     ///
-    /// **AppKit's find indicator can outlive the finder it reports to.** Find Next, and an
-    /// incremental search's first match, ask the indicator to redraw a few milliseconds later. The
-    /// request keeps the indicator alive but not the finder, which the text view frees as it goes,
-    /// so a text view freed inside that window left the redraw to message freed memory and the
-    /// process died — `-[NSTextFinderIndicatorManager _delayedUpdate]` in the crash report. See
-    /// "A find indicator's redraw outlives the text view it was asked for" in `docs/flaky-tests.md`.
+    /// AppKit's find indicator can outlive the finder it reports to: Find Next, and an incremental
+    /// search's first match, ask it to redraw a few milliseconds later, keeping the indicator alive
+    /// but not the finder. A text view freed in that window leaves the redraw messaging freed memory
+    /// and the process dies (`-[NSTextFinderIndicatorManager _delayedUpdate]`). See "A find
+    /// indicator's redraw outlives the text view it was asked for" in `docs/flaky-tests.md`.
     ///
-    /// Two steps, each measured, because neither covers the other:
-    /// - **Hiding the bar retires a search still in flight.** Its first match can land a second or
-    ///   more after the search started, after the document has closed; retired, it never lands.
-    /// - **Nothing public cancels a redraw already asked for**, and hiding does not. So the view is
-    ///   held by a run-loop timer due well after it: timers in one mode fire in date order, so the
-    ///   hold ends after the redraw even when the main thread was too busy for either to be on time.
+    /// Two steps, because neither covers the other:
+    /// - Hiding the bar retires a search still in flight, whose first match could otherwise land
+    ///   after the document has closed.
+    /// - Nothing public cancels a redraw already asked for, so the view is held by a run-loop timer
+    ///   due well after it: timers in one mode fire in date order, so the hold ends after the
+    ///   redraw even on a busy main thread.
     static func retireFindBar(of view: NSTextView) {
         let sender = NSMenuItem()
         sender.tag = NSTextFinder.Action.hideFindInterface.rawValue
@@ -750,19 +631,14 @@ struct PlainTextEditor: NSViewRepresentable {
         Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in withExtendedLifetime(held) {} }
     }
 
-    /// Points `view` at `source`'s text storage — at construction, and whenever the document changes.
+    /// Points `view` at `source`'s text storage, at construction and whenever the document changes.
     ///
-    /// **The view is still built by the factory and then re-pointed**, rather than assembled by hand
-    /// around the storage. The factory's view is the one this editor has always shipped, property for
-    /// property; re-pointing its `NSTextContentStorage` keeps it on TextKit 2 (measured 2026-10-04,
-    /// with typing, undo and a second re-point all landing on the storage now shown).
+    /// The factory builds the view and this re-points its `NSTextContentStorage`, which keeps it on
+    /// TextKit 2 with typing and undo landing on the storage shown. The attributes are the view's
+    /// typing attributes over the whole storage, as `view.string = text` would set them, and they
+    /// register no undo, so a mode switch mounts a view without adding a step to the history.
     ///
-    /// **The attributes are the ones `view.string = text` applied** — the view's typing attributes,
-    /// its font and its text colour, over the whole storage — measured identical run for run. They
-    /// register no undo (measured: 0 registrations, against 1 for a keystroke), which is what lets a
-    /// mode switch mount a view over a document's storage without adding a step to its history.
-    ///
-    /// **Never through `layoutManager` on a TextKit 2 view** — merely reading it drops the view to
+    /// Never through `layoutManager` on a TextKit 2 view: merely reading it drops the view to
     /// TextKit 1 for good. The fallback reads it only where the view is TextKit 1 already.
     static func show(_ source: EditorSourceStorage, in view: NSTextView) {
         let storage = source.textStorage
@@ -777,10 +653,9 @@ struct PlainTextEditor: NSViewRepresentable {
         source.textView = view
     }
 
-    /// The document changed under a mounted view: show the incoming storage, with the caret where it
-    /// was, clamped to the new length — and scrolled back into view, since a caret at offset 0 in a
-    /// freshly opened file is otherwise left behind a scroller still sitting where the previous
-    /// document was. The same caret the whole-string push this replaced kept.
+    /// The document changed under a mounted view: show the incoming storage, with the caret where
+    /// it was, clamped to the new length, and scrolled into view, or a caret at 0 in a freshly
+    /// opened file is left behind a scroller still where the previous document was.
     ///
     /// - Returns: whether the view was re-pointed.
     @discardableResult
@@ -794,20 +669,14 @@ struct PlainTextEditor: NSViewRepresentable {
         return true
     }
 
-    /// Where a 1-based line begins, from the table when the table describes THIS buffer and from
-    /// the walk when it does not.
+    /// Where a 1-based line begins, from the table when it describes this buffer and from the walk
+    /// when it does not.
     ///
-    /// **The staleness check is the whole point, and it is not the same bargain the scroll sync
-    /// makes.** The table is rebuilt on a 150 ms debounce, so a request that arrives in the same
-    /// render pass as the text it names — which is exactly what opening a file straight at a
-    /// heading does — would be answered against the *previous* document's line starts. An offset
-    /// one character out puts the caret at the end of the line before; an offset from another file
-    /// puts it anywhere. So the length is compared first, and a disagreement falls back to
-    /// ``EditorCaret/utf16Offset(ofLine:in:)``, which walks and is always right.
-    ///
-    /// A UTF-16 length is O(n) for a natively-stored Swift string, which is why this is on the
-    /// outline-click path and not on the scroll one: it happens when somebody clicks a heading,
-    /// not sixty times a second.
+    /// Unlike the scroll sync, the caret can't accept a stale table: the table is rebuilt on a
+    /// debounce, so opening a file straight at a heading would read the previous document's line
+    /// starts. So the length is compared first, and a mismatch falls back to
+    /// ``EditorCaret/utf16Offset(ofLine:in:)``, which walks and is always right. A UTF-16 length is
+    /// O(n) for a native Swift string, fine on an outline click but not on every scroll tick.
     static func utf16Offset(ofLine line: Int, in text: String,
                             using index: EditorLineIndex) -> Int? {
         guard index.utf16Length == (text as NSString).length else {
@@ -816,8 +685,8 @@ struct PlainTextEditor: NSViewRepresentable {
         return index.utf16Offset(ofLine: line)
     }
 
-    /// Where a scroll request puts the caret: a heading's line start, or — for Go to Line, which
-    /// carries a column (TE61) — the typed line and column, clamped to the text as it is NOW.
+    /// Where a scroll request puts the caret: a heading's line start, or for Go to Line, which
+    /// carries a column, the typed line and column clamped to the text as it is now.
     static func offset(for request: EditorScrollRequest, in text: String,
                        using index: EditorLineIndex) -> Int? {
         guard let column = request.column else { return utf16Offset(ofLine: request.line, in: text, using: index) }
@@ -825,12 +694,12 @@ struct PlainTextEditor: NSViewRepresentable {
                                           in: text, using: index)
     }
 
-    /// **The storage forgets this view as it goes, unless a newer one already took its place** — a
-    /// mode switch can build the next view before this one is taken down. Undo actions keep a
+    /// The storage forgets this view as it goes, unless a newer one already took its place: a mode
+    /// switch can build the next view before this one is taken down, and undo actions keep a
     /// dismantled view alive, so a weak reference alone would go on naming it.
     ///
-    /// **The find bar is retired too**, so closing the document just as a search lands cannot leave
-    /// AppKit's find indicator a redraw to send to a freed finder — see ``retireFindBar(of:)``.
+    /// The find bar is retired too, so closing the document as a search lands can't leave AppKit's
+    /// find indicator a redraw to send to a freed finder (see ``retireFindBar(of:)``).
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
         MainActor.assumeIsolated {
             coordinator.stopWatchingScrolling()
@@ -841,37 +710,33 @@ struct PlainTextEditor: NSViewRepresentable {
         }
     }
 
-    /// **The find request is taken as already answered.** The counter lives in the workspace, which
-    /// outlives this text view: closing the document, a refused file, or Preview each take the text
-    /// view down and leave the counter where the last Find press put it. A new coordinator that
-    /// started at `0` read any count above that as a fresh press, so one Find, then ×, then opening
-    /// any file, put the find bar up over a document nobody had asked to search.
+    /// The standing find request is taken as already answered. The counter lives in the workspace,
+    /// which outlives this text view, so a new coordinator starting at `0` would read the last Find
+    /// press as fresh and open the find bar over the next document opened.
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(source: source, undoManager: undoManager, documentID: documentID,
                                       onSelectionChange: onSelectionChange)
         coordinator.onSelectionRangeCount = onSelectionRangeCount
         coordinator.lastFindRequest = findRequest
-        // **The scroll request too, for the same reason** — it outlives the text view as the find
-        // counter does, so a text view rebuilt by a mode switch (Source ↔ Split, Preview → Source)
-        // replayed the last heading jump over wherever the caret had gone since. The status line's
-        // heading menu (TE57) made that jump reachable from every layout. A request made while no
-        // text view is up (from Preview) has already moved the caret's anchor, which is where a
-        // new text view puts the caret.
+        // The scroll request too, for the same reason: a view rebuilt by a mode switch would
+        // replay the last heading jump over wherever the caret went since. A request made while no
+        // text view is up (from Preview) has already moved the caret's anchor, where a new text
+        // view puts the caret.
         coordinator.lastScrollRequest = scrollRequest
-        // A follow standing from before this view was built is not news to it (review: Split →
-        // Source → Split replayed an old follow over the restored caret).
+        // A follow standing from before this view was built is not news to it, and replayed would
+        // land over the restored caret.
         coordinator.lastFollowRequest = followRequest
         return coordinator
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        // **The subclass, for its paste and drop** — see ``EditorTextView``. The same factory builds
-        // it, on the same TextKit 2 engine.
+        // The subclass, for its paste and drop (see ``EditorTextView``), built by the same factory
+        // on the same TextKit 2 engine.
         let scroll = EditorTextView.scrollableTextView()
-        // **Marked, so a chord fired from outside can tell this text view from every other one.**
-        // See `EditorDocumentSurface` for why `responder is NSTextView` is the wrong question.
+        // Marked, so a chord fired from outside can tell this text view from every other one (see
+        // `EditorDocumentSurface` for why `responder is NSTextView` is the wrong question).
         scroll.identifier = EditorDocumentSurface.identifier
-        // ⌘Z from the find bar is the document's (UND-3) — see `EditorDocumentScrollView`.
+        // ⌘Z from the find bar is the document's (see `EditorDocumentScrollView`).
         (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
         Self.applyBottomInset(bottomInset, to: scroll)
         scroll.hasVerticalScroller = true
@@ -879,42 +744,35 @@ struct PlainTextEditor: NSViewRepresentable {
         scroll.drawsBackground = false
         guard let view = scroll.documentView as? NSTextView else { return scroll }
 
-        // **The delegate is wired at the END of this method, not here.** See the note above the
-        // assignment, which is where the reason lives.
+        // The delegate is wired at the end of this method; the reason is there.
         view.allowsUndo = true
         view.isRichText = false
         view.importsGraphics = false
         view.usesFontPanel = false
-        // **The find bar is on, and this line used to read `false`.** It sat in the "keep it plain"
-        // list with the substitutions, which is where it did not belong: a substitution rewrites
-        // somebody's file behind their back and a find bar reads it. Off, there was no way to
-        // search the open document at all — the app's ⌘F is Find in Pane, which in this workspace
-        // expands the search field of a source pane that is collapsed by default.
-        //
-        // AppKit's own bar rather than one drawn here: it brings find, replace, replace-all,
-        // next/previous and a live match count, all of them behaving the way every other Mac app's
-        // does, for one property and the action below.
+        // The find bar is on: unlike a substitution, it only reads the file. AppKit's own bar
+        // brings find, replace, replace-all, next/previous and a live match count, behaving as in
+        // every other Mac app, for one property and the action below.
         view.usesFindBar = true
-        // Highlights as you type rather than on Return, which is what makes the count worth having.
+        // Highlights as you type rather than on Return, which makes the count worth having.
         view.isIncrementalSearchingEnabled = true
-        // **Every substitution off.** This edits real files: a quote turned into a curly quote, or
-        // `--` into an em dash, is a silent change to somebody's YAML, shell script or Markdown.
+        // Every substitution off. This edits real files: a curly quote or an em dash for `--` is a
+        // silent change to somebody's YAML, shell script or Markdown.
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.isAutomaticTextReplacementEnabled = false
         view.isAutomaticSpellingCorrectionEnabled = false
         view.isAutomaticDataDetectionEnabled = false
         view.isAutomaticLinkDetectionEnabled = false
-        // **Checking is a choice; correcting is not.** Everything above rewrites the file unasked
-        // and has no switch anywhere. This one only draws a red line, so it is the one setting in
-        // this block that a person may turn on — see `EditorTextSettings.checksSpellingKey`.
+        // Checking is a choice; correcting is not. Everything above rewrites the file unasked; this
+        // only draws a red line, so it is the one a person may turn on
+        // (`EditorTextSettings.checksSpellingKey`).
         view.isContinuousSpellCheckingEnabled = checksSpelling
         view.isGrammarCheckingEnabled = false
         view.drawsBackground = false
         view.textContainerInset = EditorReadableColumn.baseInset
         view.font = Self.font(scale: fontScale)
-        // Where `view.string = text` was: the document's own storage, shared with every view of it
-        // that came before this one — which is what lets ⌘Z after a mode switch reach the screen.
+        // The document's own storage, shared with every view of it before this one, which is what
+        // lets ⌘Z after a mode switch reach the screen.
         Self.show(source, in: view)
         view.isEditable = isEditable
         Self.applyWrapping(wrapsLines, to: view, in: scroll)
@@ -929,72 +787,42 @@ struct PlainTextEditor: NSViewRepresentable {
         textViewHandle?.textView = view
         context.coordinator.watchScrolling(of: scroll, textView: view)
         Self.restoreCaret(to: initialSelection, in: view, text: source.text)
-        // **Wired LAST, after the string and the caret, and this is a fix rather than tidiness.**
-        //
-        // `NSTextView` calls `textViewDidChangeSelection` for programmatic moves as readily as for
-        // a click, and building this view makes two of them: assigning `string` leaves the caret at
-        // the end of the new text, and `restoreCaret` then puts it where the reader left it.
-        // Measured on a mount over `"hello there"` with an anchor of 4, the delegate fired twice —
-        // at 11, then at 4.
-        //
-        // Both landed inside SwiftUI's update pass, which is the wrong place to write `@State`
-        // from. Worse, once the host started RECORDING the caret, the first of them was recorded:
-        // open a file, switch workspace without ever clicking in the text, and the anchor said "end
-        // of document" because assigning the string had said so. Coming back put the reader at the
-        // bottom of a file they had not touched.
-        //
-        // Nothing in the construction above needs a delegate — it is read on user input, not during
-        // setup — so the honest fix is to have no delegate to call. `EditorCaretAnchorTests`
-        // pins the silence.
+        // Wired last, after the text and the caret. `NSTextView` reports programmatic selection
+        // moves to its delegate, and building this view makes two: showing the text leaves the
+        // caret at its end, then `restoreCaret` moves it. Reported, both would write `@State`
+        // inside SwiftUI's update pass, and the host would record "end of document" as the caret's
+        // anchor for a file never clicked in. Nothing above needs a delegate, so there is none to
+        // call yet; `EditorCaretAnchorTests` pins the silence.
         view.delegate = context.coordinator
         return scroll
     }
 
     /// Puts a rebuilt text view's caret back where the reader left it.
     ///
-    /// **Clamped against the text being assigned, not against whatever the anchor remembers.** The
-    /// file can be shorter than it was when the offset was recorded — edited in another app,
-    /// reverted, truncated — and `setSelectedRange` past the end of the storage raises
-    /// `NSRangeException`, which takes the app down with every unsaved buffer in it. Same hazard the
-    /// undo store's fingerprint check exists for, reached through the caret instead of a stack.
+    /// Clamped against the text being assigned, not what the anchor remembers: the file can be
+    /// shorter than when the offset was recorded, and `setSelectedRange` past the end raises
+    /// `NSRangeException`, taking the app down with every unsaved buffer. The same hazard the undo
+    /// store's fingerprint check guards, reached through the caret.
     ///
-    /// **The selection lands now; the scroll takes a hop.** In `makeNSView` the scroll view has no
-    /// geometry yet — it is not in a window and has never been laid out — so
-    /// `scrollRangeToVisible` resolves against nothing and is silently dropped. That is the same
-    /// mechanism `FileTreeView`'s reveal and `PaneColumnsView`'s both hop for, and the same reason:
-    /// a scroll issued before the layout it names exists is not merely early, it never happens. The
-    /// caret itself is set synchronously so a keystroke arriving before the hop still goes to the
-    /// right place.
+    /// The selection lands now; the scroll takes a hop. In `makeNSView` the scroll view has no
+    /// geometry yet, so `scrollRangeToVisible` would be silently dropped, the reason
+    /// `FileTreeView`'s and `PaneColumnsView`'s reveals hop too. The caret is set at once so a
+    /// keystroke before the hop goes to the right place.
     ///
-    /// **What a fresh text view does on its own is put the caret at the END**, and that is worth
-    /// stating because it is not what it looks like and it is not what this function was first
-    /// written against. Assigning `view.string` replaces the storage and leaves the insertion point
-    /// after the last character — measured, not assumed: mounting an editor over `"hello there"`
-    /// with no anchor reports `selectedRange().location == 11`. The scroll view is still at the top,
-    /// so what a reader saw on coming back was the first page of the file with the caret parked
-    /// invisibly at the end of it.
-    ///
-    /// That is why the caret is placed **unconditionally**, a zero included. An early return on
-    /// `offset > 0` looks like a free optimisation — the top is where a new view already is — and it
-    /// is not, twice over: it leaves the top-of-file reader at the end, and it leaves a file with no
-    /// anchor at the end too.
+    /// Placed unconditionally, a zero included: a fresh text view puts the caret at the end of its
+    /// text while the scroll view shows the top, so skipping `offset == 0` would leave the caret
+    /// invisibly at the end.
     private static func restoreCaret(to offset: Int, in view: NSTextView, text: String) {
         let bounded = EditorCaretAnchors.clamped(offset, in: text)
         let range = NSRange(location: bounded, length: 0)
         view.setSelectedRange(range)
-        // Nothing to bring into view at the top — the fresh scroll view is already there, and the
-        // hop below is only worth taking when it would actually move something.
+        // Nothing to bring into view at the top: the fresh scroll view is already there.
         guard bounded > 0 else { return }
         DispatchQueue.main.async { [weak view] in
-            // The document can have been replaced between the hop being scheduled and it running —
-            // a rail click lands in `updateNSView`, which pushes a different string — so the range
-            // is re-checked against the storage as it stands NOW rather than against the string
-            // this call was made for.
-            //
-            // **`textStorage?.length`, never `view.string`.** Reading `string` copies the entire
-            // text storage out of AppKit to produce a Swift `String` — on a 4 MiB document that is
-            // a 4 MiB copy to answer a question about a count. The storage's own length is the
-            // number, in the units `NSRange` is measured in.
+            // The document can have been replaced before the hop runs (a rail click lands in
+            // `updateNSView`), so the range is re-checked against the storage as it stands now.
+            // `textStorage?.length`, never `view.string`, which copies the whole document to
+            // answer a count; the storage's length is in `NSRange`'s own units.
             guard let view, bounded <= (view.textStorage?.length ?? 0) else { return }
             view.scrollRangeToVisible(range)
         }
@@ -1002,30 +830,19 @@ struct PlainTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? NSTextView else { return }
-        // **No echo guard any more, because nothing is pushed.** The view shows the document's own
-        // storage and the buffer follows that storage, so typing never has to be handed back to
-        // the view it came from. What can still change under a mounted view is WHICH storage — a
-        // file switch hands the buffer another document's — and that is an identity check.
+        // No echo guard: the view shows the document's own storage and the buffer follows it, so
+        // typing is never handed back. What can change under a mounted view is which storage (a
+        // file switch), and that is an identity check in `follow`.
         context.coordinator.undoManager = undoManager
         (scroll as? EditorDocumentScrollView)?.documentUndoManager = undoManager
         Self.applyBottomInset(bottomInset, to: scroll)
-        // **The undo stack goes with the DOCUMENT**, and this is the one line standing between the
-        // editor and a crash. `NSTextView`'s registrations name character RANGES in the buffer they
-        // were made against; assigning `string` replaces the buffer and clears nothing, so a ⌘Z
-        // after switching files replays an edit from the previous document against this one —
-        // splicing its characters out where the ranges happen to land, or throwing
-        // `NSRangeException` (`substringWithRange: … out of bounds`) and taking the app down with
-        // every unsaved buffer in it when they do not. Keyed on the path rather than on the text,
-        // because two files can hold the same bytes.
-        // **The stack is no longer wiped here, and what replaced it is a different manager.**
-        // This used to call `removeAllActions()` whenever the document changed, because
-        // `NSTextView` registers undo by character range and replaying one document's ranges into
-        // another splices or crashes. `EditorUndoStore` now hands this view a stack that belongs to
-        // the document being shown, beside the storage that stack's actions edit (`follow` below
-        // re-points the view at it) — so the two documents' registrations can never meet, and the
-        // history survives a round trip instead of being thrown away to make it safe. The store
-        // also refuses a stack whose fingerprint no longer fits the buffer, which is the case the
-        // wipe could not distinguish from any other.
+        // The undo stack goes with the document. `NSTextView` registers undo by character range,
+        // so replaying one document's ranges into another splices text or throws
+        // `NSRangeException`, taking the app down with every unsaved buffer. `EditorUndoStore`
+        // hands this view the shown document's own stack, beside the storage its actions edit
+        // (`follow` below re-points the view at it), so two documents' registrations never meet;
+        // it also refuses a stack whose fingerprint no longer fits the buffer. Keyed on the path,
+        // not the text, since two files can hold the same bytes.
         if context.coordinator.documentID != documentID {
             context.coordinator.documentID = documentID
         }
@@ -1041,13 +858,12 @@ struct PlainTextEditor: NSViewRepresentable {
         if view.font != font {
             view.font = font
         }
-        // **Here only, not in `makeNSView` as well**: SwiftUI runs this straight after building the
-        // view, and a second call site there was mutation-equivalent. Its order against the
-        // wrapping does not matter — the width that wrapping resets re-centres the column through
-        // `setFrameSize` either way (mutation-tested). The view ignores a value it already has.
+        // Here only, not in `makeNSView` too: SwiftUI runs this straight after building the view.
+        // Its order against the wrapping doesn't matter, since the width wrapping resets re-centres
+        // the column through `setFrameSize` either way. The view ignores a value it already has.
         (view as? EditorTextView)?.readableColumnWidth = readableColumn
         (view as? EditorTextView)?.drawsPage = drawsPage
-        // TE62. Here only, as the column is: SwiftUI runs this straight after building the view.
+        // Here only, as the column is: SwiftUI runs this straight after building the view.
         (view as? EditorTextView)?.typewriterScrolling = typewriterScrolling
         context.coordinator.source = source
         context.coordinator.onSelectionChange = onSelectionChange
@@ -1068,9 +884,9 @@ struct PlainTextEditor: NSViewRepresentable {
             Self.showFindBar(in: view)
         }
 
-        // **After the string has been pushed, never before.** A request arrives in the same render
-        // pass as the text it names when a file is opened straight at a heading, and an offset
-        // computed against the previous buffer is an offset into the wrong document.
+        // After the storage has been followed, never before: opening a file straight at a heading
+        // sends the request in the same pass as the text, and an offset computed against the
+        // previous buffer points into the wrong document.
         if let followRequest, followRequest != context.coordinator.lastFollowRequest {
             context.coordinator.lastFollowRequest = followRequest
             let text = source.text
@@ -1095,14 +911,14 @@ struct PlainTextEditor: NSViewRepresentable {
     }
 
     /// The range a request selects: from `offset`, its ``EditorScrollRequest/length`` clamped to
-    /// the text — a bare caret for every request but a Contents result's.
+    /// the text; a bare caret for every request but a Contents result's.
     static func selection(for request: EditorScrollRequest, at offset: Int, length: Int) -> NSRange {
         let location = min(max(offset, 0), length)
         return NSRange(location: location, length: max(0, min(request.length, length - location)))
     }
 
-    /// **The match becomes Find's text, as ⌘E would make it, and the find bar shows it** (RD38) —
-    /// so the word searched for in the Files list is the one ⌘G steps through here.
+    /// The match becomes Find's text, as ⌘E would make it, and the find bar shows it, so the word
+    /// searched for in the Files list is the one ⌘G steps through here.
     ///
     /// Then the selection and the keys are put back where the result left them: showing the bar
     /// gives its field the keyboard, and the reader was sent to the match, not to the field.

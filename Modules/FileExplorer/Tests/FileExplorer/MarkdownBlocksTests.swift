@@ -4,9 +4,9 @@ import Foundation
 
 /// The Markdown walk: source in, preview blocks out.
 ///
-/// **Fixtures rather than round-trips.** The claim being made is not "swift-markdown parses
-/// Markdown" — that is its own project's problem — but "this walk turns what it parses into the
-/// blocks the preview draws", which is the half that can silently drop a construct.
+/// Fixtures rather than round-trips: the claim is not that swift-markdown parses Markdown (its own
+/// project's problem) but that this walk turns what it parses into the blocks the preview draws,
+/// the half that can silently drop a construct.
 @Suite struct MarkdownBlocksTests {
 
     private func blocks(_ source: String) -> [MarkdownBlock] {
@@ -29,8 +29,8 @@ import Foundation
         #expect(first.plain == "One")
     }
 
-    /// A hard-wrapped paragraph is one paragraph — the soft break becomes a space rather than a
-    /// line ending, which is what makes wrapped Markdown read as prose.
+    /// A hard-wrapped paragraph is one paragraph: the soft break becomes a space, not a line
+    /// ending, so wrapped Markdown reads as prose.
     @Test func aHardWrappedParagraphIsOneBlockWithItsBreaksAsSpaces() {
         let parsed = blocks("Three folders still carry\nunscanned paper.\n")
         #expect(parsed.count == 1)
@@ -59,8 +59,8 @@ import Foundation
         #expect(markers == [.ordered(7), .ordered(8)])
     }
 
-    /// **Task state comes from the parser, not from a pre-pass**, which is the whole argument for
-    /// parsing real GFM: a regex over `- [ ]` would also claim a literal bracket pair someone typed.
+    /// Task state comes from the parser, not from a pre-pass, which is the argument for parsing
+    /// real GFM: a regex over `- [ ]` would also claim a literal bracket pair someone typed.
     @Test func taskItemsCarryTheirCheckedState() {
         let parsed = blocks("- [ ] School forms\n- [x] Passport receipts\n")
         let markers = parsed.compactMap { block -> MarkdownListMarker? in
@@ -94,14 +94,13 @@ import Foundation
         #expect(parsed.map(\.quoteDepth) == [1, 2], "block quotes came back as \(parsed)")
     }
 
-    /// **Every kind of block records that it is quoted, not only paragraphs.** A `>` containing a
-    /// list, a fence or a heading used to emit blocks with no quote level at all, so the preview
-    /// drew no quote bar and they read as ordinary body text.
+    /// Every kind of block records that it is quoted, not only paragraphs. A `>` holding a list, a
+    /// fence or a heading must still draw its quote bar, or those read as ordinary body text.
     @Test func aQuotedListAndAQuotedFenceAreStillQuoted() {
         let parsed = blocks("> - one\n> - two\n>\n> ```\n> code\n> ```\n>\n> # heading\n")
         #expect(!parsed.isEmpty)
         #expect(parsed.allSatisfy { $0.quoteDepth == 1 }, "these came back as \(parsed)")
-        // …and the kinds really are the varied ones, or the claim above is about one paragraph.
+        // …and the kinds really are varied, or the claim above is about one paragraph.
         let kinds = Set(parsed.map { block -> String in
             switch block.kind {
             case .listItem: return "list"
@@ -113,7 +112,7 @@ import Foundation
         #expect(kinds == ["list", "code", "heading"], "the fixture did not produce three kinds: \(kinds)")
     }
 
-    /// The other half of the same correction: content nested under a list item is indented with it.
+    /// The same rule for lists: content nested under a list item is indented with it.
     @Test func aFenceUnderABulletIsIndentedWithIt() {
         let parsed = blocks("- explain\n\n    ```\n    code\n    ```\n")
         guard let fence = parsed.first(where: {
@@ -125,9 +124,8 @@ import Foundation
         #expect(fence.indent == 1, "the fence came back at indent \(fence.indent), flush with the margin")
     }
 
-    /// **A list item that opens with a fence keeps its own order.** The lead paragraph used to be
-    /// taken from anywhere among the item's children, so an item whose prose came *after* a code
-    /// block had the prose hoisted above it — the preview showed the explanation above the code.
+    /// A list item that opens with a fence keeps its own order. Taking the lead paragraph from
+    /// anywhere among the item's children would hoist prose written after a code block above it.
     @Test func aListItemKeepsTheOrderItsChildrenWereWrittenIn() {
         let parsed = blocks("- ```\n  code\n  ```\n\n  then prose\n")
         let order = parsed.map { block -> String in
@@ -162,7 +160,7 @@ import Foundation
         #expect(language == nil)
     }
 
-    /// A `#` inside a fence is code, not a heading — one of the reasons this parses rather than
+    /// A `#` inside a fence is code, not a heading: one reason this parses rather than
     /// pattern-matches.
     @Test func markdownInsideAFenceIsNotParsedAsMarkdown() {
         let parsed = blocks("```\n# not a heading\n- not a list\n```\n")
@@ -188,9 +186,9 @@ import Foundation
         #expect(rows.map { $0.map(\.plain) } == [["Ada", "People/Ada"], ["Alan", "People/Alan"]])
     }
 
-    /// **A short row is padded to the header's width**, so the missing cell stays in its own
-    /// column. Left-packed, a gap in the middle shifts every cell after it and the absence appears
-    /// at the end of the row — the one place it is not.
+    /// A short row is padded to the header's width, so the missing cell stays in its own column.
+    /// Left-packed, a gap in the middle would shift every cell after it and show the absence at the
+    /// end of the row, the one place it isn't.
     @Test func aRaggedRowKeepsItsCellsInTheRightColumns() {
         let parsed = blocks("| A | B | C |\n|---|---|---|\n| 1 | 2 |\n")
         guard case .table(let header, let rows) = parsed.first?.kind else {
@@ -224,8 +222,8 @@ import Foundation
         #expect(text.plain == "plain bold italic code gone")
     }
 
-    /// **Nesting survives as combination**, which is the flattening's whole contract: bold inside a
-    /// link is one run that is both, not a link that lost its emphasis.
+    /// Nesting survives as combination, the flattening's whole contract: bold inside a link is one
+    /// run that is both, not a link that lost its emphasis.
     @Test func nestedStylesCombineOnOneRun() {
         let parsed = blocks("[**bold link**](https://example.com)\n")
         guard case .paragraph(let text) = parsed.first?.kind,
@@ -249,12 +247,9 @@ import Foundation
         #expect(text.runs.count == 1, "an unstyled sentence came back as \(text.runs.count) runs")
     }
 
-    /// **This asserted a paragraph until images became drawable, and the claim it was making has
-    /// survived the change intact.** A lone image is its own block now, so the walk carries the
-    /// source and the alt text instead of flattening them into a placeholder string — but nothing
-    /// here fetches anything, and a remote source is still refused. The refusal moved to
-    /// `MarkdownImageSource`, which is where the decision now lives, and this checks both halves so
-    /// the promise is not left resting on the other suite alone.
+    /// A lone image is its own block, carrying the source and alt text, but nothing here fetches
+    /// anything and a remote source is refused. The refusal is decided in `MarkdownImageSource`;
+    /// this checks both halves so the promise doesn't rest on that suite alone.
     @Test func aRemoteImageIsCarriedButNeverFetched() {
         let parsed = blocks("![a diagram](https://example.com/x.png)\n")
         guard case .image(let source, let alt) = parsed.first?.kind else {
@@ -285,14 +280,9 @@ import Foundation
         #expect(text.plain.count > 100_000)
     }
 
-    /// Every byte sequence is *some* Markdown document, so the walk has no error path — what it has
-    /// to survive is a shape it does not model, and the rule is that such a shape becomes text
-    /// rather than disappearing.
-    ///
-    /// **Each fixture is asserted, not merely run.** The loop body was `_ = blocks(source)` for
-    /// every case but the last: five of the six were a crash smoke test wearing a doc comment that
-    /// promised the shapes survive, and returning `[]` for indented code, `***`, a link-reference
-    /// definition or a ragged table would have gone unnoticed.
+    /// Every byte sequence is some Markdown document, so the walk has no error path; what it must
+    /// survive is a shape it doesn't model, and such a shape becomes text rather than disappearing.
+    /// Each fixture is asserted, not merely run, so returning `[]` for any of them fails.
     @Test func unusualInputDoesNotCrashAndDoesNotVanish() {
         for source in ["<div>raw html</div>\n", "    indented code\n", "***\n",
                        "[ref]: https://example.com\n\nSee [ref].\n",
@@ -309,16 +299,13 @@ import Foundation
         #expect(!html.isEmpty, "an HTML block vanished from the preview")
     }
 
-    /// **A line starting with `@` is prose, not a directive.**
+    /// A line starting with `@` is prose, not a directive.
     ///
-    /// The walk asked for `.parseBlockDirectives` — a DocC extension, not Markdown. The parser
-    /// opens a directive on a bare `@` plus a name, with no parentheses and no braces, and
-    /// explicitly accepts "garbage after the opening"; the resulting node fell to the walk's
-    /// fallback arm, which renders an unknown node with `markup.format()` — and the formatter
-    /// prints a directive by wrapping its arguments in PARENTHESES and dropping the inline styling.
-    /// So a note containing `@channel ping me about **the invoice**` was shown to its author with
-    /// brackets it had never typed and the bold silently gone. `@media` in an unfenced CSS snippet,
-    /// `@2x` and an `@username` at the start of a line all did the same.
+    /// With `.parseBlockDirectives` (a DocC extension, not Markdown) the parser opens a directive
+    /// on a bare `@` plus a name, and the walk's fallback arm renders an unknown node with
+    /// `markup.format()`, which wraps a directive's arguments in parentheses and drops the inline
+    /// styling. A note's `@channel ping me about **the invoice**`, `@media` in unfenced CSS, `@2x`
+    /// or an `@username` at the start of a line would show brackets never typed and lose its bold.
     @Test func aLineBeginningWithAnAtSignIsRenderedAsTheProseItIs() {
         let parsed = blocks("@channel ping me about **the invoice**\n")
         let text = try? #require(parsed.first.flatMap { block -> MarkdownText? in
@@ -333,9 +320,9 @@ import Foundation
                 "the bold run was flattened away")
     }
 
-    /// Nesting is carried as a number and the document decides how big it gets; the preview clamps
-    /// what it DRAWS, but the walk must still report the real depth rather than capping or
-    /// crashing. A forwarded mail thread is routinely eight to fifteen levels.
+    /// Nesting is carried as a number and the document decides how deep it goes. The preview clamps
+    /// what it draws, but the walk must report the real depth rather than capping or crashing. A
+    /// forwarded mail thread is routinely eight to fifteen levels.
     @Test func deepNestingIsCountedRatherThanClamped() {
         let quoted = String(repeating: "> ", count: 20) + "deep\n"
         let block = try? #require(blocks(quoted).first)
@@ -348,9 +335,9 @@ import Foundation
 
     // MARK: Source lines
 
-    /// The line is what every caller of the outline, the task toggle and the split sync asks for,
-    /// so the first thing worth pinning is that the parser reports one at all — a walk that
-    /// silently answered `nil` everywhere would leave all three features inert and passing.
+    /// Every caller of the outline, the task toggle and the split sync asks for the line, so first
+    /// pin that the parser reports one at all: a walk answering `nil` everywhere would leave all
+    /// three features inert and passing.
     @Test func everyBlockKnowsTheLineItStartsOn() {
         let parsed = blocks("""
         # Title
@@ -366,9 +353,9 @@ import Foundation
                 "the walk reported lines \(parsed.map(\.line))")
     }
 
-    /// Lines are counted in the WHOLE document, not within the construct — a heading after a
-    /// twenty-line fence is on line 22, not line 2. This is the failure a walk that re-parsed
-    /// fragments would produce, and it looks correct in every short fixture.
+    /// Lines are counted in the whole document, not within the construct: a heading after a
+    /// twenty-line fence is on line 22, not line 2. A walk that re-parsed fragments would get this
+    /// wrong, and look correct in every short fixture.
     @Test func linesAreCountedFromTheTopOfTheDocument() {
         let source = "```\n" + String(repeating: "x\n", count: 20) + "```\n\n# Late\n"
         let parsed = blocks(source)
@@ -393,8 +380,8 @@ import Foundation
         #expect(tasks == [3, 4, 5], "the task lines came back as \(tasks)")
     }
 
-    /// Quoted content keeps the line it is written on rather than the quote's opening line — the
-    /// quote recurses into its children and each child carries its own range.
+    /// Quoted content keeps the line it is written on, not the quote's opening line: the quote
+    /// recurses into its children and each child carries its own range.
     @Test func aQuotedBlockReportsItsOwnLineNotTheQuotesFirst() {
         let parsed = blocks("> one\n>\n> two\n")
         #expect(parsed.map(\.line) == [1, 3], "quoted blocks reported \(parsed.map(\.line))")

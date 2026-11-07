@@ -2,26 +2,19 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins `CloudOnlyBadgeCache`'s invalidation race.
-///
-/// The badge is resolved by a stat that runs OFF the main actor, so an invalidation can land while
-/// one is in flight. Before the generation guard the resuming stat wrote its now-superseded answer
-/// straight back into the freshly-cleared memo, where it served every later realization of that row
-/// until the next republish. `forget(_:)` is the sharper case: it is called precisely because a
-/// download was requested, so the in-flight answer it races is the stale "still cloud-only" one it
-/// exists to discard.
+/// Pins `CloudOnlyBadgeCache`'s invalidation race. The badge stat runs off the main actor, so an
+/// invalidation can land while one is in flight; a resuming stat must not write its superseded
+/// answer back into the cleared memo, where it would serve the row until the next republish.
+/// `forget(_:)` is the sharp case: it runs because a download was requested, so the answer it races
+/// is the stale "still cloud-only" one.
 ///
 /// `.serialized` because the cache is process-wide static state and these tests write it.
 @Suite(.serialized) struct CloudOnlyBadgeCacheTests {
 
-    /// Every root these fixtures use, and nothing else. `.serialized` orders this suite against
-    /// ITSELF; the memo is shared with every OTHER suite running in parallel, several of which
-    /// mount panes that record badges and republish. The whole-table reset this replaced (the
-    /// parameterless `clear()`, since removed) wiped their entries too — which is how it was found:
-    /// `CloudDownloadWatchTests` failed intermittently because this file cleared its memo mid-test.
-    ///
-    /// The `memo-` prefixes exist for the same reason: `/root` is a fixture root in several mounted
-    /// pane suites, whose republishes issue a scoped clear of exactly that.
+    /// Clears every root these fixtures use, and nothing else. `.serialized` orders this suite only
+    /// against itself; the memo is shared with parallel suites that mount panes, and a whole-table
+    /// wipe would clear their entries mid-test. The `memo-` prefixes avoid `/root`, which mounted
+    /// pane suites use and clear on republish.
     @MainActor
     private func reset() {
         for root in ["/fixture", "/left", "/right", "/a", "/memo-root", "/memo-rootling", "/scoped"] {
@@ -48,14 +41,14 @@ import Foundation
         let answer = await CloudOnlyBadgeCache.isCloudOnly(
             atPath: path, stat: statThatInvalidates { reset() })
 
-        // The caller still gets the answer — it is their best available truth.
+        // The caller still gets the answer: it is the best truth available.
         #expect(answer)
         // But the memo must not hold it: the clear said everything it knew was stale.
         #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
-    /// Mutation guard: with no invalidation in the window, the very same call DOES memoize. Without
-    /// this, the assertion above would pass just as well if the cache had stopped memoizing at all.
+    /// With no invalidation in the window the same call does memoize; otherwise the test above would
+    /// pass for a cache that never memoizes.
     @MainActor
     @Test func aStatWithNoInvalidationIsMemoized() async {
         reset()
@@ -67,9 +60,8 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == true)
     }
 
-    /// `forget(_:)` must invalidate an in-flight stat too. This is the download path: the row asked
-    /// for the file, `forget` dropped the pre-download answer, and a stat that started before that
-    /// must not put "still cloud-only" back — which would undo the poll's whole purpose.
+    /// `forget(_:)` invalidates an in-flight stat too. On the download path it drops the
+    /// pre-download answer, and a stat started earlier must not put "still cloud-only" back.
     @MainActor
     @Test func aStatSpanningAForgetIsNotMemoized() async {
         reset()
@@ -82,9 +74,8 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
-    /// A `forget` of a DIFFERENT path also invalidates. That is deliberate over-invalidation: the
-    /// generation is one counter, so the cost of a rare extra `lstat` buys a guard with no
-    /// per-path bookkeeping to get wrong.
+    /// A `forget` of a different path also invalidates, on purpose: the generation is one counter,
+    /// so a rare extra `lstat` buys a guard with no per-path bookkeeping to get wrong.
     @MainActor
     @Test func aForgetOfAnotherPathAlsoDeclinesToMemoize() async {
         reset()
@@ -97,7 +88,7 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
-    /// A hit short-circuits before the stat runs at all — the memo's whole reason to exist.
+    /// A hit returns before the stat runs at all, which is the memo's purpose.
     @MainActor
     @Test func aCachedAnswerSkipsTheStatEntirely() async {
         reset()
@@ -114,9 +105,9 @@ import Foundation
         #expect(!statRan)
     }
 
-    /// `record` stays an unconditional primitive: the download poll calls it with an observation
-    /// made AFTER any invalidation it might have raced, so it is fresher than what was cleared and
-    /// must land. Only the memoizing tail of `isCloudOnly` is generation-guarded.
+    /// `record` is unconditional: the download poll calls it with an observation made after any
+    /// invalidation it raced, so it is fresher and must land. Only `isCloudOnly`'s memoizing tail is
+    /// generation-guarded.
     @MainActor
     @Test func recordIsNotGenerationGuarded() {
         reset()
@@ -128,15 +119,10 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == false)
     }
 
-    /// An answer RECORDED while a stat was out wins over that stat's own, later, staler one.
-    ///
-    /// The generation counter cannot see this: `record` does not bump it, and must not — bumping
-    /// there would have one row's answer invalidate every other row's in-flight stat, and a `List`
-    /// realizes rows by the dozen. So the memoizing tail checks the entry itself instead. The case
-    /// that matters is narrow and real: a download's watch records `false` the moment the content
-    /// lands, while the arming re-stat for the same row is still out carrying the pre-download
-    /// `true`. Without this the resuming stat wrote that `true` straight over the landed answer, and
-    /// the badge went on claiming cloud-only for a file on disk until the next republish.
+    /// An answer recorded while a stat was out beats that stat's later, staler one. `record` doesn't
+    /// bump the generation (see below), so the memoizing tail checks the entry itself. The real
+    /// case: a watch records `false` as the content lands while the arming re-stat is still out with
+    /// the pre-download `true`, which would otherwise keep a cloud badge on a local file.
     @MainActor
     @Test func anAnswerRecordedWhileTheStatWasOutIsNotOverwritten() async {
         reset()
@@ -153,14 +139,11 @@ import Foundation
                 "the resuming stat overwrote an answer that had seen more than it did")
     }
 
-    /// And ANOTHER path's `record` leaves this stat free to memoize — the reason the check above is
-    /// per-entry rather than a generation bump inside `record`.
-    ///
-    /// Bumping there is the obvious one-line alternative and it is wrong: a `List` realizes rows by
-    /// the dozen, every one of them stats and records, so each landing answer would invalidate every
-    /// other stat still in flight and the memo would write almost nothing during exactly the
-    /// scrolling it exists for. This is the contrast with `aForgetOfAnotherPathAlsoDeclinesToMemoize`
-    /// — a forget IS deliberately global, because it throws an answer away; a record only adds one.
+    /// Another path's `record` leaves this stat free to memoize, which is why the check above is
+    /// per-entry, not a generation bump in `record`. A `List` realizes rows by the dozen, each
+    /// stat-and-record, so a bump would leave the memo writing almost nothing while scrolling.
+    /// Contrast `aForgetOfAnotherPathAlsoDeclinesToMemoize`: a forget throws an answer away, so it
+    /// is global; a record only adds one.
     @MainActor
     @Test func anotherPathsRecordDoesNotStopThisStatMemoizing() async {
         reset()
@@ -180,34 +163,15 @@ import Foundation
 
     // MARK: - A stat that could not answer
 
-    /// The memo's other door onto the same defect.
+    /// A stat that can't answer memoizes nothing. The badge's stat must not fold "can't stat" into
+    /// `false`, or a row for a just-vanished path memoizes "local content" for a missing file and is
+    /// served it without a syscall. The caller still gets `false` (no badge either way), so this is
+    /// purely a caching rule. Uses the production stat, since that mapping is what's under test.
     ///
-    /// The harm the download poll's three-way probe closed is "an entry asserting local content for
-    /// a file that does not exist" — but the poll was only one of two writers into this table. The
-    /// badge's own stat kept calling the two-way `MaterializationStatus.isCloudOnly`, which folds
-    /// "cannot stat" into `false`, so a row realized for a path that had just vanished memoized
-    /// exactly that entry by the other route, and every later realization of the row was served it
-    /// without a syscall.
-    ///
-    /// The caller still gets `false` — rendering is unchanged, a row for a file that is not there
-    /// carries no badge either way — so this is a caching decision and only a caching decision.
-    ///
-    /// The production default, not an injected stand-in, because that mapping is the whole fix.
-    ///
-    /// **On a `Table` of its own, and that is what keeps it from going vacuous.** The production
-    /// stat is a real suspension off the main actor, so this call is out across a window other
-    /// suites are running in — and any `forget`/`clear` any of them makes bumps the generation the
-    /// memo guards on. On the SHARED table the mutation this test exists to catch
-    /// (`record(path, answer ?? false)`) would then decline for the wrong reason and the test would
-    /// pass with the defect present. This cluster made that likelier still:
-    /// `PaneDownloadWatch.begin`
-    /// now forgets synchronously per request. A private table cannot be bumped by anything but this
-    /// test, so a `nil` here is the rule and not a collision.
-    ///
-    /// The rule is also pinned deterministically at the seam by
-    /// `anInjectedStatWithNoAnswerIsNotMemoized`;
-    /// this is the redundant end-to-end reading of it, and redundancy that can pass for the wrong
-    /// reason is worth nothing.
+    /// On a `Table` of its own so it can't go vacuous: the real stat suspends off the main actor,
+    /// and on the shared table any parallel `forget` or `clear` (`PaneDownloadWatch.begin` forgets
+    /// per request) would bump the generation and make `record(path, answer ?? false)` decline for
+    /// the wrong reason. `anInjectedStatWithNoAnswerIsNotMemoized` pins the rule at the seam.
     @MainActor
     @Test func aStatThatCouldNotAnswerIsNotMemoized() async {
         let gone = "/fixture/vanished-\(UUID().uuidString).bin"
@@ -220,9 +184,8 @@ import Foundation
                 "the memo holds an entry asserting local content for a path with no file behind it")
     }
 
-    /// The same rule at the seam, so the branch is pinned without depending on the filesystem —
-    /// and so the mutation guard for it (`aStatWithNoInvalidationIsMemoized`, which proves a
-    /// DEFINITE answer still memoizes) sits beside it on the same injected path.
+    /// The same rule at the seam, without the filesystem, beside its guard
+    /// `aStatWithNoInvalidationIsMemoized`, which shows a definite answer still memoizes.
     @MainActor
     @Test func anInjectedStatWithNoAnswerIsNotMemoized() async {
         reset()
@@ -236,8 +199,7 @@ import Foundation
 
     // MARK: - Root-scoped clear (C11)
 
-    /// The reason `clear(underRoot:)` exists: one pane's republish must not wipe the answers the
-    /// OTHER pane's rows are still serving from.
+    /// One pane's republish must not wipe the answers the other pane's rows still serve from.
     @MainActor
     @Test func aScopedClearDropsOnlyEntriesUnderItsRoot() {
         reset()
@@ -249,12 +211,12 @@ import Foundation
 
         #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == nil)
         #expect(CloudOnlyBadgeCache.cached("/left/sub/b.bin") == nil)
-        // The other pane's memo survives — the entire point of the scoping.
+        // The other pane's memo survives.
         #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == true)
     }
 
-    /// Prefix semantics are per path component: `/a/bc` is NOT under `/a/b`, and a character-wise
-    /// `hasPrefix(root)` would have said it was.
+    /// Prefixes match per path component: `/a/bc` is not under `/a/b`, though a character-wise
+    /// `hasPrefix(root)` would say it is.
     @MainActor
     @Test func aScopedClearDoesNotMatchSiblingsSharingACharacterPrefix() {
         reset()
@@ -282,11 +244,9 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/memo-rootling/y.bin") == true)
     }
 
-    /// The regression this guard exists for: `SettingsManager.rootPath(for:)` answers `""` for a
-    /// provider id it cannot resolve, `PaneLogic.fullPath` passes `""` through, and the empty root
-    /// then normalized to the prefix `"/"` — which EVERY absolute key matches. A pane whose
-    /// provider failed to resolve republished its empty tree and wiped the other pane's answers:
-    /// the global wipe the scoping was added to remove, through a side door.
+    /// `SettingsManager.rootPath(for:)` answers `""` for a provider it can't resolve, and
+    /// `PaneLogic.fullPath` passes it through. Normalized to the prefix `"/"`, it would match every
+    /// key, so that pane's republish would wipe the other pane's answers.
     @MainActor
     @Test func anEmptyRootClearsNothing() {
         reset()
@@ -299,9 +259,8 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == false)
     }
 
-    /// Same guard, stated as a rule rather than as one input: only an ABSOLUTE root scopes a clear.
-    /// A relative string cannot be a prefix of a key the walk produced, so matching it would either
-    /// take nothing or — as `""` did — take everything.
+    /// The same guard as a rule: only an absolute root scopes a clear. A relative string can't
+    /// prefix a key the walk produced, so matching it would take nothing or, like `""`, everything.
     @MainActor
     @Test func aRelativeRootClearsNothing() {
         reset()
@@ -312,11 +271,9 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
     }
 
-    /// A no-op clear must not bump the generation either: nothing was invalidated, so a stat in
-    /// flight across it still holds this memo's best available truth and may memoize.
-    ///
-    /// This is the mutation guard for the two tests above — a `clear(underRoot:)` that returned
-    /// early but still bumped would pass them while quietly costing every in-flight stat.
+    /// A no-op clear doesn't bump the generation: nothing was invalidated, so a stat in flight
+    /// across it may memoize. Fails if `clear(underRoot:)` returns early but still bumps, which the
+    /// two tests above would miss.
     @MainActor
     @Test func aStatSpanningAnEmptyRootClearIsStillMemoized() async {
         reset()
@@ -329,13 +286,9 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == true)
     }
 
-    /// The filesystem root is exempt from the absolute-path guard rather than special-cased by it:
-    /// it normalizes to `""`, whose descendant prefix is `/`, so a pane genuinely rooted there
-    /// covers every absolute entry — the truthful answer for that root.
-    ///
-    /// Asserted against the scope value, NOT by clearing the real table: a test that cleared `/`
-    /// to prove `/` covers everything would wipe the memo out from under every suite running in
-    /// parallel, which is precisely the class of bug this file is about.
+    /// The filesystem root passes the absolute-path guard: it normalizes to `""`, whose descendant
+    /// prefix is `/`, so a pane rooted there covers every absolute entry, truthfully. Asserted on
+    /// the scope value, since clearing `/` on the real table would wipe every parallel suite's memo.
     @Test func theFilesystemRootScopesEveryAbsoluteEntry() throws {
         let scope = try #require(CloudOnlyBadgeCache.ClearScope(root: "/"))
 
@@ -343,17 +296,16 @@ import Foundation
         #expect(scope.contains("/right/c.bin"))
     }
 
-    /// The guard, as a value: an unresolvable provider's root scopes NOTHING, so there is no
-    /// filter for it to run and no generation for it to bump.
+    /// The guard as a value: an unusable root has no scope, so there is no filter to run and no
+    /// generation to bump.
     @Test func anUnusableRootHasNoScopeAtAll() {
         #expect(CloudOnlyBadgeCache.ClearScope(root: "") == nil)
         #expect(CloudOnlyBadgeCache.ClearScope(root: "left") == nil)
         #expect(CloudOnlyBadgeCache.ClearScope(root: "~/iCloud") == nil)
     }
 
-    /// Every trailing separator is normalized away, not just one: dropping a single character from
-    /// `/root//` left the prefix `/root//`, which matches no key the tree walk ever produced — a
-    /// clear that silently took nothing.
+    /// Every trailing separator is normalized away, not just one; `/root//` trimmed once would
+    /// match no key the walk produced, and the clear would silently take nothing.
     @MainActor
     @Test func aScopedClearNormalizesRepeatedTrailingSeparators() {
         reset()
@@ -366,11 +318,10 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/memo-rootling/y.bin") == true)
     }
 
-    /// Matching is case-SENSITIVE, and that is a decision rather than an oversight: the memo is a
-    /// dictionary, so `cached(_:)` already is. Keys come from the tree walk and roots from
-    /// `PaneLogic.fullPath`; today they agree by lineage (the walk descends from that very root
-    /// string), which is an accident of plumbing worth pinning so a future case-folding of either
-    /// side shows up here rather than as a badge that never refreshes.
+    /// Matching is case-sensitive, by decision: the memo is a dictionary, so `cached(_:)` already
+    /// is. Keys come from the tree walk and roots from `PaneLogic.fullPath`, which agree because the
+    /// walk starts from that root string; pinned so case-folding either side shows up here, not as
+    /// a badge that never refreshes.
     @MainActor
     @Test func aScopedClearIsCaseSensitive() {
         reset()
@@ -381,8 +332,8 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == true)
     }
 
-    /// A scoped clear preserves the generation semantics: a stat in flight when it lands must not
-    /// memoize its now-stale answer — same contract as the whole-table `clear()`.
+    /// A scoped clear bumps the generation: a stat in flight when it lands must not memoize its
+    /// now-stale answer.
     @MainActor
     @Test func aStatSpanningAScopedClearIsNotMemoized() async {
         reset()
@@ -395,20 +346,14 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
-    /// The capacity wipe is a bulk invalidation and must bump the generation like every other one.
+    /// The capacity wipe is a bulk invalidation and must bump the generation like any other.
+    /// `isCloudOnly` memoizes only if the generation hasn't moved and the entry is still nil. A wipe
+    /// can remove an answer written while the stat was out (a watch's landed `false`), leaving the
+    /// entry nil; without a bump the stat would write its pre-download `true` back in.
     ///
-    /// This is the door the per-entry check could not see. `isCloudOnly`'s guard is "the generation
-    /// has not moved AND this entry is still nil", and its soundness argument is that anything
-    /// written while we were out is newer than us. The wipe breaks it from the other side: an
-    /// answer written while we were out — a download's watch recording `false` the moment content
-    /// arrives — can be REMOVED while we are still out, leaving the entry nil again and the counter
-    /// untouched, so the resuming stat wrote its pre-download `true` straight back in. That is
-    /// verbatim the defect the per-entry check exists to close.
-    ///
-    /// Driven on a `Table` of its own because reaching the wipe means filling the table, and
-    /// filling the process-wide memo would drop the entries every suite running in PARALLEL is
-    /// asserting on — mechanism 9 in `docs/flaky-tests.md`. That is the whole reason the seam
-    /// exists; `.serialized` orders this suite against itself only.
+    /// On a `Table` of its own: reaching the wipe means filling the table, and filling the
+    /// process-wide memo would drop entries parallel suites assert on (`docs/flaky-tests.md`, "A
+    /// mounted view is a live subscriber, in every suite at once").
     @MainActor
     @Test func aStatSpanningTheCapacityWipeIsNotMemoized() async {
         let table = CloudOnlyBadgeCache.Table(capacity: 2)
@@ -421,16 +366,15 @@ import Foundation
             return true
         })
 
-        // The caller still gets its answer — it is their best available truth.
+        // The caller still gets its answer: it is the best truth available.
         #expect(answer)
-        // But the wipe threw away everything the memo knew, including whatever was written while
-        // this stat was out, so this answer must not be adopted.
+        // But the wipe dropped whatever was written while this stat was out, so the answer must not
+        // be adopted.
         #expect(table.cached(path) == nil)
     }
 
-    /// Mutation guard for the test above: with no wipe in the window, the very same `Table` DOES
-    /// memoize. Without this, that assertion would pass just as well if the seam never memoized at
-    /// all — which is exactly how a test over a fresh instance goes quietly vacuous.
+    /// With no wipe in the window the same `Table` does memoize; otherwise the test above would pass
+    /// for a seam that never memoizes.
     @MainActor
     @Test func aStatOnItsOwnTableWithNoWipeIsMemoized() async {
         let table = CloudOnlyBadgeCache.Table(capacity: 2)

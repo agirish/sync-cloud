@@ -4,26 +4,13 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// Measures the boundary between the count pill's age run and the accent capsule behind it, in
-/// PAINTED PIXELS.
-///
-/// This suite exists because the obvious protection does not work. The ring around the age run is
-/// the whole reason a semantic capsule may be nested inside an accent one: measured, `.neutral` on
-/// the Indigo accent is 2.68:1 and `.attention` on it 3.08:1, so the inset fill cannot be relied on
-/// to separate itself, and the ring — `onAccentLabelColor`, guaranteed ≥4.55:1 against every accent
-/// fill by `AccentFill.deepened` — is what does. But deleting the ring and re-running
-/// `countPillFreshnessStates` PASSES: a 1pt stroke around two small capsules is a smaller share of
-/// the frame than that snapshot's 0.99/0.98 tolerance absorbs. A reference that green-lights the
-/// defect it was written to catch is worse than none, so the guarantee is measured here instead.
-///
-/// What is measured is the GUARANTEE, not the implementation: walk in from the edge of a bare
-/// accent field until the paint changes, and require that first changed pixel to clear 3:1 against
-/// the field. That is the actual rule for a non-text boundary. It does not care whether the
-/// separation comes from a ring, a shadow or a differently-chosen fill — only that it is there.
-///
-/// Counting "white pixels" was the first attempt and is recorded here because it looked reasonable
-/// and was not: the ring is white, and the LIGHT semantic fills are themselves near-white
-/// (`.attention` is rgb(0.97, 0.90, 0.86)), so no tolerance separates ring from fill in light mode.
+/// Measures, in painted pixels, the boundary between the count pill's age run and the accent
+/// capsule behind it. The ring (`onAccentLabelColor`, ≥4.55:1 against every accent fill by
+/// `AccentFill.deepened`) is what lets a semantic capsule nest inside an accent one: the inset fill
+/// alone can fall to 2.68:1. The `countPillFreshnessStates` snapshot can't guard it, since its
+/// tolerance absorbs a 1pt stroke. So this walks in from the bare accent field to the first changed
+/// pixel and requires 3:1, the rule for a non-text boundary, whatever provides the separation.
+/// Counting white pixels can't work: the light semantic fills are near-white too.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct StatPillDetailRingTests {
 
@@ -66,10 +53,8 @@ import Testing
     }
 
     /// Walks the frame's middle row inward and returns the contrast between the accent field and
-    /// the first pixel that departs from it by more than anti-aliasing noise.
-    ///
-    /// Returns nil when the row never changes — which would mean nothing was drawn at all, and is
-    /// reported as a failure by the caller rather than silently skipped.
+    /// the first pixel that departs from it by more than anti-aliasing noise. Nil when the row
+    /// never changes, meaning nothing was drawn; the caller reports that as a failure.
     private func edgeContrast(in rep: NSBitmapImageRep) -> Double? {
         let midY = rep.pixelsHigh / 2
         guard let field = rep.colorAt(x: 1, y: midY)?.usingColorSpace(.sRGB) else { return nil }
@@ -85,18 +70,11 @@ import Testing
         return nil
     }
 
-    /// Every family, every appearance, every hue: the age run's edge separates from the accent it
-    /// sits on by at least the 3:1 a non-text boundary needs.
-    ///
-    /// Mutation-tested by deleting the `.overlay` in `DetailRunCapsule`: cases fail across hues and
-    /// BOTH appearances, bottoming out around 2.7:1.
-    ///
-    /// That is worse than the pure-colour arithmetic predicts, and the gap is the point of
-    /// measuring pixels. `SemanticCapsuleTests` computes light `.attention` on the system accent at
-    /// 3.74:1 from the colour values — comfortably clear — yet the painted edge measures 2.86:1,
-    /// because the first pixel that departs from the field is an anti-aliased blend of fill and
-    /// accent, not the fill itself. The colours clear the floor; the edge the eye actually sees
-    /// does not. Nothing computed from the palette would have caught that.
+    /// Every family, appearance and hue: the age run's edge separates from the accent by at least
+    /// the 3:1 a non-text boundary needs. Deleting the `.overlay` in `DetailRunCapsule` must fail
+    /// it. Pixels, not palette arithmetic: the first departing pixel is an anti-aliased blend of
+    /// fill and accent, so the painted edge can fall short (2.86:1) where the colours clear
+    /// (3.74:1).
     @Test func theAgeRunsEdgeClearsThreeToOneOnEveryAccent() {
         for hue in LiquidGlassHue.allCases {
             for family in SemanticCapsuleFamily.allCases {
@@ -114,13 +92,10 @@ import Testing
         }
     }
 
-    /// Guards the measurement: it must be reading the RING, not the fill behind it.
-    ///
-    /// Same geometry, but the ring is drawn in its own capsule's fill colour — still a stroke, just
-    /// invisible against what it encloses. On the hue and state where the fill is known to fail
-    /// (`.neutral` on Indigo in dark, 2.68:1) the edge must now come back UNDER 3:1. If it did not,
-    /// the assertion above would be passing on something other than the ring and would keep passing
-    /// with the ring deleted — the false green this suite exists to escape.
+    /// Guards the measurement: it must read the ring, not the fill behind it. Same geometry with
+    /// the ring drawn in its capsule's own fill colour, on the pair where the fill alone fails
+    /// (`.neutral` on Indigo in dark, 2.68:1): the edge must come back under 3:1, or the test above
+    /// would pass with the ring deleted.
     @Test func withoutTheRingTheWorstPairFallsBelowTheFloor() {
         let style = SemanticCapsuleStyle.of(.neutral, .dark)
         let rep = render(subject(style, ring: style.fill, on: .indigo), .darkAqua)

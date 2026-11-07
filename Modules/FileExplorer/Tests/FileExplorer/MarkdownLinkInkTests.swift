@@ -4,20 +4,18 @@ import Testing
 import Design
 @testable import FileExplorer
 
-/// **A link in Markdown Preview reads as text, in the window's hue (FE2).**
+/// A link in Markdown Preview reads as text, in the window's hue.
 ///
-/// Both Previews drew links in the RAW accent: 3.7:1 on white at Blue, 2.7:1 at Green and Coral,
-/// 2.2:1 at Amber, against the 4.5:1 body text needs. They now take `ChromeInk.bodyText` — deepened
-/// in light, lifted in dark — read-only through `MarkdownBlockView.linkInk`, editable through
-/// `PreviewEditorView.linkInk`.
+/// The raw accent misses the 4.5:1 body text needs on white (as low as 2.2:1 at Amber), so both
+/// Previews take `ChromeInk.bodyText`, deepened in light and lifted in dark: read-only through
+/// `MarkdownBlockView.linkInk`, editable through `PreviewEditorView.linkInk`.
 ///
-/// **The ground.** Preview draws no background of its own (`PreviewEditorView` turns
-/// `drawsBackground` off; `MarkdownPreview` paints none), so its ground is the pane's. The ground
-/// that can be resolved off screen is the pane at Solid and Tint 0 — `controlBackgroundColor`, white
-/// in light and 0.118 in dark — and the app's sheets either side of it (0.96 light, 0.13 dark), the
-/// grounds `SemanticInkContrastTests` holds the same ink to. Glass panes and a raised Tint put the
-/// hue's own wash under the text, which nothing off screen can render (`.glassEffect` draws
-/// nothing there), so those are not measured here.
+/// Preview draws no background of its own (`PreviewEditorView` turns `drawsBackground` off;
+/// `MarkdownPreview` paints none), so its ground is the pane's. Measured here: the pane at Solid
+/// and Tint 0 (`controlBackgroundColor`, white in light and 0.118 in dark) and the app's sheets
+/// either side of it (0.96 light, 0.13 dark), the grounds `SemanticInkContrastTests` uses. Glass
+/// panes and a raised Tint put the hue's own wash under the text, which nothing off screen can
+/// render (`.glassEffect` draws nothing there), so those are not measured.
 @MainActor
 @Suite struct MarkdownLinkInkTests {
 
@@ -53,8 +51,8 @@ import Design
             && abs(a.blueComponent - b.blueComponent) < 0.002
     }
 
-    /// **The fixture reproduces the defect**: the raw accent misses the floor on the light pane for
-    /// the hues the review measured, so the test below cannot pass with the raw accent drawn.
+    /// The fixture can see the problem: the raw accent misses the floor on the light pane for these
+    /// hues, so the test below can't pass with the raw accent drawn.
     @Test func theRawAccentMissesTheFloor() throws {
         let pane = try #require(Self.grounds(dark: false).first?.1)
         for hue in [LiquidGlassHue.green, .coral, .amber, .blue] {
@@ -63,8 +61,8 @@ import Design
         }
     }
 
-    /// **Every hue, both appearances, both Previews, at 4.5:1 or better** — and the two Previews
-    /// draw one colour, so turning Edit in Preview on or off does not change a link.
+    /// Every hue, both appearances, both Previews, at 4.5:1 or better, and the two Previews draw
+    /// one colour, so turning Edit in Preview on or off doesn't change a link.
     @Test func everyHueReadsAsTextInBothPreviewsAndBothAppearances() {
         for hue in LiquidGlassHue.allCases {
             for dark in [false, true] {
@@ -82,8 +80,8 @@ import Design
         }
     }
 
-    /// The editable ink picks its shade where it is DRAWN: one `NSColor`, deepened in light and
-    /// lifted in dark — not whichever appearance was current when the page was built.
+    /// The editable ink picks its shade where it is drawn: one `NSColor`, deepened in light and
+    /// lifted in dark, not whichever appearance was current when the page was built.
     @Test func theEditableInkFollowsTheAppearanceItIsDrawnIn() {
         let hue = LiquidGlassHue.indigo.accentColor
         let ink = Color(nsColor: PreviewEditorView.linkInk(hue))
@@ -96,7 +94,7 @@ import Design
                 "the dark shade is \(dark)")
     }
 
-    /// **The call site: a link run is painted in that ink**, not the accent it was handed.
+    /// The call site: a link run is painted in that ink, not the accent it was handed.
     @Test func aLinkRunIsPaintedInTheReadableShade() throws {
         let run = MarkdownRun(text: "the plan", link: "https://example.com/plan")
         for dark in [false, true] {

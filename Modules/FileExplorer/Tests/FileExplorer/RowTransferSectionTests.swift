@@ -4,10 +4,10 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// **The row menu puts Cut, Copy, the two transfers and Paste Here in one section.** They sat in
-/// two — the transfers, a divider, then Cut / Copy / Paste Here. Paste Here comes last because it
-/// is the one item that acts on the clicked folder rather than on the selection. Read off the real
-/// row menu through `NSHostingMenu`, where a divider is an untitled separator item.
+/// The row menu puts Cut, Copy, the two transfers and Paste Here in one section, with no divider
+/// between. Paste Here comes last because it is the one item that acts on the clicked folder
+/// rather than the selection. Read off the real row menu through `NSHostingMenu`, where a divider
+/// is an untitled separator item.
 @MainActor
 @Suite struct RowTransferSectionTests {
 

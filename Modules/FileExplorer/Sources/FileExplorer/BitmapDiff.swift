@@ -1,16 +1,11 @@
 import CoreGraphics
 import Foundation
 
-/// A `CGImage` ferried across an actor hop.
-///
-/// `@unchecked` because `CGImage` carries no `Sendable` conformance, not because anything here is
-/// unsound: a `CGImage` is immutable once created, and every one wrapped here is created inside the
-/// render that produces it and handed on without being touched again.
-///
-/// **A `Data` round trip was the alternative and it was tried and removed** — encoding to PNG and
-/// decoding on the far side moves the decompression to whoever unwraps it, which for a preview is
-/// the main thread at draw time. The box is the shape `DuplicateThumbnail.RenderedThumbnail`
-/// already uses for the same hop.
+/// A `CGImage` ferried across an actor hop. `@unchecked` because `CGImage` has no `Sendable`
+/// conformance, not because anything is unsound: a `CGImage` is immutable, and each one wrapped
+/// here is created by the render that produces it and never touched again. Not a PNG `Data` round
+/// trip, which would move decompression to whoever unwraps it: the main thread at draw time. The
+/// same box `DuplicateThumbnail.RenderedThumbnail` uses for the same hop.
 struct SendableImage: @unchecked Sendable {
     let cgImage: CGImage
 
@@ -24,85 +19,64 @@ struct SendableImage: @unchecked Sendable {
 struct BitmapDiffResult: Equatable {
     /// Pixels that differ by more than the tolerance, as a fraction of the compared raster.
     let changedFraction: Double
-    /// One bounding rect per changed REGION, in the compared raster's pixel coordinates — what the
+    /// One bounding rect per changed region, in the compared raster's pixel coordinates: what the
     /// difference view's callouts are drawn from, and what "3 regions differ" counts.
     ///
-    /// **Regions, not cells, and the difference is the whole point of the field.** The comparison
-    /// marks 16-pixel cells (see ``BitmapDiff/cellSide``) because a per-pixel list on a 1600px page
-    /// is hundreds of thousands of rects, none of which is a thing anyone points at. But a cell is
-    /// not pointable either: one edited sentence lights eight adjacent cells, and "8 regions
-    /// differ" about one edit is a worse answer than "something differs". Touching cells are merged
-    /// into connected components — diagonally too, since a line of text lights a ragged edge — and
-    /// each component's bounding box is one region.
+    /// Regions, not cells. The comparison marks 16-pixel cells (``BitmapDiff/cellSide``), but one
+    /// edited sentence lights eight adjacent cells, and "8 regions differ" about one edit is wrong.
+    /// Touching cells, diagonals included, merge into connected components, and each component's
+    /// bounding box is one region.
     let changedRects: [CGRect]
-    /// True when the two images did not have the same pixel dimensions and one was rescaled to
-    /// compare. **Disclosed rather than hidden**: a rescale resamples, so a "0.4% differ" from a
-    /// mismatched pair is not the same claim as one from a matched pair, and a viewer that says
-    /// nothing invites it to be read as one.
+    /// True when the two images had different pixel dimensions and one was rescaled to compare.
+    /// Disclosed, because a rescale resamples, so "0.4% differ" from a mismatched pair isn't the
+    /// same claim as from a matched pair.
     let sizesDiffer: Bool
-    /// The alignment applied before comparing, or nil where none was — see ``PageRegistration``.
-    ///
-    /// **Disclosed for `sizesDiffer`'s reason, and more urgently.** A rescale changes what "0.4%
-    /// differ" means; a de-skew changes it further, and a reader told two scans line up when the
-    /// app quietly rotated one of them has been told something false about their documents. Nil
-    /// covers both "not attempted" and "attempted and refused", which read the same on screen: the
-    /// pages were compared as they are.
+    /// The alignment applied before comparing, or nil where none was (``PageRegistration``).
+    /// Disclosed for `sizesDiffer`'s reason, and more so: a reader told two scans line up when the
+    /// app quietly rotated one has been told something false about their documents. Nil covers
+    /// both "not attempted" and "attempted and refused", which read the same on screen: the pages
+    /// were compared as they are.
     var registration: PageRegistration? = nil
 
     var isIdentical: Bool { changedFraction == 0 }
 }
 
-/// Comparing two rendered pages, pixel by pixel.
+/// Comparing two rendered pages, pixel by pixel: a plain buffer loop, written around two traps.
 ///
-/// **The repo's first bitmap comparison** — there is no Core Image anywhere in the tree, no
-/// downsampler and no diff helper — so it is a plain buffer loop, and it is written around the two
-/// traps the one existing raster pipeline (the OCR extractor) documents.
+/// `bytesPerRow` is read back, never assumed. `CGContext(… bytesPerRow: 0 …)` lets CoreGraphics
+/// choose the stride, and it pads: a 1601-pixel-wide RGBA context is unlikely to have a 6404-byte
+/// row, and a loop indexing `y * width * 4` walks diagonally off the image and reports a page as
+/// almost entirely changed. Each image's stride is read separately; they need not agree.
 ///
-/// **`bytesPerRow` is read back, never assumed.** `CGContext(… bytesPerRow: 0 …)` asks CoreGraphics
-/// to choose the stride, and it pads: a 1601-pixel-wide RGBA context is very unlikely to have a
-/// 6404-byte row. A loop indexing `y * width * 4` walks diagonally off the image after the first
-/// row and reports a page as almost entirely changed. Both images' own strides are read from the
-/// data provider here, and they need not agree with each other.
-///
-/// **The comparison is on a redrawn RGBA raster, not on the source images' own buffers.** Two
-/// pages can be the same picture in two colour spaces, two alpha layouts and two bit depths, and
-/// nothing about "are these the same page" is answered by their storage. Redrawing both into one
-/// known format costs two blits and removes every one of those variables.
+/// The comparison is on a redrawn RGBA raster, not the source images' own buffers. Two pages can
+/// be the same picture in two colour spaces, alpha layouts and bit depths; redrawing both into one
+/// known format costs two blits and removes those variables.
 enum BitmapDiff {
 
     /// How far apart two channel values may be before the pixel counts as changed.
     ///
-    /// **Not zero, and the reason is anti-aliasing.** The same glyph rendered twice by the same
-    /// rasteriser at the same scale can land a fraction of a pixel differently — a re-saved PDF
-    /// re-embeds its fonts, and text edges then differ by a handful of levels everywhere while the
-    /// page is, to a reader, identical. At 0 tolerance such a pair reports "everything changed",
-    /// which is the same as reporting nothing. 12/255 clears typical edge jitter and is far below
-    /// any real content change (black text arriving on white moves a channel by ~255).
+    /// Not zero, because of anti-aliasing: the same glyph rendered twice can land a fraction of a
+    /// pixel differently (a re-saved PDF re-embeds its fonts), so text edges differ by a few levels
+    /// everywhere on a page a reader sees as identical. At 0 such a pair reports "everything
+    /// changed". 12/255 clears typical edge jitter and is far below real content change (black
+    /// text on white moves a channel by ~255).
     static let tolerance = 12
 
-    /// The grid the changed rects are aggregated on, in pixels. Coarse deliberately: these drive a
+    /// The grid the changed rects are aggregated on, in pixels. Coarse on purpose: these drive a
     /// strip dot and a highlight, and a rect list at pixel resolution is neither pointable nor
     /// affordable.
     static let cellSide = 16
 
     /// Compares two rasters. Returns nil only when a raster could not be built at all (a zero-sized
-    /// image, or a context CoreGraphics refused) — never as a stand-in for "no difference".
+    /// image, or a context CoreGraphics refused), never as a stand-in for "no difference".
     static func compare(_ left: CGImage, _ right: CGImage) -> BitmapDiffResult? {
         analyse(left, right, wantsDifferenceImage: false).result
     }
 
-    /// What comparing two pages found, and — only when asked — the picture of it.
-    ///
-    /// **One pass, because the two answers are one arithmetic.** `compare` and `differenceImage`
-    /// were separate entry points, and the difference view calls both: each redrew BOTH pages into
-    /// its own normalised raster and walked them, so a page shown in the difference mode was
-    /// normalised four times and walked twice for one set of numbers. Measured at 1600×2070: 9.1 ms
-    /// for the comparison and 11.7 ms for the image separately, against 9.9 ms for both together —
-    /// and ~53 MB less transient allocation, with the raster copies gone (see ``Raster``).
-    ///
-    /// The image is optional rather than always produced for the same reason it is worth fusing:
-    /// it is a third full-page raster (~13 MB at this size) that the swipe and onion modes never
-    /// draw.
+    /// What comparing two pages found, and, only when asked, the picture of it. One pass, because
+    /// the two answers are one arithmetic: separate walks would normalise each page twice over for
+    /// one set of numbers. The image is optional because it is a third full-page raster (~13 MB at
+    /// 1600×2070) that the swipe and onion modes never draw.
     static func analyse(_ left: CGImage, _ right: CGImage,
                         wantsDifferenceImage: Bool) -> (result: BitmapDiffResult?,
                                                         difference: CGImage?) {
@@ -133,9 +107,8 @@ enum BitmapDiff {
             for x in 0..<width {
                 let ia = rowA + x * 4
                 let ib = rowB + x * 4
-                // Three channels: the contexts are `noneSkipLast`, so byte 4 is padding
-                // and carries no colour. Comparing it would be comparing whatever
-                // CoreGraphics happened to leave there.
+                // Three channels: the contexts are `noneSkipLast`, so byte 4 is padding and holds
+                // whatever CoreGraphics left there.
                 let d0 = abs(Int(pa[ia]) - Int(pb[ib]))
                 let d1 = abs(Int(pa[ia + 1]) - Int(pb[ib + 1]))
                 let d2 = abs(Int(pa[ia + 2]) - Int(pb[ib + 2]))
@@ -163,15 +136,11 @@ enum BitmapDiff {
 
     /// Merges the touched cell grid into one bounding box per connected component.
     ///
-    /// **Eight-connectivity, not four.** A line of text lights a ragged edge of cells, and a
-    /// diagonal step between two of them is the same edit — four-connectivity would split one
-    /// changed paragraph into a handful of "regions" and report the count as the finding.
-    ///
-    /// An explicit stack rather than recursion: a page that changed everywhere is one component
-    /// covering every cell, which on a 1600×2000 raster is 12,500 deep.
-    ///
-    /// Sorted top-to-bottom then left-to-right, so the callouts a reader steps through are in
-    /// reading order rather than in whatever order the scan happened to reach them.
+    /// Eight-connectivity, not four: a line of text lights a ragged edge of cells, and a diagonal
+    /// step between two is the same edit, so four would split one changed paragraph into several
+    /// regions. An explicit stack, not recursion: a page changed everywhere is one component
+    /// covering every cell, 12,500 deep on a 1600×2000 raster. Sorted top to bottom, then left to
+    /// right, so the callouts a reader steps through are in reading order.
     static func regions(touched: [Bool], cells: Int, rows: Int,
                         width: Int, height: Int) -> [CGRect] {
         guard cells > 0, rows > 0 else { return [] }
@@ -197,9 +166,9 @@ enum BitmapDiff {
                     }
                 }
             }
-            // Clamped to the compared area: the trailing cell of a row or column is a partial one
-            // wherever the raster is not a multiple of `cellSide`, and a rect running past the
-            // page would draw a callout over nothing.
+            // Clamped to the compared area: the trailing cell of a row or column is partial
+            // wherever the raster isn't a multiple of `cellSide`, and a rect past the page would
+            // draw a callout over nothing.
             let x = minX * cellSide, y = minY * cellSide
             rects.append(CGRect(x: x, y: y,
                                 width: min((maxX + 1) * cellSide, width) - x,
@@ -211,21 +180,17 @@ enum BitmapDiff {
     /// The visual difference itself: the two rasters' per-channel distance, drawn as light on
     /// black, so a page that matches is black and a change glows.
     ///
-    /// The picture half of ``analyse(_:_:wantsDifferenceImage:)`` — one entry point, so the mode
-    /// that shows it and the mode that counts it are reading one computation.
+    /// The picture half of ``analyse(_:_:wantsDifferenceImage:)``, so the mode that shows it and
+    /// the mode that counts it read one computation.
     static func differenceImage(_ left: CGImage, _ right: CGImage) -> CGImage? {
         analyse(left, right, wantsDifferenceImage: true).difference
     }
 
     // MARK: Normalisation
 
-    /// A page redrawn into a known RGBA raster.
-    ///
-    /// **The context is held, and the pixels are read through it rather than copied out.** Both
-    /// readers used to take `Array(UnsafeBufferPointer(...))` of the whole buffer — ~13 MB a side
-    /// at 1600×2070, four of them for one page in the difference mode — purely to get a `[UInt8]`
-    /// to index. The context owns that memory for as long as this value is alive, which is the
-    /// whole of every walk here.
+    /// A page redrawn into a known RGBA raster. The context is held and the pixels read through it
+    /// rather than copied out (a copy is ~13 MB a side at 1600×2070); the context owns that memory
+    /// for as long as this value is alive, which covers every walk here.
     private struct Raster {
         /// Held so `pixels` stays valid: the buffer belongs to the context.
         let context: CGContext
@@ -238,12 +203,12 @@ enum BitmapDiff {
     private static func normalized(_ image: CGImage, width: Int, height: Int) -> Raster? {
         guard let ctx = context(width: width, height: height), let data = ctx.data else { return nil }
         // White ground, so a page with alpha (a transparent PNG, a PDF drawn without a fill)
-        // compares as it looks on paper rather than against whatever the buffer was born holding.
+        // compares as it looks on paper, not against whatever the buffer was born holding.
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         ctx.interpolationQuality = .high
-        // Drawn into the full rect, which is what rescales a mismatched side — reported through
-        // `sizesDiffer` rather than hidden.
+        // Drawn into the full rect, which rescales a mismatched side; reported through
+        // `sizesDiffer`, not hidden.
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         let stride = ctx.bytesPerRow
         return Raster(context: ctx,
@@ -253,9 +218,8 @@ enum BitmapDiff {
 
     /// One image as the coarse luminance grid ``PageRegistrationEstimator`` searches over.
     ///
-    /// Drawn through the same white-ground normalisation the comparison uses, so a page with alpha
-    /// is registered as it looks on paper — and so the estimator and the diff cannot disagree about
-    /// what the page IS.
+    /// Drawn through the comparison's white-ground normalisation, so a page with alpha registers as
+    /// it looks on paper, and the estimator and the diff can't disagree about what the page is.
     static func grid(_ image: CGImage, width: Int) -> PageRegistrationEstimator.Grid? {
         guard image.width > 0, image.height > 0, width > 0 else { return nil }
         let height = max(1, Int((Double(width) * Double(image.height) / Double(image.width)).rounded()))
@@ -265,8 +229,8 @@ enum BitmapDiff {
             let row = y * raster.bytesPerRow
             for x in 0..<width {
                 let i = row + x * 4
-                // Rec. 601 luma. The estimator correlates structure, not colour, and a single
-                // channel is a quarter of the work — the sweep is the expensive stage.
+                // Rec. 601 luma. The estimator correlates structure, not colour, and one channel is
+                // a quarter of the work; the sweep is the expensive stage.
                 let l = 0.299 * Double(raster.pixels[i]) + 0.587 * Double(raster.pixels[i + 1])
                       + 0.114 * Double(raster.pixels[i + 2])
                 samples[y * width + x] = l / 255
@@ -277,10 +241,9 @@ enum BitmapDiff {
 
     /// `image` rotated and shifted by `registration`, in its own pixel coordinates.
     ///
-    /// The rotation is about the image centre, matching the estimator's own convention, and the
-    /// ground is white for `normalized`'s reason: the corners a rotation exposes are paper, not
-    /// whatever the buffer was born holding, and black corners would be reported as a difference
-    /// the size of the skew.
+    /// The rotation is about the image centre, matching the estimator's convention. The ground is
+    /// white for `normalized`'s reason: the corners a rotation exposes are paper, and black corners
+    /// would be reported as a difference the size of the skew.
     static func warped(_ image: CGImage, by registration: PageRegistration) -> CGImage? {
         let width = image.width, height = image.height
         guard let ctx = context(width: width, height: height) else { return nil }
@@ -296,62 +259,25 @@ enum BitmapDiff {
     }
 
     /// ``compare(_:_:)`` with a best-effort de-skew first, and the difference raster where a mode
-    /// is going to draw it — CC14.4.
+    /// will draw it.
     ///
-    /// **The alignment is attempted, then judged, then either applied or dropped.** A transform the
-    /// estimator is not confident about is discarded and the pages are compared as they are, which
-    /// is exactly what this did before the feature existed. The result says which happened; nothing
-    /// downstream may assume alignment from the fact that it was tried.
+    /// The alignment is attempted, judged, then applied or dropped. A transform the estimator isn't
+    /// confident about is discarded and the pages are compared as they are, which is most pairs.
+    /// The result says which happened; nothing downstream may assume alignment because it was
+    /// tried.
     ///
-    /// **The picture is of the same pair the comparison read — the aligned one, where an alignment
-    /// was applied.** It used to be drawn from the pages as they are, which left the callouts and
-    /// the glow computed from two different image pairs. This is the settling the old comment here
-    /// asked for, and it went this way for two reasons, neither of them the one it expected.
+    /// The picture is of the same pair the comparison read (the aligned one, where an alignment was
+    /// applied), so the callouts and the glow come from one image pair, the de-skew is visible in
+    /// difference mode, and one walk serves both: ~25 MB less transient allocation at 1600×2070
+    /// and about 40% off the diff work.
     ///
-    /// **It is cheaper, not dearer.** The old shape walked `analyse` twice — once over the aligned
-    /// pair for the numbers, once over the unaligned pair for the picture. `aligned` is already in
-    /// hand, so asking the first walk for the picture removes a second walk and the two normalised
-    /// full-page rasters it needed: **~25 MB** less transient allocation at 1600x2070, and a little
-    /// over **40% off the diff work**.
-    ///
-    /// **The proportion is the claim; the milliseconds are one machine's reading.** Measured at
-    /// 1600x2070 on an Apple M4 in Release, best of 20, machine quiet: 10.4 ms against 18.7 ms. The
-    /// same comparison on the same build with the machine busy reads 14.3 against 26.3 — the
-    /// absolutes move by 40% with whatever else is running, while the saving holds at 42-46% across
-    /// every reading. That is why the ratio is what is written down and the timings are labelled.
-    ///
-    /// **The disagreement it was meant to settle was never the visible half — on the pairs where
-    /// outlines are drawn at all.** Measured over 0.25-2 degrees of skew on two page fixtures, a
-    /// dense text page and a sparse one, counting only the pairs whose region count stays under
-    /// ``ChangedRegionCallouts/maxDrawn``: **95.7-99.5%** of the old picture's glow already fell
-    /// inside the outlines drawn over it (95.7% at 2 degrees, 99.5% at 0.25), and at half a degree
-    /// on the dense page the aligned and unaligned region lists were the same eight boxes to within
-    /// one cell.
-    ///
-    /// **The qualifier is load-bearing, so do not quote the range without it.** A page of sparse
-    /// horizontal rules behaves nothing like that: aligning it fragments a solid glow into
-    /// speckle, 22 regions before against 224 after on one measured pair, and coverage falls to
-    /// 74.9-81.1%. Both counts are far over ``ChangedRegionCallouts/maxDrawn``, so NOTHING is
-    /// outlined and the reader sees no disagreement there either — but for the opposite reason.
-    /// What that costs the reader, and why it is being left alone, is written down at
-    /// ``ChangedRegionCallouts/maxDrawn``.
-    ///
-    /// What the change actually buys is that the de-skew becomes VISIBLE — the old shape let an
-    /// alignment move the region list and write the caption while leaving the picture, which is the
-    /// thing a reader in the difference mode is looking at, exactly as it was.
-    ///
-    /// **What it does not buy is a clean page, and the reason is worth knowing before anyone
-    /// tightens the estimator to chase one.** ``warped`` resamples the right page and leaves the
-    /// left alone, so every anti-aliased edge moves past ``tolerance`` however good the geometry is.
-    /// On that same pair the true answer is 0.78% changed and ONE region; a *perfect* alignment
-    /// still reports 3.42% and eight, of which 2.87 points is that one-sided resample — put both
-    /// sides through the same resample and it falls to 0.94% and one region. So the callouts still
-    /// box every paragraph on a skewed pair, and no sharpening of the search will change that.
-    /// ``PageRegistration/caption`` says "best effort" partly for this.
-    ///
-    /// Where no alignment is applied — every pair the estimator is not confident about, which is
-    /// most of them — the comparison and the picture are of the same two pages, as they always
-    /// were, and then it really is one pass.
+    /// It doesn't buy a clean page. ``warped`` resamples only the right page, so every
+    /// anti-aliased edge moves past ``tolerance`` however good the geometry: on one measured pair
+    /// whose true answer is 0.78% and one region, a perfect alignment still reports 3.42% and
+    /// eight. The callouts still box every paragraph on a skewed pair, and no sharpening of the
+    /// estimator will change that; ``PageRegistration/caption`` says "best effort" partly for this.
+    /// Sparse horizontal rules fragment into far more regions once aligned, past
+    /// ``ChangedRegionCallouts/maxDrawn``, so nothing is outlined there (see that note).
     static func compareAligning(_ left: CGImage, _ right: CGImage,
                                 wantsDifferenceImage: Bool) -> (result: BitmapDiffResult?,
                                                                 difference: CGImage?) {
@@ -365,7 +291,7 @@ enum BitmapDiff {
         guard registration.isUsable, let aligned = warped(right, by: registration) else {
             return analyse(left, right, wantsDifferenceImage: wantsDifferenceImage)
         }
-        // One walk over the aligned pair, and the picture comes out of it — see the doc comment.
+        // One walk over the aligned pair, and the picture comes out of it.
         let outcome = analyse(left, aligned, wantsDifferenceImage: wantsDifferenceImage)
         guard var result = outcome.result else {
             return analyse(left, right, wantsDifferenceImage: wantsDifferenceImage)
@@ -374,7 +300,7 @@ enum BitmapDiff {
         return (result, outcome.difference)
     }
 
-    /// `bytesPerRow: 0` — CoreGraphics picks the stride, and every reader of the buffer reads it
+    /// `bytesPerRow: 0`: CoreGraphics picks the stride, and every reader of the buffer reads it
     /// back rather than computing `width * 4`.
     private static func context(width: Int, height: Int) -> CGContext? {
         CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

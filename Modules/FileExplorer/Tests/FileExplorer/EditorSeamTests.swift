@@ -5,12 +5,11 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// The editor's small pure seams — the ones the app target calls, and the ones a doc comment says
-/// are "the one place that decides it".
+/// The editor's small pure seams: the ones the app target calls, and the ones a doc comment calls
+/// "the one place that decides it".
 ///
-/// **Collected here because none of them had a test.** Each is two or three lines of production
-/// code that another file's long doc comment leans on, which is exactly the shape that survives a
-/// review: too small to look wrong, and load-bearing enough that inverting it changes what the app
+/// Each is two or three lines of production code that another file's doc comment leans on: too
+/// small to look wrong in review, and load-bearing enough that inverting it changes what the app
 /// does with somebody's file.
 @Suite struct EditorSeamTests {
 
@@ -23,12 +22,11 @@ import Design
 
     // MARK: The seam the app target actually calls
 
-    /// **`load(path:into:)` maps each `Opened` to the right `OpenResult`.**
+    /// `load(path:into:)` maps each `Opened` to the right `OpenResult`.
     ///
-    /// `EditorFileStoreTests` covers `open` → `Opened` thoroughly and stops there; this mapping —
-    /// four lines — had no test at all, and it is what the host switches on to decide what to log
-    /// and what to show. Swapping the `.readOnly` and `.refused` arms would have left every suite
-    /// green while the app announced the wrong outcome for both.
+    /// `EditorFileStoreTests` covers `open` → `Opened` and stops there; this mapping is what the
+    /// host switches on to decide what to log and show. Swapping the `.readOnly` and `.refused`
+    /// arms must make this test fail.
     @MainActor
     @Test func loadingReportsWhatActuallyHappenedToTheDocument() throws {
         let folder = try scratch()
@@ -58,16 +56,15 @@ import Design
         }
         #expect(!reason.isEmpty)
         #expect(document.refusal == reason)
-        // A refused document is read-only TOO, deliberately: `isReadOnly` is what gates the save
-        // path, and the view shows `refusal` so the reader still sees one caption rather than two.
+        // A refused document is read-only too, deliberately: `isReadOnly` gates the save path, and
+        // the view shows `refusal` so the reader still sees one caption rather than two.
         #expect(document.isReadOnly, "a refused document could be saved over")
         #expect(document.text.isEmpty, "a refused document kept the previous file's text")
     }
 
-    /// **`write(_ document:)` refuses a document with no encoding rather than assuming UTF-8.**
+    /// `write(_ document:)` refuses a document with no encoding rather than assuming UTF-8.
     ///
-    /// That guard is the only thing between a read-only or closed document and the disk, and it was
-    /// held up entirely by inspection — nothing called this seam from a test.
+    /// That guard is the only thing between a read-only or closed document and the disk.
     @MainActor
     @Test func writingRefusesADocumentThatWasNeverOpenedForWriting() throws {
         let folder = try scratch()
@@ -88,7 +85,7 @@ import Design
                 "a read-only document reached the disk")
     }
 
-    /// Closing clears every field a later save could act on — the encoding above all, since that is
+    /// Closing clears every field a later save could act on, the encoding above all, since that is
     /// what `write(_ document:)` gates on.
     @MainActor
     @Test func closingClearsTheFieldsASaveWouldRead() throws {
@@ -110,11 +107,10 @@ import Design
         }
     }
 
-    /// **`textVersion` bumps on every write to the buffer.**
+    /// `textVersion` bumps on every write to the buffer.
     ///
-    /// The preview's `.task(id:)` is keyed on it, so deleting the `didSet` stops the parse
-    /// restarting and the rendered document silently freezes while you type — no error, no crash,
-    /// and nothing else in the suite could see it.
+    /// The preview's `.task(id:)` is keyed on it, so without the `didSet` the parse stops
+    /// restarting and the rendered document silently freezes while you type.
     @MainActor
     @Test func everyEditBumpsTheVersionThePreviewIsKeyedOn() {
         let document = EditorDocument()
@@ -122,20 +118,19 @@ import Design
         document.text = "a"
         document.text = "ab"
         #expect(document.textVersion == start + 2)
-        // Writing the same value again is still a write — `didSet` fires, and the preview
-        // re-parsing once more is harmless where missing a real edit is not.
+        // Writing the same value again is still a write: `didSet` fires, and one more re-parse is
+        // harmless where missing a real edit is not.
         document.text = "ab"
         #expect(document.textVersion == start + 3)
     }
 
     // MARK: The mode a file opens in
 
-    /// **`EditorMode.resolved` narrows for display and nothing else.**
+    /// `EditorMode.resolved` narrows for display and nothing else.
     ///
-    /// Its own doc calls it "the one place that decides it", and it had no test. Both mutations are
-    /// silent: `isMarkdown ? stored : .preview` leaves a `.txt` showing a preview with no way back
-    /// to the text, and `isMarkdown ? .edit : stored` throws away the remembered mode on every
-    /// Markdown file.
+    /// Both mutations are silent: `isMarkdown ? stored : .preview` leaves a `.txt` showing a
+    /// preview with no way back to the text, and `isMarkdown ? .edit : stored` throws away the
+    /// remembered mode on every Markdown file.
     @Test func aNonMarkdownFileIsAlwaysEditAndAMarkdownFileKeepsTheMode() {
         for stored in EditorMode.allCases {
             #expect(EditorMode.resolved(stored, isMarkdown: true) == stored,
@@ -147,12 +142,10 @@ import Design
 
     // MARK: The text surface
 
-    /// **The editor's font goes through the app's ramp, not a bare multiply.**
+    /// The editor's font goes through the app's ramp, not a bare multiply.
     ///
-    /// `PlainTextEditor.font(scale:)` carries a doc comment with the numbers of a fixed regression
-    /// in it — 17.55pt against the ramp's 15.85 at the Larger setting — and no test. `base * scale`
-    /// agrees with the ramp at and below 1.0, which is why it read fine at Small and Default and
-    /// only parted company at the sizes somebody chooses because they need them.
+    /// `base * scale` agrees with the ramp at and below 1.0, so it reads fine at Small and Default
+    /// and parts company only at the larger sizes, the ones people choose because they need them.
     @MainActor
     @Test func theEditorsFontFollowsTheAppsTypeRampAtEverySize() {
         var divergedSomewhere = false
@@ -166,37 +159,21 @@ import Design
                 "the ramp and a bare multiply agree at every size the app offers — this test cannot fail")
     }
 
-    /// **The undo stack is cleared on the DOCUMENT changing, not on the text changing.**
+    /// The undo stack is per document, not per text: two files holding the same bytes get different
+    /// stacks.
     ///
-    /// A source scan, because the thing it guards cannot be reached behaviourally: clearing happens
-    /// inside `updateNSView`, and SwiftUI's `Context` cannot be constructed by a test.
-    ///
-    /// What shipped was `removeAllActions()` nested inside `if view.string != text` — the one
-    /// condition that is false exactly when the document changes without its contents changing.
-    /// Open `a.md`, edit it, then open `b.md` holding an identical copy: the assignment is skipped,
-    /// the stack is not cleared, and ⌘Z replays an edit made against `a.md` into a file the user
-    /// never touched — splicing characters out where the old ranges happen to land, or throwing
-    /// `NSRangeException` and taking every unsaved buffer down with it. The codebase already knew
-    /// two files can hold the same bytes; `EditorParseKey` was invented for it, in those words.
+    /// `NSTextView` registers undo by character range, so a stack shared between two documents
+    /// replays one file's edits into another, splicing characters out where the old ranges land or
+    /// throwing `NSRangeException` and taking every unsaved buffer down with it. Identical contents
+    /// are the case a buffer comparison misses: open `a.md`, edit it, then open `b.md` holding the
+    /// same bytes. Checked directly on `EditorUndoStore`, which owns the rule.
     @MainActor
     @Test func twoFilesHoldingTheSameBytesDoNotShareAnUndoStack() throws {
-        // **This was a source scan, and it no longer has to be.** It guarded a
-        // `removeAllActions()` inside `updateNSView` — the only place the rule could live when one
-        // shared stack was wiped on every file switch, and unreachable behaviourally because
-        // SwiftUI's `Context` cannot be constructed by a test. `EditorUndoStore` moved the rule
-        // into a type that can simply be asked, so the claim is now checked directly.
-        //
-        // The claim itself is unchanged and is why any of this exists: `NSTextView` registers undo
-        // by character RANGE, so a stack shared between two documents replays one file's edits into
-        // another — splicing characters out where the old ranges happen to land, or throwing
-        // `NSRangeException` and taking every unsaved buffer down with it. Two files holding the
-        // same bytes is the case that hid it, because the buffer comparison the old wipe was nested
-        // inside is false exactly then.
         let store = EditorUndoStore()
         store.activate(path: "/n/a.md", text: "identical")
         let first = store.current
-        // An edit, so a's stack is kept at all — an empty one is not (2026-10-09), and the check
-        // below would then pass with nothing to hand out.
+        // An edit, so a's stack is kept at all: an empty one is not, and the check below would then
+        // pass with nothing to hand out.
         first.registerUndo(withTarget: store) { _ in }
         store.remember(text: "identical")
 
@@ -206,8 +183,7 @@ import Design
     }
 
     /// And the wipe must not come back: with a stack per document, `removeAllActions()` on a
-    /// document change would throw away the history this feature exists to keep — silently, and
-    /// only noticeably by switching files and finding ⌘Z empty.
+    /// document change would silently throw away the history this feature exists to keep.
     @Test func theEditorNoLongerWipesTheStackWhenTheDocumentChanges() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -218,9 +194,8 @@ import Design
         try #require(source.contains("context.coordinator.documentID != documentID"),
                      "the document-identity branch is gone — this scan is checking nothing")
 
-        // **Comments are stripped first, or this scan reads the note explaining the removal.** The
-        // doc comment on that branch says what it *used* to call, in backticks, and a plain
-        // `contains` found the prose and reported the code.
+        // Comments are stripped first, so a note that names `removeAllActions()` can't pass for
+        // code.
         let code = source
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in

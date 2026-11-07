@@ -2,50 +2,31 @@ import AppKit
 import Testing
 @testable import FileExplorer
 
-/// Pins `LayoutPumpWait.poll`'s pass floor — the non-pumping wait `PaneColumnsScrollTests` uses to
+/// Pins `LayoutPumpWait.poll`'s pass floor, the non-pumping wait `PaneColumnsScrollTests` uses to
 /// watch for the overscroll pull home.
 ///
-/// `poll` exists because those waits must not drive layout: the clip's origin is moved by the
-/// watchdog rather than by a layout pass, and `layoutIfNeeded` disarms AppKit's runaway-layout
-/// guards, so substituting `pump` would have quietly widened what a sibling suite tolerates. What
-/// is shared is the FLOOR, which is the part that was actually wrong.
+/// The flake the floor prevents shows only under load, but the floor's guarantee is deterministic:
+/// a property of this loop, provable with a counter and an already-spent deadline in well under a
+/// second.
 ///
-/// The bug it prevents only reproduces under load — `PaneColumnsScrollTests.testARestTheGrown\
-/// ViewportMadeIllegalIsPulledBack` went red on CI on 2026-08-09 after 49.6s, on a machine that was
-/// also building another checkout — and that is exactly why the fix is not argued from pass rates.
-/// The floor's *guarantee* is deterministic even though the flake is not: it is a property of this
-/// loop, provable with a counter and an already-spent deadline, on an idle machine, in well under
-/// a second.
+/// There is deliberately no test that `poll` avoids pumping layout: it takes no view and no window,
+/// so the signature carries that. What stops someone folding `poll` into `pump` is the doc comment
+/// on `LayoutPumpWait.poll`.
 ///
-/// **There is deliberately no test that `poll` avoids pumping layout.** It takes no view and no
-/// window, so it has nothing to pump — the property is carried by the signature, and a test
-/// asserting it could only restate that. The thing worth guarding is someone "simplifying" `poll`
-/// into a call to `pump`, and what stops that is the paragraph on `LayoutPumpWait.poll`, not an
-/// assertion.
-///
-/// Verified by mutation on the real constant, and one result is not what it looks like:
-///
-/// - `pumpFloor = 0` — the premise guard fails, and `theFloorOutlivesAnExpiredDeadline` fails on
-///   `held` AND on its count (1 pass against the 25 demanded). This is the mutation that matters:
-///   with the floor gone, `waitForOrigin` reverts to the wall-clock behaviour that was flaking.
-/// - `pumpFloor = 24`, one short of the demand — **only the premise guard fails.** The floor test
-///   still passes, because the loop evaluates `condition()` once more after the deadline, so 24
-///   passes buys a 25th evaluation. The real guarantee is `pumpFloor + 1` evaluations, which is
-///   why the premise guard is a separate test rather than a comment: without it, a floor lowered
-///   to just under the demand would look healthy here.
+/// The loop evaluates `condition()` once more after the deadline, so the real guarantee is
+/// `floor + 1` evaluations. Dropping `passes < floor` from the loop must fail
+/// `theFloorOutlivesAnExpiredDeadline`.
 @MainActor
 @Suite struct LayoutPumpWaitPollTests {
 
-    /// How many passes the conditions below demand — a LITERAL, deliberately not derived from
-    /// `pumpFloor`. Writing it as `pumpFloor / 2` defeats its own mutation test: zeroing the floor
-    /// would also zero the requirement, the condition would hold on the first pass, and the
-    /// load-bearing `held` assertion would pass vacuously against exactly the change it exists to
-    /// catch. A demand that moves with the thing under test cannot measure it.
+    /// How many passes the conditions below demand. A literal, not derived from the floor: a demand
+    /// that moved with the floor would hold on the first pass when the floor is zeroed, and the
+    /// `held` assertion would pass against the very change it exists to catch.
     private static let passesDemanded = 3
 
-    /// The floor these tests run against — five, not the production fifty. See
-    /// ``LayoutPumpWaitTests/testFloor``: the shapes asserted here do not depend on the magnitude,
-    /// and depending on it cost ~5–7 seconds per pass on a saturated CI main actor.
+    /// The floor these tests run against: five, not the production fifty, as in
+    /// ``LayoutPumpWaitTests/testFloor``. The shapes asserted here don't depend on the magnitude,
+    /// and each pass can cost seconds on a saturated CI main actor.
     private static let testFloor = 5
 
     /// Keeps the literal above meaningful: it must be reachable within the floor, or the test
@@ -58,8 +39,8 @@ import Testing
                 """)
     }
 
-    /// The load-bearing property. With the deadline ALREADY spent, a condition that needs turns
-    /// still gets them — which is precisely what a congested run has too few of.
+    /// With the deadline already spent, a condition that needs turns still gets them, which is
+    /// exactly what a congested run has too few of.
     @Test func theFloorOutlivesAnExpiredDeadline() async {
         var passes = 0
         let needed = Self.passesDemanded
@@ -78,13 +59,9 @@ import Testing
                 "the wait reported \(outcome.passes) passes for a condition that needed \(needed)")
     }
 
-    /// A condition that never holds still terminates, and reports the floor it spent. Without this
-    /// the floor could be raised to something absurd — or made unbounded — and nothing would say
-    /// so until a suite hung.
-    ///
-    /// Written in terms of `pumpFloor` on purpose, unlike the demand above: this one is pinning the
-    /// post-deadline re-check and the fact that a never-true condition stops at all, not the
-    /// floor's magnitude. It catches neither mutation listed on the suite, and that is correct.
+    /// A condition that never holds still terminates, after the floor plus the post-deadline
+    /// re-check. Without this, the floor could be raised to something absurd or made unbounded, and
+    /// nothing would say so until a suite hung.
     @Test func aConditionThatNeverHoldsStillGetsAVerdict() async {
         let outcome = await LayoutPumpWait.poll(upTo: 0, floor: Self.testFloor) { false }
 
@@ -96,23 +73,14 @@ import Testing
                 """)
     }
 
-    /// The deadline is not decorative: while it is live, the wait continues PAST the floor.
-    /// Without this, deleting `|| now() < deadline` would cap every wait at exactly `pumpFloor`
-    /// passes and nothing here would say so.
+    /// While the deadline is live, the wait continues past the floor. Deleting
+    /// `|| now() < deadline` would cap every wait at the floor, and must fail this test.
     ///
-    /// **Driven by a frozen clock, and that is what makes it a test rather than a bet.** Two
-    /// earlier versions asserted this through real time and both went red on a loaded machine
-    /// while passing under `--filter`: `pumpFloor + 20` inside 5 seconds got 51 passes where it
-    /// wanted 70, and `pumpFloor + 2` inside *sixty* seconds still got only 51, because 50 passes
-    /// cost over a minute in `main`'s FileExplorer run against ~5 seconds in `v2.x`'s. There is no
-    /// deadline generous enough to be safe, because seconds do not convert to passes at any fixed
-    /// rate — which is mechanism 2 in one sentence.
-    ///
-    /// A clock that never advances makes the deadline permanently live, so the CONDITION decides
-    /// when the loop ends. The demand is `pumpFloor + 2`: a floor-only loop still reaches
-    /// `pumpFloor + 1` via the post-deadline re-check, so two past the floor is the smallest demand
-    /// it cannot meet. Verified by mutation — deleting the deadline clause fails this and nothing
-    /// else.
+    /// Driven by a frozen clock, which makes it a test rather than a bet: through real time no
+    /// deadline is safe, because seconds don't convert to passes at any fixed rate under load
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). The demand is `floor + 2`: a
+    /// floor-only loop reaches `floor + 1` through the post-deadline re-check, so two past is the
+    /// smallest demand it can't meet.
     @Test func aLiveDeadlineCarriesTheWaitPastTheFloor() async {
         var passes = 0
         let needed = Self.testFloor + 2

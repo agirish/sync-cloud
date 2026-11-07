@@ -1,31 +1,21 @@
 import SwiftUI
 import Design
 
-/// Where the open document lives, as the Edit header says it — the answer to "where is this file?"
-/// that the header used to leave to the file name's context menu (TE43).
+/// Where the open document lives, as the Edit header says it.
 ///
-/// **The host builds it, and builds it from the pane's own breadcrumb model.** The segments are the
-/// names the left pane's breadcrumb would draw for the document's folder — the source's display
-/// name first ("iCloud", "OneDrive (EMP)", whatever it was renamed to), then the folders below the
-/// source's root — and each carries the pane-relative path a click on that crumb would navigate to.
-/// This module cannot see `BreadcrumbTrail`, which lives above it, and must not re-derive a
-/// provider's name on its own; so the value arrives finished and this side only draws it.
-///
-/// **Two styles, chosen by whether the source pane is open** — see ``Style``.
-///
-/// **With no document open it names the pane's folder instead** — the folder a new file would be
-/// made in, which is what the empty page's header says. The host builds that value with the
-/// folder's own level as words rather than a door (the pane is already there), so nothing here has
-/// to know which of the two it is drawing.
+/// The host builds it from the pane's breadcrumb model: the source's display name first, then the
+/// folders below its root, each with the pane-relative path its crumb would go to. This module
+/// can't see `BreadcrumbTrail` and must not re-derive a provider's name, so it only draws.
+/// Two styles, chosen by whether the source pane is open (``Style``). With no document open it
+/// names the pane's folder, where a new file would be made, its own level as words, not a door.
 public struct EditorDocumentLocation: Equatable, Sendable {
 
     /// One level of the path.
     public struct Segment: Equatable, Sendable {
         /// What the pane's breadcrumb calls this level.
         public let name: String
-        /// The pane-relative path a click sends the LEFT pane to — `""` for the top of the source —
-        /// or `nil` where the pane cannot go there: a document outside the pane's source, which
-        /// the header still names but does not offer as a door.
+        /// The pane-relative path a click sends the left pane to (`""` for the source's top), or
+        /// `nil` where the pane can't go: a level outside its source, named but not a door.
         public let target: String?
 
         public init(name: String, target: String?) {
@@ -36,19 +26,15 @@ public struct EditorDocumentLocation: Equatable, Sendable {
 
     /// Which of the two readings the header draws.
     public enum Style: Equatable, Sendable {
-        /// `in Finance` — the folder's name alone. Offered while the source pane is open: the pane
-        /// is on screen with its own full breadcrumb, so the header needs only to say which folder,
-        /// and a click is "show me the file there" — the pane goes to the folder and selects it.
+        /// `in Finance`, the folder's name alone, while the source pane is open: the pane shows its
+        /// own full breadcrumb, and a click makes the pane go to the folder and select the file.
         case folderName
-        /// `iCloud › Documents › Finance` — the whole path, each level a door. Offered while the pane
-        /// is collapsed (the rail is showing, or "Just the text" is on): nothing else on screen says
-        /// where the file is, and a click re-points the collapsed pane without opening it.
+        /// `iCloud › Documents › Finance`, each level a door, while the pane is collapsed: nothing
+        /// else says where the file is, and a click re-points the pane without opening it.
         case crumb
 
-        /// **The one rule: the pane's state, and nothing else.** The folder sidebar only exists
-        /// beside an open pane (`FolderSidebarModel.appliesTo`), so "the sidebar and the pane are
-        /// open" and "the pane is open" are the same question — asking the second is asking the
-        /// one bit that decides it.
+        /// Decided by the pane's state alone. The folder sidebar only exists beside an open pane
+        /// (`FolderSidebarModel.appliesTo`), so the pane's state is the one bit that decides it.
         public static func forPane(isOpen: Bool) -> Style { isOpen ? .folderName : .crumb }
     }
 
@@ -56,14 +42,13 @@ public struct EditorDocumentLocation: Equatable, Sendable {
     public let segments: [Segment]
     public let style: Style
     /// The tooltip: the path as the pane's breadcrumb spells it (`iCloud › Documents › Finance`),
-    /// or — for a folder outside the pane's source, which has no crumbs — its `~`-abbreviated path.
+    /// or, for a folder outside the pane's source, its `~`-abbreviated path.
     public let help: String
 
-    /// **The source a folder outside the pane's lies in, when it is one of the user's other
-    /// sources** — the Dropbox copy opened from the differences list while the left pane shows
-    /// iCloud. The segments then start from that source's name, as words, and the folder-name
-    /// reading carries it too ("in Dropbox › Backup"), since "in Backup" alone does not say which
-    /// cloud. `nil` for a folder in the pane's own source, and for one in no source at all.
+    /// The user's other source that a folder outside the pane's lies in, such as the Dropbox copy
+    /// opened while the pane shows iCloud. The segments start from its name, as words, and the
+    /// folder-name reading says it too ("in Dropbox › Backup"), since "in Backup" doesn't say
+    /// which cloud. `nil` for a folder in the pane's own source or in no source.
     public let otherSourceName: String?
 
     public init(segments: [Segment], style: Style, help: String, otherSourceName: String? = nil) {
@@ -76,7 +61,7 @@ public struct EditorDocumentLocation: Equatable, Sendable {
     /// Between two crumbs in a tooltip. The drawn crumb uses the pane's chevron glyph instead.
     public static let separator = " › "
 
-    /// The segments joined the way the pane's breadcrumb reads — what a tooltip calls a place.
+    /// The segments joined the way the pane's breadcrumb reads, as a tooltip names a place.
     static func spelled(_ segments: ArraySlice<Segment>) -> String {
         segments.map(\.name).joined(separator: separator)
     }
@@ -96,26 +81,22 @@ public struct EditorDocumentLocation: Equatable, Sendable {
     enum Part: Equatable {
         /// A word that is a door, with its tooltip.
         case control(title: String, door: Door, help: String)
-        /// A word that is not — a level the pane cannot reach, or the folded middle of a path none
-        /// of whose levels it can.
+        /// A word that is not: a level the pane can't reach, or a folded middle none of whose
+        /// levels it can.
         case text(String, help: String)
-        /// The folded middle of a long crumb, "…", as a menu of **every level of the path, the
-        /// document's folder first and ticked, climbing to the source** — Finder's path menu, and
-        /// the order the folder menu over the Files list already uses (TE133). Each is a door where
-        /// the pane can go.
+        /// The folded middle of a long crumb, "…", as a menu of every level of the path: the
+        /// document's folder first and ticked, climbing to the source, like Finder's path menu and
+        /// the Files list's folder menu. Each is a door where the pane can go.
         case folded([Segment], help: String)
         /// The glyph between two levels, the pane breadcrumb's own.
         case chevron
     }
 
-    /// The pieces of one rung of the location, left to right.
+    /// The pieces of one rung of the location, left to right. Pure and non-private so which word
+    /// opens which door is testable without a click, which a `swift test` host can't synthesize
+    /// (`PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
     ///
-    /// **Pure and non-private so the doors are testable without a click**, which a `swift test`
-    /// host cannot synthesize (see `PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
-    /// Which word opens which door is the whole behaviour of this control; the view only lays these
-    /// out and routes a press to the door it was handed.
-    ///
-    /// - Parameter rung: the segment indexes to draw, `nil` for the folded middle — one of
+    /// - Parameter rung: the segment indexes to draw, `nil` for the folded middle: one of
     ///   ``rungs(segmentCount:)``. Ignored by `.folderName`, which has one reading only.
     func parts(rung: [Int?]) -> [Part] {
         switch style {
@@ -132,11 +113,9 @@ public struct EditorDocumentLocation: Equatable, Sendable {
             for (position, index) in rung.enumerated() {
                 if position > 0 { parts.append(.chevron) }
                 guard let index, segments.indices.contains(index) else {
-                    // The folded middle says what it folds, in the tooltip — the whole path — and
-                    // opens a menu of the whole path, deepest first (TE133), so every level stays
-                    // one click away, the folded ones included. Words alone when no folded level is
-                    // a door (another source's path): a menu that reaches nothing it hides would be
-                    // a control that adds nothing.
+                    // The folded middle's tooltip is the whole path, and its menu lists the whole
+                    // path deepest first, so every level stays one click away. Words alone when no
+                    // folded level is a door: a menu that reaches nothing it hides adds nothing.
                     let before = rung[..<position].compactMap { $0 }.max() ?? -1
                     let after = rung[(position + 1)...].compactMap { $0 }.min() ?? segments.count
                     let folded = segments.indices.filter { $0 > before && $0 < after }.map { segments[$0] }
@@ -160,17 +139,12 @@ public struct EditorDocumentLocation: Equatable, Sendable {
 
     // MARK: - Fitting a long path
 
-    /// The crumb's rungs, widest first — what `ViewThatFits` tries in order.
+    /// The crumb's rungs, widest first, as `ViewThatFits` tries them.
     ///
-    /// **Middle levels go first; the source and the folder stay.** The source says which cloud this
-    /// is and the folder says which folder, and those are the two words a reader is looking for —
-    /// so a long path keeps both and folds what lies between into `…`, taking levels from just
-    /// under the source first, so the ones nearest the folder survive longest. The last rung is the
-    /// folder on its own, which the view lets truncate: at that point the row is out of room for
-    /// anything else, and a truncated folder name is still a name where a wrapped row would push
-    /// the header taller than the pane's toolbar card it is pinned to.
-    ///
-    /// Static and non-private for the reason ``parts(rung:)`` is.
+    /// A long path keeps the source (which cloud) and the folder (which folder) and folds the
+    /// middle into `…`, from just under the source first, so levels nearest the folder last
+    /// longest. The last rung is the folder alone, which may truncate: a wrapped row would push the
+    /// header taller than the toolbar card it is pinned to. Static and non-private for testing.
     static func rungs(segmentCount n: Int) -> [[Int?]] {
         guard n > 0 else { return [] }
         guard n > 1 else { return [[0]] }
@@ -188,13 +162,10 @@ public struct EditorDocumentLocation: Equatable, Sendable {
 
 /// The location, drawn on the header's meta row.
 ///
-/// **Nothing painted at rest, like the status word beside it.** Each door goes through the app's
-/// one hover-affordance choke point — no chrome until the pointer is over it, then the wash and the
-/// pointing cursor — so a row that reads as a quiet line of text is also, on hover, plainly a set of
-/// places to go. The wash's room is horizontal padding cancelled by an equal negative padding
-/// outside, the pane breadcrumb's own recipe: the wash gets room round the letters and the row's
-/// layout does not move by a point, which matters on a row whose height the header's own height
-/// depends on.
+/// Nothing painted at rest, like the status word beside it: each door wears the app's hover
+/// affordance, so the wash and pointing cursor appear only on hover. The wash's room is horizontal
+/// padding cancelled by equal negative padding outside, the pane breadcrumb's recipe, so the row's
+/// layout doesn't move by a point; the header's height depends on it.
 struct EditorLocationLabel: View {
     let location: EditorDocumentLocation
     let accent: Color
@@ -206,9 +177,8 @@ struct EditorLocationLabel: View {
             row(location.parts(rung: []), compressible: true)
         case .crumb:
             let rungs = EditorDocumentLocation.rungs(segmentCount: location.segments.count)
-            // Widest first; the last rung is the folder alone and the only one allowed to truncate,
-            // because `ViewThatFits` falls back to it when nothing fits and proposes it the width
-            // there actually is.
+            // Widest first. Only the last rung, the folder alone, may truncate: `ViewThatFits` falls
+            // back to it when nothing fits and proposes it the width there is.
             ViewThatFits(in: .horizontal) {
                 ForEach(Array(rungs.enumerated()), id: \.offset) { index, rung in
                     row(location.parts(rung: rung), compressible: index == rungs.count - 1)
@@ -240,18 +210,15 @@ struct EditorLocationLabel: View {
             label(words, compressible: compressible)
                 .help(help)
         case .folded(let levels, let help):
-            // **The pane breadcrumb's folded middle, drawn in this row's words.** A `Menu` in the
-            // button style takes the button style's label as drawn, so the "…" keeps the row's
-            // 10pt text and the doors' hover wash rather than AppKit's pop-up chrome, which would
-            // grow a row the header's pinned height depends on.
-            //
-            // The menu is the folder menu's over the Files list (`EditorRailFolderMenu`): the
-            // document's folder first and ticked, then up to the source, each with a folder glyph.
+            // A `Menu` in the button style draws the button style's label, so the "…" keeps the
+            // row's text and hover wash; AppKit's pop-up chrome would grow the pinned header.
+            // The items match `EditorRailFolderMenu`: the document's folder first and ticked, then
+            // up to the source, each with a folder glyph.
             Menu {
                 ForEach(Array(Self.foldedItems(levels).enumerated()), id: \.offset) { _, item in
                     if item.isTicked {
-                        // Ticked, and still a door when the pane can go there: unlike the rail's
-                        // folder, the pane need not be showing the document's folder.
+                        // Ticked, and still a door: the pane need not be showing the document's
+                        // folder.
                         Toggle(isOn: Binding(get: { true },
                                              set: { _ in if let door = item.door { onDoor(door) } })) {
                             Label(item.name, systemImage: "folder")
@@ -290,32 +257,32 @@ struct EditorLocationLabel: View {
         }
     }
 
-    /// One item of the folded middle's menu (TE133).
+    /// One item of the folded middle's menu.
     struct FoldedItem: Equatable {
         let name: String
-        /// The document's folder — the first item, and the only ticked one.
+        /// The document's folder: the first item, and the only ticked one.
         let isTicked: Bool
-        /// Where a pick sends the pane, or `nil` for a level it cannot reach — drawn greyed.
+        /// Where a pick sends the pane, or `nil` for a level it can't reach, drawn greyed.
         let door: EditorDocumentLocation.Door?
     }
 
-    /// The folded middle's menu, in drawn order — ``EditorDocumentLocation/Part/folded(_:help:)``'s
-    /// levels, which arrive deepest first. A function so the tick and the doors are testable.
+    /// The folded middle's menu in drawn order, from ``EditorDocumentLocation/Part/folded(_:help:)``'s
+    /// levels, deepest first. A function so the tick and the doors are testable.
     static func foldedItems(_ levels: [EditorDocumentLocation.Segment]) -> [FoldedItem] {
         levels.enumerated().map { index, level in
             FoldedItem(name: level.name, isTicked: index == 0, door: level.target.map { .goTo($0) })
         }
     }
 
-    /// One word of the path. `fixedSize` on every rung but the last, so a rung either fits whole or
-    /// is passed over — a crumb whose levels truncated one by one would read `iC… › Do… › Fi…`.
+    /// One word of the path. `fixedSize` on every rung but the last, so a rung fits whole or is
+    /// passed over; levels truncating one by one would read `iC… › Do… › Fi…`.
     @ViewBuilder
     private func label(_ words: String, compressible: Bool) -> some View {
         let text = Text(words).lineLimit(1).truncationMode(.middle)
         if compressible { text } else { text.fixedSize() }
     }
 
-    /// What activating a door does, for VoiceOver — the words on screen say where, not what.
+    /// What activating a door does, for VoiceOver: the words on screen say where, not what.
     static func accessibilityLabel(title: String, door: EditorDocumentLocation.Door) -> String {
         switch door {
         case .showInPane: return "Show this file \(title) in the file pane"

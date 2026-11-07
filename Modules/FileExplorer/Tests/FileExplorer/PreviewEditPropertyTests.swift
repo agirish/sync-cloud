@@ -2,25 +2,27 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// The translator's property test (TE67 §6.1): random documents, random chains of edits, and the
-/// things that must hold for every edit the translator accepts.
+/// The translator's property test: random documents, random chains of edits, and what must hold
+/// for every edit the translator accepts.
 ///
-/// 1. **What the person did is what renders** — the new rendering is what a reader expects to see:
-///    the old one with the edit made, read by Markdown's own rules (``reading(after:in:)``) — for
-///    typing, deleting and pasting; Return and ⇧Return add their break; Tab, a style, a tick and a
-///    Replace All are checked for the characters they keep or change.
-/// 2. **Nothing outside the edit moves** — the edits are in bounds and do not overlap, and the new
-///    source is exactly the old one with them applied.
-/// 3. **The caret lands after the typed text**, or where a deletion was.
-/// 4. **Undo restores the source byte for byte.**
+/// 1. What the person did is what renders: the old rendering with the edit made, read by
+///    Markdown's own rules (``reading(after:in:)``), for typing, deleting and pasting; Return and
+///    ⇧Return add their break; Tab, a style, a tick and Replace All keep or change only characters
+///    they should.
+/// 2. Nothing outside the edit moves: the edits are in bounds and don't overlap, and the new source
+///    is exactly the old one with them applied.
+/// 3. The caret lands after the typed text, or where a deletion was.
+/// 4. Undo restores the source byte for byte.
+/// 5. Nothing outside the edited block changes.
+/// 6. Nothing typed becomes text Preview can't edit.
 ///
-/// A refused edit changes nothing by construction: a refusal carries no edits. **What must NOT be
-/// refused is not this test's to see** — it counts refusals, and an edit refused every time it is
-/// tried passes it forever. `PreviewEditMustAcceptTests` holds the natural edits that must be
-/// written, with the source each must leave.
+/// A refusal carries no edits, so it changes nothing. What must not be refused is not this test's
+/// to see: an edit refused every time passes it forever. `PreviewEditMustAcceptTests` holds the
+/// natural edits that must be written, with the source each must leave.
 ///
-/// Seeded, and the failing seed is in the message: `TE67_PROPERTY_SEED=<n>` replays one document.
-/// `TE67_PROPERTY_ITERATIONS` raises the count (§6.1: 50,000 locally); the default is CI's.
+/// Seeded, with the failing seed in the message: `TE67_PROPERTY_SEED=<n>` replays one document.
+/// `TE67_PROPERTY_ITERATIONS` raises the count (50,000 for a thorough local run); the default
+/// is CI's.
 @Suite struct PreviewEditPropertyTests {
 
     private static var iterations: Int {
@@ -66,11 +68,11 @@ import Foundation
                 "overlapping edits: \(where_)")
         #expect(PreviewEditTranslator.applied(result.edits, to: source) == result.source, "\(where_)")
 
-        // 5. **Nothing outside the edited block changes** — the check that catches an edit which
-        // renders right and means something else elsewhere. A table's edit may re-pad the table;
-        // a deletion at a block's edge may take the break beside it, and an opened paragraph is
-        // written after the block it opened after.
-        // Not Tab's: it moves the item's own lines with it — its sub-lists and its code (TE54).
+        // 5. Nothing outside the edited block changes: this catches an edit that renders right and
+        //    means something else elsewhere. A table's edit may re-pad the table, a deletion at a
+        //    block's edge may take the break beside it, and an opened paragraph is written after
+        //    the block it opened after. Not checked for Tab, which moves the item's sub-lists and
+        //    code too.
         if let edit, ![.tab, .backtab].contains(edit.action) {
             let reach = edit.action == .delete
                 ? NSRange(location: max(0, edit.range.location - 1), length: edit.range.length + 2) : edit.range
@@ -91,7 +93,7 @@ import Foundation
             }
         }
 
-        // 6. Nothing typed becomes something Preview cannot edit — HTML, an unalignable block.
+        // 6. Nothing typed becomes something Preview can't edit: HTML, an unalignable block.
         func readOnly(_ q: MarkdownProjection) -> Int {
             q.blocks.filter { $0.readOnly != nil }.count
                 + q.segments.filter { if case .readOnly = $0.kind { true } else { false } }.count
@@ -110,7 +112,7 @@ import Foundation
                 == PreviewEditTranslator.comparable(b, structural: structural)
         }
         if let all {
-            // Replace All: every match made, as each would be — an empty one reads as a deletion.
+            // Replace All: every match made, as each would be; an empty one reads as a deletion.
             var expected = rendered as String
             for match in all.sorted(by: { $0.range.location > $1.range.location }) {
                 expected = (expected as NSString).replacingCharacters(in: match.range, with: match.text)
@@ -147,13 +149,13 @@ import Foundation
                         "caret at \(result.renderedSelection.location), not \(reading.caret): \(where_)")
             }
             // The two carets must agree: the source caret, mapped into the new rendering, may sit
-            // no later than the rendered one — at most it is before markers that render nothing.
+            // no later than the rendered one; at most it is before markers that render nothing.
             let mapped = PreviewEditRules.renderedOffset(forSource: result.sourceSelection.location,
                                                          in: result.projection)
             #expect(abs(mapped - result.renderedSelection.location) <= 1,
                     "source caret maps to \(mapped), rendered caret \(result.renderedSelection.location): \(where_)")
         case .returnKey:
-            // A split, a code line, or a list item carried on: one break where the caret was — or,
+            // A split, a code line, or a list item carried on: one break where the caret was, or,
             // ending a list, the empty item's line gone.
             let broken = ["\n", "\n\u{FFFC}"].map { rendered.replacingCharacters(in: edit.range, with: $0) }
             #expect(broken.contains { same(after, $0, structural: true) } || after.count < rendered.length,
@@ -162,7 +164,7 @@ import Foundation
             #expect(same(after, rendered.replacingCharacters(in: edit.range, with: "\u{2028}"), structural: true),
                     "rendered \(String(reflecting: after)): \(where_)")
         case .tab, .backtab, .format, .tickTask:
-            // Indents, styles and boxes change how the text looks, never what it says — but a tab
+            // Indents, styles and boxes change how the text looks, never what it says; but a tab
             // typed in code, and a heading, list or quote verb's marker, are characters.
             let isCodeTab = edit.action == .tab && PreviewEditRules.block(at: edit.range.location, in: p)
                 .map { p.blocks[$0].kind.isCode } == true
@@ -176,15 +178,14 @@ import Foundation
     // MARK: The reader's expectation
 
     /// What a reader expects to see after a typed, pasted or deleted `edit`, and where the caret
-    /// is: the rendering with the edit made, **read by Markdown's rules — derived here from the
-    /// rendering itself, never from the translator's**, which this test exists to check.
+    /// is: the rendering with the edit made, read by Markdown's rules, derived here from the
+    /// rendering itself, never from the translator's, which this test exists to check.
     ///
     /// - A selection ending on a block's line break leaves the break; one that is exactly a block
     ///   and its break takes the block away.
-    /// - Spaces at a line's edge — beside a break of any kind, a task's box, or either end — are
-    ///   drawn as nothing. **Spaces in code are text**, and are kept; **so are spaces the rendering
-    ///   already drew at an edge**, which Markdown keeps there — a link's text, `[ a](u)`
-    ///   (2026-10-12, seed 49198: a deletion two lines away was read as taking one).
+    /// - Spaces at a line's edge (beside a break of any kind, a task's box, or either end) are
+    ///   drawn as nothing. Spaces in code are text and are kept, and so are spaces the rendering
+    ///   already drew at an edge, which Markdown keeps there: a link's text, `[ a](u)`.
     /// - A line emptied in a paragraph leaves two breaks side by side, which would split it: one goes.
     /// - A paragraph emptied is gone: Markdown has none that is empty. Its heading, item and cell
     ///   neighbours stay, empty.
@@ -261,7 +262,7 @@ import Foundation
             return !(next == nil || next == .lineBreak || next.map(isBlockBreak) == true
                      || previous == nil || previous.map(isBlockBreak) == true)
         }.map(\.element)
-        // An emptied paragraph — one with text that this deletion took, all but spaces: the break
+        // An emptied paragraph (one whose text this deletion took, all but spaces): the break
         // before it goes, or, for the first, the one after.
         func emptiedParagraph(_ b: Int) -> Bool {
             guard p.blocks.indices.contains(b), p.blocks[b].kind == .paragraph, p.blocks[b].rendered.length > 0
@@ -381,7 +382,7 @@ import Foundation
             edit = boxes.isEmpty ? RenderedEdit(range: NSRange(location: at, length: 0), text: "x", action: .typing)
                 : RenderedEdit(range: boxes[r.int(0...boxes.count - 1)].rendered, action: .tickTask)
         case 12:
-            // Typing with a style pending — ⌘B or ⌘I just pressed.
+            // Typing with a style pending: ⌘B or ⌘I just pressed.
             context.pending = [[.bold], [.italic], [.bold, .italic], [.strikethrough]][r.int(0...3)]
             edit = RenderedEdit(range: NSRange(location: at, length: 0),
                                 text: typed[r.int(0...typed.count - 1)], action: .typing)
@@ -398,7 +399,7 @@ import Foundation
                 edit = RenderedEdit(range: NSRange(location: at, length: 0), text: "x", action: .typing)
             }
         default:
-            // Deleting a whole block's text, or a block and its break — a triple-click.
+            // Deleting a whole block's text, or a block and its break: a triple-click.
             let b = p.blocks.isEmpty ? nil : r.int(0...p.blocks.count - 1)
             if let b, p.blocks[b].rendered.length > 0 {
                 let block = p.blocks[b].rendered

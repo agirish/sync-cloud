@@ -8,60 +8,43 @@ import Sync
 
 extension Notification.Name {
     /// Posted after a cloud-only "Download" request is accepted, carrying a `CloudDownloadRequest`
-    /// in `object`. The PANE listens (one subscription, not one per row) and watches the content
-    /// materialize on the requester's behalf: the row context menu, the Info inspector's Download
-    /// button and the row showing that file are separate views with no shared state, and without
-    /// this the badge lingered until the row was recycled.
+    /// in `object`. The pane listens (one subscription, not one per row) and watches the content
+    /// arrive for the requester: the row menu, the Info inspector's Download button and the row are
+    /// separate views with no shared state, so otherwise the badge would linger.
     ///
-    /// The payload names the posting pane (`CloudDownloadRequest.paneToken`): both panes default to
-    /// the same provider, so the same absolute path can be on screen twice, and a bare-path post
-    /// was latched by BOTH panes — twin rows polling, and a duplicate `forget` bumping the memo
-    /// generation app-wide.
-    ///
-    /// The pane runs the watch itself, so it needs no one to tell it the watch is over, and a row
-    /// reads the pane's watches it is already handed (`FileRowView.awaitingDownloadID`).
+    /// The payload names the posting pane (`CloudDownloadRequest.paneToken`): both panes can show
+    /// the same path, and a bare-path post would make both watch it, with twin polls and a duplicate
+    /// `forget` bumping the memo generation app-wide. A row reads the pane's watches
+    /// (`FileRowView.awaitingDownloadID`).
     static let cloudDownloadRequested = Notification.Name("SyncCloudCloudDownloadRequested")
 
     /// Posted by the pane when its watch of a requested download ends — the content landed, or the
     /// attempts ran out — carrying the `CloudDownloadRequest` it watched in `object`, on the channel
     /// the request came in on.
     ///
-    /// For the one view that shows a download without being inside the pane: the Info inspector's
-    /// preview (`InspectorFilePreview`), which is outside the pane's view tree and so cannot be
-    /// handed its watches. It used to run a watch of its own instead, beside the pane's — two polls
-    /// and two `CloudOnlyBadgeCache.forget`s per download, the harm the pane-owned watch exists to
-    /// prevent. Not posted for a superseded request: only the watch that concludes says so.
+    /// For the Info inspector's preview (`InspectorFilePreview`), which is outside the pane's view
+    /// tree and can't be handed its watches; a watch of its own would double the polls and
+    /// `CloudOnlyBadgeCache.forget`s. Not posted for a superseded request.
     static let cloudDownloadWatchEnded = Notification.Name("SyncCloudCloudDownloadWatchEnded")
 }
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
 ///
-/// **`Equatable`, and wrapped in `.equatable()` by its host.** Not decoration — it is the boundary
-/// that stops the pane re-rendering on things that have nothing to do with it.
+/// `Equatable`, and wrapped in `.equatable()` by its host, so the pane doesn't re-render on
+/// unrelated changes: `ContentView` re-evaluates both panes on any of its manager's many
+/// `@Published` writes, and hands each pane a fresh delegate, closures and `Binding`s that a
+/// memberwise comparison would always call different.
 ///
-/// `ContentView` is a single `View` observing a manager with ~56 `@Published` properties, so a
-/// write to *any* of them — a scan progress tick, a banner, a bulk-copy counter — re-evaluates its
-/// whole body, which builds both panes. That is survivable only if SwiftUI can then say "this pane
-/// is unchanged" and stop. It could not: the host hands each pane a freshly-built
-/// `PaneActionDelegate` (an existential holding closures), four freshly-built callback closures and
-/// two freshly-built `Binding`s, and SwiftUI's memberwise comparison treats every one of those as
-/// different. So every pane compared unequal on every render, and with the delegate threaded into
-/// each row's context menu, so did every visible row.
-///
-/// The `==` below therefore compares what the pane RENDERS FROM — all of it, by value — and asks
-/// the delegate to vouch for itself (`FileActionDelegate.isEquivalent(to:)`). The callbacks are
-/// compared only for presence, because presence is the only thing about them the pane's layout
-/// depends on: each one dispatches through the host's reference types and property wrappers, so a
-/// closure captured on an earlier render reads exactly the same live state as a fresh one would.
-/// Anything added to this view later must be added to `==` as well — a stored property left out of
-/// it is a value the pane will stop noticing.
+/// `==` compares by value everything the pane renders from, asks the delegate to vouch for itself
+/// (`FileActionDelegate.isEquivalent(to:)`), and checks callbacks only for presence: they dispatch
+/// through the host's live state, so an older closure acts like a fresh one. **Add every new
+/// stored property to `==`**, or the pane stops noticing it.
 public struct FileTreeView: View, Equatable {
-    /// File tree for this pane. Boxed rather than a bare `[FileNode]` so SwiftUI compares one
-    /// `Int` instead of recursing through ~40,000 nodes on the main thread — see `PaneTree`.
+    /// File tree for this pane. Boxed so SwiftUI compares one `Int` instead of recursing through
+    /// tens of thousands of nodes on the main thread; see `PaneTree`.
     public let tree: PaneTree
-    /// File tree for the opposite pane (e.g. for “copy to other pane”). Boxed for the same
-    /// reason as `tree`, and it matters at least as much: the opposite pane's tree is never
-    /// rendered here, so every node of it was being compared purely to reach a menu lookup.
+    /// File tree for the opposite pane (e.g. for “copy to other pane”). Boxed like `tree`: it is
+    /// never rendered here, only looked up by menus.
     public let otherTree: PaneTree
     /// Whether this pane’s tree is currently loading.
     public let isLoading: Bool
@@ -77,18 +60,16 @@ public struct FileTreeView: View, Equatable {
     /// Handles copy, move, delete, rename, focus, and other file actions.
     public let delegate: FileActionDelegate
 
-    /// Diff status per absolute node path for this pane (precomputed by the caller), and the index
-    /// this pane actually renders from — `init` forces it to `.empty` on the single-source rail,
-    /// so this property is the one gate for every difference accessory the pane draws (the row's
-    /// own status badge and a folder's contained-difference pill), in both presentations. Reading
-    /// it back gives what will be drawn, not what was handed in.
+    /// Diff status per absolute node path, as rendered: `init` forces it to `.empty` on the
+    /// single-source rail, so this is the one gate for every difference accessory (a row's badge, a
+    /// folder's pill) in both presentations. It reads back what is drawn, not what was handed in.
     public let diffIndex: DiffStatusIndex
 
     /// Display name of the opposite pane's provider, used as the copy/move target in menu labels.
     public let otherPaneName: String
 
-    /// Whether the provider's ROOT path existed as a directory at Settings' last validity
-    /// check (validity of a focused subfolder is not tracked — see `PaneEmptyState.classify`).
+    /// Whether the provider's root path was a directory at Settings' last validity check (a
+    /// focused subfolder isn't tracked; see `PaneEmptyState.classify`).
     public let rootPathIsValid: Bool
     /// Whether the pane's provider is enabled in Settings.
     public let providerIsEnabled: Bool
@@ -100,24 +81,21 @@ public struct FileTreeView: View, Equatable {
     /// the "Open Settings" buttons.
     public let onOpenSettings: (() -> Void)?
 
-    /// True when this pane is the single-source rail rather than one of the two comparison
-    /// panes. The rail has no "other pane" to compare or copy across, so its row menu drops the
-    /// comparison-only items (Ignore, Copy/Move to the other provider) and renames "Compare only
-    /// this folder" to a plain "Open".
+    /// True for the single-source rail rather than a comparison pane. With no other pane, its row
+    /// menu drops Ignore and Copy/Move to the other provider, and "Compare only this folder" becomes
+    /// "Open".
     public let isSingleSource: Bool
 
-    /// Shared placement scratch space, owned by the host (one per pane). This view fills its live
-    /// geometry (`rowBottoms`/`viewportHeight`) from row/viewport probes; the host reads the edge
-    /// straight from its own `body`. The single-source rail has one too: it has no action bar, but
-    /// the result message docks at its list's edge by the bar's rule. `nil` only where no host asks.
+    /// Shared placement scratch space, one per pane, owned by the host. This view fills its live
+    /// geometry (`rowBottoms`/`viewportHeight`) from probes; the host reads the edge in its `body`.
+    /// The single-source rail has one too: its result message docks by the bar's rule. `nil` only
+    /// where no host asks.
     private let placement: PaneBarPlacement?
-    /// Called when a SCROLL crossing flips the resolved edge — the host re-renders (with animation)
-    /// so the bar cross-fades. Selection-driven placement needs no callback: changing the selection
-    /// already re-renders the host, which recomputes the edge synchronously and instantly.
+    /// Called when a scroll flips the resolved edge, so the host re-renders and the bar
+    /// cross-fades. A selection change needs no callback: it already re-renders the host.
     private let onBarEdgeFlip: (() -> Void)?
 
-    /// How this pane presents its tree. Defaults to `.tree` so every existing caller — most
-    /// importantly the single-source rail — is unaffected until it opts in; only the two
+    /// How this pane presents its tree. Defaults to `.tree` (the single-source rail); only the two
     /// comparison panes pass `.columns`.
     public let viewMode: PaneViewMode
     /// Path → children for this pane's published tree, used only by the columns presentation.
@@ -129,85 +107,69 @@ public struct FileTreeView: View, Equatable {
     /// Applies a new column stack. The host owns this because the seam link makes a column drill a
     /// two-pane move; defaults to writing the binding for callers with no sibling pane.
     public let onColumnNavigate: ((PaneBrowsePath) -> Void)?
-    /// **Walks a directory the pane's budgeted walk did not read.** Passed straight through to
-    /// `PaneColumnsView`, which is the only thing that can see when a column needs it — see
-    /// `FileSyncManager.loadColumnChildren`, which this ends up calling.
-    /// Its second argument is `passive` — see `PaneOutlineRows.onNeedChildren`.
+    /// Walks a directory the pane's budgeted walk didn't read, via
+    /// `FileSyncManager.loadColumnChildren`. Passed to `PaneColumnsView`, the only view that sees
+    /// when a column needs it. The second argument is `passive`; see
+    /// `PaneOutlineRows.onNeedChildren`.
     public let onNeedChildren: ((String, Bool) -> Void)?
-    /// Directories whose deferred listing is running — passed straight to `PaneColumnsView`, which
-    /// needs it to tell "being read" from "could not be read". See its `graftsInFlight`.
+    /// Directories whose deferred listing is running, for `PaneColumnsView` to tell "being read"
+    /// from "could not be read". See its `graftsInFlight`.
     public let graftsInFlight: Set<String>
-    /// The order the panes are sorted in, for the background menus' Sort By to tick (BR7). Read
-    /// here; written through `delegate.handleSort`, like the pane bar's picker writes the same key.
+    /// The panes' sort order, for the background menus' Sort By to tick. Written through
+    /// `delegate.handleSort`, as the pane bar's picker writes the same key.
     public let sortOption: SortOption
     /// A plain click on the pane's empty space, carrying the depth of the column it landed in
     /// (`nil` in Tree mode, and past the last column, where nothing is truncated).
     ///
-    /// The host owns it for the same reason it owns `onColumnNavigate`: the selection this dismisses
-    /// may live in the *other* pane — the one-pane-selected invariant means it usually does — and
-    /// only the host can reach across the seam. `nil` for callers with no sibling pane, which leaves
-    /// the pane exactly as it behaves today.
+    /// The host owns it, as it owns `onColumnNavigate`: the selection this dismisses is usually in
+    /// the other pane (only one pane holds a selection), and only the host reaches across. `nil` for
+    /// callers with no sibling pane.
     public let onBackgroundDeselect: ((Int?) -> Void)?
 
-    /// This pane's search results — what matched, what has matches beneath it, and which side each
-    /// hit is on. `.empty` (the default) is a pane with no query, which renders exactly as it did
-    /// before search existed.
+    /// This pane's search results: what matched, what has matches beneath it, and which side each
+    /// hit is on. `.empty` (the default) is a pane with no query.
     ///
     /// Stamped, not walked: a broad query fills three maps with thousands of entries and this is
     /// compared by `==` on every render. See `PaneSearchResults`.
     public let search: PaneSearchResults
-    /// The type filter's folder counts (RD70), or `nil` for a pane with no filter — which renders
-    /// exactly as it did before the filter existed.
+    /// The type filter's folder counts, or `nil` for a pane with no filter.
     public let typeFilter: PaneTypeFilterDecor?
-    /// The filter that left this folder showing nothing, for TE274's empty state, and the button
-    /// that clears it. `nil` unless the filter emptied the folder.
+    /// The filter that left this folder showing nothing, for the empty state and its button that
+    /// clears it. `nil` unless the filter emptied the folder.
     public let typeFilterEmptied: PaneTypeFilter?
     /// What that empty state calls the folder ("No PDFs in Downloads"). The host's name for it: at a
     /// provider's root the last path component is a container name nobody would recognize.
     public let typeFilterFolderName: String?
     public let onClearTypeFilter: (() -> Void)?
-    /// Which hit ↩/⇧↩ have walked to. Revealing it is this view's job — expanding its ancestors and
-    /// scrolling to it in Tree, opening the columns down to it in Columns — and it happens on
-    /// ARRIVAL, per hit, never for every hit of the query at once.
+    /// Which hit ↩/⇧↩ have walked to. This view reveals it on arrival, one hit at a time: expanding
+    /// its ancestors and scrolling to it in Tree, opening the columns down to it in Columns.
     public let searchHitIndex: Int
-    /// The host's reveal signal: bumped for a new query and for ↩/⇧↩, and for nothing else. The
-    /// reveal fires when THIS moves — never on `search.generation`, which also moves on every
-    /// background republish and used to re-fire the reveal over whatever the user had selected,
-    /// scrolled to, or navigated into since the walk. See `PaneSearchFieldState.revealNonce`.
+    /// The host's reveal signal, bumped only for a new query and for ↩/⇧↩. The reveal fires on this,
+    /// never on `search.generation`, which also moves on every background republish and would yank
+    /// the user back from wherever they went. See `PaneSearchFieldState.revealNonce`.
     public let searchRevealNonce: Int
-    /// The host's request to bring one row into view — the open document, selected on the user's
-    /// behalf (TE47). See `PaneRowReveal`; acted on only while that row is the whole selection
-    /// (`revealsRow`). `nil`, the default, for every caller but the app's left pane.
+    /// The host's request to bring one row into view: the open document, selected for the user.
+    /// See `PaneRowReveal`; acted on only while that row is the whole selection (`revealsRow`).
+    /// `nil`, the default, for every caller but the app's left pane.
     public let rowReveal: PaneRowReveal?
-    /// Told when this pane has ACTED on `rowReveal` — scrolled to its row — so the host can retire
-    /// the request. A reveal is a one-time "bring this into view", and only the pane knows when it
-    /// has been answered: one issued while the pane was on screen is answered at once, one issued
-    /// while it was folded away is answered when it appears. Left standing after that, it was
-    /// answered AGAIN on every appearance while its row stayed selected — scroll away, collapse and
-    /// expand the pane or go Browse and back, and it jumped back to the document every time.
-    /// Not in the equality gate: a closure, and the host's to hold.
+    /// Told when this pane has acted on `rowReveal` (scrolled to its row) so the host can retire
+    /// it. Only the pane knows when: at once if on screen, or when it next appears. Left standing,
+    /// the reveal would jump back to the document on every appearance while its row stayed
+    /// selected. Not in the equality gate: a closure, and the host's to hold.
     public let onRowRevealed: ((PaneRowReveal) -> Void)?
 
-    /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
-    /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
-    /// draw for free: `PaneListSelectionStyler` turns the system highlight off (to get the accent
-    /// instead of OS gray) and the window is pinned to `controlActiveState == .active` (to stop the
-    /// glass graying out), so between them nothing was left to say WHICH pane holds the selection.
-    /// Defaults true — the single-source rail is the only pane on screen.
+    /// Whether this pane is the one the action bar acts on. Drives the strength of the selection
+    /// wash, since nothing else shows which pane holds the selection: `PaneListSelectionStyler`
+    /// turns the system highlight off, and the window is pinned to `controlActiveState == .active`.
+    /// Defaults true: the single-source rail is the only pane on screen.
     public let isActivePane: Bool
 
-    /// Presents the row menu's Quick Look through the HOST's panel, when the host offers one.
+    /// Presents the row menu's Quick Look through the host's panel, when it offers one. There is
+    /// one shared `QLPreviewPanel`, so it needs one owner: two could not see each other's preview,
+    /// and the row menu's would go stale when the selection moved (see
+    /// `CurrentSelection.previewFollow`).
     ///
-    /// **There is one Quick Look panel on the screen, so there has to be one owner of it.** This
-    /// pane used to present the row menu's preview from its own `@State` while Space presented from
-    /// the host's — two bindings driving the single shared `QLPreviewPanel`, on the reasoning that
-    /// "the shared QL panel only ever shows one preview at a time anyway". That is true and is
-    /// exactly the problem: neither owner can see what the other put up, so neither can keep it
-    /// current, and a preview opened from the row menu went stale the moment the selection moved
-    /// (see `CurrentSelection.previewFollow`). The host can see both surfaces; the pane cannot.
-    ///
-    /// Optional, so a caller with no panel of its own — every test, and any future embedder — keeps
-    /// the self-contained behaviour rather than losing Quick Look entirely.
+    /// Optional, so a caller with no panel (every test) keeps the self-contained behaviour.
     private let onQuickLook: ((URL) -> Void)?
 
     /// The fallback presenter, used only when `onQuickLook` is nil.
@@ -217,24 +179,14 @@ public struct FileTreeView: View, Equatable {
     private func presentQuickLook(_ url: URL) {
         if let onQuickLook { onQuickLook(url) } else { quickLookItem = url }
     }
-    /// The downloads THIS pane is watching, keyed by path — see `PaneDownloadWatch`. While a path is
-    /// in there, the row showing that file re-resolves its badge, reading it from here rather than
-    /// watching anything itself; the Info inspector's preview hears when it ends
-    /// (`.cloudDownloadWatchEnded`).
+    /// The downloads this pane is watching, keyed by path; see `PaneDownloadWatch`. While a path is
+    /// here, its row re-resolves its badge from here rather than watching anything itself; the Info
+    /// inspector's preview hears when it ends (`.cloudDownloadWatchEnded`).
     ///
-    /// A collection, not a single latch. One latch meant a second download in this pane — a
-    /// different file, queued back to back from the row menu — cancelled the first one's watch, and
-    /// that file then landed unobserved behind a stale cloud-only badge.
-    ///
-    /// One subscription here rather than one per row. `FileRowView` used to observe
-    /// `.cloudDownloadRequested` itself, which meant a live Combine subscription per VISIBLE ROW,
-    /// churned as the list recycled them, to deliver a notice that at most one row per session
-    /// ever acts on.
-    ///
-    /// The result reaches the row through the MEMO rather than back down the tree: the watch
-    /// `record`s the landed answer and then drops its entry here, and dropping it re-keys that
-    /// row's badge task (see `FileRowView.BadgeID`), which re-reads the memo — one dictionary hit,
-    /// no second syscall.
+    /// A collection, so a second download queued from the row menu doesn't cancel the first one's
+    /// watch and leave a stale cloud-only badge. One subscription here, not a Combine subscription
+    /// per visible row. The result reaches the row through the memo: the watch `record`s it and
+    /// drops its entry, which re-keys the row's badge task (`FileRowView.BadgeID`) to re-read it.
     @StateObject private var downloads = PaneDownloadWatch()
 
     /// Resolves this pane's selection — and the other pane's, for the cross-pane items — once for
@@ -242,37 +194,22 @@ public struct FileTreeView: View, Equatable {
     @State private var selectionResolver = PaneSelectionResolver()
 
     /// The folders whose children are showing, in the Tree presentation. Pane state, not model
-    /// state: it survives a republish (identity is the node path) and is reset by nothing, exactly
-    /// as `OutlineGroup`'s private equivalent behaved.
+    /// state: it survives a republish (identity is the node path) and nothing resets it. Here, not
+    /// in `PaneOutlineRows`, because search writes it: revealing a hit is
+    /// `expanded.formUnion(hit.ancestorPaths)`. See `PaneOutlineRows`.
     ///
-    /// It is here rather than inside `PaneOutlineRows` because the SEARCH writes it — revealing a
-    /// hit is `expanded.formUnion(hit.ancestorPaths)` and nothing else. That is the whole reason the
-    /// outline stopped being an `OutlineGroup`; see `PaneOutlineRows`.
-    ///
-    /// **The fallback, used only when no host offers storage of its own.** As the pane's own `@State`
-    /// this died with the view, and the view is destroyed by every workspace switch — the four
-    /// layout arms mount `paneColumn` in structurally different places, so Browse's pane and
-    /// Organize's rail are two identities over one folder. Every folder a reader had opened closed
-    /// itself on the way to Compare and back. Columns hid it: the stack lives on the manager, and
-    /// `carryColumnsIntoTree` re-opens the one descending path it names on arrival — which is why the
-    /// obvious repro (expand a folder, then its child, then its child) appeared to work, and why two
-    /// SIBLING folders is the test that shows it.
-    ///
-    /// Tests mount this view without a host and get exactly today's behaviour; see ``hostExpanded``.
+    /// The fallback when no host offers storage (as in tests); see ``hostExpanded``. As `@State` it
+    /// dies with the view, and every workspace switch remounts `paneColumn` in a different place,
+    /// so opened folders would close on the way to Compare and back.
     @State private var ownExpanded: Set<String> = []
 
-    /// Where the host keeps this pane's expansion, when it keeps it at all.
-    ///
-    /// **Optional rather than required**, so the two dozen test call sites that mount a pane to ask
-    /// about something else are unchanged and keep their own storage. A defaulted
-    /// `.constant([])` would have compiled just as quietly and broken every one of them that
-    /// expands anything — a search reveal writes this set, and writes to a constant binding are
-    /// dropped on the floor.
+    /// Where the host keeps this pane's expansion, when it keeps it at all. Optional, so test call
+    /// sites keep their own storage; a defaulted `.constant([])` would silently drop every write,
+    /// including a search reveal's.
     var hostExpanded: Binding<Set<String>>?
 
-    /// The expansion set, wherever it actually lives. Every reader and writer in this file goes
-    /// through here rather than naming one of the two storages, which is what stops a later edit
-    /// reading the fallback while the host writes the real one.
+    /// The expansion set, wherever it lives. Every reader and writer in this file goes through here,
+    /// so none reads the fallback while the host writes the real one.
     private var expanded: Set<String> {
         get { hostExpanded?.wrappedValue ?? ownExpanded }
         nonmutating set {
@@ -280,80 +217,48 @@ public struct FileTreeView: View, Equatable {
         }
     }
 
-    /// `expanded` as a binding, for `PaneOutlineRows` — which needs to write single rows open and
-    /// closed without this view re-deriving the whole set.
+    /// `expanded` as a binding, for `PaneOutlineRows` to open and close single rows.
     private var expandedBinding: Binding<Set<String>> {
         hostExpanded ?? $ownExpanded
     }
 
-    /// The expansion set as this view reads and writes it, reachable from tests — the same seam, and
-    /// the same reason, as `PaneOutlineRows.expansionBindingForTesting`.
-    ///
-    /// **The property, not the binding, and the difference is the whole point.** The disclosure
-    /// triangles write through ``expandedBinding``, which resolves the host directly; the three
-    /// writers that go through ``expanded``'s setter are the search reveal, the columns carry-over
-    /// and the prune on a root change. Invert the condition in that setter and a hosted pane writes
-    /// its dead `ownExpanded`: the host's set never moves, so `==` sees no difference, so the
-    /// equality suite stays green — and revealing a search hit stops opening its ancestors, the
-    /// carry-over stops opening the trail it just scrolled to, and a re-rooted pane keeps remembering
-    /// folders that are no longer under it. None of those has a rendered assertion; they just quietly
-    /// stop happening.
-    ///
-    /// A first version of this seam exposed the BINDING and was vacuous: it wrote past the setter it
-    /// claimed to be testing, and the mutation went straight through it green.
+    /// The expansion set as this view reads and writes it, for tests, like
+    /// `PaneOutlineRows.expansionBindingForTesting`. The property, not the binding: the search
+    /// reveal, the columns carry-over and the prune on a root change write through ``expanded``'s
+    /// setter, while the triangles use ``expandedBinding``. Inverting that setter's condition must
+    /// fail a test through this seam; a binding would bypass the setter.
     var expandedForTesting: Set<String> {
         get { expanded }
         nonmutating set { expanded = newValue }
     }
 
-    /// The column stack this pane has already carried into its Tree presentation — see
-    /// `carryColumnsIntoTree`, which scrolls only when the parked stack differs from it. Pane
-    /// state for the same reason `expanded` is: it has to survive the branch switch between the two
-    /// presentations, which is the very transition it exists to notice.
+    /// The column stack this pane last carried into its Tree presentation; `carryColumnsIntoTree`
+    /// scrolls only when the parked stack differs. Pane state, so it survives the switch between
+    /// presentations, the transition it exists to notice.
     @State private var carriedStack = PaneBrowsePath()
 
-    /// The place this pane has already carried out of the Tree and into its columns — see
-    /// `carryTreeIntoColumns`, which stands down when the Tree's answer has not changed since.
-    /// Pane state, because it has to survive the branch switch between the two presentations,
-    /// which is the very transition it exists to notice.
+    /// The place this pane last carried out of the Tree into its columns; `carryTreeIntoColumns`
+    /// stands down while the Tree's answer is unchanged. Pane state, for `carriedStack`'s reason.
     @State private var carriedTreePlace: PaneBrowsePath?
 
-    /// The channel `.cloudDownloadRequested` travels on for THIS pane — `.default` in the app, and
-    /// a private `NotificationCenter` in a test that mounts a pane.
+    /// The channel `.cloudDownloadRequested` travels on for this pane: `.default` in the app, a
+    /// private `NotificationCenter` in a test that mounts a pane.
     ///
-    /// `NotificationCenter` is process-wide and a mounted SwiftUI view is a live subscriber, so
-    /// `paneToken` alone cannot separate two panes on the same surface: it names a *surface*, and
-    /// under `swift test` several suites mount one at once. Every mounted left pane in the process
-    /// therefore accepted every `.left` post in the process — one suite's post ran another suite's
-    /// watch, and its `CloudOnlyBadgeCache.forget` moved the value that suite was asserting on.
-    /// Picking a token no other suite posts was the previous answer and it has run out: all three
-    /// surfaces are already used as the *ignored* token somewhere, and a foreign pane on the same
-    /// surface can accept the very post a routing test uses as its POSITIVE control — which passes
-    /// the test with the pane under test completely deaf.
-    ///
-    /// A channel is the identity a token is not. Production has exactly one pane per surface and
-    /// passes nothing, so `.default` is what the app runs on and the routing decision it makes is
-    /// bit-identical; a test gives each mounted pane its own channel and no two can reach each
-    /// other, whatever tokens they use. See `docs/flaky-tests.md` mechanism 9.
+    /// `paneToken` names a surface, not a pane, and under `swift test` several suites mount panes at
+    /// once, so on the shared center one suite's post would run another's watch and move the value
+    /// it asserts on. The app has one pane per surface and passes nothing; each test pane gets its
+    /// own channel. See "A mounted view is a live subscriber, in every suite at once" in
+    /// `docs/flaky-tests.md`.
     public let downloadChannel: NotificationCenter
 
-    /// This pane's identity for download-notification scoping — the receiving side of
-    /// `CloudDownloadRequest.paneToken`. Computed from facts already compared by `==`, so it adds
-    /// nothing the pane could fail to notice.
-    ///
-    /// Not `private`: `FileTreeViewPaneNameTests` pins it, because a receiver hardcoded to one
-    /// token is a mutation nothing else in the suite can see — the routing helper it feeds is
-    /// tested, but only against tokens a test made up.
+    /// This pane's identity for download-notification scoping, the receiving side of
+    /// `CloudDownloadRequest.paneToken`. Computed from facts `==` already compares. Not `private` so
+    /// `FileTreeViewPaneNameTests` can catch a receiver hardcoded to one token.
     var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
 
-    /// The root a republish's badge-memo clear is scoped to: the folder this pane is actually
-    /// showing, which is where the memo's keys for it come from.
-    ///
-    /// `currentPath`, NOT `rootPath`. The two diverge whenever a pane is focused on a subfolder —
-    /// `rootPath` stays the provider root while `currentPath` follows the focus — and the tree that
-    /// just republished holds only what is under `currentPath`. Scoping to `rootPath` would clear
-    /// entries no row of this pane can currently serve, which is the over-broad clear this scoping
-    /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
+    /// The root a republish's badge-memo clear is scoped to: `currentPath`, not `rootPath`. Focused
+    /// on a subfolder, the republished tree holds only what is under `currentPath`, so `rootPath`
+    /// would clear entries this pane can't serve. Non-private so `FileTreeViewPaneNameTests` pins it.
     var badgeMemoRoot: String { currentPath }
 
     public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, rowReveal: PaneRowReveal? = nil, onRowRevealed: ((PaneRowReveal) -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String, Bool) -> Void)? = nil, graftsInFlight: Set<String> = [], sortOption: SortOption = .name, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default, hostExpanded: Binding<Set<String>>? = nil, typeFilter: PaneTypeFilterDecor? = nil, typeFilterEmptied: PaneTypeFilter? = nil, typeFilterFolderName: String? = nil, onClearTypeFilter: (() -> Void)? = nil) {
@@ -369,11 +274,9 @@ public struct FileTreeView: View, Equatable {
         self.otherSelection = otherSelection
         self.isLeft = isLeft
         self.delegate = delegate
-        // A difference is a statement about the OTHER pane, and the rail has no other pane: a lens
-        // scans one folder. The badges it drew came from whatever Compare last scanned, so the rail
-        // showed counts against a provider it isn't looking at — and left them standing after the
-        // scan that produced them was long stale. Emptying the index here, rather than at each of
-        // the three render sites, means neither presentation can reintroduce the badge.
+        // A difference is about the other pane, and the rail has none: its badges would be
+        // whatever Compare last scanned. Emptied here, not at each render site, so neither
+        // presentation can draw one.
         self.diffIndex = isSingleSource ? .empty : diffIndex
         self.otherPaneName = otherPaneName ?? (isLeft ? "Right" : "Left")
         self.rootPathIsValid = rootPathIsValid
@@ -384,9 +287,8 @@ public struct FileTreeView: View, Equatable {
         self.isSingleSource = isSingleSource
         self.placement = placement
         self.onBarEdgeFlip = onBarEdgeFlip
-        // Defaulted to this pane's own empty results rather than to a shared constant, so the side
-        // is right even for a caller that never searches — `PaneSearchResults.==` reads the side
-        // first, and a right pane holding a `.left` empty would compare unequal to itself forever.
+        // This pane's own empty results, not a shared constant, so the side is right even with no
+        // search: `PaneSearchResults.==` reads the side, and a wrong one never compares equal.
         self.search = search ?? .empty(side: tree.side)
         self.searchHitIndex = searchHitIndex
         self.searchRevealNonce = searchRevealNonce
@@ -406,15 +308,12 @@ public struct FileTreeView: View, Equatable {
         self.hostExpanded = hostExpanded
     }
 
-    /// See the note on the type. Every stored property is accounted for here: the value ones by
-    /// `==`, the two `Binding`s by their wrapped values (so a selection or a column stack changing
-    /// still re-renders), the shared placement box by identity, the delegate by its own
-    /// equivalence, and the four host callbacks by presence alone.
+    /// See the note on the type. Every stored property is accounted for: values by `==`, the
+    /// `Binding`s by their wrapped values, the placement box by identity, the delegate by its own
+    /// equivalence, and the host callbacks by presence.
     ///
-    /// `nonisolated` because `Equatable` is, and `assumeIsolated` because this view — and the
-    /// `@MainActor` delegate it compares — are not. The assumption is the one SwiftUI already
-    /// guarantees: view-tree diffing, which is the only thing that calls this, runs on the main
-    /// actor. Same reasoning (and same call) as the pane's AppKit bounds observers.
+    /// `nonisolated` because `Equatable` is; `assumeIsolated` because the view and its `@MainActor`
+    /// delegate are main-actor, and SwiftUI's view diffing, the only caller, runs on the main actor.
     nonisolated public static func == (lhs: FileTreeView, rhs: FileTreeView) -> Bool {
         MainActor.assumeIsolated { isEqualOnMainActor(lhs, rhs) }
     }
@@ -440,27 +339,21 @@ public struct FileTreeView: View, Equatable {
             && lhs.typeFilterFolderName == rhs.typeFilterFolderName
             && (lhs.onClearTypeFilter == nil) == (rhs.onClearTypeFilter == nil)
             && lhs.searchHitIndex == rhs.searchHitIndex
-            // In the gate because the reveal listens to it: `.onChange` only observes values that
-            // survive a re-render, and a nonce filtered out here would never fire one.
+            // In the gate because the reveal's `.onChange` only sees values that cause a re-render.
             && lhs.searchRevealNonce == rhs.searchRevealNonce
             // In the gate for the nonce's reason: the row reveal listens to it with `.onChange`.
             && lhs.rowReveal == rhs.rowReveal
             && lhs.isActivePane == rhs.isActivePane
-            // Without this a graft landing or finishing cannot redraw the pane, and the spinner
-            // it drives would be stuck in whichever state the last unrelated update left it.
+            // Without this a graft landing or finishing can't redraw the pane, and its spinner
+            // sticks in whatever state the last unrelated update left.
             && lhs.graftsInFlight == rhs.graftsInFlight
             // The background menus tick the current order; a stale value ticks the wrong one.
             && lhs.sortOption == rhs.sortOption
             && lhs.viewMode == rhs.viewMode
-            // **The VALUE, not the binding's identity** — `Binding` is not `Equatable`, and two
-            // bindings onto the same state are fresh structs every render, so comparing anything else
-            // here would either never differ or always differ. And this one is load-bearing in a
-            // way that is easy to miss.** While the expansion set was this view's own `@State`, a
-            // write to it invalidated the view unconditionally and no gate could suppress the
-            // redraw. Held by the host it arrives as a binding instead, so leaving it out of this
-            // comparison means the host's write re-renders `ContentView`, builds a new pane, and
-            // `EquatableView` then decides nothing changed: every disclosure triangle in the tree
-            // would stop responding to clicks. `FileTreeViewEquatableTests` holds this line.
+            // The value, not the binding: a `Binding` isn't `Equatable` and is a fresh struct every
+            // render. Leave this out and a host-held expansion change builds a new pane that
+            // `EquatableView` calls unchanged, so no disclosure triangle responds to clicks.
+            // `FileTreeViewEquatableTests` holds this line.
             && lhs.hostExpanded?.wrappedValue == rhs.hostExpanded?.wrappedValue
             && lhs.childrenIndex == rhs.childrenIndex
             && lhs.browsePath == rhs.browsePath
@@ -469,13 +362,11 @@ public struct FileTreeView: View, Equatable {
             && (lhs.onOpenSettings == nil) == (rhs.onOpenSettings == nil)
             && (lhs.onBarEdgeFlip == nil) == (rhs.onBarEdgeFlip == nil)
             && (lhs.onColumnNavigate == nil) == (rhs.onColumnNavigate == nil)
-            // Presence, like its neighbours: a pane that has it can fill a folder the walk skipped
-            // and one that does not leaves that column blank forever, which is a different pane.
+            // Presence: a pane without it leaves a column the walk skipped blank for good.
             && (lhs.onNeedChildren == nil) == (rhs.onNeedChildren == nil)
             && (lhs.onBackgroundDeselect == nil) == (rhs.onBackgroundDeselect == nil)
-            // Presence only, like its neighbours — but presence here is load-bearing rather than
-            // incidental: it is what decides whether the row menu presents through the host's panel
-            // or this pane's own fallback, so a pane that gained or lost it must re-render.
+            // Presence decides whether the row menu presents through the host's panel or this
+            // pane's fallback, so gaining or losing it must re-render.
             && (lhs.onQuickLook == nil) == (rhs.onQuickLook == nil)
             && lhs.delegate.isEquivalent(to: rhs.delegate)
     }
@@ -489,43 +380,20 @@ public struct FileTreeView: View, Equatable {
         }
     }
 
-    /// After a scroll/layout update to the row positions, re-resolve the edge (the resolve commits
-    /// its own anchor); if it flipped, ask the host to re-render (animated cross-fade). Selection
-    /// changes are NOT handled here — they re-render the host anyway, which recomputes the edge
-    /// synchronously and instantly.
+    /// Applies `carryBack` when the Columns presentation arrives, so leaving the Tree opens the
+    /// columns on the folder the Tree was in, not the older stack they were parked with. Through
+    /// `onColumnNavigate`, not the binding: the seam link mirrors a column move into the sibling
+    /// pane, which only the host can reach.
     ///
-    /// Two rules keep this from feeding back into the layout pass that called it:
-    ///
-    /// 1. It re-resolves against the bar's selection of record (`reresolveAtTop`), never against
-    ///    this pane's raw List selection. The two disagree for a runloop turn after every click,
-    ///    and resolving from each in turn made the pane and its host commit opposite edges to the
-    ///    same anchor, forever — see `PaneBarPlacement.barSelection`.
-    /// 2. The flip itself is handed to the next runloop turn. This runs inside a preference
-    ///    callback, i.e. inside AppKit's layout pass; writing host state synchronously from here
-    ///    re-enters that pass, and a pass that keeps re-entering is the crash AppKit raises when a
-    ///    window needs more constraint passes than it has views. A turn's delay is invisible under
-    ///    the flip's own 0.22s cross-fade.
-    /// Applies `carryBack` when the Columns presentation arrives, so a flip back out of the Tree
-    /// opens the columns on the folder the Tree was standing in rather than replaying the stack the
-    /// columns were parked with — which is the last place the user was, but not the most recent.
-    ///
-    /// **Through `onColumnNavigate`, not the binding**, for the reason drilling always is: the seam
-    /// link mirrors a column move into the sibling pane, and only the host can see the other side.
-    ///
-    /// Gated on the place having CHANGED since the last carry. This branch appears on every tab
-    /// switch and pane collapse, not only on a mode flip, and re-applying a stale answer would pull
-    /// the columns back out of wherever the user had walked to since.
+    /// Gated on the place having changed since the last carry: this branch appears on every tab
+    /// switch and pane collapse, and a stale answer would pull the columns away from where the user
+    /// walked since.
     private func carryTreeIntoColumns(index: PaneChildrenIndex) {
-        // **Never decide from a tree that is still arriving.** Progressive loading publishes a
-        // SHALLOW tree — the root's children and nothing under them — before the deep walk
-        // finishes, and `carryBack` resolves the selection against exactly that index: a selection
-        // three folders down prunes to its first component, which is not a smaller version of the
-        // answer but a confident wrong one. It would then be applied *and latched*, so the right
-        // answer never arrives. `pruneBrowsePath` carries this guard for the same reason and says
-        // so at length; this is the same hazard reached through a different door.
-        //
-        // Skipping is not the whole fix — the falling edge of `isLoading` re-runs this (see the
-        // Columns branch), because an arrival during a load would otherwise never be carried at all.
+        // **Never decide from a tree that is still arriving.** Progressive loading first publishes
+        // a shallow tree, where a selection three folders down prunes to its first component: a
+        // confident wrong answer that would be applied and latched. `pruneBrowsePath` guards the
+        // same hazard. The falling edge of `isLoading` re-runs this (see the Columns branch), so an
+        // arrival during a load is still carried.
         guard !isLoading else { return }
         guard let target = Self.carryBack(selection: selection, treeRoot: currentPath, index: index),
               target != carriedTreePlace else { return }
@@ -534,42 +402,43 @@ public struct FileTreeView: View, Equatable {
         (onColumnNavigate ?? { browsePath = $0 })(target)
     }
 
+    /// After a scroll or layout change to the row positions, re-resolves the edge and, if it
+    /// flipped, asks the host to re-render (an animated cross-fade). A selection change re-renders
+    /// the host anyway, so isn't handled here. Two rules keep this out of the layout pass that
+    /// called it:
+    ///
+    /// 1. It re-resolves against the bar's selection of record, never this pane's raw List
+    ///    selection. The two disagree for a runloop turn after a click, and resolving from each
+    ///    makes pane and host commit opposite edges forever; see `PaneBarPlacement.barSelection`.
+    /// 2. The flip runs on the next runloop turn. This runs inside a preference callback, inside
+    ///    AppKit's layout pass, and writing host state synchronously re-enters that pass until
+    ///    AppKit crashes on too many constraint passes. The delay hides under the cross-fade.
     private func flipEdgeIfScrolledAcross() {
         placement?.flipIfEdgeMoved(onBarEdgeFlip)
     }
 
     // MARK: - Revealing a search hit
 
-    /// How long after a reveal the second scroll attempt is made.
+    /// How long after a reveal the second scroll attempt is made, as with
+    /// `PaneColumnsView.revealRetryDelay`. A `scrollTo` issued before layout settles is silently
+    /// dropped, and the hit's row doesn't exist until its ancestors have opened. A second attempt
+    /// on a row already in view moves nothing.
     ///
-    /// The same number, and the same reason, as `PaneColumnsView.revealRetryDelay`: a `scrollTo`
-    /// issued before the layout it is resolving against has settled is not merely early, it is
-    /// SILENTLY DROPPED and never retried. Here the unsettled thing is the expansion this reveal
-    /// just wrote — the hit's row does not exist in the list until its ancestors have opened, and a
-    /// scroll to a row that is not there yet scrolls nowhere. A second attempt costs nothing when
-    /// the first one worked, because a `scrollTo` onto a row already in view moves zero points.
-    ///
-    /// Which is also why NEITHER attempt may be treated as proof: a test must observe the row's
-    /// ARRIVAL, never the call returning. See `PaneSearchRevealTests`.
+    /// So neither attempt proves anything: a test must observe the row arrive, never the call
+    /// return. See `PaneSearchRevealTests`.
     static let searchRevealRetryDelay: TimeInterval = 0.25
 
-    /// The animation the reveal scrolls with — see `paneColumnRevealAnimation`, which governs both
-    /// presentations' reveals for the same reason (an offscreen, never-key window on a machine that
-    /// throttles CoreAnimation never advances the ease, so the scroll never lands).
+    /// The animation the reveal scrolls with; see `paneColumnRevealAnimation`, which governs both
+    /// presentations (an offscreen window on a machine throttling CoreAnimation never finishes the
+    /// ease, so the scroll would never land).
     @Environment(\.paneColumnRevealAnimation) private var revealAnimation
 
     /// Reveals the current hit in the Tree presentation: open its ancestors, select it, bring it
-    /// into view.
+    /// into view. Per hit, on arrival: opening every hit's ancestors while the query is typed would
+    /// blow up a large tree. Folders an earlier hit opened stay open, as if clicked.
     ///
-    /// **Per hit, on arrival.** Only this hit's ancestors are opened, and only when the walk reaches
-    /// it — expanding every ancestor of every hit as the query is typed would detonate a large tree
-    /// for a question that is still being asked. Folders opened by an earlier hit stay open, exactly
-    /// as they would had the user clicked their way down.
-    ///
-    /// The selection write goes through the pane's own binding, which is the host's
-    /// `applySelectionWrite` — so the one-pane-selected invariant is enforced by the same code a
-    /// click goes through, and the sibling pane's clear is deferred rather than written synchronously
-    /// from here.
+    /// The selection goes through the pane's binding, the host's `applySelectionWrite`, so the
+    /// one-pane-selected rule runs the same code a click does and the sibling's clear is deferred.
     private func revealInTree(_ proxy: ScrollViewProxy, selecting: Bool) {
         guard let hit = search.hit(at: searchHitIndex) else { return }
         expanded = PaneTreeSearch.expansion(expanded, revealing: hit)
@@ -577,12 +446,10 @@ public struct FileTreeView: View, Equatable {
         scrollTreeRow(hit.path, proxy)
     }
 
-    /// Brings `path`'s row to the middle of the Tree's viewport — the scroll both of the Tree's
-    /// reveals make, the search walk's and the host's row reveal.
-    ///
-    /// Both hops are deferred: a reveal runs while SwiftUI is still applying the update that
-    /// opened the row's ancestors (or published the row at all), so the list the scroll resolves
-    /// against is the one WITHOUT the row in it. See `searchRevealRetryDelay` for the second.
+    /// Brings `path`'s row to the middle of the Tree's viewport, for both the search walk and the
+    /// host's row reveal. Both hops are deferred: a reveal runs while SwiftUI is still applying the
+    /// update that adds the row, so an immediate scroll would resolve against a list without it.
+    /// See `searchRevealRetryDelay` for the second.
     private func scrollTreeRow(_ path: String, _ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         func attempt() {
@@ -594,16 +461,10 @@ public struct FileTreeView: View, Equatable {
 
     // MARK: - Revealing a row the host selected
 
-    /// The row a host's reveal may scroll to, or `nil` — **only while that row is the pane's whole
-    /// selection** (for a reveal of several rows, while those rows are: `PaneRowReveal.selection`).
-    ///
-    /// That condition is what keeps the reveal from fighting the user. The host asks for a reveal
-    /// at the moment it selects a row on the user's behalf, and the request outlives the moment —
-    /// it is also answered when the pane next appears, because a pane collapsed at the time (Edit's
-    /// rail showing, a workspace switch in flight) had nothing on screen to scroll. Once the user
-    /// has selected anything else, the request speaks for a selection that no longer exists, and
-    /// scrolling to it would take them back. The host retires the request then too; this is the
-    /// pane refusing to act on one that has not been retired yet.
+    /// The row a host's reveal may scroll to, or `nil`: only while that row (or rows,
+    /// `PaneRowReveal.selection`) is the pane's whole selection, so the reveal never fights the
+    /// user. A request outlives the moment it was made, since a collapsed pane answers it when it
+    /// next appears; once the user selects something else it would only drag them back.
     ///
     /// Static so `PaneRowRevealTests` can pin the rule without a mounted pane; `PaneColumnsView`
     /// asks the same one.
@@ -612,14 +473,9 @@ public struct FileTreeView: View, Equatable {
         return reveal.path
     }
 
-    /// The Tree's answer to a row reveal: scroll the row to the middle of the list.
-    ///
-    /// **No expansion.** The host asks only for a row in the folder the pane is showing — in Tree,
-    /// the pane's root — so the row is a top-level one. A path under a closed folder has no row to
-    /// scroll to, and `scrollTo` for an id the list does not hold is a no-op.
-    ///
-    /// Answered once: the host is told (`onRowRevealed`) and retires the request, so a later
-    /// appearance of the pane does not scroll back to it.
+    /// The Tree's answer to a row reveal: scroll the row to the middle of the list. No expansion:
+    /// the host asks only for a row in the pane's root folder, and `scrollTo` an id the list
+    /// doesn't hold does nothing. Answered once: `onRowRevealed` lets the host retire it.
     private func revealRowInTree(_ reveal: PaneRowReveal?, _ proxy: ScrollViewProxy) {
         guard let reveal, let path = Self.revealsRow(reveal, selection: selection) else { return }
         scrollTreeRow(path, proxy)
@@ -627,32 +483,21 @@ public struct FileTreeView: View, Equatable {
     }
 
     /// Carries a parked column stack over when the pane flips to Tree: opens the folders the
-    /// columns were standing in and brings the deepest one into view.
+    /// columns were in and brings the deepest into view. The presentations keep "where you are" in
+    /// different state (`browsePath` and the expansion set), and the stack isn't consumed, so
+    /// flipping back restores the same columns.
     ///
-    /// The two presentations hold "where you are" in different state — Columns in `browsePath`,
-    /// Tree in its own expansion set — so without this the flip dropped the user at the top of a
-    /// tree rooted at the pane's scope, with no sign of the four columns they had just walked. The
-    /// stack itself is never consumed: flipping back to Columns restores those columns exactly.
-    ///
-    /// **Expanding is idempotent; scrolling is not**, so only the scroll is gated on the stack
-    /// having changed since the last carry. This fires on every appearance of the Tree branch — a
-    /// tab switch and a pane collapse as much as a mode flip — and a scroll on each of those would
-    /// yank a tree the user had since scrolled somewhere else.
-    ///
-    /// A live search hit outranks it: that is a place the user asked for by name, this one is a
-    /// place they left behind. See `revealInTree`, which the caller prefers when there is a hit.
+    /// Expanding is idempotent and scrolling isn't, so only the scroll is gated on the stack having
+    /// changed: this fires on every appearance of the Tree branch, and would otherwise yank a tree
+    /// the user has scrolled since. A live search hit outranks it (`revealInTree`).
     private func carryColumnsIntoTree(_ proxy: ScrollViewProxy) {
-        // **The mirror of `carryTreeIntoColumns`'s guard, and it was missed when that one was
-        // added.** A scroll to a row the list does not hold yet is silently dropped — that is why
-        // the attempt below is made twice — and during a load the deep rows genuinely are not there
-        // yet, so both attempts can miss. Latching `carriedStack` afterwards then makes the failure
-        // permanent: the tree stays at the top with its folders open and nothing ever scrolls.
-        // Refused here, re-asked on the load's falling edge, exactly as the other direction is.
+        // Mirrors `carryTreeIntoColumns`'s guard: during a load the deep rows may not exist yet,
+        // so both scroll attempts can be dropped, and latching `carriedStack` would make that
+        // permanent. Refused here, and re-asked on the load's falling edge.
         guard !isLoading else { return }
         let carry = Self.carryOver(expanded, stack: browsePath, treeRoot: currentPath, tree: tree.nodes)
         guard let deepest = carry.deepest else { return }
-        // Only when it actually changes: `@State` does not compare, so assigning an equal set
-        // re-renders the entire list, and this runs on every appearance of the Tree branch.
+        // Only when it changes: assigning an equal set to `@State` still re-renders the whole list.
         if carry.expanded != expanded { expanded = carry.expanded }
         guard carriedStack != browsePath else { return }
         carriedStack = browsePath
@@ -660,38 +505,27 @@ public struct FileTreeView: View, Equatable {
         func attempt() {
             withAnimation(animation) { proxy.scrollTo(deepest, anchor: .center) }
         }
-        // Deferred twice, exactly as `revealInTree` is and for the same reason: this runs while
-        // SwiftUI is still applying the update that opened the ancestors, so the list the first
-        // scroll resolves against does not have the deepest row in it yet.
+        // Deferred twice, as in `scrollTreeRow`: the update that opened the ancestors is still
+        // being applied, so the list doesn't hold the deepest row yet.
         DispatchQueue.main.async { attempt() }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.searchRevealRetryDelay) { attempt() }
     }
 
-    /// The carry-over's decision, without a view: which folders the Tree has to open to show where
-    /// the columns were parked, and which row to bring into view.
+    /// The carry-over's decision, without a view: which folders the Tree must open to show where
+    /// the columns were parked, and which row to bring into view. `deepest` is nil for a resting
+    /// stack, and the caller then leaves the scroll alone.
     ///
-    /// `deepest` is nil for a resting stack — there is nothing to carry, and the caller must then
-    /// leave the tree's scroll exactly where it is rather than scrolling to its root.
+    /// The tree's root is dropped, having no row to open. Existing expansions are kept: folders the
+    /// user opened are theirs to close. Each folder is named by its row's id, found by names down
+    /// `tree`, because ids and composed paths part below a folder symlink (`TreeShape`); a component
+    /// the tree lacks keeps its composed path.
     ///
-    /// The tree's own root is dropped: it has no disclosure row to open, so unioning it would leave
-    /// a path in the set that no row can ever match (`expansionPruned` keeps it, being under the
-    /// root by definition). Existing expansions are kept for the same reason a search reveal keeps
-    /// them — folders the user opened by hand are theirs, not this function's to close.
-    ///
-    /// **Each folder is named by its row's id, found by the names down `tree`** — the outline keys
-    /// its rows by id, and a column's path is composed from names. The two part below a folder
-    /// symlink and under a root reached through one (`TreeShape`), where the composed trail named no
-    /// row: the Tree opened down to the link's child and scrolled nowhere. A component the tree does
-    /// not hold keeps its composed path, which is what the trail was before.
-    ///
-    /// Static and non-private so `PaneColumnCarryOverTests` can pin it, exactly as
-    /// `expansionPruned` is: the alternative is a `@State` set no test can read. `nonisolated`
-    /// because it is pure, and a closure formed on the main actor traps when a test calls it off it.
+    /// Static and non-private so `PaneColumnCarryOverTests` can pin it. `nonisolated` because it is
+    /// pure, and a main-actor closure traps when a test calls it off the main actor.
     nonisolated static func carryOver(_ expanded: Set<String>, stack: PaneBrowsePath, treeRoot: String,
                                       tree: [FileNode]) -> (expanded: Set<String>, deepest: String?) {
-        // A resting stack yields a trail of exactly zero entries — `columnDirectories` answers the
-        // root alone and `dropFirst` takes it — so the one guard covers both "nothing parked" and
-        // "nothing to open", with no branch that cannot be taken.
+        // A resting stack yields an empty trail (`columnDirectories` answers the root alone, and
+        // `dropFirst` takes it), so one guard covers "nothing parked" and "nothing to open".
         let composed = stack.columnDirectories(treeRoot: treeRoot).dropFirst()
         guard !composed.isEmpty else { return (expanded, nil) }
         let rows = TreeShape.folders(along: stack.components, in: tree).map(\.id)
@@ -702,14 +536,9 @@ public struct FileTreeView: View, Equatable {
     /// Reveals the current hit in the Columns presentation: open the column stack down to the hit's
     /// parent, then select the hit in it.
     ///
-    /// **Through `onColumnNavigate`, not the binding.** Drilling is a two-pane decision — the seam
-    /// link mirrors it into the other pane — and only the host can see the other side. Writing
-    /// `browsePath` straight would move this pane and silently break the link for every move search
-    /// makes. The fallback matches `presentation`'s: a caller with no sibling pane writes its own
-    /// binding.
-    ///
-    /// Drilling re-roots nothing and rescans nothing (see `PaneBrowsePath`), so every difference
-    /// badge stays valid across a search walk — the same property a click already relies on.
+    /// Through `onColumnNavigate`, not the binding: the seam link mirrors a drill into the other
+    /// pane, which only the host can reach. A caller with no sibling pane writes its own binding.
+    /// Drilling re-roots and rescans nothing (`PaneBrowsePath`), so difference badges stay valid.
     private func revealInColumns(selecting: Bool) {
         guard let hit = search.hit(at: searchHitIndex) else { return }
         let target = hit.browsePath
@@ -717,25 +546,15 @@ public struct FileTreeView: View, Equatable {
         if selecting, selection != [hit.path] { selection = [hit.path] }
     }
 
-    /// The expansion set, dropped to what the pane could still be showing.
+    /// The expansion set, dropped to paths under `root`, so a re-rooted pane stops remembering
+    /// folders no row can match.
     ///
-    /// **The set only ever grew.** Every folder opened stayed in it for the session, including after
-    /// the pane re-rooted somewhere else entirely — focus a subfolder, switch provider, walk a
-    /// search through three trees, and it accumulates paths from all of them that no row will ever
-    /// match again.
+    /// Pruned when the root changes, not on every republish: republishes are constant, and asking
+    /// "is this still a folder" walks the whole tree on the main thread, while a prefix test is one
+    /// comparison per path. A folder deleted under the current root stays remembered, so one
+    /// recreated comes back open.
     ///
-    /// Pruned on the ROOT changing rather than on every republish, and that is the whole design.
-    /// Republishes are constant (a scan, a copy, a hidden-files toggle) and deciding "is this path
-    /// still a folder" needs a walk of ~40,000 nodes — the same per-republish main-thread cost this
-    /// feature already had to have removed once. A root change is rare, and a prefix test costs one
-    /// comparison per remembered path.
-    ///
-    /// What it deliberately does NOT prune is a folder deleted from under the current root. That
-    /// path stays remembered, so a folder deleted and recreated comes back open — which is what a
-    /// user who had it open would expect, and matches how the outline behaves across a republish.
-    ///
-    /// Static and non-private so `PaneOutlineExpansionTests` can pin it: the alternative is a
-    /// `@State` set no test can read.
+    /// Static and non-private so `PaneOutlineExpansionTests` can pin it.
     static func expansionPruned(_ expanded: Set<String>, toRoot root: String) -> Set<String> {
         let normalized = PaneBrowsePath.normalized(root)
         guard !normalized.isEmpty else { return expanded }
@@ -753,30 +572,17 @@ public struct FileTreeView: View, Equatable {
         return context
     }
 
-    /// Where the Tree says the pane is, translated back into a column stack — the return trip of
-    /// the flip, and nil when the Tree offers no single place to translate.
+    /// Where the Tree says the pane is, as a column stack: the flip's return trip, or nil when the
+    /// Tree offers no single place. An expansion can have many branches open, so the selection is
+    /// the only unambiguous place, and only a single row; two would be a guess.
     ///
-    /// The two presentations hold "where you are" in different state, and the Tree's half is not a
-    /// path: it is an expansion, which can have several branches open at once and names no one
-    /// folder. **The selection is the Tree's only unambiguous place**, so that is what carries back.
-    /// One row, because two selected rows are two answers and picking either would be a guess.
+    /// A selected file resolves to its folder, as `pruned` keeps leading directory components, and
+    /// the same walk drops paths the tree no longer has. An empty stack is a real answer (a
+    /// top-level row means the root); only "no single selection under this root" is nil.
     ///
-    /// A selected FILE resolves to the folder holding it, which is what `pruned` does for free — it
-    /// keeps the leading components that are directories and stops at the first that is not. The
-    /// same walk drops a path the tree no longer has, so a stale selection can never leave the
-    /// columns standing in a folder that is gone.
-    ///
-    /// An empty result is a real answer, not a failure: a row selected at the top level says "the
-    /// root", and the columns must come back out to it rather than keep the stack they were parked
-    /// with. Only "no single selection under this root" is nil.
-    ///
-    /// **The id where it is spelled under the root, the names down the tree where it is not.** Below
-    /// a folder symlink and under a root reached through one the walk spells a row where the link
-    /// leads (`TreeShape`), so its id is no path under the root and the flip kept the parked stack.
-    /// The id goes first because a folder can be in the tree twice — Home holds `~/Dropbox` and the
-    /// folder it leads to — and a selection does not say which row was clicked: where the id is
-    /// under the root it names the real route, the one whose walk keeps its ids' spelling. The same
-    /// rule `FileSyncManager.paneRelativePath` keeps for a focus.
+    /// The id is tried first, then the names down the tree: below a folder symlink a row's id is
+    /// where the link leads (`TreeShape`), not a path under the root. A folder can appear twice, and
+    /// an id under the root names the real route, as `FileSyncManager.paneRelativePath` rules.
     ///
     /// Static and non-private so `PaneTreeCarryBackTests` can pin it, as `rowIsIgnored` is.
     nonisolated static func carryBack(selection: Set<String>, treeRoot: String,
@@ -797,16 +603,12 @@ public struct FileTreeView: View, Equatable {
         return stack.pruned(against: index, treeRoot: root)
     }
 
-    /// Whether a pane row should carry the ignored treatment (struck-through name, secondary
-    /// foreground). The single choke point for that decision — both the tree presentation and
-    /// `PaneColumnsView` route through it, so the two can't drift.
+    /// Whether a pane row gets the ignored treatment (struck-through, secondary). Both
+    /// presentations route through it, so they can't drift.
     ///
-    /// Comparison-only, deliberately. `ignoredPaths` means "exclude from the Left↔Right diff": it
-    /// is set and cleared through the row menu's "Ignore in comparison", which `FileContextMenu`
-    /// already drops on the single-source rail because there is nothing over there to compare
-    /// against. Striking the rows anyway told a lens user their folders were excluded from
-    /// something a lens scan does not do, and offered no way to undo it — so the rail renders every row
-    /// plain. The stored ignores are untouched; Compare still honors them.
+    /// Comparison-only: `ignoredPaths` means "exclude from the Left↔Right diff", and the rail,
+    /// which has no "Ignore in comparison" item, would show an exclusion it can't undo. So the rail
+    /// renders every row plain; the stored ignores are untouched and Compare still honors them.
     static func rowIsIgnored(_ node: FileNode, currentPath: String, delegate: FileActionDelegate, isSingleSource: Bool) -> Bool {
         guard !isSingleSource else { return false }
         return delegate.isNodeIgnored(node, currentPath: currentPath)
@@ -837,16 +639,15 @@ public struct FileTreeView: View, Equatable {
     // `panesRegionFrame`), and its material by the glass level. This view only paints the tint.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
-    /// List-density setting (H7), read ONCE here and injected into every row — a per-row
-    /// @AppStorage would register a defaults observer per visible row.
+    /// List-density setting, read once here and passed to every row: a per-row @AppStorage would
+    /// register a defaults observer per visible row.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     private var density: ListDensity {
         ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
-    /// Read ONCE here for the whole pane, for the same reason the density default is: what was a
-    /// per-row `@Environment` read (five of them, via `scaledFont`) is now one. Changing the text
-    /// size still invalidates this view — dynamic properties drive invalidation independently of
-    /// `==`, exactly as the `@AppStorage` hue above already does — so the setting stays live.
+    /// Read once for the whole pane, like the density, rather than five `scaledFont` reads per row.
+    /// Changing the text size still invalidates this view (dynamic properties bypass `==`, as the
+    /// `@AppStorage` hue does), so the setting stays live.
     @Environment(\.appFontScale) private var appFontScale
     private var rowFonts: PaneRowFonts { PaneRowFonts(scale: appFontScale) }
     private var glassHue: LiquidGlassHue {
@@ -856,33 +657,23 @@ public struct FileTreeView: View, Equatable {
     public var body: some View {
         ZStack {
             presentation
-                // The pane's single subscription for the whole list — see `downloads`.
-                // Scoped twice over: by `downloadChannel` (which pane INSTANCE — one channel in the
-                // app, one per mounted pane in a test) and by `paneToken` (which surface, so the
-                // other pane's request for a path both panes are showing is ignored rather than
-                // latched).
+                // The pane's single subscription for the whole list; see `downloads`. Scoped by
+                // `downloadChannel` (which pane instance) and `paneToken` (which surface, so the
+                // other pane's request for a path both show is ignored).
                 .onReceive(downloadChannel.publisher(for: .cloudDownloadRequested)) { note in
                     if let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken) {
                         downloads.begin(request, announcingOn: downloadChannel)
                     }
                 }
-                // A republish is the moment every other fact on a row is refreshed, so it is the
-                // moment the cloud-only memo stops being allowed to speak for them too. `PaneTree`
-                // compares by publish stamp, so this fires once per publish rather than per render.
-                // Scoped to this pane's root: the memo is process-wide, and an unscoped clear wiped
-                // the answers the OTHER pane's rows were still relying on. See `badgeMemoRoot` for
-                // why that root is `currentPath` rather than `rootPath`.
+                // A republish refreshes every other fact on a row, so the cloud-only memo is
+                // cleared too, once per publish (`PaneTree` compares by stamp). Scoped to this
+                // pane's root, since the memo is process-wide and serves the other pane's rows too;
+                // see `badgeMemoRoot`.
                 .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear(underRoot: badgeMemoRoot) }
-                // Re-rooting the pane makes every remembered expansion under the OLD root dead
-                // weight — see `expansionPruned`. Keyed on the root rather than the tree so it costs
-                // nothing on the republishes that happen constantly.
-                //
-                // The two carry latches go with it, and for the same reason one step further: what
-                // was carried out of the OLD tree says nothing about this one, so a place with the
-                // same components under the new root ("Claude" in either) would read as already
-                // carried and be skipped. **On the always-mounted wrapper, not on either branch** —
-                // each branch is out of the hierarchy exactly when the other is on screen, and a
-                // re-root can happen in either.
+                // A re-root prunes expansions under the old root (`expansionPruned`); keyed on the
+                // root, not the tree, so republishes cost nothing. The carry latches reset too, or a
+                // place with the same components under the new root would read as already carried.
+                // On the always-mounted wrapper, since a re-root can happen in either branch.
                 .onChange(of: currentPath) { _, root in
                     expanded = Self.expansionPruned(expanded, toRoot: root)
                     carriedTreePlace = nil
@@ -893,9 +684,8 @@ public struct FileTreeView: View, Equatable {
             case .none:
                 EmptyView()
             case .loading:
-                // Nothing in the centre. The pane's one busy indicator is the corner chip below,
-                // for the whole load — this case exists so "Folder is empty" cannot claim a pane
-                // that is still being read. See `PaneBusyIndicator`.
+                // Nothing in the centre: the corner chip below is the one busy indicator. This case
+                // keeps "Folder is empty" off a pane still being read. See `PaneBusyIndicator`.
                 EmptyView()
             case .providerDisabled:
                 settingsProblemPlaceholder(
@@ -925,7 +715,7 @@ public struct FileTreeView: View, Equatable {
                 .fixedSize(horizontal: false, vertical: true)
             case .filteredOut(let filter):
                 // Its own state, never "Folder is empty": the folder has files, and an empty pane
-                // must not look like a missing folder (TE274).
+                // must not look like a missing folder.
                 VStack(spacing: 10) {
                     EmptyStateView(
                         icon: "line.3.horizontal.decrease.circle",
@@ -997,21 +787,18 @@ public struct FileTreeView: View, Equatable {
                 downloadChannel: downloadChannel,
                 selectionResolver: selectionResolver
             )
-            // The reveal, Columns side. Same signal as the Tree branch, so the two presentations
-            // walk the same hits in the same order and switching mode mid-search keeps your place.
+            // The reveal, Columns side, on the Tree branch's signal, so switching mode mid-search
+            // keeps your place.
             .onChange(of: searchRevealNonce) { _, _ in revealInColumns(selecting: true) }
-            // Two duties on one arrival, in the order they outrank each other. A hit is a place
-            // asked for by name and `revealInColumns` owns the columns for it; with no hit, the
-            // place worth opening is the one the Tree was standing in. See `carryTreeIntoColumns`,
-            // and the Tree branch, which resolves the mirror image of this the same way.
+            // On arrival a search hit wins; with none, open where the Tree was standing
+            // (`carryTreeIntoColumns`). The Tree branch mirrors this.
             .onAppear {
                 revealInColumns(selecting: false)
                 if search.hit(at: searchHitIndex) == nil { carryTreeIntoColumns(index: childrenIndex) }
             }
-            // And on the falling edge of the load, because an arrival that landed mid-load was
-            // refused rather than answered — the same pairing `ColumnStackPruning` makes, and for
-            // the same reason: the deep tree is published before the flag clears, so waiting on the
-            // tree alone would skip and never re-fire. Same precedence as the arrival above.
+            // And on the load's falling edge, since an arrival mid-load was refused. As in
+            // `ColumnStackPruning`: the deep tree publishes before the flag clears, so waiting on
+            // the tree alone would never re-fire. Same precedence as above.
             .onChange(of: isLoading) { _, loading in
                 guard !loading, search.hit(at: searchHitIndex) == nil else { return }
                 carryTreeIntoColumns(index: childrenIndex)
@@ -1028,15 +815,13 @@ public struct FileTreeView: View, Equatable {
                 placement?.viewportGlobalMinY = frame.minY
                 flipEdgeIfScrolledAcross()
             }
-            // No `PaneRowBottomsKey` handler here, unlike the tree: column rows publish no row
-            // preference. Each column's `ColumnListProbe` writes the placement from its table
-            // and re-resolves the edge itself, so a sideways scroll of the stack touches no row.
+            // No `PaneRowBottomsKey` handler, unlike the tree: each column's `ColumnListProbe`
+            // writes the placement and re-resolves the edge itself.
         } else {
             paneList
-                // The tree's preference REPLACES the row table wholesale; the columns' probes each
-                // write only their own rows. So leaving the tree must clear what it wrote, or a row
-                // the tree last reported — scrolled away since, or no longer listed at all — would
-                // be read as on screen by the columns' first resolves.
+                // The tree's preference replaces the row table wholesale, while the columns' probes
+                // write only their own rows, so leaving the tree clears it: a stale tree row would
+                // read as on screen to the columns' first resolves.
                 .onDisappear { placement?.rowBottoms = [:] }
         }
     }
@@ -1047,43 +832,30 @@ public struct FileTreeView: View, Equatable {
     private var paneList: some View {
         ScrollViewReader { proxy in
             paneListBody
-                // The reveal, Tree side. Fires on the host's nonce — a new query or ↩ — and on
-                // nothing else, so a background republish recomputes results without walking the
-                // user anywhere; see `searchRevealNonce`.
+                // The reveal, Tree side. Fires only on the host's nonce (a new query or ↩), so a
+                // background republish walks the user nowhere; see `searchRevealNonce`.
                 .onChange(of: searchRevealNonce) { _, _ in revealInTree(proxy, selecting: true) }
-                // And once on arrival, so switching Tree↔Columns mid-search lands on the hit you
-                // were standing on rather than at the top of a tree you have to walk again. Costs
-                // an inactive pane one guarded return per appearance: `revealInTree` finds no hit
-                // and does nothing, which is every launch and every tab switch.
+                // And on arrival, so switching Tree↔Columns mid-search lands on the current hit.
+                // `selecting: false`: this also fires on every tab switch and pane collapse, and
+                // selecting would undo a click the user made since the walk.
                 //
-                // **`selecting: false`, and that is the whole difference between the two callers.**
-                // An appearance is not a walk. This fires on every tab switch and every pane
-                // collapse/expand, not only on a mode switch, so selecting here would reach past the
-                // search and move a selection the user had made since — walk to a hit, click a
-                // different file, switch tabs, and the click was silently undone. Revealing is
-                // harmless (the row is already where the walk left it); selecting is not.
-                //
-                // The carry-over below is that same arrival seen from the other side: with no hit to
-                // stand on, the place worth landing at is the one the columns were parked in.
-                // Ordered so a hit always wins — `revealInTree` no-ops without one, and
-                // `carryColumnsIntoTree` stands down when there is one rather than fighting it for
-                // the scroll.
+                // With no hit, the carry-over lands where the columns were parked. A hit always
+                // wins: `revealInTree` no-ops without one, and the carry stands down with one.
                 .onAppear {
                     revealInTree(proxy, selecting: false)
                     if search.hit(at: searchHitIndex) == nil {
                         carryColumnsIntoTree(proxy)
-                        // After the carry, so its scroll is the one that lands: the carry brings a
-                        // parked FOLDER into view, this the file the host selected in it.
+                        // After the carry, so its scroll lands last: the carry shows the parked
+                        // folder, this the file the host selected in it.
                         revealRowInTree(rowReveal, proxy)
                     }
                 }
-                // The host's row reveal (TE47): a row selected on the user's behalf — the document
-                // Edit just opened, the file Reveal in Browse points at — brought into view. On its
-                // own token, never on a republish; see `PaneRowReveal`.
+                // The host's row reveal: a row selected for the user (the document Edit opened, the
+                // file Reveal in Browse points at) brought into view. On its own token, never on a
+                // republish; see `PaneRowReveal`.
                 .onChange(of: rowReveal) { _, reveal in revealRowInTree(reveal, proxy) }
-                // And on the load's falling edge, because an arrival during a load is refused
-                // rather than answered — the Columns branch pairs its own carry the same way, and
-                // both keep the search's precedence: a hit is a place asked for by name.
+                // And on the load's falling edge, since an arrival during a load is refused; the
+                // Columns branch does the same, and a search hit still wins.
                 .onChange(of: isLoading) { _, loading in
                     guard !loading, search.hit(at: searchHitIndex) == nil else { return }
                     carryColumnsIntoTree(proxy)
@@ -1095,10 +867,9 @@ public struct FileTreeView: View, Equatable {
     @ViewBuilder
     private var paneListBody: some View {
         List(selection: $selection) {
-            // `tree.rows`, NOT `tree.nodes`: the outline STORES the collection it is given, so
-            // handing it the raw `[FileNode]` puts the recursive `FileNode.==` straight back into
-            // the view graph — which is exactly what `PaneTree` alone failed to prevent. That was
-            // true of `OutlineGroup` and is equally true of the `ForEach` inside `PaneOutlineRows`.
+            // `tree.rows`, not `tree.nodes`: the outline's `ForEach` stores the collection it is
+            // given, and raw `[FileNode]` would put the recursive `FileNode.==` back in the view
+            // graph.
             PaneOutlineRows(rows: tree.rows, expanded: expandedBinding,
                             onNeedChildren: onNeedChildren ?? { _, _ in },
                             isLoading: isLoading, graftsInFlight: graftsInFlight) { row in
@@ -1106,15 +877,13 @@ public struct FileTreeView: View, Equatable {
             }
         }
         .listStyle(SidebarListStyle())
-        // Tint disclosure chevrons etc. with the app accent (the OS accent otherwise). The selected
-        // ROW highlight ignores this — macOS paints it from selectedContentBackgroundColor (gray on
-        // a Graphite accent) — so the styler below disables that highlight and each row draws its own
-        // accent background via `.listRowBackground`.
+        // Tints disclosure chevrons with the app accent rather than the OS one. The row highlight
+        // ignores tint (macOS paints selectedContentBackgroundColor), so the styler below turns it
+        // off and each row draws its own accent via `.listRowBackground`.
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
-        // Clicking below the last row deselects. Depth is `nil`: Tree mode has no column stack, so
-        // there is nothing to truncate — this surface (and the single-source rail, which is always Tree)
-        // only clears.
+        // Clicking below the last row deselects. Depth is `nil`: Tree mode (and the single-source
+        // rail, always Tree) has no column stack to truncate, so this only clears.
         .background(PaneBackgroundDeselect {
             Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") tree empty area")
             onBackgroundDeselect?(nil)
@@ -1123,19 +892,16 @@ public struct FileTreeView: View, Equatable {
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
         .contentSurface(hue: glassHue, tint: surfaceTint)
-        // The viewport's GLOBAL frame — height plus its top edge in window coordinates. Rows report
-        // their positions in global space too (a named space can't be resolved from inside a List
-        // row — each row is its own AppKit-hosted subtree — and silently fell back to global,
-        // inflating every row by this very offset and flipping the bar a quarter-viewport early);
-        // the placement math subtracts the two, so the frame of reference finally agrees.
+        // The viewport's global frame: height plus top edge in window coordinates. Rows report in
+        // global space too, since a named space can't be resolved inside a List row (each is its
+        // own AppKit-hosted subtree); the placement math subtracts the two.
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: ViewportFrameKey.self, value: geo.frame(in: .global))
             }
         )
-        // The row/frame preferences fire every frame while scrolling, but they only mutate the
-        // shared placement (no view invalidation) and ask the host to re-render solely on a genuine
-        // edge flip — so scrolling stays free of per-frame List re-renders.
+        // These preferences fire every frame while scrolling, but only mutate the shared placement
+        // and ask the host to re-render on a real edge flip, so scrolling doesn't re-render the List.
         .onPreferenceChange(ViewportFrameKey.self) { frame in
             placement?.viewportHeight = frame.height
             placement?.viewportGlobalMinY = frame.minY
@@ -1145,16 +911,13 @@ public struct FileTreeView: View, Equatable {
             placement?.rowBottoms = bottoms
             flipEdgeIfScrolledAcross()
         }
-        // No .onChange(of: selection) committer here: the selection change re-renders the host,
-        // whose body resolve is the ONE place the edge (and its hysteresis anchor) commits. A second
-        // committer racing it from this side was part of the old flip-flop.
+        // No .onChange(of: selection) committer: a selection change re-renders the host, whose
+        // body is the one place the edge (and its hysteresis anchor) commits. A second committer
+        // here would race it and flip-flop.
         .onDeleteCommand {
-            // Pruned, exactly like the context-menu path (see `FileContextMenu.resolvedSelection`,
-            // which applies the same rule): selecting a folder AND something inside it and
-            // pressing ⌫ otherwise handed the superset to the handler, so the confirmation named
-            // and counted children that the single trash of their parent already covers. The disk
-            // outcome was always right — `deleteItems` prunes before trashing — but the dialog the
-            // user answers should describe what will actually happen.
+            // Pruned like the context menu (`FileContextMenu.resolvedSelection`), so a folder
+            // selected with something inside it doesn't make the confirmation name and count
+            // children its parent's trash already covers.
             let selectedNodes = tree.selectedNodes(at: selection)
             if !selectedNodes.isEmpty {
                 delegate.handleDelete(selectedNodes)
@@ -1164,11 +927,8 @@ public struct FileTreeView: View, Equatable {
         .quickLookPreview($quickLookItem)
     }
 
-    /// One tree row: content and its context menu. Single-click selection is left entirely to
-    /// the List; drilling into a folder is via the Compare button / context menu.
-    ///
-    /// No `@ViewBuilder` — the single `return` below disables it anyway, so the attribute only
-    /// advertised a capability this body does not use.
+    /// One tree row: content and its context menu. Single-click selection is left to the List;
+    /// drilling into a folder is via the Compare button or context menu.
     private func treeRow(for row: PaneRow) -> some View {
         let node = row.node
         return FileRowView(
@@ -1178,12 +938,10 @@ public struct FileTreeView: View, Equatable {
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
             fonts: rowFonts,
-            // Asked per visible row, per render pass — the one eagerly-rendered delegate answer,
-            // and the reason `RiskyNameBadgeCache` exists. Reads `row.info`, never `row.node`, so
-            // a folder's subtree stays out of reach of a per-row call.
+            // Asked per visible row per render, hence `RiskyNameBadgeCache`. Reads `row.info`,
+            // never `row.node`, so a folder's subtree stays out of reach of a per-row call.
             riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
-            // And what Edit would refuse: pure path math and a size the row already holds, so it
-            // needs no memo. Also `row.info`, never `row.node`.
+            // What Edit would refuse: path math and the row's size, so no memo. Also `row.info`.
             editorRefusal: delegate.editorRefusal(forPath: row.info.id, isDirectory: row.info.isDirectory,
                                                   size: row.info.fileSize ?? 0),
             isArmedForCompare: delegate.armedComparePath == row.info.id,
@@ -1211,23 +969,18 @@ public struct FileTreeView: View, Equatable {
                 downloadChannel: downloadChannel
             )
         }
-        // Every visible row reports its bottom edge so the clicked row's position is already known
-        // the instant it becomes selected (placement can then resolve synchronously). Only visible
-        // rows lay out, and the reports mutate the reference probe rather than any @State, so this
-        // adds no re-render cost during scroll.
+        // Each visible row reports its bottom edge, so a clicked row's position is known as it
+        // becomes selected and placement resolves synchronously. The reports mutate the probe, not
+        // @State, so scrolling costs no re-render.
         .background(rowPositionProbe(for: node))
-        // Our own selection highlight (the system one is disabled by PaneListSelectionStyler): an
-        // accent-tinted capsule so the selected row follows the app's chosen hue, not the OS gray.
+        // Our own selection highlight in the app's hue (`PaneListSelectionStyler` disables the
+        // system's gray one).
         .listRowBackground(rowSelectionBackground(for: node))
     }
 
-    /// The accent-tinted background for a selected row; nothing for an unselected one. Keyed on the
-    /// SwiftUI selection binding, so it stays correct regardless of window focus.
-    ///
-    /// The inactive pane's wash is deliberately weaker (`PaneSelectionWash.inactive` vs `.active`).
-    /// Both panes can hold a selection at once, and with the system highlight disabled and the
-    /// window pinned active, an equal-strength wash left no way to tell which pane the action bar
-    /// was about to act on — two identically-highlighted selections, one Delete button.
+    /// The accent-tinted background for a selected row, keyed on the selection binding so window
+    /// focus doesn't matter. The inactive pane's wash is weaker (`PaneSelectionWash`), so with both
+    /// panes selected you can tell which one the action bar acts on.
     @ViewBuilder
     private func rowSelectionBackground(for node: FileNode) -> some View {
         if selection.contains(node.id) {
@@ -1240,12 +993,9 @@ public struct FileTreeView: View, Equatable {
         }
     }
 
-    /// Reports a row's bottom edge in GLOBAL space, keyed by its id, so the list always knows where
-    /// every visible row sits. Global, not a named space: List rows live in their own AppKit-hosted
-    /// subtrees where a named space can't be resolved (the lookup silently degraded to global
-    /// anyway, while the viewport half measured locally — the mismatched frames of reference were
-    /// the premature flip). The placement math subtracts the viewport's global origin.
-    /// Withheld when no host asked for placement.
+    /// Reports a row's bottom edge in global space, keyed by its id. Global because a named space
+    /// can't be resolved inside a List row; the placement math subtracts the viewport's global
+    /// origin. Withheld when no host asked for placement.
     @ViewBuilder
     private func rowPositionProbe(for node: FileNode) -> some View {
         if placement != nil {
@@ -1274,14 +1024,12 @@ public struct FileTreeView: View, Equatable {
     }
 }
 
-/// Menu items shared verbatim between the pane's empty-area menu and the row menu
-/// (FileContextMenu), so their labels, icons, and enabled states can't drift. Row-only
-/// items (Reveal, Quick Look, Rename, …) stay in FileContextMenu. The two menus target
-/// different paths, so each item takes its target explicitly.
+/// Menu items shared by the pane's empty-area menu and the row menu (`FileContextMenu`), so their
+/// labels, icons and enabled states can't drift. Row-only items stay in `FileContextMenu`. Each
+/// item takes its target path explicitly.
 enum SharedFileMenuItems {
-    /// **Sort By, with the current order ticked (BR7)** — the pane bar's own picker, in a submenu.
-    /// The tree's background menu had five plain buttons with no tick, and the columns' had no Sort
-    /// By at all; both draw this one now, so the three places that sort cannot disagree.
+    /// Sort By with the current order ticked: the pane bar's picker in a submenu, drawn by both
+    /// presentations' background menus, so the three places that sort agree.
     @MainActor
     static func sortBy(_ current: SortOption,
                        onSort: @escaping @MainActor (SortOption) -> Void) -> some View {
@@ -1296,8 +1044,8 @@ enum SharedFileMenuItems {
         }
     }
 
-    /// **Copy Path** — the absolute path as plain text, the way the tab strip, the Info sidebar and
-    /// the Differences rows copy it.
+    /// Copy Path: the absolute path as plain text, as the tab strip, Info sidebar and Differences
+    /// rows copy it.
     static func copyPath(_ path: String) -> some View {
         Button(action: { copyPath(path, to: .general) }) {
             Label("Copy Path", systemImage: "doc.on.clipboard")
@@ -1316,24 +1064,15 @@ enum SharedFileMenuItems {
         }
     }
 
-    /// **"Open in Edit" — the hand-off to Edit, the one place a single file's contents are worked on.**
-    ///
-    /// Offered for a file the editor opens — text, writable, or a PDF, read-only — through
-    /// `EditableText.opensInEdit`, the gate every other door asks: a menu item that opened a JPEG
-    /// into the editor would be offering something the editor would then refuse.
-    ///
-    /// One member rather than an item written at each menu site, for the reason `SharedFileMenuItems`
-    /// exists at all: the pane tree and the columns view each build their own menu, and a verb
-    /// re-typed once per surface is a verb that comes to mean something slightly different on each
-    /// of them. This one currently has a single call site, inside `FileContextMenu` — which is what
-    /// carries it to Browse, to both Compare panes, to the single-source rail and to the columns
-    /// view at once, and is exactly why it is written here rather than there.
+    /// "Open in Edit": the hand-off to Edit, where a file's contents are worked on. Offered only for
+    /// a file the editor opens (text, or a read-only PDF), through `EditableText.opensInEdit`, the
+    /// gate every other entry point asks, so the editor never refuses what the menu offered.
     @ViewBuilder
     static func openInEditor(_ path: String, delegate: FileActionDelegate) -> some View {
         if EditableText.opensInEdit(path: path) {
             Button(action: { delegate.handleOpenInEditor(path) }) {
-                // "Open in Edit", not "Open in Editor" — the same shape as the reverse hand-off's
-                // "Reveal in Browse", and both name a workspace by the word on its bar segment.
+                // "Open in Edit", like the reverse "Reveal in Browse": each names a workspace by
+                // its bar segment's word.
                 Label("Open in Edit", systemImage: "square.and.pencil")
             }
         }
@@ -1353,17 +1092,10 @@ enum SharedFileMenuItems {
         }
     }
 
-    /// The empty-area menu pastes into the current folder (handlePasteToPath) while the
-    /// row menu pastes relative to the clicked node (handlePaste), so the action comes
-    /// from the caller; the label and the clipboard gating stay shared.
-    /// New Tab / Close Tab for a pane's own background menu — the right-click route that works
-    /// with no folder under the pointer and no strip on screen (see `handleNewTab(at:)`).
-    ///
-    /// Beside New Folder rather than at the top, because the roadmap's Fig. 9 groups the three
-    /// pane-container actions together and leaves Refresh where it has always been.
-    ///
-    /// `@MainActor` because the two capability reads are — `canOpenInNewTab` and `canCloseTab` ask
-    /// the live pane, unlike the other items here, whose enablement is a plain value.
+    /// New Tab and Close Tab for a pane's background menu: the right-click route that needs no
+    /// folder under the pointer and no strip (see `handleNewTab(at:)`). Beside New Folder, grouping
+    /// the pane-container actions. `@MainActor` because `canOpenInNewTab` and `canCloseTab` ask the
+    /// live pane.
     @MainActor @ViewBuilder
     static func tabActions(at path: String, delegate: FileActionDelegate) -> some View {
         if delegate.canOpenInNewTab {
@@ -1379,6 +1111,9 @@ enum SharedFileMenuItems {
         }
     }
 
+    /// The empty-area menu pastes into the current folder (handlePasteToPath) while the
+    /// row menu pastes relative to the clicked node (handlePaste), so the action comes
+    /// from the caller; the label and the clipboard gating stay shared.
     @MainActor
     static func pasteHere(clipboardHasItems: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -1389,18 +1124,17 @@ enum SharedFileMenuItems {
     }
 }
 
-/// Dynamically generated context menu for file operations bounding the selected node and the overarching selection
-/// Adapts its available buttons depending on whether a single file, a batch of files, or a folder was right-clicked.
+/// The row context menu, adapting its items to whether one file, several items, or a folder was
+/// right-clicked.
 struct FileContextMenu: View {
-    /// Stamped for the same reason as `FileRowView.row` — a menu is built per row, so a bare
-    /// folder `FileNode` put its entire subtree into every row's comparison. Unlike the row, this
-    /// view does need the real node (the delegate handlers take `FileNode`), which is why it is
-    /// boxed rather than flattened.
+    /// Boxed, since a menu is built per row and a bare folder `FileNode` would bring its subtree
+    /// into every row's comparison. Unlike the row, the menu needs the real node (the delegate's
+    /// handlers take `FileNode`), so it is boxed rather than flattened.
     let row: PaneRow
     private var node: FileNode { row.node }
     let selection: Set<String>
-    /// Boxed for the same reason as `FileTreeView.tree`: a menu is built per row, so a bare
-    /// `[FileNode]` here put a full ~40,000-node deep compare into every row's body output.
+    /// Boxed like `FileTreeView.tree`: a bare `[FileNode]` would put a deep compare of the whole
+    /// tree into every row's body.
     let tree: PaneTree
     let otherTree: PaneTree
     let otherSelection: Set<String>
@@ -1408,59 +1142,41 @@ struct FileContextMenu: View {
     let currentPath: String
     let delegate: FileActionDelegate
     let otherPaneName: String
-    /// True on the single-source rail: no opposite pane exists, so the comparison-only items
-    /// (Ignore, Copy/Move to the other provider, Copy from the other pane) are dropped and the
-    /// folder-focus item reads as a plain "Open" rather than "Compare only this folder".
+    /// True on the single-source rail: with no opposite pane, the comparison-only items (Ignore,
+    /// Copy/Move to and from the other pane) are dropped and "Compare only this folder" reads "Open".
     let isSingleSource: Bool
     /// Presents a Quick Look preview for the given item (parity with the Differences
     /// table's row menu); provided by the owning pane's `FileTreeView`.
     let onQuickLook: (URL) -> Void
-    /// The pane's one resolver for selections — see ``PaneSelectionResolver``. Required rather than
-    /// defaulted: a menu handed a fresh one still answers correctly, but walks the tree once per
-    /// row again, which is the whole cost the shared one exists to remove.
+    /// The pane's one resolver for selections; see ``PaneSelectionResolver``. Required, not
+    /// defaulted: a fresh one per menu still answers correctly but walks the tree once per row.
     let selectionResolver: PaneSelectionResolver
 
-    /// Where this menu's Download ANNOUNCES the request, which must be the channel the pane that
-    /// will watch it is listening on — the owning pane's `FileTreeView.downloadChannel`, passed
-    /// down by whichever presentation built this menu.
-    ///
-    /// Defaulted to the app's, because that is a correct answer and not a silently broken one:
-    /// only a test isolating itself from the other suites passes anything else.
+    /// Where this menu's Download announces the request: the owning pane's
+    /// `FileTreeView.downloadChannel`, which its watch listens on. Defaulted to the app's, which is
+    /// correct; only a test isolating itself passes another.
     var downloadChannel: NotificationCenter = .default
 
     /// The home whose `~/Library/Mobile Documents`, `~/Library/CloudStorage`, `~/Desktop` and
     /// `~/Documents` decide Download All and Keep Downloaded. A test passes a scratch folder: the
-    /// offers `lstat` and `getxattr` the row's path, and below the real home that path is in a File
-    /// Provider domain, where a process without the privacy grant blocks until someone answers the
-    /// consent dialog — on the CI runner, nobody (docs/flaky-tests.md, "A consent dialog for
-    /// iCloud Drive nobody answered holds a main-actor `lstat` until the job times out").
+    /// offers `lstat` and `getxattr` the row's path, and in a real File Provider domain a process
+    /// without the privacy grant blocks until someone answers the consent dialog
+    /// (docs/flaky-tests.md, "A consent dialog for iCloud Drive nobody answered holds a main-actor
+    /// `lstat` until the job times out").
     var cloudHome: String = NSHomeDirectory()
 
     /// Where those reads run: off the main thread, waited for only so long (`BoundedCloudRead`). A
     /// test passes its own, so a read it holds up cannot stop another suite's menus reading.
     var cloudReads: BoundedCloudRead = .shared
 
-    /// The three doors onto the file-pair viewer that a row offers.
+    /// The three doors onto the file-pair viewer that a row offers. "Compare with…" is
+    /// unconditional, since arming needs no counterpart yet, so the menu always has a Compare item;
+    /// the other two are shortcuts for when a counterpart is already there.
     ///
-    /// **"Compare with…" is unconditional, and the other two are shortcuts past it.** Arming needs
-    /// no counterpart to exist yet, so every file row carries it; the two conditional items are
-    /// there for when the counterpart is already picked and a second click would be a step
-    /// backwards. That ordering — always a door, sometimes a faster one — is the fix for the
-    /// failure this file's own doc named and then shipped: an item that is merely absent looks
-    /// identical to one correctly withheld, so a menu with no Compare in it read as a feature that
-    /// did not exist.
-    ///
-    /// **Why the conditional pair is right-click-only.** The literal ask — "when both panes have a
-    /// file selected" — is a state the app forbids on purpose:
-    /// `PaneLogic.applySelectionWrite` clears the other pane on every non-empty selection write, so
-    /// at most one side is ever populated. A right-click writes no selection, which is why the
-    /// app's one existing cross-pane affordance — "Copy '…' from ⟨pane⟩", directly above — is a
-    /// context menu too, and why the empty-write carve-out in `applySelectionWrite` names that menu
-    /// as its reason. ``ComparePick`` reaches the same pair without any of that, by keeping the
-    /// armed file outside both selection sets.
-    ///
-    /// Every precondition lives in ``PaneComparePairMenu`` rather than here, so the rules are
-    /// reachable by a test that renders no menu.
+    /// The cross-pane pair works only from a right-click: `PaneLogic.applySelectionWrite` keeps at
+    /// most one pane selected, and a right-click writes no selection (as with "Copy '…' from
+    /// ⟨pane⟩"). ``ComparePick`` reaches a pair by keeping the armed file outside both selections.
+    /// The preconditions live in ``PaneComparePairMenu``, testable without a menu.
     @ViewBuilder
     private func compareItems(node: FileNode, selectedNodes: [FileNode]) -> some View {
         if delegate.canCompareFilePair {
@@ -1497,22 +1213,16 @@ struct FileContextMenu: View {
     }
 
     /// Whether a Favorites click should toggle: only while the folder is still in the state its
-    /// label described. The label is read when the menu is built, which is with its row rather than
-    /// at the click, so by the click the answer may have moved — added from the sidebar, say — and a
-    /// toggle then would do the opposite of what the item said.
+    /// label described. The label is read when the row renders, so by the click it may be stale
+    /// (added from the sidebar, say), and toggling would do the opposite of what the item said.
     static func favoriteLabelStillHolds(labelSaidFavorite: Bool, isFavoriteNow: Bool) -> Bool {
         labelSaidFavorite == isFavoriteNow
     }
 
-    /// The Download offer as an item, or nothing. The verb itself is
-    /// `CloudDownloadRequest.request`, shared with File ▸ Download. On success it tells the pane to
-    /// watch for the content landing so the cloud badges clear; on failure the badges (correctly)
-    /// stay. Scoped to THIS pane — the twin row the other pane may show for the same path must not
-    /// start a second poll.
-    ///
-    /// And through this pane's own CHANNEL, not `.default`. In the app they are the same object, so
-    /// this changes no shipped behaviour; it makes the invariant true rather than incidentally true
-    /// — a pane and its own poster are on one channel, whichever channel that is.
+    /// The Download offer as an item, or nothing. The verb is `CloudDownloadRequest.request`,
+    /// shared with File ▸ Download; on success the pane watches for the content so the badges clear,
+    /// and on failure they stay. Scoped to this pane, so the other pane's twin row doesn't poll too,
+    /// and posted on this pane's own channel (`.default` in the app).
     @ViewBuilder
     private func downloadItem(_ offer: CloudDownloadOffer?) -> some View {
         if let offer {
@@ -1536,9 +1246,8 @@ struct FileContextMenu: View {
     }
 
     /// Keep Downloaded as a ticked item, or nothing outside iCloud Drive or past
-    /// `KeepDownloadedOffer.selectionCap` items. The tick is the state the menu was built with; a
-    /// click sets the opposite of what it showed, which is what was asked — off the main thread, and
-    /// measured from the same `cloudHome` the tick was.
+    /// `KeepDownloadedOffer.selectionCap` items. A click sets the opposite of what the tick showed,
+    /// off the main thread and against the same `cloudHome`.
     @ViewBuilder
     private func keepDownloadedToggle(_ offer: KeepDownloadedOffer?, for nodes: [FileNode]) -> some View {
         if let offer {
@@ -1570,11 +1279,9 @@ struct FileContextMenu: View {
         let keep: KeepDownloadedOffer?
     }
 
-    /// Both offers, read off the main thread through `cloudReads` — or nil when the reads did not
-    /// answer in time, and the menu leaves both items out.
-    ///
-    /// A file is asked the badge memo first, read here on the main actor; `statsFiles` lets a file
-    /// the memo has not answered be `lstat`ed instead, which only the single-row menu does.
+    /// Both offers, read off the main thread through `cloudReads`, or nil when the reads didn't
+    /// answer in time and the menu leaves both out. A file asks the badge memo first (read here on
+    /// the main actor); `statsFiles` lets the single-row menu `lstat` one the memo hasn't answered.
     private func cloudOffers(for nodes: [FileNode], statsFiles: Bool) -> CloudOffers? {
         let badges = nodes.reduce(into: [String: Bool]()) { known, node in
             if !node.isDirectory { known[node.id] = CloudOnlyBadgeCache.cached(node.id) }
@@ -1599,33 +1306,23 @@ struct FileContextMenu: View {
         } else {
             effectiveSelection = [node.id]
         }
-        // Prune nested nodes (a folder and its descendant never travel together), so a
-        // context-menu Copy/Move/Delete on a selection spanning a folder AND an item inside it
-        // can't pass the superset to a handler — matching the downstream copy/move prune.
-        //
-        // The same two steps as `PaneTree.selectedNodes(at:)`, which `onDeleteCommand` applies and
-        // which the menu's selected rows now reach through `PaneSelectionResolver` — so the two must
-        // not drift. Each is pinned separately: `ContextMenuSelectionTests` here,
-        // `PaneTreeSelectedNodesTests` in Sync.
+        // Prune nested nodes, so Copy/Move/Delete on a folder and an item inside it never hands a
+        // handler the superset. The same two steps as `PaneTree.selectedNodes(at:)`, which
+        // `onDeleteCommand` and `PaneSelectionResolver` use, so they must not drift; pinned by
+        // `ContextMenuSelectionTests` here and `PaneTreeSelectedNodesTests` in Sync.
         return tree.findNodes(at: effectiveSelection).pruneNestedNodes()
     }
 
-    /// What a menu opened on `row` acts on: exactly `resolvedSelection`'s answer, without its walk
-    /// wherever the answer is already in hand.
+    /// What a menu opened on `row` acts on: `resolvedSelection`'s answer, skipping the walk where
+    /// the answer is in hand.
     ///
-    /// **A row outside the selection answers from the row.** It acts on itself alone — the rule
-    /// above — and a row cut from `tree` itself (same side, same version) holds the very node the
-    /// walk would find, by `PaneRow`'s stamp invariant. That is every row but the selected ones. A
-    /// row from some other publish still walks, so a stale row gets the answer it always got.
+    /// A row outside the selection acts on itself, and a row cut from `tree` (same side and
+    /// version) holds the node the walk would find, by `PaneRow`'s stamp. A row from another publish
+    /// still walks. Where a tree holds two nodes at one path (`FileNode.isCoveredElsewhere`), this
+    /// answers with the one clicked, which no verb notices, since they act by path.
     ///
-    /// One qualification, and it changes nothing a verb does. A tree can hold two nodes at one path
-    /// — iCloud's linked Documents and Desktop appear under `~` and inside iCloud Drive
-    /// (`FileNode.isCoveredElsewhere`) — and the walk stops at the first; this answers with the one
-    /// clicked. Same path, same name, same kind, and every verb acts by path.
-    ///
-    /// **A row inside the selection gets the selection**, resolved once for every selected row by
-    /// `resolver`. With nothing selected, the pane's own entry there is let go: it held nodes of a
-    /// tree the pane may since have replaced.
+    /// A row inside the selection gets the selection, resolved once for all rows by `resolver`.
+    /// With nothing selected, the pane's entry there is released: it may hold a replaced tree.
     static func menuNodes(row: PaneRow, selection: Set<String>, tree: PaneTree,
                           resolver: PaneSelectionResolver) -> [FileNode] {
         if selection.contains(row.id) { return resolver.nodes(at: selection, in: tree) }
@@ -1638,34 +1335,32 @@ struct FileContextMenu: View {
         let selectedNodes = Self.menuNodes(row: row, selection: selection, tree: tree,
                                            resolver: selectionResolver)
         let count = selectedNodes.count
-        // The other pane's selection, for "Copy '…' from ⟨pane⟩" and the cross-pane Compare item —
-        // the same answer for every row, so resolved once for all of them. The rail has no other
-        // pane, and both items are withheld there, so it never asks.
+        // The other pane's selection, for "Copy '…' from ⟨pane⟩" and the cross-pane Compare item,
+        // resolved once for every row. The rail withholds both, so never asks.
         let otherSelectedNodes = isSingleSource
             ? [] : selectionResolver.nodes(at: otherSelection, in: otherTree)
         
         Group {
             SharedFileMenuItems.refresh(delegate: delegate)
             Divider()
-            // Several PDFs: the batch tools, first after Refresh (mockup 12). Hidden the moment the
-            // selection holds anything a tool could not read — a folder, another kind, a cloud-only
-            // file. The single-file submenu lives in its own section of the branch below.
+            // Several PDFs: the batch tools, first after Refresh. Hidden if the selection holds
+            // anything a tool can't read (a folder, another kind, a cloud-only file). The
+            // single-file submenu is in the branch below.
             if count > 1, delegate.canRunPDFTools,
                case .several(let paths)? = PanePDFToolOffer.forSelection(selectedNodes, reads: cloudReads) {
                 PanePDFToolsSubmenu(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
-            // Several files Save as PDF can convert: the same slot, which PDF Tools never shares —
-            // a PDF hides this item, and anything but PDFs hides that one. Hidden for a folder, a
-            // kind nothing converts, or a cloud-only file, as the tools are.
+            // Several files Save as PDF can convert: the same slot, never shared with PDF Tools (a
+            // PDF hides this, anything but PDFs hides that). Hidden for a folder, a kind nothing
+            // converts, or a cloud-only file.
             if count > 1, delegate.canSaveAsPDF,
                case .several(let paths)? = SaveAsPDFOffer.forSelection(selectedNodes, reads: cloudReads) {
                 SaveAsPDFMenuItem(offer: .several(paths: paths), delegate: delegate)
                 Divider()
             }
-            // Several items: Download All and Keep Downloaded over the lot, in the same batch slot.
-            // Files are asked through the badge memo alone — every selected row's menu that has been
-            // opened is rebuilt with its row, so a fresh `lstat` per selected file would be paid
+            // Several items: Download All and Keep Downloaded over the lot, in the same slot. Memo
+            // only: each opened menu rebuilds with its row, so an `lstat` per file would cost
             // rows × selection.
             if count > 1, let cloud = cloudOffers(for: selectedNodes, statsFiles: false),
                cloud.download != nil || cloud.keep != nil {
@@ -1674,10 +1369,8 @@ struct FileContextMenu: View {
                 Divider()
             }
             if count == 1, let singleNode = selectedNodes.first {
-                // **First after the divider**, ahead of Get Info and Reveal in Finder. Edit is a
-                // workspace of this app and the other two hand the file to something else — and
-                // this is the one door into Edit that every surface with rows already carries, so
-                // it is worth the place the eye lands on rather than fifth.
+                // First after the divider, ahead of Get Info and Reveal in Finder: Edit is this
+                // app's own workspace, and this is the door into it every surface with rows has.
                 if !singleNode.isDirectory {
                     SharedFileMenuItems.openInEditor(singleNode.id, delegate: delegate)
                 }
@@ -1687,15 +1380,14 @@ struct FileContextMenu: View {
                 Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: singleNode.id)]) }) {
                     Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
                 }
-                // A file one-way sync copied from iCloud is changed there (RD67): the way to it.
+                // A file one-way sync copied from iCloud is changed there: the way to it.
                 if let iCloudPath = OneWaySyncController.shared.iCloudFile(forDropbox: singleNode.id) {
                     Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: iCloudPath)]) }) {
                         Label("Show in iCloud", systemImage: "icloud")
                     }
                 }
-                // **Ahead of Quick Look, deliberately** (roadmap Fig. 11). With no ＋ on screen
-                // until a second tab exists, this item is the whole discovery story for tabs — it
-                // earns a place people's eyes actually reach rather than the bottom of the menu.
+                // Ahead of Quick Look: with no ＋ on screen until a second tab exists, this item is
+                // how people discover tabs.
                 if singleNode.isDirectory, delegate.canOpenInNewTab {
                     Button(action: { delegate.handleOpenInNewTab(singleNode) }) {
                         Label("Open in New Tab", systemImage: "plus.rectangle.on.rectangle")
@@ -1704,39 +1396,32 @@ struct FileContextMenu: View {
                 Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
                     Label("Quick Look", systemImage: "doc.viewfinder")
                 }
-                // On tabs, the Info sidebar and the Differences rows already; the row was the one
-                // place a path could not be copied from (BR15).
+                // As on tabs, the Info sidebar and the Differences rows.
                 SharedFileMenuItems.copyPath(singleNode.id)
-                // After Copy Path, so every place the pinned order tests read stays put (TE263).
+                // After Copy Path, so the positions the pinned order tests read stay put.
                 if delegate.canAskClaude {
                     AskClaudeMenuItems(nodes: [singleNode], delegate: delegate)
                 }
-                // Materialize a cloud-only placeholder — Download for one file, Download All for
-                // a folder in a cloud location, every cloud-only file in it at any depth. Works for
-                // iCloud and was measured working on Google Drive; Dropbox and OneDrive are not
-                // measured. A refused request reveals the item in Finder rather than doing nothing.
-                // The row's own ☁ answer when it has one, which is what the row is showing; a
-                // fresh `lstat` otherwise, so it asks the filesystem only for a file the row has not.
+                // Download a cloud-only placeholder: one file, or Download All for every cloud-only
+                // file in a cloud folder. Works on iCloud and Google Drive; Dropbox and OneDrive are
+                // untested. A refused request reveals the item in Finder. Uses the row's ☁ answer
+                // when it has one, else an `lstat`.
                 //
-                // Finder's Keep Downloaded beside it, iCloud Drive only — the one provider measured
-                // to honour it (`KeepDownloaded`). Ticked and greyed under a kept folder: the
-                // folder's pin keeps it whatever this row says.
-                //
-                // Both read off the main thread, and neither is offered when the reads hang.
+                // Keep Downloaded beside it, iCloud Drive only, the one provider known to honour it
+                // (`KeepDownloaded`); ticked and greyed under a kept folder. Both read off the main
+                // thread, and neither is offered when the reads hang.
                 let cloud = cloudOffers(for: [singleNode], statsFiles: true)
                 downloadItem(cloud?.download)
                 keepDownloadedToggle(cloud?.keep, for: [singleNode])
-                // **Its own section, under the open-and-inspect items** (mockup 11), so it never
-                // shifts Rename or anything below it — and never between Refresh and Open in Edit,
-                // which leads this branch. Hidden, not greyed, for a folder, a non-PDF or a
-                // cloud-only file: nothing in it could run. Hidden too when its reads hang.
+                // Its own section under the open-and-inspect items, so it never shifts Rename or
+                // comes between Refresh and Open in Edit. Hidden, not greyed, for a folder, a non-PDF
+                // or a cloud-only file, and when its reads hang.
                 if delegate.canRunPDFTools, let offer = PanePDFToolOffer.forSelection([singleNode], reads: cloudReads) {
                     Divider()
                     PanePDFToolsSubmenu(offer: offer, delegate: delegate)
                         .lockedDuringRun()
                 }
-                // **Save as PDF, in PDF Tools' own section** (CV1) — a file that can become a PDF
-                // shows it where a PDF shows its tools, so Rename never moves. A PDF keeps its tools
+                // Save as PDF, in PDF Tools' section, so Rename never moves. A PDF keeps its tools
                 // and is never offered this.
                 if delegate.canSaveAsPDF, let offer = SaveAsPDFOffer.forSelection([singleNode], reads: cloudReads) {
                     Divider()
@@ -1744,31 +1429,26 @@ struct FileContextMenu: View {
                         .lockedDuringRun()
                 }
                 Divider()
-                // A file one-way sync keeps as a copy is renamed in iCloud (RD67): not offered here.
+                // A file one-way sync keeps as a copy is renamed in iCloud: not offered here.
                 let syncedCopy = OneWaySyncController.shared.refusal(forChanging: [singleNode.id])
                 Button(action: { delegate.handleRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
                 }
                 .disabled(syncedCopy != nil)
                 .lockedDuringRun()
-                // Offered only when this provider will actually reject the name — a finding, not a
-                // standing menu item. **This runs on the main thread, at the right-click, before the
-                // menu shows** — and again with each later render of a row whose menu has been
-                // opened (measured 2026-10-28 on macOS 27; not, as once believed, with every visible
-                // row). The delegate answers from `RiskyNameBadgeCache`'s memo for a name with
-                // nothing wrong, and all of this body but the selection walks came to 4 of its 281
-                // samples (2026-09-27) — but nothing costlier belongs here.
+                // Offered only when this provider will reject the name. **This runs on the main
+                // thread at the right-click, before the menu shows**, and again on each render of a
+                // row whose menu has been opened (macOS 27). It is cheap, via `RiskyNameBadgeCache`'s
+                // memo, but nothing costlier belongs here.
                 if let risky = delegate.riskyName(for: singleNode) {
                     Button(action: { delegate.handleFixName(singleNode) }) {
-                        // No ellipsis (LN13): it renames at once, undoably — nothing more is asked.
+                        // No ellipsis: it renames at once, undoably, and asks nothing more.
                         Label("Fix Name", systemImage: RiskyNameGlyph.lens)
                     }
                     .lockedDuringRun()
                     .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
-                    // The badge's answer, and the ONLY way back from one. Keeping is durable, so
-                    // without a withdrawal offered from the file itself it would be a one-way door
-                    // — and a kept name draws no badge, so there is nothing else on screen left to
-                    // click. Both directions live here, on the row, where the decision is made.
+                    // Keep, and its only way back: keeping is durable and a kept name draws no
+                    // badge, so without the withdrawal here it would be a one-way door.
                     if delegate.isKeptName(singleNode.name) {
                         Button(action: { delegate.handleStopKeepingName(singleNode) }) {
                             Label("Stop Allowing This Name", systemImage: "eye")
@@ -1783,19 +1463,13 @@ struct FileContextMenu: View {
                     }
                 }
 
-                // Beside "Fix name" — the same door for the other lens. A standing item rather
-                // than a finding: unlike a risky name, "does this file have copies?" cannot be
-                // answered without a scan, so the offer is to go and look.
+                // Beside "Fix name", the same door for the other lens. A standing item, not a
+                // finding: "does this file have copies?" needs a scan, so the offer is to go look.
+                // Files only: a folder overlap group is a different unit, drawn differently.
                 //
-                // **Files only.** A folder overlap group is a different unit — an N-way keep/merge
-                // across trees rather than one file's copies — and Duplicates draws it differently.
-                // Offering this on a folder would open a workspace that answers a question the user
-                // did not ask.
-                //
-                // No `.keyboardShortcut`, for the reason spelled out at the destination verbs
-                // below: this menu is built PER ROW, so a window-level key equivalent declared here
-                // binds to whichever row's menu instance the framework happened to register — and
-                // this one opens a workspace and starts a scan.
+                // **No `.keyboardShortcut`**: this menu is built per row, so a window-level key
+                // equivalent binds to whichever row's menu registered, and this one opens a
+                // workspace and starts a scan. See the destination verbs below.
                 if !singleNode.isDirectory, delegate.canFindDuplicates {
                     Button(action: { delegate.handleFindDuplicates(singleNode) }) {
                         Label("Find Duplicates of This", systemImage: "doc.on.doc")
@@ -1804,22 +1478,18 @@ struct FileContextMenu: View {
                 }
 
                 if singleNode.isDirectory {
-                    // Point Organize at this folder. The counterpart to "Find duplicates of this"
-                    // on the file branch above, and the reason Organize's lenses are permanent
-                    // places rather than chips: this has to land somewhere before any scan has
-                    // found anything.
+                    // Point Organize at this folder, the folder counterpart to "Find duplicates of
+                    // this". It must land somewhere before any scan has found anything.
                     if delegate.canOrganizeFolder {
-                        // **Glyphed like everything around it.** AppKit indents a menu's titles to
-                        // clear the widest image in the menu, so ONE item without an image does not
-                        // sit tighter — it sits at the same indent with nothing in front of it, and
-                        // reads as a hanging line. This menu is otherwise fully glyphed.
+                        // Glyphed like the rest: AppKit indents every title to clear the widest
+                        // image, so an item without one reads as a hanging line.
                         Button {
                             delegate.handleOrganizeFolder(singleNode)
                         } label: {
                             Label("Organize This Folder…", systemImage: "folder.badge.gearshape")
                         }
-                        // §5.10's second deliberate route: the shape question, from the row you
-                        // are standing on. Same gate as its sibling — one workspace behind both.
+                        // The shape question, from the row you are on. Same gate as its sibling:
+                        // one workspace behind both.
                         Button {
                             delegate.handleCheckFolderShape(singleNode)
                         } label: {
@@ -1827,17 +1497,11 @@ struct FileContextMenu: View {
                         }
                         Divider()
                     }
-                    // **The same list the sidebar's own rows manage**, reached from the folder
-                    // itself. Until now a folder could only become a favorite from Browse's
-                    // sidebar — which lists the folders you have ALREADY been to — or from the
-                    // pane header's jump menu, which acts on the folder the pane is showing rather
-                    // than the one under the pointer. Neither is where you are when you decide a
-                    // folder is worth keeping.
+                    // The sidebar's Favorites list, from the folder under the pointer, which the
+                    // sidebar and the pane header's jump menu can't reach.
                     if delegate.canFavoriteFolder {
-                        // What the label says is decided when the menu is BUILT — with its row, a
-                        // render before the click at the least — so the click does what the label
-                        // said rather than toggling whatever is true by then: an "Add" that is
-                        // already done adds nothing, rather than taking the folder back out.
+                        // The label is decided when the menu is built, so the click does what it
+                        // said: an "Add" already done adds nothing rather than removing the folder.
                         let isFavorite = delegate.isFolderFavorite(singleNode)
                         Button {
                             guard Self.favoriteLabelStillHolds(labelSaidFavorite: isFavorite,
@@ -1845,8 +1509,7 @@ struct FileContextMenu: View {
                             else { return }
                             delegate.handleToggleFolderFavorite(singleNode)
                         } label: {
-                            // A star, and a struck-through star for the reverse — the pair Finder
-                            // and Safari both use for a list you curate.
+                            // A star and a struck-through star, the pair Finder and Safari use.
                             Label(isFavorite ? "Remove from Favorites" : "Add to Favorites",
                                   systemImage: isFavorite ? "star.slash" : "star")
                         }
@@ -1855,9 +1518,8 @@ struct FileContextMenu: View {
                     SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)
                     Divider()
                     Button(action: { delegate.handleFocus(singleNode) }) {
-                        // On the comparison panes this isolates a specific folder mapping ("Compare
-                        // only this folder"); on the single-source rail there's nothing to compare —
-                        // it just drills the rail into the folder, so it reads as a plain "Open".
+                        // On the comparison panes this isolates one folder mapping; on the rail,
+                        // with nothing to compare, it just drills in, so it reads "Open".
                         if isSingleSource {
                             Label("Open", systemImage: "arrow.forward")
                         } else {
@@ -1883,16 +1545,14 @@ struct FileContextMenu: View {
                 }
             }
 
-            // Separator before the clipboard section. Skipped only when nothing sits between it and
-            // the Refresh divider above (single-source multi-select drops the single-node block and
-            // every comparison item), so two dividers never stack.
+            // Separator before the clipboard section, skipped when nothing sits between it and the
+            // Refresh divider (single-source multi-select), so two dividers never stack.
             if count == 1 || !isSingleSource {
                 Divider()
             }
 
-            // One section for every verb that puts the selection somewhere: Cut and Copy, then the
-            // two transfers, then Paste Here last — the one item that acts on the clicked row's
-            // folder rather than on the selection.
+            // One section for every verb that puts the selection somewhere: Cut, Copy, the two
+            // transfers, then Paste Here, the one item acting on the clicked row's folder instead.
             Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: true) }) {
                 Label(count > 1 ? "Cut \(count) Items" : "Cut", systemImage: "scissors")
             }
@@ -1901,21 +1561,15 @@ struct FileContextMenu: View {
                 Label(count > 1 ? "Copy \(count) Items" : "Copy", systemImage: "doc.on.doc")
             }
 
-            // The absolute destination verbs, in the slot the comparison transfers occupy on the
-            // two-pane menu. Single-source only, and deliberately: over there they would sit beside
-            // "Move to <other pane>" — two entries opening with the same two words, one of which
-            // asks a question and one of which does not. Here there is nothing to confuse them
-            // with, because the rail drops every comparison item (see below), which is also why it
-            // had no way to send a file anywhere at all before this.
+            // The absolute destination verbs, in the comparison transfers' slot. Single-source only:
+            // on the two-pane menu they would sit beside "Move to <other pane>", two items opening
+            // with the same words, one asking a question and one not.
             //
-            // No `.keyboardShortcut` on either, deliberately. This menu is built PER ROW, and
-            // `selectedNodes` falls back to *this row's* node when the selection is empty or does
-            // not contain it — so a window-level key equivalent declared here is bound to whichever
-            // row's menu instance the framework happened to register, and would file a file the
-            // user never pointed at. It is also consulted before the first responder, the reason
-            // `ReviewCardView` and the Differences table both went to `.onKeyPress` instead. A
-            // shortcut for this verb belongs on the window's own command set, keyed off the live
-            // selection — not here.
+            // **No `.keyboardShortcut` on either.** This menu is built per row, and `selectedNodes`
+            // falls back to this row's node, so a window-level key equivalent would bind to
+            // whichever row's menu registered and file a file the user never pointed at. It is also
+            // consulted before the first responder. Such a shortcut belongs on the window's command
+            // set, keyed off the live selection.
             if isSingleSource {
                 // Copy before Move, as in the two-pane items below and File ▸ Copy to… / Move to….
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: false) }) {
@@ -1930,10 +1584,8 @@ struct FileContextMenu: View {
             }
 
             if !isSingleSource {
-                // Copy/Move to the other pane share the toolbar/header vocabulary (TransferGlyph).
-                // Copy is non-directional (the target pane is named in the label); Move points its
-                // box-arrow at the actual target pane, like the toolbar — right when this is the
-                // left pane, left when it's the right pane.
+                // The toolbar's `TransferGlyph`s: Copy is non-directional (the label names the
+                // pane), and Move points its arrow at the target pane, as the toolbar does.
                 Button(action: { delegate.handleCopy(selectedNodes) }) {
                     Label(count > 1 ? "Copy \(count) Items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
                 }
@@ -1949,9 +1601,8 @@ struct FileContextMenu: View {
                 delegate.handlePaste(node)
             }
 
-            // Pruned like every other entry point: the transfer prunes downstream anyway, so an
-            // unpruned list here only mislabeled the count ("Copy 3 items" for a folder plus two of
-            // its own children, which transfer as 1). Empty on the rail and for an empty selection.
+            // Pruned like every entry point, so the count isn't wrong ("Copy 3 items" for a folder
+            // and two of its children, which transfer as 1). Empty on the rail and with no selection.
             if !otherSelectedNodes.isEmpty {
                 Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                     if otherSelectedNodes.count > 1 {
@@ -1982,157 +1633,90 @@ struct FileContextMenu: View {
 /// Renders a single row representing a file or directory node with its associated system icon,
 /// plus a trailing sync-status badge when the node (or, for folders, anything beneath it) differs.
 struct FileRowView: View {
-    /// The five scalars this row renders. Flat by design: a FOLDER `FileNode` carries its whole
-    /// subtree in `children`, and the derived `FileNode.==` would recurse through all of it every
-    /// time SwiftUI compared this row's body output. Holding `FileRowInfo` makes that subtree
-    /// structurally unreachable from the view rather than merely uncompared.
+    /// The scalars this row renders. Flat because a folder `FileNode` carries its subtree, which
+    /// the derived `FileNode.==` would recurse through on every comparison; `FileRowInfo` makes the
+    /// subtree unreachable from the view.
     let node: FileRowInfo
     let isIgnored: Bool
     /// Diff status of the node itself, or nil when it is in sync.
     let diffStatus: FileDifference.DifferenceType?
     /// Number of differences beneath this node (directories only; 0 elsewhere).
     let containedDiffCount: Int
-    /// Whether this file is a cloud-only placeholder (content not on disk). Detected lazily per row
-    /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears —
-    /// and memoized by `CloudOnlyBadgeCache`, so a row scrolling back in does not re-stat.
+    /// Whether this file is a cloud-only placeholder. Detected lazily per row by one `lstat`, so a
+    /// big tree pays nothing until a row appears, and memoized by `CloudOnlyBadgeCache`.
     @State private var isCloudOnly = false
-    /// Whether the name is drawn cut short, which is when — and only when — the row's tooltip
-    /// carries the full name (`rowHelp`). Measured by `reportsTruncation` only while the pointer is
-    /// over the row (`isPointerOver`), the one time a tooltip can show, and written only when it
-    /// differs, so a measurement that changes nothing re-renders nothing.
+    /// Whether the name is drawn cut short, which is exactly when the tooltip carries the full name
+    /// (`rowHelp`). Measured by `reportsTruncation` only while the pointer is over the row, when a
+    /// tooltip can show, and written only when it differs.
     @State private var nameIsTruncated = false
-    /// Whether the pointer is over the row. The name is measured only then: a probe on every row
-    /// laid out a hidden copy of every name and re-rendered each row that first appeared cut, which
-    /// in Columns was nearly every row scrolled into view.
+    /// Whether the pointer is over the row, the only time the name is measured: a probe on every
+    /// row would lay out a hidden copy of every name and re-render each one that starts cut.
     @State private var isPointerOver = false
-    /// List-density setting (H7), injected by `FileTreeView` (which reads the @AppStorage once
-    /// for the whole pane): comfortable renders exactly the pre-setting look; compact tightens
-    /// the row and drops the secondary size/date detail.
+    /// List-density setting, from `FileTreeView` (which reads the @AppStorage once per pane).
+    /// Compact tightens the row and drops the size and date detail.
     let density: ListDensity
-    /// The pane's resolved fonts. Handed down rather than derived per row — see `PaneRowFonts`.
+    /// The pane's resolved fonts, handed down rather than derived per row; see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
-    /// Why this provider will give this name trouble, or nil when it won't (and nil when the user
-    /// has kept it). Resolved by the pane from the delegate, memoized by (provider, name) — see
-    /// `RiskyNameBadgeCache`. Defaulted so every caller that has no provider context, and every
-    /// test double, renders exactly the row it rendered before the badge existed.
+    /// Why this provider will give this name trouble, or nil when it won't or the user kept it.
+    /// Resolved by the pane, memoized by (provider, name) in `RiskyNameBadgeCache`. Defaulted for
+    /// callers with no provider context, such as test doubles.
     var riskyReason: String? = nil
-    /// Why the Editor workspace would refuse this row, or nil when it would open it — and nil in
-    /// every workspace but Edit, where the question is not asked. Resolved by the pane from the
-    /// delegate (`FileActionDelegate.editorRefusal`), eagerly per visible row like `riskyReason`,
-    /// and for the same reason it is a path and a size rather than a node. A refused row recedes
-    /// at the search-dim opacity and carries the reason as its tooltip; a folder never has one, so
-    /// the row that leads out of the listing stays bright. Defaulted so every caller with no
-    /// delegate, and every test double, renders exactly the row it rendered before Edit's pane
-    /// existed.
+    /// Why the Editor workspace would refuse this row, or nil when it would open it or the
+    /// workspace isn't Edit. Resolved per visible row from `FileActionDelegate.editorRefusal`,
+    /// like `riskyReason`. A refused row dims to the search-dim opacity with the reason as its
+    /// tooltip; a folder never has one, so the way out of the listing stays bright.
     var editorRefusal: String? = nil
-    /// Whether this row is the file armed for comparison — see ``ComparePick``.
-    ///
-    /// Defaulted so every caller with no pick context, and every test double, renders exactly the
-    /// row it rendered before the marker existed.
+    /// Whether this row is the file armed for comparison; see ``ComparePick``.
     var isArmedForCompare: Bool = false
-    /// The identity of the download request the pane is watching for THIS row; nil when it is not
-    /// this row's file (or nothing is being watched). Part of the badge task's `.task(id:)` key, so
-    /// the badge re-resolves when the pane arms a watch for this file and again when that watch
-    /// concludes — by which point the pane has recorded the fresh answer in the memo, making the
-    /// second resolve a dictionary hit.
+    /// The id of the download request the pane is watching for this row, or nil. Part of the badge
+    /// task's `.task(id:)` key, so the badge re-resolves when the watch starts and when it ends, by
+    /// which point the pane has put the answer in the memo.
     ///
-    /// The request's UUID rather than a `Bool` because two requests can follow each other with no
-    /// gap between them: downloading the same file again while a watch is in flight moves the latch
-    /// from one request straight to the next, which a `Bool` would not report as a change at all.
-    ///
-    /// The row does not poll. It briefly did — ten one-second detached `lstat`s of its own, plus
-    /// its own `CloudOnlyBadgeCache.forget` — which duplicated the preview column's watch for a
-    /// preview-started download and tied the watch's lifetime to whether this row was ever
-    /// realized. The pane owns it now: see `PaneDownloadWatch`.
-    ///
-    /// Supplied by the pane rather than discovered here. Every row used to hold its own
-    /// `.onReceive(NotificationCenter…)` subscription for the download notice — one live Combine
-    /// subscription per visible row, created and torn down as the list recycles them, so that at
-    /// most one row per session could ever receive anything. The pane holds the single
-    /// subscription now and hands the answer down.
+    /// A UUID, not a `Bool`, because downloading the same file again mid-watch moves straight to a
+    /// new request, which a `Bool` wouldn't see as a change. The row doesn't poll or subscribe: the
+    /// pane owns the one watch and subscription (`PaneDownloadWatch`) and hands this down.
     var awaitingDownloadID: UUID? = nil
-    /// What a running search says about this row — the matched run, whether it recedes, the count
-    /// of matches inside a closed folder, and which side it is on. `.none` is a pane with no query,
-    /// which renders exactly the row this view rendered before search existed.
+    /// What a running search says about this row: the matched run, whether it recedes, the count
+    /// of matches inside a closed folder, and its side. `.none` is a pane with no query.
     var searchContext: PaneSearchRowContext = .none
-    /// Which pane this row is in, so a one-sided hit can name its side. Only read while a search is
-    /// annotating; defaulted so no existing caller has to answer it.
+    /// Which pane this row is in, so a one-sided hit can name its side. Read only while a search
+    /// annotates.
     var isLeftPane: Bool = true
     /// The opposite pane's display name, for the side annotation's tooltip.
     var otherPaneName: String = ""
-    /// The pane's accent, for the “N matches” count. Passed rather than inherited — see
+    /// The pane's accent, for the “N matches” count. Passed, not inherited; see
     /// `PaneSearchAnnotation.accent`.
     var accent: Color = LiquidGlassHue.stored().accentColor
     /// Whether the row carries its trailing detail: a folder's modification date, a file's size.
+    /// False in Columns (`ColumnRowView`), true in Tree, as in Finder's column and list views. In a
+    /// column the name needs the width more, and a folder's own mtime only says when it was last
+    /// tidied.
     ///
-    /// False in Columns (see `ColumnRowView`), true in Tree — the line Finder draws: its List view
-    /// has Date Modified and Size columns, its column view shows the name and a chevron only.
-    ///
-    /// **Both halves left Columns for one reason: the name needs the width more.** The folder date
-    /// went first. It is the entry's own mtime — when something was last added or removed directly
-    /// inside that folder — so on a tree of filing folders it reports the last tidy rather than
-    /// anything about the contents, and it held 76.4pt of a 210pt column at the default text size.
-    /// The file size followed on 2026-09-27: in a 316pt column the size and the spacing around it
-    /// took ~38pt from names that were already truncating, and a column of files is exactly where
-    /// long names live.
-    ///
-    /// **Where the detail still is.** A file's size is in the Info inspector's details, and it
-    /// drives Sort ▸ Size; a folder's date is in the details sidebar's
-    /// `Modified:` row. Tree keeps both, which is why this withholds them rather than the pane
-    /// dropping `fileSize` or `modificationDate` from what it publishes. `SortOption.size` and
-    /// `.dateModified` still sort by keys Columns no longer draws — Finder's column view does the
-    /// same, since the sort is chosen by name in a menu, not read off the rows.
-    ///
-    /// **A property of the PRESENTATION, not of the Browse workspace.** Each surface that draws a
-    /// pane keeps its own stored mode (`browseDefaultsKey`, `defaultsKey(isLeft:)`,
-    /// `railDefaultsKey`), so the detail goes from every surface in Columns and stays in every one in
-    /// Tree. Nothing below `ContentView` separates Browse from the Organize rail — they are the same
-    /// pane at two widths — so a Browse-only rule would have to be resolved up there and threaded
-    /// down, as each surface's view mode is.
-    ///
-    /// Defaulted true, so the tree panes and every existing test render the row they rendered before.
+    /// The detail stays in the Info inspector and in Tree, so the pane still publishes `fileSize`
+    /// and `modificationDate`, and Sort ▸ Size and Date still work in Columns. A property of the
+    /// presentation, not the workspace: each surface stores its own mode (`browseDefaultsKey`,
+    /// `defaultsKey(isLeft:)`, `railDefaultsKey`). Defaulted true.
     var showsSecondaryText: Bool = true
 
-    /// The badge task's `.task(id:)` key: this row's path, and the pane's watch for it.
-    ///
-    /// A named type, and not private, because "the badge re-resolves when the watch concludes" is
-    /// otherwise a claim about SwiftUI's re-firing that no test can reach. `.task(id:)` re-runs
-    /// exactly when this value compares unequal, so pinning `==` pins the behaviour.
+    /// The badge task's `.task(id:)` key: this row's path, and the pane's watch for it. Named and
+    /// non-private so a test can pin `==`, and with it when `.task(id:)` re-runs.
     struct BadgeID: Equatable {
         let path: String
         let awaitingDownloadID: UUID?
     }
 
-    /// One row's badge answer, or nil when this resolution was SUPERSEDED and must not be written.
+    /// One row's badge answer, or nil when this resolution was superseded and must not be written.
+    /// Named and non-private, like `BadgeID`, so a test can pin `.task(id:)`'s cancellation.
     ///
-    /// A named function, and not private, for the reason `BadgeID` is a named type: what it pins is
-    /// otherwise a claim about `.task(id:)`'s cancellation that no test can reach. The row's task
-    /// assigns whatever this returns, so "returns nil" and "the badge does not move" are the same
-    /// statement.
+    /// **The `Task.isCancelled` check after the stat is the point.** The stat suspends in a
+    /// detached `lstat`, which doesn't inherit cancellation, so a task cancelled when the watch
+    /// ends still resumes with the pre-download `true`, racing the replacement's `false`. Without
+    /// the check the badge can claim cloud-only for a landed file; it needs an `lstat` slower than
+    /// the poll's ~1 s (a wedged provider).
     ///
-    /// **The `Task.isCancelled` check after the stat is the whole point.** The memo grew two guards
-    /// for exactly this race — a stat that was out while an invalidation landed hands its answer
-    /// back but writes nothing — and the row sat one layer above them, assigning unconditionally.
-    /// The window: a download is requested, `PaneDownloadWatch.begin` forgets the memo and re-keys
-    /// this task, whose arming re-stat suspends inside `Task.detached { lstat }.value`. A detached
-    /// task does not inherit cancellation and `.value` on `Task<Bool?, Never>` does not throw, so
-    /// when the watch concludes and `.task(id:)` cancels this one, it still RESUMES carrying the
-    /// pre-download `true`. The replacement task reads the memo's `false`; which of the two writes
-    /// last is unconstrained. The badge then went on claiming cloud-only for a file that had
-    /// landed, until the row recycled or the pane republished — precisely the harm the memo's own
-    /// guards were added to stop, surviving one layer above them. Needs an `lstat` slower than the
-    /// poll's ~1 s interval (a wedged provider), which is narrow and is not never.
-    ///
-    /// `stat` is injectable for the same reason the memo's is: the race has no seam otherwise — a
-    /// test cannot land a cancellation inside a real detached `lstat`.
-    ///
-    /// **Optional rather than defaulted, so the shipped stat has exactly one definition.** Giving
-    /// this parameter its own copy of the real one reads as harmless — the literal is identical —
-    /// but it made the row pass that copy on every production render, which left
-    /// `CloudOnlyBadgeCache.isCloudOnly`'s own default with no production caller at all. The two
-    /// could then drift with every test still green, and the copy the app actually runs is this
-    /// one. `nil` here means "whatever the memo ships", which is what the row asked for before this
-    /// function existed.
+    /// `stat` is injectable because a test can't land a cancellation inside a real `lstat`.
+    /// Optional, not defaulted, so the shipped stat has one definition, `CloudOnlyBadgeCache`'s;
+    /// `nil` means use it.
     @MainActor
     static func resolveBadge(
         path: String,
@@ -2153,25 +1737,21 @@ struct FileRowView: View {
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
-    /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
-    /// scroll fast, so allocating a formatter per row body would still churn.
+    /// Shared formatter (sizes use `FileSizeFormat.byteCount`): one per row body would churn as
+    /// rows scroll.
     @MainActor private static let modifiedFormatter = ZoneRefreshedFormatter.localized(date: .medium,
                                                                                         time: .none)
 
-    /// Size for files, date modified for directories (a directory's fileSize is just the
-    /// entry size, not its contents); nil when the scan didn't populate the metadata, and nil on a
-    /// surface that withholds the detail — see `showsSecondaryText`.
+    /// Size for files, date modified for folders (a folder's fileSize is the entry's, not its
+    /// contents'); nil when the scan didn't fill the metadata or the surface withholds it
+    /// (`showsSecondaryText`).
     private var secondaryText: String? {
         Self.secondaryText(for: node, showsSecondaryText: showsSecondaryText)
     }
 
-    /// The rule behind `secondaryText`, as a pure function of the row's scalars.
-    ///
-    /// Static and non-private because the property it backs is private to a view whose body no test
-    /// can drive — a SwiftUI row is not an `NSControl` — and the thing worth pinning is *which* of
-    /// the two strings a row asks for, which is decided here and nowhere else. The rendering half
-    /// is pinned separately, by `ColumnRowDateTests` comparing painted pixels: a rule with no
-    /// call-site test is one revert from being unused.
+    /// The rule behind `secondaryText`, as a pure function of the row's scalars. Static and
+    /// non-private so a test can pin which string a row asks for, since no test can drive the
+    /// row's body; `ColumnRowDateTests` pins the rendering by its pixels.
     @MainActor
     static func secondaryText(for node: FileRowInfo, showsSecondaryText: Bool) -> String? {
         guard showsSecondaryText else { return nil }
@@ -2184,35 +1764,27 @@ struct FileRowView: View {
     }
 
     var body: some View {
-        // **Spacing 0, and every DRAWN element brings its own leading gap.** This was a 10pt-spaced
-        // HStack, and a stack pays its spacing around every child — including the two that draw
-        // nothing: the `Spacer` (8pt minimum) and the search note, which sat on every row whether or
-        // not anything was being searched. Measured on a 284pt row, a truncated name stopped
-        // 39.5–50pt short of the next thing painted, and by the same amount at 200pt — the signature
-        // of fixed spacing, not of the stack sharing out width. With the gaps carried by what is
-        // drawn, a name runs to one gap short of the next visible thing and no further.
+        // Spacing 0, with each drawn element bringing its own leading gap: a stack pays spacing
+        // around every child, including ones that draw nothing (the `Spacer`, an empty search
+        // note), which would stop a truncated name well short of the next thing painted.
         //
-        // The layout priorities are exactly what they were, and that is load-bearing: the search
-        // note keeps its -1, so it still yields to the name — shown whole beside a name that leaves
-        // room for it, not at all beside one that needs the width (`PaneSearchAnnotation`'s rule).
+        // The search note keeps layout priority -1, so it yields to the name: shown whole beside a
+        // name that leaves room, not at all beside one that needs it (`PaneSearchAnnotation`).
         let gap: CGFloat = density == .compact ? 8 : 10
         HStack(spacing: 0) {
             Image(nsImage: FileIconCache.icon(name: node.name, isDirectory: node.isDirectory))
                 .resizable()
                 .frame(width: densityMetrics.treeIconSize, height: densityMetrics.treeIconSize)
-            // Affix whitespace made visible ("Swimming " → "Swimming␣"): such a node can
-            // have a pixel-identical sibling that is actually a different item. The matched run of
-            // a search hit is emboldened inside that same marked form — see `PaneSearchName`.
+            // Affix whitespace made visible ("Swimming " → "Swimming␣"), since such a node can have
+            // a pixel-identical sibling. A search hit's matched run is bold in that same form; see
+            // `PaneSearchName`.
             PaneSearchName(name: node.name, match: searchContext.match, font: fonts.name)
                 .lineLimit(1)
-                // Cut in the MIDDLE, so the start and the ending both survive. Names in one folder
-                // share long prefixes ("Statement - Account - January.pdf", "… - February.pdf"), and
-                // cutting the end turned such a folder into a column of identical rows — the part
-                // that tells them apart is the part that went. Finder's default, for the same reason.
-                // A search hit is cut away from its match instead — see `nameTruncation`.
+                // Cut in the middle, as Finder does: names in a folder share long prefixes
+                // ("Statement - Account - January.pdf"), and cutting the end would make rows look
+                // identical. A search hit is cut away from its match instead; see `nameTruncation`.
                 .truncationMode(Self.nameTruncation(match: searchContext.match, in: node.name))
-                // Measured on the drawn name, before its leading gap is added to the frame — and
-                // only under the pointer, which is the only place its tooltip can show.
+                // Measured on the drawn name, before its leading gap, and only under the pointer.
                 .reportsTruncation(of: PaneSearchName(name: node.name, match: searchContext.match,
                                                       font: fonts.name),
                                    while: isPointerOver) { truncated in
@@ -2221,26 +1793,16 @@ struct FileRowView: View {
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
                 .padding(.leading, gap)
-            // Beside the NAME, not out in the trailing accessory cluster with the cloud and
-            // difference badges. Those report on the file's relationship to somewhere else — is it
-            // downloaded, does it match the other pane — and belong together at the far edge. This
-            // one is a statement about the characters immediately to its left, and reads as one only
-            // while it is next to them. It also keeps the trailing cluster's carefully reserved
-            // widths (see `FileRowAccessories`) out of the question entirely.
+            // Beside the name, not in the trailing cluster: the cloud and difference badges report
+            // the file's relation to somewhere else, while this is about the characters to its
+            // left. It also stays out of `FileRowAccessories`' reserved widths.
             if let riskyReason {
                 RiskyNameBadge(reason: riskyReason, fonts: fonts)
                     .padding(.leading, gap)
             }
-            // **Beside the name, for RiskyNameBadge's reason and not in the trailing cluster.**
-            // The cluster reports this file's relationship to somewhere else — is it downloaded,
-            // does it match the other pane — and its widths are reserved with care that
-            // `FileRowAccessories`' own doc says has been got wrong twice. This marker is a
-            // statement about THIS row and this moment ("you armed this one"), so it belongs with
-            // the name and leaves that arithmetic alone.
-            //
-            // **Additive, never replacing a badge.** Putting the marker in the cloud slot would hide
-            // a cloud-only badge for exactly as long as the pick is armed, trading one fact for
-            // another.
+            // Beside the name, for `RiskyNameBadge`'s reason: it is about this row ("you armed
+            // this one"). Additive, never in the cloud slot, where it would hide a cloud-only badge
+            // while the pick is armed.
             if isArmedForCompare {
                 ComparePickBadge(fonts: fonts, accent: accent)
                     .padding(.leading, gap)
@@ -2255,10 +1817,9 @@ struct FileRowView: View {
                     .lineLimit(1)
                     .padding(.leading, gap)
             }
-            // Ahead of the badge cluster, because it is the only thing on the row the user asked
-            // for: they typed the query. The badges report standing facts and keep their places.
-            // Mounted only while there is something to say, and its gap travels inside the label,
-            // so a row with no note — every row of a pane that is not searching — spends nothing.
+            // Ahead of the badge cluster: the user asked for it by typing the query. Mounted only
+            // when there is something to say, with its gap inside the label, so a row with no note
+            // spends nothing.
             if searchContext.hasAnnotation {
                 PaneSearchAnnotation(context: searchContext, isLeft: isLeftPane,
                                      otherPaneName: otherPaneName, accent: accent, fonts: fonts,
@@ -2275,33 +1836,24 @@ struct FileRowView: View {
             )
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
-        // A find, not a filter: a row off every path to an answer recedes and stays readable, so
-        // the tree's shape — which is the answer to “where is this?” — never changes under the
-        // question being asked. A row Edit cannot open recedes the same way, for the same reason:
-        // it is still where it is, it is just not an answer here.
+        // A find, not a filter: a row off every path to an answer recedes but stays readable, so
+        // the tree's shape (the answer to "where is this?") never changes. A row Edit can't open
+        // recedes the same way.
         .opacity(searchContext.isDimmed || editorRefusal != nil ? PaneSearchDim.opacity : 1)
-        // A string, possibly empty, rather than a branch: an empty tooltip attaches nothing, and an
-        // `if let` around a modifier would give the row two structural identities and drop
-        // `isCloudOnly` every time the refusal flipped.
+        // A possibly empty string, not a branch: an `if let` around a modifier would give the row
+        // two identities and drop `isCloudOnly` whenever the refusal flipped.
         .help(Self.rowHelp(name: node.name, nameIsTruncated: nameIsTruncated,
                            editorRefusal: editorRefusal))
         .contentShape(Rectangle())
-        // Arms the name's measurement above. After the shape, so the whole row counts, as it does
-        // for the tooltip.
+        // Arms the name's measurement. After the shape, so the whole row counts, as for the tooltip.
         .onHover { isPointerOver = $0 }
-        // ONE keyed task for the badge, and it consults the memo first — so the syscall happens
-        // once per path per republish rather than once per realization. `List` realizes and
-        // discards rows continuously while scrolling, which is what made "once per realization"
-        // expensive.
+        // One keyed task for the badge, consulting the memo first, so the syscall happens once per
+        // path per republish, not each time `List` realizes the row while scrolling.
         //
-        // The pane's watch for this row is part of the key (see `BadgeID`), which is the whole of
-        // this row's involvement in a download: the pane forgets the memo, polls, records the
-        // answer and drops its latch, and that last step re-keys this task to re-read it. Both
-        // re-reads are cheap — the one on arming stats a file the user just clicked, the one on
-        // conclusion is a dictionary hit.
-        //
-        // The assignment is conditional because a superseded resolution must not make it — see
-        // `resolveBadge`, which is where that decision lives so a test can reach it.
+        // The pane's watch is part of the key (`BadgeID`): the pane forgets the memo, polls,
+        // records the answer and drops its latch, which re-keys this task to re-read it. The
+        // assignment is conditional because a superseded resolution must not land; see
+        // `resolveBadge`.
         .task(id: BadgeID(path: node.id, awaitingDownloadID: awaitingDownloadID)) {
             if let answer = await FileRowView.resolveBadge(path: node.id,
                                                           isDirectory: node.isDirectory) {
@@ -2321,18 +1873,14 @@ struct FileRowView: View {
 }
 
 extension FileRowView {
-    /// Where a name too long for its row is cut: in the middle, except on a search hit.
+    /// Where a name too long for its row is cut: in the middle, except on a search hit. The middle
+    /// cut keeps the start and end that tell long-prefixed siblings apart, but would cut away a
+    /// match in the middle, so a hit is cut at the end away from its match: the tail when the match
+    /// is in the first half, the head when in the second. A mid-name match in a narrow column can
+    /// still be lost.
     ///
-    /// The middle cut keeps a name's start and its ending, which is what tells siblings with long
-    /// shared prefixes apart — and it is exactly where a match in the middle of a name goes. A hit
-    /// row is not dimmed, so a hit whose match had been cut away showed nothing emphasised at all.
-    /// So a hit is cut at the end AWAY from its match: at the tail when the match sits in the
-    /// name's first half, at the head when it sits in the second. A match in the middle of a name
-    /// too long for a narrow column can still fall off either way; nothing a single cut can do
-    /// keeps both ends and the middle.
-    ///
-    /// The match indexes the name as `PaneSearchName` draws it — `NameDisplay.visibleName`, which
-    /// substitutes affix whitespace one character for one — so it is measured against that form.
+    /// The match indexes the name as `PaneSearchName` draws it (`NameDisplay.visibleName`, which
+    /// swaps affix whitespace one character for one), so it is measured against that form.
     static func nameTruncation(match: Range<Int>?, in name: String) -> Text.TruncationMode {
         guard let match else { return .middle }
         let length = NameDisplay.visibleName(name).count
@@ -2341,12 +1889,9 @@ extension FileRowView {
     }
 
     /// The row's tooltip: the full name when the row cut it short, then Edit's refusal when there
-    /// is one, or "" (no tooltip) when there is neither.
-    ///
-    /// **Only a cut name earns the name.** Finder does the same, and here it matters more: the app
-    /// shows tooltips after 300 ms (`ToolTipDelay`), so a name tooltip on every row would pop up
-    /// over the list wherever the pointer rested. The name is shown as the row draws it
-    /// (`NameDisplay.visibleName`), so affix whitespace reads the same in both.
+    /// is one, or "" (no tooltip). Only a cut name gets the name, as in Finder: tooltips show after
+    /// 300 ms (`ToolTipDelay`), so one on every row would pop up wherever the pointer rests. The
+    /// name is shown as the row draws it (`NameDisplay.visibleName`).
     static func rowHelp(name: String, nameIsTruncated: Bool, editorRefusal: String?) -> String {
         let fullName = nameIsTruncated ? NameDisplay.visibleName(name) : nil
         return [fullName, editorRefusal].compactMap { $0 }.joined(separator: "\n")
@@ -2354,17 +1899,13 @@ extension FileRowView {
 }
 
 extension View {
-    /// Reports whether this one-line label is drawn narrower than `ideal` — the same content at
-    /// its natural width — which is to say whether it has been truncated, while `measuring` is
-    /// true. SwiftUI has no such query, so it is measured: the drawn width, and a hidden
-    /// `fixedSize` copy's.
+    /// Reports, while `measuring` is true, whether this one-line label is drawn narrower than
+    /// `ideal` (the same content at natural width), i.e. truncated. SwiftUI has no such query, so it
+    /// compares the drawn width with a hidden `fixedSize` copy's.
     ///
-    /// **Nothing is measured while `measuring` is false** — no hidden copy, no geometry observer —
-    /// so a list can arm it for the one row under the pointer and leave every other row paying
-    /// nothing. Armed, it reports its first answer at once and then each flip; it keeps no state of
-    /// its own, so a re-arm always reports afresh rather than trusting a stale answer. It is not a
-    /// `ViewThatFits`: that would put two candidate rows into layout and change how the row shares
-    /// its width, where this changes nothing about the layout at all.
+    /// Nothing is measured while `measuring` is false, so a list can arm it for the row under the
+    /// pointer only. Armed, it reports at once and then each flip, keeping no state, so a re-arm
+    /// reports afresh. Not a `ViewThatFits`, which would change how the row shares its width.
     func reportsTruncation(of ideal: some View, while measuring: Bool,
                            _ onChange: @escaping (Bool) -> Void) -> some View {
         modifier(TruncationProbe(ideal: ideal, measuring: measuring, onChange: onChange))
@@ -2389,9 +1930,9 @@ struct TruncationProbe<Ideal: View>: ViewModifier {
     func body(content: Content) -> some View {
         content.background(alignment: .leading) {
             if measuring {
-                // `Color.clear` takes the label's drawn size; the hidden copy over it takes its
-                // natural width, and reads the drawn one off the clear's space — one observer,
-                // whose value is the answer itself, so only a flip calls back.
+                // `Color.clear` takes the drawn size; the hidden copy takes its natural width and
+                // reads the drawn one off the clear's space. One observer whose value is the
+                // answer, so only a flip calls back.
                 Color.clear
                     .overlay(alignment: .leading) {
                         ideal
@@ -2413,25 +1954,13 @@ struct TruncationProbe<Ideal: View>: ViewModifier {
 /// A file row's trailing badges: the cloud-only marker, then either the difference badge or the
 /// contained-differences count.
 ///
-/// Split out of `FileRowView` so both cloud states can be RENDERED and measured. The cloud badge is
-/// the one thing on a row that arrives *after* the row does — `FileRowView` resolves it with a
-/// per-row `lstat` off the main actor, so it lands one row at a time, well after the rows are on
-/// screen. Without a reserved slot the row's trailing cluster jumps sideways as each answer comes
-/// back, which on a folder of cloud-only files is a visible ripple down the pane.
+/// Split out of `FileRowView` so both cloud states can be rendered and measured. The cloud badge
+/// arrives after the row, from a per-row `lstat` off the main actor, so without a reserved slot the
+/// trailing cluster would jump sideways as each answer lands.
 ///
-/// The slot is reserved the same way `PaneActionBar` reserves its summary zone: a hidden copy of
-/// the real glyph establishes the width, and the visible one draws inside it. That needs no pt
-/// constant, which matters because the glyph is `scaledFont` — a hard-coded width would be wrong at
-/// every text size but the default.
-///
-/// Only FILE rows reserve it. `FileRowView` forces `isCloudOnly` false for directories, so a
-/// reserved slot there would be permanently empty space that can never be filled.
-///
-/// **The slot used to be shared with a `⌂ on this Mac only` badge** — the opposite finding on the
-/// same axis, drawn on every row outside a cloud folder. It was removed on 2026-09-27: in a Home
-/// pane it marked nearly every row, said the same thing about all of them, and cost names the
-/// width. The Info inspector's *Where it lives* row still answers the question, per file, from
-/// `FileLocation`.
+/// The slot is reserved like `PaneActionBar`'s summary zone: a hidden copy of the glyph sets the
+/// width, so it stays right at every text size. Only file rows reserve it; `FileRowView` never
+/// marks a folder cloud-only.
 struct FileRowAccessories: View {
     let isCloudOnly: Bool
     /// Whether to hold the cloud badge's width even when it isn't showing.
@@ -2440,10 +1969,8 @@ struct FileRowAccessories: View {
     let containedDiffCount: Int
     /// The pane's resolved fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
-    /// The gap each DRAWN accessory keeps from whatever precedes it. `FileRowView` lays its row out
-    /// with zero spacing so that nothing which draws nothing can cost width; the gap therefore
-    /// belongs to the accessory, and an accessory that is absent takes its gap with it. Zero by
-    /// default, so a caller hosting this in a spaced stack of its own gets what it always got.
+    /// The gap each drawn accessory keeps from what precedes it. `FileRowView` uses zero spacing, so
+    /// an absent accessory takes its gap with it. Zero by default, for a caller in a spaced stack.
     var leadingGap: CGFloat = 0
 
     /// The bare glyph, which is also what sizes the reserved slot. A generic cloud (not the iCloud
@@ -2471,9 +1998,7 @@ struct FileRowAccessories: View {
                 .padding(.leading, leadingGap)
         } else if isCloudOnly {
             // No slot held, but the badge still shows when it applies. Folding this into the branch
-            // above (reserve-or-nothing) silently dropped the badge for any caller that opted out of
-            // the reservation — caught only because the stability suite asserts that an unreserved
-            // zone genuinely DOES resize, which it cannot do if it never renders anything.
+            // above would drop the badge for every caller that opts out of the reservation.
             cloudBadge
                 .padding(.leading, leadingGap)
         }

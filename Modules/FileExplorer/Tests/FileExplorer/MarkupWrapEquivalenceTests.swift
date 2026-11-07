@@ -2,20 +2,17 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **The inline verbs against the `wrap` they replaced, over every selection of a corpus** — which
-/// is what makes "the refactor changed nothing but the one thing it meant to" a measurement.
-///
-/// TE52 split `wrap`'s "already wrapped?" test out into `wrapState`, so the format bar could light
-/// a button by the very test its press uses, and then gave the non-nesting delimiters (Bold,
-/// Strikethrough, Inline Code) one new rule: a run that holds the delimiter again is two spans,
-/// not one, and is not unwrapped. `OldWrap` below is `wrap` as it stood on `main` before either,
-/// copied verbatim. Every edit must match it — except exactly the runs the new rule names, where
-/// the old code turned two spans inside out and the new one adds a pair instead.
+/// The inline verbs against the older `wrap`, over every selection of a corpus, so "changed nothing
+/// but what it meant to" is measured. `wrap`'s "already wrapped?" test lives in `wrapState`, so the
+/// format bar lights a button by the test its press uses, and the non-nesting delimiters (Bold,
+/// Strikethrough, Inline Code) have one rule `OldWrap` lacks: a run that holds the delimiter again
+/// is two spans, not one, and is not unwrapped. Every edit must match `OldWrap` except where the
+/// rules below say otherwise.
 ///
 /// `MarkupPrefixLinesEquivalenceTests` does the same for the line verbs.
 @Suite struct MarkupWrapEquivalenceTests {
 
-    /// `MarkdownEdits.wrap` as it was before TE52, verbatim but for its name.
+    /// The older `MarkdownEdits.wrap`, verbatim but for its name.
     enum OldWrap {
         static func wrap(_ text: String, _ selection: NSRange, with delimiter: String,
                          guardingAgainst neighbour: String? = nil) -> MarkupEdit {
@@ -59,7 +56,7 @@ import Foundation
         }
     }
 
-    /// The old delimiters, as `apply` passed them before TE52.
+    /// The delimiters, as `apply` passed them to the older `wrap`.
     static let oldMarks: [(MarkupVerb, String, String?)] = [
         (.bold, "**", nil), (.italic, "*", "*"), (.strikethrough, "~~", nil), (.inlineCode, "`", nil),
     ]
@@ -86,9 +83,9 @@ import Foundation
                         }
                         if new == old { same += 1; continue }
                         changed += 1
-                        // **An inline verb wraps the words, line by line (FMT-10)**: spaces and line
-                        // breaks at the selection's ends are left out, and a selection over lines is
-                        // cut at each. One run is the old wrap of that run; several only add or take
+                        // An inline verb wraps the words, line by line: spaces and line breaks at
+                        // the selection's ends are left out, and a selection over lines is cut at
+                        // each. One run is the old wrap of that run; several only add or take
                         // delimiters, never words.
                         let runs = MarkdownEdits.inlineRuns(selection, in: ns)
                         if runs != [selection] {
@@ -103,16 +100,14 @@ import Foundation
                             }
                             continue
                         }
-                        // **Italic reads runs of stars now (FMT-4, FMT-11)**, where the old code
-                        // asked only whether one more star stood beside the selection. Its edits
-                        // differ wherever a star belongs to a bold pair — `**loud**` selected whole
-                        // was demoted to `*loud*`, `***x***` got an eighth star. Held to what the
-                        // new reading promises instead: an Italic press that takes stars away keeps
-                        // the words and every bold character; one that adds them destroys nothing.
-                        // **Code reads spans as CommonMark pairs them (FMT-20)**: a run opens one
-                        // and the next run of the same length closes it, and a wrap around
-                        // backticks uses a longer run. Anywhere a backtick is on the line, the old
-                        // one-backtick reading may differ; held to the same promise as Italic's.
+                        // Italic reads runs of stars, where the old code asked only whether one
+                        // more star stood beside the selection, so they differ wherever a star
+                        // belongs to a bold pair. Held to its own promise: an Italic press that
+                        // takes stars away keeps the words and every bold character; one that adds
+                        // them destroys nothing. Code reads spans as CommonMark pairs them (a run
+                        // opens one, the next run of the same length closes it, a wrap around
+                        // backticks uses a longer run), so wherever a backtick is on the line it is
+                        // held to the same.
                         if verb == .inlineCode, ns.substring(with: ns.lineRange(for: selection)).contains("`") {
                             if (new.text as NSString).length < ns.length {
                                 #expect(Self.rendered(new.text).plain == Self.rendered(text).plain,
@@ -145,8 +140,8 @@ import Foundation
                 }
             }
         }
-        // 4,000, not the 5,000 it was: FMT-10 moved every selection with a space or a line break at
-        // an end (about 650 of them) to the rule above.
+        // 4,000: selections with a space or a line break at an end (about 650) are checked by the
+        // line-by-line rule above instead.
         #expect(same > 4_000, "only \(same) edits matched — the sweep is near-vacuous")
         #expect(changed > 0, "nothing changed — the corpus no longer holds a run of two spans, so the rule is untested")
         print("[wrap-equivalence] \(same) edits match the old wrap · \(changed) are the two-span rule")
@@ -172,9 +167,9 @@ import Foundation
         return (plain, bold)
     }
 
-    /// **The two-span rule, by name** — the cases the equivalence sweep only counts. Bold over two
-    /// bold spans and the text between adds a pair rather than turning them inside out, and the bar
-    /// does not light for it; Italic around a bold word still unwraps, because italic nests.
+    /// The two-span rule, by name: the cases the equivalence sweep only counts. Bold over two bold
+    /// spans and the text between adds a pair rather than turning them inside out, and the bar does
+    /// not light for it; Italic around a bold word still unwraps, because italic nests.
     @Test func twoSpansAreNotTakenForOne() throws {
         let text = "**Warning** read the **docs**"
         let all = NSRange(location: 0, length: (text as NSString).length)
@@ -186,7 +181,7 @@ import Foundation
         #expect(!MarkdownEdits.isApplied(.bold, in: text, selection: between))
         let code = "`a` and `b`"
         // Two code spans selected whole get a run longer than theirs, padded because the text
-        // starts with a backtick (FMT-20) — not one more backtick each side, which closed at once.
+        // starts with a backtick; one more backtick each side would close at once.
         #expect(MarkdownEdits.apply(.inlineCode, to: code, selection: NSRange(location: 0, length: 11))?.text
                 == "`` `a` and `b` ``")
         // Italic nests: one italic span holding a bold word comes off whole, as before.

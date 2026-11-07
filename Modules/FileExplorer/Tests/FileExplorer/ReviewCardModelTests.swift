@@ -163,9 +163,9 @@ import Sync
         #expect(text?.contains("1000+ items") == true)
     }
 
-    /// A held row's card says why its direction is a guess — the note Compare's list shows — where
-    /// it used to present the guess as a plain copy. Ahead of any replace hazard, which still
-    /// follows; a missing row that is held (a folder holding a link) gets the note too.
+    /// A held row's card leads with why its direction is a guess (the note Compare's list shows),
+    /// rather than presenting the guess as a plain copy. Any replace hazard follows; a missing row
+    /// that is held (a folder holding a link) gets the note too.
     @Test func aHeldRowLeadsWithItsNote() {
         func held(_ type: FileDifference.DifferenceType, _ reason: FileDifference.HeldBack, note: String) -> FileDifference {
             FileDifference(relativePath: "Docs/report.txt", leftItemPath: "/l/Docs/report.txt",
@@ -192,7 +192,7 @@ import Sync
     }
 
     /// Copy Remaining with one pending row: a decided row takes `syncFile` (with Retry); a held one
-    /// takes `syncAll`, which leaves it out and says so — as it already did for two.
+    /// takes `syncAll`, which leaves it out and says so, as it does for two or more.
     @Test func copyRemainingSendsALoneHeldRowThroughTheHeldFilter() throws {
         let plain = diff()
         let held = FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
@@ -214,10 +214,10 @@ import Sync
         #expect(!body.contains("if remaining.count == 1"), "Copy Remaining picks its single path by count again")
     }
 
-    /// **"Copy Remaining N" counts the rows it will copy** (review E9). It counted the held rows it
-    /// leaves out too, so with only held rows left it named them all and then said "Nothing was
-    /// copied". The held row comes first (testing law 9), and the button's wiring is read too: the
-    /// label and the disabled state both take this count.
+    /// "Copy Remaining N" counts only the rows it will copy, not the held rows it leaves out, so it
+    /// never names rows and then says "Nothing was copied". The held row comes first in the fixture
+    /// so an early exit can't pass, and the button's wiring is read too: the label and the disabled
+    /// state both take this count.
     @Test func copyRemainingCountsOnlyTheRowsItWillCopy() throws {
         let plain = diff()
         let held = FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
@@ -238,10 +238,10 @@ import Sync
         #expect(button.contains("? \"Every remaining item needs your decision — right-click its row to choose which to keep\""))
     }
 
-    /// **Copy Remaining with held rows keeps Review on them** (owner decision 2026-10-25). The view
-    /// is SwiftUI and undrivable (testing law 5), so `FileSyncManager.copyRemaining` is pinned in
-    /// `FileDiffEngineHeldRowTests` and this pins the call site: a remainder holding a held row goes
-    /// there and marks the rows it resolved, BEFORE the line that tears the session down.
+    /// Copy Remaining with held rows keeps Review on them. The view is SwiftUI and undrivable from a
+    /// unit test, so `FileSyncManager.copyRemaining` is pinned in `FileDiffEngineHeldRowTests` and
+    /// this pins the call site: a remainder holding a held row goes there and marks the rows it
+    /// resolved, before the line that tears the session down.
     @Test func copyRemainingWithHeldRowsKeepsTheSessionOnThem() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -283,30 +283,26 @@ import Sync
     }
 }
 
-/// The card's spoken key hint.
-///
-/// Exists because the first version of that hint shipped as **"Return copys"** — `primaryVerb`
-/// lowercased with an `"s"` stuck on it, announced on every Copy review, in the one channel the
-/// hint was added to serve. It was invisible to every test in the suite: the accessibility tree is
-/// not observable under `swift test`, so nothing could have caught it downstream of the string.
-/// Testing the string itself is the only place the grammar is checkable at all.
+/// The card's spoken key hint. The accessibility tree isn't observable under `swift test`, so the
+/// string itself is the only place its grammar can be checked: `primaryVerb` lowercased with an
+/// "s" stuck on would read "Return copys".
 @Suite struct ReviewCardKeyHintSpeechTests {
 
-    /// Both verbs, both grammatical. Parameterised rather than asserting one, because the bug was
-    /// exactly that one of the two read correctly ("moves") and the other did not.
+    /// Both verbs, both grammatical. Parameterised, because naive conjugation reads right for one
+    /// ("moves") and wrong for the other.
     @Test(arguments: [("Copy", "copy"), ("Move", "move")])
     func theHintReadsGrammaticallyForBothVerbs(verb: String, spoken: String) {
         let hint = ReviewCardModel.keyHintSpeech(primaryVerb: verb)
         #expect(hint.contains("Return to \(spoken),"), "got: \(hint)")
-        // The specific failure, named: no conjugated form may reappear.
+        // No conjugated form may appear.
         #expect(!hint.contains("\(spoken)s"), "the verb was conjugated again: \(hint)")
     }
 
-    /// All four keys are named. A hint that silently lost one would still read grammatically.
+    /// All four keys are named, since a hint that silently lost one would still read grammatically.
     ///
-    /// **And only those.** Compare's card skips on Delete alone — → was taken away because it
-    /// means "to the right pane" there — so a hint naming Right Arrow sends a VoiceOver user to a
-    /// key that does nothing. The Rules walkthrough takes both and keeps its own hint.
+    /// And only those: Compare's card skips on Delete alone (→ means "to the right pane" there), so
+    /// a hint naming Right Arrow sends a VoiceOver user to a key that does nothing. The Rules
+    /// walkthrough takes both and keeps its own hint.
     @Test func everyReviewKeyIsNamed() {
         let hint = ReviewCardModel.keyHintSpeech(primaryVerb: "Copy")
         for key in ["Return", "Delete", "Space", "Escape"] {

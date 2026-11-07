@@ -5,10 +5,9 @@ import Design
 
 /// How much of its placeholder the open Go-to field can afford to say.
 ///
-/// Two rungs, chosen by measurement rather than by a width guess, for the reason
-/// ``CommandPaletteBarStyle`` has two: at a 960pt window the field has room for about 249pt of text
-/// against the full string's ~282, so without a rung the invitation arrives as a fragment — and a
-/// truncated sentence teaches less than a shorter whole one.
+/// Two rungs, chosen by measurement, for the reason ``CommandPaletteBarStyle`` has two: at a 960pt
+/// window the field has about 249pt for text against the full string's ~282, and a truncated
+/// sentence teaches less than a shorter whole one.
 public enum GoToFieldPlaceholder: Equatable, Sendable {
     /// *Go to a place, a folder, a person, or an action…*
     case full
@@ -16,9 +15,8 @@ public enum GoToFieldPlaceholder: Equatable, Sendable {
     case short
 }
 
-/// What the open field is, once the row has been divided up: how wide, and which invitation it can
-/// hold. Resolved with the rest of the toolbar rather than by the field itself — see
-/// `WorkspaceBarMetrics.styles`.
+/// The open field's width and placeholder, resolved with the rest of the toolbar rather than by the
+/// field itself (see `WorkspaceBarMetrics.styles`).
 public struct GoToFieldLayout: Equatable, Sendable {
     public var width: CGFloat
     public var placeholder: GoToFieldPlaceholder
@@ -29,43 +27,37 @@ public struct GoToFieldLayout: Equatable, Sendable {
     }
 }
 
-/// The open field's arithmetic — its floor, its ceiling, its chrome, and the measured width of each
-/// placeholder rung.
+/// The open field's arithmetic: floor, ceiling, chrome, and each placeholder rung's measured width.
 ///
-/// Separate from ``CommandPaletteBarMetrics`` but built from its constants: the field is the pill
-/// grown up, and the two must agree about what the magnifier, the gaps and the keycap cost, or the
-/// row's reserve is right for one of them and wrong for the other.
+/// Built from ``CommandPaletteBarMetrics``' constants, because the field is the pill grown up: the
+/// two must agree on what the magnifier, gaps and keycap cost, or the row's reserve is right for
+/// one and wrong for the other.
 public enum GoToFieldMetrics {
 
-    /// The narrowest the field is allowed to open before the workspace bar is asked to shed its
-    /// labels for it. Below this a folder name and the caret stop fitting together.
+    /// The narrowest the field opens before the workspace bar is asked to shed its labels. Below
+    /// this a folder name and the caret stop fitting together.
     public static let floorWidth: CGFloat = 320
 
-    /// The widest it ever opens — today's card width, so the list under it is the list that shipped
-    /// rather than a re-tuned one.
+    /// The widest it ever opens; the results list under it shares the field's width.
     public static let ceilingWidth: CGFloat = 620
 
-    /// The field's text, a point and a half larger than the pill's word: it is being typed into
-    /// rather than read, and the card it replaces set its own field at 19pt.
+    /// A point and a half larger than the pill's word, because the field is typed into rather than
+    /// read.
     public static let textPointSize: CGFloat = 13.5
 
-    /// The key the open field parks at its trailing end — the one that closes it. Named once and
-    /// read by both the field that draws it and the arithmetic that reserves room for it: the pill
-    /// and the field disagreeing about their own key is the failure with no symptom until the
-    /// toolbar folds behind a chevron.
+    /// The key parked at the field's trailing end, which closes it. Named once for both the field
+    /// that draws it and the arithmetic that reserves its room; if they disagree, nothing shows
+    /// until the toolbar folds behind a chevron.
     public static let closeKeycap = "esc"
 
-    /// The two invitations. The short rung keeps the two nouns a stranger cannot guess at — a
-    /// folder and a person — and drops "place", which the list itself shows first.
+    /// The two invitations. The short one keeps the nouns a stranger can't guess, folder and
+    /// person, and drops "place", which the list shows first.
     public static let fullPlaceholder = "Go to a place, a folder, a person, or an action…"
     public static let shortPlaceholder = "Go to a folder, person, or action…"
 
-    /// Everything in the field that is not text: the same paddings, glyph and gap the pill charges,
-    /// plus the trailing key.
-    ///
-    /// Taken from ``CommandPaletteBarMetrics`` rather than restated, because the field IS the pill
-    /// after it grows: two copies of these numbers would let the row's reserve be right for the
-    /// closed control and wrong for the open one, and the failure mode has no symptom until the
+    /// Everything in the field that isn't text: the pill's paddings, glyph and gap, plus the
+    /// trailing key. Taken from ``CommandPaletteBarMetrics``, not restated, so the reserve can't be
+    /// right for the closed control and wrong for the open one; that failure shows only once the
     /// toolbar is behind macOS's overflow chevron.
     public static func chromeWidth(keycapWidth: CGFloat) -> CGFloat {
         2 * CommandPaletteBarMetrics.horizontalPadding

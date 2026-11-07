@@ -1,15 +1,12 @@
 import AppKit
 
-/// **A list keeps its `NSTextList` across re-reads** (review, 2026-10-09).
+/// Keeps a list's `NSTextList` across re-reads. TextKit numbers a list's items by the identity of
+/// the `NSTextList` in their paragraph style, and every projection makes new ones, so without this
+/// a list the re-read touched would be replaced whole at every keystroke in it.
 ///
-/// TextKit numbers a list's items by the identity of the `NSTextList` in their paragraph style, and
-/// every projection makes new ones. So a list the re-read touched came back as a new list, and was
-/// replaced whole — in the projection's rendering, in the decoration and in the view — at every
-/// keystroke in it: 340 ms on a 256 KB note that is one long list, four times a whole re-read.
-///
-/// Here the re-read part takes the lists of the part it replaces, where each new list continues
-/// one old one, and only what differs is replaced. Where a list is new — split from another, two
-/// joined — ``wholeLists(around:in:against:)`` takes it whole.
+/// The re-read part takes the lists of the part it replaces, where each new list continues one old
+/// one, and only what differs is replaced. Where a list is new (split from another, or two joined),
+/// ``wholeLists(around:in:against:widening:)`` takes it whole.
 enum PreviewListIdentity {
 
     /// `new` put in place of `window` of `old`, as little of it as differs: the range of `old` to
@@ -44,24 +41,16 @@ enum PreviewListIdentity {
     /// the same before it, and after it. A list `range` touches or borders is taken whole where
     /// `old` holds any of its other items as another list — never where the re-read kept the list's
     /// identity, which ``patch(_:window:with:)`` does wherever it can. `widen` is applied after
-    /// each list taken in — the decoration's whole paragraphs — and the two are repeated until
-    /// neither widens the range.
+    /// each list taken in (the decoration's whole paragraphs), and the two repeat until neither
+    /// widens the range.
     ///
-    /// **One pass over `fresh`, however many rounds** (review, 2026-10-09). Each round enumerated
-    /// the whole rendering, and where a whole re-read had made every list anew, each round pulled
-    /// in only the next list: a note of adjacent lists took one pass per list. The lists' runs are
-    /// read once now, and whether each is split is decided once, against `range` as given — a
-    /// wider range only compares fewer of its items, so that answer can only replace more.
+    /// The lists' runs are read from `fresh` once, however many rounds, and whether each is split
+    /// is decided once against `range` as given: a wider range only compares fewer of its items.
     ///
-    /// **And a list `old` holds at the range's edge is `fresh`'s wherever `old` keeps it**
-    /// (2026-10-12). `- the` … `- the` split in two by a Source edit, with an opened paragraph
-    /// above, compared its far item first, took the old list and the new second one for one, and
-    /// kept it — so both halves stayed one list on screen (seed 1737 of the session chains). From
-    /// `fresh` alone nothing was split: the first half was the old list in full, and the second a
-    /// list the range never reached, past a quote that carries no list. So each round also asks,
-    /// of every run outside the range, whether `old` holds one of the lists at the range's edge
-    /// there under another list — one lookup a run, never `old` read whole: reading the view's
-    /// storage whole was a third of a keystroke in a note that is one long list (measured).
+    /// Each round also takes any list with a run outside the range where `old` holds, under another
+    /// list, one of the lists at the range's edge. Without it, a list split in two beside an opened
+    /// paragraph can stay one list on screen. That is one lookup per run, never `old` read whole,
+    /// which costs a third of a keystroke in a note that is one long list.
     static func wholeLists(around range: NSRange, in fresh: NSAttributedString, against old: NSAttributedString,
                            widening widen: (NSRange) -> NSRange = { $0 }) -> NSRange {
         func bordered(_ range: NSRange) -> NSRange {

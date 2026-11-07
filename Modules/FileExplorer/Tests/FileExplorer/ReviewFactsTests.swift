@@ -59,7 +59,7 @@ import Sync
         let left = scratch.appendingPathComponent("left")
         let right = scratch.appendingPathComponent("right")
         try FileManager.default.createDirectory(at: left.appendingPathComponent("Docs"), withIntermediateDirectories: true)
-        // Destination folder: two files at the top and one nested — enumerator counts all
+        // Destination folder: two files at the top and one nested; the enumerator counts all
         // four entries (the subfolder itself plus its file).
         let destinationDocs = right.appendingPathComponent("Docs")
         try FileManager.default.createDirectory(at: destinationDocs.appendingPathComponent("sub"), withIntermediateDirectories: true)
@@ -78,12 +78,9 @@ import Sync
 
     // MARK: Folders that cannot be read
 
-    /// `chmod` is a no-op for root, so the locked directory these tests need would be readable
-    /// and they would pass for the wrong reason. Same guard as `DirectoryListingTests`.
-    ///
-    /// It records an issue instead of returning quietly. A bare `return` reports the test as
-    /// **PASSED**, so on a root runner the folder-replace warning's whole unreadable-destination
-    /// story would go green having exercised none of it. Measured `geteuid() == 501` here.
+    /// `chmod` is a no-op for root, so the locked directory these tests need would be readable and
+    /// they would pass for the wrong reason. Same guard as `DirectoryListingTests`. It records an
+    /// issue rather than returning quietly, since a bare `return` reports the test as passed.
     private func skippedBecauseRoot(_ fixture: String, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
         guard geteuid() == 0 else { return false }
         Issue.record("""
@@ -102,12 +99,10 @@ import Sync
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
-    /// The defect this whole change exists for, asserted on the sentence a person actually reads.
-    ///
-    /// A destination folder that cannot be listed used to reach the warning as a count of zero,
-    /// and the card said "0 items on iCloud will be removed" immediately before removing all of
-    /// them. The safe "everything" wording was already written but sat in the else-branch of a
-    /// `guard let enumerator`, which the filesystem never takes — proved inline below.
+    /// A destination folder that can't be listed must not reach the warning as a count of zero,
+    /// or the card says "0 items on iCloud will be removed" right before removing all of them.
+    /// Asserted on the sentence a person reads. The enumerator doesn't fail on such a folder, so a
+    /// `guard let enumerator` else-branch can't catch it, as proved inline below.
     @Test func anUnreadableDestinationFolderIsNotAnnouncedAsZeroItems() async throws {
         guard !skippedBecauseRoot("anUnreadableDestinationFolderIsNotAnnouncedAsZeroItems") else { return }
         let scratch = try makeScratch()
@@ -125,8 +120,8 @@ import Sync
             try? FileManager.default.removeItem(at: scratch)
         }
 
-        // The premise, measured here rather than assumed: the idiom this replaced could not have
-        // detected the failure. Three files are in there and the enumerator is happy to say nothing.
+        // The premise, measured rather than assumed: three files are in there, and the plain
+        // enumerator returns non-nil and yields nothing.
         let raw = FileManager.default.enumerator(at: destinationDocs, includingPropertiesForKeys: nil,
                                                  options: [], errorHandler: nil)
         #expect(raw != nil, "the else-branch of `guard let enumerator` is dead on a real disk")
@@ -143,16 +138,14 @@ import Sync
             facts: facts, destinationName: "iCloud", isMove: false)
 
         #expect(text == "Replacing this folder replaces its entire contents — everything on iCloud will be removed.")
-        // Stated separately and in the negative: the sentence above could be reached by a wording
-        // change while the count stayed wrong, and "0 items" is the specific claim that was false.
+        // Stated separately and in the negative: a wording change could reach the sentence above
+        // while the count stayed wrong, and "0 items" is the claim that must never appear.
         #expect(text?.contains("0 items") == false)
 
-        // The control, and it belongs INSIDE this test rather than beside it.
-        //
-        // The unreadable branch's whole job is to leave `destinationChildCount` nil — which is
-        // also the field's own default, so deleting the `childCount` call from `loadFacts`
-        // outright would leave every assertion above green. The proof only stands if the same
-        // loader, in the same run, is shown producing a real number for a folder it CAN read.
+        // The control, inside this test. The unreadable branch leaves `destinationChildCount`
+        // nil, which is also its default, so deleting the `childCount` call from `loadFacts`
+        // would pass everything above. The same loader, in the same run, must produce a real
+        // number for a folder it can read.
         let readable = right.appendingPathComponent("Open")
         try FileManager.default.createDirectory(at: readable, withIntermediateDirectories: true)
         try Data("1".utf8).write(to: readable.appendingPathComponent("one.txt"))
@@ -185,7 +178,7 @@ import Sync
         try FileManager.default.createDirectory(at: left.appendingPathComponent("Docs"), withIntermediateDirectories: true)
         let destinationDocs = right.appendingPathComponent("Docs")
         // Two readable files plus a locked subdirectory holding four more. The enumerator yields
-        // three entries — the two files and the subdirectory itself — and reports the subdirectory
+        // three entries (the two files and the subdirectory itself) and reports the subdirectory
         // through the error handler, so 3 is a floor under an actual 7.
         let locked = destinationDocs.appendingPathComponent("locked-sub")
         try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
@@ -213,9 +206,8 @@ import Sync
         #expect(text == "Replacing this folder replaces its entire contents — at least 3 items on iCloud will be removed.")
     }
 
-    /// The counterweight to the two above: a folder that genuinely holds nothing must still say
-    /// "0 items". Without this, "treat every folder as unreadable" would pass the tests that
-    /// matter, and the warning would stop being able to tell the two apart in the other direction.
+    /// The counterweight to the two above: a folder that really holds nothing still says "0 items",
+    /// or "treat every folder as unreadable" would pass them.
     @Test func aGenuinelyEmptyDestinationFolderStillReadsAsZero() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }

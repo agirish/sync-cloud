@@ -5,10 +5,9 @@ import Design
 
 /// Autosave's decision, against real files.
 ///
-/// **Every branch here is one the user never sees happen**, which is exactly why they are worth
-/// executing rather than reading: an autosave that writes when it should have stopped costs
-/// somebody the version that arrived from another device, and one that stops when it should have
-/// written costs them their typing. Neither announces itself.
+/// Every branch here is one the user never sees happen: writing when it should stop loses the
+/// version from another device, and stopping when it should write loses the typing. Neither
+/// announces itself, so each is run against real files.
 @MainActor
 @Suite struct EditorAutosaveTests {
 
@@ -43,16 +42,12 @@ import Design
         #expect(EditorAutosave.attempt(EditorDocument()) == .nothingToDo)
     }
 
-    /// A lossy decode opens read-only, and read-only must reach the disk by no route at all —
-    /// autosave included, which is the route that never asks anybody first.
+    /// A lossy decode opens read-only, and read-only must never reach the disk, autosave included.
     ///
-    /// **What actually stops it here is the absent STAMP, not the `canSave` guard**, and that is
-    /// worth writing down because the test's name suggests otherwise: `EditorDocument.open` leaves
-    /// `stamp` nil for a read-only decode, so the `guard let stamp` refuses before dirtiness is
-    /// ever consulted. Measured, not assumed — removing `canSave` from the guard leaves this test
-    /// green and fails the two clean-document tests instead. Three independent gates hold this
-    /// path, and the assertion below names the one doing the work so a future change to any of
-    /// them cannot quietly leave the other two carrying a claim they do not support.
+    /// The absent stamp stops it here, not the `canSave` guard: `EditorDocument.open` leaves
+    /// `stamp` nil for a read-only decode, so `guard let stamp` refuses before dirtiness is read.
+    /// Removing `canSave` from the guard leaves this green. The checks below name the gate doing
+    /// the work, so a change to any of the three can't leave the others carrying the claim.
     @Test func aReadOnlyDocumentIsNeverWritten() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -80,13 +75,13 @@ import Design
         #expect(EditorAutosave.attempt(document) == .wrote)
         #expect(try String(contentsOf: url, encoding: .utf8) == "hello there\n")
         #expect(!document.isDirty, "the buffer still reads dirty after a write that succeeded")
-        // And the stamp moved with it, or the NEXT attempt would report a divergence against the
-        // file this one just wrote.
+        // The stamp moved with it, or the next attempt would report a divergence against the file
+        // this one just wrote.
         #expect(EditorAutosave.attempt(document) == .nothingToDo)
     }
 
-    /// **The case autosave exists to refuse.** Something else wrote the file while the buffer was
-    /// open; writing now would discard it, and nobody asked.
+    /// Something else wrote the file while the buffer was open: autosave stops, because writing
+    /// now would discard that version unasked.
     @Test func aFileChangedOnDiskStopsAutosaveRatherThanOverwritingIt() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -101,8 +96,8 @@ import Design
         #expect(document.isDirty, "the buffer was marked saved despite nothing being written")
     }
 
-    /// The missing case is separate and worse: writing would put the file back at the old path and
-    /// leave the moved one where it is — two copies, from a background write nobody asked for.
+    /// A file moved away is worse: writing would recreate it at the old path beside the moved one,
+    /// two copies from a background write nobody asked for.
     @Test func aFileMovedAwayStopsAutosaveRatherThanRecreatingIt() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -118,9 +113,8 @@ import Design
         #expect(left == ["filed-away.md"], "the folder holds \(left)")
     }
 
-    /// A write that cannot happen is reported rather than swallowed — the host turns this into a
-    /// banner and, crucially, into a latch, so a read-only volume does not produce one every two
-    /// seconds for the rest of the session.
+    /// A write that can't happen is reported, not swallowed. The host turns it into a banner and a
+    /// latch, so a read-only volume doesn't raise one every two seconds.
     @Test func aWriteThatFailsIsReported() throws {
         let folder = try scratch()
         defer {
@@ -138,22 +132,20 @@ import Design
         #expect(document.isDirty, "the buffer was marked saved after a failed write")
     }
 
-    /// **The debounce key has to carry the path, not just the version.**
-    ///
-    /// Two documents can sit at the same version — a file opened at version 0 after another was
-    /// closed at version 0 — and a key that could not tell them apart would leave a pending write
-    /// aimed at the file that is no longer open. `.task(id:)` only restarts when the id CHANGES.
+    /// The debounce key carries the path, not just the version: two documents can share a version,
+    /// and `.task(id:)` restarts only when the id changes, so a pending write could land on a file
+    /// no longer open.
     @Test func theDebounceKeyDistinguishesTwoDocumentsAtTheSameVersion() {
         let a = EditorAutosave.Key(version: 4, path: "/a/one.md")
         let b = EditorAutosave.Key(version: 4, path: "/a/two.md")
         #expect(a != b, "two files at one version share a debounce key — a pending write can land on the wrong one")
         #expect(a == EditorAutosave.Key(version: 4, path: "/a/one.md"))
-        // And the version still moves it, or typing would not restart the wait at all.
+        // The version still moves it, or typing wouldn't restart the wait.
         #expect(a != EditorAutosave.Key(version: 5, path: "/a/one.md"))
     }
 
-    /// **A write that commits moves the key** (FR51), so typing whose debounce was turned away
-    /// while that write was out is waited for again rather than left with nothing scheduled.
+    /// A write that commits moves the key, so typing whose debounce was turned away while that
+    /// write was out is waited for again rather than left with nothing scheduled.
     @Test func theDebounceKeyMovesWhenAWriteCommits() {
         let before = EditorFileStore.Stamp(modifiedAt: Date(timeIntervalSince1970: 1), size: 4, fileID: 7)
         let after = EditorFileStore.Stamp(modifiedAt: Date(timeIntervalSince1970: 2), size: 9, fileID: 8)
@@ -163,9 +155,9 @@ import Design
 
     // MARK: A save that landed and could not be checked (TE114)
 
-    /// **The store says when the bytes are on disk**, and the outcome keeps that apart from a write
-    /// that failed — so the host can say "Saved “x”, but …" rather than "Couldn't save “x” — Saved,
-    /// but …". Both of the store's after-the-swap failures are landed ones.
+    /// The store says when the bytes are on disk, and the outcome keeps that apart from a failed
+    /// write, so the host says "Saved “x”, but …", not "Couldn't save “x” — Saved, but …". Both
+    /// of the store's after-the-swap failures are landed ones.
     @Test func aWriteThatLandedIsNotAFailedOne() {
         #expect(EditorFileStore.Failure.unchecked.savedBut == "couldn’t read it back to check it.")
         #expect(EditorFileStore.Failure.unchecked.message == "Saved, but couldn’t read it back to check it.")
@@ -177,7 +169,7 @@ import Design
         #expect(EditorAutosave.Outcome.of(CocoaError(.fileWriteOutOfSpace)) == .failed(CocoaError(.fileWriteOutOfSpace).localizedDescription))
     }
 
-    /// **The red word carries its reason as a tooltip — on a stop only** (TE114).
+    /// The red word carries its reason as a tooltip, on a stop only.
     @Test func theStopWordCarriesItsReason() {
         let stopped = EditorSaveStatus.stopped("not saving — couldn't write")
         #expect(EditorWorkspaceView.stopTooltip(status: stopped, detail: "Permission denied") == "Permission denied")
@@ -187,10 +179,9 @@ import Design
         #expect(EditorWorkspaceView.stopTooltip(status: .heldUnsaved, detail: "Permission denied") == nil)
     }
 
-    /// **TE149: the words you can act on are controls, and say what they do.** "unsaved — ⌘S" and
-    /// "couldn't write" save, "no longer on disk" is Save Again, "changed on disk" opens the
-    /// comparison; "couldn't check the save" and "read only" stay words — the host hands them no
-    /// closure, and the view never invents one.
+    /// The words you can act on are controls that say what they do: "unsaved — ⌘S" and "couldn't
+    /// write" save, "no longer on disk" is Save Again, "changed on disk" opens the comparison.
+    /// "couldn't check the save" and "read only" stay words: the host hands them no closure.
     @Test func theStatusWordsYouCanActOnAreControls() {
         typealias V = EditorWorkspaceView
         let held = EditorSaveStatus.heldUnsaved
@@ -211,7 +202,7 @@ import Design
         #expect(V.statusWordKeycap(.saveNow, status: stopped) == nil)
     }
 
-    /// **VoiceOver reads the visible words** — no label of its own on the status word's button.
+    /// VoiceOver reads the visible words: the status word's button has no label of its own.
     @Test func theStatusWordIsReadAsItsWords() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
@@ -221,9 +212,9 @@ import Design
         #expect(!code[start.upperBound..<end.lowerBound].contains(".accessibilityLabel("))
     }
 
-    /// **TE152: a file Edit can't open still offers what can be done with it** — Download first
-    /// for one still in the cloud, Try Again for one that kept changing (where the host offers it),
-    /// then Quick Look and Reveal in Finder for every refusal.
+    /// A file Edit can't open still offers what can be done with it: Download for one still in the
+    /// cloud, Try Again for one that kept changing (where the host offers it), then Quick Look and
+    /// Reveal in Finder for every refusal.
     @Test func aRefusalOffersWhatCanStillBeDoneWithTheFile() throws {
         typealias V = EditorWorkspaceView
         let tooLarge = "Too large to open in Edit — 12.3 MB, and Edit opens text files up to 4.2 MB."
@@ -242,13 +233,9 @@ import Design
 
     // MARK: What the header says
 
-    /// **The dot is what separates pending from written, and now it is the ONLY thing that does.**
-    ///
-    /// This test used to assert the opposite half as well — that the two states carry different
-    /// *words* — and that was right while the header ended in a word at all times. It no longer
-    /// does: `saved` was reassurance the header gave whether or not anything had ever been written,
-    /// and `unsaved` labelled a state that resolves itself in about two seconds. Both are silent
-    /// now, so the glanceable difference is the whole difference, and it is worth more than it was.
+    /// The dot alone separates pending from written. Neither state has a word: "saved" would
+    /// reassure whether or not anything was written, and "unsaved" would label a state that
+    /// resolves itself in about two seconds. So the dot is the only glanceable difference.
     @Test func theDotAloneSeparatesPendingFromWritten() {
         #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: nil) == .unsaved)
         #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: false, stopped: nil) == .saved)
@@ -263,8 +250,8 @@ import Design
         #expect(!pending.isWarning, "ordinary pending work is being shown as a problem")
     }
 
-    /// Switching autosave off makes a dirty buffer a different state, because nothing is coming to
-    /// write it: the reader is the one who has to act, so this is the ordinary state that speaks.
+    /// With autosave off a dirty buffer is a different state: nothing is coming to write it, so the
+    /// reader must act, and this state speaks.
     @Test func aDocumentWithAutosaveOffAsksToBeSaved() {
         let held = EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: nil,
                                             autosaveOff: true)
@@ -275,12 +262,12 @@ import Design
         #expect(held.word?.contains(AppChord.saveDocument.display) == true,
                 "the word does not name the key that settles it: \(held.word ?? "nothing")")
 
-        // Switched off but with nothing pending is still simply saved — there is nothing owed.
+        // Switched off with nothing pending is simply saved: nothing is owed.
         #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: false, stopped: nil,
                                          autosaveOff: true) == .saved)
     }
 
-    /// **A word only where it changes what the reader must do**, which is two of these six.
+    /// A word only where it changes what the reader must do.
     @Test func onlyTheStatesThatNeedWordsHaveThem() {
         let silent: [EditorSaveStatus] = [.saved, .unsaved]
         let speaking: [EditorSaveStatus] = [.heldUnsaved, .readOnly,
@@ -309,12 +296,9 @@ import Design
                                          autosaveOff: true) == .stopped("x"))
     }
 
-    /// **The guard that says the bytes really landed.**
-    ///
-    /// `write` re-stats the file it just installed — it needs the new stamp anyway — and now checks
-    /// that the length matches what it handed over. This is the premise that check rests on, across
-    /// every encoding: a byte-order mark is part of the file, so a guard that forgot one would
-    /// refuse every UTF-16 save. Driven off `allCases` so a seventh encoding cannot skip it.
+    /// `write` re-stats the file it installed and checks the length matches what it handed over.
+    /// This pins that premise for every encoding: a byte-order mark is part of the file, so a check
+    /// that forgot one would refuse every UTF-16 save. Driven off `allCases`, so none is skipped.
     @Test(arguments: BoundedTextRead.TextEncoding.allCases)
     func aSavedFileIsExactlyAsLongAsWhatWasWritten(encoding: BoundedTextRead.TextEncoding) throws {
         let folder = try scratch()
@@ -330,8 +314,8 @@ import Design
         #expect(try Data(contentsOf: URL(fileURLWithPath: path)).count == bytes.count)
     }
 
-    /// The quiet interval is a decision, not an accident: short enough that little is at risk,
-    /// long enough that an ordinary paragraph is one write rather than a dozen uploads.
+    /// The quiet interval is short enough that little is at risk, and long enough that a paragraph
+    /// is one write rather than a dozen uploads.
     @Test func theQuietIntervalIsAPauseForThoughtRatherThanAKeystroke() {
         #expect(EditorAutosave.quietInterval >= .milliseconds(500),
                 "the debounce is short enough to write mid-word — every pause becomes a cloud upload")

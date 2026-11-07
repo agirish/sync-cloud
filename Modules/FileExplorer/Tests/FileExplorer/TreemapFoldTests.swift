@@ -3,10 +3,10 @@ import Foundation
 @testable import Sync
 @testable import FileExplorer
 
-/// The treemap's tail fold. The claims that could rot: every byte stays on screen (visible +
-/// folded always sum to the input — a part-of-whole picture must not drop its smallest parts),
-/// the fold is exactly the sub-label-width suffix, and a fold of one never happens (a "+1 more"
-/// tile would spend its space on not-saying a name that fits).
+/// The treemap's tail fold. Every byte stays on screen (visible plus folded always sum to the
+/// input: a part-of-whole picture must not drop its smallest parts), the fold is exactly the
+/// sub-label-width suffix, and a fold of one never happens (a "+1 more" tile would spend its space
+/// on not saying a name that fits).
 @Suite struct TreemapFoldTests {
 
     private func node(_ name: String, _ bytes: Int) -> TreemapNode {
@@ -38,8 +38,8 @@ import Foundation
     }
 
     @Test func aFoldOfOneNeverHappens() {
-        // One sub-threshold straggler keeps its identity — the view widens it to the label
-        // floor instead of renaming it "+1 more".
+        // One sub-threshold straggler keeps its identity: the view widens it to the label floor
+        // instead of renaming it "+1 more".
         let nodes = [node("A", 10_000), node("B", 8_000), node("tiny", 100)]
         let fold = TreemapView.fold(nodes: nodes, availableWidth: 900)
         #expect(fold.folded.isEmpty)
@@ -47,10 +47,10 @@ import Foundation
     }
 
     @Test func theTailClampCannotSqueezeAVisibleTileUnderTheFloor() {
-        // Adversarial case: sizes arranged so a single-pass fold leaves its smallest visible
-        // tile just above the floor, and the tail's clamp (which takes real width) would push
-        // it back under — the anonymous sliver, reintroduced at the boundary. The fold must
-        // settle instead. Replays the view's own width arithmetic over many shapes.
+        // Adversarial case: sizes arranged so a single-pass fold leaves its smallest visible tile
+        // just above the floor, and the tail's clamp (which takes real width) would push it back
+        // under as an anonymous sliver. The fold must settle instead. Replays the view's own width
+        // arithmetic over many shapes.
         let shapes: [[Int]] = [
             [40_000, 8_000, 7_000, 900, 800, 700, 600, 500],
             [100, 99, 98, 9, 8, 7, 6, 5, 4, 3, 2, 1],

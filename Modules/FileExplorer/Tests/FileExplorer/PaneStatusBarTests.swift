@@ -6,8 +6,8 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// Browse's status bar (roadmap RD6): what each segment says, the order they shed in, and the
-/// census that feeds the cloud-only one.
+/// Browse's status bar: what each segment says, the order they shed in, and the census that feeds
+/// the cloud-only one.
 @MainActor
 @Suite struct PaneStatusBarTests {
 
@@ -54,10 +54,9 @@ import Sync
         #expect(facts(itemCount: 1_284).itemsCaption.hasPrefix("1,284 items"))
     }
 
-    /// The selection segment carries the size and the cloud clause, and **drops each one when it
-    /// would be furniture** — a `0 in the cloud` on every ordinary selection is a fact about
-    /// nothing, and a `Zero KB` under a folder-only selection is a number this bar is not allowed
-    /// to know (folder byte sizes are not in the tree).
+    /// The selection segment carries the size and the cloud clause, and drops each when it would
+    /// say nothing: `0 in the cloud` on every ordinary selection is noise, and `Zero KB` under a
+    /// folder-only selection is a number this bar can't know (the tree has no folder sizes).
     @Test func theSelectionSegmentDropsTheClausesThatWouldSayNothing() {
         let both = PaneStatusFacts.Selection(itemCount: 3, fileBytes: 42_600_000, cloudOnlyCount: 1)
         let caption = PaneStatusFacts.selectionCaption(both)
@@ -72,18 +71,16 @@ import Sync
                 "a folder-only selection grew a size it has no way to know")
     }
 
-    /// **A dash, never a zero, while the census walks.** The roadmap's brief rules out "a number
-    /// that is about to change" by name, and `0 in the cloud only` over a tree that has not been
-    /// statted yet is exactly that — and it is the one wrong answer that reads as a real one.
+    /// A dash, never a zero, while the census walks. `0 in the cloud only` over a tree not yet
+    /// statted is a number about to change, and the one wrong answer that reads as a real one.
     @Test func theCloudOnlySegmentReadsADashUntilTheCensusLands() {
         #expect(facts(cloudOnlyCount: nil).cloudOnlyCaption == "— in the cloud only")
         #expect(facts(cloudOnlyCount: 0).cloudOnlyCaption == "0 in the cloud only")
         #expect(facts(cloudOnlyCount: 212).cloudOnlyCaption == "212 in the cloud only")
     }
 
-    /// The freshness is `ScanFreshness`'s sentence, not a fifth spelling of one — and it is absent
-    /// rather than "never" when nothing has been loaded, because a pane with no tree has nothing
-    /// under the bar for the word to be about.
+    /// The freshness is `ScanFreshness`'s sentence, not another spelling of it, and is absent
+    /// rather than "never" when nothing has loaded: with no tree, it has nothing to be about.
     @Test func theFreshnessSegmentIsScanFreshnessAndVanishesBeforeTheFirstLoad() {
         #expect(facts(ageSeconds: 240).freshness?.text == "Scanned 4m ago")
         #expect(facts(ageSeconds: 240).freshness?.isStale == false)
@@ -93,8 +90,8 @@ import Sync
                 "the full rung drew a freshness segment for a pane that has loaded nothing")
     }
 
-    /// **The pane says its folder changed since it was read** (ROADMAP item 5), in the segment the
-    /// full rung draws and in the spoken label — and a pane with nothing loaded still says nothing.
+    /// The pane says its folder changed since it was read, in the segment the full rung draws and
+    /// in the spoken label, and a pane with nothing loaded still says nothing.
     @Test func aChangeOnDiskIsSaidInTheFreshnessSegment() {
         var changed = facts(ageSeconds: 240)
         changed.changedOnDisk = true
@@ -109,9 +106,8 @@ import Sync
 
     // MARK: The ladder
 
-    /// **The order they shed in, stated as segments.** Each rung is the one above it with its
-    /// rightmost segment gone, and the item count survives every step — which is the roadmap's
-    /// brief ("the item count is what stays longest") turned into something that fails.
+    /// The order they shed in, as segments: each rung is the one above with its rightmost segment
+    /// gone, and the item count, which stays longest, survives every step.
     @Test func theRungsShedFromTheRightAndKeepTheItemCount() {
         let f = facts()
         #expect(f.segments(.full).count == 4)
@@ -128,10 +124,9 @@ import Sync
         }
     }
 
-    /// **Every rung is actually offered to `ViewThatFits`.** The candidates are spelled out (a
-    /// `ForEach` there is one child, and the ladder would collapse to a single candidate), so a
-    /// rung added to the enum and forgotten in the view is unreachable at every width — silently,
-    /// with the strip simply truncating.
+    /// Every rung is offered to `ViewThatFits`. The candidates are spelled out (a `ForEach` there
+    /// is one child, collapsing the ladder to one candidate), so a rung added to the enum and
+    /// forgotten in the view would be silently unreachable at every width, the strip truncating.
     @Test func theLadderOffersEveryRungInSheddingOrder() throws {
         let source = try Self.barSource()
         let offered = PaneStatusFacts.Rung.allCases.map { "strip(.\($0))" }
@@ -143,10 +138,9 @@ import Sync
         }
     }
 
-    /// **The rungs have to be strictly narrower in order, or `ViewThatFits` never reaches them** —
-    /// it takes the first candidate that fits, so a "narrower" rung measuring wider than its
-    /// predecessor is dead code no width can select. Same failure, and same check, as
-    /// `EditorLayoutTests.eachStatusRungIsNarrowerThanTheOneBeforeIt`.
+    /// The rungs must be strictly narrower in order: `ViewThatFits` takes the first candidate that
+    /// fits, so a "narrower" rung measuring wider than its predecessor is dead code no width can
+    /// select. The same check as `EditorLayoutTests.eachStatusRungIsNarrowerThanTheOneBeforeIt`.
     @Test func eachRungIsNarrowerThanTheOneBeforeIt() {
         for scale in scales {
             let widths = PaneStatusFacts.Rung.allCases.map {
@@ -165,9 +159,9 @@ import Sync
         #expect(large > small + 20, "the full rung measured \(small) with tiny numbers and \(large) with large ones")
     }
 
-    /// **VoiceOver is never shed.** Shedding is a width bargain and VoiceOver has no width, so a
-    /// narrow pane must not make the cloud-only count unspeakable — and the staleness has to be in
-    /// words somewhere, because the visible segment reads identically fresh or stale.
+    /// VoiceOver is never shed. Shedding is a width bargain and VoiceOver has no width, so a narrow
+    /// pane must not make the cloud-only count unspeakable, and staleness must be in words
+    /// somewhere, because the visible segment reads the same fresh or stale.
     @Test func theSpokenLabelCarriesEveryFactWhateverRungIsDrawn() {
         let stale = facts(ageSeconds: ScanFreshness.staleAfter + 60)
         let label = stale.accessibilityLabel
@@ -180,9 +174,8 @@ import Sync
 
     // MARK: The selection's own numbers
 
-    /// Folders are in the count and out of the bytes, for the reason `DetailsSelectionSummary`
-    /// gives: a folder's byte size is not in the tree, and walking for it is what this bar exists
-    /// not to do.
+    /// Folders are in the count and out of the bytes, as in `DetailsSelectionSummary`: a folder's
+    /// byte size isn't in the tree, and this bar must not walk for it.
     @Test func theSelectionCountsFoldersAndSizesOnlyFiles() {
         let nodes = [file("/a/one.pdf", size: 100), file("/a/two.pdf", size: 250),
                      folder("/a/sub", [file("/a/sub/deep.pdf", size: 9_999)])]
@@ -191,8 +184,8 @@ import Sync
         #expect(selection?.fileBytes == 350, "a folder contributed bytes, or its children did")
     }
 
-    /// **An unstatted row is not a cloud row.** The badge memo answers nil for a path nobody has
-    /// looked at, and folding that into "yes" would put a number in the bar that no syscall backs.
+    /// An unstatted row is not a cloud row. The badge memo answers nil for a path nobody has looked
+    /// at, and folding that into "yes" would put a number in the bar that no syscall backs.
     @Test func onlyKnownCloudOnlyPathsCountTowardTheSelectionsCloudClause() {
         let nodes = [file("/a/here.pdf"), file("/a/cloud.pdf"), file("/a/unknown.pdf")]
         let known: [String: Bool] = ["/a/here.pdf": false, "/a/cloud.pdf": true]
@@ -205,26 +198,25 @@ import Sync
     // MARK: The census
 
     /// `SF_DATALESS`, spelled here because `MaterializationStatus.datalessFlag` is internal to
-    /// `Sync` and this suite is in another module. It is checked against the module's own predicate
-    /// in every test that uses it (`isDataless` is public), so the two cannot drift.
+    /// `Sync`. The test below checks it against the public `isDataless`, so the two can't drift.
     private let datalessFlag: UInt32 = 0x4000_0000
 
-    /// The local flag constant really is the one `Sync` recognises — without this the census tests
-    /// below would pass over a stat stub returning a number that means nothing.
+    /// The local flag constant is the one `Sync` recognises; otherwise the census tests below could
+    /// pass over a stat stub returning a number that means nothing.
     @Test func theTestsDatalessFlagIsTheOneSyncRecognises() {
         #expect(MaterializationStatus.isDataless(flags: datalessFlag))
         #expect(!MaterializationStatus.isDataless(flags: 0))
     }
 
-    /// It counts files, walks into folders, and **stats no directory** — `SF_DATALESS` is a
-    /// content flag and a folder is never a placeholder for content.
+    /// It counts files, walks into folders, and stats no directory: `SF_DATALESS` is a content flag
+    /// and a folder is never a placeholder for content.
     @Test func theCensusCountsDatelessFilesAcrossTheWholeTree() async {
         let tree = [folder("/a", [file("/a/one.pdf"), file("/a/two.pdf"),
                                   folder("/a/sub", [file("/a/sub/three.pdf")])]),
                     file("/b.pdf")]
         let cloud: Set<String> = ["/a/two.pdf", "/a/sub/three.pdf"]
-        // The stat seam is `@Sendable` (it runs off the main actor), so the recorder has to be
-        // too — a captured `var` cannot be written from inside it.
+        // The stat seam is `@Sendable` (it runs off the main actor), so the recorder must be too: a
+        // captured `var` can't be written from inside it.
         let statted = StattedPaths()
         let flag = datalessFlag
         let count = await CloudOnlyCensus.count(in: tree) { path in
@@ -238,17 +230,17 @@ import Sync
         #expect(seen.count == 4, "the census missed a file — it statted \(seen)")
     }
 
-    /// A path that cannot be statted at all is **not** counted: "no answer" is not "in the cloud".
-    /// The distinction is `MaterializationStatus.isCloudOnlyIfKnown`'s, and this is the one caller
-    /// that would silently turn a deleted file into a cloud file.
+    /// A path that can't be statted is not counted: "no answer" is not "in the cloud". The
+    /// distinction is `MaterializationStatus.isCloudOnlyIfKnown`'s, and miscounting here would
+    /// silently turn a deleted file into a cloud file.
     @Test func anUnstattablePathIsNotCountedAsCloudOnly() async {
         let count = await CloudOnlyCensus.count(in: [file("/gone.pdf")]) { _ in nil }
         #expect(count == 0)
     }
 
-    /// **Cancelled comes back nil, not zero.** A superseded census must leave the bar reading `—`
-    /// until the census for the tree now on screen finishes; publishing its partial total as an
-    /// answer is the "number about something else" the restart exists to avoid.
+    /// Cancelled comes back nil, not zero. A superseded census must leave the bar reading `—` until
+    /// the census for the tree now on screen finishes; its partial total would be a number about
+    /// something else.
     @Test func aCancelledCensusAnswersNilRatherThanItsPartialTotal() async {
         let many = (0..<(CloudOnlyCensus.batchSize * 3)).map { file("/a/\($0).pdf") }
         let flag = datalessFlag

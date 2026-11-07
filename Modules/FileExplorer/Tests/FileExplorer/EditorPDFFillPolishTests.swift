@@ -7,10 +7,10 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// **Fill & Sign's polish (the 2026-10-20 Edit audit, TE98–TE141)** — a way out, a question before
-/// a saved signature goes, a form's signature field that signs, tools that grey out where they
-/// change nothing, the leave question's Save that leaves, one accent, the first signature straight
-/// to the sheet, and the right-click menu, resize cursor and words that went with them.
+/// Fill & Sign's finer points: a way out, a question before a saved signature goes, a form's
+/// signature field that signs, tools that grey out where they change nothing, the leave question's
+/// Save that leaves, one accent, the first signature straight to the sheet, and the right-click
+/// menu, resize cursor and menu words.
 ///
 /// Serialized: the saves run in `PDFKitSerialAccess`'s one lane, and the overlay tests lay out a
 /// `PDFView` on the main thread.
@@ -33,7 +33,7 @@ import Sync
     private static let signatureField = FormField(name: "sig", kind: .signature, value: nil,
                                                   widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 100, y: 100, width: 200, height: 30))])
 
-    /// Fill & Sign on, on one letter page — with these fields, and the owner's commenting permission.
+    /// Fill & Sign on, on one letter page, with these fields and the owner's permissions.
     private func fill(fields: [FormField] = [], allowsFormEntry: Bool = true, allowsCommenting: Bool = true) -> EditorPDFFillSign {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         fill.attach(path: folder + "/Lease.pdf", boxes: [Self.letterBox], encryption: .none, allowsFilling: true,
@@ -71,8 +71,8 @@ import Sync
 
     // MARK: TE98 — a way out
 
-    /// **Esc lets go of the tool, then puts Fill & Sign away** — after the reader's own Esc (an open
-    /// find card), and through the toggle, so unsaved work is asked about first.
+    /// Esc lets go of the tool, then puts Fill & Sign away: after the reader's own Esc (an open find
+    /// card), and through the toggle, so unsaved work is asked about first.
     @Test func escapeLetsGoThenPutsFillAndSignAway() throws {
         let fill = fill()
         var asked = 0
@@ -95,11 +95,11 @@ import Sync
         #expect(asked == 1 && fill.isOn && fill.items.count == 1, "Esc put unsaved work away without asking")
     }
 
-    /// **The save pill ends with Done, through the header's toggle** — and Save Filled Copy wears the
-    /// window's hue (TE101). The pill's buttons are SwiftUI, so the call is read.
+    /// The save pill ends with Done, which uses the header's toggle, and Save Filled Copy wears the
+    /// window's hue. The pill's buttons are SwiftUI, so the source is read.
     @Test func thePillEndsWithDoneAndItsSaveWearsTheHue() throws {
         let palette = try source("EditorPDFFillPalette.swift")
-        // Its title is "Save Corrected Copy" when only corrections are placed (TE84).
+        // Its title is "Save Corrected Copy" when only corrections are placed.
         let save = try #require(palette.range(of: #"Button(fill.saveTitle) { Task { await fill.save() } }"#))
         let done = try #require(palette.range(of: "Button(Self.doneTitle) { fill.toggle() }"), "the pill has no Done")
         #expect(save.upperBound < done.lowerBound, "Done is not after Save Filled Copy")
@@ -109,7 +109,7 @@ import Sync
         #expect(EditorPDFFillSaveStack.doneTitle == "Done")
     }
 
-    /// **Esc on the pages, through the overlay**: the find card first, then the palette.
+    /// Esc on the pages, through the overlay, closes the find card first, then the palette.
     @Test func escapeOnThePagesClosesFindFirstThenThePalette() async throws {
         let pdf = try await open()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
@@ -141,9 +141,9 @@ import Sync
 
     // MARK: TE100 — deleting a saved one asks
 
-    /// **Choosing one under Delete asks first** (decision BE's question); Cancel keeps it, Delete
-    /// removes it from this Mac and leaves what is already placed. The menus say "Delete a Saved
-    /// Signature" and "Delete Saved Initials" (TE100).
+    /// Choosing one under Delete asks first; Cancel keeps it, Delete removes it from this Mac and
+    /// leaves what is already placed. The menus say "Delete a Saved Signature" and "Delete Saved
+    /// Initials".
     @Test func deletingASavedSignatureAsksFirst() throws {
         let fill = fill()
         let initials = EditorPDFSignature(kind: .initials, look: .typed("AM"))
@@ -169,7 +169,8 @@ import Sync
 
     }
 
-    /// **With six saved, the Add sheet says the next one replaces the oldest** — five say nothing.
+    /// With six saved, the Add sheet says the next one replaces the oldest; with five it says
+    /// nothing.
     @Test func theAddSheetSaysWhenTheOldestWillGo() throws {
         let store = EditorPDFSignatureStore(defaults: defaults)
         for n in 0..<5 { store.add(EditorPDFSignature(kind: .signature, look: .typed("Signer \(n)"))) }
@@ -186,8 +187,8 @@ import Sync
 
     // MARK: TE107 — a signature field signs
 
-    /// **A signature chosen for a field fills its box**: typed or drawn, as big as fits keeping its
-    /// shape, at the box's left and centred on its height — not the Signature tool's fixed 150 pt.
+    /// A signature chosen for a field fills its box: typed or drawn, as big as fits keeping its
+    /// shape, at the box's left and centred on its height, not the Signature tool's fixed 150 pt.
     @Test func aSignatureChosenForAFieldFitsTheFieldsBox() throws {
         let fill = fill(fields: [Self.nameField, Self.signatureField])
         let field = Self.signatureField
@@ -215,8 +216,8 @@ import Sync
         #expect(fill.armed == .formFields, "signing a field armed another tool")
     }
 
-    /// **Tab stops on a signature field in the form's own order** (decision BK, TE164) — on a form
-    /// whose owner doesn't allow filling its fields too, as long as a signature can be placed.
+    /// Tab stops on a signature field in the form's own order, even on a form whose owner doesn't
+    /// allow filling its fields, as long as a signature can be placed.
     @Test func tabStopsOnSignatureFieldsWhereASignatureCanGo() throws {
         let later = FormField(name: "date", kind: .text(multiline: false), value: nil,
                               widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 200, width: 100, height: 20))])
@@ -229,8 +230,8 @@ import Sync
         #expect(noPlacing.tabStops == [.field("name")])
     }
 
-    /// **A form whose owner forbids adding to its pages keeps its refusal**: the field doesn't sign,
-    /// and says why.
+    /// On a form whose owner forbids adding to its pages, the signature field doesn't sign, and says
+    /// why.
     @Test func aFieldOnAFormThatForbidsCommentingDoesNotSign() throws {
         let fill = fill(fields: [Self.nameField, Self.signatureField], allowsCommenting: false)
         #expect(fill.isOn && !fill.offersPlacing)
@@ -243,8 +244,8 @@ import Sync
         #expect(fill.place(Self.typed, in: target) == nil && fill.items.isEmpty)
     }
 
-    /// **The field's menu signs it**: "Sign this field", the saved ones — choosing one places it in
-    /// the field — and Add Signature…, whose signature goes there too. No Delete there. A sheet put
+    /// The field's menu signs it: "Sign this field", the saved ones (choosing one places it in the
+    /// field), and Add Signature…, whose signature goes there too. No Delete there. A sheet put
     /// away without Add signs nothing.
     @Test func theFieldsMenuAndItsAddSheetSignTheField() throws {
         let fill = fill(fields: [Self.nameField, Self.signatureField])
@@ -272,9 +273,9 @@ import Sync
         #expect(fill.armed == .signature(added) && fill.items.count == 2, "a later Add signed the field the sheet was cancelled for")
     }
 
-    /// **Over a real page view, a click on a form's signature field signs it**: with one saved, the
-    /// Signature menu at the field, whose line places it in the field's box; with none, the Add sheet,
-    /// for that field. Pointing at it says so, and it is tinted as a field a click acts on.
+    /// Over a real page view, a click on a form's signature field signs it: with one saved, the
+    /// Signature menu opens at the field and its line places it in the field's box; with none, the
+    /// Add sheet opens for that field. Its tooltip says so.
     @Test func clickingASignatureFieldOnTheOverlaySignsIt() async throws {
         let file = path("W-9 \(UUID().uuidString.prefix(8)).pdf")
         try PDFFixtures.writeForm(file)
@@ -333,8 +334,8 @@ import Sync
 
     // MARK: TE108 — tools that can change nothing grey out
 
-    /// **Style, Text Size and Ink grey out with a form field focused, Text Size for a drawn
-    /// signature, and all three where the owner forbids adding to the pages** — each saying why.
+    /// Style, Text Size and Ink grey out with a form field focused, Text Size for a drawn
+    /// signature, and all three where the owner forbids adding to the pages, each saying why.
     @Test func styleSizeAndInkGreyOutWhereTheyChangeNothing() throws {
         typealias P = EditorPDFFillPalette
         let styling: [P.Tool] = [.style, .size, .ink]
@@ -372,8 +373,8 @@ import Sync
 
     // MARK: TE115 — the leave question's Save leaves
 
-    /// **Save Filled Copy in the leave question writes the copy, then runs the leave again** — which
-    /// goes, with nothing left to ask about (decision AX).
+    /// Save Filled Copy in the leave question writes the copy, then runs the leave again, which
+    /// goes through with nothing left to ask about.
     @Test func saveFilledCopyInTheLeaveQuestionSavesThenLeaves() async throws {
         let pdf = try await open()
         let fill = pdf.fill
@@ -394,8 +395,8 @@ import Sync
         #expect(FileManager.default.fileExists(atPath: copy))
     }
 
-    /// **A save that doesn't land stays** — cancelled, or with something placed while it ran — and
-    /// the leave is not run again.
+    /// A save that doesn't carry everything (cancelled, or something placed while it ran) stays on
+    /// the PDF, and the leave is not run again.
     @Test(arguments: [false, true])
     func aSaveThatDoesNotLandStaysOnThePDF(placesMore: Bool) async throws {
         let pdf = try await open()
@@ -421,7 +422,7 @@ import Sync
         #expect(retried == 0, "a save that didn't carry everything left the PDF")
         #expect(fill.hasUnsavedItems && fill.isOn)
         if placesMore {
-            // The copy landed without the second mark: its banner says so (TE191).
+            // The copy landed without the second mark, and its banner says so.
             let banner = try #require(pdf.tools.banner)
             #expect(banner.kind == .wrote(try #require(pdf.path).replacingOccurrences(of: ".pdf", with: " (filled).pdf")))
             #expect(banner.message.hasSuffix(". " + EditorPDFFillSign.changedWhileSavingNote), "\(banner.message)")
@@ -430,8 +431,8 @@ import Sync
 
     // MARK: TE141 — the first signature goes straight to the sheet
 
-    /// **Signature or Initials with none saved opens the Add sheet, not a menu of one Add** — with one
-    /// saved, the menu.
+    /// Signature or Initials with none saved opens the Add sheet, not a menu holding only Add; with
+    /// one saved, the menu.
     @Test func theFirstSignatureGoesStraightToTheSheet() throws {
         typealias P = EditorPDFFillPalette
         let fill = fill()
@@ -448,8 +449,8 @@ import Sync
 
     // MARK: TE101, TE136 — the overlay's colour and cursor
 
-    /// **The selection ring is drawn in the window's hue, handed in** — not the Mac's accent — and
-    /// the corner handle shows a resize pointer, not the placing tools' crosshair.
+    /// The selection ring is drawn in the window's hue, handed in, not the Mac's accent, and the
+    /// corner handle shows a resize pointer, not the placing tools' crosshair.
     @Test func theSelectionWearsTheHueAndTheHandleShowsAResizePointer() async throws {
         let pdf = try await open()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
@@ -502,8 +503,8 @@ import Sync
         reader.document = nil
     }
 
-    /// **The canvas hands the overlay the window's hue**, and the Add sheet's Add and the text
-    /// editor's style picker wear it too.
+    /// The canvas hands the overlay the window's hue, and the Add sheet's Add and the text editor's
+    /// style picker wear it too.
     @Test func theHueReachesTheOverlayTheSheetAndTheStylePicker() throws {
         #expect(try source("EditorPDFCanvas.swift").contains("coveredRects: frames.covered, accent: accent)"))
         #expect(try source("EditorPDFPageView.swift").contains("view.fillOverlay.accent = NSColor(accent)"))
@@ -521,7 +522,7 @@ import Sync
 
     // MARK: TE126 — words
 
-    /// **Title case in the menus, and "ink" only where nothing else says Ink.**
+    /// Title case in the menus, and "ink" only where nothing else says Ink.
     @Test func theMenusAreInTitleCase() {
         #expect(EditorPDFFillMark.check.title == "Check Mark")
         #expect(EditorPDFFillColor.allCases.map(\.title) == ["Blue", "Black"])
@@ -529,15 +530,13 @@ import Sync
         #expect(EditorPDFFillFlyouts.originalInkTitle == "Original Ink", "PD13: among Blue and Black")
     }
 
-    /// **Every menu item the app writes is in Title Case** — the menu bar, every context menu and
-    /// pop-up menu, in `MacApp/` and every package (TE126, widened by BR9: the pane row said
-    /// “Fix name” and “Ignore in comparison” where the menu bar said “Fix Name” and “Ignore in
-    /// Comparison”). Mutation: put back “Paste here” in FileTreeView, or “Manage sources…” in
-    /// ProviderMenu, and this names the line.
+    /// Every menu item the app writes is in Title Case: the menu bar, every context menu and pop-up
+    /// menu, in `MacApp/` and every package, so a pane row can't disagree with the menu bar.
+    /// Mutation: “Paste here” in FileTreeView, or “Manage sources…” in ProviderMenu, must fail it.
     @Test func everyMenuItemInTheAppIsInTitleCase() throws {
         let found = try AppCopyScan.menuTitleViolations(exemptions: AppCopyScan.menuExemptions)
         #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
-        // The exemption still has something to exempt — a scope the scan lost would pass vacuously.
+        // The exemption still has something to exempt; a scope the scan lost would pass vacuously.
         let all = try AppCopyScan.menuTitleViolations(exemptions: [])
         #expect(all.contains { $0.fileName == "EditorPDFFillSignMenuItems.swift" },
                 "the scan no longer reaches the Fill & Sign menu, so its exemption proves nothing")
@@ -548,7 +547,7 @@ import Sync
     }
 
     /// The menu scan's reach: a context menu, a menu-content type, a ternary's two branches and
-    /// `NSMenuItem` — and not a comment, a labelled argument or a string handed to a function.
+    /// `NSMenuItem`, but not a comment, a labelled argument or a string handed to a function.
     @Test func theMenuScanReadsMenusAndOnlyMenus() {
         let code = """
             struct RowView: View {
@@ -585,15 +584,13 @@ import Sync
                 "\(found)")
     }
 
-    /// **Every button the app writes is in Title Case**, as Setup's are (ST18) — the cards, the
-    /// lenses, the sheets and the alerts, in `MacApp/` and every package. Organize's filing card
-    /// said “Try another folder” and the rule offer “Not now” beside Title Case neighbours
-    /// (2026-10-26). Mutation: put back “Not now” in RuleOfferPrompt, or “Look again” in
-    /// DocumentSurveyCard, and this names the line.
+    /// Every button the app writes is in Title Case, as Setup's are: the cards, the lenses, the
+    /// sheets and the alerts, in `MacApp/` and every package. Mutation: “Not now” in
+    /// RuleOfferPrompt, or “Look again” in DocumentSurveyCard, must fail it.
     @Test func everyButtonInTheAppIsInTitleCase() throws {
         let found = try AppCopyScan.buttonTitleViolations(exemptions: AppCopyScan.buttonExemptions)
         #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
-        // Each exemption still has something to exempt — a stale one would hide the next title.
+        // Each exemption still has something to exempt; a stale one would hide the next title.
         let all = try AppCopyScan.buttonTitleViolations(exemptions: [])
         for exemption in AppCopyScan.buttonExemptions {
             #expect(all.contains { exemption.covers($0) }, "the exemption for \(exemption.reason) covers nothing")
@@ -606,7 +603,7 @@ import Sync
     }
 
     /// The button scan's reach: a titled button, a ternary, a label in a trailing closure or a
-    /// `label:` closure, the app's builders and an alert — and not a toggle, a link, a disclosure
+    /// `label:` closure, the app's builders and an alert, but not a toggle, a link, a disclosure
     /// header, a comment, a title held in a constant, or a brand spelled with its capital second.
     @Test func theButtonScanReadsButtonsAndOnlyButtons() {
         let code = """

@@ -11,7 +11,7 @@ import Design
 extension PDFFixtures {
     /// pdf-toolkit's corpus form (`Fixtures/acroform-fieldkinds.pdf`), copied to `path`: a nested
     /// text field, a multiline one with `/MaxLen` 200, a read-only one, a checkbox, a three-way radio
-    /// group, a combo, a list, an editable combo, a signature, a push button — and `initials`, one
+    /// group, a combo, a list, an editable combo, a signature, a push button, and `initials`, one
     /// field with a widget on each of its two pages.
     static func writeForm(_ path: String) throws {
         let source = try #require(Bundle.module.url(forResource: "acroform-fieldkinds", withExtension: "pdf",
@@ -19,7 +19,7 @@ extension PDFFixtures {
         try FileManager.default.copyItem(at: source, to: URL(fileURLWithPath: path))
     }
 
-    /// The corpus form re-encrypted by its owner with `permissions` — PDFKit's in-place write keeps
+    /// The corpus form re-encrypted by its owner with `permissions`; PDFKit's in-place write keeps
     /// the `/AcroForm`.
     static func writeForm(_ path: String, permissions: [PDFAccessPermissions]) throws {
         let plain = path + ".plain.pdf"
@@ -44,8 +44,8 @@ extension PDFFixtures {
         try? FileManager.default.removeItem(atPath: plain)
     }
 
-    /// The corpus form with an `/XFA` entry added to its `/AcroForm`, by an appended update that
-    /// rewrites the catalog (object 1) — the hybrid shape older government forms ship in.
+    /// The corpus form with an `/XFA` entry added to its `/AcroForm` by an appended update that
+    /// rewrites the catalog (object 1): the hybrid shape older government forms ship in.
     static func writeXFAForm(_ path: String) throws {
         let plain = path + ".plain.pdf"
         try writeForm(plain)
@@ -67,10 +67,9 @@ extension PDFFixtures {
     }
 }
 
-/// **Fill & Sign on a PDF with its own form (Phase 5c)** — the fields read in the lane, filled as
-/// draft state on `EditorPDFFillSign`, and saved through pdf-toolkit 0.2.0's `fillFormData` so the
-/// copy's form stays fillable. A flat file keeps 5b's flattening path; `EditorPDFFillSignTests`
-/// holds that, unchanged.
+/// Fill & Sign on a PDF with its own form: the fields are read in the lane, filled as draft state
+/// on `EditorPDFFillSign`, and saved through pdf-toolkit's `fillFormData` so the copy's form stays
+/// fillable. A flat file's flattening path is in `EditorPDFFillSignTests`.
 ///
 /// Serialized, because the opens and the saves take `PDFKitSerialAccess`'s one lane; every wait is
 /// bounded in lane turns.
@@ -91,8 +90,8 @@ extension PDFFixtures {
     private func open(_ file: String) async throws -> EditorPDFDocument {
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         pdf.tools.isCloudOnly = { _ in false }
-        // **A form is filled in place, so nothing here is ever asked "this will flatten the form".**
-        // Asked anyway, the answer is no and the test says why — a real alert would wait forever.
+        // A form is filled in place, so nothing here should ask "this will flatten the form". If
+        // asked, answer no and record why; a real alert would wait forever.
         pdf.tools.confirm = { warning, _ in
             Issue.record("a form fill asked “\(warning.confirmationTitle)” — it took the flattening path")
             return false
@@ -115,11 +114,9 @@ extension PDFFixtures {
 
     // MARK: The engine
 
-    /// **pdf-toolkit is pinned at 0.6.1 (a popup the keep pass doesn't carry is drawn, not lost;
-    /// Fill & Sign can keep a flat file's comments as comments since 0.6.0 — FR57; copies keep page
-    /// labels, viewer settings, language and attached files since 0.5.0 — TE201, TE202), and every tracked
-    /// `Package.resolved` that resolves it was regenerated to that tag's commit** — not hand-edited to
-    /// a version a resolve would not write.
+    /// pdf-toolkit is pinned at 0.6.1 (it keeps a flat file's comments and a copy's page labels,
+    /// viewer settings, language and attached files), and every tracked `Package.resolved` that
+    /// resolves it names that tag's commit, as a resolve writes it, not a hand-edited version.
     @Test func theEngineIsPinnedAt061Everywhere() throws {
         let modules = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()   // FileExplorer
@@ -135,9 +132,9 @@ extension PDFFixtures {
         }
     }
 
-    /// **Every refusal the form path can meet reads in Edit's words.** The switch that maps them is
-    /// exhaustive, so a toolkit case it does not name fails to build; this holds what each says —
-    /// nothing sends the reader to PDF Utils' Password Protect or to a Fill & Sign that flattens.
+    /// Every refusal the form path can meet reads in Edit's words. The mapping switch is
+    /// exhaustive, so an unnamed toolkit case fails to build; this checks what each says: nothing
+    /// sends the reader to PDF Utils' Password Protect or to a Fill & Sign that flattens.
     @Test func everyFormRefusalHasAReasonInEditsWords() {
         let file = URL(fileURLWithPath: "/tmp/W-9.pdf")
         let fill = EditorPDFTool.fillForm(values: ["a": .text("x")], items: [])
@@ -169,7 +166,7 @@ extension PDFFixtures {
         #expect(EditorPDFToolEngine.reason(.formValueNotAccepted(field: "a", value: long), tool: fill).count < 120)
     }
 
-    /// **The log never names a field or quotes a value** — counts and the file, as 5b's never quote words.
+    /// The log never names a field or quotes a value: only counts and the file, as for placed words.
     @Test func theFormRefusalsLogNeitherNamesNorValues() {
         let fill = EditorPDFTool.fillForm(values: ["ssn": .text("123-45-6789")], items: [])
         let refusals: [PDFOperationError] = [
@@ -187,7 +184,7 @@ extension PDFFixtures {
 
     // MARK: Reading the fields
 
-    /// **The fields are read in the lane with the load, and are the toolkit's own list.**
+    /// The fields are read in the lane with the load, and are the toolkit's own list.
     @Test func theFieldsAreReadInTheLaneAndAreTheToolkitsList() async throws {
         let (pdf, file) = try await form()
         let facts = try #require(pdf.facts)
@@ -202,7 +199,7 @@ extension PDFFixtures {
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
     }
 
-    /// **A flat file has no form, and opens on Text as it did in 5b**; a form opens on Form Fields.
+    /// A flat file has no form and opens on Text; a form opens on Form Fields.
     @Test func aFormOpensOnFormFieldsAndAFlatFileOnText() async throws {
         let flat = path("Lease.pdf")
         PDFFixtures.write(flat, pages: 2)
@@ -232,8 +229,8 @@ extension PDFFixtures {
         #expect(plain.fill.formNotes.isEmpty)
     }
 
-    /// **A form whose `/Kids` name a node twice, looping back, is walked once per node.** The walk
-    /// doubled at every level down to its depth cap — 2^32 visits, in the PDF lane.
+    /// A form whose `/Kids` name a node twice, looping back, is walked once per node. Otherwise the
+    /// walk doubles at every level down to its depth cap: 2^32 visits, in the PDF lane.
     @Test func aFormWhoseKidsLoopBackIsWalkedOnce() throws {
         let body = """
             %PDF-1.4
@@ -257,8 +254,8 @@ extension PDFFixtures {
 
     // MARK: Editing
 
-    /// **A reload whose pages changed drops the filled fields with the items — and says so.** It
-    /// used to log and announce only the items, while `clear()` took the fields too, unmentioned.
+    /// A reload whose pages changed drops the filled fields with the items, and the banner and log
+    /// name both, since `clear()` takes the fields too.
     @Test func aPageChangeThatDropsTheItemsNamesTheFieldsItClearsToo() async throws {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         let tools = EditorPDFTools()
@@ -284,9 +281,9 @@ extension PDFFixtures {
         #expect(await log.holds(containing: "Edit dropped 1 item placed and 1 field filled with Fill & Sign on reload.pdf in /tmp"))
     }
 
-    /// **Filled fields that go with an empty text box are said.** The pages changed and the form did
-    /// not, so the fields' own banner never ran; `clear()` took the values all the same, and the
-    /// items' banner, seeing no placed work, said nothing — and the log counted "0 items placed".
+    /// Filled fields that go with only an empty text box are reported. The pages changed but the
+    /// form didn't, so the fields' own banner doesn't run; `clear()` still takes the values, so the
+    /// items' banner must name them rather than say nothing or log "0 items placed".
     @Test func aPageChangeThatClearsOnlyFieldsSaysSo() async throws {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         let tools = EditorPDFTools()
@@ -311,9 +308,8 @@ extension PDFFixtures {
         #expect(await log.holds(containing: "Edit dropped 1 field filled with Fill & Sign on fields-only.pdf in /tmp"))
     }
 
-    /// **A reload that changed the form and the pages both says both** — the fields went first,
-    /// with a banner of their own, and the items' banner then replaced it with "the items you
-    /// placed" alone. And a text box opened and left empty is no work to report.
+    /// A reload that changed both the form and the pages names both in one banner, rather than the
+    /// items' banner replacing the fields'. A text box opened and left empty is no work to report.
     @Test func aReloadThatChangesTheFormAndThePagesNamesBoth() throws {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         let tools = EditorPDFTools()
@@ -345,8 +341,8 @@ extension PDFFixtures {
         #expect(tools.banner == nil, "an empty text box was reported as lost work: \(tools.banner?.message ?? "")")
     }
 
-    /// **Every kind takes its value**: text, multiline, checkbox, radio, combo, list, and an
-    /// editable combo's own words.
+    /// Every kind takes its value: text, multiline, checkbox, radio, combo, list, and an editable
+    /// combo's own words.
     @Test func everyKindEdits() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
@@ -376,8 +372,8 @@ extension PDFFixtures {
         #expect(fill.values["country"] == .choice("Japan"))
     }
 
-    /// **Tab and ⇧Tab walk the fillable fields in document order**, the signature field among them
-    /// (decision BK), round the ends, and a text field takes the typing as the keyboard lands on it.
+    /// Tab and ⇧Tab walk the fillable fields in document order, the signature field among them,
+    /// round the ends, and a text field takes the typing as the keyboard lands on it.
     @Test func tabFollowsTheDocument() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
@@ -399,8 +395,8 @@ extension PDFFixtures {
         #expect(fill.editingField == nil)
     }
 
-    /// **A read-only field, a signature and a push button take nothing** — and say why. A
-    /// signature field is no refusal: it signs, and says so (TE164).
+    /// A read-only field, a list of export pairs and a push button take no value, and say why. A
+    /// signature field takes no typing but is no refusal: it signs, and says so.
     @Test func fieldsThatTakeNoValueRefuseAndSayWhy() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
@@ -420,7 +416,7 @@ extension PDFFixtures {
         #expect(fill.fieldRefusal(try #require(fill.form.field(named: "applicant.name"))) == nil)
     }
 
-    /// **`/MaxLen` holds while typing**, and a one-line field keeps to one line.
+    /// `/MaxLen` holds while typing, and a one-line field keeps to one line.
     @Test func theMaxLengthHoldsWhileTyping() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
@@ -436,7 +432,7 @@ extension PDFFixtures {
         #expect(fill.formProblem == nil, "a value the field took is one Save would refuse")
     }
 
-    /// **Fields and placed items share the one ⌘Z stack**, step by step.
+    /// Fields and placed items share the one ⌘Z stack, step by step.
     @Test func undoTakesBackFieldsAndItemsInTurn() async throws {
         let (pdf, _) = try await form()
         let fill = pdf.fill
@@ -469,7 +465,7 @@ extension PDFFixtures {
         #expect(fill.values.count == 2, "Discard's undo did not bring the fields back")
     }
 
-    /// **The leave question counts changed fields with the placed items.**
+    /// The leave question counts changed fields with the placed items.
     @Test func theLeaveQuestionCountsChangedFields() async throws {
         let (pdf, _) = try await form("Lease form.pdf")
         let fill = pdf.fill
@@ -491,7 +487,7 @@ extension PDFFixtures {
         #expect(EditorPDFFillSign.leaveQuestion(name: "x", fields: 1).detail.hasPrefix("1 field you filled isn’t saved."))
         #expect(EditorPDFTools.leaveQuestion(running: .init(.compress(.quality(0.6))), hasArrangement: false, placed: ["1 item"], filledFields: 2)
                 .detail.contains("The 2 fields filled with Fill & Sign are cleared too."))
-        // The pill's words for what is placed: a correction is a correction, one is "the" (PD5).
+        // The pill's words for what is placed: a correction is a correction, and one is "the".
         let order = EditorPDFTools.Running(.compress(.quality(0.6)))
         #expect(EditorPDFTools.leaveQuestion(running: order, hasArrangement: false, placed: ["2 corrections"]).detail
                 .contains(" The 2 corrections placed with Fill & Sign are discarded too."))
@@ -503,8 +499,8 @@ extension PDFFixtures {
 
     // MARK: Saving a form
 
-    /// **A form's copy is still a form**: the same fields and widgets, the values read back by the
-    /// toolkit, placed items as annotations rather than page content — and the original untouched.
+    /// A form's copy is still a form: the same fields and widgets, the values read back by the
+    /// toolkit, placed items as annotations rather than page content, and the original untouched.
     @Test func savingAFormKeepsItFillable() async throws {
         let (pdf, file) = try await form()
         let original = try Data(contentsOf: URL(fileURLWithPath: file))
@@ -552,7 +548,7 @@ extension PDFFixtures {
         #expect(pdf.tools.banner?.kind == .wrote(copy))
     }
 
-    /// **Fields alone make a "(filled)" copy, and a field's value never reaches the log.**
+    /// Fields alone make a "(filled)" copy, and a field's value never reaches the log.
     @Test func fieldsAloneAreFilledAndNeverLogged() async throws {
         let log = LogCapture()
         let stem = "Form-\(UUID().uuidString.prefix(8))"
@@ -572,8 +568,8 @@ extension PDFFixtures {
 
     // MARK: Permissions
 
-    /// **A form whose owner forbids editing but allows filling still fills** — its fields, not marks
-    /// on its pages, which it forbids — and the copy keeps the owner's restrictions.
+    /// A form whose owner forbids editing but allows filling still fills its fields (not marks on
+    /// its pages, which it forbids), and the copy keeps the owner's restrictions.
     @Test func aRestrictedButFillableFormFills() async throws {
         let file = path("Restricted.pdf")
         try PDFFixtures.writeForm(file, permissions: [.allowsFormFieldEntry, .allowsHighQualityPrinting,
@@ -600,8 +596,8 @@ extension PDFFixtures {
                 "the banner says the copy is unrestricted when it is not")
     }
 
-    /// **Without form entry, filling is refused with the reason** — before the lane in the model,
-    /// and by the toolkit if a run is asked for anyway.
+    /// Without form entry, filling is refused with the reason: by the model before the lane, and
+    /// by the toolkit if a run is asked for anyway.
     @Test func withoutFormEntryTheFillIsRefused() async throws {
         let file = path("Locked down.pdf")
         try PDFFixtures.writeForm(file, permissions: [.allowsHighQualityPrinting, .allowsLowQualityPrinting])
@@ -625,10 +621,9 @@ extension PDFFixtures {
         if case .permissionsForbidEditing? = problem {} else { Issue.record("\(String(describing: problem))") }
     }
 
-    /// **A form with nothing to fill whose owner forbids commenting is refused** — every field
-    /// read-only or a signature. It used to flatten placed items into its pages, against the "no
-    /// commenting" that a form WITH a fillable field already honours by refusing them. With
-    /// commenting allowed the same form keeps its form and takes the items as annotations.
+    /// A form with nothing to fill (every field read-only or a signature) whose owner forbids
+    /// commenting is refused, rather than flattening placed items into its pages against the owner's
+    /// "no commenting". With commenting allowed it keeps its form and takes items as annotations.
     @Test(arguments: [false, true])
     func aFormWithNothingToFillTakesItemsOnlyWhereCommentingIsAllowed(commenting: Bool) async throws {
         let file = path("Signed-\(commenting)-\(UUID().uuidString.prefix(6)).pdf")
@@ -657,9 +652,9 @@ extension PDFFixtures {
         #expect(fill.canSave && fill.formProblem == nil)
     }
 
-    /// **A checkbox whose boxes carry different values is not ticked** — a Yes box and a No box
-    /// under one name. A click ticked every box on screen while the copy turned on only the first
-    /// value; a click on "Yes" over a "No" already on unticked the field. A one-value checkbox ticks.
+    /// A checkbox whose boxes carry different values (a Yes box and a No box under one name) is
+    /// refused: a tick would light every box on screen while the copy turned on only the first
+    /// value. A one-value checkbox ticks.
     @Test func aCheckboxWhoseBoxesHaveSeparateValuesIsRefused() async throws {
         let file = path("YesNo-\(UUID().uuidString.prefix(6)).pdf")
         PDFFixtures.write(file, pages: 1)
@@ -683,9 +678,9 @@ extension PDFFixtures {
         #expect(EditorPDFForm(fields: [pair]).fillable.isEmpty)
     }
 
-    /// **A file with no form whose owner allows only form entry is refused** — the permission covers
-    /// fields it does not have, and it used to take placed items flattened into an unrestricted
-    /// copy, against the "no commenting" a form already honours. Commenting allowed, it fills.
+    /// A file with no form whose owner allows only form entry is refused: the permission covers
+    /// fields it doesn't have, and placed items would be flattened into an unrestricted copy against
+    /// the owner's "no commenting". With commenting allowed, it fills.
     @Test(arguments: [false, true])
     func aFileWithNoFormTakesItemsOnlyWhereCommentingIsAllowed(commenting: Bool) async throws {
         let file = path("Flat-\(commenting)-\(UUID().uuidString.prefix(6)).pdf")
@@ -705,8 +700,8 @@ extension PDFFixtures {
         }
     }
 
-    /// **The real file: restricted by its owner to filling only, with every field read-only.** No
-    /// synthetic form — the corpus form re-encrypted, its fields made read-only by the facts read.
+    /// A real file restricted by its owner to filling only, with every field read-only, is refused.
+    /// The corpus form re-encrypted, its fields made read-only in the facts read.
     @Test func aRestrictedFormWhoseFieldsAreAllReadOnlyIsRefused() async throws {
         let file = path("Read-only restricted.pdf")
         try PDFFixtures.writeForm(file, permissions: [.allowsFormFieldEntry, .allowsHighQualityPrinting])
@@ -728,9 +723,8 @@ extension PDFFixtures {
 
     // MARK: Refused before the lane
 
-    /// **Typed text on a rotated page of a form is refused up front** — said as it is placed, Save
-    /// greyed, and a save asked for anyway writes nothing and takes no lane turn. A drawn signature
-    /// there is fine.
+    /// Typed text on a rotated page of a form is refused up front: said as it is placed, Save
+    /// greyed, and a save asked for anyway writes nothing. A drawn signature there is fine.
     @Test func typedTextOnARotatedPageIsRefusedBeforeRunning() async throws {
         let file = path("Turned form.pdf")
         try PDFFixtures.writeRotatedForm(file)
@@ -767,7 +761,7 @@ extension PDFFixtures {
         #expect(fill.formNotes.isEmpty && fill.canSave, "a drawn signature on a turned page was refused")
     }
 
-    /// **The up-front check says what the toolkit throws**, value by value.
+    /// The up-front check says what the toolkit throws, value by value.
     @Test func theUpFrontCheckIsTheToolkitsRefusal() async throws {
         let (pdf, file) = try await form()
         let form = try #require(pdf.facts?.form)
@@ -792,20 +786,21 @@ extension PDFFixtures {
 
     // MARK: The menu bar
 
-    /// File ▸ Fill & Sign's lines as AppKit builds them — `NSHostingMenu`, as the menu bar does.
+    /// File ▸ Fill & Sign's lines as AppKit builds them, through `NSHostingMenu`, as the menu bar
+    /// does.
     private func menuLines(_ pdf: EditorPDFDocument) -> [String] {
         let menu = NSHostingMenu(rootView: EditorPDFFillSignMenuItems(fill: pdf.fill, tools: pdf.tools))
         menu.update()
         return menu.items.map { item in
-            // A submenu's own line reads live whatever its lines say: File ▸ Fill & Sign Tool's are
-            // `EditorPDFFillKeyboardTests`'.
+            // A submenu's own line reads live whatever its lines say; File ▸ Fill & Sign Tool's
+            // lines are checked in `EditorPDFFillKeyboardTests`.
             if item.submenu != nil { return item.title + " ▸" }
             let title = (item.state == .on ? "✓ " : "") + item.title
             return item.isEnabled ? title : "(\(title))"
         }
     }
 
-    /// **File ▸ Save Filled Copy is live exactly where the toolbar's is** — for fields changed and
+    /// File ▸ Save Filled Copy is live exactly where the pill's Save is: with fields changed and
     /// nothing placed, and not while Save would be refused.
     @Test func theMenuBarsSaveFollowsTheToolbarsForAForm() async throws {
         let (pdf, _) = try await form()
@@ -823,8 +818,8 @@ extension PDFFixtures {
         #expect(menuLines(turned) == ["✓ Fill & Sign", "Fill & Sign Tool ▸", "(Save Filled Copy)"], "Save is live for what it would refuse")
     }
 
-    /// **A greyed Save says why** — the note card's sentence as the button's tooltip, where it said
-    /// what it would write. With nothing refused it says what it writes.
+    /// A greyed Save says why, with the note card's sentence as its tooltip; with nothing refused
+    /// the tooltip says what it writes.
     @Test func aRefusedSaveSaysWhyInItsTooltip() async throws {
         let file = path("Turned help.pdf")
         try PDFFixtures.writeRotatedForm(file)
@@ -846,9 +841,9 @@ extension PDFFixtures {
 
     // MARK: The reader
 
-    /// **A click in the reader never edits a field.** Before 5c a click on a text widget put
-    /// PDFKit's own editor in it and typing changed the on-screen document; a click toggled a
-    /// checkbox. The reader's widgets are read-only now, and draw the same.
+    /// A click in the reader never edits a field. Left editable, a text widget would take PDFKit's
+    /// own editor and typing would change the on-screen document, and a click would toggle a
+    /// checkbox. The reader's widgets are read-only, and draw the same.
     @Test func aClickInTheReaderNoLongerEditsAField() async throws {
         let (pdf, _) = try await form()
         let document = try #require(pdf.document)
@@ -896,9 +891,9 @@ extension PDFFixtures {
         reader.document = nil
     }
 
-    /// **A form's widgets are locked even where the catalog lost its `/AcroForm`** — the file
-    /// Extract Pages… makes of a form: a page copy keeps the widgets and drops the catalog's form,
-    /// PDFKit still edits them on a click, and the reader skipped such a file as having none.
+    /// A form's widgets are locked even where the catalog lost its `/AcroForm`, as in the file
+    /// Extract Pages… makes of a form: a page copy keeps the widgets but drops the catalog's form,
+    /// and PDFKit still edits such widgets on a click.
     @Test func widgetsWithoutACatalogFormAreLockedToo() async throws {
         let source = path("W-9 source.pdf")
         try PDFFixtures.writeForm(source)
@@ -922,9 +917,9 @@ extension PDFFixtures {
 
     // MARK: The overlay
 
-    /// **Over a real page view, the overlay fills fields**: it takes a click on a field, ticks a
+    /// Over a real page view, the overlay fills fields: it takes a click on a field, ticks a
     /// checkbox, opens a text field's typing field with what /MaxLen allows, offers a choice's menu,
-    /// walks Tab — and says why on a field that takes nothing.
+    /// walks Tab, and says why on a field that takes nothing.
     @Test func theOverlayFillsFieldsAndSaysWhyNot() async throws {
         let (pdf, _) = try await form()
         let document = try #require(pdf.document)

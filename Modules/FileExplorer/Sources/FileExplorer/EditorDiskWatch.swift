@@ -3,18 +3,18 @@ import Combine
 import Events
 import Sync
 
-/// What happened to the open document's file since the editor last read or wrote it (TE59).
+/// What happened to the open document's file since the editor last read or wrote it.
 ///
-/// **Decided from the file system's present state, never from the event that prompted the look.**
-/// Events come in bursts, out of order, and from the editor's own saves; the stamp at the path
+/// Decided from the file system's present state, never from the event that prompted the look:
+/// events come in bursts, out of order, and from the editor's own saves, and the stamp at the path
 /// compared with ``EditorDocument/diskStamp`` gives one answer for all of them.
 public enum EditorDiskChange: Equatable, Sendable {
-    /// The file is what the document last read or wrote — including just after the editor's own
+    /// The file is what the document last read or wrote, including just after the editor's own
     /// save, which moved the document's stamp to the one it read back.
     case none
     /// Something else is at the path now: edited in place, or replaced by an atomic save.
     case changed
-    /// The path is empty and the file is somewhere else — renamed or moved.
+    /// The path is empty and the file is somewhere else: renamed or moved.
     case moved(to: String)
     /// The path is empty and the file is gone: deleted, put in the Trash, moved to another volume
     /// (a copy and a delete), or replaced at the path by something that is not a file.
@@ -24,24 +24,24 @@ public enum EditorDiskChange: Equatable, Sendable {
     struct Observation: Equatable {
         /// The stamp of whatever is at the document's path, `nil` when nothing is.
         var atPath: EditorFileStore.Stamp?
-        /// Whether that is a regular file — a folder given the note's name is not the note.
+        /// Whether that is a regular file: a folder given the note's name is not the note.
         var isRegularFile: Bool = true
         /// Where the watched file is now (``EditorFileWatcher/trackedPath``): `nil` when nothing is
         /// watched, or when its last link is gone.
         var trackedPath: String?
     }
 
-    /// **The path first, then the descriptor** — and the order is the rule.
+    /// The path first, then the descriptor, and the order is the rule.
     ///
-    /// An atomic save renames a NEW file over the path; the descriptor still holds the old one,
-    /// which the save may have moved aside under a backup name before deleting it. Asked first,
-    /// the descriptor would call every atomic save a move to `.rollback_…` or `note.md~`. So
-    /// anything at the path settles it, and only an empty path asks where the file went.
+    /// An atomic save renames a new file over the path; the descriptor still holds the old one,
+    /// which the save may have moved aside under a backup name before deleting it. Asked first, the
+    /// descriptor would call every atomic save a move to `.rollback_…` or `note.md~`. So anything
+    /// at the path settles it, and only an empty path asks where the file went.
     static func assess(path: String, known: EditorFileStore.Stamp?, observation: Observation) -> EditorDiskChange {
         if let atPath = observation.atPath {
             guard observation.isRegularFile else { return .deleted }
             guard atPath == known else { return .changed }
-            // **A rename that only changes the case**: on a case-insensitive volume the old spelling
+            // A rename that only changes the case: on a case-insensitive volume the old spelling
             // still finds the same file, stamp and all, so only the descriptor's name tells.
             if let tracked = observation.trackedPath, isCaseOnlyRename(tracked, of: path) {
                 return .moved(to: spelled(tracked, like: path))
@@ -54,7 +54,7 @@ public enum EditorDiskChange: Equatable, Sendable {
         return .deleted
     }
 
-    /// **A rename keeps the folder as the document spelled it.** `F_GETPATH` answers with the real
+    /// A rename keeps the folder as the document spelled it. `F_GETPATH` answers with the real
     /// path, so a note opened through `~/OneDrive/…` (a link to `~/Library/CloudStorage/…`) would
     /// otherwise come back from a rename under the other spelling, and the header's location with
     /// it. A move to another folder has no spelling of its own to keep, and takes the real one.
@@ -65,20 +65,21 @@ public enum EditorDiskChange: Equatable, Sendable {
         return (folder as NSString).appendingPathComponent((tracked as NSString).lastPathComponent)
     }
 
-    /// The same name in the same folder, differing only in case — `note.md` and `Note.md`.
+    /// The same name in the same folder, differing only in case: `note.md` and `Note.md`.
     static func isCaseOnlyRename(_ tracked: String, of path: String) -> Bool {
         let now = (tracked as NSString).lastPathComponent, was = (path as NSString).lastPathComponent
         guard now != was, now.compare(was, options: .caseInsensitive) == .orderedSame else { return false }
         return EditorDiskWatch.isInSameFolder(tracked, path)
     }
 
-    /// Whether a path is inside a Trash — `~/.Trash`, a volume's `.Trashes`, iCloud Drive's
-    /// `.Trash`. Finder's Move to Trash is a rename, and the file is followed nowhere: it was deleted.
+    /// Whether a path is inside a Trash: `~/.Trash`, a volume's `.Trashes`, iCloud Drive's
+    /// `.Trash`. Finder's Move to Trash is a rename, but the file isn't followed there: it counts
+    /// as deleted.
     static func isInTrash(_ path: String) -> Bool {
         (path as NSString).pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" }
     }
 
-    /// Two spellings of one place — `F_GETPATH` answers with `/private/var/…` where the document may
+    /// Two spellings of one place: `F_GETPATH` answers with `/private/var/…` where the document may
     /// hold `/var/…`. The folders are resolved (they exist); the names are compared as written.
     static func isSamePlace(_ a: String, _ b: String) -> Bool {
         func folder(_ p: String) -> String {
@@ -88,12 +89,12 @@ public enum EditorDiskChange: Equatable, Sendable {
     }
 }
 
-/// The banner over the document while a change from elsewhere waits for an answer (TE59).
+/// The banner over the document while a change from elsewhere waits for an answer.
 public enum EditorDiskBanner: Equatable, Sendable {
-    /// The file changed while the buffer held typing that is not on disk — Compare, Keep Mine,
-    /// Use Disk Version.
+    /// The file changed while the buffer held typing that isn't on disk: Compare, Keep Mine, Use
+    /// Disk Version.
     case changed
-    /// The file is gone — Close, Save Again.
+    /// The file is gone: Close, Save Again.
     case deleted
 
     /// The banner in the log's words.
@@ -108,18 +109,18 @@ public enum EditorDiskBanner: Equatable, Sendable {
     public func message(name: String) -> String {
         switch self {
         case .changed: return "“\(name)” changed on disk while you were typing."
-        // **What is known, and no more**: a delete, the Trash, a disk ejected and the app's own
-        // Move to Trash all leave the path empty with nowhere to follow — the header's "not saving
-        // — no longer on disk" says the same.
+        // What is known, and no more: a delete, the Trash, an ejected disk and the app's own Move
+        // to Trash all leave the path empty with nowhere to follow. The header's "not saving — no
+        // longer on disk" says the same.
         case .deleted: return "“\(name)” is no longer on disk."
         }
     }
 }
 
-/// What the watch does about one look at the disk — a pure answer, so every branch is a test.
+/// What the watch does about one look at the disk: a pure answer, so every branch is a test.
 enum EditorDiskResponse: Equatable {
     case nothing
-    /// The disk agrees with the document again — a Keep Mine or a Save Again landed — so a standing
+    /// The disk agrees with the document again (a Keep Mine or a Save Again landed), so a standing
     /// banner has nothing left to ask.
     case clearBanner
     /// Re-read the file and replace the buffer, quietly, with the undo history emptied.
@@ -129,15 +130,15 @@ enum EditorDiskResponse: Equatable {
     /// Keep editing the same file at its new path.
     case follow(to: String)
 
-    /// **Typing that is not on disk is never reloaded over** — that is the one rule with a cost if
-    /// it is wrong, and everything else follows from it:
+    /// Typing that isn't on disk is never reloaded over. That is the one rule with a cost if it is
+    /// wrong, and everything else follows from it:
     ///
     /// - nothing changed: nothing to do, and a standing banner goes (the disk agrees again);
     /// - changed, nothing unsaved and no question standing about typing: reload;
     /// - changed with unsaved typing, or while the changed banner is already up: ask, and keep
-    ///   asking — the banner is answered, never answered for you;
-    /// - moved: follow, whatever the buffer holds — the file is the same one;
-    /// - deleted: ask, whatever the buffer holds — the text on screen is now the only copy.
+    ///   asking; the banner is answered, never answered for you;
+    /// - moved: follow, whatever the buffer holds; the file is the same one;
+    /// - deleted: ask, whatever the buffer holds; the text on screen is now the only copy.
     static func to(_ change: EditorDiskChange, hasUnsavedTyping: Bool,
                    banner: EditorDiskBanner?) -> EditorDiskResponse {
         switch change {
@@ -153,34 +154,33 @@ enum EditorDiskResponse: Equatable {
     }
 }
 
-/// **Edit notices a change to the open file from elsewhere when it happens** (TE59), not only at
-/// the next save.
+/// Edit notices a change to the open file from elsewhere when it happens, not only at the next
+/// save.
 ///
-/// One per app, beside the document it watches and outliving the window for the document's reason.
-/// It watches the open document only — re-armed whenever ``EditorDocument/path`` moves, stopped
-/// when nothing is open — and answers each change by ``EditorDiskResponse``'s rule:
+/// One per app, beside the document it watches, and outliving the window for the document's reason.
+/// It watches the open document only (re-armed whenever ``EditorDocument/path`` moves, stopped when
+/// nothing is open) and answers each change by ``EditorDiskResponse``'s rule:
 ///
-/// - **Nothing typed since the last save: reload, quietly**, as the smallest edit to the shared
-///   storage (so Source, Split and Edit in Preview all follow, and the caret stays put), with the
-///   undo history emptied — after a reload ⌘Z does nothing. The status line says so briefly.
-/// - **Typing not on disk: a banner, and no reload** — Compare, Keep Mine, Use Disk Version. The
-///   history stays intact while it is up. The host stops autosave for as long as it stands
-///   (``onBannerChange``), so nothing is written over either version while the question is open.
-/// - **Moved or renamed: followed** — the document, its undo history, its caret and the host's
-///   path-keyed state (``onMoved``) all move to the new path, and editing carries on.
-/// - **Deleted: a banner** — Close, Save Again — with the text left on screen.
+/// - Nothing typed since the last save: reload quietly, as the smallest edit to the shared
+///   storage (so Source, Split and Edit in Preview all follow and the caret stays put), with the
+///   undo history emptied. The status line says so briefly.
+/// - Typing not on disk: a banner (Compare, Keep Mine, Use Disk Version) and no reload. The history
+///   stays intact, and the host stops autosave while it stands (``onBannerChange``), so nothing is
+///   written over either version while the question is open.
+/// - Moved or renamed: followed. The document, its undo history, its caret and the host's
+///   path-keyed state (``onMoved``) all move to the new path.
+/// - Deleted: a banner (Close, Save Again), with the text left on screen.
 ///
-/// **The editor's own writes are never a change from elsewhere**: every write moves the document's
-/// stamp to the one it read back, so a look afterwards finds the two equal; and while an autosave
-/// write is out on a background thread — the one window where the file is newer than the stamp —
-/// the look waits (``EditorDocument/backgroundWrites``). The save-time divergence check stays where
-/// it was, as the backstop.
+/// The editor's own writes are never a change from elsewhere: every write moves the document's
+/// stamp to the one it read back, and while an autosave write is out on a background thread (the
+/// one window where the file is newer than the stamp) the look waits
+/// (``EditorDocument/backgroundWrites``). The save-time divergence check stays as the backstop.
 @MainActor
 public final class EditorDiskWatch: ObservableObject {
 
     /// The question standing over the document, or `nil`.
     @Published public private(set) var banner: EditorDiskBanner?
-    /// A few seconds of words for the status line — "Reloaded — changed elsewhere".
+    /// A few seconds of words for the status line: "Reloaded — changed elsewhere".
     @Published public private(set) var notice: Notice?
 
     public struct Notice: Equatable, Sendable {
@@ -188,19 +188,19 @@ public final class EditorDiskWatch: ObservableObject {
         var token: Int
     }
 
-    /// The file moved and the document followed: the host moves what it keys by path.
-    /// `byThisApp` when the look that followed it was the one after the app's own file operation
+    /// The file moved and the document followed: the host moves what it keys by path. `byThisApp`
+    /// when the look was the one after the app's own file operation
     /// (``reconcile(afterOwnFileOperation:)``), whose refresh has re-read the panes already.
     public var onMoved: ((_ from: String, _ to: String, _ byThisApp: Bool) -> Void)?
-    /// The banner came or went — the host stops autosave while one stands, and resumes it after.
+    /// The banner came or went: the host stops autosave while one stands, and resumes it after.
     public var onBannerChange: ((EditorDiskBanner?) -> Void)?
-    /// A write that couldn't be checked was found on disk as written and counted as saved (TE147) —
-    /// the host clears its "couldn't check the save" stop.
+    /// A write that couldn't be checked was found on disk as written and counted as saved; the host
+    /// clears its "couldn't check the save" stop.
     public var onUncheckedWriteChecked: (() -> Void)?
 
     /// How long events are left to settle before the disk is looked at. A save is often several
-    /// events — a temporary file, a rename, a delete of the backup — and `vim` renames the file
-    /// aside before it writes the new one, a moment in which the path is empty.
+    /// events (a temporary file, a rename, deleting the backup), and `vim` renames the file aside
+    /// before writing the new one, leaving the path empty for a moment.
     let settle: Duration
     /// How long a notice stays up.
     let noticeDuration: Duration
@@ -217,24 +217,24 @@ public final class EditorDiskWatch: ObservableObject {
     /// Set across the document's own move to a new path, so the path observer re-arms the watch
     /// without treating it as another file being opened.
     private var isFollowing = false
-    /// A rename within the folder seen by one look, waiting for the next — see
+    /// A rename within the folder seen by one look, waiting for the next; see
     /// ``renameHasSettled(to:from:)``.
     private var pendingRename: String?
     /// The path a download is being waited on for, so a burst of events asks for it once.
     private var downloading: String?
-    /// When a download of which path was last asked for — so a provider that answers and still
+    /// When a download was last asked for, and of which path, so a provider that answers and still
     /// leaves the file in the cloud is asked again a patience later, not in a loop.
     private var lastDownload: (path: String, at: ContinuousClock.Instant)?
     /// The file whose version on disk "Use Disk Version" is waiting to take once it has downloaded.
     private var useDisksWhenDownloaded: String?
-    /// Paths whose download read is out on ``downloadQueue`` — at most one each.
+    /// Paths whose download read is out on ``downloadQueue``, at most one each.
     private var readsOut: Set<String> = []
-    /// **Where the open file went when it was put in a Trash** (decision BQ, TE146) — noted at the
-    /// first look that finds the path empty, because that is the only look that knows: the re-arm
-    /// that follows watches the folder, and the descriptor that said where the file went is gone.
+    /// Where the open file went when it was put in a Trash, noted at the first look that finds the
+    /// path empty, the only look that knows: the re-arm that follows watches the folder, and the
+    /// descriptor that said where the file went is gone.
     private var trashedTo: String?
 
-    /// The serial queue every download read runs on — see ``download(_:)``.
+    /// The serial queue every download read runs on; see ``download(_:)``.
     static let downloadQueueLabel = "SyncCloud.EditorDiskWatch.download"
     private static let downloadQueue = DispatchQueue(label: downloadQueueLabel, qos: .utility)
 
@@ -250,29 +250,29 @@ public final class EditorDiskWatch: ObservableObject {
                 isCloudOnly: @escaping (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }) {
         self.settle = settle
         self.noticeDuration = noticeDuration
-        // Asked of the file a link points to (TE206), at every one of the watch's checks.
+        // Asked of the file a link points to, at every one of the watch's checks.
         self.isCloudOnly = { isCloudOnly(MaterializationStatus.linkTarget(of: $0)) }
     }
 
-    /// Starts watching `document` — whatever it has open now, and every file it opens from here on.
+    /// Starts watching `document`: whatever it has open now, and every file it opens from here on.
     /// Once; a second call with the same document does nothing.
     public func attach(document: EditorDocument, undoStore: EditorUndoStore) {
         guard self.document !== document else { return }
         self.document = document
         self.undoStore = undoStore
-        // `$path` publishes in `willSet`, with the incoming value — which is all the watch needs:
-        // a path to arm on. Nothing is compared until an event, by when the load has finished.
+        // `$path` publishes in `willSet`, with the incoming value, which is all the watch needs: a
+        // path to arm on. Nothing is compared until an event, by when the load has finished.
         subscription = document.$path.sink { [weak self] path in
             MainActor.assumeIsolated { self?.documentPathWillChange(to: path) }
         }
-        // **The status line's other few seconds of words** (TE104): an edit converted a CRLF or CR
-        // file to LF. Said here because this is where the status line's notices live, so a newer
-        // one replaces an older one rather than two competing for the line.
+        // The status line's other few seconds of words: an edit converted a CRLF or CR file to LF.
+        // Shown from here because the status line's notices live here, so a newer one replaces an
+        // older one rather than two competing for the line.
         conversions = document.buffer.convertedToLF.sink { [weak self] in
             MainActor.assumeIsolated { self?.showNotice(Self.convertedToLFNotice) }
         }
-        // **The net under the events**: a change made while the app was in the background is looked
-        // for again when it comes forward, which also covers a download finishing with no event.
+        // The net under the events: a change made while the app was in the background is looked for
+        // again when it comes forward, which also covers a download finishing with no event.
         activation = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { _ = self?.reconcile() }
@@ -286,8 +286,8 @@ public final class EditorDiskWatch: ObservableObject {
             arm(path)
             return
         }
-        // Another file — or the same one opened again, which is what "Reload from Disk" does: any
-        // question about the last one is over.
+        // Another file, or the same one opened again (what "Reload from Disk" does): any question
+        // about the last one is over.
         pending?.cancel()
         downloading = nil
         useDisksWhenDownloaded = nil
@@ -309,7 +309,7 @@ public final class EditorDiskWatch: ObservableObject {
         }
     }
 
-    /// How many kernel events have reached the watch — for the tests, which have no other way to see
+    /// How many kernel events have reached the watch, for the tests, which have no other way to see
     /// that closing a document cancelled its sources.
     private(set) var eventsHeard = 0
 
@@ -326,20 +326,20 @@ public final class EditorDiskWatch: ObservableObject {
 
     // MARK: Looking
 
-    /// **Looks at the disk now and acts on what it finds** — what every event comes to after it has
-    /// settled, and what the host calls straight after a write of its own or when autosave's own
-    /// check finds the file diverged. Returns what it did.
+    /// Looks at the disk now and acts on what it finds: what every event comes to once settled, and
+    /// what the host calls right after a write of its own or when autosave's own check finds the
+    /// file diverged. Returns what it did.
     @discardableResult
     ///
-    /// - Parameter afterOwnFileOperation: the look after one of the app's own file operations — a
-    ///   rename, a move, Organize filing the note — so a move it follows is the app's, and the host
+    /// - Parameter afterOwnFileOperation: the look after one of the app's own file operations (a
+    ///   rename, a move, Organize filing the note), so a move it follows is the app's, and the host
     ///   is told so (``onMoved``).
     public func reconcile(afterOwnFileOperation: Bool = false) -> Outcome {
         look(confirmingRenames: false, ownOperation: afterOwnFileOperation)
     }
 
-    /// One look. **`confirmingRenames`** for a look an event prompted: a rename within the folder is
-    /// then followed only once a second look, a settle later, still finds the path empty — see
+    /// One look. `confirmingRenames` for a look an event prompted: a rename within the folder is
+    /// then followed only once a second look, a settle later, still finds the path empty; see
     /// ``renameHasSettled(to:from:)``. The host's own looks follow at once.
     @discardableResult
     private func look(confirmingRenames: Bool, ownOperation: Bool = false) -> Outcome {
@@ -350,8 +350,8 @@ public final class EditorDiskWatch: ObservableObject {
             eventArrived()
             return .nothing
         }
-        // **Edit's own unchecked write is not a change from elsewhere** (TE147): a file holding the
-        // text it wrote counts as saved, and the look below finds nothing to ask about.
+        // Edit's own unchecked write isn't a change from elsewhere: a file holding the text it
+        // wrote counts as saved, and the look below finds nothing to ask about.
         if document.uncheckedWrite != nil, EditorFileStore.settleUncheckedWrite(of: document) {
             Logger.shared.info("[edit] \(path) holds the text the save that couldn't be checked wrote — counted as saved")
             onUncheckedWriteChecked?()
@@ -359,10 +359,10 @@ public final class EditorDiskWatch: ObservableObject {
         let observation = observe(path)
         let change = EditorDiskChange.assess(path: path, known: document.diskStamp, observation: observation)
         noteTrash(change, observation: observation, path: path)
-        // **A new stamp over the same bytes is not a change.** A `touch`, a sync client re-stamping
-        // the file after uploading the editor's own save, a Time Machine restore of the identical
-        // text: reloading for those would empty the undo history after every pause in typing, and
-        // asking would put a question about nothing. Read once here, and handed on to the reload.
+        // A new stamp over the same bytes isn't a change: a `touch`, a sync client re-stamping the
+        // file after uploading the editor's own save, a Time Machine restore of the same text.
+        // Reloading would empty the undo history after every pause in typing, and asking would be a
+        // question about nothing. Read once here, and handed on to the reload.
         let opened = change == .changed && !isCloudOnly(path) ? EditorFileStore.open(path: path) : nil
         if let opened, let stamp = Self.sameContentStamp(opened, as: document) {
             if needsRearm(observation) { arm(path) }
@@ -383,8 +383,8 @@ public final class EditorDiskWatch: ObservableObject {
             }
         }
         pendingRename = nil
-        // An atomic save — the editor's own included — leaves the file source on a deleted inode;
-        // a re-arm puts it on the file the path holds now, or on the folder alone while it is gone.
+        // An atomic save, the editor's own included, leaves the file source on a deleted inode; a
+        // re-arm puts it on the file the path holds now, or on the folder alone while it is gone.
         if case .follow = response {} else if needsRearm(observation) {
             arm(path)
         }
@@ -392,7 +392,7 @@ public final class EditorDiskWatch: ObservableObject {
         case .nothing:
             return .nothing
         case .clearBanner:
-            // Said, because the banner going on its own is something he sees happen.
+            // Logged, because the banner going on its own is something the user sees happen.
             Logger.shared.info("[edit] \(path) agrees with the document again — the “\(banner?.logName ?? "")” question about it is over")
             setBanner(nil)
             return .settled
@@ -403,8 +403,8 @@ public final class EditorDiskWatch: ObservableObject {
                     : "[edit] \(path) is no longer on disk (deleted, put in the Trash, or on a disk that went away) — keeping the text on screen")
             }
             setBanner(kind)
-            // **A newer version still in the cloud is fetched while the question stands**, so Compare
-            // and Use Disk Version have something to read when they are pressed.
+            // A newer version still in the cloud is fetched while the question stands, so Compare
+            // and Use Disk Version have something to read when pressed.
             if kind == .changed, isCloudOnly(path) { download(path) }
             return .asked(kind)
         case .reload:
@@ -417,17 +417,17 @@ public final class EditorDiskWatch: ObservableObject {
         }
     }
 
-    /// **A rename within the folder is looked at twice before it is followed.** A save that renames
-    /// the original aside and only then installs the new file — JetBrains' `___jb_old___`, Word's
-    /// `~WRL…`, Emacs' backups — leaves the path empty for as long as the new file takes to write,
-    /// which can outlast the settle; followed at the first look, the document went to the backup
-    /// name, the backup's delete raised the deleted banner, and the new file was never loaded. So
-    /// the first look only notes the rename and looks again a settle later: a path filled again by
-    /// then is a change there, and one still empty is a rename, followed. A move to another folder
-    /// is not a save's doing, and is followed at once.
+    /// A rename within the folder is looked at twice before it is followed. A save that renames the
+    /// original aside and only then installs the new file (JetBrains' `___jb_old___`, Word's
+    /// `~WRL…`, Emacs' backups) leaves the path empty for as long as the new file takes to write,
+    /// which can outlast the settle. Followed at the first look, the document would go to the
+    /// backup name, the backup's delete would raise the deleted banner, and the new file would
+    /// never load. So the first look only notes the rename and looks again a settle later: a path
+    /// filled again by then is a change there, one still empty is a rename, followed. A move to
+    /// another folder isn't a save's doing, and is followed at once.
     ///
-    /// No clock is needed for "a settle later": every event-prompted look comes a full settle after
-    /// the last event, so the second one to see the same rename is at least that far from the first.
+    /// No clock is needed: every event-prompted look comes a full settle after the last event, so
+    /// the second look at the same rename is at least that far from the first.
     private func renameHasSettled(to destination: String, from path: String) -> Bool {
         if pendingRename == destination { return true }
         pendingRename = destination
@@ -442,11 +442,11 @@ public final class EditorDiskWatch: ObservableObject {
             == EditorFileStore.resolved((b as NSString).deletingLastPathComponent)
     }
 
-    /// Whether a rename within the folder is waiting for its second look — for the tests.
+    /// Whether a rename within the folder is waiting for its second look, for the tests.
     var isConfirmingRename: Bool { pendingRename != nil }
 
-    /// The look an event prompts, taken now rather than a settle later — for the tests that put the
-    /// file system's own steps between two such looks, which a clock under load cannot promise.
+    /// The look an event prompts, taken now rather than a settle later, for tests that put the file
+    /// system's own steps between two such looks, which a clock under load can't promise.
     @discardableResult
     func lookAsAnEventWould() -> Outcome { look(confirmingRenames: true) }
 
@@ -456,8 +456,8 @@ public final class EditorDiskWatch: ObservableObject {
         (observation.atPath?.fileID ?? 0) != (watcher?.fileID ?? 0) || watcher?.watchesAboveAFolderThatIsBack == true
     }
 
-    /// Notes where a file put in a Trash went, the first time a look sees it go (``trashedTo``); any
-    /// other answer — the file back, changed or followed — forgets it.
+    /// Notes where a file put in a Trash went, the first time a look sees it go (``trashedTo``);
+    /// any other answer (the file back, changed or followed) forgets it.
     private func noteTrash(_ change: EditorDiskChange, observation: EditorDiskChange.Observation, path: String) {
         guard change == .deleted else {
             trashedTo = nil
@@ -468,41 +468,41 @@ public final class EditorDiskWatch: ObservableObject {
         Logger.shared.info("[edit] \(path) went to the Trash, at \(tracked) — leaving it won't ask while it is still there")
     }
 
-    /// **Whether the text on screen may be the only copy** (TE146): the document's file is gone from
-    /// its path — deleted, its disk gone, or put in a Trash it has since left. A file in a Trash and
-    /// still there can be put back, so it is not (decision BQ); that is looked at again here, on
-    /// leaving. A refused document has no text to lose.
+    /// Whether the text on screen may be the only copy: the document's file is gone from its path
+    /// (deleted, its disk gone, or put in a Trash it has since left). A file still in a Trash can
+    /// be put back, so it isn't; that is checked again here, on leaving. A refused document has no
+    /// text to lose.
     public var mayBeTheOnlyCopy: Bool {
         guard isGone else { return false }
         if let trashedTo, FileManager.default.fileExists(atPath: trashedTo) { return false }
         return true
     }
 
-    /// Whether the open document's file is gone from its path — the Trash or not.
+    /// Whether the open document's file is gone from its path, to the Trash or not.
     public var isGone: Bool {
         guard let document, let path = document.path, document.refusal == nil else { return false }
         return document.diskStamp.map { EditorFileStore.divergence(atPath: path, from: $0) == .missing }
             ?? (EditorFileStore.stamp(ofPath: path) == nil)
     }
 
-    /// Where the open file went in a Trash, while that is known — for the tests.
+    /// Where the open file went in a Trash, while that is known, for the tests.
     var trashedPath: String? { trashedTo }
 
-    /// What Save Again's look found — see ``prepareSaveAgain()``.
+    /// What Save Again's look found; see ``prepareSaveAgain()``.
     public enum SaveAgainCheck: Equatable, Sendable {
         /// Nothing is at the path: write.
         case write
         /// Something is at the path again; nothing is written, and the banner now says what.
         case notMissing
-        /// The folder was gone too, and could not be made again — the reason, for the host to show.
+        /// The folder was gone too, and couldn't be made again: the reason, for the host to show.
         case failed(String)
     }
 
-    /// **Save Again looks before it writes.** It is a write that skips the save-time divergence
-    /// check — the file is gone, so there is nothing to diverge from — and a file can be back at the
-    /// path by the time it is pressed (a restore, another device) without the watch having heard it
-    /// yet. Writing then would replace that file unasked. So it writes only while the path is still
-    /// empty; anything there is looked at instead, and the banner changes to say what it found.
+    /// Save Again looks before it writes. It skips the save-time divergence check (the file is
+    /// gone, so there is nothing to diverge from), and a file can be back at the path by the time
+    /// it is pressed (a restore, another device) before the watch hears of it; writing then would
+    /// replace that file unasked. So it writes only while the path is still empty; anything there
+    /// is looked at instead, and the banner changes to say what it found.
     public func prepareSaveAgain() -> SaveAgainCheck {
         guard let document, let path = document.path else { return .notMissing }
         let missing = document.diskStamp.map { EditorFileStore.divergence(atPath: path, from: $0) == .missing }
@@ -512,10 +512,10 @@ public final class EditorDiskWatch: ObservableObject {
             reconcile()
             return .notMissing
         }
-        // **The folder went with it** — deleted, or the file's whole folder moved or put in the
-        // Trash. The write stages its bytes beside the file, so with no folder it cannot happen at
-        // all, and Close, which discards the only copy, would be the one answer left. Save Again
-        // means "put it back where it was", so the folder is put back too, and the log says so.
+        // The folder went with it: deleted, or the whole folder moved or put in the Trash. The
+        // write stages its bytes beside the file, so with no folder it can't happen, leaving only
+        // Close, which discards the only copy. Save Again means "put it back where it was", so the
+        // folder is put back too, and the log says so.
         let folder = (path as NSString).deletingLastPathComponent
         var isFolder: ObjCBool = false
         if !FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder) {
@@ -530,7 +530,7 @@ public final class EditorDiskWatch: ObservableObject {
         return .write
     }
 
-    /// What one look did — for the host, which reacts to a few of them, and for the tests.
+    /// What one look did, for the host, which reacts to a few of them, and for the tests.
     public enum Outcome: Equatable {
         case nothing
         case settled
@@ -540,16 +540,16 @@ public final class EditorDiskWatch: ObservableObject {
         /// The newer version is still in the cloud; it is being fetched, and looked at again after.
         case downloading
         /// The file has a new stamp and the same contents; the document took the stamp, and nothing
-        /// else moved — not the buffer, not the history.
+        /// else moved, neither the buffer nor the history.
         case restamped
-        /// The newer file cannot be read as text; the last text stays on screen, read-only, and the
+        /// The newer file can't be read as text; the last text stays on screen, read-only, and the
         /// watch goes on looking.
         case unreadable
     }
 
-    /// The stamp to take when `opened` is the text the document already has as saved — in the same
+    /// The stamp to take when `opened` is the text the document already has as saved, in the same
     /// encoding, so a file re-saved as UTF-16 with identical text is still a change (the next save
-    /// would otherwise write it back as UTF-8). `nil` when it is not.
+    /// would otherwise write it back as UTF-8). `nil` when it isn't.
     static func sameContentStamp(_ opened: EditorFileStore.Opened, as document: EditorDocument) -> EditorFileStore.Stamp? {
         switch opened {
         case .editable(let text, let stamp, let encoding):
@@ -573,8 +573,8 @@ public final class EditorDiskWatch: ObservableObject {
             trackedPath: watcher?.trackedPath)
     }
 
-    /// Typing that is not on disk — the buffer differs from what was saved, or an input method is
-    /// part-way through a word, which the buffer does not hold yet and a reload would end.
+    /// Typing that isn't on disk: the buffer differs from what was saved, or an input method is
+    /// part-way through a word, which the buffer doesn't hold yet and a reload would end.
     private func hasUnsavedTyping(_ document: EditorDocument) -> Bool {
         if document.isDirty { return true }
         let source = document.buffer.source
@@ -591,7 +591,7 @@ public final class EditorDiskWatch: ObservableObject {
             return .downloading
         }
         // Another writer is part-way through its save. Look again once it has settled, rather than
-        // putting a refusal where the text was.
+        // put a refusal where the text was.
         if opened == .refused(reason: EditorFileStore.keptChangingReason) {
             Logger.shared.info("[edit] \(path) kept changing while it was read — looking again once it settles")
             eventArrived()
@@ -600,7 +600,7 @@ public final class EditorDiskWatch: ObservableObject {
         if case .refused(let reason) = opened {
             return keepTextOverUnreadable(document, path: path, reason: reason)
         }
-        // Both stamps, so a reload that should not have happened can be told apart afterwards.
+        // Both stamps, so a reload that shouldn't have happened can be told apart afterwards.
         let was = Self.describe(document.diskStamp)
         Self.reload(document, with: opened, undoManager: undoStore?.current)
         Logger.shared.info("[edit] Reloaded \(path) — it changed elsewhere (was \(was); now \(Self.describe(document.diskStamp))), and nothing typed was unsaved")
@@ -609,19 +609,19 @@ public final class EditorDiskWatch: ObservableObject {
         return .reloaded
     }
 
-    /// **The newer file cannot be read as text** — it became binary, grew past the read cap, or
-    /// cannot be opened just now. Reloading into that refusal would empty the screen of text that is
-    /// still correct as far as anybody knows, call it "Reloaded", and — a refusal being where the
-    /// watch stops — never look again.
+    /// The newer file can't be read as text: it became binary, grew past the read cap, or can't be
+    /// opened just now. Reloading into that refusal would empty the screen of text that is still
+    /// correct as far as anybody knows, call it "Reloaded", and, a refusal being where the watch
+    /// stops, never look again.
     ///
-    /// So the text stays, **read-only** (the reason on screen says why), because saving it would
-    /// write the last version over a file it no longer describes. The document is left with no disk
-    /// stamp, so any file at the path reads as a change: every later look tries again, and the first
-    /// one that can read text reloads it and opens it for editing. The history goes, as on any reload
-    /// — the file it was measured against is gone.
+    /// So the text stays, read-only (the reason on screen says why), because saving it would write
+    /// the last version over a file it no longer describes. The document is left with no disk
+    /// stamp, so any file at the path reads as a change: every later look tries again, and the
+    /// first that can read text reloads it and opens it for editing. The history goes, as on any
+    /// reload.
     private func keepTextOverUnreadable(_ document: EditorDocument, path: String, reason: String) -> Outcome {
         let readOnlyReason = Self.unreadableReason(reason)
-        // Already showing this — another event about the same unreadable file.
+        // Already showing this: another event about the same unreadable file.
         guard document.readOnlyReason != readOnlyReason else { return .nothing }
         document.reload(.readOnly(text: document.text, reason: readOnlyReason, stamp: nil))
         undoStore?.current.removeAllActions()
@@ -631,13 +631,13 @@ public final class EditorDiskWatch: ObservableObject {
         return .unreadable
     }
 
-    /// **The quiet reload itself**, separate so a test can run it on a document and a stack.
+    /// The quiet reload itself, separate so a test can run it on a document and a stack.
     ///
-    /// The text goes into the shared storage as the smallest edit (``EditorSourceStorage/takeDiskText(_:)``),
-    /// then the document takes the stamp, the encoding and the saved text the read produced — the
-    /// same `Opened` an open would get (the watch never hands it a refusal — see
-    /// ``keepTextOverUnreadable(_:path:reason:)``). Then the history is emptied: an undo registered against
-    /// the text before the reload names ranges in text that is gone.
+    /// The text goes into the shared storage as the smallest edit
+    /// (``EditorSourceStorage/takeDiskText(_:)``), then the document takes the stamp, encoding and
+    /// saved text the read produced, the same `Opened` an open would get (the watch never hands it
+    /// a refusal; see ``keepTextOverUnreadable(_:path:reason:)``). Then the history is emptied: an
+    /// undo registered before the reload names ranges in text that is gone.
     static func reload(_ document: EditorDocument, with opened: EditorFileStore.Opened, undoManager: UndoManager?) {
         switch opened {
         case .editable(let text, _, _), .readOnly(let text, _, _):
@@ -649,20 +649,19 @@ public final class EditorDiskWatch: ObservableObject {
         undoManager?.removeAllActions()
     }
 
-    /// The newer version is a cloud placeholder: ask for it, and look again when it lands — or once
+    /// The newer version is a cloud placeholder: ask for it, and look again when it lands or once
     /// ``downloadPatience`` has passed, whichever comes first.
     ///
-    /// **The download API is asked first** (``MaterializationStatus/download(atPath:)``), which
-    /// hands the request to the system and returns at once; nothing is read, and the landing is
-    /// noticed by a cheap `lstat` every ``downloadPoll`` (materialising a file sends no event).
-    /// It serves iCloud, and was measured working on a Google Drive placeholder (2026-10-25);
-    /// Dropbox and OneDrive have not been measured.
+    /// The download API is asked first (``MaterializationStatus/download(atPath:)``): it hands the
+    /// request to the system and returns at once, nothing is read, and the landing is noticed by a
+    /// cheap `lstat` every ``downloadPoll`` (materialising a file sends no event). It works for
+    /// iCloud and Google Drive; Dropbox and OneDrive are untested.
     ///
-    /// **When the API refuses, the only way left to ask is to read a byte** — which waits on the
-    /// provider, and a provider that is not running (OneDrive, 2026-10-02) makes it wait forever. So the read runs on a queue of its own, never the shared pool autosave's write
-    /// needs, and **the download stays out until that read returns**: the patience runs out into a
-    /// look, not into a second read. At most one read per path is ever blocked, and since the queue
-    /// is serial, at most one thread in all.
+    /// When the API refuses, the only way left to ask is to read a byte, which waits on the
+    /// provider, forever if the provider isn't running. So the read runs on a queue of its own,
+    /// never the shared pool autosave's write needs, and the download stays out until that read
+    /// returns: the patience runs out into a look, not a second read. At most one read per path is
+    /// ever blocked, and since the queue is serial, at most one thread in all.
     private func download(_ path: String) {
         guard downloading != path else { return }
         let now = ContinuousClock.now
@@ -685,7 +684,7 @@ public final class EditorDiskWatch: ObservableObject {
                 if !self.isCloudOnly(path) { break }
             }
             guard let self, self.downloading == path else { return }
-            // The provider has not answered the read yet: the download stays out — the read's
+            // The provider hasn't answered the read yet, so the download stays out: the read's
             // return ends it, not the clock.
             if self.readsOut.contains(path), self.isCloudOnly(path) {
                 Logger.shared.info("[edit] The new version of \(path) has not arrived after \(patience) — still waiting on its provider")
@@ -695,7 +694,7 @@ public final class EditorDiskWatch: ObservableObject {
         }
     }
 
-    /// Asks a provider whose download API refused for the file, by reading a byte of it — once per
+    /// Asks a provider whose download API refused for the file by reading a byte of it, once per
     /// path, on ``downloadQueue``.
     private func readToDownload(_ path: String) {
         guard !readsOut.contains(path) else { return }
@@ -714,7 +713,8 @@ public final class EditorDiskWatch: ObservableObject {
         guard downloading == path else { return }
         downloading = nil
         reconcile()
-        // Use Disk Version was pressed while the version was in the cloud: take it now it is here.
+        // Use Disk Version was pressed while the version was in the cloud: take it now that it's
+        // here.
         if useDisksWhenDownloaded == path, document?.path == path, banner == .changed, !isCloudOnly(path) {
             useDisksWhenDownloaded = nil
             if useDisksVersion() == .unreadable {
@@ -743,13 +743,14 @@ public final class EditorDiskWatch: ObservableObject {
         case used
         /// The version on disk is still in the cloud; it is being fetched, and taken when it lands.
         case downloading
-        /// The file cannot be read as editable text any more — nothing changed, and the host says why.
+        /// The file can't be read as editable text any more: nothing changed, and the host says
+        /// why.
         case unreadable
     }
 
-    /// **"Use Disk Version"**: the buffer becomes the file's version as ONE step ⌘Z takes back, so the
+    /// "Use Disk Version": the buffer becomes the file's version as one step ⌘Z takes back, so the
     /// typing can come back. A version still in the cloud is fetched first and taken when it lands
-    /// (``UseDisksOutcome/downloading``); one that cannot be read as editable text changes nothing,
+    /// (``UseDisksOutcome/downloading``); one that can't be read as editable text changes nothing,
     /// and the banner stays.
     @discardableResult
     public func useDisksVersion() -> UseDisksOutcome {
@@ -770,8 +771,8 @@ public final class EditorDiskWatch: ObservableObject {
         document.buffer.source.replaceAll(with: text, undoManager: undoManager,
                                           actionName: Self.useDisksActionName)
         document.adoptDisk(text: text, stamp: stamp, encoding: encoding)
-        // **In the same undo group as the text**, so the ⌘Z that brings the typing back brings the
-        // question back with it — see ``takeBackUseDisks(restoring:redo:undoManager:)``.
+        // In the same undo group as the text, so the ⌘Z that brings the typing back brings the
+        // question back with it; see ``takeBackUseDisks(restoring:redo:undoManager:)``.
         if changesText, let undoManager {
             registerTakeBack(restoring: mine, redo: document.diskRecord, undoManager: undoManager)
         }
@@ -781,14 +782,13 @@ public final class EditorDiskWatch: ObservableObject {
         return .used
     }
 
-    /// **⌘Z of "Use Disk Version" puts the question back, not only the typing.** The other version is
-    /// still on disk, so the typing must not reach it without Keep Mine's consent — and with only
-    /// the text undone, the document recorded the disk's version as saved, the banner was gone and
-    /// the host's autosave stop with it: the next autosave wrote the typing over the other version
-    /// without a word. So the document's record of the disk goes back to what it was before (the
-    /// next look finds the disk changed under the typing again, and autosave's own check refuses
-    /// it), and the banner — and through ``onBannerChange`` the stop — comes back. ⌘⇧Z takes the
-    /// disk's version again, record and all.
+    /// ⌘Z of "Use Disk Version" puts the question back, not only the typing. The other version is
+    /// still on disk, so the typing must not reach it without Keep Mine's consent. Undoing only the
+    /// text would leave the disk's version recorded as saved, the banner and the host's autosave
+    /// stop gone, and the next autosave would write the typing over the other version silently. So
+    /// the document's disk record goes back too (the next look finds the disk changed under the
+    /// typing, and autosave's own check refuses it), and the banner, and through ``onBannerChange``
+    /// the stop, comes back. ⌘⇧Z takes the disk's version again, record and all.
     private func registerTakeBack(restoring mine: EditorDocument.DiskRecord, redo disks: EditorDocument.DiskRecord,
                                   undoManager: UndoManager) {
         undoManager.registerUndo(withTarget: self) { [weak undoManager] watch in
@@ -799,8 +799,8 @@ public final class EditorDiskWatch: ObservableObject {
 
     private func takeBackUseDisks(restoring mine: EditorDocument.DiskRecord, redo disks: EditorDocument.DiskRecord,
                                   undoManager: UndoManager) {
-        // The stack is the file's own (``EditorUndoStore``), so it is only ever replayed with that
-        // file open; a stack that is no longer the current one has nothing on screen to act on.
+        // The stack is the file's own (``EditorUndoStore``), so it is only replayed with that file
+        // open; a stack that is no longer current has nothing on screen to act on.
         guard let document, let path = document.path, undoStore?.current === undoManager else { return }
         document.restore(mine)
         Logger.shared.info("[edit] Took back Use Disk Version for \(path) — the typing is back, and so is the question: the other version is still on disk")
@@ -824,7 +824,7 @@ public final class EditorDiskWatch: ObservableObject {
 
     static let reloadedNotice = "Reloaded — changed elsewhere"
 
-    /// A stamp in the log's words — its size, when it was modified (to the millisecond, in UTC) and
+    /// A stamp in the log's words: its size, when it was modified (to the millisecond, in UTC) and
     /// its inode, so an atomic save reads as one.
     static func describe(_ stamp: EditorFileStore.Stamp?) -> String {
         guard let stamp else { return "no stamp" }
@@ -834,20 +834,20 @@ public final class EditorDiskWatch: ObservableObject {
         return "\(stamp.size) bytes, modified \(modified), inode \(stamp.fileID)"
     }
     static let unreadableNotice = "Changed elsewhere — can’t be read as text now"
-    /// How the read-only reason over a kept text begins — the rest is the read's own refusal.
+    /// How the read-only reason over a kept text begins; the rest is the read's own refusal.
     static let unreadableReasonLead = "The file on disk changed and can’t be read as text now"
 
     static func unreadableReason(_ refusal: String) -> String {
         // A full stop, not a dash: the refusal is a sentence of its own, and Edit's too-large one
-        // carries a dash already (TE103).
+        // already carries a dash.
         "\(unreadableReasonLead). \(refusal) This is the last text that could be read, open for "
             + "reading only until the file can be read again."
     }
     static let usedDisksNotice = "Using the version on disk — ⌘Z brings your version back"
-    /// An edit turned a CRLF or CR file into LF (TE104) — the first change to it, which ⌘Z takes
-    /// back with the conversion (``EditorLineEndings``).
+    /// An edit turned a CRLF or CR file into LF, the first change to it, which ⌘Z takes back with
+    /// the conversion (``EditorLineEndings``).
     static let convertedToLFNotice = "Converted to LF line endings — ⌘Z undoes"
-    /// Edit ▸ Undo's word for Use Disk Version — the button's own (TE97).
+    /// Edit ▸ Undo's word for Use Disk Version: the button's own.
     static let useDisksActionName = EditorDiskVerbs.useDiskVersion
 
     static func followedNotice(from old: String, to new: String) -> String {
@@ -859,7 +859,7 @@ public final class EditorDiskWatch: ObservableObject {
         return "Moved elsewhere — now in “\((newFolder as NSString).lastPathComponent)”"
     }
 
-    /// **Heard as well as seen**: what the watch did or asks is announced to VoiceOver, as the
+    /// Heard as well as seen: what the watch did or asks is announced to VoiceOver, as the
     /// workspace's own status hints are. A seam, so a test can hear it.
     var announce: (String) -> Void = { text in
         guard let app = NSApp else { return }
@@ -868,9 +868,9 @@ public final class EditorDiskWatch: ObservableObject {
                                         .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
-    /// **What an image import saved, in the status line's notice** (TE182) — through this watch,
-    /// because this is where the line's few seconds of words live: a newer notice replaces an
-    /// older one, the disk's or the import's, rather than two competing for the slot.
+    /// What an image import saved, in the status line's notice. Routed through this watch because
+    /// the line's few seconds of words live here: a newer notice replaces an older one, the disk's
+    /// or the import's, rather than two competing for the slot.
     public func noteImagesImported(_ report: EditorImageImport.Report) {
         if let text = EditorImageImport.notice(for: report) { showNotice(text) }
     }

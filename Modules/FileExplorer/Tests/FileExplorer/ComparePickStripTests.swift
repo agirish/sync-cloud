@@ -4,19 +4,13 @@ import Testing
 import Design
 @testable import FileExplorer
 
-/// **The bar must not grow with the filename.** Reported from the running app: armed on
-/// "Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf", the indicator
-/// stretched the width of the window and drew over both panes' tab strips and breadcrumbs, with the
-/// prompt, the tab titles and the crumbs superimposed and none of them readable.
+/// The compare-pick bar must not grow with the filename: a long name would stretch it across the
+/// window and over both panes' tab strips and breadcrumbs. The name has its own width ceiling, and
+/// the instruction is composed around it so truncating the name can't truncate the words.
 ///
-/// Two things caused that and both are asserted here. The name had no width ceiling, so it pushed
-/// everything after it out of the window; and the sentence had the name buried in the middle of it,
-/// so truncating it would have truncated the instruction too. The name is bounded on its own now
-/// and the words are composed around it.
-///
-/// Measuring the RENDER rather than the constant, for `PaneActionBarStabilityTests`' reason: a
-/// width constant would only re-assert itself. The placement half — that the bar takes layout
-/// space instead of floating over the chrome — is structural and lives in `mainContentView`.
+/// Measures the render, not the constant, for `PaneActionBarStabilityTests`' reason: a width
+/// constant would only re-assert itself. That the bar takes layout space rather than floating over
+/// the chrome is structural, in `mainContentView`.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ComparePickStripTests {
 
@@ -32,7 +26,7 @@ import Design
         return host.fittingSize.width
     }
 
-    /// The name that broke it, against a short one. The bar may grow by at most the name column.
+    /// A long real filename, against a short one: the bar may grow by at most the name column.
     @Test func aLongFilenameCannotStretchTheBarPastItsNameColumn() {
         let short = fittingWidth(strip("a.pdf"))
         let real = fittingWidth(strip("Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf"))
@@ -47,16 +41,10 @@ import Design
         #expect(short < absurd, "every name renders at the same width — the name is not being drawn")
     }
 
-    /// **The instruction survives the truncation**, which is the half a width ceiling alone does
-    /// not buy. The words around the name are their own views, so a name long enough to truncate
-    /// cannot take "click another file" with it — the first cut put the whole sentence in one
-    /// `Text` with the name in the middle of it, where truncating the name truncates the
-    /// instruction too.
-    ///
-    /// Asserted on the composed sentence rather than on the render: a SwiftUI `Text` cannot be read
-    /// back off a mounted view, and a walk of the hosted view's accessibility labels came back
-    /// empty — the test-blind channel this repo has hit before. The width half above IS measured
-    /// on the render, so the two together cover it.
+    /// The instruction survives truncation, which a width ceiling alone doesn't buy: the words
+    /// around the name are their own views, so a truncated name can't take "click another file"
+    /// with it. Asserted on the composed sentence, since a SwiftUI `Text` can't be read back from a
+    /// mounted view and the accessibility labels come back empty in tests.
     @Test func theInstructionIsNotInsideTheTruncatedRun() {
         let absurd = String(repeating: "long-name-", count: 40) + ".pdf"
         let described = ComparePickStrip(fileName: absurd, onCancel: {}).accessibilityDescription

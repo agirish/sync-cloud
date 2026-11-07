@@ -5,41 +5,23 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// Does the "Save a rule?" offer actually show the phrasings the proposer produced, and does the
-/// sentence under the chips follow the selection?
-///
-/// **Pixels, because nothing else here is open.** The chips are `Text` inside `Button`s inside an
-/// `HStack`: `fittingSize` on a view that fills a fixed frame sees the frame, and a caption
-/// assertion passes vacuously with no assistive client attached to the test process. The proposer's
-/// own suite proves what the variants *are*; this proves the prompt asks for them and paints them.
-///
-/// The claim that matters most is `theSentenceFollowsTheSelection`: the chip label is an
-/// abbreviation (`“tmobile” + “autopay”`), and the sentence beneath is the only thing on screen that
-/// says both words are *required*. A sentence wired to `variants[0]` instead of to the selection
-/// renders identically for the default and differs for every other choice — which is exactly what
-/// this measures.
-///
-/// **`.machinePinned(.pixelSampling)`** — it reads pixels back out of a live renderer, the repo-wide
-/// marker for a suite that only produces a trustworthy verdict on the recording Mac.
+/// Does the "Save a rule?" offer paint every phrasing the proposer produced, and does the sentence
+/// under the chips follow the selection? Checked in pixels: `fittingSize` on a fixed frame sees
+/// only the frame, and a caption check passes vacuously with no assistive client attached. The key
+/// test is `theSentenceFollowsTheSelection`: the chip label is an abbreviation, and only the
+/// sentence says both words are required. Machine-pinned because it reads pixels back from a live
+/// renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct RuleOfferPromptTests {
 
     private static let canvas = CGSize(width: 900, height: 110)
-    /// The picker row and the sentence beneath it: clear of the headline above, and stopping well
-    /// short of the Save / Not now buttons at the trailing edge — those paint in the same rows and
-    /// would put a constant in every comparison.
-    ///
-    /// Measured on the shipping render by dumping which rows change when the selection changes: the
-    /// chips ink y 42–62pt and the sentence y 68–80pt; the buttons start at x≈770. The band is a
-    /// little wider than the chips on both sides so a point of drift cannot empty it, and
-    /// `theBandActuallyContainsThePicker` is the guard that fails if it ever does.
+    /// The chip row and the sentence beneath it, clear of the headline and short of the Save / Not
+    /// now buttons, which would add a constant to every comparison. The chips ink y 42–62pt, the
+    /// sentence y 68–80pt, the buttons start at x≈770; the band is a little wider so a point of
+    /// drift can't empty it, and `theBandActuallyContainsThePicker` fails if it does.
     private static let pickerBand = CGRect(x: 0, y: 38, width: 700, height: 26)
-    /// The sentence under the chips, ALONE.
-    ///
-    /// **Separated because the chip row moves too.** Selecting a different phrasing re-tints and
-    /// re-weights the chips, so a band covering both rows registers a difference whether or not the
-    /// sentence follows the selection — mutation testing caught exactly that: a sentence hard-wired
-    /// to `variants[0]` passed the combined-band version of `theSentenceFollowsTheSelection`.
+    /// The sentence under the chips, alone. Selecting a phrasing also re-tints the chips, so a band
+    /// covering both rows would differ even with the sentence hard-wired to `variants[0]`.
     private static let sentenceBand = CGRect(x: 0, y: 66, width: 700, height: 16)
 
     private static func variant(_ conditions: [AutomationCondition], _ chip: String)
@@ -76,9 +58,8 @@ import Design
 
         let host = NSHostingView(rootView: AnyView(subject))
         host.frame = CGRect(origin: .zero, size: Self.canvas)
-        // The window background is not decoration: without one the content composites against the
-        // borderless window's own buffer and every comparison reads as zero difference. Never
-        // ordered in — the back of an uncovered desktop is still in plain sight.
+        // The background matters: without it the content composites against the borderless
+        // window's own buffer and every comparison reads zero difference. Never ordered in.
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -97,13 +78,9 @@ import Design
         return rep
     }
 
-    /// Pixels that are not the background.
-    ///
-    /// **The background is the band's most common colour, not its corner pixel.** This prompt is a
-    /// washed card that fills the band, so the corner sample (taken outside the card) made every
-    /// pixel of the wash count as ink and returned the same saturated figure — 98,560 of 102,400 —
-    /// for one chip and for three. Brightness is no better: a `< 0.90` filter counts the dark text
-    /// in a chip and none of the pale capsule behind it.
+    /// Pixels that are not the background, taken as the band's most common colour. Not the corner
+    /// pixel: the prompt is a washed card filling the band, so a corner sample counts the whole
+    /// wash as ink. Not brightness either: that counts a chip's dark text but not its pale capsule.
     private func inkedPixels(_ rep: NSBitmapImageRep) -> Int {
         let cells = quantized(rep)
         guard let background = cells.max(by: { $0.value < $1.value })?.key else { return 0 }
@@ -115,11 +92,9 @@ import Design
             .values.reduce(0, +)
     }
 
-    /// The band's pixels bucketed into 32 levels per channel, so anti-aliasing noise does not split
-    /// one flat wash into a thousand near-identical shades. Keyed on the buckets rather than on a
-    /// reconstructed `NSColor`: rebuilding one in sRGB and comparing it against `colorAt`'s own
-    /// colour space matched NOTHING, and every pixel of the band then counted as ink — the same
-    /// saturated 112,000 for one chip and for three.
+    /// The band's pixels bucketed at 32 levels per channel, so anti-aliasing noise can't split one
+    /// flat wash into many shades. Keyed on the buckets, not a rebuilt `NSColor`: an sRGB colour
+    /// never matches `colorAt`'s own colour space, so every pixel would count as ink.
     private func quantized(_ rep: NSBitmapImageRep) -> [Cell: Int] {
         var cells: [Cell: Int] = [:]
         for y in 0..<rep.pixelsHigh {
@@ -151,9 +126,9 @@ import Design
         return count
     }
 
-    /// The band is a hard-coded rectangle over a laid-out view — the kind of constant that goes
-    /// stale silently, leaving every comparison below "passing" over empty card. Pin it against two
-    /// states whose PICKER differs and require the band to see the difference.
+    /// The band is a hard-coded rectangle over a laid-out view, which can go stale silently and
+    /// leave every comparison below passing over empty card. Two states whose picker differs must
+    /// differ inside it.
     @Test func theBandActuallyContainsThePicker() throws {
         let three = try #require(band(mount(Self.offer(Self.threeWay))))
         let one = try #require(band(mount(Self.offer([Self.threeWay[2]]))))
@@ -173,9 +148,9 @@ import Design
         #expect(inkedPixels(three) > inkedPixels(two), "a third variant added no chip")
     }
 
-    /// **The sentence is the only thing that says both words are required.** Wired to `variants[0]`
-    /// rather than to the selection it renders identically here; wired to the selection the third
-    /// phrasing (one word, no kind) is visibly shorter than the first.
+    /// The sentence is the only thing that says both words are required. Wired to `variants[0]` it
+    /// renders the same for both selections; wired to the selection, the third phrasing (one word,
+    /// no kind) is visibly shorter.
     @Test func theSentenceFollowsTheSelection() throws {
         let defaulted = try #require(band(mount(Self.offer(Self.threeWay), selected: Self.threeWay[0]),
                                           Self.sentenceBand))

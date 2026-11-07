@@ -1,15 +1,13 @@
 import Testing
 @testable import FileExplorer
 
-/// The Duplicates clean state must claim exactly what the scan covered — never wider.
-/// It used to read "Nothing repeats across iCloud" under a one-folder scope: a clean claim
-/// about territory the scan never visited. The subject is the scanned root when one is known,
-/// following the named-reveal states that already phrase themselves via `duplicateScanRoot`.
+/// The Duplicates clean state claims exactly what the scan covered, never wider: "Nothing repeats
+/// across iCloud" after a one-folder scan would vouch for places it never visited. The subject is
+/// the scanned root when known, as in the named-reveal states that use `duplicateScanRoot`.
 @Suite struct DuplicatesCleanMessageTests {
 
     @Test func aScannedFolderIsTheSubject() {
-        // The defect case: scoped scan of TODO, clean result. The claim must name TODO —
-        // and must NOT reach for the provider.
+        // A scoped scan of TODO, clean: the claim names TODO, not the provider.
         let message = LensWorkspaceView.duplicatesCleanMessage(scanRootName: "TODO", providerName: "iCloud")
         #expect(message.contains("in “TODO”"))
         #expect(!message.contains("iCloud"))

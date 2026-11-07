@@ -5,26 +5,21 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// **What the header claims about a query, on the pages that answer one and the two that do not.**
+/// What the header claims about a query, on the pages that answer one and the two that don't.
 ///
-/// Three defects lived here, and all three were invisible to every existing suite for the same
-/// reason: `searchQueries` is `@State` seeded empty, SwiftUI is undrivable from a unit test, and so
-/// *no test had ever rendered this screen with a live query in it*. `LensWorkspaceView.init`'s
-/// `initialSearchQueries` is the seam that fixes that; these are what it buys.
+/// `searchQueries` is `@State` seeded empty and SwiftUI can't be driven from a unit test, so only
+/// `LensWorkspaceView.init`'s `initialSearchQueries` seam lets a test render this screen with a
+/// live query. The rules pinned:
 ///
-///   * Organize's overview drew a live "N of M" over sections it neither filters nor counts —
-///     "0 of 24", the 0 being rows it does not draw and the 24 a list it is not showing — with the
-///     search field open beside it and working chips under it.
-///   * The rename backlog filtered its folder plans and left the folded to-fix names alone, so one
-///     list answered one query two different ways.
-///   * Storage answered a query with "0 of 0" before any report existed, on the one rail whose own
-///     documentation says the count is absent before a report, not zero.
+///   * Organize's overview filters and counts nothing, so it shows no field, chips or "N of M".
+///   * The rename backlog's query narrows its folded to-fix names as well as its folder plans, so
+///     one list answers one query one way.
+///   * Storage shows no count before a report exists: absent, not "0 of 0".
 ///
-/// **Pixels, because nothing else here is open.** The readout is a `Text` inside the header card:
-/// `fittingSize` is the frame whatever it holds, and with no assistive client attached to this
-/// process a caption assertion passes vacuously whatever the label says.
-///
-/// `.machinePinned(.pixelSampling)`, like every suite here that reads a live renderer back.
+/// Pixels, because nothing else is open: the readout is a `Text` inside the header card,
+/// `fittingSize` is the frame whatever it holds, and with no assistive client attached a caption
+/// assertion passes whatever the label says. `.machinePinned(.pixelSampling)`, like every suite
+/// here that reads a live renderer back.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct LensHeaderReadoutTests {
 
@@ -41,7 +36,7 @@ import Design
             providerRoot: "/root")
     }
 
-    /// A completed file pass with two loose files — enough for To File to have a list, and for a
+    /// A completed file pass with two loose files: enough for To File to have a list, and for a
     /// query matching neither to visibly narrow it.
     private static func filingManager() -> FileSyncManager {
         let m = FileSyncManager()
@@ -68,7 +63,7 @@ import Design
                   reason: "Colons break sync", isDirectory: false)
     }
 
-    /// A completed file pass holding one rename plan and one risky name — the backlog's two halves,
+    /// A completed file pass holding one rename plan and one risky name, the backlog's two halves,
     /// each matching a different word, so a query can be aimed at exactly one of them.
     private static func backlogManager(riskyName: String) -> FileSyncManager {
         let m = FileSyncManager()
@@ -112,9 +107,9 @@ import Design
 
     /// Mounts Organize (or Storage) standing on `rail`, with `queries` already parked.
     ///
-    /// The rail selection goes through a fresh `ScratchDefaults` and `.defaultAppStorage` rather
-    /// than `UserDefaults.standard`: other suites in this target write that key and Swift Testing
-    /// runs suites in parallel, so the faithful copy would make every render here race them.
+    /// The rail selection goes through a fresh `ScratchDefaults` and `.defaultAppStorage`, not
+    /// `UserDefaults.standard`: other suites in this target write that key, and Swift Testing runs
+    /// suites in parallel, so every render here would race them.
     private func mount(_ manager: FileSyncManager, lens: WorkspaceLensKind = .filing,
                        rail: OrganizeLens?, queries: [WorkspaceLensKind: String]) -> Mounted {
         let defaults = ScratchDefaults("LensHeaderReadoutTests")
@@ -129,7 +124,7 @@ import Design
         let host = NSHostingView(rootView: AnyView(subject))
         host.frame = CGRect(origin: .zero, size: Self.canvas)
         // Without a window the content composites against the borderless window's own buffer and
-        // every comparison reads as zero difference — "nothing painted", whatever the code did.
+        // every comparison reads as zero difference, whatever the code did.
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -141,44 +136,22 @@ import Design
     }
 
     /// Every capture in this suite goes through here, and it resigns first responder before it
-    /// draws — **which is load-bearing, not hygiene.**
+    /// draws. **That is load-bearing, not hygiene.**
     ///
-    /// A mount carrying a parked query renders with its header search field open, and
-    /// `ExpandingSearchField` claims focus for that field the moment it appears
-    /// (`.onAppear { Task { @MainActor in focused = true } }`). AppKit select-alls a text field
-    /// that becomes first responder, so the query text is painted behind a selection band —
-    /// **4511 pixels of it at this canvas**, measured.
+    /// A mount with a parked query renders its header search field open, and
+    /// `ExpandingSearchField` claims focus for it on appear. AppKit select-alls a text field that
+    /// becomes first responder, so the query is painted behind a selection band (about 4500 pixels
+    /// at this canvas). SwiftUI arbitrates that focus process-wide: any other suite handing an
+    /// `NSTextField` first responder, or this test's own second mount, evicts it on the next layout
+    /// pass, and the band goes with it. A comparison of two mounts would then read the process's
+    /// focus history, not the screen (`docs/flaky-tests.md`, "Text-field focus is arbitrated
+    /// process-wide, so any suite can evict another's field editor — FIXED").
     ///
-    /// That band does not belong to this window. SwiftUI arbitrates `_SystemTextField` focus
-    /// **process-wide**: any other suite in this test binary that hands an `NSTextField` first
-    /// responder drops this window's first responder straight back to the window itself, and the
-    /// band with it. `FilingWalkthroughCardKeyTests` does exactly that, three times, and Swift
-    /// Testing interleaves it with this suite on the same main actor. Measured, twice:
-    ///
-    ///   * a foreign `window.makeFirstResponder(field)` moved a settled mount of this screen by
-    ///     exactly 4511 pixels **on the next layout pass** — 0 pumps of delay;
-    ///   * mounting the second lens window of a single test does it too, because its own field
-    ///     claims the same process-global focus and evicts the first mount's.
-    ///
-    /// So a comparison of two mounts was reading the process's focus history, not the screen:
-    /// `aQueryHidesTheToFixRowsAsWellAsThePlans` failed by that same 4511 in a full-package run
-    /// while passing alone, with both screens correctly showing "Nothing matches" and neither
-    /// to-fix row drawn on either. **The band is also there at `dc865114`** — the probe reproduces
-    /// it identically with this branch's sources reverted — so it is a property of this harness
-    /// rather than of anything the branch changed.
-    ///
-    /// Resigning before every frame makes the band absent from every frame of every mount, so what
-    /// these comparisons see is what the code drew. It does not paper over instability either: the
-    /// mount stays byte-identical across **400** further layout passes under it (it moved by 4511
-    /// without it), and a re-claim between frames would show up as `settled` never going quiet
-    /// rather than as a quietly passing equality.
-    ///
-    /// **400 is a fixed loop count, deliberately.** This comment said 300 and
-    /// `docs/flaky-tests.md` said 311 for the same measurement, because both were taken from a
-    /// time-bounded `LayoutPumpWait.pump(upTo:)` — whose pass count is whatever the machine got
-    /// through, so two runs disagree by construction. Re-derived 2026-08-21 as an explicit
-    /// `for i in 1...400` comparing each frame's `bitmapData` to the settled baseline; first
-    /// drift: none. A pass count taken from a deadline is a reading about the machine.
+    /// Resigning before every frame keeps the band out of every frame, so these comparisons see
+    /// what the code drew. It hides no instability: a mount stays byte-identical across 400 fixed
+    /// layout passes under it, and a re-claim between frames would keep `settled` from going
+    /// quiet rather than pass an equality. Count such passes with a fixed loop, not a time-bounded
+    /// pump, whose pass count is whatever the machine got through.
     private func snapshot(_ m: Mounted, _ band: CGRect? = nil) -> NSBitmapImageRep? {
         m.window.makeFirstResponder(nil)
         m.host.layoutSubtreeIfNeeded()
@@ -188,22 +161,17 @@ import Design
         return rep
     }
 
-    /// Pixels whose red, green or blue moved by more than 0.02 — more than 5 of 255 in the 8-bit
-    /// samples every capture here holds (5/255 is 0.0196, 6/255 is 0.0235).
+    /// Pixels whose red, green or blue moved by more than 0.02, i.e. more than 5 of 255 in the
+    /// 8-bit samples every capture here holds (5/255 is 0.0196, 6/255 is 0.0235).
     ///
-    /// **Read from the bytes, and skipping rows whose bytes match, because this is the suite's
-    /// whole cost.** It used to read `colorAt(x:y:)` twice per pixel, an `NSColor` each time, over
-    /// 1440×1240 pixels on every pass of `settled`: a 10 s sample on 2026-10-27 found 99% of the
-    /// main thread in here, and the suite cost 124 s alone, the most of any in the package. A
-    /// settled frame matches its predecessor byte for byte, so most comparisons are now one
-    /// `memcmp` per row.
-    /// Rows that differ still get the tolerant per-pixel test; byte equality alone would be
-    /// stricter than this, and could keep `settled` from ever going quiet.
-    ///
-    /// The same counts as the `colorAt` reading, checked by running both on every comparison the
-    /// suite makes: 54 of 54 agreed, three of them non-zero. Alpha is not compared, as before.
-    /// A capture in any other layout fails `Pixel.check` loudly and answers -1, which no
-    /// assertion here accepts.
+    /// Read from the bytes, skipping rows whose bytes match, because this is the suite's whole
+    /// cost: a settled frame matches its predecessor byte for byte, so most comparisons are one
+    /// `memcmp` per row, where `colorAt(x:y:)` per pixel would dominate the main thread
+    /// (`docs/flaky-tests.md`, "A pixel probe that calls `colorAt` per pixel, so load stretches it
+    /// into a hang — FIXED"). Rows that differ still get the tolerant per-pixel test; byte
+    /// equality alone would be stricter and could keep `settled` from ever going quiet. Alpha is
+    /// not compared. A capture in any other layout fails `Pixel.check` loudly and answers -1, which
+    /// no assertion here accepts.
     private func pixelsDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Int {
         guard lhs.pixelsWide == rhs.pixelsWide, lhs.pixelsHigh == rhs.pixelsHigh else { return -1 }
         guard Pixel.check(lhs), Pixel.check(rhs), !lhs.isPlanar, !rhs.isPlanar,
@@ -224,13 +192,12 @@ import Design
         return differing
     }
 
-    /// This mount's screen once IT has stopped moving.
+    /// This mount's screen once it has stopped moving.
     ///
-    /// **Each mount settles on its own before anything is compared.** Two hosts mounted from
-    /// identical state and snapshotted immediately differ by tens of thousands of pixels, because a
-    /// fresh `NSHostingView` has not finished drawing — so an equality assertion taken too early
-    /// fails for the harness's reasons, and an inequality assertion passes for them. Bounded by
-    /// `LayoutPumpWait`, which floors on layout PASSES rather than wall seconds.
+    /// Each mount settles on its own before anything is compared: a fresh `NSHostingView` hasn't
+    /// finished drawing, so two hosts from identical state differ by tens of thousands of pixels at
+    /// first, and an early equality fails, or an inequality passes, for the harness's reasons.
+    /// Bounded by `LayoutPumpWait`, which floors on layout passes rather than seconds.
     private func settled(_ m: Mounted, _ what: String, stableFrames: Int = 4,
                          sourceLocation: SourceLocation = #_sourceLocation) async -> NSBitmapImageRep? {
         var previous: NSBitmapImageRep?
@@ -250,15 +217,12 @@ import Design
 
     // MARK: The overview answers no query
 
-    /// **A parked query changes nothing on the overview** — no field, no chips, no "N of M".
+    /// A parked query changes nothing on the overview: no field, no chips, no "N of M".
     ///
-    /// The query is To File's (three rail items share `.filing`'s apparatus, and the overview
-    /// borrows it too), so before this it followed you onto a page that filters nothing: the field
-    /// opened, the card grew by its 36pt, and the readout counted `rows.filing` — which the
-    /// overview deliberately leaves empty — against To File's whole list. "0 of 24".
-    ///
-    /// Equality is the assertion, and it is a strong one: it fails on *any* visible trace of the
-    /// query, which is exactly what "the overview does not offer a search" has to mean.
+    /// Three rail items share `.filing`'s query, and the overview borrows that apparatus too, so a
+    /// To File query follows you there. Offering it would open the field, grow the card by 36pt and
+    /// count `rows.filing`, which the overview leaves empty, against To File's whole list. Equality
+    /// fails on any visible trace of the query, which is what "no search here" has to mean.
     @Test func aParkedQueryLeavesTheOverviewUntouched() async throws {
         let quiet = try #require(await settled(
             mount(Self.filingManager(), rail: nil, queries: [:]), "overview, no query"))
@@ -271,9 +235,9 @@ import Design
         #expect(moved == 0, "\(report)")
     }
 
-    /// The control the case above needs: **the same query on a page that DOES answer it moves the
-    /// screen.** Without this, a seam that quietly dropped every query would satisfy the equality
-    /// above with the whole search feature broken.
+    /// The control for the case above: the same query on a page that does answer it moves the
+    /// screen. Without it, a seam that quietly dropped every query would satisfy that equality with
+    /// the whole search feature broken.
     @Test func theSameQueryVisiblyNarrowsToFile() async throws {
         let quiet = try #require(await settled(
             mount(Self.filingManager(), rail: .toFile, queries: [:]), "To File, no query"))
@@ -286,12 +250,11 @@ import Design
 
     // MARK: The backlog is one list
 
-    /// **The query narrows the folded to-fix rows too.**
+    /// The query narrows the folded to-fix rows too.
     ///
-    /// Two mounts differing only in the risky name's text, under a query that matches neither of
-    /// them and neither plan. If the to-fix rows are drawn, the two screens differ — the name is
-    /// on them. Filtered, both land on the same "Nothing matches", and the only way to tell the
-    /// mounts apart is gone.
+    /// Two mounts differ only in the risky name's text, under a query matching neither name nor
+    /// plan. If the to-fix rows are drawn, the screens differ, since the name is on them. Filtered,
+    /// both show the same "Nothing matches", and the only way to tell the mounts apart is gone.
     @Test func aQueryHidesTheToFixRowsAsWellAsThePlans() async throws {
         let first = try #require(await settled(
             mount(Self.backlogManager(riskyName: "Q1:report.pdf"), rail: .renames,
@@ -305,7 +268,7 @@ import Design
         #expect(moved == 0, "\(report)")
     }
 
-    /// The control: **with no query the two names paint differently**, so the equality above is a
+    /// The control: with no query the two names paint differently, so the equality above is a
     /// claim about the filter rather than about two fixtures that were never distinguishable.
     @Test func theTwoRiskyNamesArePaintedDifferentlyWhenNothingHidesThem() async throws {
         let first = try #require(await settled(
@@ -323,10 +286,10 @@ import Design
 
     /// Row 2's trailing edge, where the "N of M" sits.
     ///
-    /// Derived from `LensHeaderMetrics` rather than eyeballed: the card floats `cardInset` in,
-    /// pads by `padding`, then draws row 1 and the row gap above row 2. Rows 1 and 2 do not move
-    /// when the search field opens — the card grows downward — so this band is stable across
-    /// exactly the comparison below. The host is flipped, so y counts down from the top.
+    /// Derived from `LensHeaderMetrics`, not eyeballed: the card floats `cardInset` in, pads by
+    /// `padding`, then draws row 1 and the row gap above row 2. Rows 1 and 2 don't move when the
+    /// search field opens (the card grows downward), so this band is stable across the comparison
+    /// below. The host is flipped, so y counts down from the top.
     private static var readoutBand: CGRect {
         let top = LiquidGlass.cardInset + LensHeaderMetrics.padding
             + LensHeaderMetrics.tabRow + LensHeaderMetrics.rowGap
@@ -334,15 +297,13 @@ import Design
                       width: 150, height: LensHeaderMetrics.summaryRow + 8)
     }
 
-    /// **Nothing is claimed in the readout's own band until a report exists.**
+    /// Nothing is claimed in the readout's own band until a report exists.
     ///
-    /// Both halves are needed and the first is what keeps the second honest: with a report, typing
-    /// a query changes this band (the readout arrives, and pushes the controls beside it along), so
-    /// the band demonstrably contains row 2's trailing edge. Without a report, the same query must
-    /// leave it untouched — no "0 of 0", which is a scan's result reported by a scan that never ran.
-    ///
-    /// A misplaced band cannot pass this quietly: everything below the header shifts when the
-    /// search field opens, so a band pointing anywhere but rows 1–2 fails the second half at once.
+    /// Both halves are needed, and the first keeps the second honest: with a report, typing a query
+    /// changes this band (the readout arrives and pushes the controls beside it), so the band holds
+    /// row 2's trailing edge. Without a report, the same query must leave it untouched: no "0 of
+    /// 0" from a scan that never ran. A misplaced band can't pass quietly, because everything below
+    /// the header shifts when the field opens.
     @Test func storageOffersNoCountBeforeItHasAReport() async throws {
         func bandDiff(withReport: Bool) async throws -> Int {
             let quiet = mount(Self.storageManager(withReport: withReport), lens: .storage,

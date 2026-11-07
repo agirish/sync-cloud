@@ -2,14 +2,10 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// The ordering that turns two read sides into a diff, or into a reason there is none.
-///
-/// **This is the half that had no test until it was lifted.** It used to be the body of a
-/// `Task.detached` closure inside a private view method, where nothing could reach it: the compare
-/// pane's tests could assert the reader and they could assert the differ, and the sequence between
-/// them — refuse first, notes second, pre-filter THIRD, walk LAST — was covered by nobody. That
-/// sequence is the stall guard, and the failure mode when it is wrong is not a wrong answer, it is
-/// two seconds of a pinned core on a pair the pre-filter exists to wave off.
+/// The ordering that turns two read sides into a diff, or into a reason there is none: refuse
+/// first, notes second, pre-filter third, walk last. That sequence is the stall guard; wrong, it
+/// gives no wrong answer, only seconds of a pinned core on a pair the pre-filter exists to wave
+/// off.
 @Suite struct TextPairDiffPipelineTests {
 
     private func text(_ value: String) -> BoundedTextRead.Outcome {
@@ -34,8 +30,8 @@ import Testing
         #expect(!outcome.cancelled)
     }
 
-    /// The reading notes ride along with the rows — a diff of a CRLF file against an LF one shows
-    /// no changed lines at all, and only the note says the two files are not the same bytes.
+    /// The reading notes ride along with the rows: a CRLF file against an LF one shows no changed
+    /// lines, and only the note says the two files aren't the same bytes.
     @Test func howTheBytesWereReadIsReportedBesideTheRows() {
         let outcome = run(text("one\r\ntwo\r\n"), text("one\ntwo\n"))
         #expect(outcome.diff?.changedLineCount == 0)
@@ -45,8 +41,8 @@ import Testing
 
     // MARK: A side with no text
 
-    /// **Named per side, and nothing is diffed.** A pane that simply drew nothing would leave the
-    /// reader to guess which of the two files was the problem.
+    /// Named per side, and nothing is diffed. A pane that drew nothing would leave the reader to
+    /// guess which of the two files was the problem.
     @Test(arguments: [BoundedTextRead.Outcome.tooLarge(bytes: 99_000_000),
                       .cloudOnly, .binary, .unreadable])
     func aSideThatIsNotTextRefusesTheWholeDiffAndSaysWhich(bad: BoundedTextRead.Outcome) throws {
@@ -55,8 +51,8 @@ import Testing
         #expect(onLeft.notes.count == 1)
         let leftNote = try #require(onLeft.notes.first)
         #expect(leftNote.hasPrefix("Left: "), "got \(leftNote)")
-        // The REASON travels, not just a refusal — "too large" and "not downloaded" are different
-        // things for the reader to do something about.
+        // The reason travels, not just a refusal: "too large" and "not downloaded" ask the reader
+        // to do different things.
         #expect(leftNote.hasSuffix(try #require(bad.caption)))
 
         let onRight = run(text("one\n"), bad)
@@ -73,8 +69,8 @@ import Testing
         #expect(outcome.notes[1].hasPrefix("Right: "))
     }
 
-    /// **The labels are the caller's**, because the editor's two sides are not a left and a right
-    /// column in the reader's head — they are the buffer and the file.
+    /// The labels are the caller's, because to the reader the editor's two sides aren't a left and
+    /// a right column but the buffer and the file.
     @Test func theRefusalUsesTheCallersOwnNamesForTheTwoSides() {
         let outcome = run(text("one\n"), .tooLarge(bytes: 99_000_000),
                           leftLabel: "In Edit", rightLabel: "On disk")
@@ -84,13 +80,11 @@ import Testing
 
     // MARK: The order the guards run in
 
-    /// **The pre-filter runs BEFORE the walk, and this is the pair that proves it.**
-    ///
-    /// Two large arrays with nothing in common price far above ``TextPairDiff/maxEstimatedCost``,
-    /// so the linear pass refuses them and the walk is never entered. If the two were swapped the
-    /// answer would be the same sentence — `refusalCaption` is shared — so the observable
-    /// difference is the *cancellation flag*: a walk that ran would have asked `isCancelled`, and
-    /// a pipeline that reached one here would come back cancelled instead of refused.
+    /// The pre-filter runs before the walk. Two large arrays with nothing in common price far above
+    /// ``TextPairDiff/maxEstimatedCost``, so the linear pass refuses them and the walk never
+    /// starts. Swapped, the answer would be the same shared `refusalCaption`, so what tells them
+    /// apart is the cancellation flag: a walk that ran would have asked `isCancelled` and come back
+    /// cancelled.
     @Test func anEnormousUnrelatedPairIsRefusedWithoutEnteringTheWalk() {
         let left = (0..<40_000).map { "left line \($0)" }.joined(separator: "\n")
         let right = (0..<40_000).map { "right line \($0)" }.joined(separator: "\n")
@@ -121,7 +115,7 @@ import Testing
                 "a cancelled pass knows nothing about the pair — its notes would replace a real answer with silence")
     }
 
-    /// The coarse note is a fact about the diff that came back, so it is appended last — after the
+    /// The coarse note is a fact about the diff that came back, so it is appended last, after the
     /// reading notes, and only on the path that produced rows.
     @Test func aRowTooLongForTheWordPassSaysSoAfterTheReadingNotes() {
         let long = String(repeating: "word ", count: TextPairDiff.maxWordsForIntraLine + 10)

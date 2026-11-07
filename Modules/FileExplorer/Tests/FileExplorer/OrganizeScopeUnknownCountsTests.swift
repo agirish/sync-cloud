@@ -2,23 +2,16 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **Absent beats a wrong zero.**
-///
-/// Three readouts claimed a number they could not support, each in the same way: a count drawn from
-/// a source that had not looked where the label said it had. The rail's badge rule already settles
-/// this for findings — `badge(count:)` returns nil at zero rather than drawing a greyed "0" — and
-/// these are the same question asked about a folder tally, an inbox and a survey.
+/// Absent beats a wrong zero: a readout states a count only when its source looked where the label
+/// says it did. The same rule as `badge(count:)`, which returns nil at zero rather than a greyed
+/// "0", applied to a folder tally, an inbox and a survey.
 @Suite struct OrganizeScopeUnknownCountsTests {
 
     // MARK: The inbox offer
 
-    /// The count is claimed only when the last scan actually covered the inbox.
-    ///
-    /// `filingSuggestions` holds ONE scan's output, so scoped to `Legal` — or before any scan at
-    /// all — nothing in it sits under `TODO`, and the offer read "Inbox (TODO) — **0 loose files**"
-    /// while the inbox held fifty. That is the worst possible wording for this control: it talks
-    /// the user out of the single click the inbox was promoted from a hidden default to make
-    /// available.
+    /// The inbox count is claimed only when the last scan covered the inbox. `filingSuggestions`
+    /// holds one scan's output, so scoped elsewhere, or before any scan, it would read "0 loose
+    /// files" for a full inbox and talk the user out of the click the offer exists for.
     @Test func anUnknownInboxCountNamesTheFolderInsteadOfClaimingZero() {
         #expect(OrganizeOverview.inboxSubtitle(nil) == "Organize just this folder")
         // The wrong-zero string must not be reachable from nil.
@@ -31,9 +24,8 @@ import Foundation
     }
 
     @Test func aKNOWNZeroStillReadsAsZero() {
-        // The discriminating half. Nil is "we did not look"; zero is "we looked and it is empty",
-        // and a scan that really covered an empty inbox must be allowed to say so — otherwise the
-        // fix would just be a blanket suppression that hides a true answer along with the false one.
+        // Nil is "we did not look"; zero is "we looked and it is empty". A real empty inbox must
+        // still say so, or the rule would hide true answers along with false ones.
         #expect(OrganizeOverview.inboxSubtitle(0) == "0 loose files — organize just this folder")
         #expect(OrganizeOverview.inboxSubtitle(0) != OrganizeOverview.inboxSubtitle(nil))
     }
@@ -44,8 +36,7 @@ import Foundation
     /// lens did not look at.
     @Test func theCleanStateCountsWhatItActuallyChecked() {
         #expect(RestructureLens.cleanMessage(folderCount: 79).hasPrefix("Checked 79 folders."))
-        // Grouped past a thousand — the real tree is 3,013 folders, and this sentence and the
-        // setup card's footnote both say so the same way.
+        // Grouped past a thousand, the same way the setup card's footnote writes it.
         #expect(RestructureLens.cleanMessage(folderCount: 3_013).hasPrefix("Checked 3,013 folders."))
         #expect(RestructureLens.cleanMessage(folderCount: 1).hasPrefix("Checked 1 folder."))
     }

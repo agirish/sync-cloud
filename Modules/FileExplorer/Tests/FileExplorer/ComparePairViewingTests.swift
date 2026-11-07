@@ -12,8 +12,8 @@ import Testing
 
     // MARK: Modes
 
-    /// The digit and the declaration order are ONE fact. Writing the mapping twice is how a
-    /// keyboard hint and the key it advertises start disagreeing.
+    /// A mode's digit and its place among the offered modes are one fact; writing the mapping
+    /// twice lets a keyboard hint and its key disagree.
     @Test func everyModesDigitRoundTripsWithinWhatIsOffered() {
         for kind in PairContentKind.allCases {
             let offered = ComparePairMode.available(for: kind)
@@ -26,9 +26,8 @@ import Testing
         }
     }
 
-    /// **The digit is a position in what is OFFERED, not in the declaration.** A text pair offers
-    /// two modes, so `2` there must reach its Diff segment — which is the fourth case declared. A
-    /// digit derived from `allCases` would reach a segment that is not on screen.
+    /// The digit is a position in what is offered, not in the declaration. A text pair's `2` must
+    /// reach its Diff segment, the fourth case declared; `allCases` would reach one not on screen.
     @Test func aTextPairsSecondDigitReachesItsSecondSegment() {
         let offered = ComparePairMode.available(for: .text)
         #expect(ComparePairMode.forDigit(2, in: offered) == .textDiff)
@@ -36,8 +35,8 @@ import Testing
         #expect(ComparePairMode.forDigit(2, in: ComparePairMode.available(for: .other)) == nil)
     }
 
-    /// A kind with neither a raster nor lines gets exactly one mode, and the surface then draws no
-    /// segmented control at all — a one-segment picker is a control that cannot be used.
+    /// A kind with neither a raster nor lines gets exactly one mode, and then no segmented control
+    /// at all: a one-segment picker can't be used.
     @Test func eachKindOffersTheModesItCanActuallyDraw() {
         #expect(ComparePairMode.available(for: .pdf).count == 4)
         #expect(ComparePairMode.available(for: .image).count == 4)
@@ -49,8 +48,8 @@ import Testing
         }
     }
 
-    /// **Difference always carries its caveat.** Two scans of the same sheet of paper glow
-    /// everywhere from scanner noise; a reader who has not been told reads the glow as content.
+    /// Difference always carries its caveat: two scans of one sheet glow everywhere from scanner
+    /// noise, and an untold reader takes the glow for content.
     @Test func differenceIsTheModeThatOwesACaveat() {
         #expect(ComparePairMode.difference.caveat?.contains("pixel level") == true)
         for mode in ComparePairMode.allCases where mode != .difference {
@@ -72,10 +71,9 @@ import Testing
         }
     }
 
-    /// **6 against 5: the strip is six long and the short side pins at its last page.** Truncating
-    /// to five would hide the page that exists on one document only — which for a versions pair is
-    /// the most interesting thing about it — and a blank pane past the end reads as a failed
-    /// render rather than as the end of the document.
+    /// 6 against 5: the strip is six long and the short side pins at its last page. Truncating to
+    /// five would hide the page only one document has, and a blank pane past the end reads as a
+    /// failed render.
     @Test func theShorterSidePinsAtItsLastPageAndSaysSo() throws {
         let pairing = PagePairing(leftPages: 6, rightPages: 5)
         #expect(pairing.stripLength == 6)
@@ -88,8 +86,8 @@ import Testing
         #expect(note.contains("5"))
     }
 
-    /// **A pinned position is not a comparison.** It measures a page against a different page, so
-    /// a strip dot there must not claim "same" or "changed" — it says one-sided instead.
+    /// A pinned position is not a comparison: it sets a page against a different page, so its dot
+    /// says one-sided, never "same" or "changed".
     @Test func aPinnedPositionIsNotComparable() {
         let pairing = PagePairing(leftPages: 6, rightPages: 5)
         #expect(pairing.isComparable(at: 4))
@@ -110,18 +108,16 @@ import Testing
 
     // MARK: Page state
 
-    /// A pending dot is its own state. A strip that rendered "same" while the comparison was still
-    /// queued behind a scan would be making a claim nobody checked, on a surface whose next button
-    /// trashes a file.
+    /// Pending is its own state. A strip showing "same" while the comparison is still queued would
+    /// make a claim nobody checked, beside a button that trashes a file.
     @Test func pendingIsNotSame() {
         #expect(PageDiffState.pending != .same)
         #expect(!PageDiffState.pending.isResolved)
         #expect(PageDiffState.same.isResolved)
     }
 
-    /// A raster that could not be built is `unrenderable`, never `same`. Those two must not be the
-    /// same answer here for the same reason `BitmapDiff.compare` returns nil rather than a
-    /// zero result.
+    /// A raster that couldn't be built is `unrenderable`, never `same`, for the reason
+    /// `BitmapDiff.compare` returns nil rather than a zero result.
     @Test func anUnbuiltRasterIsNotAMatch() {
         #expect(PageDiffState.from(nil) == .unrenderable)
         #expect(PageDiffState.from(BitmapDiffResult(changedFraction: 0, changedRects: [],
@@ -130,10 +126,8 @@ import Testing
                                                     sizesDiffer: false)) == .changed(fraction: 0.2))
     }
 
-    /// **A pending page draws NO dot, and that is the rule rather than a shade of grey.** A grey
-    /// dot under every page is what the strip showed in side-by-side mode, where no comparison is
-    /// run at all — markers that mean nothing, which read as "checked, and unremarkable" rather
-    /// than as "not checked". The number alone is the honest resting state.
+    /// A pending page draws no dot, not a grey one. A grey dot reads as "checked, unremarkable"
+    /// rather than "not checked"; the page number alone is the honest resting state.
     @Test func onlyAResolvedPageGetsADot() {
         #expect(PageDiffState.pending.dot == nil)
         #expect(PageDiffState.same.dot == .same)
@@ -142,8 +136,8 @@ import Testing
         #expect(PageDiffState.unrenderable.dot == .unrenderable)
     }
 
-    /// Every resolved state has a dot and the pending one does not — asserted as a pair, so a new
-    /// state cannot be added with neither.
+    /// Every resolved state has a dot and the pending one does not, asserted as a pair so a new
+    /// state can't be added with neither.
     @Test func aDotExistsForExactlyTheResolvedStates() {
         let states: [PageDiffState] = [.pending, .same, .changed(fraction: 0.5), .oneSided,
                                        .unrenderable]
@@ -154,10 +148,8 @@ import Testing
 
     // MARK: Nothing to draw — waiting, or never
 
-    /// **A spinner means "wait", and it was shown for pages that were never going to arrive.** A
-    /// raster that cannot be built — a corrupt JPEG, an encrypted PDF — left the pixel modes
-    /// spinning for the life of the surface while the page strip a few points below had already
-    /// resolved the same page to `.unrenderable`.
+    /// A spinner means "wait", so a side whose raster can't be built (a corrupt JPEG, an encrypted
+    /// PDF) gets a message instead, matching the strip's `.unrenderable`.
     @Test func aFailedSideIsToldAboutRatherThanWaitedFor() {
         let outcome = PairRenderOutcome.failed(left: true, right: false)
         #expect(outcome.fallback(for: .left, name: "scan.jpg")
@@ -166,8 +158,8 @@ import Testing
                 "the side that rendered fine must not be captioned as broken")
     }
 
-    /// While a render is genuinely in flight, the spinner is right — that is the state it was built
-    /// for, and removing it would replace one wrong answer with another.
+    /// While a render is in flight the spinner is right; removing it would be a different wrong
+    /// answer.
     @Test func aRenderInFlightStillWaits() {
         for outcome in [PairRenderOutcome.rendering, .ready] {
             #expect(outcome.fallback(for: .left, name: "a.png") == .spinner, "\(outcome)")
@@ -178,8 +170,8 @@ import Testing
         }
     }
 
-    /// A comparison needs both sides, so one unrenderable side ends it — and the difference view
-    /// says which one, rather than leaving an empty black field to be read as "no differences".
+    /// A comparison needs both sides, so one unrenderable side ends it, and the difference view
+    /// names that side rather than leaving a black field to read as "no differences".
     @Test func theDifferenceViewNamesTheSideThatEndedTheComparison() {
         #expect(PairRenderOutcome.failed(left: true, right: false)
                     .differenceMessage(leftName: "a.png", rightName: "b.png")
@@ -220,8 +212,8 @@ import Testing
         }
         deinit { try? FileManager.default.removeItem(at: dir) }
 
-        /// A real multi-page PDF built through PDFKit — the renderer opens documents, so a
-        /// fabricated path would answer nil and every case below would pass vacuously.
+        /// A real multi-page PDF built through PDFKit: the renderer opens documents, so a
+        /// fabricated path would answer nil and the cases below would pass vacuously.
         private static func write(pages: [String], to url: URL) throws -> String {
             let document = PDFDocument()
             for (index, text) in pages.enumerated() {
@@ -266,9 +258,8 @@ import Testing
         #expect(await PagePairRaster.render(path: fixture.onePage, page: -1, longEdge: 200) == nil)
     }
 
-    /// **The end-to-end claim.** Two documents whose page 1 is the same and whose page 2 differs
-    /// must diff as same-then-changed — the whole point of the page strip, and the one assertion
-    /// that fails if the render, the normalisation or the loop is wrong anywhere.
+    /// End to end: two documents with the same page 1 and a different page 2 diff as
+    /// same-then-changed. Fails if the render, the normalisation or the loop is wrong.
     @Test func twoRealPagesDiffAsSameThenChanged() async throws {
         let fixture = try PDFFixture()
         func diff(page: Int) async throws -> BitmapDiffResult {
@@ -284,13 +275,12 @@ import Testing
         #expect(!second.changedRects.isEmpty)
     }
 
-    /// **The lane holds.** A compare render and another PDFKit reader running together must never
-    /// put two parses in flight: `peakConcurrentParses` is 0 or 1 for the life of the process on a
-    /// serial lane, and anything above 1 means a second lane exists somewhere.
+    /// The PDFKit lane holds: a compare render and another reader together never put two parses
+    /// in flight. `peakConcurrentParses` above 1 means a second lane exists somewhere.
     @Test func theSerialLaneStillHoldsWithACompareRunning() async throws {
         let fixture = try PDFFixture()
-        // Paths, not the fixture: the fixture is a class and holding it in six concurrent tasks
-        // is a data race the compiler is right to refuse — its only job here is the files.
+        // Paths, not the fixture: the fixture is a class, and sharing it across concurrent tasks
+        // is a data race the compiler refuses.
         let render = fixture.twoPage
         let count = fixture.twoPageEdited
         await withTaskGroup(of: Void.self) { group in
@@ -307,11 +297,9 @@ import Testing
 
     // MARK: The typed viewer, mounted
 
-    /// **Both documents really open, and both panes really get width.** The pieces this asserts
-    /// are the ones a screenshot cannot: `PDFView` renders through a layer that
-    /// `cacheDisplay(in:to:)` does not capture, so a mounted pair photographs as two empty boxes
-    /// whether it is working or not (measured while building this). Reading the views back is the
-    /// only way to tell those two apart.
+    /// Both documents open and both panes get width. Read back from the views, because `PDFView`
+    /// draws through a layer `cacheDisplay(in:to:)` doesn't capture, so a mounted pair
+    /// photographs as two empty boxes whether it works or not.
     @MainActor
     @Test func theTypedPdfPairOpensBothDocumentsAndSplitsTheSpace() async throws {
         let fixture = try PDFFixture()
@@ -328,10 +316,9 @@ import Testing
         func views(_ v: NSView) -> [PDFView] {
             v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
         }
-        // **`LayoutPumpWait`, not a wall-clock deadline.** The documents arrive on main-actor
-        // turns, and under full-package congestion seconds buy very few of them — this test first
-        // failed exactly that way, passing in isolation and giving up after 51 seconds in the
-        // suite. `docs/flaky-tests.md`, mechanism 2.
+        // `LayoutPumpWait`, not a wall-clock deadline: the documents arrive on main-actor turns,
+        // and under load seconds buy few of them ("Fixed pumps and fixed sleeps",
+        // `docs/flaky-tests.md`).
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
             let found = views(host)
             return found.count == 2 && found.allSatisfy { $0.document != nil }
@@ -347,11 +334,9 @@ import Testing
         }
     }
 
-    /// **Scrolling one pane moves the other — the half that was silently dead.** The scroll
-    /// observers were registered in `makeNSView`, where a `PDFView` has no document and therefore
-    /// no `documentView`, no scroll view and no clip view: `guard let … else { continue }` found
-    /// nil and registered nothing, while the ZOOM half (posted by the view itself) worked and made
-    /// the pair look synchronised. Nothing but driving a real scroll could see it.
+    /// Scrolling one pane moves the other. A `PDFView` has no clip view until its document loads,
+    /// so observers registered in `makeNSView` would register nothing, while zoom sync still made
+    /// the pair look synchronised. Only a real scroll shows it.
     @MainActor
     @Test func scrollingOnePaneMovesTheOther() async throws {
         let fixture = try PDFFixture()
@@ -371,8 +356,8 @@ import Testing
         func clips() -> [NSClipView] {
             views(host).compactMap { $0.documentView?.enclosingScrollView?.contentView }
         }
-        // Wait for the CLIP VIEWS, not just the documents: the clip view is what the observer
-        // needs, and it is the thing that does not exist at construction.
+        // Wait for the clip views, not just the documents: the observer needs the clip view, and
+        // it doesn't exist at construction.
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 5) { clips().count == 2 }
         try #require(held, "the panes never got scroll views (\(pumps) pumps)")
         let pair = clips()
@@ -392,9 +377,8 @@ import Testing
 
     // MARK: The reentrancy latch
 
-    /// **The property a value comparison cannot give.** Two views quantise scroll offsets
-    /// differently, so A → B → A′ lands a hair off A, differs again, and the pair walks. The latch
-    /// stops the echo at one hop whatever the far side rounds to.
+    /// What a value comparison can't give: two views quantise scroll offsets differently, so
+    /// A → B → A′ lands a hair off A and the pair walks. The latch stops the echo at one hop.
     @Test func theLatchStopsAnEchoAtOneHop() {
         let latch = SyncLatch()
         var hops = 0
@@ -408,8 +392,7 @@ import Testing
         #expect(hops == 1, "the mirror re-entered \(hops) times")
     }
 
-    /// …and it re-arms: a latch that stayed closed after one mirror would freeze the pair on its
-    /// first scroll, which is the same bug with the sign flipped.
+    /// …and it re-arms: a latch that stayed closed would freeze the pair after its first scroll.
     @Test func theLatchReArmsAfterEachMirror() {
         let latch = SyncLatch()
         var hops = 0
@@ -427,9 +410,8 @@ import Testing
         var zooms: [CGFloat] { lock.lock(); defer { lock.unlock() }; return seen }
     }
 
-    /// The mode switch, in the shape the surface performs it: `panes` switches on the mode, so
-    /// leaving side-by-side REMOVES the representable and coming back builds a fresh one. A test
-    /// that only ever mounts cannot see anything this is about.
+    /// The mode switch as the surface performs it: leaving side by side removes the representable
+    /// and coming back builds a fresh one, which a test that only mounts can't see.
     private struct ModeSwitchHarness: View {
         let left: String
         let right: String
@@ -454,8 +436,7 @@ import Testing
     @MainActor
     final class ZoomBox: ObservableObject {
         @Published var showingPair = true
-        /// What the surface remembers. Recorded rather than only stored, so a test can assert the
-        /// report happened at all as well as what came back.
+        /// What the surface remembers, also recorded so a test can assert that a report happened.
         @Published var zoom: CGFloat? { didSet { if let zoom { reports.record(zoom) } } }
         let reports = ZoomReports()
     }
@@ -479,8 +460,7 @@ import Testing
     @MainActor
     private func loadedPanes(_ host: NSHostingView<AnyView>, _ window: NSWindow) async throws -> [PDFView] {
         // Paced by the PDFKit lane the two opens queue in, not by seconds: in a full package run
-        // that lane is busy for minutes, and 5 s and then 30 s both ran out with the opens still
-        // queued (CI runs 40156309573 and 40214697085). See `LaneWait`.
+        // that lane can be busy for minutes. See `LaneWait`.
         let (loaded, pumps) = await LaneWait.pump(window) {
             pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
         }
@@ -488,12 +468,9 @@ import Testing
         return pdfViews(host)
     }
 
-    /// **The whole round trip, in the shape the reader performs it.**
-    ///
-    /// Zoom in to read a table, press `2`–`4` to check the pixel difference, press `1` to come
-    /// back. Measured on the unfixed code: 2.01× in, 0.81× out — `autoScales` refits the fresh
-    /// mount and the reader's place is gone. The page already survives this by living on the
-    /// surface; the zoom is the other half of where they were.
+    /// The reader's round trip: zoom in, press `2`–`4` for a pixel mode, press `1` to come back.
+    /// The fresh mount's `autoScales` would refit and lose the zoom; like the page, it lives on
+    /// the surface.
     @MainActor
     @Test func theReadersZoomSurvivesLeavingAndReenteringSideBySide() async throws {
         let fixture = try LetterFixture()
@@ -527,17 +504,10 @@ import Testing
         #expect(abs(fitted - chosen) > 0.001, "positive control: the fit and the choice differ")
     }
 
-    /// **A fresh mount that already carries a zoom applies it, with no further update passes.**
-    ///
-    /// The mount is static — one `updateNSView`, no observable object nudging it — which is the
-    /// configuration that catches the timing. Applied inline in the load completion the zoom is
-    /// overwritten: PDFKit performs its own initial fit when the view next lays out, which is after
-    /// the assignment returns, and the pane comes up at the fit with `autoScales` already false.
-    /// Measured that way at 0.806 against an asked-for 2.0.
-    ///
-    /// The round-trip test above does NOT catch this — its harness publishes, so a later update
-    /// pass re-applies and hides the ordering. Two load completions landing at different moments
-    /// hide it too. This is the shape with neither rescue.
+    /// A fresh static mount (one `updateNSView`, nothing republishing) applies the zoom it was
+    /// given. Applied inline in the load completion, the zoom is overwritten: PDFKit does its own
+    /// initial fit at the next layout, so the pane comes up at the fit with `autoScales` false.
+    /// The round-trip test can't catch this: its harness publishes, and a later pass re-applies.
     @MainActor
     @Test func aFreshStaticMountAppliesTheZoomItWasGiven() async throws {
         let fixture = try LetterFixture()
@@ -568,21 +538,17 @@ import Testing
                 """)
     }
 
-    /// **A pair the reader never zoomed must keep fitting itself.**
-    ///
-    /// The notification route failed exactly here: PDFKit posts its own initial fit, the mirror
-    /// turns the far pane's `autoScales` off carrying it, and the surface was handed 0.806 as
-    /// though it had been chosen — which then pins every later mount at one window's fit.
+    /// A pair the reader never zoomed keeps fitting itself. PDFKit posts its own initial fit, and
+    /// the mirror turns the far pane's `autoScales` off; reporting that fit as a choice would pin
+    /// every later mount at one window's fit.
     @MainActor
     @Test func anUntouchedPairReportsNoZoomAndKeepsFitting() async throws {
         let fixture = try LetterFixture()
         let box = ZoomBox()
         let (host, window) = mountSwitchable(fixture, box: box)
         let panes = try await loadedPanes(host, window)
-        // NOT `panes.allSatisfy` — measured, the mirror turns ONE pane's `autoScales` off during
-        // load, and which one depends on load ordering. That is exactly why the report is decided
-        // by `fittedScale` rather than by the flag; asserting the flag here would be asserting the
-        // coin toss.
+        // Not `panes.allSatisfy`: the mirror turns one pane's `autoScales` off during load, and
+        // which one depends on load order. That is why the report reads `fittedScale`, not the flag.
         try #require(panes.contains { $0.autoScales }, "premise: a pane is still fitting itself")
 
         box.showingPair = false
@@ -595,10 +561,8 @@ import Testing
         #expect(back.contains { $0.autoScales }, "the fresh pair stopped fitting itself")
     }
 
-    /// **⌥ silences the zoom report, for the reason it silences the page report.**
-    ///
-    /// With ⌥ held the panes are deliberately apart and there is no single zoom to record; storing
-    /// one would hand it to BOTH panes on the next mount, which is what ⌥ exists to prevent.
+    /// ⌥ silences the zoom report, as it does the page report: with ⌥ held the panes are apart, and
+    /// a stored zoom would reach both panes on the next mount, which ⌥ exists to prevent.
     @MainActor
     @Test func aZoomSetWhileOptionIsHeldIsNotRecorded() async throws {
         let fixture = try LetterFixture()
@@ -610,8 +574,8 @@ import Testing
         _ = await LayoutPumpWait.pump(window, upTo: 2) { false }
         box.showingPair = false
 
-        // Pumped for as long as the round-trip test needs to SEE a report, so this is a waited-out
-        // absence rather than a race won by being quick.
+        // Pumped as long as the round-trip test needs to see a report, so this is a waited-out
+        // absence, not a race won by being quick.
         let (recorded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) { box.zoom != nil }
         #expect(!recorded, """
                 \(box.reports.zooms) recorded after \(pumps) pumps with ⌥ held — the next mount \
@@ -621,9 +585,8 @@ import Testing
 
     // MARK: Scrolling, at the size the reader actually gets
 
-    /// A page-sized document at the pane size the overlay really opens, so the fixture cannot be
-    /// the reason the answer comes out favourable: US Letter, the geometry of the pair that
-    /// prompted this.
+    /// US Letter pages, at the pane size the overlay really opens, so the fixture can't make the
+    /// answer come out favourable.
     private final class LetterFixture {
         let dir: URL
         let left: String
@@ -684,20 +647,14 @@ import Testing
         view.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + pdfViews($0) }
     }
 
-    /// **The measurement that named the defect, kept as the test for it.**
-    ///
-    /// `autoScales` fits the page to the pane, so under `.singlePage` a US Letter page laid out at
-    /// 792.0pt inside a 792.0pt clip view: the content fit to the pixel and every scroll gesture
-    /// was clamped to nothing. The panes were not failing to scroll TOGETHER — neither of them
-    /// could scroll at all, which is what "the PDFs still don't scroll in unison" turned out to
-    /// mean. Continuous display is what gives a scroll somewhere to go.
+    /// At the real pane size there is something to scroll. `autoScales` fits the page to the
+    /// pane, so under `.singlePage` the document exactly fills the clip view and no scroll moves
+    /// either pane. Continuous display gives a scroll somewhere to go.
     @MainActor
     @Test func atTheRealPaneSizeThereIsSomethingToScroll() async throws {
         let fixture = try LetterFixture()
         let (host, window) = mountLetterPair(fixture)
-        // Paced by the PDFKit lane the two opens queue in, not by seconds: in a full package run
-        // that lane is busy for minutes, and 5 s and then 30 s both ran out with the opens still
-        // queued (CI runs 40156309573 and 40214697085). See `LaneWait`.
+        // Paced by the PDFKit lane, not by seconds; see `LaneWait`.
         let (loaded, pumps) = await LaneWait.pump(window) {
             pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
         }
@@ -712,17 +669,13 @@ import Testing
         }
     }
 
-    /// A page the reader lands on is reported to the surface, so the strip and the pixel modes
-    /// follow the panes instead of describing the page they left behind.
+    /// A page the reader lands on is reported to the surface, so the strip and pixel modes follow
+    /// the panes.
     ///
-    /// **The move is made with `go(to:)` rather than a wheel event, and that is a real limit worth
-    /// stating.** Setting a clip view's bounds directly does not make `PDFView` recompute which
-    /// page is current — that tracking is PDFKit's, driven by its own scroll handling — so a test
-    /// scrolling the clip proves nothing about the reporting path. What this pins is everything
-    /// after the view changes page: the notification reaching the observer, the value guard letting
-    /// a genuine move through, and the surface hearing it. That PDFKit updates `currentPage` while
-    /// a reader scrolls a continuous document is its documented behaviour, and the one link here
-    /// that no test in this package can drive.
+    /// The move uses `go(to:)`, not a scroll: setting a clip view's bounds doesn't make `PDFView`
+    /// recompute its current page. This pins everything after the page changes (notification,
+    /// value guard, surface); PDFKit updating `currentPage` on scroll is the one link no test here
+    /// can drive.
     @MainActor
     @Test func aPageTheReaderLandsOnIsReportedToTheSurface() async throws {
         let fixture = try LetterFixture()
@@ -748,14 +701,9 @@ import Testing
                 """)
     }
 
-    /// **⌥ has to silence the report, not only the scroll mirror.**
-    ///
-    /// While ⌥ is held the two viewers stop mirroring so one pane can be moved alone — the promise
-    /// the Help book makes in those words. A report is not a mirror though: it is a message to the
-    /// surface, and the surface owns the page for BOTH panes. So a ⌥-held scroll crossing a page
-    /// boundary reported it, the surface set its page, and its next update drove the other pane
-    /// there — the one thing ⌥ exists to prevent, arriving by the long way round. Invisible in
-    /// review because the scroll offsets really had stopped mirroring; only whole pages jumped.
+    /// ⌥ silences the page report, not only the scroll mirror. With ⌥ held one pane moves alone,
+    /// as the Help book promises; but the surface owns the page for both panes, so a report would
+    /// make its next update drive the other pane to the same page.
     @MainActor
     @Test func aPageLandedOnWhileOptionIsHeldIsNotReported() async throws {
         let fixture = try LetterFixture()
@@ -770,8 +718,8 @@ import Testing
         let document = try #require(pane.document)
         pane.go(to: try #require(document.page(at: 1)))
 
-        // Pumped for as long as the positive control above needs to SEE a report, so this is a
-        // waited-out absence rather than a race won by being quick.
+        // Pumped as long as the positive control above needs to see a report, so this is a
+        // waited-out absence, not a race won by being quick.
         let (reported, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
             reports.pages.contains(1)
         }
@@ -781,9 +729,8 @@ import Testing
                 """)
     }
 
-    /// **The echo has to stop.** Both views post when the page changes, and the surface moving the
-    /// page moves both — so a report that merely repeats what the surface asked for must not come
-    /// back, or the strip and the panes push each other in a loop.
+    /// The echo stops: both views post when the page changes, so a report repeating what the
+    /// surface asked for must not come back, or the strip and panes push each other in a loop.
     @MainActor
     @Test func aPageTheSurfaceAskedForIsNotReportedBack() async throws {
         let fixture = try LetterFixture()
@@ -831,16 +778,12 @@ import Testing
         }
     }
 
-    /// **A page turn during the open used to be dropped on the floor.** The load captured the page
-    /// index at the moment it was queued, and `go` — the only other way in — bails while
-    /// `document` is still nil. So a turn arriving in between reached neither: the strip pointed
-    /// at page 2 and both panes sat on page 1 until the next turn. The window is real, and it is
-    /// widest exactly when the strip is most worth clicking: a scan holding the PDFKit lane makes
-    /// the open slow while the strip is already interactive.
+    /// A page turned while the documents open is not lost. `go` bails while `document` is nil, so
+    /// a load that used the index captured when it was queued would leave both panes on the old
+    /// page. The window is widest when a scan holds the PDFKit lane and the strip is clickable.
     ///
-    /// The turn is made BEFORE any await, so no document can have arrived yet — the require below
-    /// says so rather than assuming it, because a test that turned the page after the load would
-    /// pass through the ordinary `go` path and prove nothing.
+    /// The turn is made before any await, and the require checks no document has arrived: a turn
+    /// after the load would take the ordinary `go` path and prove nothing.
     @MainActor
     @Test func aPageTurnedWhileTheDocumentsOpenIsNotLost() async throws {
         let fixture = try PDFFixture()
@@ -858,7 +801,7 @@ import Testing
             v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + panes($0) }
         }
         // Both halves matter: `allSatisfy` is vacuously true on an empty array, so the count is
-        // asserted with it — two panes exist, and neither has a document yet.
+        // asserted too.
         try #require(panes(host).count == 2 && panes(host).allSatisfy { $0.document == nil },
                      "a document arrived before the turn — this would test the ordinary path")
 
@@ -894,13 +837,12 @@ import Testing
 
 /// Re-wiring the scroll sync must retire the previous pair's observers as it registers this pair's.
 ///
-/// **The `PDFView`s are reused across a path change**, so their clip views can be the very same
-/// objects: a second registration on one clip mirrors every scroll twice. The latch collapses the
-/// duplicate, which is precisely why this was invisible — the effect was right and the registration
-/// count grew by two per pair opened.
+/// The `PDFView`s are reused across a path change, so their clip views can be the same objects and
+/// a second registration mirrors every scroll twice. The latch hides the duplicate, so only the
+/// registration count shows it.
 ///
-/// Driven on a bare `Coordinator` against real `NotificationCenter` observers, so it measures the
-/// bookkeeping itself rather than a PDF pair's rendering.
+/// Driven on a bare `Coordinator` against real `NotificationCenter` observers, to measure the
+/// bookkeeping rather than a PDF pair's rendering.
 @Suite struct PDFPairScrollObserverTests {
 
     private final class Counter: @unchecked Sendable {
@@ -941,9 +883,8 @@ import Testing
         coordinator.replaceScrollObservers { [] }
     }
 
-    /// The lifetime list is disjoint from the scroll list, so a re-wire cannot strand a token in
-    /// it. Asserted by identity: a scroll observer appearing in `observers` is a token the re-wire
-    /// removes from the centre and the coordinator then retains for the life of the view.
+    /// The lifetime list is disjoint from the scroll list, checked by identity: a scroll observer in
+    /// `observers` would be removed from the centre by a re-wire yet retained for the view's life.
     @Test func aScrollObserverIsNotAlsoHeldInTheLifetimeList() {
         let coordinator = PDFPairView.Coordinator()
         let clip = NSObject()

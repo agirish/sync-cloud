@@ -2,18 +2,18 @@ import Foundation
 import Darwin
 import Sync
 
-/// One line of a text file that holds what was searched for (RD38) — a row under the file's name
-/// in the Files list's Contents results.
+/// One line of a text file that holds what was searched for: a row under the file's name in the
+/// Files list's Contents results.
 public struct EditorContentLine: Identifiable, Equatable, Sendable {
     /// 1-based, the editor's own count: `\r\n`, a lone `\r` and `\n` each end one line, as
-    /// ``EditorCaret`` and ``EditorLineIndex`` count them — so the number shown is the line Go to
-    /// Line lands on.
+    /// ``EditorCaret`` and ``EditorLineIndex`` count them, so the number shown is where Go to Line
+    /// lands.
     public var line: Int
-    /// 1-based, in characters, as ``EditorGoToLine/Target`` counts columns — where the match starts.
+    /// Where the match starts: 1-based, in characters, as ``EditorGoToLine/Target`` counts columns.
     public var column: Int
     /// The match's length in the file, in UTF-16 units: what the editor selects.
     public var length: Int
-    /// The line as the row shows it — leading space dropped, and cut around the match when the line
+    /// The line as the row shows it: leading space dropped, and cut around the match when the line
     /// is long.
     public var snippet: String
     /// Where the match sits in ``snippet``, in UTF-16 units, for the highlight.
@@ -30,8 +30,8 @@ public struct EditorContentLine: Identifiable, Equatable, Sendable {
     }
 }
 
-/// One file the Contents search found (RD38): a text file with its matching lines, or a PDF, Word
-/// or PowerPoint file Spotlight says contains the word.
+/// One file the Contents search found: a text file with its matching lines, or a PDF, Word or
+/// PowerPoint file Spotlight says contains the word.
 public struct EditorContentHit: Identifiable, Equatable, Sendable {
 
     /// What opening it does, and which group it is listed in.
@@ -40,22 +40,22 @@ public struct EditorContentHit: Identifiable, Equatable, Sendable {
         case text
         /// From Spotlight: opens in Edit with its find bar holding the word.
         case pdf
-        /// A Word or PowerPoint file, from Spotlight. Edit does not open these, so a click shows it
+        /// A Word or PowerPoint file, from Spotlight. Edit doesn't open these, so a click shows it
         /// in Quick Look.
         case document
     }
 
     public var path: String
     public var name: String
-    /// The folder it is in, relative to the folder searched — `""` for that folder itself.
+    /// The folder it is in, relative to the folder searched; `""` for that folder itself.
     public var subfolder: String
     public var kind: Kind
     /// The first matching lines, at most ``EditorContentSearch/Limits/linesPerFile``. Empty for a
     /// Spotlight hit, which says which files match and not where.
     public var lines: [EditorContentLine]
-    /// How many lines match in all — at least `lines.count`.
+    /// How many lines match in all; at least `lines.count`.
     public var lineCount: Int
-    /// A Spotlight hit whose content is not on this Mac. Never true for a text hit: those are
+    /// A Spotlight hit whose content isn't on this Mac. Never true for a text hit: those are
     /// skipped, unread.
     public var isCloudOnly: Bool
 
@@ -73,25 +73,23 @@ public struct EditorContentHit: Identifiable, Equatable, Sendable {
     }
 }
 
-/// **Search inside files (RD38): the text half** — every text file Edit opens, in a folder and the
-/// folders inside it, read directly and matched line by line.
+/// Search inside files, the text half: every text file Edit opens, in a folder and the folders
+/// inside it, read directly and matched line by line. Read on each search, not indexed: a typical
+/// Documents folder's text files read in a fraction of a second, and an index would be a second
+/// copy of the files to keep true.
 ///
-/// **Read on each search, not indexed.** Measured on his Mac on 21 October: ~/Documents holds 475
-/// text files, 10 MB, read in 0.1–0.2 s. An index would be a second copy of his files to keep true.
+/// **Never** reads a file whose content isn't on this Mac: one `lstat` per text file decides it
+/// (``FileFacts``) before anything opens the file, since opening an evicted iCloud file makes the
+/// provider download it. A folder whose own listing isn't on this Mac is asked for through Sync's
+/// dataless-folder reads (`waitForContents`), as the pane lists one.
 ///
-/// **What it never does is read a file whose content is not on this Mac.** One `lstat` per text
-/// file decides it (``FileFacts``), before anything opens the file — opening an evicted iCloud file
-/// is what makes the provider download it. A folder whose own listing is not on this Mac is asked
-/// for through Sync's dataless-folder reads (`waitForContents`), which is how the pane lists one.
-///
-/// **What it skips, and says so:** files not downloaded, files over the editor's 4 MiB read cap,
-/// and — silently, because they are not documents — binary files, hidden files and folders (a
-/// leading dot) and packages. Hidden folders are where the volume is: ~/Projects lists 4,455 items
-/// outside them and its `.claude` and `.git` folders hold tens of thousands more.
+/// Skips, and counts, files not downloaded and files over the editor's 4 MiB read cap; skips
+/// silently binary files, hidden files and folders (a leading dot) and packages. Hidden folders
+/// such as `.git` are where most of the entries are.
 public enum EditorContentSearch {
 
     /// What one search may spend. The walk stops at ``entries``; reading stops once ``files`` files
-    /// have matched — a word in every file would otherwise list the whole folder.
+    /// have matched, or a word in every file would list the whole folder.
     public struct Limits: Equatable, Sendable {
         public var entries: Int
         public var files: Int
@@ -103,7 +101,7 @@ public enum EditorContentSearch {
             self.linesPerFile = linesPerFile
         }
 
-        /// 250,000 items is fifteen times ~/Documents (16,727 items outside hidden folders).
+        /// 250,000 items is about fifteen times a typical ~/Documents outside hidden folders.
         public static let standard = Limits(entries: 250_000, files: 500, linesPerFile: 20)
     }
 
@@ -119,7 +117,7 @@ public enum EditorContentSearch {
     public struct Progress: Equatable, Sendable {
         /// Text files read so far.
         public var read: Int
-        /// Text files the walk found to read — final once ``walked`` is true.
+        /// Text files the walk found to read; final once ``walked`` is true.
         public var found: Int
         public var walked: Bool
 
@@ -136,7 +134,7 @@ public enum EditorContentSearch {
         public var matched = 0
         public var notDownloaded = 0
         public var tooLarge = 0
-        /// Folders whose contents are not on this Mac and did not arrive when asked for.
+        /// Folders whose contents aren't on this Mac and didn't arrive when asked for.
         public var unansweredFolders = 0
         public var stop: Stop?
 
@@ -144,8 +142,8 @@ public enum EditorContentSearch {
     }
 
     public enum Event: Equatable, Sendable {
-        /// A file that matched. `order` is its place in the walk — Finder's order, folder by folder
-        /// — which is how the list stays still while results arrive out of order.
+        /// A file that matched. `order` is its place in the walk (Finder's order, folder by
+        /// folder), so the list stays still while results arrive out of order.
         case hit(EditorContentHit, order: Int)
         case progress(Progress)
         case finished(Summary)
@@ -159,16 +157,16 @@ public enum EditorContentSearch {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// How a line is matched — the Files list's name filter's rule (``EditorRail/filtered``), so
-    /// "Cafe" finds "café" in a file as it finds it in a name.
+    /// How a line is matched: the Files list's name filter's rule
+    /// (``EditorRail/filtered(_:matching:)``), so "Cafe" finds "café" in a file as in a name.
     static let matchOptions: NSString.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
     /// The lines of `text` that contain `needle`: the first `keeping` of them, and how many there are.
     ///
-    /// **One search over the whole text, not one per line.** `NSString.range(of:options:range:)`
-    /// finds the next match, the line count is advanced to it over the UTF-16 units in between, and
-    /// the search goes on from the end of that line — so a line is one row however often it
-    /// matches, and lines with no match cost only the count.
+    /// One search over the whole text, not one per line: `NSString.range(of:options:range:)` finds
+    /// the next match, the line count advances to it over the UTF-16 units between, and the search
+    /// resumes at the end of that line. A line is one row however often it matches, and lines with
+    /// no match cost only the count.
     static func matchingLines(in text: String, needle: String,
                               keeping: Int) -> (lines: [EditorContentLine], count: Int) {
         let ns = text as NSString
@@ -212,7 +210,7 @@ public enum EditorContentSearch {
         return (lines, count)
     }
 
-    /// The longest snippet a row is handed — more than a 232pt rail can show, so the row truncates
+    /// The longest snippet a row is handed: more than a 232pt rail can show, so the row truncates
     /// at its own width rather than here.
     static let snippetLength = 160
     /// How much of a long line is kept before the match, so the match is never cut off the row.
@@ -220,7 +218,7 @@ public enum EditorContentSearch {
 
     private static func contentLine(in ns: NSString, text: String, line: Int, lineStart: Int,
                                     lineEnd: Int, match: NSRange) -> EditorContentLine {
-        // The column in characters, as Go to Line counts it — an emoji is one column.
+        // The column in characters, as Go to Line counts it: an emoji is one column.
         let startIndex = String.Index(utf16Offset: lineStart, in: text)
         let matchIndex = String.Index(utf16Offset: match.location, in: text)
         let column = text[startIndex..<matchIndex].count + 1
@@ -248,8 +246,8 @@ public enum EditorContentSearch {
 
     // MARK: The walk
 
-    /// What one `lstat` says about a path — and, for a symbolic link, one `stat` of what it points
-    /// at, which is what a link to a file or a folder is read or walked as.
+    /// What one `lstat` says about a path, plus, for a symbolic link, one `stat` of its target,
+    /// which is what a link to a file or folder is read or walked as.
     public struct FileFacts: Equatable, Sendable {
         public enum Kind: Sendable { case file, directory, other }
         public var kind: Kind
@@ -257,9 +255,9 @@ public enum EditorContentSearch {
         /// same flag.
         public var isDataless: Bool
         public var size: Int
-        /// Device and inode — what a file or folder reached twice, through a link, is known by.
+        /// Device and inode: how a file or folder reached twice, through a link, is recognised.
         public var identity: Identity
-        /// A folder Finder shows as one file — an app, a bundle, a `.photoslibrary`.
+        /// A folder Finder shows as one file: an app, a bundle, a `.photoslibrary`.
         public var isPackage: Bool
 
         public struct Identity: Hashable, Sendable {
@@ -279,8 +277,8 @@ public enum EditorContentSearch {
             self.isPackage = isPackage
         }
 
-        /// The real filesystem. **Metadata only**: neither call opens the file, so neither fetches
-        /// an evicted one — the same promise ``MaterializationStatus/realStatFlags`` makes.
+        /// The real filesystem. Metadata only: neither call opens the file, so neither fetches an
+        /// evicted one, the same promise ``MaterializationStatus/realStatFlags`` makes.
         public static let real: @Sendable (String) -> FileFacts? = { path in
             var info = stat()
             guard lstat(path, &info) == 0 else { return nil }
@@ -323,16 +321,14 @@ public enum EditorContentSearch {
 
     /// The folder and every folder inside it, breadth first and in Finder's order within each.
     ///
-    /// **Each folder is listed on its own** (Sync's `listing(of:)`, shallow), never with one
-    /// recursive enumerator: a recursive walk is how a folder whose contents are not on this Mac
-    /// gets entered without being asked for, and the shallow listing asks for one through the
-    /// dataless-folder reads — holding this walk's own thread for at most their deadline, and only
-    /// the first time a folder goes unanswered.
+    /// Each folder is listed on its own (Sync's shallow `listing(of:)`), never with a recursive
+    /// enumerator: a recursive walk would enter a folder whose contents aren't on this Mac without
+    /// asking for it. The shallow listing asks through the dataless-folder reads, holding this
+    /// walk's thread for at most their deadline, and only the first time a folder goes unanswered.
     ///
-    /// **A folder or file reached twice — through a symbolic link — is read once.** Below a folder
-    /// link the paths are the link's spelling (`listing` re-spells under the path asked), so the
-    /// same file shows up under two names; its device and inode do not change. That is also what
-    /// keeps a link to a parent from walking for ever.
+    /// A folder or file reached twice through a symbolic link is read once. Below a folder link the
+    /// paths use the link's spelling (`listing` re-spells under the path asked), but device and
+    /// inode don't change. That also keeps a link to a parent from walking forever.
     static func walk(root: String, fileManager: FileManaging, facts: @Sendable (String) -> FileFacts?,
                      limits: Limits, isStopped: () -> Bool) -> Walk {
         var walk = Walk()
@@ -362,8 +358,8 @@ public enum EditorContentSearch {
                 let path = (folder as NSString).appendingPathComponent(name)
                 let inner = subfolder.isEmpty ? name : subfolder + "/" + name
                 let isText = PairContentKind.classify(path: name) == .text
-                // A real folder says so in the listing; a link says nothing until it is asked, and a
-                // name with no extension may be one. Anything else is not text and not a folder.
+                // A real folder says so in the listing; a link says nothing until asked, and a name
+                // with no extension may be one. Anything else is neither text nor a folder.
                 guard child.hasDirectoryPath || isText || (name as NSString).pathExtension.isEmpty
                 else { continue }
                 guard let fact = facts(path) else { continue }
@@ -391,7 +387,7 @@ public enum EditorContentSearch {
 
     // MARK: The search
 
-    /// How many files are read at once — the duplicate hasher's number (`hashFilesCounting`).
+    /// How many files are read at once: the duplicate hasher's number (`hashFilesCounting`).
     static let maxConcurrentReads = 6
 
     /// Set once, read from every reader: whether the search has been dropped.
@@ -405,20 +401,19 @@ public enum EditorContentSearch {
     /// Searches the text files in `root` and its folders for `query`, streaming each file that
     /// matches as soon as it has been read.
     ///
-    /// **On threads of its own, never Swift's cooperative pool.** Every step here blocks — a
-    /// folder's listing can wait out the dataless-folder reads' deadline, and each file is a read
-    /// from disk — and the pool is as wide as the cores, shared by every task in the app. A scan
-    /// of a big folder holding six of its threads would stall the rest; and when the rest held
-    /// them, measured in the full FileExplorer suite, this scan did not take a step in 15 s
-    /// (`docs/flaky-tests.md`, "Every gate parks at once, on the pool their releases need"). So
-    /// the walk has a thread, and the reads an operation queue six wide.
+    /// On threads of its own, never Swift's cooperative pool. Every step blocks (a folder's listing
+    /// can wait out the dataless-folder reads' deadline, each file is a disk read), and the pool is
+    /// as wide as the cores and shared by the whole app: holding six of its threads would stall the
+    /// rest, and with the rest holding them this scan could starve (`docs/flaky-tests.md`, "Every
+    /// gate parks at once, on the pool their releases need"). So the walk has a thread, and the
+    /// reads an operation queue six wide.
     ///
-    /// **Cancelled by ending the stream** — the caller drops it when the query changes, and the
-    /// walk and the reads stop at their next check: no new file is opened after that.
+    /// Cancelled by ending the stream: the caller drops it when the query changes, and the walk and
+    /// reads stop at their next check, opening no new file.
     ///
     /// - Parameters:
-    ///   - facts: the one `lstat` per path — a seam because a dataless file cannot be made in a
-    ///     test: `SF_DATALESS` is set only by a File Provider.
+    ///   - facts: the one `lstat` per path; a seam because a test can't make a dataless file
+    ///     (`SF_DATALESS` is set only by a File Provider).
     ///   - read: reads one file the walk chose. `BoundedTextRead`'s, whose own dataless check runs
     ///     again just before the open.
     static func search(
@@ -514,15 +509,15 @@ public enum EditorContentSearch {
         summary.notDownloaded = walk.notDownloaded
         summary.tooLarge = walk.tooLarge
         summary.unansweredFolders = walk.unansweredFolders
-        // The file limit is a stop only when it left a file out: met by the last file that matched,
-        // the search listed everything it found.
+        // The file limit counts as a stop only when it left a file out; met by the last match, the
+        // search listed everything it found.
         summary.stop = walk.stop ?? (tally.leftOut ? .fileLimit(limits.files) : nil)
         continuation.yield(.finished(summary))
     }
 }
 
-/// **Where a Contents result sends the editor** (RD38): a line, a column and a length — the
-/// match — and the word, for Find.
+/// Where a Contents result sends the editor: the match's line, column and length, and the word, for
+/// Find.
 struct EditorContentMatch: Equatable {
     var path: String
     var line: Int
@@ -530,12 +525,12 @@ struct EditorContentMatch: Equatable {
     var length: Int
     var word: String
 
-    /// The match as it stands in `text` — the file as it opened, which can differ from the file as
-    /// the search read it: it may have been edited since.
+    /// The match as it stands in `text`, the file as it opened, which may have been edited since
+    /// the search read it.
     ///
-    /// **Checked, then looked for.** Where the result says the match is, the word is selected if it
-    /// is still there; if not, the first match at or after the start of that line is; if the word
-    /// has gone from there on, the caret goes to the line's start, with nothing selected.
+    /// Checked, then looked for: the word is selected where the result says if it is still there;
+    /// otherwise the first match at or after that line's start is; if the word is gone from there
+    /// on, the caret goes to the line's start with nothing selected.
     static func located(_ match: EditorContentMatch, in text: String, using index: EditorLineIndex) -> EditorContentMatch {
         let ns = text as NSString
         let offset = EditorGoToLine.utf16Offset(of: EditorGoToLine.Target(line: match.line, column: match.column),

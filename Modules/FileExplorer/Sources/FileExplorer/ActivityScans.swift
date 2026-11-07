@@ -2,7 +2,7 @@ import Foundation
 import Design
 import Sync
 
-/// The long scans with cards of their own (Run Room TE228).
+/// The long scans with cards of their own.
 public enum ActivityScan: Equatable, Sendable {
     /// Read documents — Organize's overview card, with Pause, Resume and Stop.
     case readDocuments
@@ -15,7 +15,7 @@ public enum ActivityScan: Equatable, Sendable {
 }
 
 extension DocumentSurveyCardState {
-    /// The card's state while a survey is reading, paused or finishing — `nil` once it ends.
+    /// The card's state while a survey is reading, paused or finishing.
     public static func live(_ progress: DocumentSurveyProgress) -> DocumentSurveyCardState {
         switch progress.phase {
         case .reading:
@@ -32,11 +32,10 @@ extension DocumentSurveyCardState {
     }
 }
 
-/// **The long scans as Activity's Running rows** (TE228, decision CO): Read documents, the duplicate
-/// scan and Restructure's apply. They run for minutes to hours and keep their controls on their own
-/// cards, so they are listed with a Show that goes there — and never bring up the capsule, which
-/// would otherwise sit in the toolbar all evening. Read documents says when it is paused, by the
-/// reader or by the Mac (R21).
+/// The long scans as Activity's Running rows: Read documents, the duplicate scan and Restructure's
+/// apply. They run for minutes to hours and keep their controls on their own cards, so each is
+/// listed with a Show that goes there and never brings up the capsule, which would otherwise sit
+/// in the toolbar all evening. Read documents says when it is paused, by the reader or by the Mac.
 public enum ActivityScanRows {
     @MainActor
     public static func rows(_ manager: FileSyncManager,

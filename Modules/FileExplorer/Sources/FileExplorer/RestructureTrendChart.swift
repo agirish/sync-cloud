@@ -2,20 +2,18 @@ import Design
 import SwiftUI
 import Sync
 
-/// "Is the tree getting better?", answered from counts the detectors already produced
-/// (proposal O16).
+/// "Is the tree getting better?", answered from counts the detectors already produced.
 ///
-/// **Nothing here is invented.** Every point is a finding count a lens displayed at the time it
-/// was stamped, and the caption states the two ends of the line in words so a reader can check the
-/// picture against a number. There is no score, no target, and no per-kind breakdown — the shape
-/// and the two endpoints are what a small chart can carry honestly.
+/// Nothing here is invented: every point is a finding count a lens displayed when it was
+/// stamped, and the caption states both ends in words so the picture can be checked against a
+/// number. No score, no target, no per-kind breakdown: a small chart carries the shape and the
+/// endpoints honestly, and no more.
 struct RestructureTrendChart: View {
     let points: [Point]
     let accent: Color
 
-    /// One stamped survey, reduced to what the drawing needs. A struct rather than the store's
-    /// `TrendPoint` because the view has no business with profile ids, and because the rule that
-    /// builds these is where the testable decisions live.
+    /// One stamped survey, reduced to what the drawing needs. Not the store's `TrendPoint`: the
+    /// view has no use for profile ids, and the rule that builds these is what tests check.
     struct Point: Equatable {
         let total: Int
         /// A landing produced this survey — the dots, and the only cause the line can show.
@@ -24,9 +22,9 @@ struct RestructureTrendChart: View {
 
     /// The points worth drawing, and nil when there is no line to draw.
     ///
-    /// **Two is the floor.** One point is a dot, not a trend, and a chart captioned "33 → 33"
-    /// over a single survey claims a history that does not exist yet. The cap keeps the newest
-    /// window: a line that squeezed two years into 200 pixels shows nothing but its own ends.
+    /// Two is the floor: one point is a dot, not a trend, and would claim a history that doesn't
+    /// exist yet. The cap keeps the newest window, since a line squeezing years into a few hundred
+    /// pixels shows nothing but its ends.
     static func points(from trend: [RestructureStore.TrendPoint], limit: Int = 40) -> [Point]? {
         guard trend.count >= 2 else { return nil }
         return trend.suffix(limit).map { Point(total: $0.total, landing: $0.landing) }
@@ -34,9 +32,8 @@ struct RestructureTrendChart: View {
 
     /// The caption: the two ends, and what happened between them.
     ///
-    /// Stated as the numbers themselves rather than a direction word, so it is checkable against
-    /// the line above it — "fewer findings" would be a claim the reader has to take on trust, and
-    /// an equal pair would make it false.
+    /// The numbers themselves rather than a direction word like "fewer", so it can be checked
+    /// against the line above it.
     static func caption(for points: [Point]) -> String? {
         guard let first = points.first, let last = points.last else { return nil }
         let landings = points.filter(\.landing).count
@@ -50,20 +47,19 @@ struct RestructureTrendChart: View {
         return head + " · \(landings) landing\(landings == 1 ? "" : "s")"
     }
 
-    /// The drawing's own geometry, as a rule: each point's position in a unit square where
-    /// **y is the count** — 1 is the most findings this window held, 0 the fewest. The
-    /// conventional reading, so a falling line means fewer findings and needs no legend.
+    /// The drawing's geometry, as a rule: each point's position in a unit square where y is the
+    /// count (1 the most findings this window held, 0 the fewest), so a falling line means fewer
+    /// findings and needs no legend.
     ///
-    /// A rule rather than arithmetic inside the `Canvas` closure, because a chart drawn wrong is
-    /// the kind of defect that looks plausible, and a `Canvas` body is not reachable from a test.
+    /// A rule, not arithmetic inside the `Canvas` closure, because a wrongly drawn chart looks
+    /// plausible and a `Canvas` body can't be reached from a test.
     static func unitPositions(_ points: [Point]) -> [CGPoint] {
         guard points.count > 1 else { return points.isEmpty ? [] : [CGPoint(x: 0, y: 0.5)] }
         let totals = points.map(\.total)
         let low = totals.min() ?? 0
         let high = totals.max() ?? 0
-        // A flat line sits in the MIDDLE. Dividing by a zero span is the crash; drawing it at the
-        // floor would be worse than a crash, because "as low as it has ever been" is a claim, and
-        // the tree that produced it simply did not change.
+        // A flat line sits in the middle: a zero span can't be divided by, and drawing it at the
+        // floor would claim "as low as it has ever been" for a tree that didn't change.
         let span = high - low
         return points.enumerated().map { index, point in
             CGPoint(x: CGFloat(index) / CGFloat(points.count - 1),

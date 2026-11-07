@@ -1,9 +1,9 @@
 import Testing
 @testable import FileExplorer
 
-/// The overview card's trailing count wears the C1 mini pill, built from the headline's own
-/// count + unit. `headlineUnit` must slice exactly the unit run — and must refuse a headline
-/// that doesn't lead with the count, so the pill can never render "79 79 folders".
+/// The overview card's trailing count wears a mini pill built from the headline's own count and
+/// unit. `headlineUnit` must slice exactly the unit, and refuse a headline that doesn't lead with
+/// the count, so the pill can never render "79 79 folders".
 @Suite struct OverviewHeadlinePillTests {
 
     @Test func unitIsTheRunAfterTheCount() {

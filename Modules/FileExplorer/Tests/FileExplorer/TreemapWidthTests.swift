@@ -3,14 +3,11 @@ import Foundation
 @testable import FileExplorer
 import Sync
 
-/// ``TreemapView/visibleWidths(_:floorLastTile:available:visibleBytes:)`` — the arithmetic that
-/// decides how wide each tile is drawn.
-///
-/// The invariant worth having is not any single width but that **they add up**: an `HStack` of
-/// fixed-width children does not compress, and the `GeometryReader` around it does not clip, so
-/// any overshoot is painted straight past the card's right edge. The straggler floor was applied
-/// by widening the last tile in place, without taking the extra from anyone — the row was already
-/// sized to fill the space, so the floor was pure overflow.
+/// ``TreemapView/visibleWidths(_:floorLastTile:available:visibleBytes:)``, the arithmetic that
+/// decides how wide each tile is drawn. The invariant is that the widths add up: an `HStack` of
+/// fixed-width children doesn't compress and the `GeometryReader` around it doesn't clip, so any
+/// overshoot paints past the card's right edge. The straggler floor must be paid for by the
+/// siblings, not added on top of a row already sized to fill the space.
 @Suite @MainActor struct TreemapWidthTests {
 
     static func nodes(_ bytes: [Int]) -> [TreemapNode] {
@@ -19,7 +16,7 @@ import Sync
 
     static func sum(_ widths: [CGFloat]) -> CGFloat { widths.reduce(0, +) }
 
-    /// The reported case: two large folders and one sliver, with the sliver floored.
+    /// Two large folders and one sliver, with the sliver floored.
     @Test func aFlooredStragglerIsPaidForOutOfItsSiblings() {
         let bytes = [10_000, 8_000, 100]
         let available: CGFloat = 900
@@ -36,7 +33,7 @@ import Sync
         #expect(abs(widths[0] / widths[1] - 10_000.0 / 8_000.0) < 0.001)
     }
 
-    /// Without the floor — a tail is present, so the last visible tile is ordinary — the widths are
+    /// Without the floor (a tail is present, so the last visible tile is ordinary) the widths are
     /// purely proportional and still sum.
     @Test func proportionalWidthsSumToTheSpace() {
         let bytes = [5, 3, 2]
@@ -47,7 +44,7 @@ import Sync
         #expect(abs(widths[2] - 120) < 0.001)
     }
 
-    /// A lone tile takes the row, floored or not — there is nobody to take the width from, and it
+    /// A lone tile takes the row, floored or not: there is nobody to take the width from, and it
     /// must not exceed the space either.
     @Test func aLoneTileTakesTheRowAndNoMore() {
         let widths = TreemapView.visibleWidths(Self.nodes([7]), floorLastTile: true,
@@ -71,15 +68,11 @@ import Sync
         #expect(zeros.allSatisfy { $0.isFinite }, "a zero denominator produced a non-finite width")
     }
 
-    /// The floor cannot push the siblings negative.
-    ///
-    /// **The fixture has to make `lastProportional` exceed `available`**, which needs a
-    /// `visibleBytes` smaller than the tiles sum to — the first version passed `1_000_001` for
-    /// tiles of `[1, 1_000_000]`, so the last tile's share was already 29.99997 of 30 and the
-    /// remainder was exactly zero. Deleting the `max(0, …)` left it green. The caller cannot
-    /// currently produce an inconsistent total (`visibleBytes = max(1, total - tailBytes)` is
-    /// always at least the visible sum), so this guards the function against a future caller
-    /// rather than a reachable state today — worth saying rather than implying otherwise.
+    /// The floor can't push the siblings negative. The fixture must make `lastProportional` exceed
+    /// `available`, which needs a `visibleBytes` smaller than the tiles sum to; deleting the
+    /// `max(0, …)` must fail it. The caller can't produce such a total today
+    /// (`visibleBytes = max(1, total - tailBytes)` is at least the visible sum), so this guards the
+    /// function against a future caller.
     @Test func anOversizedFloorClampsTheSiblingsAtZero() {
         let widths = TreemapView.visibleWidths(Self.nodes([1, 100]), floorLastTile: true,
                                                available: 30, visibleBytes: 50)

@@ -3,8 +3,8 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// The differences table's folder sections. The whole point of this type is that it must not
-/// reorder what the column sort just ordered, so most of these assert ORDER rather than membership.
+/// The differences table's folder sections. The type must not reorder what the column sort just
+/// ordered, so most of these assert order rather than membership.
 @Suite struct DifferenceGroupingTests {
 
     private func diff(_ relativePath: String) -> FileDifference {
@@ -36,19 +36,15 @@ import Sync
         // visible, confusing failure and the fallback costs one line.
         let folder = DifferenceGrouping.folder(for: diff("/Immigration/form.pdf"))
         #expect(!folder.isEmpty)
-        // …and it must name the FOLDER, not the raw string. The old fallback returned the whole
-        // parent ("/Immigration") while `pathWithinSection` returned "Immigration", so the header
-        // and every row under it said the same folder twice — the exact defect the prefix drop
-        // exists to prevent, reintroduced through the edge case.
+        // …and it must name the folder, not the raw parent string ("/Immigration").
         #expect(folder == "Immigration")
     }
 
     // MARK: Section building
 
     @Test func testSectionsAppearInTheOrderTheirFirstRowDoes() {
-        // The load-bearing property. Sorting by size descending must put the section holding the
-        // biggest file first — if sections were ordered alphabetically instead, the groups and the
-        // rows would sort by different keys and the table would read as broken.
+        // The load-bearing property: sorting by size descending puts the section holding the
+        // biggest file first. Alphabetical sections would sort groups and rows by different keys.
         let sorted = [diff("Work/a.pdf"), diff("Immigration/b.pdf"), diff("Work/c.pdf"), diff("Scans/d.pdf")]
         let sections = DifferenceGrouping.sections(sorted)
         #expect(sections.map(\.folder) == ["Work", "Immigration", "Scans"])
@@ -61,8 +57,8 @@ import Sync
     }
 
     @Test func testEveryRowLandsInExactlyOneSection() {
-        // No row may be dropped or duplicated — the grouped table has to show the same set the
-        // flat one did, or a difference silently stops being actionable.
+        // No row may be dropped or duplicated: the grouped table shows the same set as the flat
+        // one, or a difference silently stops being actionable.
         let sorted = [diff("Work/a.pdf"), diff("Immigration/b.pdf"), diff("loose.pdf"),
                       diff("Work/c.pdf"), diff("Scans/d.pdf")]
         let sections = DifferenceGrouping.sections(sorted)
@@ -84,7 +80,7 @@ import Sync
 
     @Test func testASingleSectionIsNotWorthGrouping() {
         // One header saying the same thing about every row is pure chrome. Falling back to flat
-        // here is what lets grouping default ON without making small comparisons noisier.
+        // lets grouping default on without making small comparisons noisier.
         let sections = DifferenceGrouping.sections([diff("Work/a.pdf"), diff("Work/b.pdf")])
         #expect(sections.count == 1)
         #expect(!DifferenceGrouping.isWorthGrouping(sections))
@@ -94,18 +90,16 @@ import Sync
         #expect(!DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections([])))
     }
 
-    /// Two sections of one row each is NOT enough — it was under the first cut of this gate,
-    /// which only asked "more than one section?", and a real 22-difference scan showed why that
-    /// was wrong: nine headers over eleven rows. The gate now asks whether the headers pay for
-    /// their own height.
+    /// Two sections of one row each is not enough: "more than one section?" would allow nine
+    /// headers over eleven rows. The gate asks whether the headers pay for their own height.
     @Test func testTwoSingleRowSectionsIsNotWorthGrouping() {
         let sections = DifferenceGrouping.sections([diff("Work/a.pdf"), diff("Scans/b.pdf")])
         #expect(sections.count == 2)
         #expect(!DifferenceGrouping.isWorthGrouping(sections))
     }
 
-    /// Root-level rows and foldered rows coexisting: the case where a wrong `folder(for:)` would
-    /// quietly merge everything loose into one bucket named "".
+    /// Root-level rows beside foldered rows: a wrong `folder(for:)` would merge everything loose
+    /// into one bucket named "".
     @Test func testRootRowsFormTheirOwnNamedSection() {
         let sections = DifferenceGrouping.sections([diff("loose.pdf"), diff("Work/a.pdf"), diff("other.txt")])
         #expect(sections.map(\.folder) == [DifferenceGrouping.rootKey, "Work"])
@@ -113,17 +107,10 @@ import Sync
         #expect(sections.first?.count == 2)
     }
 
-    /// A real folder named exactly like the root label must not swallow the loose rows.
-    ///
-    /// The bucket used to BE the label, so `folder(for:)` answered "Top level" for a file at the
-    /// scan root and for a file inside a folder called "Top level", and `sections` put them in one
-    /// bucket. Nothing on screen could tell them apart either — both render with no path prefix, so
-    /// the header just counted three rows where two were in the folder and one was beside it. Once
-    /// the header became a selection target that got worse: "select this folder's differences" also
-    /// selected a file that is not in the folder.
-    ///
-    /// Asserted on the SECTIONS rather than on `folder(for:)` alone, because the defect was the
-    /// merge, not the string: two separate buckets with the right rows in each is the property.
+    /// A real folder named exactly like the root label must not swallow the loose rows. If the
+    /// bucket key were the label, both would land in one section, and selecting the header would
+    /// also select a file not in the folder. Asserted on the sections, because the property is two
+    /// buckets with the right rows in each.
     @Test func testARealFolderNamedLikeTheRootLabelKeepsItsOwnSection() {
         let sections = DifferenceGrouping.sections([
             diff("loose.pdf"),
@@ -135,13 +122,13 @@ import Sync
         #expect(sections.map(\.count) == [1, 2])
         #expect(sections[0].folder == DifferenceGrouping.rootKey)
         #expect(sections[1].folder == DifferenceGrouping.rootLabel)
-        // Both PRINT the same words — which is why the identity has to be the thing that differs.
+        // Both print the same words, which is why the identity has to differ.
         #expect(sections.map(\.title) == [DifferenceGrouping.rootLabel, DifferenceGrouping.rootLabel])
         #expect(sections[0].rows.map(\.relativePath) == ["loose.pdf"])
     }
 
-    /// The property that makes the case above unrepresentable rather than merely fixed: the root
-    /// bucket contains a separator, and `split` can never hand back a component that does.
+    /// What makes the case above unrepresentable: the root key contains a separator, and `split`
+    /// never hands back a component that does.
     @Test func testTheRootKeyCannotBeProducedByAnyPath() {
         #expect(DifferenceGrouping.rootKey.contains("/"))
         for path in ["a.pdf", "One/a.pdf", "/One/a.pdf", "One//Two/a.pdf", "One/Two/Three/a.pdf"] {
@@ -153,13 +140,9 @@ import Sync
 
     // MARK: Bucketing robustness over malformed parents
 
-    /// `folder(for:)` must produce a printable bucket for the WHOLE input space, not just the
-    /// well-formed corner of it. Engine-built `relativePath`s never carry a leading slash, a
-    /// trailing slash or a "//" — which is exactly why a latent mishandling could sit unseen
-    /// until a refactor made it live; "/Immigration" once produced a header reading
-    /// "/Immigration". (This suite used to also pin `pathWithinSection`, the Name-cell prefix's
-    /// half of a partition invariant; the prefix is gone — the Path column shows the whole
-    /// anchored parent — and the function went with it. The header-side robustness stays.)
+    /// `folder(for:)` produces a printable bucket for the whole input space, not just well-formed
+    /// paths. Engine-built `relativePath`s never carry a leading or trailing slash or a "//", so a
+    /// mishandling could sit unseen until a refactor made it live.
     @Test func testMalformedParentsStillBucketPrintably() {
         let paths = [
             "Claude/Projects/Investing/notes.md", "Work/report.docx", "loose.pdf",
@@ -170,16 +153,15 @@ import Sync
         for path in paths {
             let d = diff(path)
             let folder = DifferenceGrouping.folder(for: d)
-            // The bucket is the FIRST non-empty component, or the root key — computed here with
-            // `components(separatedBy:)`, NOT the `split` the implementation uses: an expectation
-            // that restates the code under test passes no matter what that code does.
+            // The bucket is the first non-empty component, or the root key. Computed with
+            // `components(separatedBy:)`, not the implementation's `split`, so the expectation
+            // doesn't restate the code under test.
             let expected = d.parentPath.components(separatedBy: "/").first { !$0.isEmpty }
                 ?? DifferenceGrouping.rootKey
             #expect(folder == expected, "path \(path): folder=\(folder)")
-            // Never a section with no name, and never one named after a separator. Asserted on
-            // the TITLE, which is what a header prints: the root bucket's key is deliberately "/"
-            // (the one string no path component can be — see `rootKey`), and it is `Section.title`
-            // that turns it into words.
+            // Never a section with no name or named after a separator. Asserted on the title, what
+            // a header prints: the root key is deliberately "/" (see `rootKey`), and
+            // `Section.title` turns it into words.
             let title = DifferenceGrouping.Section(folder: folder, rows: [d]).title
             #expect(!folder.isEmpty, "path \(path)")
             #expect(!title.isEmpty, "path \(path)")
@@ -187,8 +169,8 @@ import Sync
         }
     }
 
-    /// A leading slash must not fragment one folder into two sections: "/Work/a.pdf" and
-    /// "Work/b.pdf" name the same folder and have to land in the same bucket.
+    /// A leading slash must not split one folder into two sections: "/Work/a.pdf" and
+    /// "Work/b.pdf" land in the same bucket.
     @Test func testLeadingSlashDoesNotSplitAFolderInTwo() {
         let sections = DifferenceGrouping.sections([diff("/Work/a.pdf"), diff("Work/b.pdf")])
         #expect(sections.map(\.folder) == ["Work"])
@@ -204,9 +186,8 @@ import Sync
     // MARK: The worth-grouping gate
 
     @Test func testManyTinySectionsFallBackToFlat() {
-        // The shape a real 22-difference scan produced: eight folders, one or two rows each.
-        // Eight headers heading eleven rows nearly doubled the list's height to restate what the
-        // path prefix already said, so this must NOT group.
+        // Nine folders, one or two rows each: nine headers over eleven rows would nearly double
+        // the list's height to restate the path, so this must not group.
         let rows = ["Family/a.pdf", "Family/b.pdf", "Legal/c.pdf", "Finance/d.pdf",
                     "Claude/e.pdf", "Claude/f.pdf", "Health/g.pdf", "Scans/h.pdf",
                     "Travel/i.pdf", "Work/j.pdf", "Home/k.pdf"].map(diff)
@@ -216,7 +197,7 @@ import Sync
     }
 
     @Test func testFewLargeSectionsDoGroup() {
-        // Three folders averaging four rows each — the case grouping exists for.
+        // Three folders averaging four rows each: the case grouping exists for.
         var rows: [FileDifference] = []
         for folder in ["Immigration", "Work", "Scans"] {
             rows += (0..<4).map { diff("\(folder)/file-\($0).pdf") }
@@ -228,7 +209,7 @@ import Sync
 
     @Test func testTheGateIsExactlyTheAverageThreshold() {
         // Two sections at exactly the threshold group; one row fewer does not. Pins the boundary
-        // so a future tweak to `minimumAverageRowsPerSection` is a deliberate, visible change.
+        // so changing `minimumAverageRowsPerSection` is deliberate.
         let atThreshold = (0..<DifferenceGrouping.minimumAverageRowsPerSection).flatMap {
             [diff("A/file-\($0).pdf"), diff("B/file-\($0).pdf")]
         }
@@ -244,15 +225,14 @@ import Sync
 
     @Test func testPlainClickReplacesTheWholeSelection() {
         #expect(SectionClickIntent.resolve(commandHeld: false, isFullySelected: false) == .replace)
-        // Plain-clicking an already-selected section still replaces — that is what makes it a
-        // reliable "just this folder" gesture no matter what state you were in.
+        // Plain-clicking an already-selected section still replaces, so it is a reliable "just
+        // this folder" gesture from any state.
         #expect(SectionClickIntent.resolve(commandHeld: false, isFullySelected: true) == .replace)
     }
 
     @Test func testCommandClickAddsThenRemoves() {
-        // The rule that is easy to implement backwards: ⌘-clicking a section whose rows are ALL
-        // selected must take them out again, or the gesture is one-way and there is no way back
-        // without clearing everything.
+        // Easy to get backwards: ⌘-clicking a section whose rows are all selected takes them out
+        // again, or the gesture is one-way.
         #expect(SectionClickIntent.resolve(commandHeld: true, isFullySelected: false) == .add)
         #expect(SectionClickIntent.resolve(commandHeld: true, isFullySelected: true) == .remove)
     }
@@ -275,9 +255,8 @@ import Sync
         let work = section("Work", ["Work/a.pdf", "Work/b.pdf"])
         let all = Set(work.rows.map(\.id))
         #expect(DifferenceGrouping.isFullySelected(work, in: all))
-        // One row short is NOT fully selected — the header must unlight the moment a row is
-        // ⌘-clicked back out, which is the whole reason it tracks the selection rather than
-        // remembering that it was clicked.
+        // One row short is not fully selected: the header unlights as soon as a row is ⌘-clicked
+        // out, which is why it tracks the selection rather than remembering the click.
         #expect(!DifferenceGrouping.isFullySelected(work, in: [work.rows[0].id]))
         #expect(!DifferenceGrouping.isFullySelected(work, in: []))
     }

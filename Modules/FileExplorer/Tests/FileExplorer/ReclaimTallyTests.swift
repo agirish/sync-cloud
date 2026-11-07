@@ -1,8 +1,8 @@
 import Testing
 @testable import FileExplorer
 
-/// Coverage for the Duplicates reclaimed-space tally (H5) — the pure view-level accumulator behind the
-/// count-up payoff. The animation/glow live in the view; only the math and caption are testable here.
+/// The Duplicates reclaimed-space tally: the pure accumulator behind the count-up payoff. The
+/// animation and glow live in the view; only the math and caption are testable here.
 @Suite struct ReclaimTallyTests {
 
     @Test func startsEmpty() {
@@ -58,8 +58,8 @@ import Testing
 
         // A per-card "apply" finishes mid-batch: it credits its own group.reclaimableBytes here…
         tally.credit(300)
-        // …and lowers the engine's still-reclaimable figure by the same 300, so the drop the batch
-        // measures (900) already contains it. Crediting the raw drop would bank those bytes twice.
+        // …and lowers the engine's reclaimable figure by the same 300, so the batch's measured drop
+        // (900) already holds it. Crediting the raw drop would bank those bytes twice.
         let net = tally.netBatchCredit(reclaimableDrop: 900, bankedAtStart: banked)
         #expect(net == 600)
 
@@ -70,8 +70,8 @@ import Testing
     @Test func aBatchThatOnlyRedidConcurrentWorkCreditsNothing() {
         var tally = ReclaimTally()
         let banked = tally.totalBytes
-        // Every group the batch was going to erase was resolved per-card while it ran: the drop and
-        // the meanwhile-credit are the same bytes, so the batch adds nothing rather than doubling.
+        // Every group the batch would erase was resolved per-card while it ran: the drop and that
+        // credit are the same bytes, so the batch adds nothing.
         tally.credit(750)
         let net = tally.netBatchCredit(reclaimableDrop: 750, bankedAtStart: banked)
         #expect(net == 0)

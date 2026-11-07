@@ -3,10 +3,10 @@ import Foundation
 import AppKit
 @testable import FileExplorer
 
-/// **Re-reading part of a document must give exactly the whole re-read** (TE67 §3.7): every block,
-/// segment, span and rendered character, attributes compared by shape. The random half throws
-/// arbitrary source edits at it — the edits Source makes in Split, not only Preview's careful ones —
-/// and chains them, so an error that a single step leaves behind is carried into the next.
+/// Re-reading part of a document must give exactly the whole re-read: every block, segment, span
+/// and rendered character, attributes compared by shape. The random half throws arbitrary source
+/// edits at it (Source's in Split, not only Preview's careful ones) and chains them, so an error
+/// one step leaves behind is carried into the next.
 ///
 /// `TE67_PROPERTY_ITERATIONS` raises the count and `TE67_PROPERTY_SEED` replays one, as for
 /// `PreviewEditPropertyTests`.
@@ -22,9 +22,9 @@ import AppKit
         Self.expectSame(reused, MarkdownProjection.project(new), "typing")
     }
 
-    /// **A table straight under a paragraph is still re-read in part** — "Here it is:" and the table
-    /// on the next line is common, and the parser gives what is left of the paragraph no place in
-    /// the file. Without the two read as one, every keystroke near it would re-read the whole note.
+    /// A table straight under a paragraph ("Here it is:" then the table) is still re-read in part.
+    /// The parser gives the rest of the paragraph no place in the file, so the two are read as one;
+    /// otherwise every keystroke near it would re-read the whole note.
     ///
     /// Mutation: stop joining a block with no place to the next, and the overlap guard declines.
     @Test func aTableUnderAParagraphIsStillReReadInPart() throws {
@@ -88,14 +88,13 @@ import AppKit
         ("Only.", "Only.", ""),
         ("One.\n\nTwo.", "\n\nTwo.", ""),
         // A table straight under a paragraph takes its last line for a header, and the parser gives
-        // what is left of the paragraph no place: the two are re-read together (2026-10-08).
+        // what is left of the paragraph no place: the two are re-read together.
         ("Intro.\n\nHere it is:\nand more\n| a | b |\n|---|---|\n| c | d |\n\nEnd.", "| c | d |", "| cc | d |"),
         ("Intro.\n\nHere it is:\nand more\n| a | b |\n|---|---|\n| c | d |\n\nEnd.", "Intro.", "Intro!"),
         ("Intro.\n\nHere it is:\nand more\n| a | b |\n|---|---|\n| c | d |\n\nEnd.", "End.", "End!"),
         ("Intro.\n\nHere it is:\n| a | b |\n|---|---|\n| c | d |\n\nMiddle.\n\nEnd.", "Middle.", "Middle!"),
         // A list whose item has a heading the parser gives no place: the list waits for the block
-        // after it, and the two are re-read from the list's first line, not the next block's (seed
-        // 1619 of the wider documents, 2026-10-09: the list was dropped).
+        // after it, and the two are re-read from the list's first line, not the next block's.
         ("***\n1. #\n\n*1)** **&amp;**\n   1. &amp;\n2. #tag **1)** **&amp;**", "1. &amp;", "1| x |;"),
         ("Intro.\n\n- #\n\nPara.\n\nMore.\n\nEnd.", "More.", "More!"),
         // A quote, and nested lists.
@@ -109,11 +108,11 @@ import AppKit
         Self.expectSame(MarkdownProjection.project(new, after: old), full, "\(target) → \(replacement)")
     }
 
-    /// **A `]:` that cannot define anything is re-read in part** (review, 2026-10-09) — any `]:` at
-    /// all used to send every keystroke the whole way: code in a fence, an Obsidian `[[Page]]:`, a
-    /// subscript in a sentence. A definition starts a line, with a label free of brackets.
+    /// A `]:` that cannot define anything is re-read in part: code in a fence, an Obsidian
+    /// `[[Page]]:`, a subscript in a sentence. A definition starts a line, with a label free of
+    /// brackets.
     ///
-    /// Mutation: go back to any `]:`, and each of these declines.
+    /// Mutation: treat any `]:` as a definition, and each of these declines.
     @Test(arguments: ["```python\nif row[0]:\n    pass\n```", "[[Page]]: status", "Take a[1]: b, then c.",
                       "Host [::1]:8080 is local.", "- [ ] task: soon", "    if a[0]: pass"])
     func aBracketColonThatCannotDefineIsReReadInPart(block: String) throws {
@@ -153,12 +152,11 @@ import AppKit
                                   "\n- ", "\n> ", "  - ", "\n```\n", "\n|---|---|\n", "\n===\n", "<div>\n",
                                   "\n</div>\n", "\n---\n"]
 
-    /// **Every path a re-read can take is taken, and each is held to the whole re-read** (review,
-    /// 2026-10-09): `reused > checked / 3` alone passed with any one path never taken — the block
-    /// after the edit always declining, say. And the documents are wider than the translator's:
-    /// half the seeds nest lists, put lists in quotes, set blocks straight under one another, open
-    /// HTML, leave a fence open for an edit to close, underline headings, and lose a table's
-    /// delimiter row.
+    /// Every path a re-read can take is taken, and each is held to the whole re-read; a share of
+    /// partial re-reads alone would pass with one path never taken. Half the seeds use documents
+    /// wider than the translator's: nested lists, lists in quotes, blocks straight under one
+    /// another, HTML, a fence left open for an edit to close, underlined headings, a table missing
+    /// its delimiter row.
     @Test func randomEditsReadAsTheWholeDocumentWould() {
         var paths: [String: Int] = [:]
         var checked = 0

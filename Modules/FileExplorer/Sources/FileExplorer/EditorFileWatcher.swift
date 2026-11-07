@@ -1,35 +1,28 @@
 import Foundation
 import Sync
 
-/// **The kernel's word that something happened to the open document's file, or to the folder it
-/// is in** (TE59) — a pair of `kqueue` vnode sources, and nothing else.
+/// The kernel's word that something happened to the open document's file or its folder: a pair of
+/// `kqueue` vnode sources, and nothing else.
 ///
-/// **Why `kqueue`, and not `NSFilePresenter`.** A presenter is told only about what goes through
-/// `NSFileCoordinator`, plus whatever `filecoordinationd` chooses to relay of the rest, on its own
-/// schedule; a shell's `mv`, `vim`'s save, a script, `git checkout` and most sync clients coordinate
-/// nothing. A vnode source hears every one of them, at once, because it is the file system itself
-/// reporting — iCloud Drive's daemon included, which installs a newer version by writing or
-/// renaming inside the same APFS folder like anybody else. And it can be driven from a test with
-/// `Data.write` and `rename(2)`, which is what lets the rules above it be proven rather than hoped.
+/// `kqueue`, not `NSFilePresenter`: a presenter hears only what goes through `NSFileCoordinator`,
+/// and a shell's `mv`, `vim`'s save, `git checkout` and most sync clients coordinate nothing. A
+/// vnode source hears all of them at once, iCloud's daemon included, and tests can drive it with
+/// `Data.write` and `rename(2)`.
 ///
-/// **It decides nothing.** An event only says "look again"; ``EditorDiskWatch`` then reads the
-/// stamp at the document's path and compares it with what the document knows, so a burst of
-/// events, a missed one, or one caused by the editor's own save all come to the same answer. Two
-/// things only the open descriptor can tell, it does tell:
+/// It decides nothing: an event only says "look again", and ``EditorDiskWatch`` compares the stamp
+/// at the path with what the document knows, so bursts, missed events and the editor's own saves
+/// all reach the same answer. The descriptor tells two things only it can:
 ///
-/// - **Where the file went.** `F_GETPATH` on the descriptor follows the inode, not the name, so a
-///   file renamed in Finder or filed by Organize is found at its new path.
-/// - **Whether its last link is gone** (`st_nlink == 0`) — deleted, not moved.
+/// - Where the file went: `F_GETPATH` follows the inode, so a file renamed in Finder or filed by
+///   Organize is found at its new path.
+/// - Whether its last link is gone (`st_nlink == 0`): deleted, not moved.
 ///
-/// **The folder is watched as well as the file**, and three cases need it: an atomic save replaces
-/// the inode the file source holds (the folder sees the new entry); a file deleted and created
-/// again — another device's rename can arrive that way — leaves no file to watch until it is back;
-/// and the folder itself being renamed changes the file's path without touching the file.
+/// The folder is watched too, for an atomic save that replaces the file's inode, a file deleted
+/// and created again (another device's rename can arrive that way), and the folder being renamed.
 ///
-/// **`O_EVTONLY`**, so the descriptor never keeps a volume from unmounting, and **no descriptor at
-/// all on a cloud-only file**: opening a dataless file can ask its provider for the bytes, and a
-/// provider that is not running can make that wait forever (the OneDrive `.Trash` hang, 2026-10-02).
-/// The folder alone is watched until the file is downloaded.
+/// `O_EVTONLY`, so the descriptor never keeps a volume from unmounting. **No descriptor at all on
+/// a cloud-only file:** opening a dataless file can ask its provider for the bytes, and a provider
+/// that isn't running can make that wait forever. Only the folder is watched until it downloads.
 final class EditorFileWatcher: @unchecked Sendable {
 
     /// Every watcher's handlers, on one serial queue: they only signal, so one is plenty.
@@ -37,22 +30,22 @@ final class EditorFileWatcher: @unchecked Sendable {
 
     private let lock = NSLock()
     private var sources: [DispatchSourceFileSystemObject] = []
-    /// The file's descriptor while it is open, `-1` once cancelled — set to `-1` BEFORE the source
-    /// is cancelled, because the cancel handler closes it later on the queue and a descriptor
-    /// number read after that could name somebody else's file.
+    /// The file's descriptor while it is open, `-1` once cancelled. Set to `-1` before the source
+    /// is cancelled: the cancel handler closes it later on the queue, and the number read after
+    /// that could name somebody else's file.
     private var fileDescriptor: Int32 = -1
 
-    /// The inode the file source is on — `0` when no file is watched. The watch re-arms when the
+    /// The inode the file source is on, `0` when no file is watched. The watch re-arms when the
     /// file at the path is a different one (an atomic save installed a new inode).
     let fileID: Int
     /// The path this watcher was armed for.
     let path: String
-    /// The folder watched: the file's own, or the nearest one above it while that is gone — `nil`
+    /// The folder watched: the file's own, or the nearest one above it while that is gone. `nil`
     /// when not even `/` could be opened.
     let watchedFolder: String?
 
-    /// Whether the watch is on a folder above the file's own while a nearer one now exists — the
-    /// file's folder came back, and the watch should move down to hear the file arriving in it.
+    /// Whether the watch is on a folder above the file's own while a nearer one now exists, so it
+    /// should move down to hear the file arrive.
     var watchesAboveAFolderThatIsBack: Bool {
         let own = (path as NSString).deletingLastPathComponent
         guard let watchedFolder, watchedFolder != own else { return false }
@@ -73,7 +66,7 @@ final class EditorFileWatcher: @unchecked Sendable {
         var armed: [DispatchSourceFileSystemObject] = []
         var fileID = 0
         var descriptor: Int32 = -1
-        // The file a link points to (TE206): `arm` opens the path, which follows the link.
+        // The file a link points to: `arm` opens the path, which follows the link.
         if !isCloudOnly(MaterializationStatus.linkTarget(of: path)),
            let fd = Self.arm(path, mask: [.write, .extend, .attrib, .delete, .rename, .link, .revoke],
                              onEvent: onEvent, into: &armed) {
@@ -81,10 +74,9 @@ final class EditorFileWatcher: @unchecked Sendable {
             var info = stat()
             if fstat(fd, &info) == 0 { fileID = Int(truncatingIfNeeded: info.st_ino) }
         }
-        // **The folder — or, while that is gone too, the nearest one above it that is there.** With
-        // neither the file nor its folder to open, nothing would be heard when they came back (a
-        // restore, another device), and the deleted banner would stand over a file that is there.
-        // An entry made in the ancestor is an event; the look after it re-arms one level nearer.
+        // The folder, or while that is gone the nearest one above it that exists. Otherwise nothing
+        // would be heard when they came back, and the deleted banner would stand over a file that
+        // is there. An entry made in the ancestor is an event; the look after it re-arms nearer.
         var folder = (path as NSString).deletingLastPathComponent
         var watchedFolder: String?
         while !folder.isEmpty {
@@ -104,8 +96,8 @@ final class EditorFileWatcher: @unchecked Sendable {
 
     deinit { cancel() }
 
-    /// Opens `path` for events only and puts a source on it. `nil` when it cannot be opened — the
-    /// file is not there, which the caller answers by watching the folder alone.
+    /// Opens `path` for events only and puts a source on it. `nil` when it can't be opened (the
+    /// file isn't there), and the caller watches the folder alone.
     private static func arm(_ path: String, mask: DispatchSource.FileSystemEvent,
                             onEvent: @escaping @Sendable () -> Void,
                             into sources: inout [DispatchSourceFileSystemObject]) -> Int32? {
@@ -119,7 +111,7 @@ final class EditorFileWatcher: @unchecked Sendable {
         return fd
     }
 
-    /// Where the watched file is now — **`nil` when no file is watched, or its last link is gone**.
+    /// Where the watched file is now, or `nil` when no file is watched or its last link is gone.
     var trackedPath: String? {
         lock.lock()
         defer { lock.unlock() }

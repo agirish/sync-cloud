@@ -4,13 +4,12 @@ import Sync
 import FileExplorerTestSupport
 @testable import FileExplorer
 
-/// **Edit's file rail and the filing card's item count read a folder whose cloud app does not
-/// answer without hanging** — the FileExplorer half of `UnansweredListingTests` (Sync).
-///
-/// Both did a bare `contentsOfDirectory` on a detached task: with the app that syncs the folder not
-/// running, that never returns, and each re-read — the rail re-lists after every autosave; the card
-/// on every appearance — left one more thread stuck in it. Both now list through Sync's shared
-/// `listing(of:)`, and ask the folder through `waitForContents` first, so the wait holds no thread.
+/// Edit's file rail and the filing card's item count read a folder whose cloud app doesn't answer
+/// without hanging: the FileExplorer half of `UnansweredListingTests` (Sync). With that app not
+/// running, a bare `contentsOfDirectory` never returns, and each re-read (the rail after every
+/// autosave, the card on every appearance) would strand another thread. Both list through Sync's
+/// shared `listing(of:)` and ask the folder through `waitForContents` first, so the wait holds no
+/// thread.
 @Suite struct UnansweredFolderListingTests {
 
     /// A real folder holding `note.md` and `scan.pdf`, behind a disk that calls it dataless.
@@ -27,9 +26,9 @@ import FileExplorerTestSupport
         return (disk, folder.path)
     }
 
-    /// Off the main actor, on the pool, where these run. "In time" is asserted as "while the provider
-    /// is still parked", never against a clock: in a full run of this package, cases that never park
-    /// took 43 s.
+    /// Off the main actor, on the pool, where these run. "In time" is asserted as "while the
+    /// provider is still parked", never against a clock: in a full run of this package, even cases
+    /// that never park can take tens of seconds.
     static func offThePool<T: Sendable>(_ body: @escaping @Sendable () async -> T) async -> T {
         await Task.detached { await body() }.value
     }
@@ -87,8 +86,8 @@ import FileExplorerTestSupport
         #expect(disk.providerReads == 1)
     }
 
-    /// The peek suspends while the provider is asked. (Its listing then runs in a detached task of
-    /// its own, which this harness cannot see into — so this pins the ask, not the listing.)
+    /// The peek suspends while the provider is asked. Its listing then runs in a detached task this
+    /// harness can't see into, so this pins the ask, not the listing.
     @Test func thePeekHoldsNoThreadWhileItAsks() async throws {
         let (disk, folder) = try Self.disk(deadline: .seconds(300))
         defer { disk.finish(removing: folder) }

@@ -5,14 +5,10 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// **A pane reading its folder shows one busy indicator, in one place, for the whole load.**
-///
-/// It showed up to three: the centred "Scanning Directory…" while it had no rows, a spinner chip
-/// in the corner once it had some, and a spinner in every open empty Columns column — the last two
-/// together for the whole gap between the shallow first paint and the deep walk (raised 2026-10-03;
-/// the user chose the corner, always, on 2026-10-15). The column half is held by
-/// `PaneColumnsEmptyCaptionTests`; this is the pane's half: the rule, the pane's use of it, and —
-/// in `PaneBusyChipRenderTests` — what actually paints.
+/// A pane reading its folder shows one busy indicator, in one place, for the whole load: the corner
+/// chip. Not a centred "Scanning Directory…" while it has no rows, nor a spinner in every empty
+/// Columns column. The column half is held by `PaneColumnsEmptyCaptionTests`; this is the pane's
+/// half: the rule, the pane's use of it, and (in `PaneBusyChipRenderTests`) what actually paints.
 @MainActor
 @Suite struct PaneBusyIndicatorTests {
 
@@ -25,15 +21,16 @@ import Sync
         #expect(PaneBusyIndicator.resolve(isLoading: true, treeIsEmpty: false) == .chip(backed: true))
     }
 
-    /// The pane resolves its chip from its own inputs — the call-site half of the rule, without
+    /// The pane resolves its chip from its own inputs: the call-site half of the rule, without
     /// which the table above could be right and unused.
     @Test func thePaneAsksTheRuleWithItsOwnState() {
         let row = FileNode(id: "/root/a.txt", name: "a.txt", isDirectory: false)
         #expect(BusyPaneFixture.pane(nodes: [], isLoading: true).busyIndicator == .chip(backed: false))
         #expect(BusyPaneFixture.pane(nodes: [row], isLoading: true).busyIndicator == .chip(backed: true))
         #expect(BusyPaneFixture.pane(nodes: [row], isLoading: false).busyIndicator == PaneBusyIndicator.none)
-        // And the centre stays claimed while the walk runs, so "Folder is empty" cannot show on a
-        // pane nobody has read yet — the chip replaced the centred spinner, not the empty-state rule.
+        // And the centre stays claimed while the walk runs, so "Folder is empty" can't show on a
+        // pane nobody has read yet: the chip replaced the centred spinner, not the empty-state
+        // rule.
         #expect(BusyPaneFixture.pane(nodes: [], isLoading: true).emptyState == .loading)
     }
 
@@ -79,12 +76,11 @@ enum BusyPaneFixture {
     }
 }
 
-/// **What the busy chip paints, and where.** Rendered over a magenta backdrop nothing in the UI uses
-/// (`PaneScanningPlaceholderRenderTests`' method), so every non-backdrop pixel is something the
-/// subject drew.
+/// What the busy chip paints, and where. Rendered over a magenta backdrop nothing in the UI uses
+/// (`PaneScanningPlaceholderRenderTests`' method), so every non-backdrop pixel is the subject's.
 ///
-/// `.machinePinned(.pixelSampling)` for the reason its siblings carry it: the floors and ceilings
-/// are ink counts read on this Mac, and they move with font rasterization and backing scale.
+/// `.machinePinned(.pixelSampling)` like its siblings: the floors and ceilings are ink counts read
+/// on this Mac, and they move with font rasterization and backing scale.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct PaneBusyChipRenderTests {
 
@@ -128,10 +124,9 @@ enum BusyPaneFixture {
         return count
     }
 
-    /// **An empty pane being read paints in its bottom-right corner, and nowhere else.** The centre
-    /// is where "Scanning Directory…" used to draw; the corner is where the chip now draws for the
-    /// whole load. Both halves matter: a centre that is clear because nothing rendered at all would
-    /// pass the first on its own.
+    /// An empty pane being read paints in its bottom-right corner and nowhere else; the centre
+    /// stays clear. Both halves matter: a centre clear because nothing rendered at all would pass
+    /// the second on its own.
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func anEmptyPaneBeingReadPaintsOnlyItsCorner(appearance: NSAppearance.Name) throws {
         let size = CGSize(width: 420, height: 300)
@@ -145,9 +140,9 @@ enum BusyPaneFixture {
         #expect(rest < 50, "\(appearance.rawValue): the pane painted \(rest) px outside its corner chip")
     }
 
-    /// **Backed over rows, bare over nothing.** The backing is a material, and on an empty pane a
-    /// material has nothing to blur and paints a flat gray box — the 2026-08-11 regression this same
-    /// label once was. Over rows it is what keeps the label legible.
+    /// Backed over rows, bare over nothing. The backing is a material, and on an empty pane a
+    /// material has nothing to blur and paints a flat gray box. Over rows it keeps the label
+    /// legible.
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func theChipIsBackedOnlyWhenAsked(appearance: NSAppearance.Name) throws {
         let size = CGSize(width: 300, height: 120)

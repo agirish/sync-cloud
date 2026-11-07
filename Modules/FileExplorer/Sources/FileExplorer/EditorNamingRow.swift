@@ -1,23 +1,20 @@
 import SwiftUI
 import Design
 
-/// The inline row ⌘N opens — the same bargain New Folder strikes: the field opens, and nothing
-/// exists on disk until Return.
+/// The inline row ⌘N opens. Like New Folder, nothing exists on disk until Return.
 ///
-/// **One row, two homes.** It is drawn in the rail's files list while the rail is on screen, and at
-/// the top of the document column while it is not — the source pane is open, or "Just the text" is
-/// on — because ⌘N still has to land somewhere the user can see. The two never both draw it: the
-/// rail is not drawn when the column draws it. Extracted from the rail with its focus handling,
-/// because a row drawn in the column with those left behind in the rail opened unfocused and empty.
+/// Drawn in the rail's files list while the rail is on screen, and at the top of the document
+/// column while it isn't, so ⌘N always lands somewhere visible; never both. It carries its own
+/// focus handling so it opens focused in either home.
 ///
-/// **Not wrapped in a `GeometryReader`**, here or at either call site: one around the rail once
-/// collapsed its intrinsic height to 10pt (see ``EditorFileRailView/outlineHeight``).
+/// **Not wrapped in a `GeometryReader`**, here or at either call site: one around the rail
+/// collapses its intrinsic height to 10pt.
 struct EditorNamingRow: View {
 
     /// Whether the row is showing. A binding, because Esc closes it from in here and ⌘N opens it
-    /// from outside — from another workspace, even.
+    /// from outside, even from another workspace.
     @Binding var isNaming: Bool
-    /// The name being typed. Held by the host — see ``EditorFileRailView/typedName``.
+    /// The name being typed, held by the host (``EditorFileRailView/typedName``).
     @Binding var typedName: String
     /// A counter the host bumps on every ⌘N, so a row that is already open still takes focus.
     /// See ``EditorFileRailView/namingFocus``.
@@ -28,13 +25,12 @@ struct EditorNamingRow: View {
     let prefilledName: () -> String
     /// Why the typed name cannot be used, asked as the user types.
     let refusal: (String) -> String?
-    /// Commits a name. Returns `false` when the file was not created after all — see
-    /// ``EditorFileRailView/onCreate``.
+    /// Commits a name. Returns `false` when the file was not created after all
+    /// (``EditorFileRailView/onCreate``).
     let onCreate: (String) -> Bool
-    /// Where the file will be created, for a caption beside the field — or `nil` where something
-    /// else on screen already names the folder. The rail passes `nil`: its folder line is directly
-    /// above. The document column passes the folder, because nothing else in that column says
-    /// where ⌘N is about to write.
+    /// Where the file will be created, for a caption beside the field, or `nil` where the screen
+    /// already names the folder: the rail passes `nil`, since its folder line is just above; the
+    /// document column passes the folder.
     var folderName: String? = nil
 
     @FocusState private var nameFieldFocused: Bool
@@ -51,16 +47,11 @@ struct EditorNamingRow: View {
                     .scaledFont(.system(size: 12))
                     .focused($nameFieldFocused)
                     .onSubmit {
-                        // **`refusal(typedName)` again, not the captured `hint`.** That value was
-                        // computed when this body was built; the field has been typed into since,
-                        // and a Return that validates one string while creating another is how a
-                        // name gets past a check that was looking at the previous keystroke.
+                        // `refusal(typedName)` again, not the captured `hint`, which was computed
+                        // a keystroke or more ago: Return must check the string it creates.
                         guard refusal(typedName) == nil else { return }
-                        // **The row closes only once the file exists.** It used to close first and
-                        // create second, so a prompt raised in between — "save your changes to the
-                        // document you are leaving?" — could be cancelled, and the effect of
-                        // answering Cancel to a question about one file was that the name typed for
-                        // another was gone, with nothing on screen to say so.
+                        // The row closes only once the file exists: a save prompt in between can
+                        // be cancelled, and the typed name must survive that.
                         if onCreate(typedName) {
                             typedName = ""
                             isNaming = false
@@ -91,15 +82,11 @@ struct EditorNamingRow: View {
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
-        // **`initial: true`, and that is the whole ⌘N-from-elsewhere path.** This row does not exist
-        // until `isNaming` is already true — from another workspace, or from a rail that was not
-        // drawn — so without `initial:` the change never happened as far as this modifier is
-        // concerned, and the row appeared with an empty field, no focus, and a "Type a name for
-        // the file." hint under it.
+        // `initial: true` is the whole ⌘N-from-elsewhere path: the row doesn't exist until
+        // `isNaming` is already true, so without it the row would appear empty and unfocused.
         .onChange(of: isNaming, initial: true) { _, naming in
-            // Prefilled at the moment it opens, not held between openings: the first free
-            // `Untitled` can change while the row is closed, and a stale prefill would land the
-            // user on a name that now collides.
+            // Prefilled as it opens, not held between openings: the first free `Untitled` can
+            // change while the row is closed, and a stale prefill could collide.
             guard naming else { return }
             if typedName.isEmpty { typedName = prefilledName() }
             nameFieldFocused = true
@@ -110,9 +97,8 @@ struct EditorNamingRow: View {
         }
     }
 
-    /// Shuts the row and forgets what was typed. Esc, and nothing else — a row abandoned by
-    /// clicking elsewhere keeps its text, because the next ⌘N is more likely to be a return to it
-    /// than a fresh start.
+    /// Shuts the row and forgets what was typed, on Esc only. A row abandoned by clicking elsewhere
+    /// keeps its text, since the next ⌘N is more likely a return to it than a fresh start.
     private func cancelNaming() {
         typedName = ""
         isNaming = false

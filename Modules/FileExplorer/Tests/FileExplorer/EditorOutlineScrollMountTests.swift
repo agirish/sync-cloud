@@ -4,9 +4,8 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// The rules in `EditorOutlineScroll` are pure and tested as such. This asks the other half of the
-/// question: **is any of it wired to the scroll view AppKit actually built?** A restore that
-/// computes the right row and never reaches `.scrollPosition(id:)` passes every test in that file.
+/// Checks that `EditorOutlineScroll`'s pure rules reach the scroll view AppKit builds. A restore that
+/// computes the right row and never reaches `.scrollPosition(id:)` passes every pure test.
 @MainActor
 @Suite(.serialized) struct EditorOutlineScrollMountTests {
 
@@ -16,8 +15,7 @@ import Design
         }
     }
 
-    /// Somewhere for the view's writes to land, so the recording half can be asserted rather than
-    /// only the restoring half.
+    /// Where the view's writes land, so the recording half can be asserted too.
     final class AnchorBox { var anchors: [String: Int] = [:] }
 
     private func mount(anchors: [String: Int], current: Int? = nil,
@@ -45,8 +43,8 @@ import Design
                               backing: .buffered, defer: false)
         window.contentView = host
         window.layoutIfNeeded()
-        // The opening scroll is decided during the first update — which is the point of deciding
-        // it there. A few passes anyway, because AppKit applies it on the layout after.
+        // The opening scroll is decided in the first update, but AppKit applies it on a later
+        // layout, so pump a few passes.
         for _ in 0..<30 {
             _ = CFRunLoopRunInMode(.defaultMode, 0.02, true)
             window.layoutIfNeeded()
@@ -64,29 +62,24 @@ import Design
         return found.map { $0.documentVisibleRect.origin.y }
     }
 
-    /// The positive control the assertions below need: an outline nobody has scrolled, with the
-    /// caret in no section, sits at the top — so a non-zero offset anywhere below is something this
-    /// code did and not the list's resting state.
+    /// Control: an unscrolled outline with the caret in no section sits at the top, so a non-zero
+    /// offset below is this code's doing, not the list's resting state.
     @Test func anOutlineWithNothingToGoOnSitsAtTheTop() throws {
         let offset = try #require(scrollOffset(mount(anchors: [:])),
                                   "no NSScrollView in the mounted rail — this test cannot see anything")
         #expect(abs(offset) < 1, "an unscrolled outline started at \(offset)")
     }
 
-    /// **The wiring, end to end**: a remembered line for this path, through `restoreTarget`, into
+    /// End to end: a remembered line for this path, through `restoreTarget`, into
     /// `.scrollPosition(id:)`, out as a scrolled `NSScrollView`.
     @Test func aRememberedAnchorReallyScrollsTheMountedOutline() throws {
         let offset = try #require(scrollOffset(mount(anchors: ["/a/one.md": 60])))
         #expect(offset > 1, "the outline did not move for a remembered anchor: offset \(offset)")
     }
 
-    /// **The other half of the decision, in pixels.** Anchored at the very top with the caret in the
-    /// last heading of forty, the list has to open further down than the anchor alone would put it.
-    ///
-    /// This is the assertion the first design could not make: the reveal was decided from
-    /// `onScrollTargetVisibilityChange`, and nothing an offscreen host does after its first update
-    /// pass takes effect — a scroll issued from that callback, by binding or by `ScrollViewProxy`,
-    /// never landed, so a working reveal and a dead one measured the same 0.0.
+    /// Anchored at the top with the caret in the last of forty headings, the list opens further
+    /// down than the anchor alone would put it. An offscreen host ignores scrolls issued after its
+    /// first update pass, so the reveal must be decided in that pass to show up here.
     @Test func aCaretHeadingPastTheFoldOpensTheListFurtherDownThanTheAnchor() throws {
         let anchored = try #require(scrollOffset(mount(anchors: ["/a/one.md": 2])))
         let revealed = try #require(scrollOffset(mount(anchors: ["/a/one.md": 2], current: 39)))
@@ -95,9 +88,8 @@ import Design
                 "the caret's heading did not override the anchor: \(anchored) then \(revealed)")
     }
 
-    /// And it leaves the anchor alone when the caret's heading is one the anchor already shows —
-    /// the negative control for the test above, without which "it always scrolls to the caret"
-    /// would pass just as well.
+    /// The anchor stands when it already shows the caret's heading: the negative control for the
+    /// test above, which "always scroll to the caret" would also pass.
     @Test func aCaretHeadingTheAnchorAlreadyShowsDoesNotMoveTheList() throws {
         let plain = try #require(scrollOffset(mount(anchors: ["/a/one.md": 60])))
         // Row 30 is line 60 — the anchor itself, so it is on screen by construction.
@@ -106,10 +98,8 @@ import Design
                 "the caret moved a list that was already showing it: \(plain) then \(withCaret)")
     }
 
-    /// **The remembering half.** The opening scroll goes through the same binding the reader's own
-    /// scrolling reports on, so a list that opens somewhere writes that somewhere down — and the
-    /// value written is the revealed row, not the anchor it overrode, because the list really is
-    /// there now.
+    /// The opening scroll goes through the binding the reader's scrolling reports on, so it is
+    /// recorded, and as the revealed row, not the anchor it overrode: that is where the list is.
     @Test func theOpeningScrollIsWrittenBackAsTheDocumentsAnchor() {
         let box = AnchorBox()
         _ = mount(anchors: ["/a/one.md": 2], current: 39, box: box)
@@ -118,9 +108,8 @@ import Design
                 "the opened position was not recorded: \(String(describing: box.anchors["/a/one.md"]))")
     }
 
-    /// The estimate the fold is computed from has to match the rows actually drawn. **A row height
-    /// that drifts from the real one is an estimate answering a different question** — it would
-    /// call a heading visible that is not, or reveal one that was already there.
+    /// The row height the fold is computed from matches a drawn row. A drifted estimate would call
+    /// a heading visible that isn't, or reveal one that already was.
     @Test func theRowHeightEstimateMatchesADrawnRow() {
         for scale in FontSize.allCases.map(\.scale) {
             let row = EditorFileRailView.outlineRowProbe(

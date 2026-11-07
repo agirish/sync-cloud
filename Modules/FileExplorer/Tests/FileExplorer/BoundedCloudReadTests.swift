@@ -13,9 +13,9 @@ import Testing
         #expect(reads.run { "again" } == "again")
     }
 
-    /// A read that outlives the deadline answers nil, and no read starts until it returns: the
-    /// second one below must never run, even once the first is let go — a reader that only queued it
-    /// behind the stuck one would run it then.
+    /// A read that outlives the deadline answers nil, and no read starts until it returns. The
+    /// second one below must never run, even once the first is let go; a reader that only queued
+    /// it behind the stuck one would run it then.
     @Test func aStuckReadStopsLaterReadsUntilItReturns() async {
         let reads = BoundedCloudRead(deadline: .milliseconds(50))
         let release = DispatchSemaphore(value: 0)

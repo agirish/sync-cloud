@@ -2,25 +2,20 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **The results panel must declare no drop shadow, because its window has nowhere to put one.**
+/// The results panel must declare no drop shadow, because its window has nowhere to put one.
 ///
-/// `CommandPalettePanelController.place()` sizes the panel window to exactly this list — the
-/// field's width by the height `onHeight` reports — so there is no transparent margin for a shadow
-/// to fall into. A `.shadow` here is therefore clipped to the window's **rectangle**, and what
-/// survives is the part filling the gaps the card's **rounded** corners leave in that rectangle:
-/// dark notches at the four corners, and nothing below the card where a shadow belongs.
+/// `CommandPalettePanelController.place()` sizes the panel window to exactly this list (the field's
+/// width by the height `onHeight` reports), so there is no transparent margin for a shadow to fall
+/// into. A `.shadow` here is clipped to the window's rectangle, and what survives fills the gaps
+/// the card's rounded corners leave in it: dark notches at the four corners (14–26 luminance units
+/// darker than the content outside), and nothing below the card where a shadow belongs.
+/// `NSWindow.hasShadow = true` doesn't rescue it either.
 ///
-/// That is not a prediction. It shipped in v4.2 and was measured on the running app against the
-/// content immediately outside the panel — corners **14–26 luminance units darker**, strip below
-/// the panel flat at 255. `NSWindow.hasShadow` does not rescue it either: flipping it to `true` on
-/// the real code path moved the four deltas by less than a unit.
-///
-/// **A source scan, and it pins a spelling rather than the pixels** — deliberately, because the
-/// pixel version cannot exist here. The card is a `groundedGlassCard`, and glass renders nothing
-/// offscreen, so a render-and-sample test would pass vacuously on a blank bitmap. The alternative
-/// to this scan is nothing at all standing in front of a regression whose whole character is that
-/// it looks like a reasonable line of design intent. The failure message says what re-adding it
-/// actually does, so whoever trips this reads the consequence rather than "a string moved".
+/// A source scan, pinning a spelling rather than the pixels, because the pixel version cannot exist
+/// here: the card is a `groundedGlassCard`, and glass renders nothing offscreen, so a
+/// render-and-sample test would pass vacuously on a blank bitmap. The failure message says what
+/// re-adding the shadow does, so whoever trips this reads the consequence rather than "a string
+/// moved".
 @Suite struct GoToResultsPanelShadowTests {
 
     private func source() throws -> String {
@@ -34,8 +29,8 @@ import Foundation
     }
 
     /// Comments stripped, because the reasoning above the `groundedGlassCard` call quotes the very
-    /// modifier this forbids — a scan that read the explanation instead of the code would fail on a
-    /// correct file, which is the fastest way to teach the next person to delete the test.
+    /// modifier this forbids; a scan that read the explanation instead of the code would fail on a
+    /// correct file.
     private func codeOnly(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -52,7 +47,7 @@ import Foundation
                 "GoToResultsPanel declares a shadow again. The panel window is sized to exactly this list, so the blur is clipped to the window RECTANGLE and all that renders is dark notches in the card's rounded corners — measured at 14–26 luminance units on v4.2, with no shadow below the card at all. NSWindow.hasShadow does not help. See the reasoning above `groundedGlassCard`.")
     }
 
-    /// The scan can actually fail — the guard against a matcher that has quietly stopped matching.
+    /// The scan can fail: the guard against a matcher that has quietly stopped matching.
     @Test func theShadowScanCanActuallyFail() throws {
         let mutated = codeOnly(try source())
             .replacingOccurrences(of: ".groundedGlassCard(level: glassLevel)",

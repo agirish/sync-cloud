@@ -3,43 +3,27 @@ import Events
 import Foundation
 import Sync
 
-/// How the reader had Organize's results narrowed — the filter, the parked queries, the folds, the
-/// landing, the tallies and the session flags — kept somewhere that outlives the workspace.
+/// How the reader had Organize's results narrowed (the filter, parked queries, folds, landing,
+/// tallies and session flags), kept somewhere that outlives the workspace.
 ///
-/// **The defect.** All of this was `@State` on ``LensWorkspaceView``, and that view is mounted by
-/// `bottomPaneView` inside one arm of `ContentView`'s layout switch. Leaving Organize destroys the
-/// arm, so every one of these went back to its default: the match filter to All, the search field
-/// closed and its query gone, the unfolded sections re-folded, "freed this session" to zero, and the
-/// filed/dismissed flags — which are what let the empty state say "all filed" rather than "nothing
-/// was ever loose" — back to false. The rail item and the scope survived, being `@AppStorage`, which
-/// is exactly what made the loss read as arbitrary rather than as a reset: you came back to the same
-/// page with the narrowing silently gone.
+/// Not `@State` on ``LensWorkspaceView``, because that view is mounted inside one arm of
+/// `ContentView`'s layout switch: leaving Organize destroys the arm, and the reader would come back
+/// to the same page with the narrowing silently gone.
 ///
-/// The comment above the single `LensWorkspaceView(` construction site has always said this state
-/// must not reset, and it was right about the case it was written for — lens to lens, one call site,
-/// one identity. It simply does not reach across a workspace switch, because nothing about a single
-/// call site survives its enclosing branch being torn down.
+/// Public type, internal properties: `ContentView` in `MacApp` holds and passes one, but nothing
+/// outside this module reads a field, so `DuplicateMatchFilter`, `ReclaimTally`,
+/// `PendingRememberPrompt` and `RuleOffer` stay internal.
 ///
-/// **Public type, internal properties.** `ContentView` lives in `MacApp` and has to be able to hold
-/// and pass one of these, so the type and its initializer are public. Nothing outside this module
-/// ever reads a field, so the fields stay internal — which is what keeps `DuplicateMatchFilter`,
-/// `ReclaimTally`, `PendingRememberPrompt` and `RuleOffer` internal too. Hoisting state is not a
-/// reason to widen a module's API.
-///
-/// **What is deliberately NOT here.** Sheet presentation (`showSpendHistory`, `planningFinding`,
-/// `removalRequest`, `reviewingAutomationRule`), which should close when you leave and reopen shut;
-/// the two `RenderMemo`s, which are caches whose whole design is that writing them is not a state
-/// change; the spend figures, which are re-read from their store on appear; and `railStyle`, which
-/// is a measurement of the width the rail currently has. None of those are things a reader set.
+/// Not here, because the reader didn't set them: sheet presentation (`showSpendHistory`,
+/// `planningFinding`, `removalRequest`, `reviewingAutomationRule`), which should reopen shut; the
+/// two `RenderMemo` caches; the spend figures, re-read on appear; and `railStyle`, a measurement.
 @MainActor
 public final class LensWorkspaceSession: ObservableObject {
 
     public init() {
-        // **Nested `ObservableObject`s do not publish through their parent**, so a view observing
-        // this session would never hear `viewingResults` move and the Automations lens would not
-        // flip into its results view until something else happened to re-render. Re-emitting is the
-        // standard closure of that gap, and it is needed precisely because the state moved: as a
-        // `@StateObject` on the view, `automationsState` was observed directly.
+        // **Nested `ObservableObject`s don't publish through their parent.** Without this re-emit a
+        // view observing the session never hears `viewingResults` move, and the Automations lens
+        // doesn't flip to its results until something else re-renders.
         automationsSubscription = automationsState.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -49,24 +33,22 @@ public final class LensWorkspaceSession: ObservableObject {
 
     // MARK: Duplicates
 
-    /// The match-type narrowing. Reset by a new scan through `DuplicateScanReset` — see the note on
-    /// ``filedThisSession`` for why those resets matter more now than they did.
+    /// The match-type narrowing. Reset by a new scan through `DuplicateScanReset`, which matters
+    /// because this outlives the view (see ``filedThisSession``).
     @Published var filter: DuplicateMatchFilter = .all
 
-    /// Each lens's parked query, kept separately because the grammars are per-lens: `kind:pdf >5mb`
-    /// typed in Duplicates means nothing in Rename, which declares no size token, so a shared field
-    /// would silently degrade it to free text and match nothing.
+    /// Each lens's parked query, kept apart because the grammars are per-lens: `kind:pdf >5mb` from
+    /// Duplicates would degrade to free text in Rename, which has no size token, and match nothing.
     @Published var searchQueries: [WorkspaceLensKind: String] = [:]
 
-    /// Which lenses currently have the search field revealed — per-lens for the same reason.
+    /// Which lenses have the search field revealed, per-lens for the same reason.
     @Published var searchExpandedLenses: Set<WorkspaceLensKind> = []
 
     /// Which duplicate groups are expanded.
     @Published var expanded: Set<UUID> = []
 
-    /// Duplicate sections opened past their fold. Stored as the UNFOLDED set rather than the folded
-    /// one, so a section that grows with the next scan folds by default instead of inheriting
-    /// whatever the first render saw.
+    /// Duplicate sections opened past their fold. Stored as the unfolded set, so a section that
+    /// grows with the next scan folds by default instead of inheriting what the first render saw.
     @Published var unfoldedSections: Set<DuplicateMatchType.Kind> = []
 
     /// The group a "Find duplicates of this" handoff sent the reader to, marked until they look
@@ -78,33 +60,28 @@ public final class LensWorkspaceSession: ObservableObject {
 
     /// The reveal request already acted on.
     ///
-    /// **This surviving the switch is a fix in its own right, not a side effect.** It was `@State`,
-    /// so it died with the view while the request itself lived at the app level and did not — and a
-    /// round trip through Compare (which the revealed card's own "Compare copies" button takes you
-    /// on) came back with the old request standing and no memory of having applied it. The whole
-    /// plan then re-fired: filter reset, the reader's parked query overwritten, the old group
-    /// re-marked, on every return for the rest of the session. `onRevealHandled` was added to close
-    /// that from the other side and still should stay — a retirement at the app level is the only
-    /// thing that covers a request answered in a previous window — but the guard now holds in
-    /// process as well, which is where the replay actually happened.
+    /// Must survive the workspace switch: the request lives at the app level, so a round trip
+    /// through Compare (the revealed card's "Compare copies") would otherwise find it standing and
+    /// re-fire the whole plan, resetting the filter, overwriting the parked query and re-marking the
+    /// group. `onRevealHandled` still retires it at the app level, which covers a request answered
+    /// in a previous window.
     @Published var appliedRevealID: UUID?
 
     /// Bytes reclaimed so far this Duplicates session, behind the "… freed this session" caption.
     @Published var reclaim = ReclaimTally()
 
-    /// Bumped per successful resolve to flash the reclaim pill once. A token rather than a Bool, so
-    /// back-to-back resolves each retrigger the fade cleanly.
+    /// Bumped per successful resolve to flash the reclaim pill once. A token, not a Bool, so
+    /// back-to-back resolves each retrigger the fade.
     @Published var reclaimFlashToken = 0
 
     // MARK: Organize
 
-    /// True once the reader has filed at least one loose file since the current scan finished — what
-    /// lets the empty list distinguish an earned "All filed" from "nothing was ever loose".
+    /// True once the reader has filed a loose file since the current scan finished, so the empty
+    /// list can tell an earned "All filed" from "nothing was ever loose".
     ///
-    /// **Now that this outlives the view, the scan-start resets are the only thing retiring it.**
-    /// They always ran, but a fresh mount used to make them belt-and-braces; it is load-bearing now.
-    /// Every path that starts a scan switches the workspace first, so the handler is mounted when
-    /// the flag flips — `OrganizeSessionPersistenceTests` holds that rather than trusting it.
+    /// **The scan-start resets are the only thing retiring it**, since it outlives the view. Every
+    /// path that starts a scan switches the workspace first, so the handler is mounted when the flag
+    /// flips (`OrganizeSessionPersistenceTests`).
     @Published var filedThisSession = false
 
     /// True once a suggestion has been dismissed this session without any being filed, so the empty
@@ -122,21 +99,21 @@ public final class LensWorkspaceSession: ObservableObject {
     /// Which phrasing of the offered rule the reader picked.
     @Published var ruleVariantChoice: AutomationRuleProposer.Variant?
 
-    /// A rule just saved or learned from the offer, for the lens to open in its editor — the offer
-    /// is answered from the result message's popover, which cannot present the lens's sheet itself.
-    /// The lens takes it and clears it, so it is a hand-over rather than presentation state.
+    /// A rule just saved or learned from the offer, for the lens to open in its editor: the offer is
+    /// answered from the result message's popover, which can't present the lens's sheet. The lens
+    /// takes it and clears it, so it is a hand-over, not presentation state.
     @Published var ruleAwaitingReview: AutomationRule?
 
-    /// **Whether a rule offer rides in the result message `bannerID`** (Banner Room, CB). To File's
-    /// offer used to be inserted above the cards after a move, which pushed the next card's
-    /// "File here" down under the pointer. It now rides in the "Filed …" message as "Save as rule…".
+    /// Whether a rule offer rides in the result message `bannerID`, as "Save as rule…" in the
+    /// "Filed …" message. Inserted above the cards instead, it would push the next card's "File
+    /// here" down under the pointer.
     public func offersRule(riding bannerID: UUID) -> Bool {
         if let offer = pendingRuleOffer { return offer.ridesOn == bannerID }
         return pendingRememberPrompt?.ridesOn == bannerID
     }
 
-    /// **An offer leaves with its message**: ignored, it goes when the message goes — timed out,
-    /// closed, or replaced by the next result. Call whenever the shown message changes.
+    /// An offer leaves with its message: ignored, it goes when the message is timed out, closed or
+    /// replaced. Call whenever the shown message changes.
     public func retireRuleOffer(unlessRiding bannerID: UUID?) {
         if let offer = pendingRuleOffer, offer.ridesOn != bannerID { pendingRuleOffer = nil }
         if let prompt = pendingRememberPrompt, prompt.ridesOn != bannerID { pendingRememberPrompt = nil }
@@ -148,9 +125,9 @@ public final class LensWorkspaceSession: ObservableObject {
         var rule = offer.proposal.rule
         let variant = ruleVariantChoice ?? offer.proposal.defaultVariant
         rule.conditions = variant.conditions
-        // A phrasing can redirect — the `{person}` fan-out files each person's copy into their own
-        // folder rather than the one this example went to. Taking only the conditions would save a
-        // rule that says "everyone's OCI card" and files all of them into Daughter's folder.
+        // A phrasing can redirect: the `{person}` fan-out files each person's copy into their own
+        // folder. Taking only the conditions would save a rule for everyone's card that files them
+        // all into this example's folder.
         rule.destinationTemplate = variant.destinationTemplate ?? offer.proposal.destinationTemplate
         syncManager.upsertAutomationRule(rule)
         syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
@@ -159,11 +136,9 @@ public final class LensWorkspaceSession: ObservableObject {
     }
 
     /// Learns the correction as an automation (a "mentions" rule), retires the prompt, and hands the
-    /// learned rule to the lens for review. `rememberAutomationRule` is gated at the call site by
-    /// `FilingEngine.canRemember`, so it should succeed; a rare no-op (returns nil) still just
-    /// dismisses — no misleading "learned" banner, nothing to review. The silence is deliberate in
-    /// the UI only: the no-op is logged, because otherwise a user reporting "I clicked Remember and
-    /// no rule appeared" leaves no trace anywhere to diagnose.
+    /// learned rule to the lens for review. Gated at the call site by `FilingEngine.canRemember`, so
+    /// it should succeed; a rare nil just dismisses, with no banner, but is logged so "I clicked
+    /// Remember and no rule appeared" leaves a trace.
     func rememberOverride(_ prompt: PendingRememberPrompt, in syncManager: FileSyncManager) {
         if let rule = syncManager.rememberAutomationRule(fileName: prompt.fileName,
                                                          destinationPath: prompt.destinationPath) {
@@ -180,11 +155,9 @@ public final class LensWorkspaceSession: ObservableObject {
 
     // MARK: Automations
 
-    /// The Automations lens's own state — whether its dry-run results are showing.
-    ///
-    /// Held as its own object rather than folded in as a `Bool` because `AutomationsLens` observes
-    /// it directly; the initializer above re-emits its changes so a view observing only this session
-    /// still hears them.
+    /// The Automations lens's own state: whether its dry-run results are showing. Its own object
+    /// because `AutomationsLens` observes it directly; the initializer re-emits its changes for
+    /// views observing only this session.
     let automationsState = AutomationsLensState()
 }
 
@@ -192,13 +165,10 @@ extension LensWorkspaceView {
 
     /// The session this view will use, and the one moment its seeded queries may be written.
     ///
-    /// Called from inside `StateObject(wrappedValue:)`'s autoclosure, so it runs on first mount and
-    /// never again — which is the whole point. `initialSearchQueries` is a test seam (the only way
-    /// into a query without typing, since SwiftUI cannot be driven from a unit test), and applying
-    /// it on every init would let the app's empty seed clear a parked query on any later render.
-    ///
-    /// Non-empty check rather than an unconditional assign for the same reason from the other side:
-    /// a host session arriving with queries already in it must keep them.
+    /// Called inside `StateObject(wrappedValue:)`'s autoclosure, so it runs on first mount only.
+    /// `initialSearchQueries` is a test seam (SwiftUI can't be typed into from a unit test); applied
+    /// on every init, the app's empty seed would clear a parked query on a later render. Only a
+    /// non-empty seed is written, so a host session's existing queries are kept.
     static func startingSession(_ host: LensWorkspaceSession?,
                                 seed: [WorkspaceLensKind: String]) -> LensWorkspaceSession {
         let session = host ?? LensWorkspaceSession()

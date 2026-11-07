@@ -4,13 +4,10 @@ import Sync
 
 /// Everything one pane row draws differently because a search is running.
 ///
-/// One value rather than four separate row properties, for the reason `FileRowInfo` is one value:
-/// both presentations build a row per visible item on every render, and each property added to a row
-/// is a property added to every row's comparison. It also means the tree row and the column row take
-/// the *same* thing, so the two cannot drift about what a match looks like.
-///
-/// `.none` is the resting value and is what every caller that knows nothing about search passes, so
-/// a pane with no query renders exactly the row it rendered before this existed.
+/// One value, not separate row properties, for `FileRowInfo`'s reason: every visible row is
+/// compared on every render, and each property is one more comparison. The tree row and the column
+/// row take the same value, so they can't drift about what a match looks like. `.none` is the
+/// resting value, passed by every caller that knows nothing about search.
 struct PaneSearchRowContext: Equatable {
     /// The matched run, as character offsets into the row's name. `nil` when this row is not a hit.
     var match: Range<Int>?
@@ -20,16 +17,14 @@ struct PaneSearchRowContext: Equatable {
     /// How many hits lie beneath this folder, drawn only while it is closed — see
     /// `showsContainedCount`.
     var containedMatchCount: Int = 0
-    /// Whether the folder is showing its contents. A count on an OPEN folder says nothing the rows
-    /// under it are not already saying, and in Columns it would sit on the very folder you drilled
-    /// through.
+    /// Whether the folder is showing its contents. A count on an open folder repeats the rows under
+    /// it, and in Columns would sit on the folder you drilled through.
     var isExpanded: Bool = false
-    /// Which side(s) this hit is on, or `nil` — for a non-hit, and on the single-source rail, where
-    /// there is no second tree to be “only” with respect to.
+    /// Which side(s) this hit is on, or `nil` for a non-hit and on the single-source rail, which has
+    /// no second tree.
     var side: PaneSearchSide?
-    /// The type filter's pill for a closed folder — "2 images", "9 files" — or nil (RD70 TE269).
-    /// Carried here rather than in a context of its own so the row keeps one trailing slot with one
-    /// precedence rule: a running search's count outranks it.
+    /// The type filter's pill for a closed folder ("2 images", "9 files"), or nil. Carried here so
+    /// the row keeps one trailing slot with one precedence rule: a running search's count outranks it.
     var typeFilterPhrase: String?
 
     /// No search running.
@@ -39,9 +34,8 @@ struct PaneSearchRowContext: Equatable {
     var showsContainedCount: Bool { containedMatchCount > 0 && !isExpanded }
 
     /// What `PaneSearchAnnotation` says on this row, if anything: the count of matches inside a
-    /// closed folder, which outranks the side; else which side(s) a hit is on. The one definition —
-    /// the row's gate below and the annotation's label both read it, so a kind added to one cannot
-    /// go missing from the other.
+    /// closed folder, else the type filter's pill on a closed folder, else which side(s) a hit is
+    /// on. The row's gate and the annotation's label both read it, so they can't disagree.
     enum Annotation: Equatable {
         case containedMatches(Int)
         case typeFilterMatches(String)
@@ -59,13 +53,11 @@ struct PaneSearchRowContext: Equatable {
         }
     }
 
-    /// Whether this row mounts the annotation at all — so a pane that is not searching pays for no
-    /// annotation.
+    /// Whether this row mounts the annotation at all, so a pane that is not searching pays for none.
     var hasAnnotation: Bool { annotation != nil }
 
-    /// Builds the row's context from one pane's results. The two presentations differ only in what
-    /// “expanded” means — a `Set` membership in the tree, being on the browse path in Columns — so
-    /// that is the one thing the caller supplies.
+    /// Builds the row's context from one pane's results. The caller supplies `isExpanded`, the one
+    /// thing the presentations differ on: set membership in the tree, the browse path in Columns.
     init(results: PaneSearchResults, path: String, isExpanded: Bool) {
         self.match = results.match(forPath: path)
         self.isDimmed = results.isDimmed(path: path)
@@ -86,50 +78,38 @@ struct PaneSearchRowContext: Equatable {
     private init() {}
 }
 
-// A `PaneSearchRevealToken` of (results generation, hit index) used to live here as the reveal's
-// trigger. It is gone, and deliberately not resurrected: the generation moves on every republish
-// of either tree, so the token re-fired the reveal — selection, scroll, Columns navigation — over
-// whatever the user had done since the walk. The reveal now fires on the host's `revealNonce`
-// (see `PaneSearchFieldState`), which moves only for a new query or ↩/⇧↩.
+// The reveal fires on the host's `revealNonce` (see `PaneSearchFieldState`), which moves only for a
+// new query or ↩/⇧↩. Keyed on the results generation, it would re-fire on every republish of either
+// tree and undo what the user did since.
 
 /// How far a non-matching row recedes while a search is running.
 ///
-/// It has to stay READABLE. This is a find, not a filter: the tree's shape is the answer to “where
-/// is this?”, and a dimming deep enough to make the surrounding rows unreadable would be a filter
-/// drawn slowly. Matched to the mockup's own value.
+/// It has to stay readable: this is a find, not a filter, and the tree's shape is the answer to
+/// “where is this?”. The mockup's value.
 enum PaneSearchDim {
     static let opacity: Double = 0.55
 }
 
 /// The row's name with its matched run emphasized.
 ///
-/// Concatenated `Text` rather than an `AttributedString`: three `Text`s compose at draw time with no
-/// per-row attributed-string allocation, and this runs for every visible row of a pane whose render
-/// budget is the app's tightest.
+/// Concatenated `Text`, not an `AttributedString`, so no row allocates one: this runs for every
+/// visible row of the pane, the app's tightest render budget.
 ///
-/// The range indexes the name as `PaneTreeSearch` found it, and the label draws
-/// `NameDisplay.visibleName`, which substitutes affix whitespace one character for one — so the
-/// offsets line up on the marked form too. It is still clamped: the range and the string reach this
-/// view from different places (results computed against the tree that was published when the query
-/// ran, rows rendered from the tree published since), and one republish between them must not be
-/// able to crash a pane.
+/// The range indexes the name as `PaneTreeSearch` found it; `NameDisplay.visibleName` substitutes
+/// affix whitespace one character for one, so the offsets line up on the drawn form too.
 struct PaneSearchName: View {
     let name: String
     let match: Range<Int>?
     let font: Font
 
     var body: some View {
-        // **The unmatched path must not pay for the matched one.** This view replaced a bare
-        // `Text(NameDisplay.visibleName(name))` on EVERY row of the pane — the app's tightest render
-        // budget — and building the `[Character]` array unconditionally taxed every row of every
-        // render with an allocation, including every pane that is not searching at all. The split
-        // costs the highlighted rows nothing: there are at most a screenful of them.
+        // The unmatched path must not pay for the matched one: every row of every pane comes here,
+        // so only a hit builds the `[Character]` array.
         guard let match else { return Text(NameDisplay.visibleName(name)).font(font) }
         let display = Array(NameDisplay.visibleName(name))
-        // Clamped: the range and the string reach this view from different places — results computed
-        // against the tree published when the query ran, rows rendered from the tree published since
-        // — so one republish between them hands it a range past the end. Without this
-        // `display[..<match.lowerBound]` traps and takes the process with it.
+        // Clamped: results come from the tree published when the query ran, rows from the tree
+        // published since, so one republish between them can hand a range past the end, and
+        // `display[..<match.lowerBound]` would trap and take the process with it.
         guard match.lowerBound >= 0, match.upperBound <= display.count, !match.isEmpty else {
             return Text(String(display)).font(font)
         }
@@ -143,38 +123,32 @@ struct PaneSearchName: View {
 /// The trailing note a search puts on a row: which side(s) a hit is on, or how many matches are
 /// hiding inside a closed folder.
 ///
-/// Both are text rather than glyphs, deliberately. “left only” is the answer to the question that
-/// usually prompted the search, and a shape would need learning; “2 matches” is a count, and a
-/// count with no noun beside it reads as one of the difference badges it sits next to.
+/// Text, not glyphs: “left only” answers the question that usually prompted the search, where a
+/// shape would need learning, and a bare count would read as one of the difference badges beside it.
 struct PaneSearchAnnotation: View {
     let context: PaneSearchRowContext
     /// Which side this pane is, so a one-sided hit can name it (“left only”).
     let isLeft: Bool
-    /// The OPPOSITE pane's display name. It never appears in the label — “left only” is what the
-    /// mockup says and what fits a pane this narrow — but it is what makes the tooltip specific
-    /// (“No item at this relative path in Dropbox”), which is the sentence the label is short for.
+    /// The opposite pane's display name. Never in the label, which must fit a narrow pane, but it
+    /// makes the tooltip specific (“No item at this relative path in Dropbox”).
     let otherPaneName: String
-    /// The pane's accent, passed rather than read from `.tint`: this text sits inside a `List` row,
-    /// and a tint that failed to propagate through the row host would fail silently, as the colour
-    /// the label happened to inherit.
+    /// The pane's accent, passed rather than read from `.tint`: inside a `List` row, a tint that
+    /// failed to propagate would fail silently, as whatever colour the label inherited.
     let accent: Color
     let fonts: PaneRowFonts
-    /// The gap the label keeps from the name before it. Carried INSIDE the label, so the fallback
-    /// `ViewThatFits` picks when the label does not fit brings no gap either — in `FileRowView`'s
-    /// zero-spaced row, a note that yields its place must not leave a strip of empty width behind.
+    /// The gap the label keeps from the name before it. Carried inside the label, so when
+    /// `ViewThatFits` falls back to nothing, no strip of empty width is left in `FileRowView`'s
+    /// zero-spaced row.
     var leadingGap: CGFloat = 0
 
-    /// The label a one-sided hit carries. Named and non-private so `PaneSearchRowTests` pins the
-    /// side rather than the sentence — the two panes must not both say “left only”.
+    /// The label a one-sided hit carries. Non-private so `PaneSearchRowTests` can pin the side: the
+    /// two panes must not both say “left only”.
     static func onlyHereLabel(isLeft: Bool) -> String { isLeft ? "left only" : "right only" }
 
     var body: some View {
-        // **Show it whole or not at all.** The annotation yields width to the name (the row's
-        // identity anchor, the same rule the pane header applies to the provider capsule), and a
-        // `Text` that yields does not vanish — it truncates. Measured at the 250pt pane clamp with a
-        // 60-character filename, that left a bare "…" in the trailing slot: a glyph with no meaning,
-        // whose tooltip nobody will find. The degradation ladder the header uses is the right shape
-        // here too — the full label, or nothing.
+        // Whole or not at all. The annotation yields width to the name, and a yielding `Text`
+        // truncates rather than vanishing, which in a narrow pane leaves a bare "…" in the trailing
+        // slot. So, like the pane header's ladder: the full label, or nothing.
         ViewThatFits(in: .horizontal) {
             label.padding(.leading, leadingGap)
             Color.clear.frame(width: 0, height: 0)
@@ -203,8 +177,8 @@ struct PaneSearchAnnotation: View {
                 .lineLimit(1)
                 .help("\(otherPaneName) has an item at this relative path too")
         case .thisSideOnly?:
-            // The one annotation that carries a tint. “Where is the copy that ISN'T here” is
-            // usually the reason for searching at all, so it is the finding, not the footnote.
+            // The one annotation tinted as a warning: the missing copy is usually why the user
+            // searched, so it is the finding, not a footnote.
             Text(Self.onlyHereLabel(isLeft: isLeft))
                 .font(fonts.countPill)
                 .foregroundStyle(SemanticColor.warning)

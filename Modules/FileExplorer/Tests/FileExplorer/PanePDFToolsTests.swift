@@ -8,7 +8,7 @@ import EventsTestSupport
 import FileExplorerTestSupport
 @testable import FileExplorer
 
-/// A row-menu delegate with a window behind it — `canRunPDFTools` — recording what it was asked.
+/// A row-menu delegate with a window behind it (`canRunPDFTools`), recording what it was asked.
 @MainActor
 private final class ToolBox {
     var asked: [(PDFToolRequest, [String])] = []
@@ -16,7 +16,7 @@ private final class ToolBox {
 
 private struct PDFToolDelegate: FileActionDelegate {
     let box: ToolBox
-    /// False for the same menu with no window behind it — the baseline a hidden submenu matches.
+    /// False for the same menu with no window behind it: the baseline a hidden submenu matches.
     var offersTools = true
     var canRunPDFTools: Bool { offersTools }
     func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {
@@ -40,7 +40,7 @@ private struct PDFToolDelegate: FileActionDelegate {
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
 }
 
-/// **The PDF Tools submenu in a pane's row menu, and the runs it starts** — Phase 4.
+/// The PDF Tools submenu in a pane's row menu, and the runs it starts.
 ///
 /// Serialized, because every run takes `PDFKitSerialAccess`'s one lane. No test here holds the
 /// lane: each awaits its own run, so a crowded lane makes them slow, never wrong.
@@ -73,8 +73,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         let modified: Date
     }
 
-    /// The original's bytes and date — set into the past first, so a write this second could not
-    /// hide behind it.
+    /// The original's bytes and date, set into the past first so a write this second can't hide
+    /// behind it.
     private func pin(_ file: String) throws -> Original {
         let past = Date(timeIntervalSince1970: 1_600_000_000)
         try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file)
@@ -90,7 +90,7 @@ private struct PDFToolDelegate: FileActionDelegate {
     // MARK: Where the submenu is drawn
 
     /// Every item of the row menu over `nodes` (the first is the row clicked), in drawn order, as
-    /// widths — `OpenInEditorVerbTests`' drawn-row approach.
+    /// widths: `OpenInEditorVerbTests`' drawn-row approach.
     private static func drawnRowWidths(_ nodes: [FileNode], delegate: FileActionDelegate) -> [CGFloat] {
         let row = nodes[0]
         let menu = FileContextMenu(row: PaneRow(side: .left, version: 1, node: row, children: nil),
@@ -105,8 +105,8 @@ private struct PDFToolDelegate: FileActionDelegate {
             .map(\.width)
     }
 
-    /// A pop-up `Menu` measures a point wider inside the stack than alone (measured: 129 against
-    /// 128), so the submenu is matched within a point and a half — still clear of every neighbour.
+    /// A pop-up `Menu` measures about a point wider inside the stack than alone, so the submenu is
+    /// matched within a point and a half, still clear of every neighbour.
     private static func same(_ drawn: CGFloat, _ solo: CGFloat) -> Bool { abs(drawn - solo) <= 1.5 }
 
     private static func soloWidth<V: View>(_ item: V) -> CGFloat {
@@ -125,8 +125,8 @@ private struct PDFToolDelegate: FileActionDelegate {
                                            delegate: PDFToolDelegate(box: ToolBox())))
     }
 
-    /// **A single PDF row draws the submenu in its own section: after the open-and-inspect items,
-    /// before Rename** — and Open in Edit still leads the branch, first after Refresh.
+    /// A single PDF row draws the submenu in its own section, after the open-and-inspect items and
+    /// before Rename, and Open in Edit still leads the branch, first after Refresh.
     @Test func aSinglePDFRowDrawsTheSubmenuBetweenQuickLookAndRename() throws {
         let file = path("Statement.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -147,8 +147,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(drawn.firstIndex(of: editor) == 1, "Open in Edit no longer leads the single-file branch")
     }
 
-    /// **Hidden, not greyed** — a folder, a `.docx`, a cloud-only PDF and a selection holding
-    /// anything but PDFs draw no submenu at all, single or batch.
+    /// Hidden, not greyed: a folder, a `.docx`, a cloud-only PDF and a selection holding anything
+    /// but PDFs draw no submenu at all, single or batch.
     @Test func whatNoToolCouldReadDrawsNoSubmenu() throws {
         let pdf = path("A.pdf"), other = path("B.pdf"), docx = path("Letter.docx"), cloud = path("Cloud.pdf")
         PDFFixtures.write(pdf, pages: 1)
@@ -177,7 +177,7 @@ private struct PDFToolDelegate: FileActionDelegate {
             #expect(drawn == Self.drawnRowWidths(nodes, delegate: baseline), "\(label) draws a PDF Tools submenu: \(drawn)")
             #expect(PanePDFToolOffer.forSelection(nodes, reads: Self.reads) == nil, "\(label) is offered tools")
         }
-        // …and two plain PDFs DO draw it, so the absences above are the rule and not a blind test.
+        // …and two plain PDFs do draw it, so the absences above are the rule, not a blind test.
         let two = Self.drawnRowWidths([node(pdf), node(other)], delegate: delegate)
         #expect(two.count == Self.drawnRowWidths([node(pdf), node(other)], delegate: baseline).count + 1
                 && two.contains { Self.same($0, several) }, "two PDFs draw no batch submenu: \(two)")
@@ -186,8 +186,9 @@ private struct PDFToolDelegate: FileActionDelegate {
                 "one PDF draws no submenu: \(one)")
     }
 
-    /// **Three PDFs draw the batch submenu, first after Refresh, holding four items**: Rotate All
-    /// Pages, Compress 3 Files…, Clean Metadata of 3 Files…, Combine 3 Files… — and no password item.
+    /// Three PDFs draw the batch submenu, first after Refresh, holding four items: Rotate All
+    /// Pages, Compress 3 Files…, Clean Metadata of 3 Files…, Combine 3 Files…, and no password
+    /// item.
     @Test func threePDFsDrawTheBatchSubmenuWithFourItems() throws {
         let paths = ["One.pdf", "Two.pdf", "Three.pdf"].map(path)
         for file in paths { PDFFixtures.write(file, pages: 1) }
@@ -203,8 +204,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(items.count == 4, "the batch submenu holds \(items.count) items")
     }
 
-    /// Edit's items for each protection, Extract left out and what Edit would grey out left out —
-    /// a locked file holds Remove Password alone.
+    /// Edit's items for each protection, leaving out Extract and whatever Edit would grey out: a
+    /// locked file holds Remove Password alone.
     @Test func theSingleSubmenuHoldsEditsItemsForEachProtection() {
         func count(_ encryption: PDFEncryptionState) -> Int {
             Self.rings(AnyView(VStack(alignment: .leading) {
@@ -221,9 +222,9 @@ private struct PDFToolDelegate: FileActionDelegate {
 
     // MARK: The menu bar's half — File ▸ PDF Tools outside a PDF open in Edit
 
-    /// **File ▸ PDF Tools asks the row's own question** — `forSelection` is what both the row menu
-    /// and the menu bar's resolver call, so the cases the row hides are the cases the menu bar
-    /// greys, and one file's protection is probed for both.
+    /// File ▸ PDF Tools asks the row's own question: `forSelection` is what both the row menu and
+    /// the menu bar's resolver call, so the cases the row hides are the cases the menu bar greys,
+    /// and one file's protection is probed for both.
     @Test func theMenuBarAsksTheRowsQuestion() throws {
         let pdf = path("A.pdf"), other = path("B.pdf"), docx = path("Letter.docx"), cloud = path("Cloud.pdf")
         let locked = path("Locked.pdf"), restricted = path("Restricted.pdf")
@@ -257,7 +258,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(PanePDFToolOffer.forSelection([node(pdf), node(other)], reads: Self.reads) == .several(paths: [pdf, other]))
     }
 
-    /// The submenu's name, on the row and in File ▸ — a batch counts its files.
+    /// The submenu's name, on the row and in File ▸; a batch counts its files.
     @Test func theSubmenuIsNamedForWhatItRunsOver() {
         #expect(PanePDFToolOffer.single(path: "/a.pdf", encryption: .lockedToOpen).title == "PDF Tools")
         #expect(PanePDFToolOffer.several(paths: ["/a.pdf", "/b.pdf", "/c.pdf"]).title == "PDF Tools · 3 files")
@@ -274,7 +275,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         }
     }
 
-    /// **The lines File ▸ PDF Tools draws for a selection, as AppKit builds them** — the row's own
+    /// The lines File ▸ PDF Tools draws for a selection, as AppKit builds them: the row's own
     /// `PanePDFToolsMenuItems`, through `NSHostingMenu`, which is how a SwiftUI menu becomes an
     /// `NSMenu`. Each protection's lines, the reasons as lines nothing can choose, and a batch's
     /// three tools with no password item.
@@ -296,7 +297,7 @@ private struct PDFToolDelegate: FileActionDelegate {
 
     // MARK: The menu's protection probe
 
-    /// **CoreGraphics answers what the toolkit answers**, for each of the three states — the menu's
+    /// CoreGraphics answers what the toolkit answers, for each of the three states: the menu's
     /// items are only as right as this mapping.
     @Test func theMenuProbeAgreesWithTheToolkit() {
         let plain = path("Plain.pdf"), locked = path("Locked.pdf"), restricted = path("Restricted.pdf")
@@ -310,8 +311,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         }
     }
 
-    /// **Read once per file version** — a second ask is the memo's, and a new modification date
-    /// (the file rewritten) is read again.
+    /// Read once per file version: a second ask is the memo's, and a new modification date (the
+    /// file rewritten) is read again.
     @Test func theMenuProbeIsReadOncePerVersion() {
         let file = path("Memo.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -363,9 +364,9 @@ private struct PDFToolDelegate: FileActionDelegate {
         }
     }
 
-    /// **Each tool, from a pane, writes the name it writes in Edit** — Edit's own suffix table,
-    /// beside the original, which keeps its bytes and its date. Through the window's model: the
-    /// lane read, the sheet the request names, then the sheet's own run.
+    /// Each tool, from a pane, writes the name it writes in Edit (Edit's own suffix table), beside
+    /// the original, which keeps its bytes and its date. Through the window's model: the lane read,
+    /// the sheet the request names, then the sheet's own run.
     @Test(arguments: Single.allCases)
     func aPaneRunWritesEditsCopyAndLeavesTheOriginal(_ item: Single) async throws {
         let file = path("Invoice-\(item.rawValue).pdf")
@@ -397,8 +398,8 @@ private struct PDFToolDelegate: FileActionDelegate {
                 "\(item): the log line does not name the workspace")
     }
 
-    /// **The banner's Open and Reveal reach the window** — Open with the copy, Reveal with it as a
-    /// one-item list — through the host the single run was handed.
+    /// The banner's Open and Reveal reach the window (Open with the copy, Reveal with it as a
+    /// one-item list) through the host the single run was handed.
     @Test func theBannersOpenAndRevealReachTheWindow() async throws {
         let file = path("Banner.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -415,8 +416,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(revealed == [[copy]])
     }
 
-    /// A file that changed between the menu and the lane — here, one the menu offered Protect for
-    /// that turns out to be locked — is told why in the banner, and no sheet opens.
+    /// A file that changed between the menu and the lane (here, one the menu offered Protect for
+    /// that turns out to be locked) is told why in the banner, and no sheet opens.
     @Test func theLanesAnswerDecidesNotTheMenus() async {
         let file = path("Changed.pdf")
         PDFFixtures.writeLocked(file, password: "pw")
@@ -436,10 +437,9 @@ private struct PDFToolDelegate: FileActionDelegate {
         return batch
     }
 
-    /// **A batch's refusal reads in Edit's words** — a restricted file's Rotate said the toolkit's
-    /// "Password Protect → Remove password", a PDF Utils menu SyncCloud does not have. It is now
-    /// skipped before the toolkit runs, with a reason of its own (PD3), and the way past it: Remove
-    /// Password writes a copy without the restrictions.
+    /// A batch's refusal reads in Edit's words, not the toolkit's (which name a PDF Utils menu
+    /// SyncCloud doesn't have). A restricted file is skipped before the toolkit runs, with its own
+    /// reason and the way past it: Remove Password writes a copy without the restrictions.
     @Test func aBatchRefusalIsInEditsWords() async throws {
         let restricted = path("Statement.pdf")
         PDFFixtures.writeRestricted(restricted)
@@ -452,7 +452,7 @@ private struct PDFToolDelegate: FileActionDelegate {
                 + "PDF Tools ▸ Remove Password… writes a copy without the restrictions.", "\(detail)")
     }
 
-    /// **N copies, N originals untouched, one parse at a time** — each file its own lane turn.
+    /// N copies, N originals untouched, one parse at a time: each file its own lane turn.
     @Test(arguments: [EditorPDFBatchTool.rotate(quarterTurns: 1), .compress(.quality(0.35)), .cleanMetadata])
     func aBatchWritesACopyOfEachAndTouchesNoOriginal(_ tool: EditorPDFBatchTool) async throws {
         let paths = ["Jan.pdf", "Feb.pdf", "Mar.pdf"].map(path)
@@ -479,14 +479,14 @@ private struct PDFToolDelegate: FileActionDelegate {
         }
         #expect(batch.banner?.kind == .wroteSeveral(copies))
         #expect(batch.banner?.message.hasPrefix("Saved 3 ") == true, "\(String(describing: batch.banner))")
-        // One folder, so the panes re-read once — not once per copy.
+        // One folder, so the panes re-read once, not once per copy.
         #expect(reread.count == 1, "the panes re-read \(reread.count) times")
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1, "two parses ran at once")
     }
 
-    /// **Cancel stops the file in hand and skips the rest; the copies already written stay**, and
+    /// Cancel stops the file in hand and skips the rest; the copies already written stay, and
     /// nothing half-written is left behind. Over Compress, which the toolkit can stop between
-    /// pages, and over Rotate, which it cannot — so the batch's own checks are what stop it.
+    /// pages, and over Rotate, which it can't, so the batch's own checks are what stop it.
     @Test(arguments: [EditorPDFBatchTool.compress(.quality(0.35)), .rotate(quarterTurns: 1)])
     func cancellingMidBatchKeepsWhatWasWrittenAndLeavesNoStaging(_ tool: EditorPDFBatchTool) async throws {
         let paths = ["A.pdf", "B.pdf", "C.pdf"].map(path)
@@ -512,10 +512,10 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.banner?.detail == nil, "the files Cancel never reached were named: \(String(describing: batch.banner?.detail))")
     }
 
-    /// **A pane-launched run's doors go to the copies still there**, as Edit's banner's do — Reveal
-    /// left a trashed copy in its list, and Open opened a path that was gone. The doors are the
-    /// result message's buttons now (TE207), so the rule is ``PaneToolResult/stillThere(_:exists:)``,
-    /// and the window's buttons must go through it.
+    /// A pane-launched run's doors go only to copies still there, as Edit's banner's do: Reveal
+    /// must not list a trashed copy, and Open must not open a path that is gone. The doors are the
+    /// result message's buttons, so the rule is ``PaneToolResult/stillThere(_:exists:)`` and the
+    /// window's buttons must go through it.
     @Test func aResultsDoorsSkipCopiesThatAreGone() throws {
         let kept = path("A (rotated).pdf"), gone = path("B (rotated).pdf")
         PDFFixtures.write(kept, pages: 1)
@@ -533,9 +533,9 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(window.contains("syncManager.banner = .warning(PaneToolResult.goneMessage(paths))"))
     }
 
-    /// **A run's ending is a result message with its doors** (TE207): a copy offers Open in Edit and
-    /// Reveal in Browse and leaves like any success; a batch's copies offer Reveal; a note is a
-    /// warning, a failure stays; a cloud-only file adds Download. The detail line goes with it.
+    /// A run's ending is a result message with its doors: a copy offers Open in Edit and Reveal in
+    /// Browse and leaves like any success; a batch's copies offer Reveal; a note is a warning, a
+    /// failure stays; a cloud-only file adds Download. The detail line goes with it.
     @Test func aRunsEndingBecomesAResultMessage() {
         let host = PanePDFToolHost()
         func message(_ kind: EditorPDFToolBanner.Kind, detail: String? = nil, download: String? = nil) -> OperationBanner {
@@ -560,8 +560,8 @@ private struct PDFToolDelegate: FileActionDelegate {
             .banner.severity == .error)
     }
 
-    /// **Cancel while a file's copy is being written writes nothing for it** — one file's run takes
-    /// its copy back; a batch kept it, under "Cancelled.".
+    /// Cancel while a file's copy is being written writes nothing for it: one file's run takes its
+    /// copy back; a batch keeps it, under "Cancelled.".
     @Test func cancellingWhileACopyIsWrittenTakesItBack() async throws {
         let paths = ["A.pdf", "B.pdf"].map(path)
         for file in paths { PDFFixtures.write(file, pages: 2) }
@@ -572,9 +572,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(files() == ["A.pdf", "B.pdf"], "a copy cancelled while it was written stayed: \(files())")
     }
 
-    /// **A batch's sheet asks its question, then goes; the run is in the capsule** (Run Room CH): it
-    /// was a window-modal sheet for the whole batch. While the run goes it is a capsule entry in the
-    /// one-file run's slot — its title, the file in hand, and a Stop that stops it.
+    /// A batch's sheet asks its question, then goes; the run lives in the capsule, in the one-file
+    /// run's slot, with its title, the file in hand, and a Stop that stops it.
     @Test func aBatchLeavesItsSheetForTheCapsule() async throws {
         let paths = ["A.pdf", "B.pdf", "C.pdf"].map(path)
         for file in paths { PDFFixtures.write(file, pages: 2) }
@@ -596,8 +595,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.files[2].status == .skipped(.cancelled), "the capsule's Stop did not stop the batch")
     }
 
-    /// **A file moved away after it was chosen is said to be gone, by name** — not "PDFKit
-    /// couldn't read it", in a banner whose sheet, listing the files, has already closed.
+    /// A file moved away after it was chosen is said to be gone, by name, not "PDFKit couldn't read
+    /// it", since the sheet listing the files has already closed.
     @Test func aFileGoneMidBatchIsSaidToBeGoneByName() async throws {
         let paths = ["A.pdf", "Gone.pdf"].map(path)
         for file in paths { PDFFixtures.write(file, pages: 2) }
@@ -609,10 +608,9 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(batch.banner?.detail == "“Gone.pdf” — \(EditorPDFBatch.goneReason)", "\(batch.banner?.detail ?? "no detail")")
     }
 
-    /// **A file that cannot run is skipped with its reason** — no smaller after Compress, locked to
-    /// open — and the banner's detail names each, with its reason, after the sheet that showed them
-    /// has closed (TE113). The skipped files come first, so a run that named only the last could
-    /// not pass.
+    /// A file that can't run is skipped with its reason (no smaller after Compress, locked to
+    /// open), and the banner's detail names each, with its reason, after the sheet that showed them
+    /// has closed. The skipped files come first, so a run that named only the last couldn't pass.
     @Test func noGainAndLockedFilesAreSkippedWithTheirReasons() async throws {
         let scan = path("Scan.pdf"), lean = path("Lean.pdf"), locked = path("Locked.pdf")
         PDFFixtures.writeScan(scan, pages: 2)
@@ -628,7 +626,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(!batch.showsSheet, "the sheet stayed up")
     }
 
-    /// **A file evicted to the cloud since the menu was built is skipped, never opened** — PDFKit
+    /// A file evicted to the cloud since the menu was built is skipped, never opened: PDFKit
     /// opening the placeholder would download it. The batch asks as each file starts, and a single
     /// request asks before its lane read.
     @Test func aFileStillInTheCloudIsNotOpened() async {
@@ -652,8 +650,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(tools.banner?.download == cloud, "the pane's banner offers no Download (TE185)")
     }
 
-    /// **The form question does not open a file still in the cloud** — reading its form would
-    /// download it before the batch's own cloud check skipped it.
+    /// The form question doesn't open a file still in the cloud: reading its form would download it
+    /// before the batch's own cloud check skipped it.
     @Test func theFormQuestionDoesNotOpenAFileStillInTheCloud() async throws {
         let form = path("Cloud form.pdf"), plain = path("Plain.pdf")
         try PDFFixtures.writeAcroForm(form)
@@ -688,11 +686,10 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(walks == 6, "a walk that gave no answer was held")
     }
 
-    /// **A read the provider holds withholds the offers, not the main thread.** The cloud `lstat`
-    /// and the protection probe go through `BoundedCloudRead`; while one is stuck, PDF Tools and
-    /// Save as PDF are left out for any file they would need a read for — where reading on the main
-    /// thread would have answered, from this local folder, and offered both. What the memos already
-    /// know needs no read, and is offered as before; once the read returns, so is the rest.
+    /// A read the provider holds withholds the offers, not the main thread. The cloud `lstat` and
+    /// the protection probe go through `BoundedCloudRead`; while one is stuck, PDF Tools and Save
+    /// as PDF are left out for any file that would need a read. What the memos already know needs
+    /// no read and is offered; once the read returns, so is the rest.
     @Test func aHeldReadWithholdsTheOffersAndTheMemosStillAnswer() async throws {
         let reads = BoundedCloudRead(deadline: .milliseconds(50))
         let known = path("Known.pdf"), fresh = path("Fresh.pdf"), unprobed = path("Unprobed.pdf")
@@ -727,9 +724,9 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(SaveAsPDFOffer.forSelection([file(note)], reads: reads) == .single(path: note))
     }
 
-    /// **A batch says when a copy lost its original's restrictions**, as one file's run does —
-    /// Compress rebuilds the document, which carries no encryption. An unrestricted original's copy
-    /// says nothing of it.
+    /// A batch says when a copy lost its original's restrictions, as one file's run does: Compress
+    /// rebuilds the document, which carries no encryption. An unrestricted original's copy says
+    /// nothing of it.
     @Test func aBatchSaysWhichCopiesLostTheirRestrictions() async throws {
         let restricted = path("Restricted scan.pdf"), plain = path("Plain scan.pdf"), staged = path("staged.pdf")
         PDFFixtures.writeScan(staged, pages: 1)
@@ -749,9 +746,9 @@ private struct PDFToolDelegate: FileActionDelegate {
                 == "Saved 2 compressed copies · 2 have no editing restrictions")
     }
 
-    /// Clean Metadata skips an encrypted file — the toolkit refuses one — and says so, with the way
-    /// past it (F-E5). Said as encrypted, not as an owner's restriction: the skip is the same for a
-    /// file encrypted with every permission allowed (L11).
+    /// Clean Metadata skips an encrypted file (the toolkit refuses one) and says so, with the way
+    /// past it. Said as encrypted, not as an owner's restriction: the skip is the same for a file
+    /// encrypted with every permission allowed.
     @Test func cleanMetadataSkipsAProtectedFile() async {
         let plain = path("Plain.pdf"), restricted = path("Restricted.pdf")
         PDFFixtures.write(plain, pages: 1)
@@ -764,9 +761,9 @@ private struct PDFToolDelegate: FileActionDelegate {
                 + EditorPDFToolEngine.decryptStep, "\(String(describing: batch.banner?.detail))")
     }
 
-    /// **The case L11 named: encrypted, with nothing restricted.** The old sentence blamed its
-    /// owner's restrictions; the file has none. The fixture is checked first, so this cannot pass
-    /// over a file that is restricted after all.
+    /// Encrypted, with nothing restricted: the message must not blame owner's restrictions the file
+    /// doesn't have. The fixture is checked first, so this can't pass over a file that is
+    /// restricted after all.
     @Test func cleanMetadataSaysEncryptedForAFileWithNoRestrictions() async throws {
         let open = path("Open.pdf")
         PDFFixtures.writeEncryptedUnrestricted(open)
@@ -785,8 +782,8 @@ private struct PDFToolDelegate: FileActionDelegate {
                 + EditorPDFToolEngine.decryptStep, "\(String(describing: batch.banner?.detail))")
     }
 
-    /// **One form question for the batch, naming only the files with a form** — and turned down,
-    /// nothing is written.
+    /// One form question for the batch, naming only the files with a form; turned down, nothing is
+    /// written.
     @Test func theFormWarningNamesOnlyTheFilesWithAForm() async throws {
         let form = path("Form.pdf"), scan = path("Scan.pdf"), plain = path("Plain.pdf")
         try PDFFixtures.writeAcroForm(form)
@@ -802,8 +799,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(files() == ["Form.pdf", "Plain.pdf", "Scan.pdf"], "a declined batch wrote \(files())")
     }
 
-    /// **A sheet that is up is a run in progress, though nothing runs yet** — a second request from
-    /// the menu bar used to replace it, and the Protect sheet vanished with its password.
+    /// A sheet that is up is a run in progress, though nothing runs yet: a second request from the
+    /// menu bar must not replace it, or the Protect sheet would vanish with its password.
     @Test func aSecondRequestLeavesAnOpenSheetUp() async throws {
         let file = path("Open sheet.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -819,7 +816,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(first.banner?.message == EditorPDFTools.busyMessage)
     }
 
-    /// **⌘Q asks about a pane's run**, a sheet up included — and asks nothing when nothing runs.
+    /// ⌘Q asks about a pane's run, a sheet up included, and asks nothing when nothing runs.
     @Test func quittingAsksAboutAPanesRun() async throws {
         let file = path("Quit.pdf")
         PDFFixtures.write(file, pages: 1)

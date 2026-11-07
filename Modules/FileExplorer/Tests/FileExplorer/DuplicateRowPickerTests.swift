@@ -5,21 +5,12 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// **Which thing in a copy row is the control** — a question this row answered twice, wrongly, in
-/// two steps that were each right on their own.
+/// In a copy row the whole row is the control, and the thumbnail and radio are pictures of state.
+/// A clickable tile inside the clickable row would mean two hit targets, two tooltips, two hover
+/// treatments, and VoiceOver announcing one action twice.
 ///
-/// First the thumbnail was made clickable, because it looked like a control and was not ("the
-/// thumbnails aren't really functional? I thought you could click one to select"). Then the whole
-/// row was made clickable, because the tile being the only target was not discoverable ("it's not
-/// obvious that only the thumbnail needs to be clicked"). The second change did not retire the
-/// first, and the two gates were *the same predicate* — `DuplicateGroupCard.isRowPickable` and the
-/// tile's own `choice` both reduced to `DuplicateKeeperMarker.style(…) == .selectable` — so every
-/// pickable row shipped with two hit targets, two `.help` tooltips, two hover treatments, and two
-/// nested `.isButton` elements announcing one action to VoiceOver twice.
-///
-/// The row is the control now and the tile and radio are pictures of state. Most of that invariant
-/// is held by the compiler — `DuplicateThumbnailView` has no action to be given — and the rest is
-/// held here, because "this view is not a button" is not a claim a render can make.
+/// The compiler holds most of this (`DuplicateThumbnailView` takes no action); the rest is held
+/// here, because "this view is not a button" is not a claim a render can make.
 @MainActor
 @Suite struct DuplicateRowPickerTests {
 
@@ -49,12 +40,8 @@ import Testing
 
     // MARK: The row acts
 
-    /// The pick reaches the handler, from the function the row is wired to.
-    ///
-    /// `keeperAction(for:)` is now `copyRow`'s own argument rather than the thumbnail's, which
-    /// closes the hole the previous version of this test had to state and leave open: it called
-    /// this function while the *call site* passed its own inline closure, so replacing that
-    /// argument left the suite green. There is one closure now and this is it.
+    /// The pick reaches the handler through `keeperAction(for:)`, the one closure `copyRow`'s
+    /// button is built on, so this exercises what the row actually calls.
     @Test func theRowsActionReachesTheHandlerNamingItsCopy() {
         final class Box { var chosen: [String] = [] }
         let box = Box()
@@ -65,8 +52,8 @@ import Testing
                 "the action names the copy it was built for, and reaches the card's handler")
     }
 
-    /// **One rule, and now one control reading it.** The row is a button in exactly the
-    /// `selectable` case: never on the keeper (already kept), never where no choice exists.
+    /// One rule, read by one control: the row is a button exactly in the `selectable` case, never
+    /// on the keeper and never where no choice exists.
     @Test func theRowIsPickableExactlyWhereTheMarkerIsSelectable() {
         let (card, copies) = Self.card()
         #expect(!card.isRowPickable(copies[0]), "the keeper's own row offers no pick")
@@ -89,20 +76,16 @@ import Testing
         return text
     }
 
-    /// Whole-line comments stripped, so the prose above describing the defect cannot satisfy a scan
-    /// looking for its absence.
+    /// Whole-line comments stripped, so prose naming a pattern can't satisfy or trip a scan for it.
     private static func codeOnly(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
     }
 
-    /// **The tile carries no control semantics.** Scanned rather than rendered because none of it
-    /// is visible: a nested tap target, a second tooltip and a duplicated `.isButton` all paint
-    /// exactly nothing, which is why the doubling survived a full visual review.
-    ///
-    /// The positive control is below — the same scan run against the row's own file must FIND
-    /// these, or an empty result here would only mean the scan was aimed wrong.
+    /// The tile carries no control semantics. Scanned, not rendered: a nested tap target, a second
+    /// tooltip and a duplicate `.isButton` paint nothing. The control below finds the row's own
+    /// controls, so an empty result here isn't a mis-aimed scan.
     @Test func theThumbnailIsPresentationAndNotASecondControl() throws {
         let tile = Self.codeOnly(try Self.source("DuplicateThumbnail.swift"))
         #expect(!tile.contains("onTapGesture"),
@@ -115,12 +98,9 @@ import Testing
                 "the tile grows on hover again — HoverAffordance's table has no hover scale at all, only the 0.97 press")
     }
 
-    /// `copyRow`'s own body, sliced out of the file — **not the whole file.**
-    ///
-    /// The card draws two `.hoverAffordance(.row, tint: hueAccent)` buttons: the collapsed header
-    /// and this row. A whole-file `contains` for that string is therefore satisfied by the header
-    /// alone, so it would stay green with `copyRow`'s style deleted — which is the exact
-    /// regression the assertion exists to catch. Slicing is what makes it mean what it says.
+    /// `copyRow`'s own body, not the whole file. The card has two
+    /// `.hoverAffordance(.row, tint: hueAccent)` buttons, the collapsed header and this row, so a
+    /// whole-file `contains` would pass on the header alone with `copyRow`'s style deleted.
     private static func copyRowBody(_ card: String) throws -> String {
         let start = try #require(card.range(of: "private func copyRow("),
                                  "copyRow is gone or renamed — this scan is aimed at nothing")
@@ -130,8 +110,7 @@ import Testing
         return String(card[start.upperBound..<end.lowerBound])
     }
 
-    /// The positive control for the scan above, and the claim it is the inverse of: the row's file
-    /// really does carry the control, in the file the other scan asserts is empty of it.
+    /// The control for the tile scan, and its inverse claim: the row really carries the control.
     @Test func theRowsFileIsWhereTheControlActuallyLives() throws {
         let card = Self.codeOnly(try Self.source("DuplicateGroupCard.swift"))
         let row = try Self.copyRowBody(card)
@@ -145,8 +124,8 @@ import Testing
                 "the row states what clicking does; with no tooltip on the row and none on the tile, nothing does")
     }
 
-    /// **The slice really is narrower than the file** — without this, `copyRowBody` returning the
-    /// whole document would make every assertion above pass for the wrong reason.
+    /// The slice really is narrower than the file, or `copyRowBody` returning the whole document
+    /// would make the checks above pass for the wrong reason.
     @Test func theSliceIsJustTheRowAndNotTheWholeCard() throws {
         let card = Self.codeOnly(try Self.source("DuplicateGroupCard.swift"))
         let row = try Self.copyRowBody(card)
@@ -156,16 +135,12 @@ import Testing
                 "the slice reaches the collapsed header, whose own .row button is what this scan must not be reading")
     }
 
-    /// **The keeper radio takes the row's hover, and cannot light on its own.** It used to be a
-    /// `Button` with its own `isHovering`; it is a picture now, so the only thing that can tint it
-    /// is the enclosing button's published phase.
+    /// The keeper radio takes the row's hover and can't light on its own: it is a picture, tinted
+    /// only by the enclosing button's published phase.
     ///
-    /// Scanned rather than rendered, and deliberately: `HoverAffordanceStyle` writes
-    /// `\.hoverAffordancePhase` inside its own body, so a test that set that environment value
-    /// from outside the button would have it overwritten before the radio read it — it would
-    /// measure nothing while looking exactly like it measured something. What the paint side of
-    /// this claim needs is `HoverTintRenderTests` in Design, which already holds it: `hoverTint`
-    /// applies the colour when engaged and nothing at rest.
+    /// Scanned, not rendered: `HoverAffordanceStyle` writes `\.hoverAffordancePhase` inside its own
+    /// body, so a value set from outside would be overwritten before the radio read it. The paint
+    /// side is `HoverTintRenderTests` in Design.
     @Test func theSelectableRadioTintsFromTheRowsHoverPhase() throws {
         let card = Self.codeOnly(try Self.source("DuplicateGroupCard.swift"))
         #expect(card.contains(".hoverTint(hueAccent)"),
@@ -176,8 +151,8 @@ import Testing
 
     // MARK: What the tile still says
 
-    /// The keeper's seal is what marks it, and it must still be the thing that differs — a picker
-    /// whose two copies look alike is not a picker, control or no control.
+    /// The keeper's seal still tells the two tiles apart: a picker whose copies look alike is not a
+    /// picker.
     @Test func theKeepersSealStillSeparatesTheTwoTiles() throws {
         let keeper = try #require(RestructureRender.raster(
             Self.thumbnail(isKeeper: true), width: 80, height: 90))
@@ -187,7 +162,7 @@ import Testing
                 "the seal tells the kept copy from the redundant one")
     }
 
-    /// And both draw at all — a tile that rendered blank would make the comparison above vacuous.
+    /// Both tiles draw at all, or the comparison above would be vacuous.
     @Test func bothTilesDraw() throws {
         for tile in [Self.thumbnail(isKeeper: true), Self.thumbnail(isKeeper: false)] {
             let rep = try #require(RestructureRender.raster(tile, width: 80, height: 90))

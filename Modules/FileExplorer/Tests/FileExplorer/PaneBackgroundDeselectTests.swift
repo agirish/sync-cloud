@@ -3,19 +3,16 @@ import Testing
 @testable import FileExplorer
 
 /// The gate that makes clicking a pane's empty space safe: `acceptsClick` decides whether the
-/// deselect recognizer engages at all, and a refusal means the click reaches the list's own mouse
-/// handling completely untouched.
+/// deselect recognizer engages at all, and a refusal leaves the click to the list's own mouse
+/// handling, untouched.
 ///
-/// This is the one predicate the whole feature rests on. Four separate bugs in this pane
-/// (`aa9d407`, `94554e9`, `743d8bd`, `8b85cf4`) came from two things both claiming one click, so
-/// the case that matters most here is the *negative* one — a click on a row must be invisible to
-/// this.
+/// The predicate the whole feature rests on. Two things claiming one click is how this pane breaks,
+/// so the case that matters most is the negative one: a click on a row must be invisible to this.
 @MainActor
 @Suite struct PaneBackgroundDeselectTests {
 
-    /// Feeds the table real rows so `row(at:)` resolves against a real height cache rather than an
-    /// empty one, where every point would read as -1 and every assertion below would pass
-    /// vacuously.
+    /// Feeds the table real rows so `row(at:)` resolves against a real height cache. With an empty
+    /// one every point reads as -1 and every assertion below would pass vacuously.
     private final class Source: NSObject, NSTableViewDataSource {
         let rows: Int
         init(rows: Int) { self.rows = rows }
@@ -24,13 +21,12 @@ import Testing
 
     private var source: Source?
 
-    /// A table with 200pt of deliberate empty area *below* its last row — the shape a pane list
-    /// actually has when its rows do not fill the viewport, and the case this whole file is about.
+    /// A table with 200pt of empty area below its last row: the shape a pane list has when its rows
+    /// don't fill the viewport, and the case this file is about.
     ///
-    /// Row positions are read back from the table rather than computed here. A row's pitch is
-    /// `rowHeight` plus `intercellSpacing`, and assuming otherwise put points that look like they
-    /// are over row 4 into the empty area below it — the first draft of these tests failed for
-    /// exactly that reason, which is a fair warning about hand-computed table geometry.
+    /// Row positions are read back from the table, not computed. A row's pitch is `rowHeight` plus
+    /// `intercellSpacing`, and hand-computed points meant for row 4 can land in the empty area
+    /// below.
     private mutating func table(rows: Int) -> NSTableView {
         let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         table.addTableColumn(NSTableColumn(identifier: .init("name")))
@@ -54,8 +50,8 @@ import Testing
         PaneBackgroundDeselect.acceptsClick(modifiers: modifiers, pointInTable: point, table: table)
     }
 
-    /// The fixture is only meaningful if the table really resolves rows — assert that before
-    /// leaning on the refusals below.
+    /// The fixture is only meaningful if the table really resolves rows; asserted before the
+    /// refusals below lean on it.
     @Test mutating func testTheFixtureResolvesRealRows() {
         let table = table(rows: 5)
         #expect(table.numberOfRows == 5)
@@ -71,9 +67,8 @@ import Testing
         #expect(accepts(CGPoint(x: 100, y: table.rect(ofRow: 2).midY), table) == false)
     }
 
-    /// Every row and both its edges, not just a convenient midpoint — an off-by-one at a row
-    /// boundary would leave one sliver of one row deselecting instead of selecting, which is
-    /// precisely the shape of the intermittent dead click this pane has been chasing.
+    /// Every row and both its edges, not just a midpoint: an off-by-one at a row boundary would
+    /// leave a sliver of a row deselecting instead of selecting, an intermittent dead click.
     @Test mutating func testNoPointOverAnyRowIsAccepted() {
         let table = table(rows: 5)
         for row in 0..<5 {
@@ -92,15 +87,15 @@ import Testing
         #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table))
     }
 
-    /// The first pixel past the last row already counts — the gap between "the list ends" and "the
-    /// click deselects" should be nothing.
+    /// The first pixel past the last row already counts: there should be no gap between "the list
+    /// ends" and "the click deselects".
     @Test mutating func testTheBoundaryBelowTheLastRowIsAccepted() {
         let table = table(rows: 5)
         #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 0.5), table))
     }
 
-    /// An empty folder's column is all empty area, which is the one place a deselect is most
-    /// obviously right and where a row-based gate could accidentally refuse everything.
+    /// An empty folder's column is all empty area: where a deselect is most obviously right, and
+    /// where a row-based gate could accidentally refuse everything.
     @Test mutating func testAnEmptyTableIsAllEmptyArea() {
         let table = table(rows: 0)
         #expect(accepts(CGPoint(x: 100, y: 10), table))
@@ -108,9 +103,8 @@ import Testing
 
     // MARK: Modifiers
 
-    /// ⌘ and ⇧ are the list's own extend and range-select. Deselecting when one of them misses a row
-    /// by a pixel would collapse the multi-selection being built — the same flattening `dba5cd3`
-    /// fixed on the row path, arriving by a different door.
+    /// ⌘ and ⇧ are the list's own extend and range-select. Deselecting when one of them misses a
+    /// row by a pixel would collapse the multi-selection being built.
     @Test mutating func testCommandClickOnEmptyAreaIsRefused() {
         let table = table(rows: 5)
         #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table, .command) == false)
@@ -121,8 +115,8 @@ import Testing
         #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table, .shift) == false)
     }
 
-    /// A modifier that means nothing to selection must not disable the gesture — ⌥ is the pane's
-    /// mirror modifier and is held routinely while navigating.
+    /// A modifier that means nothing to selection must not disable the gesture: ⌥ is the pane's
+    /// mirror modifier, held routinely while navigating.
     @Test mutating func testOptionClickOnEmptyAreaStillDeselects() {
         let table = table(rows: 5)
         #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table, .option))

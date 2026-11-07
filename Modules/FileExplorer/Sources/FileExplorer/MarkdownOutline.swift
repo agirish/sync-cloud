@@ -15,23 +15,21 @@ struct MarkdownOutlineEntry: Identifiable, Equatable, Sendable {
 
 /// The heading outline, derived from the blocks the preview already parses.
 ///
-/// **Nothing is parsed twice.** The outline is a projection of ``MarkdownBlocks``' output, so a
-/// document is walked once per edit and both surfaces read the same answer — which also means the
-/// outline cannot disagree with the preview about what a heading is.
+/// A projection of ``MarkdownBlocks``' output, so a document is parsed once per edit and the
+/// outline can't disagree with the preview about what a heading is.
 enum MarkdownOutline {
 
-    /// The deepest indent the rail will draw. Past this the rows keep their level and stop moving
-    /// right, for the reason ``MarkdownPreview/drawnDepth(_:)`` clamps quote bars: the rail is
-    /// 232pt wide, and a sixth-level heading indented six times has no room left for its words.
+    /// The deepest indent the rail draws; deeper rows keep their level but stop moving right, as
+    /// ``MarkdownBlockView/drawnDepth(_:)`` clamps quote bars. The rail can be as narrow as 232pt,
+    /// and a sixth-level heading indented six times would have no room left for its words.
     static let maxDepthDrawn = 3
 
     static func drawnDepth(_ depth: Int) -> Int { min(max(depth, 0), maxDepthDrawn) }
 
     /// The headings in `blocks`, in document order.
     ///
-    /// **Headings with no source line are left out**, and that is the one exclusion. Every row here
-    /// exists to be clicked, a click scrolls to a line, and a row that cannot answer where it is
-    /// would be a row that does nothing — see ``MarkdownBlock/line`` for when that happens.
+    /// Headings with no source line are the one exclusion: a click on a row scrolls to its line,
+    /// so a row without one would do nothing (see ``MarkdownBlock/line``).
     static func entries(from blocks: [MarkdownBlock]) -> [MarkdownOutlineEntry] {
         var found: [(line: Int, level: Int, title: String)] = []
         for block in blocks {
@@ -40,10 +38,8 @@ enum MarkdownOutline {
             }
             found.append((line, level, title(of: text)))
         }
-        // **Relative to the shallowest heading in THIS document, not to level 1.** A note whose
-        // headings start at `##` — every file in a folder of notes that reserves `#` for the title
-        // — would otherwise draw its whole outline one step in from the margin, with nothing at the
-        // margin to be indented from.
+        // Relative to this document's shallowest heading, not level 1, so a note whose headings
+        // start at `##` doesn't draw its whole outline one step in from the margin.
         let shallowest = found.map(\.level).min() ?? 1
         return found.map {
             MarkdownOutlineEntry(line: $0.line, level: $0.level,
@@ -51,13 +47,10 @@ enum MarkdownOutline {
         }
     }
 
-    /// **A heading's name: its words, without any inline HTML** (CHR-6).
-    ///
-    /// `## Setup <a id="setup"></a>` is the usual way to pin an anchor on a heading, and the name
-    /// read "Setup <a id="setup"></a>" — in the rail's outline, in the status line's "in …" and in
-    /// its menu, where the markup also spent the room the name truncates into. Inline code stays:
-    /// `` ## The `<div>` element `` is about a `<div>`. Where markup was taken out, the spaces it
-    /// stood between close up, so the name does not keep a gap or a trailing space.
+    /// A heading's name: its words without any inline HTML, for the rail's outline and the status
+    /// line's "in …" and its menu. `## Setup <a id="setup"></a>` is the usual way to pin an anchor,
+    /// and its name is "Setup". Inline code stays: `` ## The `<div>` element `` is about a `<div>`.
+    /// The spaces around removed markup close up, leaving no gap or trailing space.
     static func title(of text: MarkdownText) -> String {
         guard text.runs.contains(where: \.isHTML) else { return text.plain }
         let words = text.runs.filter { !$0.isHTML }.map(\.text).joined()
@@ -66,10 +59,9 @@ enum MarkdownOutline {
 
     /// Which outline row a given source line sits under, or `nil` when it is above the first one.
     ///
-    /// **The last heading at or before the line**, which is what "the section I am in" means. `nil`
-    /// is a real answer rather than a fallback to the first row: text above the first heading is
-    /// genuinely in no section, and marking the first row would follow the caret into a preamble it
-    /// does not describe.
+    /// The last heading at or before the line, which is what "the section I am in" means. `nil` is
+    /// a real answer, not a fallback to the first row: text above the first heading is in no
+    /// section.
     static func currentEntry(forLine line: Int, in entries: [MarkdownOutlineEntry]) -> Int? {
         var found: Int?
         for (index, entry) in entries.enumerated() {
@@ -81,10 +73,8 @@ enum MarkdownOutline {
 
     /// The block to scroll the preview to for a given source line.
     ///
-    /// **The last block at or before the line, and the FIRST block when there is none.** The two
-    /// halves are different questions: reading down from a heading, the block you want is the one
-    /// you are inside; scrolled above the first block that reported a line, the preview should be
-    /// at its top rather than nowhere.
+    /// The last block at or before the line, or the first block when there is none: above the
+    /// first block that reports a line, the preview should sit at its top rather than nowhere.
     static func blockIndex(forLine line: Int, in blocks: [MarkdownBlock]) -> Int? {
         guard !blocks.isEmpty else { return nil }
         var found: Int?
@@ -98,11 +88,9 @@ enum MarkdownOutline {
 
     /// The anchor a `#link` in the same document points at.
     ///
-    /// **GitHub's rule, because that is the one his files are written against**: lowercased, spaces
-    /// to hyphens, and everything that is not a letter, a digit, a hyphen or an underscore dropped.
-    /// It is not a standard — CommonMark has no anchors at all — so this is a convention, and the
-    /// only honest thing to do when a link matches nothing is to leave it to the system rather than
-    /// scroll somewhere arbitrary.
+    /// GitHub's rule, which his files are written against: lowercased, spaces to hyphens, and
+    /// anything but a letter, digit, hyphen or underscore dropped. CommonMark has no anchors, so
+    /// this is a convention; a link that matches nothing goes to the system, not somewhere arbitrary.
     static func anchor(for title: String) -> String {
         var slug = ""
         for character in title.lowercased() {
@@ -124,22 +112,19 @@ enum MarkdownOutline {
 
     // MARK: Where a heading is now
 
-    /// **The line `entry`'s heading is on in `text` as it stands** — for a jump chosen from an
-    /// outline taken before the latest edits (CHR-4).
+    /// The line `entry`'s heading is on in `text` as it stands, for a jump chosen from an outline
+    /// taken before the latest edits.
     ///
-    /// The outline is re-derived after the typing settles and the parse returns — over a second for
-    /// a 256 KB note in a debug build — and a heading chosen in that window named the line it USED to
-    /// be on: paste a paragraph above it, choose it, and the caret landed a paragraph short. So the
-    /// jump looks for the heading itself, nearest the line it was on: that line first, which is the
-    /// answer whenever nothing moved, then one line further each way, below first, since text
-    /// typed above a heading pushes it down. A heading that is gone, or one too unusual for the look
-    /// below to recognise (a setext heading over several lines, say), keeps the line it had.
+    /// The outline is re-derived only once typing settles and the parse returns, so an entry can
+    /// name the line its heading used to be on. The jump looks for the heading itself: its old line
+    /// first, then one line further each way, below first, since text typed above pushes a heading
+    /// down. A heading that is gone, or too unusual to recognise (a multi-line setext heading),
+    /// keeps the line it had.
     ///
-    /// **A cheap look, then a parse of one or two lines.** Only a line that could open a heading of
-    /// that level is parsed — `#` × level then a space, or a line underlined `===` / `---` for the
-    /// two setext levels — so a line of prose costs a regular-expression test, and the parse is of
-    /// that line alone (with its underline). The match is on level and on the name the outline
-    /// gives it (``title(of:)``), so `## **Bold** move` is found by "Bold move".
+    /// A cheap look, then a parse of one or two lines: only a line that could open a heading of that
+    /// level (`#` × level then a space, or an `===` / `---` underline below) is parsed, with its
+    /// underline. The match is on level and on ``title(of:)``, so "Bold move" finds
+    /// `## **Bold** move`.
     static func line(of entry: MarkdownOutlineEntry, in text: String) -> Int {
         let lines = sourceLines(text as NSString)
         let target = entry.line - 1

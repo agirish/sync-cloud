@@ -4,13 +4,13 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// Readable Line Length (TE51): Source's text in a centred column no wider than Preview's, made by
+/// Readable Line Length: Source's text in a centred column no wider than Preview's, made by
 /// growing the text view's side insets.
 ///
-/// **Every switch is read and written on ``defaults``, a scratch suite of this test's own** — the
-/// hosted editors through `.defaultAppStorage`, the menu through the coordinator's store. Never the
-/// standard domain: under `swift test` that is `swiftpm-testing-helper`'s, shared by every test
-/// process on the machine, so `.serialized` could only ever order this suite against itself.
+/// Every switch is read and written on ``defaults``, a scratch suite of this test's own: the
+/// hosted editors through `.defaultAppStorage`, the menu through the coordinator's store. **Never**
+/// the standard domain: under `swift test` that is `swiftpm-testing-helper`'s, shared by every test
+/// process on the machine, so `.serialized` could only order this suite against itself.
 @MainActor
 @Suite(.serialized) struct EditorReadableColumnTests {
 
@@ -19,15 +19,14 @@ import Design
 
     // MARK: The rule
 
-    /// **Off by default.** Source has always run edge to edge; nobody's editor changes shape on
-    /// upgrade.
+    /// Off by default, so nobody's editor changes shape on upgrade.
     @Test func theSwitchIsOffByDefault() {
         #expect(EditorTextSettings.readableLineLengthDefault == false)
         #expect(EditorReadableColumn.column(enabled: EditorTextSettings.readableLineLengthDefault,
                                             wraps: true, fontScale: 1) == nil)
     }
 
-    /// The cap is Preview's 720pt at the default Text size — and there is none with the switch off,
+    /// The cap is Preview's 720pt at the default Text size, and there is none with the switch off,
     /// or with Wrap Lines off, where one long line is the point.
     @Test func theCapIsPreviewsWidthAndOnlyWhileLinesWrap() {
         #expect(EditorReadableColumn.column(enabled: true, wraps: true, fontScale: 1) == 720)
@@ -36,8 +35,8 @@ import Design
                 "an unwrapped line is capped — turning wrapping off would only move where it starts")
     }
 
-    /// **The column holds the same number of characters at every Text size** — it grows exactly as
-    /// the editor's own font does, damped ramp included, not by the bare scale.
+    /// The column holds the same number of characters at every Text size: it grows exactly as the
+    /// editor's own font does, damped ramp included, not by the bare scale.
     @Test func theColumnScalesWithTheEditorsFont() throws {
         for scale: CGFloat in [0.9, 1.15, 1.35] {
             let column = try #require(EditorReadableColumn.column(enabled: true, wraps: true, fontScale: scale))
@@ -50,8 +49,8 @@ import Design
         #expect(large > 720)
     }
 
-    /// The inset centres the column exactly — and a view too narrow for the cap keeps today's 14pt,
-    /// which is the case that must not change at all.
+    /// The inset centres the column exactly, and a view too narrow for the cap keeps the base 14pt,
+    /// which must not change at all.
     @Test func theInsetCentresTheColumnAndNeverShrinksBelowToday() {
         #expect(EditorReadableColumn.horizontalInset(viewWidth: 1000, column: 720) == 140)
         #expect(EditorReadableColumn.horizontalInset(viewWidth: 1001, column: 720) == 140.5,
@@ -80,7 +79,7 @@ import Design
         window.contentView = scroll
         let view = scroll.documentView as! EditorTextView
         view.font = PlainTextEditor.font(scale: 1)
-        view.drawsBackground = false    // as `makeNSView` sets it — and so only the text inks
+        view.drawsBackground = false    // as `makeNSView` sets it, so only the text inks
         view.textContainerInset = EditorReadableColumn.baseInset
         view.string = text ?? String(repeating: "readable line length keeps prose in a column ", count: 30)
         PlainTextEditor.applyWrapping(true, to: view, in: scroll)
@@ -88,7 +87,7 @@ import Design
         return (window, scroll, view)
     }
 
-    /// **The column is centred, the container is the column, and the view stays on TextKit 2** —
+    /// The column is centred, the container is the column, and the view stays on TextKit 2, so
     /// nothing here may read `layoutManager`.
     @Test func aWideViewCentresTheColumn() {
         let rig = hosted(width: 1000, column: 720)
@@ -102,7 +101,7 @@ import Design
         #expect(rig.view.textLayoutManager != nil, "the editor fell back to TextKit 1")
     }
 
-    /// **A resize re-centres it, both ways** — and below the cap the view is exactly as it was.
+    /// A resize re-centres it, both ways, and below the cap the view is exactly as it was.
     @Test func resizingReCentresTheColumn() {
         let rig = hosted(width: 1000, column: 720)
         defer { withExtendedLifetime(rig.window) {} }
@@ -118,7 +117,7 @@ import Design
         #expect(rig.view.textLayoutManager != nil)
     }
 
-    /// **Past the cap, a live resize slides the text and never re-wraps it**: the container is the
+    /// Past the cap, a live resize slides the text and never re-wraps it: the container is the
     /// column exactly, a pixel at a time.
     @Test func pastTheCapTheContainerIsExactlyTheColumn() {
         let rig = hosted(width: 800, column: 720)
@@ -131,8 +130,8 @@ import Design
         }
     }
 
-    /// **Taking the cap away puts today's inset back**, in place — Readable Line Length or Wrap
-    /// Lines turned off under a mounted view.
+    /// Taking the cap away puts the base inset back, in place, as when Readable Line Length or Wrap
+    /// Lines is turned off under a mounted view.
     @Test func clearingTheCapRestoresTheBaseInset() {
         let rig = hosted(width: 1000, column: 720)
         defer { withExtendedLifetime(rig.window) {} }
@@ -142,11 +141,11 @@ import Design
         #expect(abs((rig.view.textContainer?.size.width ?? 0) - (rig.view.frame.width - 28)) < 0.5)
     }
 
-    /// **No oscillation where a legacy scroller comes and goes.** Narrowing the column makes the
-    /// text taller, which can bring a vertical scroller that narrows the view — the classic loop.
-    /// Swept across the cap's edge in width and across the text's own height in height, so the
-    /// scroller is both there and not: each size settles on the rule's answer for the width the
-    /// view ended up, and asking again changes nothing.
+    /// No oscillation where a legacy scroller comes and goes. Narrowing the column makes the text
+    /// taller, which can bring a vertical scroller that narrows the view: the classic loop. Swept
+    /// across the cap's edge in width and the text's height in height, so the scroller is both there
+    /// and not; each size settles on the rule's answer for the view's final width, and asking again
+    /// changes nothing.
     @Test func theInsetSettlesAcrossTheScrollerBoundary() {
         let rig = hosted(width: 760, column: 720, legacyScrollers: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -168,11 +167,11 @@ import Design
                 "the sweep never crossed the scroller's boundary — it saw only \(scrollerStates)")
     }
 
-    /// **One resize sets the inset once, to the new width's** — never back to the old width's.
+    /// One resize sets the inset once, to the new width's, never back to the old width's.
     ///
     /// Setting the inset makes the text view re-fit itself at its current width, which inside
-    /// `setFrameSize` is still the OLD one; unguarded, that nested pass undid the inset and a later
-    /// re-fit redid it — three re-wraps a frame across the Expand animation, measured in the app.
+    /// `setFrameSize` is still the old one; unguarded, that nested pass undoes the inset and a later
+    /// re-fit redoes it, re-wrapping several times a frame across the Expand animation.
     @Test(.machinePinned(.layoutMetrics)) func aResizeSetsTheInsetOnceAndNeverBackToTheOldWidth() {
         let rig = hosted(width: 1000, column: 720)
         defer { withExtendedLifetime(rig.window) {} }
@@ -189,14 +188,13 @@ import Design
         }
     }
 
-    /// **A resize past the cap leaves the text under the pointer where it was** — in a scrolled long
-    /// document, the case where it went wrong.
+    /// A resize past the cap leaves the text under the pointer where it was, in a scrolled long
+    /// document.
     ///
-    /// The column does not change past the cap, so nothing should re-wrap. It did: the inset's own
-    /// setter resized the tracking container against the OLD width before `super` gave it the new
-    /// one, TextKit 2 dropped the visible layout on that detour, and laid it out again from an
-    /// estimate — 460 to 837 characters away from where it had been, measured 2026-10-10, so a click
-    /// on a line the reader was looking at landed 10–15 lines off.
+    /// The column doesn't change past the cap, so nothing should re-wrap. If the inset's setter
+    /// resized the tracking container against the old width before `super` gave it the new one,
+    /// TextKit 2 would drop the visible layout and lay it out again from an estimate, hundreds of
+    /// characters off, so a click on the line the reader was looking at would land lines away.
     @Test func aResizePastTheCapKeepsTheTextUnderThePointer() {
         let rig = hosted(width: 1000, column: 720, text: (0..<1500).map { i in
             i % 3 == 0 ? "para \(i) " + String(repeating: "lorem ipsum dolor sit amet consectetur ", count: 6)
@@ -235,8 +233,8 @@ import Design
         return view.characterIndexForInsertion(at: NSPoint(x: view.frame.width - 2, y: y))
     }
 
-    /// **Clicks in the margins land in the text** — the left margin at the start of the line, the
-    /// right at the end of the first visual line, which now wraps at the column, not at the edge.
+    /// Clicks in the margins land in the text: the left margin at the start of the line, the right
+    /// at the end of the first visual line, which wraps at the column, not at the edge.
     @Test func aClickInEitherMarginLandsOnTheLineBesideIt() {
         let capped = hosted(width: 1200, column: 720)
         let free = hosted(width: 1200, column: nil)
@@ -255,7 +253,7 @@ import Design
     }
 
     /// The pixels: with the cap on, every inked column is inside the text column; the uncapped
-    /// control inks past its right edge — so the assertion can fail.
+    /// control inks past its right edge, so the assertion can fail.
     @Test func theInkStaysInsideTheColumn() throws {
         func inkSpan(_ view: NSTextView) throws -> ClosedRange<Int> {
             // The first lines are enough, and keep the pixel walk short.
@@ -314,9 +312,9 @@ import Design
         try body()
     }
 
-    /// **The call site: the editor reads the switch and hands the text view its column** — the
-    /// rule above is one revert away from unused without this. Off (and never set) is today's 14pt
-    /// at any width; on, a wide editor centres a column scaled by Text size.
+    /// The call site: the editor reads the switch and hands the text view its column, without which
+    /// the rule above could go unused. Off (and never set) is the base 14pt at any width; on, a wide
+    /// editor centres a column scaled by Text size.
     @Test func theEditorAppliesTheSwitch() throws {
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
         withSetting(nil) {
@@ -344,9 +342,9 @@ import Design
         }
     }
 
-    /// **Flipping the switch under a mounted editor re-centres it, and flipping it back restores
-    /// today's inset** — the menu writes the key, every mounted editor re-renders from it, and the
-    /// change arrives through `updateNSView`, the only place the column is handed over.
+    /// Flipping the switch under a mounted editor re-centres it, and flipping it back restores the
+    /// base inset: the menu writes the key, every mounted editor re-renders from it, and the change
+    /// arrives through `updateNSView`, the only place the column is handed over.
     @Test func flippingTheSwitchUnderAMountedEditorAppliesIt() {
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
         withSetting(false) {
@@ -364,7 +362,7 @@ import Design
         }
     }
 
-    /// **Wrap Lines off under a mounted, capped editor drops the column; back on brings it back** —
+    /// Wrap Lines off under a mounted, capped editor drops the column, and back on brings it back:
     /// the wrapping and the column change in one pass, in that order.
     @Test func turningWrappingOffAndOnUnderAMountedEditor() {
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
@@ -394,8 +392,8 @@ import Design
         return subject
     }
 
-    /// **Beside Wrap Lines, ticked by the stored setting** — on a read-only file too, since it
-    /// changes nothing on disk.
+    /// The item sits beside Wrap Lines, ticked by the stored setting, on a read-only file too, since
+    /// it changes nothing on disk.
     @Test func theRightClickMenuOffersItBesideWrapLines() {
         for on in [true, false] {
             withSetting(on) {
@@ -412,7 +410,7 @@ import Design
         }
     }
 
-    /// **The item flips the stored setting**, both ways — which every mounted editor reads.
+    /// The item flips the stored setting, both ways, which every mounted editor reads.
     @Test func theItemTogglesTheSetting() {
         withSetting(false) {
             let subject = coordinator()
@@ -423,7 +421,7 @@ import Design
         }
     }
 
-    /// **Greyed while Wrap Lines is off**, where it would change nothing — and only that item: the
+    /// Greyed while Wrap Lines is off, where it would change nothing, and only that item: the
     /// validation must not grey Wrap Lines, the way back.
     @Test func itIsGreyedWhileLinesDoNotWrap() throws {
         let subject = coordinator()

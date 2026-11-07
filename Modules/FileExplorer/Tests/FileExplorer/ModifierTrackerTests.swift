@@ -2,12 +2,9 @@ import AppKit
 import Testing
 @testable import FileExplorer
 
-/// Covers the app-wide "move instead of copy" modifier rule.
-///
-/// These lived in `PaneDragDropRoutingTests` while cross-pane drag & drop was the second
-/// consumer of the rule. That feature is gone; the differences list (`DifferencesView`, via
-/// `ModifierTracker.moveModifierHeld` and the published `isMoveModifierPressed`) is now the
-/// only one, so the tests moved here rather than being deleted with it.
+/// Covers the app-wide "move instead of copy" modifier rule, which the differences list
+/// (`DifferencesView`, via `ModifierTracker.moveModifierHeld` and the published
+/// `isMoveModifierPressed`) reads.
 @Suite struct ModifierTrackerMoveModifierTests {
 
     @Test func testShiftOrCommandCountsAsMove() {

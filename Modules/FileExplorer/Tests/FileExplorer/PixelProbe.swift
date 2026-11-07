@@ -1,11 +1,10 @@
 import AppKit
 
-/// Colour readings off a rendered bitmap, for the tests that pin WHICH colour a control paints.
-///
-/// **Components are read as `colorAt` hands them back, never `.usingColorSpace(.sRGB)`'d**: from an
+/// Colour readings off a rendered bitmap, for the tests that pin which colour a control paints.
+/// Components are read as `colorAt` hands them back, **never** `.usingColorSpace(.sRGB)`'d: from an
 /// sRGB window's cache the colour comes tagged calibrated with the sRGB numbers in it, and
-/// "converting" it moves every reading (Green's raw accent read back 0.03–0.07 off).
-/// Every rect and box here is in the bitmap's PIXELS, top-left origin, as `colorAt` indexes them.
+/// "converting" it moves every reading by a few hundredths. Every rect and box here is in the
+/// bitmap's pixels, top-left origin, as `colorAt` indexes them.
 enum PixelProbe {
 
     /// `rect` of `view`, drawn the way the screen would and returned as a bitmap.

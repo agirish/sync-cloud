@@ -2,8 +2,8 @@ import SwiftUI
 import Design
 import Sync
 
-/// **One sheet for every file in the batch** — its options once, then its progress: "File 2 of 5 ·
-/// page 40 of 112" over a row per file. Mockup 14.
+/// One sheet for every file in the batch: its options once, then its progress, "File 2 of 5 ·
+/// page 40 of 112" over a row per file.
 struct EditorPDFBatchSheet: View {
     @ObservedObject var batch: EditorPDFBatch
     @State private var byTarget = false
@@ -12,12 +12,12 @@ struct EditorPDFBatchSheet: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// The tool sheets' floor and opening width (`EditorPDFToolSheetView`), so a batch sheet opens
-    /// as a one-file sheet does (TE134).
+    /// as a one-file sheet does.
     static let minWidth: CGFloat = 400
     static let idealWidth: CGFloat = 420
 
-    /// Clean Metadata's line for several files — a form PDF's copy loses Producer and the dates
-    /// rather than getting the system's (TE162, ``EditorPDFMetadataSheet/notes(_:hasForm:)``).
+    /// Clean Metadata's line for several files: a form PDF's copy loses Producer and the dates
+    /// rather than getting the system's (``EditorPDFMetadataSheet/notes(_:hasForm:)``).
     static let cleanMetadataNote = "Each copy has its title, author, subject, keywords and creator cleared. Producer and the "
         + "created and modified dates are replaced with the system’s own (removed, for a PDF with a fillable form). "
         + "Password-protected files are skipped."
@@ -45,13 +45,13 @@ struct EditorPDFBatchSheet: View {
                     if batch.isRunning { batch.cancel() } else { batch.showsSheet = false }
                 }
                 .keyboardShortcut(.cancelAction)
-                // Its words take the hue at a depth they read at — see `EditorPDFToolSheetFrame`.
+                // Its words take the hue at a depth they read at (`EditorPDFToolSheetFrame`).
                 .buttonWordsTint((LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor)
                 if !isRotate {
                     Button(actionTitle, action: go)
                         .keyboardShortcut(.defaultAction)
                         .disabled(batch.isRunning || !canRun)
-                        // Deepened, on this button alone — see `EditorPDFToolSheetFrame`.
+                        // Deepened, on this button alone (`EditorPDFToolSheetFrame`).
                         .accentedProminent()
                 }
             }
@@ -106,7 +106,7 @@ struct EditorPDFBatchSheet: View {
         }
     }
 
-    /// What the copies won't keep (decision BW). Not read per file before the run, so said of any.
+    /// What the copies won't keep. Not read per file before the run, so said of any.
     static let compressDroppedNote = "The copies won’t keep any tags for screen readers, layers or color output intent."
     /// A PDF with a fillable form is cleaned in place and keeps them.
     static let cleanMetadataDroppedNote = "Copies of PDFs without a fillable form won’t keep any tags for screen readers, "

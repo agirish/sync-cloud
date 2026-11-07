@@ -1,26 +1,24 @@
 import AppKit
 
-/// **What the editable Preview draws behind its text** (TE67 §3.8): a bar for every level of quote,
-/// and a shaded band behind a code or HTML block, with a code block's language over it. Text
-/// attributes cannot draw these — a quote bar sits in the indent, outside any glyph, a code band
-/// spans the column, not the line's characters, and the language is not text. Each is drawn from
-/// its block's own indent, so none reaches out under a list's markers.
+/// What the editable Preview draws behind its text: a bar for every level of quote, a shaded band
+/// behind a code or HTML block with a code block's language over it, and a table's grid (the header
+/// row tinted, a rule under every row, a line at each column's edge where the projection's tab
+/// stops put them, ``NSAttributedString/Key/previewTableColumns``). Text attributes can't draw
+/// these: they sit in the indent or span the column, outside any glyph. Each is drawn from its
+/// block's own indent, so none reaches out under a list's markers.
 ///
-/// **TextKit 2's own hook, so the view stays on TextKit 2**: a layout-fragment subclass, chosen per
-/// paragraph by ``PreviewFragmentDelegate`` from the attributes the projection put on it
+/// TextKit 2's own hook, so the view stays on TextKit 2: a layout-fragment subclass, chosen per
+/// paragraph by ``PreviewFragmentDelegate`` from the projection's attributes
 /// (``NSAttributedString/Key/previewBlock``, ``NSAttributedString/Key/previewQuoteBars``). Never
-/// `layoutManager` — reading it drops the view to TextKit 1 for good.
-///
-/// And a table's grid (TE67.5): the header row tinted, a rule under every row, and a line at each
-/// column's edge — where the projection's tab stops put them (``NSAttributedString/Key/previewTableColumns``).
+/// `layoutManager`: reading it drops the view to TextKit 1 for good.
 final class PreviewBlockFragment: NSTextLayoutFragment {
 
-    /// A code block's paragraph, or an HTML block's — both drawn on a band, as the read-only Preview
+    /// A code block's paragraph, or an HTML block's: both drawn on a band, as the read-only Preview
     /// draws them.
     var isCode = false
     /// A fenced block's language, on its first line: drawn in the room the projection left above it.
     var language: String?
-    /// Where each quote bar is drawn, from the text's left edge — the projection's, which knows the
+    /// Where each quote bar is drawn, from the text's left edge: the projection's, which knows the
     /// list indent each quote opened at, and how deep it draws.
     var quoteBars: [CGFloat] = []
     var quoteDepth: Int { quoteBars.count }
@@ -60,7 +58,7 @@ final class PreviewBlockFragment: NSTextLayoutFragment {
         // TextKit drops a document's first paragraph's spacing before, and with it the room: a
         // label drawn there anyway would sit on the code.
         if let language, (textLineFragments.first?.typographicBounds.minY ?? 0) >= 10 * scale {
-            // Drawn, not laid out: the read-only Preview's label — small, tertiary, above the code.
+            // Drawn, not laid out: the read-only Preview's label, small and tertiary, above the code.
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
             (language as NSString).draw(at: CGPoint(x: column + lead + 2 * scale, y: point.y + 2 * scale), withAttributes: [

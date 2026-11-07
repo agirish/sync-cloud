@@ -4,60 +4,45 @@ import Foundation
 /// A best-effort estimate of how one scanned page sits relative to the other: a small rotation and
 /// a translation, recovered by correlating the two at a coarse scale.
 ///
-/// **Why this exists.** The pixel modes compare two pages by their frames alone, so two scans of
-/// one sheet of paper — the most common real pair anyone reaches for — glow all over from a
-/// half-degree of skew. The caveat says so, honestly, and concedes exactly the case the mode is
-/// for.
+/// Without it, the pixel modes compare pages by their frames alone, so two scans of one sheet, the
+/// most common real pair, glow all over from a half-degree of skew.
 ///
-/// **Why it is deliberately crude.** No feature detection, no dependency, no third-party code: a
-/// downsampled luminance grid, an exhaustive translation search, then a small rotation sweep. That
-/// is enough for scanner skew (which is a degree or two of rotation and a few millimetres of
-/// offset) and is honest about being nothing more. A pair that needs more than this is a pair this
-/// estimator reports low confidence for, and the diff then falls back to comparing frames — saying
-/// so rather than claiming an alignment it did not achieve.
+/// Deliberately crude: no feature detection and no dependency, just a downsampled luminance grid,
+/// a translation search, then a small rotation sweep. Enough for scanner skew (a degree or two and
+/// a few millimetres). A pair needing more gets low confidence, and the diff falls back to
+/// comparing frames and says so, rather than claiming an alignment it didn't achieve.
 public struct PageRegistration: Equatable, Sendable {
     /// Rotation in degrees, positive counter-clockwise, applied about the image centre.
     public let degrees: Double
-    /// Translation in pixels of the FULL-SIZE image, applied after the rotation.
+    /// Translation in pixels of the full-size image, applied after the rotation.
     public let dx: Double
     public let dy: Double
     /// How sharply the error surface falls away around the winning transform: 0 is a flat surface
     /// where the best candidate is barely better than everything near it, 1 would be a perfect
-    /// spike. Measured against the best candidate FAR from the winner — see
-    /// ``PageRegistrationEstimator/estimate(_:_:scale:)``, which carries the derivation.
+    /// spike. Measured against the best candidate far from the winner; see
+    /// ``PageRegistrationEstimator/estimate(_:_:scale:)``.
     ///
-    /// **It is emphatically NOT how much error the alignment removed, and the difference is the
-    /// whole safety of the feature.** Scoring by improvement was the first cut and it was measured
-    /// out: a real 0.5° skew scored 0.183 while two deliberately unrelated pages scored 0.152 and
-    /// 0.160, so no threshold on that number could accept the first and refuse the others. What
-    /// separates them is the SHAPE of the surface, not the size of the win.
-    ///
-    /// **This is the number the feature is gated on**, not the transform. A confident-looking
-    /// rotation recovered from two genuinely different pages is exactly the failure the caveat
-    /// exists to prevent.
+    /// **Not how much error the alignment removed**, and that is the feature's whole safety: by
+    /// improvement, a real 0.5° skew scored 0.183 while unrelated pages scored 0.152 and 0.160, so
+    /// no threshold could separate them. The feature is gated on this, not on the transform: a
+    /// confident-looking rotation between two different pages is the failure to prevent.
     public let confidence: Double
 
     /// Whether this estimate is worth applying — see ``confidence``.
     ///
-    /// **0.35 is a measured floor, and the measurement is why it is not 0.15.** The first cut used
-    /// 0.15 on the reasoning that any real improvement is worth taking. Two deliberately unrelated
-    /// synthetic pages then came back at **0.152** and **0.160** — a search always returns its best
-    /// candidate, and over two different documents "best" still removes a sixth of the error by
-    /// sliding one page's ink under the other's. Real pairs in the same fixtures score far higher:
-    /// a pure translation above 0.5, a 1° skew with a (5, −3) offset at **0.906**. 0.35 sits in the
-    /// empty band between the two populations rather than at the edge of either.
+    /// 0.35 is a measured floor, in the empty band between the populations: a search always returns
+    /// a best candidate, and unrelated synthetic pages score around 0.15–0.16, while real pairs
+    /// score far higher (a pure translation above 0.5, a 1° skew with an offset at 0.906).
     public var isUsable: Bool { confidence >= 0.35 && (degrees != 0 || dx != 0 || dy != 0) }
 
     /// The sentence that replaces the difference mode's "with no alignment" caveat when this
     /// registration was applied — nil when it says nothing worth saying.
     ///
-    /// **"Best effort" is in it because it is the truth about the method.** This is a coarse
-    /// correlation over a 256-pixel grid, built for scanner skew and nothing like a registration
-    /// pass; a reader told only "aligned" would reasonably read the remaining glow as content.
+    /// "Best effort" because the method is a coarse correlation built for scanner skew; a reader
+    /// told only "aligned" would read the remaining glow as content.
     ///
-    /// Thresholded so the sentence never claims a correction too small to see: a hundredth of a
-    /// degree and a sub-pixel shift are what the search returns for two pages that were already
-    /// aligned, and captioning those would be noise that reads as a finding.
+    /// Thresholded so it never claims a correction too small to see: tiny angles and sub-pixel
+    /// shifts are what the search returns for pages already aligned, and would read as a finding.
     public var caption: String? {
         let angle = abs(degrees) >= 0.25 ? String(format: "%.2f°", abs(degrees)) : nil
         let moved = abs(dx) >= 1 || abs(dy) >= 1
@@ -66,7 +51,7 @@ public struct PageRegistration: Equatable, Sendable {
         return "Aligned before comparing — \(ComparePairFacts.list(parts)) corrected, best effort."
     }
 
-    /// The identity — what a pair that needs no alignment, or admits none, reports.
+    /// The identity: what a pair that needs no alignment, or admits none, reports.
     public static let none = PageRegistration(degrees: 0, dx: 0, dy: 0, confidence: 0)
 
     public init(degrees: Double, dx: Double, dy: Double, confidence: Double) {
@@ -79,23 +64,17 @@ public struct PageRegistration: Equatable, Sendable {
 
 /// Recovers a ``PageRegistration`` from two rasters.
 ///
-/// Pure and `nonisolated`, over a plain luminance grid rather than `CGImage`, so the search is
-/// testable on synthetic transforms with no rendering in the loop — which is the only way to know
-/// whether it recovers a rotation it was given, rather than merely producing a number.
+/// Pure, over a plain luminance grid rather than `CGImage`, so the search is testable on synthetic
+/// transforms with no rendering in the loop: the only way to know it recovers a rotation it was
+/// given, rather than merely producing a number.
 public enum PageRegistrationEstimator {
 
     /// The width both pages are reduced to before searching.
     ///
-    /// **256, and the number was measured rather than chosen.** The first cut used 96, on the
-    /// reasoning that skew is a whole-page property and a coarse grid is cheap. It is cheap and it
-    /// is blind: a 1° rotation moves the page edge by `height/2 × tan(1°)` — about 1.1 pixels at
-    /// 96 wide, which is under the bilinear filter's own smoothing. Measured on synthetic pairs,
-    /// a 1.25° skew came back with **0.02 confidence** and 0.5° came back as no rotation at all,
-    /// so the estimator could recover translation perfectly and was useless for the one thing the
-    /// caveat is about.
-    ///
-    /// At 256 the same skew moves the edge ~3 pixels, which correlates. The cost is paid back by
-    /// searching the two stages at different scales — see ``estimate(_:_:scale:)``.
+    /// 256, measured: a 1° rotation moves the page edge by `height/2 × tan(1°)`, about 1.1 pixels
+    /// at 96 wide, which is under the bilinear filter's own smoothing, so a coarser grid recovers
+    /// translation but not skew. At 256 the edge moves ~3 pixels, which correlates. The cost is
+    /// paid back by searching translation at a coarser scale; see ``estimate(_:_:scale:)``.
     public static let gridWidth = 256
 
     /// How much the translation sweep downsamples before searching. The sweep is the expensive
@@ -151,7 +130,7 @@ public enum PageRegistrationEstimator {
     }
 
     /// Mean absolute difference between `a` and `b` with `b` rotated by `degrees` about its centre
-    /// and then shifted by (`dx`, `dy`), in GRID pixels.
+    /// and then shifted by (`dx`, `dy`), in grid pixels.
     ///
     /// Sampled on a border-inset window, so a shift does not score itself well merely by moving
     /// content off the edge into the off-page constant.
@@ -181,12 +160,11 @@ public enum PageRegistrationEstimator {
         return count == 0 ? 1 : total / Double(count)
     }
 
-    /// The search: a coarse translation sweep, a rotation sweep at the best offset, then a fine
-    /// translation refinement at the best angle.
+    /// The search: a coarse translation sweep on a downsampled copy, then a joint sweep of angle
+    /// and a small translation refinement around that offset, at full grid resolution.
     ///
-    /// **Staged rather than a joint sweep over all three**, which would be ~20 million grid
-    /// comparisons. Skew and offset are close to separable at this scale — a degree of rotation
-    /// moves the page corners by a few grid pixels, which the refinement pass then recovers.
+    /// Staged rather than one sweep over all three at full resolution, which would be ~20 million
+    /// grid comparisons; the coarse stage finds the offset, and the second stage only refines it.
     ///
     /// `scale` converts the grid's pixels back to the full-size image's, so the returned
     /// translation is in the units the caller will apply it in.
@@ -198,8 +176,8 @@ public enum PageRegistrationEstimator {
         let baseline = error(a, b, degrees: 0, dx: 0, dy: 0, inset: inset)
         guard baseline > 0 else { return .none }
 
-        // **Stage 1 — translation, on a downsampled copy.** The sweep's candidate count is
-        // quadratic in its span, and an offset is just as visible at a quarter of the resolution.
+        // Stage 1: translation, on a downsampled copy. The candidate count is quadratic in the
+        // span, and an offset is just as visible at a quarter of the resolution.
         let factor = Self.translationDownsample
         let coarseA = a.downsampled(by: factor), coarseB = b.downsampled(by: factor)
         let coarseInset = max(1, coarseA.width / 12)
@@ -214,15 +192,10 @@ public enum PageRegistrationEstimator {
             }
         }
 
-        // **Stage 2 — angle and offset together, at FULL grid resolution.**
-        //
-        // Two things are being fixed here at once, and the second was measured rather than
-        // foreseen. Full resolution is what makes a degree of skew visible at all (see
-        // ``gridWidth``). And the sweep is JOINT — every angle gets its own small translation
-        // refinement — because the two parameters are not separable near the optimum: sweeping
-        // the angle at one fixed offset walked a 1° + (5, −3) pair into a translation-only local
-        // minimum at (−6, 4), 0° with 83% of the error removed, while the true correction removed
-        // 91%. Coordinate descent could not leave it, because no single step improved.
+        // Stage 2: angle and offset together, at full grid resolution, which is what makes a
+        // degree of skew visible (see ``gridWidth``). Joint, every angle with its own translation
+        // refinement, because the two aren't separable near the optimum: sweeping the angle at a
+        // fixed offset can settle in a translation-only local minimum no single step escapes.
         let base = (dx: bestCoarse.dx * Double(factor), dy: bestCoarse.dy * Double(factor))
         var best = (err: error(a, b, degrees: 0, dx: base.dx, dy: base.dy, inset: inset),
                     deg: 0.0, dx: base.dx, dy: base.dy)
@@ -243,38 +216,20 @@ public enum PageRegistrationEstimator {
             }
         }
 
-        // **Confidence is the PEAK's sharpness, not the improvement's size** — and that distinction
-        // was forced by measurement, not chosen for elegance.
+        // **Gate on the peak's sharpness, never the improvement's size.** By improvement,
+        // `(baseline - best) / baseline`, a real skew and two unrelated pages overlapped, so no
+        // threshold could separate them. A genuine alignment sits in a sharp well: half a degree or
+        // three pixels off it, the error climbs. Unrelated pages have a shallow best, so confidence
+        // is measured against the best candidate far from the winner, and a flat surface scores
+        // near zero however much error the winner removed.
         //
-        // The first cut scored `(baseline - best) / baseline`: how much of the error alignment
-        // removed. On synthetic fixtures the two populations it has to separate overlapped
-        // outright — a real 0.5° skew scored **0.183** while two deliberately unrelated pages
-        // scored **0.152** and **0.160**. No threshold on that number can accept the first and
-        // refuse the others, so the whole "fall back rather than claim an alignment it did not
-        // achieve" promise was unkeepable on it.
-        //
-        // What does separate them is the SHAPE of the error surface. A genuine alignment sits in a
-        // sharp well: move half a degree or three pixels off it and the error climbs. Two unrelated
-        // pages have a shallow best that is barely better than everything around it, because
-        // nothing is actually lining up. So confidence is measured against the best candidate FAR
-        // from the winner, and a flat surface scores near zero however much error the winner
-        // happened to remove.
-        // **A measured weakness of this score, recorded rather than fixed — 2026-09-09.** The sweep
-        // above steps `dx` and `dy` in whole GRID pixels, and one grid pixel is `scale` full ones —
-        // 6.25 at the 1600px raster the sheet compares at. A true offset landing near the half-way
-        // point between two integer candidates is therefore claimed by neither: the well is split,
-        // `best.err` rises while `far` does not, and the ratio below collapses even though the
-        // ANGLE came back exact. Measured on the bar fixture at 0.75° with dx held at 4 full
-        // pixels, sweeping dy: 0 → 0.633, −1 → 0.578, −2 → 0.431, **−3 → 0.145**, −4 → 0.324,
-        // −5 → 0.541, −6.25 → 0.637. The refusals at −3 and −4 are a lattice artefact, not a
-        // judgement about the alignment; roughly a third of vertical offsets fall in such a band.
-        //
-        // **Left alone deliberately.** Every failure here is a REFUSAL — the pair falls back to an
-        // honest unaligned comparison and the caveat says so — so the cost is a de-skew that does
-        // not fire, never a wrong alignment claimed. Closing it means a sub-pixel refinement around
-        // the winning offset, which changes what `far` is measured against and so re-opens the one
-        // gate `docs/backports.md` warns must not be weakened. Worth doing with numbers in hand,
-        // not in passing.
+        // A known weakness: `dx`/`dy` step in whole grid pixels (6.25 full pixels at the 1600px
+        // compare raster), so a true offset near half-way between two candidates splits the well
+        // and the score collapses, though the angle is exact; about a third of vertical offsets
+        // fall in such a band. Every such failure is a refusal, an honest unaligned comparison,
+        // never a wrong alignment. A sub-pixel refinement would fix it but changes what `far` is
+        // measured against, the gate `docs/backports.md` says must not be weakened; do it with
+        // numbers in hand.
         let far = surface
             .filter { abs($0.deg - best.deg) >= 0.75
                         || abs($0.dx - best.dx) >= 3 || abs($0.dy - best.dy) >= 3 }

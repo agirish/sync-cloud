@@ -2,15 +2,13 @@ import SwiftUI
 import Sync
 import Design
 
-/// One loose file rendered as a Filing suggestion card, matching the Filing mockup: the file, its
-/// source, the suggested destination (with "new" tags on folders that would be created), the
-/// reason, a confidence chip, and the file/choose/leave actions.
+/// One loose file as a Filing suggestion card: the file, its source, the suggested destination
+/// ("new" tags on folders that would be created), the reason, a confidence chip, and the actions.
 struct FilingSuggestionCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let suggestion: FilingSuggestion
-    /// Row measurements per the appearance density setting (H7/D4), injected by the owner
-    /// (LensWorkspaceView reads the @AppStorage once and passes the resolved metrics down). Comfortable
-    /// is the pre-density look — its values equal the literals this card used to hard-code.
+    /// Row measurements for the density setting, passed down by `LensWorkspaceView`, which reads
+    /// the @AppStorage once.
     let densityMetrics: ListDensityMetrics
     let onFileHere: (FilingDestination) -> Void
     let onChooseFolder: () -> Void
@@ -20,49 +18,34 @@ struct FilingSuggestionCard: View {
     var onPreview: (() -> Void)? = nil
     /// Reject the current folder and get a different suggestion. nil hides the button.
     var onTryAnother: (() -> Void)? = nil
-    /// True while this card's re-ask is out at the classifier. The manager ignores a re-entrant
-    /// "Try another" for the same card, so without this the second click is silently inert — the
-    /// button must look busy rather than look ready and do nothing.
+    /// True while this card's re-ask is out at the classifier. The manager ignores a second "Try
+    /// another" meanwhile, so the button must look busy rather than ready.
     var isTryAnotherBusy: Bool = false
-    /// Read this file with OCR — offered only for a PDF the scan read and got nothing from, i.e. a
-    /// scan with no text layer. nil hides the button.
-    ///
-    /// **An offer, not something the scan does.** Rendering a page and running Vision over it
-    /// measured 0.5–2.1 s per file; for the card in front of you that is a click, for a 500-file
-    /// inbox it is ten minutes of fans spent on files you may not care about. So the suggestion on
-    /// such a card was reached without the document, and this is how you say "actually read it".
+    /// Read this file with OCR, offered only for a PDF with no text layer. nil hides the button.
+    /// An offer, not part of the scan: OCR takes 0.5–2 s a file, fine for one card but minutes for a
+    /// large inbox, so such a card's suggestion was made without the document's text.
     var onReadScan: (() -> Void)? = nil
-    /// True while this card's OCR is running — same reason as `isTryAnotherBusy`: the manager
-    /// ignores a re-entrant click, so the button must look busy rather than look ready and do
-    /// nothing. The wait is seconds, which is long enough to click twice.
+    /// True while this card's OCR runs, for `isTryAnotherBusy`'s reason: the wait is seconds, long
+    /// enough to click twice.
     var isReadScanBusy: Bool = false
-    /// The file is only in the cloud, so its home was chosen from its name alone (TE287, GJ). The
-    /// card says so, because "placed by name" is why a suggestion like a ticket under a credit
-    /// card is weak — and Download and Read, above the list, is how to fix it.
+    /// The file is only in the cloud, so its home was chosen from its name alone. The card says so,
+    /// since that is why such a suggestion can be weak; Download and Read, above the list, fixes it.
     var isNotDownloaded: Bool = false
 
-    /// The name typed over a PROPOSED new folder, empty while it is untouched.
+    /// The name typed into "Create as" over a proposed new folder, empty while untouched: the
+    /// proposed name is the model's, not the user's, so they can change it before filing.
     ///
-    /// A new folder is the one destination the card offers that does not exist yet, so its name is
-    /// the model's suggestion rather than the user's own vocabulary — `Son/eOCI.pdf` is only the
-    /// most vivid example. Editing it before accepting costs a text field; not being able to means
-    /// filing into a name you did not choose, then renaming the folder in Finder afterwards.
-    /// The name typed into "Create as", for the destination currently on the card.
-    ///
-    /// **Cleared whenever that destination changes.** This is `@State` on a card whose identity is
-    /// the SUGGESTION, and "Try another" replaces the destination without replacing the card — so a
-    /// name typed for `Finance › HDFC › <new>` stayed in the field and "File here" applied it to
-    /// whatever came back next, creating `Health › Kaiser › 2026 Statements`. The field showed the
-    /// old name against the new folder's placeholder, which is the only clue there was.
+    /// Cleared whenever the destination changes. The card's identity is the suggestion, and "Try
+    /// another" swaps the destination under it, so a stale name would be applied to the next one.
     @State private var editedFolderName: String = ""
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
-    /// File-icon side: the pre-density 26pt in comfortable, a tighter 20pt in compact.
+    /// File-icon side: 26pt in comfortable, 20pt in compact.
     private var iconSize: CGFloat { densityMetrics.showsSecondaryDetail ? 26 : 20 }
 
-    /// Count of the destination folder's existing entries (G6 "peek"), loaded off the render path.
-    /// nil until counted / when the destination doesn't exist yet.
+    /// Count of the destination folder's entries (the "peek"), loaded off the render path. nil until
+    /// counted, or when the destination doesn't exist yet.
     @State private var destinationItemCount: Int? = nil
 
     private var best: FilingDestination? { suggestion.best }
@@ -77,18 +60,16 @@ struct FilingSuggestionCard: View {
                     Text(suggestion.fileName)
                         .scaledFont(.system(size: 14, weight: .semibold))
                         .lineLimit(1).truncationMode(.middle)
-                    // The source and "why" lines are the secondary detail compact hides (D4); the
-                    // destination row and the actions still carry what happens and where.
+                    // Compact hides the source and "why" lines; the destination row and actions
+                    // still say what happens and where.
                     if densityMetrics.showsSecondaryDetail { sourceRow }
                     if let best {
                         if densityMetrics.showsSecondaryDetail {
                             destinationRow(best)
                         } else if let rationale = rationale(best) {
-                            // Compact hides the whyRow (which carried the filing rationale for
-                            // VoiceOver) — keep the "why here" reachable on the destination row.
-                            // Combined first (the whyRow precedent below): the destination row is
-                            // a multi-element HStack, and an `.accessibilityValue` on an uncombined
-                            // container may never be voiced — VO walks the children individually.
+                            // Compact hides the whyRow, so the rationale moves to the destination
+                            // row. Combined first: VoiceOver walks an uncombined HStack's children
+                            // and may never voice an `.accessibilityValue` on the container.
                             destinationRow(best)
                                 .accessibilityElement(children: .combine)
                                 .help(rationale)
@@ -97,17 +78,11 @@ struct FilingSuggestionCard: View {
                             destinationRow(best)
                         }
                     }
-                    // The rename, whenever one is coming. **Never hidden by density**: every other
-                    // secondary line here describes the move, and this one describes a SECOND thing
-                    // that happens to the file. A card that showed only "→ PG&E › 2025" while the
-                    // apply also renamed the file would be under-reporting what the button does,
-                    // and compact mode is exactly where that would go unnoticed.
+                    // The rename, whenever one is coming. Never hidden by density: it is a second
+                    // thing "File here" does to the file, and hiding it under-reports the button.
                     if let renamed = best?.proposedName { renameRow(renamed) }
-                    // **Never hidden by density**, for the same reason the rename line is not: it
-                    // changes what "File here" means. Every other secondary line describes where
-                    // the file is going; this one says the tree already has this document, and a
-                    // compact card that dropped it would be the one place a silent second copy
-                    // gets made.
+                    // Never hidden by density, like the rename line: it says the tree already has
+                    // this document, so "File here" would make a second copy.
                     if suggestion.isAlreadyFiled { alreadyFiledRow }
                     if isNotDownloaded { notDownloadedRow }
                     if best?.remembered == true { rememberedBadge }
@@ -125,12 +100,9 @@ struct FilingSuggestionCard: View {
                 .padding(.bottom, densityMetrics.cardHeaderVerticalPadding)
         }
         .lensCard()
-        // **The typed name belongs to the destination it was typed for.** This card's identity is
-        // the suggestion, so "Try another" swaps `best` underneath it and `@State` survives —
-        // a name meant for one proposed folder would otherwise be applied to the next one.
-        // Keyed on the proposed leaf rather than the whole path: that is the string the field is
-        // editing, so re-proposing the same folder name under a different parent keeps what the
-        // user typed, while a genuinely different name clears it.
+        // The typed name belongs to the destination it was typed for: "Try another" swaps `best`
+        // under this card and `@State` survives. Keyed on the proposed leaf, the string the field
+        // edits, so the same name under a different parent keeps what the user typed.
         .onChange(of: best?.newSegments.last) { _, _ in editedFolderName = "" }
     }
 
@@ -171,11 +143,8 @@ struct FilingSuggestionCard: View {
         .task(id: dest.path) { await loadDestinationCount(for: dest) }
     }
 
-    /// "also renamed 04. Apr 2025.pdf" — what the file will be called once it lands.
-    ///
-    /// It is on the card because the apply path is gated on it: a destination that proposes a name
-    /// gets one applied, and one that does not leaves the filename alone. So this line is not a
-    /// decoration but the disclosure of the second half of what "File here" does.
+    /// "also renamed 04. Apr 2025.pdf": what the file will be called once it lands. A destination
+    /// that proposes a name gets it applied, so this discloses the second half of "File here".
     private func renameRow(_ proposed: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "character.cursor.ibeam")
@@ -198,17 +167,15 @@ struct FilingSuggestionCard: View {
 
     // MARK: G6 — destination "peek" (existing contents)
 
-    /// A short "· N items" / "· empty" label for the destination's current contents. nil while the
-    /// count is loading, or when the folder doesn't exist yet (a proposed NEW folder has no peek —
-    /// the NEW badges already say it'll be created).
+    /// A short "· N items" or "· empty" label for the destination's contents. nil while loading, or
+    /// for a proposed new folder, whose NEW badges already say it'll be created.
     private func destinationPeekLabel(_ dest: FilingDestination) -> String? {
         guard !dest.isNew, let count = destinationItemCount else { return nil }
         return count == 0 ? "empty" : "\(count) item\(count == 1 ? "" : "s")"
     }
 
-    /// Counts the destination folder's visible entries off the render path (small folders, cheap).
-    /// A nil result is deliberately NOT written back: it means either "unreadable" (the field is
-    /// already nil, so writing changes nothing) or "superseded" — see ``DestinationPeek``.
+    /// Counts the destination folder's visible entries off the render path. A nil result is not
+    /// written back: it means unreadable (already nil) or superseded; see ``DestinationPeek``.
     private func loadDestinationCount(for dest: FilingDestination) async {
         destinationItemCount = nil   // drop any stale count from a prior destination while reloading
         guard !dest.isNew else { return }
@@ -238,9 +205,8 @@ struct FilingSuggestionCard: View {
                         .scaledFont(.system(size: 12, weight: isLeaf ? .semibold : .regular, design: .monospaced))
                         .foregroundStyle(isNew ? hueAccent : (isLeaf ? Color.primary : Color.secondary))
                     if isNew {
-                        // Deliberately NOT a full Pill.mini: its 10pt text and H8/V2 padding
-                        // balloon an 8pt tag inline in a five-crumb breadcrumb. Only the wash
-                        // opacity is unified with the shared pill recipe.
+                        // Not a full Pill.mini: its 10pt text and padding balloon an 8pt tag in a
+                        // five-crumb breadcrumb. Only the wash opacity is shared with the pill.
                         Text("NEW")
                             .scaledFont(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 4).padding(.vertical, 1)
@@ -252,9 +218,8 @@ struct FilingSuggestionCard: View {
         }
     }
 
-    /// The breadcrumb's path components with the dead `/Users/<you>` head dropped. Provider-relative
-    /// (e.g. "iCloud › Documents › …") when the suggestion knows its provider root; otherwise
-    /// tilde-abbreviated ("~ › Documents › …"), reusing the app's standard home-abbreviation.
+    /// The breadcrumb's path components without the `/Users/<you>` head: provider-relative
+    /// ("iCloud › Documents › …") when the provider root is known, else tilde-abbreviated.
     private func breadcrumbComponents(_ dest: FilingDestination) -> [String] {
         if let root = suggestion.providerRoot, isPath(dest.path, under: root) {
             let rel = String(dest.path.dropFirst(root.count)).split(separator: "/").map(String.init)
@@ -268,8 +233,8 @@ struct FilingSuggestionCard: View {
         path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 
-    /// A friendly label for a provider root path — "iCloud" / "Dropbox" / "Google Drive" for the
-    /// known cloud roots, else the root folder's own name.
+    /// A friendly label for a provider root: "iCloud", "Dropbox", "Google Drive" and so on for known
+    /// cloud roots, else the root folder's own name.
     private func providerLabel(for root: String) -> String {
         let lower = root.lowercased()
         if lower.contains("com~apple~clouddocs") || lower.contains("mobile documents") { return "iCloud" }
@@ -294,9 +259,9 @@ struct FilingSuggestionCard: View {
         }
     }
 
-    /// An editable name for the folder that would be created — shown only for a NEW destination,
-    /// because renaming an existing folder would silently propose creating a different one instead
-    /// (see ``FilingDestination/renamingNewFolder(to:)``, which refuses that).
+    /// An editable name for the folder that would be created. Only for a new destination: renaming an
+    /// existing one would propose a different folder (``FilingDestination/renamingNewFolder(to:)``
+    /// refuses that).
     @ViewBuilder
     private func newFolderNameField(_ dest: FilingDestination) -> some View {
         if let leaf = dest.newSegments.last {
@@ -315,19 +280,16 @@ struct FilingSuggestionCard: View {
         }
     }
 
-    /// "already filed in Work › EMP › … › 2026" — the tree already holds this exact document.
-    ///
-    /// By CONTENT, not by name or bytes: the PDF text fingerprint pairs two downloads of one
-    /// statement that share no byte hash because the provider re-stamped the second. The wording
-    /// says "this document" rather than "this file" for that reason — the copy on disk is very
-    /// likely to have a different name and a different size.
+    /// "already filed in Work › EMP › … › 2026": the tree already holds this document. Matched by
+    /// content (the PDF text fingerprint), not name or bytes, so two downloads of one statement
+    /// pair up; hence "this document", since the copy likely differs in name and size.
     private var alreadyFiledRow: some View {
         let folders = suggestion.alreadyFiledAt
         let shown = folders[0].split(separator: "/").joined(separator: " › ")
         let more = folders.count - 1
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            // The sentence's ink, glyph and words alike, rather than raw orange (DS2) — the same
-            // pairing Settings' person row gives its caveat glyph and line.
+            // Readable ink for glyph and words alike rather than raw orange, as Settings' person row
+            // does for its caveat.
             Image(systemName: "doc.on.doc")
                 .scaledFont(.system(size: 10, weight: .semibold))
                 .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
@@ -352,8 +314,8 @@ struct FilingSuggestionCard: View {
         .help(accessibleAlreadyFiled)
     }
 
-    /// The full sentence — every folder named, not just the first. The row truncates to one line
-    /// and shows "+2"; a tooltip and VoiceOver have room to say which two.
+    /// The full sentence, naming every folder: the row truncates to "+2", but a tooltip and
+    /// VoiceOver have room to say which two.
     private var accessibleAlreadyFiled: String {
         let names = suggestion.alreadyFiledAt.map { $0.split(separator: "/").joined(separator: " › ") }
         return "This document is already filed in \(names.joined(separator: ", ")). "
@@ -368,11 +330,9 @@ struct FilingSuggestionCard: View {
         Pill(.mini, tint: hueAccent, systemImage: "sparkles", text: "AI suggestion")
     }
 
-    /// The full "why here" rationale as one string: the stated reason (or the content-evidence
-    /// sentence when there's no prose reason) plus the neighbor-corroboration note when the
-    /// destination already holds similar files. The single source for BOTH the whyRow's VoiceOver
-    /// label and the compact fallback's tooltip/`accessibilityValue`, so the two surfaces can't
-    /// drift and compact keeps the "N similar files already here" detail.
+    /// The full "why here" as one string: the stated reason (or the content-evidence sentence) plus
+    /// the similar-files note. One source for the whyRow's VoiceOver label and compact's
+    /// tooltip and `accessibilityValue`, so the two can't drift.
     private func rationale(_ dest: FilingDestination) -> String? {
         let base: String
         if let reason = dest.reasons.first {
@@ -391,8 +351,8 @@ struct FilingSuggestionCard: View {
     @ViewBuilder
     private func whyRow(_ dest: FilingDestination) -> some View {
         if let token = dest.evidenceToken {
-            // Content-derived (F2): the deciding word was read from the file, not its name — the
-            // stronger, less-obvious signal. Highlight it so it reads distinctly from a name match.
+            // The deciding word was read from the file, not its name: the stronger signal, so it is
+            // highlighted to read apart from a name match.
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Image(systemName: "doc.text.magnifyingglass").scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.success)
                 Text("Matched").scaledFont(.system(size: 12)).foregroundStyle(.secondary)
@@ -415,27 +375,24 @@ struct FilingSuggestionCard: View {
         }
     }
 
-    /// The descriptive tail after the highlighted evidence chip, naming the neighbor corroboration
-    /// ("N similar files already here") when the target already holds matching files.
+    /// The text after the evidence chip, with the similar-files note when there is one.
     private func evidenceTail(_ dest: FilingDestination) -> String {
         guard let note = neighborNote(dest) else { return "read from the file" }
         return "read from the file · \(note)"
     }
 
-    /// "N similar file(s) already here" when the destination already holds matching files; nil
-    /// otherwise. Shared by the visible `evidenceTail` and the `rationale` string so the neighbor
-    /// wording exists exactly once.
+    /// "N similar file(s) already here", or nil. Shared by `evidenceTail` and `rationale` so the
+    /// wording exists once.
     private func neighborNote(_ dest: FilingDestination) -> String? {
         guard dest.neighborMatches > 0 else { return nil }
         return "\(dest.neighborMatches) similar file\(dest.neighborMatches == 1 ? "" : "s") already here"
     }
 
-    /// The tier this card's confidence falls into — the single key shared by the chip and the meter
-    /// so they can never disagree.
+    /// The tier this card's confidence falls into, shared by the chip and meter so they agree.
     private var confidenceTier: FilingConfidenceTier { FilingConfidenceTier.of(best?.confidence) }
 
-    /// The confidence word (chip) paired with the 3-bar meter (G5), so confidence reads as a
-    /// quantity, not just a color-word. The meter sits left of the chip, both tinted the same.
+    /// The confidence chip with the 3-bar meter to its left, both tinted alike, so confidence reads
+    /// as a quantity, not just a word.
     private var confidenceCluster: some View {
         HStack(spacing: 6) {
             ConfidenceMeter(tier: confidenceTier)
@@ -508,25 +465,21 @@ struct FilingSuggestionCard: View {
 
 // MARK: - Destination peek (G6)
 
-/// Reads the "· N items" peek for a Filing destination off the render path.
+/// Reads the "· N items" peek for a Filing destination off the render path, apart from the card so
+/// its cancellation rule can be tested.
 ///
-/// Extracted from the card so the CANCELLATION rule is testable, because that rule is the whole
-/// point of this type. The card loads the peek from `.task(id: dest.path)`, which cancels the
-/// in-flight read when "Try another" swaps the destination — but `Task.detached` does not inherit
-/// cancellation, so a slow cloud directory listing for the OLD destination keeps running and can
-/// resolve AFTER the new one. Without a cancellation check the loser of that race writes last and
-/// the card shows the old folder's item count under the new folder's name — a wrong fact about a
-/// destination the user is deciding on.
+/// The card loads it from `.task(id: dest.path)`, which cancels when "Try another" swaps the
+/// destination, but `Task.detached` doesn't inherit cancellation: a slow listing of the old folder
+/// can finish after the new one, and without the check the card would show the old folder's count
+/// under the new folder's name.
 enum DestinationPeek {
     /// The number of visible (non-dot) entries in `path`, or nil when there is nothing to publish:
-    /// the folder was unreadable, or this task was superseded while the listing ran. Both mean the
-    /// caller must NOT write — in the superseded case another read already owns the field, and
-    /// stamping it (even with nil) would blank a count that is correct for what's on screen.
+    /// unreadable, or superseded while listing. The caller must not write nil: when superseded,
+    /// another read owns the field, and writing would blank a correct count.
     ///
-    /// **A destination whose contents are not on this Mac is asked for first, suspending**
-    /// (`waitForContents`): when its cloud app is not running, the bare `contentsOfDirectory` this
-    /// used to call never returned, and every card that showed the folder left one more thread stuck
-    /// in it. Unanswered, there is no count to publish — the same nil an unreadable folder gets.
+    /// Contents not on this Mac are requested first, suspending (`waitForContents`): with the cloud
+    /// app not running, a bare `contentsOfDirectory` never returns and strands a thread per card.
+    /// Unanswered gives nil, as unreadable does.
     static func itemCount(atPath path: String, fileManager: FileManaging = FileManager.default) async -> Int? {
         // Not for "": `URL(fileURLWithPath:)` makes that the working directory.
         guard !path.isEmpty else { return nil }
@@ -537,9 +490,8 @@ enum DestinationPeek {
             guard listing.outcome != .unreadable else { return nil }
             return listing.urls.filter { !$0.lastPathComponent.hasPrefix(".") }.count
         }.value
-        // Checked AFTER the await, not before: the read is only stale once it has finished late.
-        // (Same shape as FileTreeView's download-watch poll, which re-checks `Task.isCancelled`
-        // after each detached lstat before touching its badge state.)
+        // Checked after the await: the read is only stale once it has finished late. FileTreeView's
+        // download-watch poll does the same after each detached lstat.
         guard !Task.isCancelled else { return nil }
         return count
     }

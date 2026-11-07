@@ -3,19 +3,16 @@ import Foundation
 @testable import FileExplorer
 import Sync
 
-/// The return trip. Navigating in the Tree writes the outline's own state and nothing else, so
-/// flipping back to Columns replayed the stack the columns were parked with — the last place the
-/// user was, but not the most recent one.
-///
-/// The Tree's half of "where you are" is an expansion, which can have several branches open at once
-/// and names no single folder; its selection is the one unambiguous place, and that is what carries
-/// back.
+/// The return trip from the Tree to Columns. Navigating in the Tree writes only the outline's
+/// state, so without a carry-back the columns would replay the stack they were parked with, not
+/// the most recent place. The Tree's expansion can have several branches open and names no single
+/// folder; its selection is the one unambiguous place, so that is what carries back.
 @Suite struct PaneTreeCarryBackTests {
 
     private let root = "/Users/me/Documents"
 
-    /// `Claude/Projects` exists as folders; `Investing` is a FILE inside `Projects`, and `Ghost` is
-    /// nothing at all — the two ways a selected path stops naming a folder.
+    /// `Claude/Projects` exists as folders; `Investing` is a file inside `Projects`, and `Ghost` is
+    /// nothing at all: the two ways a selected path stops naming a folder.
     private func index() -> PaneChildrenIndex {
         func dir(_ path: String, _ name: String, _ children: [FileNode] = []) -> FileNode {
             FileNode(id: path, name: name, isDirectory: true, children: children)
@@ -44,8 +41,8 @@ import Sync
         #expect(carried?.components == ["Claude", "Projects"], "the file itself is not a column")
     }
 
-    /// A row selected at the top level says "the root" — a real answer, and the columns have to come
-    /// back out to it rather than keep the stack they were parked with.
+    /// A row selected at the top level says "the root", a real answer: the columns come back out to
+    /// it rather than keep the stack they were parked with.
     @Test func testATopLevelSelectionComesAllTheWayBackOut() {
         let carried = FileTreeView.carryBack(selection: ["\(root)/Family"],
                                              treeRoot: root, index: index())
@@ -62,12 +59,12 @@ import Sync
                 "nothing selected is likewise no answer, not an answer of `the root`")
     }
 
-    /// A selection left over from another root — the pane re-rooted, or the provider changed — must
+    /// A selection left over from another root (the pane re-rooted, or the provider changed) must
     /// not be read as a path inside this one.
     @Test func testASelectionFromAnotherRootIsIgnored() {
         #expect(FileTreeView.carryBack(selection: ["/somewhere/else/Claude"],
                                        treeRoot: root, index: index()) == nil)
-        // And the root itself is not a path INSIDE the root: `hasPrefix` must respect the boundary,
+        // And the root itself is not a path inside the root: `hasPrefix` must respect the boundary,
         // or a sibling root sharing a name prefix would resolve as if it were inside.
         #expect(FileTreeView.carryBack(selection: [root], treeRoot: root, index: index()) == nil)
         #expect(FileTreeView.carryBack(selection: ["\(root)-other/Claude"],
@@ -83,7 +80,7 @@ import Sync
     }
 
     /// A trailing slash on the root would otherwise leave a leading empty component, and the stack
-    /// would name `…//Claude` — a folder no index has.
+    /// would name `…//Claude`, a folder no index has.
     @Test func testTheRootIsNormalisedBeforeTheStackIsBuilt() {
         let carried = FileTreeView.carryBack(selection: ["\(root)/Family"],
                                              treeRoot: root + "/", index: index())
@@ -109,8 +106,8 @@ import Sync
         return PaneChildrenIndex(tree: tree, treeRoot: root, links: [:])
     }
 
-    /// **A selection below a link carries back the names down to it**, which its id cannot give:
-    /// `/t/sub/deeper/e.txt` is not under `/r`, so the flip back to Columns kept the parked stack.
+    /// A selection below a link carries back the names down to it, which its id can't give:
+    /// `/t/sub/deeper/e.txt` is not under `/r`, so by id alone Columns would keep the parked stack.
     @Test func testASelectionBelowAFolderLinkCarriesBackTheNamesDownToIt() {
         let carried = FileTreeView.carryBack(selection: ["/t/sub/deeper/e.txt"],
                                              treeRoot: "/r", index: linkedIndex())
@@ -125,9 +122,9 @@ import Sync
         #expect(carried?.components == ["link", "sub", "deeper"])
     }
 
-    /// **A folder the tree holds twice carries back along the route its id names.** Home holds
-    /// `~/Dropbox` and the folder it leads to; below the link both rows carry one id, and the
-    /// selection cannot say which was clicked. The id is under the root, so it is the answer — the
+    /// A folder the tree holds twice carries back along the route its id names. Home holds
+    /// `~/Dropbox` and the folder it leads to; below the link both rows carry one id, so the
+    /// selection can't say which was clicked. The id is under the root, so it is the answer; the
     /// names would take whichever route sorts first, here the link.
     @Test func testASelectionTheTreeHoldsTwiceCarriesBackTheRouteItsIdNames() {
         func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
@@ -142,8 +139,8 @@ import Sync
         #expect(carried?.components == ["Library", "Dropbox", "x", "y"])
     }
 
-    /// A selection the tree does not hold is still no answer — the names are looked up in the tree,
-    /// so the fallback cannot invent a place out of an unrelated path.
+    /// A selection the tree doesn't hold is still no answer: the names are looked up in the tree,
+    /// so the fallback can't invent a place out of an unrelated path.
     @Test func testASelectionTheLinkedTreeDoesNotHoldIsStillIgnored() {
         #expect(FileTreeView.carryBack(selection: ["/t/elsewhere/x.txt"], treeRoot: "/r", index: linkedIndex()) == nil)
     }

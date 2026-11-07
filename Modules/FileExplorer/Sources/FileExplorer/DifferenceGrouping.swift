@@ -1,15 +1,11 @@
 import Foundation
 import Sync
 
-/// Splits the differences table's already-sorted rows into top-level folder sections.
+/// Splits the differences table's already-sorted rows into top-level folder sections, so a
+/// comparison of hundreds of rows can be read and acted on a folder at a time.
 ///
-/// The table is flat today, which is fine at twenty rows and useless at the five hundred a real
-/// Documents comparison produces: the only structure is the sort, so "do I want all of
-/// Immigration?" means reading a path prefix the Name column has already truncated away.
-///
-/// Pure, and deliberately separate from the view: the section list is the kind of thing that looks
-/// obviously right in a screenshot and is wrong on the third fixture (empty roots, a single
-/// section, a sort that reorders sections under you), so it is asserted directly.
+/// Pure and separate from the view, so its edge cases (empty roots, a single section, a sort
+/// that reorders sections) are asserted directly.
 enum DifferenceGrouping {
 
     /// One section: the folder that names it and the rows beneath it, in the order they arrived.
@@ -28,56 +24,34 @@ enum DifferenceGrouping {
 
     /// The bucket a difference lying directly in the compared folder is filed under.
     ///
-    /// A "/" rather than the words below, and that is the whole point: `split(separator: "/")`
-    /// drops empty components, so no path can ever yield a component containing a separator —
-    /// which makes this key unreachable by any real folder, by construction.
-    ///
-    /// Keying on the LABEL, as this used to, merged the loose rows into a folder literally named
-    /// "Top level": both sides answered "Top level" from `folder(for:)` and landed in one bucket,
-    /// so the header counted rows that were not in that folder and — once the header became a
-    /// selection target — selecting the folder also selected files sitting beside it. The comment
-    /// here claimed the collision could not happen, which is the version of this worth naming: the
-    /// label and the identity were the same string, so there was nothing to keep honest.
+    /// A "/" rather than the label, because `split(separator: "/")` drops empty components, so no
+    /// real folder can produce it. Keying on the label would merge the loose rows with a folder
+    /// named "Top level", and selecting that header would select the files beside it too.
     static let rootKey = "/"
 
-    /// What `rootKey` is CALLED. Display only — never a bucket, never compared against a folder
+    /// What `rootKey` is called. Display only: never a bucket, never compared against a folder
     /// name. See `Section.title`.
     static let rootLabel = "Top level"
 
-    /// The bucketing split. Historical note that still earns its keep: when the Name cell drew a
-    /// per-row prefix, this function was shared with `pathWithinSection` so the header and the
-    /// prefix could never disagree about where the boundary fell — a parent of "/Immigration" had
-    /// made two independent splitters yield a header reading "/Immigration" over rows reading
-    /// "Immigration/…". The prefix (and `pathWithinSection` with it) is gone — the Path column
-    /// shows the whole anchored parent — but the hard-won edge-case handling stays: empty
-    /// components are dropped (`split` omits them by default), so a leading slash, a trailing
-    /// slash and a "//" all land on the same bucket. `folder` is nil only when nothing is left —
-    /// an empty parent, or a parent of pure separators.
+    /// The bucketing split. Empty components are dropped (`split` omits them by default), so a
+    /// leading slash, a trailing slash and a "//" all land in the same bucket. `folder` is nil only
+    /// when nothing is left: an empty parent, or one of pure separators.
     private static func split(_ parent: String) -> (folder: String?, rest: String) {
         var components = parent.split(separator: "/").map(String.init)
         guard !components.isEmpty else { return (nil, "") }
         return (components.removeFirst(), components.joined(separator: "/"))
     }
 
-    /// The bucket a difference belongs to — the first path component of its parent, or `rootKey`
-    /// when it has no parent at all.
-    ///
-    /// First component, not the whole parent path: grouping by the full parent turns 576 rows into
-    /// roughly 400 sections of one row each, which is the flat list with extra chrome. The
-    /// top-level folder is the unit people actually decide about.
+    /// The bucket a difference belongs to: the first path component of its parent, or `rootKey`
+    /// when it has none. Not the whole parent path, which would give mostly one-row sections; the
+    /// top-level folder is the unit people decide about.
     static func folder(for difference: FileDifference) -> String {
         split(difference.parentPath).folder ?? rootKey
     }
 
-    /// Groups `sorted` into sections **without reordering anything**.
-    ///
-    /// Sections appear in the order their first row appears in `sorted`, and rows keep their
-    /// relative order inside a section. That single rule is what keeps grouping consistent with
-    /// whatever the column sort is doing: sort by Size descending and the section holding the
-    /// biggest file comes first; sort by Name and the sections come out name-ordered. No separate
-    /// section-ordering rule exists to disagree with the sort — which is the bug this shape avoids,
-    /// not merely a nicety, because a table whose groups and rows sort by different keys reads as
-    /// broken.
+    /// Groups `sorted` into sections without reordering anything. Sections appear in the order of
+    /// their first row, and rows keep their order inside a section, so grouping always follows the
+    /// column sort: no separate section order exists to disagree with it.
     static func sections(_ sorted: [FileDifference]) -> [Section] {
         var order: [String] = []
         var buckets: [String: [FileDifference]] = [:]
@@ -92,23 +66,14 @@ enum DifferenceGrouping {
         return order.map { Section(folder: $0, rows: buckets[$0] ?? []) }
     }
 
-    /// How many rows a section must average before headers pay for themselves.
-    ///
-    /// Set from a real comparison rather than taste. A 22-difference scan spread over eight
-    /// folders rendered as header/row/gap/header/row/gap — eight headers heading eleven rows
-    /// between them, which very nearly doubled the list's height to say what the Name column's
-    /// path prefix already said. A header that heads one or two rows is not a landmark; it is a
-    /// row you cannot act on. The same comparison at 576 differences averages dozens per folder
-    /// and is exactly what grouping is for.
+    /// How many rows a section must average before headers pay for themselves. A header over one
+    /// or two rows is not a landmark, just a row you can't act on that nearly doubles the list's
+    /// height.
     static let minimumAverageRowsPerSection = 3
 
-    /// Whether grouping is worth drawing at all for this row set.
-    ///
-    /// Two ways to fail. One section means every header says the same thing about every row —
-    /// pure chrome, and worse than the flat table it replaced. Many tiny sections mean the headers
-    /// cost more vertical space than the landmarks save. Both fall back to flat, which is what
-    /// lets the preference default ON without punishing small comparisons: grouping appears when
-    /// there is something to group.
+    /// Whether grouping is worth drawing for this row set. One section is pure chrome, and many
+    /// tiny sections cost more space than they save; both fall back to flat. That lets the
+    /// preference default on without punishing small comparisons.
     static func isWorthGrouping(_ sections: [Section]) -> Bool {
         guard sections.count > 1 else { return false }
         let rows = sections.reduce(0) { $0 + $1.count }
@@ -116,10 +81,9 @@ enum DifferenceGrouping {
     }
 }
 
-/// What clicking a folder section header does to the table selection.
-///
-/// Pure, because the rule reads obvious and is easy to implement backwards: ⌘-clicking a section
-/// that is ALREADY fully selected has to remove it, not re-add it, or the gesture has no way back.
+/// What clicking a folder section header does to the table selection. Pure, because it is easy
+/// to get backwards: ⌘-clicking a section that is already fully selected must remove it, or the
+/// gesture has no way back.
 enum SectionClickIntent: Equatable {
     /// Plain click: this section becomes the whole selection.
     case replace
@@ -147,23 +111,18 @@ extension DifferenceGrouping {
         }
     }
 
-    /// Whether every row of `section` is in `selection` — what lights the header, and what decides
-    /// whether a ⌘-click adds or removes.
-    ///
-    /// An empty section is NOT "fully selected": vacuous truth would light a header holding
-    /// nothing and make ⌘-click a no-op that reads as broken. Sections are never empty in practice
-    /// (they are built from their rows), so this only guards a future caller.
+    /// Whether every row of `section` is in `selection`: what lights the header, and whether a
+    /// ⌘-click adds or removes. An empty section is not fully selected, or it would light a header
+    /// holding nothing. Sections are built from their rows, so this only guards a future caller.
     static func isFullySelected(_ section: Section, in selection: Set<FileDifference.ID>) -> Bool {
         guard !section.rows.isEmpty else { return false }
         return section.rows.allSatisfy { selection.contains($0.id) }
     }
 
-    /// The row of `ids` the table draws first — where a reveal scrolls (TE295).
-    ///
-    /// Display order, not `sorted` order, whenever there are sections: a section gathers its rows
-    /// from wherever the sort put them, so under a Size sort the biggest selected file can be the
-    /// first row of `sorted` and still sit in the second section. Folds are not consulted: the one
-    /// caller follows `DifferencesSession.show`, which opens every section.
+    /// The row of `ids` the table draws first, where a reveal scrolls. Display order, not `sorted`
+    /// order, when there are sections: the first selected row of `sorted` can sit in the second
+    /// section. Folds are ignored, since the one caller follows `DifferencesSession.show`, which
+    /// opens every section.
     static func firstShown(of ids: Set<FileDifference.ID>, sorted: [FileDifference],
                            sections: [Section]) -> FileDifference? {
         guard !sections.isEmpty else { return sorted.first { ids.contains($0.id) } }
@@ -172,10 +131,8 @@ extension DifferenceGrouping {
 }
 
 extension DifferenceGrouping.Section {
-    /// Rows this section would copy rightward, and leftward. Only shown when the section is
-    /// COLLAPSED: expanded, every row states its own direction and the header would be repeating
-    /// them; collapsed, the rows are gone and this is the only thing left that can say which way
-    /// the folder's work points.
+    /// Rows this section would copy rightward, and leftward. Shown only when the section is
+    /// collapsed, since expanded rows state their own direction.
     var copyToRightCount: Int { rows.count { $0.action == .copyToRight } }
     var copyToLeftCount: Int { rows.count { $0.action == .copyToLeft } }
 

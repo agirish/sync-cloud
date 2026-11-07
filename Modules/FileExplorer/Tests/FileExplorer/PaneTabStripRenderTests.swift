@@ -4,25 +4,17 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The strip, **rendered and read back**, in light and dark.
+/// The strip, rendered and read back, in light and dark. The ladder tests prove the arithmetic but
+/// can't see whether a chip's name is drawn, whether the active tab stands out, or whether the ✕
+/// paints, so these claims are made in pixels:
 ///
-/// The ladder tests prove the arithmetic; none of them can see whether a chip's name is drawn,
-/// whether the active tab is distinguishable from the parked ones, or whether the ✕ paints at all.
-/// This repo's own record is that geometry does not see what a person sees — a blank overview row
-/// shipped past 988 green tests — so the claims that matter here are made in pixels:
-///
-/// - **The active tab is visibly the active one.** The whole strip is otherwise five identical
-///   chips, and the live tab's raised ground plus the accent rule under it are the only things that
-///   say which folder the pane below is showing.
-/// - **Each chip draws its name.** A chip squeezed to the floor with its title clipped out of it is
-///   exactly the failure the measured floor exists to prevent, and it is invisible to the ladder.
-/// - **The mark distinguishes two tabs with the same name**, which is the case the mark is on the
-///   chip for at all: two "Documents" from different clouds.
-///
-/// `.machinePinned(.pixelSampling)` — it reads pixels out of a live renderer.
+/// - The active tab is visibly active: its raised ground and the accent rule under it are the only
+///   things saying which folder the pane below shows.
+/// - Each chip draws its name, rather than being squeezed to the floor with its title clipped out.
+/// - The mark tells two same-named tabs apart: two "Documents" from different clouds.
 @MainActor
-// Pin moved from the suite to the tests that read pixels, so the behavioral remainder is no
-// longer hostage to the machine gate — see OrganizeRailTests for the pattern's account.
+// Pinned per test rather than per suite, so the tests that read no pixels aren't held to this
+// machine (see `OrganizeRailTests`).
 @Suite(.serialized) struct PaneTabStripRenderTests {
 
     func item(_ title: String, active: Bool = false, mark: String = "folder.fill",
@@ -31,16 +23,11 @@ import Design
                           isActive: active, fullPath: path, isPinned: pinned)
     }
 
-    /// Mounts a strip at `width` and returns the bitmap.
-    ///
-    /// The backdrop is a flat fill rather than the pane's card, for `CommandPaletteRenderTests`'
-    /// measured reason: a glass wrapper renders the subject beneath it as white through a bare
-    /// hosting view, and every colour assertion then reads zero.
-    ///
-    /// `accent` defaults to the system accent, which is what the strip falls back to when a caller
-    /// names no hue. Any test making a claim about the accent's COLOUR passes one explicitly — the
-    /// system accent is a machine setting (Graphite is a real choice here), and a test that reads
-    /// blue out of it is reading the user's System Settings.
+    /// Mounts a strip at `width` and returns the bitmap. The backdrop is a flat fill, not the
+    /// pane's card, as in `CommandPaletteRenderTests`: through a bare hosting view a glass wrapper
+    /// renders the subject as white and every colour assertion reads zero. `accent` defaults to the
+    /// system accent, the strip's fallback; a test about the accent's colour passes one explicitly,
+    /// since the system accent is a machine setting (Graphite is a real choice).
     func render(items: [PaneTabStrip.Item], width: CGFloat,
                        scheme: ColorScheme = .light, scale: CGFloat = 1,
                        accent: Color = .accentColor,
@@ -53,9 +40,8 @@ import Design
             .background(scheme == .dark ? Color(red: 0.13, green: 0.14, blue: 0.15)
                                         : Color(red: 0.95, green: 0.95, blue: 0.96))
             .environment(\.colorScheme, scheme)
-            // The app pins this on its own window; without it SwiftUI renders the whole subject as
-            // an inactive window's desaturated version and every colour read here is of something
-            // the user never sees.
+            // The app pins this on its own window; without it SwiftUI renders an inactive window's
+            // desaturated version, which the user never sees.
             .environment(\.controlActiveState, .active)
         let host = NSHostingView(rootView: AnyView(subject))
         host.frame = CGRect(x: 0, y: 0, width: width, height: PaneTabStripLadder.stripHeight)
@@ -74,11 +60,9 @@ import Design
         return rep
     }
 
-    /// The strip as the PANE mounts it: the accent wash applied outside the view, over an opaque
-    /// backdrop, exactly as `paneColumn` stacks `.contentSurface` under `.paneCardIfNeeded`.
-    ///
-    /// The wash goes between the strip and the backdrop, which is what makes it readable here at
-    /// all — sampling the strip alone would read the flat fill whatever the tint said.
+    /// The strip as the pane mounts it: the accent wash applied outside the view, over an opaque
+    /// backdrop, as `paneColumn` stacks `.contentSurface` under `.paneCardIfNeeded`. The wash sits
+    /// between strip and backdrop; the strip alone would read the flat fill whatever the tint.
     func renderWashed(items: [PaneTabStrip.Item], width: CGFloat,
                       hue: LiquidGlassHue, tint: Double,
                       scheme: ColorScheme = .light) -> NSBitmapImageRep {
@@ -108,51 +92,45 @@ import Design
         return rep
     }
 
-    /// A point in the strip's empty stretch — right of the last chip, left of the ＋. With two
-    /// chips on a 520pt strip nothing is drawn here, so it reads the wash and only the wash.
+    /// A point in the strip's empty stretch, right of the last chip and left of the ＋. With two
+    /// chips on a 520pt strip nothing is drawn here, so it reads only the wash.
     private func emptyStretchColor(_ rep: NSBitmapImageRep) -> NSColor {
         rep.colorAt(x: Int(Double(rep.pixelsWide) * 0.72), y: rep.pixelsHigh / 2)!
     }
 
     // MARK: - The pane's wash reaches the strip
 
-    /// The strip painted no wash at all until `d76e885f`: the header and both list branches called
-    /// `contentSurface` and the strip had only its card, so at a high Tint it was a pale stripe cut
-    /// across the top of the pane.
-    ///
-    /// **This asks whether the wash SURVIVES the strip, which the call-site scan cannot.**
-    /// `PaneSurfaceTintTests` proves the modifier is written at the call site; a background of the
-    /// strip's own — an opaque fill anywhere in its body — would paint straight over it and leave
-    /// that scan green with the stripe still there.
+    /// The pane's wash shows through the strip; without it a high Tint leaves a pale stripe across
+    /// the top of the pane. `PaneSurfaceTintTests` proves the modifier is at the call site; this
+    /// asks whether the wash survives the strip, since an opaque fill anywhere in its body would
+    /// paint over it and leave that scan green.
     @Test(.machinePinned(.pixelSampling)) func theWashIsVisibleThroughTheStrip() {
         let items = [item("Documents", active: true), item("Invoices")]
         let bare = emptyStretchColor(renderWashed(items: items, width: 520, hue: .purple, tint: 0))
         let full = emptyStretchColor(renderWashed(items: items, width: 520, hue: .purple, tint: 1))
-        // Purple over a near-white ground: blue holds up while green falls away, so the gap
-        // between the two channels is the tint, and it cannot be produced by dimming.
+        // Purple over a near-white ground: blue holds while green falls, so the gap between the two
+        // channels is the tint, which dimming can't produce.
         let bareGap = bare.blueComponent - bare.greenComponent
         let fullGap = full.blueComponent - full.greenComponent
         #expect(fullGap - bareGap > 0.05,
                 "the strip's empty stretch barely moved between Tint 0 and Tint 100 (gap \(bareGap) -> \(fullGap)) — the wash is not reaching it")
     }
 
-    /// The floor's other half, and the reason the wash keeps a ramp that starts at zero: at Tint 0
-    /// a pane is the background rather than a wash over it. A strip that painted its own faint
-    /// accent regardless would pass the test above and still be wrong here.
+    /// The other half: at Tint 0 a pane is the background, not a wash over it. A strip that painted
+    /// its own faint accent regardless would pass the test above and fail here.
     @Test(.machinePinned(.pixelSampling)) func atZeroTintTheStripPaintsNoWashAtAll() {
         let items = [item("Documents", active: true), item("Invoices")]
         let zero = emptyStretchColor(renderWashed(items: items, width: 520, hue: .purple, tint: 0))
         let none = emptyStretchColor(renderWashed(items: items, width: 520, hue: .none, tint: 1))
-        // `.none` paints `Color.clear` at every tint, so it IS the unwashed ground — comparing
-        // against it needs no hand-built reference colour.
+        // `.none` paints `Color.clear` at every tint, so it is the unwashed ground and needs no
+        // hand-built reference colour.
         #expect(abs(zero.redComponent - none.redComponent) < 0.01)
         #expect(abs(zero.greenComponent - none.greenComponent) < 0.01)
         #expect(abs(zero.blueComponent - none.blueComponent) < 0.01)
     }
 
-    /// Pixels differing from the image's own corner — its background — which is read out of the
-    /// same sRGB bitmap rather than built by hand (`NSColor(white:)` is in the generic gray space
-    /// and throws on `redComponent`).
+    /// Pixels differing from the image's own corner (its background), read from the same sRGB
+    /// bitmap, not built by hand: `NSColor(white:)` is generic gray and throws on `redComponent`.
     func inked(_ rep: NSBitmapImageRep, in box: NSRect? = nil) -> Int {
         guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
         let region = box ?? NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh)
@@ -169,17 +147,11 @@ import Design
     }
 
 
-    /// How accent each ROW of `box` is, as peak against typical.
-    ///
-    /// The statistic per row is the mean blue-minus-red across the row — the strip is rendered with
-    /// an explicitly blue accent wherever this is used, so that axis is the accent and nothing else
-    /// on a chip travels along it (the grey slab, the folder mark and the title ink are all
-    /// near-neutral or dark).
-    ///
-    /// **Peak against median, rather than a count against a threshold**, because the live chip is
-    /// now accent-washed all over: a count says "there is accent here" and the wash answers it. The
-    /// rule is 2pt of a 26pt chip, so it is the only thing that can make ONE row stand clear of the
-    /// rest, and a wash of any strength moves peak and median together.
+    /// How accent each row of `box` is, as peak against typical. Per row, the mean blue minus red:
+    /// callers render with a blue accent, and nothing else on a chip moves along that axis (slab,
+    /// mark and title are near-neutral or dark). Peak against median, not a count over a threshold,
+    /// because the live chip is accent-washed all over; the 2pt rule is the only thing that can
+    /// make one row stand clear, and a wash of any strength moves peak and median together.
     func rowAccentProfile(_ rep: NSBitmapImageRep, in box: NSRect) -> (peak: Double, median: Double) {
         var rows: [Double] = []
         for y in Int(box.minY)..<min(rep.pixelsHigh, Int(box.maxY)) {
@@ -194,12 +166,9 @@ import Design
         return (rows.max() ?? 0, rows.sorted()[rows.count / 2])
     }
 
-    /// Differing pixels inside a box.
-    ///
-    /// **This, not an ink count, is how a glyph on a filled ground is measured.** The active chip's
-    /// raised ground already differs from the strip's background at every pixel of the title box,
-    /// so "pixels unlike the backdrop" saturates and reads the same with the name drawn and with it
-    /// blanked — measured, on the first cut of these tests.
+    /// Differing pixels inside a box: how a glyph on a filled ground is measured. The active chip's
+    /// ground already differs from the backdrop at every pixel of the title box, so an ink count
+    /// saturates and reads the same with the name drawn or blanked.
     func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, in box: NSRect) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
         var differing = 0
@@ -231,7 +200,7 @@ import Design
     // MARK: The positive control
 
     /// Everything below asserts ink somewhere. A harness that rendered an empty canvas would make
-    /// the *comparisons* pass while proving nothing, so this is the floor they all stand on.
+    /// the comparisons pass while proving nothing, so this is the floor they stand on.
     @Test(.machinePinned(.pixelSampling)) func theStripDrawsSomethingAtAll() {
         let rep = render(items: [item("Finance", active: true), item("Photos")], width: 620)
         #expect(inked(rep) > 400, "the strip rendered blank — every test below is vacuous")
@@ -239,8 +208,8 @@ import Design
 
     // MARK: What a person has to be able to see
 
-    /// Which tab is live. Without this the strip is five identical chips and nothing on screen says
-    /// which folder the pane belongs to.
+    /// Which tab is live. Otherwise the strip is identical chips and nothing says which folder the
+    /// pane belongs to.
     @Test(.machinePinned(.pixelSampling)) func theActiveTabIsDrawnDifferentlyFromTheParkedOnes() {
         let ids = [UUID(), UUID()]
         func strip(activeIndex: Int) -> [PaneTabStrip.Item] {
@@ -251,16 +220,13 @@ import Design
         }
         let first = render(items: strip(activeIndex: 0), width: 620)
         let second = render(items: strip(activeIndex: 1), width: 620)
-        // Not merely "different somewhere": moving the active state moves a raised ground and a
-        // 2pt rule across a whole chip, which is hundreds of pixels.
+        // Not merely "different somewhere": moving the active state moves a raised ground and a 2pt
+        // rule across a whole chip, hundreds of pixels.
         #expect(differingPixels(first, second) > 300)
     }
 
-    /// **Which tab is live, in BOTH appearances** — the whole treatment, ground and rule together.
-    ///
-    /// `.quaternary` grounds are appearance-dependent and can vanish in one scheme while surviving
-    /// in the other, so this is a claim about pixels rather than about code, and it has to be made
-    /// per appearance rather than once.
+    /// Which tab is live, in both appearances: ground and rule together. `.quaternary` grounds can
+    /// vanish in one scheme and survive in the other, so the claim is made per appearance.
     @Test(.machinePinned(.pixelSampling)) func theActiveTabIsDistinguishableInBothAppearances() {
         for scheme in [ColorScheme.light, .dark] {
             let live = render(items: [item("Finance", active: true), item("Photos")],
@@ -271,31 +237,17 @@ import Design
         }
     }
 
-    /// **The accent rule specifically**, and it needs its own assertion because the test above
-    /// cannot see it: that one measures "the live chip differs from a parked one", which the chip's
-    /// accent wash satisfies on its own.
-    ///
-    /// **That gap is not hypothetical — it is why this test exists twice.** The rule was removed on
-    /// 2026-08-24 as a duplicate of the pane's new accent card border, and the differential test
-    /// stayed green throughout, because the ground alone does distinguish the chip. It went back in
-    /// the same day: the border says which PANE is focused, this says which TAB is live, and no
-    /// measurement of "are they different" can tell one missing marker from two present ones.
-    ///
-    /// **A global accent-pixel count no longer measures it, and the near miss is worth recording.**
-    /// Until the live chip took `PaneSelectionWash` the rule was the only accent in the strip, so
-    /// counting accent-coloured pixels found it. The wash is accent too, and it lands just under
-    /// the old count's threshold — mutating the rule out today still reads 0, by about two
-    /// hundredths of blue. That is a test that works by luck and would go blind the day the wash
-    /// was deepened, without failing. So this measures the rule's SHAPE: it is 2pt of a 26pt chip,
-    /// which makes one row of the chip far more accent than the rest, and a wash of any strength
-    /// moves every row together.
+    /// The accent rule itself, which the test above can't see: the chip's wash alone makes the live
+    /// chip differ from a parked one. The pane's accent border says which pane is focused; this
+    /// rule says which tab is live. A global accent-pixel count would find the wash too, so this
+    /// measures the rule's shape: 2pt of a 26pt chip, one row far more accent than the rest.
     @Test(.machinePinned(.pixelSampling)) func theAccentRuleUnderTheActiveTabIsPaintedInBothAppearances() {
         for scheme in [ColorScheme.light, .dark] {
             let live = render(items: [item("Finance", active: true), item("Photos")],
                               width: 620, scheme: scheme, accent: .blue)
             let parked = render(items: [item("Finance"), item("Photos")],
                                 width: 620, scheme: scheme, accent: .blue)
-            // The live chip's own box, found by differencing rather than named — see
+            // The live chip's own box, found by differencing rather than named: see
             // `activeChipBounds`.
             let chip = activeChipBounds(live, parked: parked)
             #expect(chip.width > 40, "the live chip was not located in \(scheme)")
@@ -308,14 +260,10 @@ import Design
         }
     }
 
-    /// **A PARKED chip has a ground of its own.** Every chip wears the grey slab; only the accent
-    /// on top of it says which one is live. This is the half of that arrangement no differential
-    /// test can see — every "live differs from parked" measurement in this file passes just as
-    /// happily with the parked chips drawn on bare backdrop, which is what they were until
-    /// `PaneTabStrip.chipGround`, and which read as one tab with some words floating beside it.
-    ///
-    /// Read at the SECOND chip's leading padding: inside its slab, short of its mark, so nothing is
-    /// drawn there and the colour is the ground or it is the backdrop.
+    /// A parked chip has a ground of its own (`PaneTabStrip.chipGround`): every chip wears the grey
+    /// slab, and only the accent on top says which is live. No "live differs from parked" test can
+    /// see this; without the slab the strip reads as one tab with words floating beside it. Read at
+    /// the second chip's leading padding, inside its slab and short of its mark.
     @Test(.machinePinned(.pixelSampling)) func aParkedChipIsDrawnOnItsOwnGround() {
         for scheme in [ColorScheme.light, .dark] {
             let rep = render(items: [item("Finance", active: true), item("Photos")],
@@ -337,13 +285,10 @@ import Design
         }
     }
 
-    /// **The live chip dims in the pane that is not focused**, exactly as that pane's selected rows
-    /// do — same `PaneSelectionWash` constants, so the tab and the rows under it can never disagree
-    /// about which pane the window is acting on.
-    ///
-    /// Measured as the chip's accent, not as "the two renders differ": a strip that ignored
-    /// `isActivePane` and one that inverted it both differ from the focused render, and only the
-    /// direction says which.
+    /// The live chip dims in the unfocused pane, as that pane's selected rows do, with the same
+    /// `PaneSelectionWash` constants, so tab and rows can't disagree about which pane is acting.
+    /// Measured as the chip's accent, not "the renders differ": ignoring `isActivePane` and
+    /// inverting it both differ from the focused render, and only the direction tells them apart.
     @Test(.machinePinned(.pixelSampling)) func theLiveChipIsQuieterInTheUnfocusedPane() {
         let items = [item("Finance", active: true), item("Photos")]
         let parked = render(items: [item("Finance"), item("Photos")], width: 620, accent: .blue)
@@ -351,18 +296,18 @@ import Design
         let other = render(items: items, width: 620, accent: .blue, isActivePane: false)
         let chip = activeChipBounds(focused, parked: parked)
         #expect(chip.width > 40, "the live chip was not located")
-        // The chip's TYPICAL row — the wash — rather than its peak, which is the rule, and the rule
-        // deliberately does not dim: it is the marker that still answers "which tab" over there.
+        // The chip's typical row (the wash), not its peak (the rule), which deliberately doesn't
+        // dim: it still answers "which tab" in the other pane.
         let strong = rowAccentProfile(focused, in: chip).median
         let quiet = rowAccentProfile(other, in: chip).median
         #expect(strong > quiet + 0.05, """
                 the live chip reads \(strong) accent in the focused pane and \(quiet) in the other \
                 — the strip is not dimming with its pane
                 """)
-        // …and it is still a selection over there, not a parked chip: the ratio the pane's rows
-        // keep (0.10 against 0.22) is a subordinate marker, never an absent one.
+        // …and still a selection there, not a parked chip: the pane's rows keep 0.10 against 0.22,
+        // a subordinate marker, never an absent one.
         #expect(quiet > 0.02, "the unfocused pane's live chip has no wash at all")
-        // The rule is the half that does NOT dim.
+        // The rule is the half that doesn't dim.
         let focusedPeak = rowAccentProfile(focused, in: chip).peak
         let otherPeak = rowAccentProfile(other, in: chip).peak
         #expect(abs(focusedPeak - otherPeak) < 0.05, """
@@ -371,14 +316,10 @@ import Design
                 """)
     }
 
-    /// A chip squeezed to the floor still draws its name. This is what the measured floor is for,
-    /// and the ladder cannot see it: `visibleCount` is just as happy with a chip whose title was
-    /// clipped away entirely.
-    ///
-    /// **Differential, and it has to be.** The first cut asked for ink inside the title box of the
-    /// ACTIVE chip and passed with the `Text` replaced by `Text("")` — the active tab's raised
-    /// ground inks that box on its own. Rendering the same strip with the title blanked and
-    /// subtracting is the only form of this claim that the ground cannot satisfy.
+    /// A chip squeezed to the floor still draws its name, which is what the measured floor is for;
+    /// `visibleCount` is just as happy with a chip whose title was clipped away. Differential,
+    /// because the active tab's raised ground inks the title box on its own: rendering the strip
+    /// with the title blanked and subtracting is the only form the ground can't satisfy.
     @Test(.machinePinned(.pixelSampling)) func aChipAtTheFloorStillDrawsItsName() {
         let ids = (0..<5).map { _ in UUID() }
         func five(firstTitle: String) -> [PaneTabStrip.Item] {
@@ -400,9 +341,8 @@ import Design
                 "the chip's name is not drawn at the floor width")
     }
 
-    /// The first chip's title box in PIXELS: past the gutter, the mark and the gap, stopping short
-    /// of the ✕. The bitmap is 2× on this display, so a box in points would read the left half of
-    /// the strip and call it a title.
+    /// The first chip's title box in pixels: past the gutter, the mark and the gap, short of the ✕.
+    /// The bitmap is 2× on this display, so a box in points would read the wrong part of the strip.
     func titleBox(of rep: NSBitmapImageRep, tabWidth: CGFloat) -> NSRect {
         let pixelsPerPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
         let start = PaneTabStripLadder.stripGutter + PaneTabStripLadder.tabPadding
@@ -413,8 +353,8 @@ import Design
                       width: (end - start) * pixelsPerPoint, height: CGFloat(rep.pixelsHigh))
     }
 
-    /// The case the mark is on the chip for: two tabs with the SAME name from different sources.
-    /// With the mark dropped these two strips would be pixel-identical.
+    /// The case the mark is on the chip for: two tabs with the same name from different sources.
+    /// Without the mark these two strips would be pixel-identical.
     @Test(.machinePinned(.pixelSampling)) func theProviderMarkTellsTwoSameNamedTabsApart() {
         let same = render(items: [item("Documents", active: true, mark: "folder.fill"),
                                   item("Documents", mark: "folder.fill")], width: 620)
@@ -425,7 +365,7 @@ import Design
     }
 
     /// The narrow rung the Organize/Storage rail gets. What must survive at 220pt is the active
-    /// tab's NAME — never a row of marks.
+    /// tab's name, never a row of marks.
     @Test(.machinePinned(.pixelSampling)) func theRailWidthStillNamesTheActiveTab() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
@@ -442,8 +382,8 @@ import Design
                 "the chip rung drew no name for the active tab")
     }
 
-    /// The chip rung draws the count of parked tabs — the number is the only thing on that rung
-    /// that says the strip holds more than the one folder it names.
+    /// The chip rung draws the count of parked tabs, the only thing on that rung saying the strip
+    /// holds more than the one folder it names.
     @Test(.machinePinned(.pixelSampling)) func theChipRungDrawsHowManyTabsAreParked() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
@@ -451,29 +391,27 @@ import Design
         #expect(PaneTabStripLadder.layout(available: 220, titles: five.map(\.title), scale: 1).rung == .chip)
         #expect(PaneTabStripLadder.layout(available: 220, titles: two.map(\.title), scale: 1).rung == .chip)
 
-        // "4" against "1": same rung, same active chip, different count — so the pixels that differ
-        // are the count itself. An ink count could not tell these apart at all.
+        // "4" against "1": same rung, same active chip, different count, so the pixels that differ
+        // are the count itself. An ink count couldn't tell these apart.
         let many = render(items: five, width: 220)
         let few = render(items: two, width: 220)
-        // The count's own band: past the chip (which ends around half way on this fixture) and
-        // short of the ＋. Measured off the render rather than guessed — the first cut of this box
-        // started at 55% and sat just past the digit, which reported three differing pixels and
-        // read exactly like "the count is not drawn".
+        // The count's own band: past the chip (which ends about half way on this fixture) and short
+        // of the ＋. Measured off the render: a box starting a few percent later misses the digit
+        // and reads like "the count is not drawn".
         let countBox = NSRect(x: CGFloat(many.pixelsWide) * 0.52, y: 0,
                               width: CGFloat(many.pixelsWide) * 0.20, height: CGFloat(many.pixelsHigh))
         #expect(differingPixels(many, few, in: countBox) > 20,
                 "the chip rung draws no count — nothing says the other tabs exist")
-        // And it is not merely a smudge: a clipped digit was the state this rung shipped in for
-        // three renders, so the count's own ink is compared against the empty band beside it.
+        // And not merely a smudge: a clipped digit would pass the check above, so the count's ink
+        // is compared against the empty band beside it.
         let emptyBand = NSRect(x: CGFloat(many.pixelsWide) * 0.75, y: 0,
                                width: CGFloat(many.pixelsWide) * 0.10, height: CGFloat(many.pixelsHigh))
         #expect(inked(many, in: countBox) > inked(many, in: emptyBand) + 40,
                 "the chip rung's count is clipped to almost nothing")
     }
 
-    /// **View ▸ Tab Bar at one tab draws a real chip, not a bare ＋.** The ladder used to answer
-    /// "zero wide" for a one-tab strip on the reasoning that one tab draws no strip — true of the
-    /// PANE's decision, and false of this one, which is the state that switch exists to produce.
+    /// View ▸ Tab Bar at one tab draws a real chip, not a bare ＋. One tab usually draws no strip,
+    /// but that is the pane's decision; this switch exists to show one anyway.
     @Test(.machinePinned(.pixelSampling)) func aOneTabStripDrawsItsTab() {
         let rep = render(items: [item("Finance", active: true)], width: 620)
         let named = render(items: [item("Finance", active: true)], width: 620)
@@ -486,15 +424,10 @@ import Design
                 "the one visible tab has no name drawn on it")
     }
 
-    /// A lone tab wears no ✕ — clicking it would close the window, since there is no tab left to
-    /// fall back to. The count is what decides it, so the same chip drawn beside a second tab does
-    /// have one.
-    ///
-    /// **The two strips are made to share a layout on purpose.** Both chips are titled "Finance" in
-    /// a wide pane, so the full rung caps them both at the same natural width and the first chip
-    /// occupies the same box in each render — leaving the ✕ as the only thing that can differ
-    /// there. Comparing a one-tab strip against a two-tab one at their own widths compares two
-    /// different boxes, and an ink count inside the active chip's ground saturates either way.
+    /// A lone tab wears no ✕: clicking it would close the window, with no tab left to fall back to.
+    /// The count decides it, so the same chip beside a second tab has one. The two strips share a
+    /// layout on purpose: both chips are "Finance" in a wide pane, so the first chip occupies the
+    /// same box in each render and the ✕ is the only thing that can differ there.
     @Test(.machinePinned(.pixelSampling)) func aLoneTabHasNoCloseButton() {
         let alone = render(items: [item("Finance", active: true)], width: 900)
         let paired = render(items: [item("Finance", active: true), item("Finance")], width: 900)
@@ -514,23 +447,14 @@ import Design
                 "the lone tab draws a ✕ that would close the window")
     }
 
-    /// **A parked tab that is not under the pointer wears NO ✕.** The strip is mostly parked tabs,
-    /// and a row of chips each carrying a permanent ✕ reads as a row of things to dismiss rather
-    /// than places to go — which is why the button is drawn at `opacity` 0 unless the chip is active
-    /// or hovered. Nothing pinned that, and the condition is one edit from being lost.
-    ///
-    /// **Measured against the chip's own ground, and it has to be.** This test read `inked` — pixels
-    /// unlike the image's CORNER — for as long as a parked chip was drawn on bare backdrop, so its
-    /// close slot was the corner colour and zero meant zero. Every chip carries the grey slab now
-    /// (see `PaneTabStrip.chipGround`), and that count went straight to **1,664 out of 1,664**: the
-    /// slab alone saturates it, and the test would have passed with a ✕ on every parked chip. The
-    /// measure is `glyphPixels` instead — pixels unlike the SECOND CHIP's own ground, sampled out of
-    /// the same render, over the chip's interior rows only.
-    ///
-    /// Both halves are asserted, because the interesting direction is the silent one:
-    /// - the parked chip's slot is **empty**, and
-    /// - a glyph really would have been seen there — the same slot in a strip whose second tab is
-    ///   PINNED carries its pin, on the same grey slab.
+    /// A parked tab not under the pointer wears no ✕. The strip is mostly parked tabs, and a row of
+    /// chips each with a permanent ✕ reads as things to dismiss rather than places to go, so the
+    /// button is drawn at `opacity` 0 unless the chip is active or hovered. Measured with
+    /// `glyphPixels` against the second chip's own ground, over its interior rows: every chip wears
+    /// the grey slab (`PaneTabStrip.chipGround`), which saturates `inked`. Both halves count:
+    /// - the parked chip's slot is empty, and
+    /// - a glyph would have been seen there: the same slot on a pinned tab carries its pin, on the
+    ///   same grey slab.
     @Test(.machinePinned(.pixelSampling)) func anUnhoveredParkedTabDrawsNoCloseButton() {
         // Two chips with the same title in a wide pane, so both strips lay out identically and the
         // second chip's close slot is the same box in each.
@@ -541,7 +465,7 @@ import Design
         let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Finance"],
                                               scale: 1).tabWidth
         let perPoint = plain.size.width > 0 ? CGFloat(plain.pixelsWide) / plain.size.width : 1
-        // The SECOND chip's close slot: past the first chip and the gap, at the trailing end of the
+        // The second chip's close slot: past the first chip and the gap, at the trailing end of the
         // second, inset by its padding.
         let chipStart = PaneTabStripLadder.stripGutter + width + PaneTabStripLadder.tabGap
         let slotStart = chipStart + width - PaneTabStripLadder.tabPadding - PaneTabStripLadder.closeSide
@@ -563,8 +487,8 @@ import Design
                 an un-hovered parked tab draws \(drawn) pixels in its close slot — \
                 it is wearing a ✕ nobody asked for
                 """)
-        // …and the slot is the right box, on a ground where a glyph WOULD have been seen: the pin
-        // a pinned tab wears sits in exactly this slot.
+        // …and the slot is the right box, on a ground where a glyph would be seen: a pinned tab's
+        // pin sits in exactly this slot.
         #expect(glyphPixels(pinned, from: slotStart, to: slotEnd,
                             ground: groundColor(pinned, at: chipStart + 3)) > 40, """
                 the pinned tab's glyph is not in this box either — the box is wrong, so the \
@@ -575,32 +499,19 @@ import Design
 
     // MARK: The chip rung's chevron
 
-    /// **The chip rung's chevron, rendered back** — the test `PaneTabStrip.activeChipMenu` names in
-    /// prose ("`theChipRungWearsAChevron` renders it back") and which did not exist.
+    /// The chip rung's chevron, rendered back (`PaneTabStrip.activeChipMenu` names this test). On
+    /// this rung the strip draws one chip and a count; the chip is the switcher for every other
+    /// tab, and the chevron is the only thing that says so. It must be the system's (a
+    /// `chevron.down` in the label renders as nothing, because `.borderlessButton` lays out its
+    /// label itself), so it can only be checked in pixels. `.menuIndicator(.hidden)` fails this;
+    /// deleting `.menuIndicator(.visible)` doesn't, as `.borderlessButton` shows one by default on
+    /// this macOS.
     ///
-    /// On this rung the strip draws ONE chip and a count; the chip is the switcher for every other
-    /// tab, and the chevron is the only thing that says so. It has to be the system's — a
-    /// `chevron.down` drawn in the label renders as nothing, because `.borderlessButton` lays its
-    /// label out itself and drops the trailing image — so the claim can only be checked in pixels.
-    ///
-    /// **What this does and does not catch, measured rather than assumed.** Forcing the indicator off
-    /// (`.menuIndicator(.hidden)`) fails this test twice over: the chip comes out 99.5pt wide against
-    /// 96.5pt of contents, and the band past its title reads 7 pixels instead of 135. *Deleting*
-    /// `.menuIndicator(.visible)` changes nothing at all — `.borderlessButton` shows its indicator by
-    /// default on this macOS, so that line is belt-and-braces rather than the thing holding the
-    /// chevron up. This test pins the chevron being DRAWN, which is the claim the rung actually
-    /// rests on; it cannot report the modifier going missing while the default keeps agreeing with it.
-    ///
-    /// **Measured against the chip's own ground, not against the strip's backdrop.** The chip's
-    /// raised ground differs from the backdrop at every pixel of this band, so `inked` saturates
-    /// there (1,871 of 2,448 with or without a chevron). Every count below is instead "pixels unlike
-    /// the ground the chip is drawn on", sampled out of the same render — a per-pixel difference
-    /// against the local surface, which is what makes a glyph visible and a flat fill invisible.
-    ///
-    /// The chip is **located from the parked-render differential** (`activeChipBounds`) rather than
-    /// from the ladder's `tabWidth`: the chip takes its NATURAL width up to that cap (112.5pt
-    /// against a 156.5pt cap on this fixture), and the whole question here is how much wider than
-    /// its contents that natural width is.
+    /// Counts are pixels unlike the chip's own ground, from the same render: the raised ground
+    /// differs from the backdrop across this band, so `inked` saturates. The chip is located from
+    /// the parked-render differential (`activeChipBounds`), not the ladder's `tabWidth`, since it
+    /// takes its natural width up to that cap, and the question is how much wider than its contents
+    /// it is.
     @Test(.machinePinned(.pixelSampling)) func theChipRungWearsAChevron() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
@@ -609,8 +520,7 @@ import Design
         let rep = render(items: five, width: 220)
         let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
 
-        // The chip's span, off its raised ground — which IS the chip, so there is no inset to undo
-        // (the accent rule this used to measure was inset 3pt each side by `activeGround`).
+        // The chip's span, off its raised ground, which is the chip, so there is no inset to undo.
         let parkedRep = render(items: five.map { item($0.title) }, width: 220)
         let chip = activeChipBounds(rep, parked: parkedRep)
         let chipStart = chip.minX / perPoint
@@ -624,8 +534,8 @@ import Design
         #expect(abs(chipStart - PaneTabStripLadder.stripGutter) < 0.6,
                 "the chip starts at \(chipStart)pt, not the strip's gutter — every box below is off")
 
-        // **The room the indicator takes.** The chip is wider than mark + gap + title + its two
-        // paddings by the indicator's width; with the indicator gone it would be exactly that sum.
+        // The room the indicator takes: the chip is wider than mark + gap + title + its two
+        // paddings by the indicator's width; without the indicator it would be exactly that sum.
         let contents = PaneTabStripLadder.tabPadding + PaneTabStripLadder.markSide
             + PaneTabStripLadder.contentGap + (titleEnd - titleStart) + PaneTabStripLadder.tabPadding
         #expect(chipEnd - chipStart > contents + 8, """
@@ -633,8 +543,8 @@ import Design
                 no room in it for an indicator, so the rung ends flush after its title
                 """)
 
-        // …and that room is PAINTED. The band runs from just past the title to the chip's trailing
-        // padding, which is where the system draws its indicator.
+        // …and that room is painted. The band runs from just past the title to the chip's trailing
+        // padding, where the system draws its indicator.
         let ground = groundColor(rep, at: chipStart + 3)
         let chevron = glyphPixels(rep, from: titleEnd + 2, to: chipEnd - PaneTabStripLadder.tabPadding,
                                   ground: ground)
@@ -643,9 +553,9 @@ import Design
                 edge — the space is reserved but nothing is drawn in it
                 """)
 
-        // The zero control: the 5pt gap between the mark and the title is the same measurement over
-        // a band that must be bare ground. Without it, a count that reported the ground itself would
-        // make the assertion above pass with no chevron drawn at all.
+        // The zero control: the same measurement over the 5pt gap between mark and title, which
+        // must be bare ground. Otherwise a count that reported the ground itself would pass the
+        // assertion above with no chevron drawn.
         #expect(glyphPixels(rep, from: chipStart + PaneTabStripLadder.tabPadding
                             + PaneTabStripLadder.markSide + 1,
                             to: chipStart + PaneTabStripLadder.tabPadding
@@ -655,50 +565,37 @@ import Design
         // The positive control: the same measurement over the title finds it.
         #expect(glyphPixels(rep, from: titleStart, to: titleEnd, ground: ground) > 300,
                 "the chip's own title does not register — the measurement is blind")
-        // And the chevron is INSIDE the chip, not spilling past it: the trailing padding is bare.
+        // And the chevron is inside the chip, not spilling past it: the trailing padding is bare.
         // `rowInset` clears the corner arc, which reaches into this band and is not a glyph.
         let cornerSafe = PaneTabStripLadder.chipRadius
         #expect(glyphPixels(rep, from: chipEnd - PaneTabStripLadder.tabPadding + 1, to: chipEnd - 1,
                             ground: ground, rowInset: cornerSafe) == 0,
                 "something is drawn in the chip's trailing padding")
-        // The positive control FOR THAT NARROWER BAND. It is six points of chip height rather than
-        // twenty, and a band that cannot see anything would report the zero above just as happily —
-        // so the same rows are run over the title, which they must find.
+        // The positive control for that narrower band: six points of chip height rather than
+        // twenty, and a band that sees nothing would report the zero above too, so the same rows
+        // are run over the title, which they must find.
         #expect(glyphPixels(rep, from: titleStart, to: titleEnd,
                             ground: ground, rowInset: cornerSafe) > 40,
                 "the corner-safe band cannot see the chip's own title — the zero above proves nothing")
     }
 
-    /// **The active tab's rule ends inside the chip it marks**, on the chip's own bottom scanline.
+    /// The active tab's rule ends inside the chip it marks, on the chip's own bottom scanline. By
+    /// the bottom, a rounded corner has pulled the chip's paint in further than its frame, and
+    /// nothing clips the rule (`chipGround` is a plain `ZStack` with no `clipShape`), so a rule
+    /// inset less than the corner hangs its ends out over the card behind.
     ///
-    /// The shipped strip failed this and nothing caught it. The rule was inset 3pt from the chip's
-    /// FRAME, but a rounded corner has already pulled the chip's paint in by more than that by the
-    /// time it reaches the bottom — 6.00pt at the old `Radius.chip` of 6 — so the rule's last 3pt at
-    /// each end lay over the card behind it rather than over the chip. Nothing clips them:
-    /// `chipGround` is a plain `ZStack` behind the chip with no `clipShape`, so the rule is free to
-    /// paint outside the silhouette it is supposed to belong to.
-    ///
-    /// **The chip's silhouette is measured from a PARKED render, and that is the whole method.**
-    /// The obvious version of this test — "find the chip, find the rule, compare" on one render —
-    /// is tautological, and was written that way first: the rule is part of what makes those pixels
-    /// differ from the backdrop, so the chip's measured span always contains it and the assertion
-    /// cannot fail. Re-rendering the same strip with that tab parked removes the rule and nothing
-    /// else, so the first run of paint on the bottom scanline is the chip's outline alone.
-    ///
-    /// **This asserts containment, not the inset.** `PaneTabStripLadder.ruleInset` is a measured
-    /// number (10.75pt of paint inset at radius 10, rounded up to 11) and measured numbers go stale:
-    /// the relationship between a `.continuous` corner's nominal radius and where its paint actually
-    /// starts is not `radius`, and is not ours to fix. Asserting the property means this stays true
-    /// if the corner style, the radius or the platform's curve changes underneath it — and it fails
-    /// immediately if someone re-types the inset smaller than the corner. Verified by mutation: at
-    /// the shipped inset of 3 it reports the leading end hanging 7.75pt out over the card.
+    /// The chip's silhouette comes from a parked render: on one render the rule is part of the
+    /// chip's measured span, so containment could never fail, and parking the tab removes the rule
+    /// and nothing else. This asserts containment, not the inset: `PaneTabStripLadder.ruleInset` is
+    /// measured (a `.continuous` corner's paint doesn't start at `radius`), and the property holds
+    /// whatever the corner style, radius or curve. An inset of 3 fails it.
     @Test(.machinePinned(.pixelSampling)) func theRuleEndsInsideTheChipItMarks() {
-        // A saturated accent, so the rule is separable from the chip's own wash — which is this
-        // same colour at 0.22 over grey, and nowhere near saturated.
+        // A saturated accent, so the rule is separable from the chip's own wash: this same colour
+        // at 0.22 over grey, nowhere near saturated.
         let accent = Color(red: 1, green: 0, blue: 0)
         let lit = render(items: [item("Immigration", active: true), item("iCloud")],
                          width: 420, accent: accent)
-        // The same strip with the FIRST tab parked: identical geometry, no rule under it.
+        // The same strip with the first tab parked: identical geometry, no rule under it.
         let parked = render(items: [item("Immigration"), item("iCloud", active: true)],
                             width: 420, accent: accent)
 
@@ -707,10 +604,9 @@ import Design
         let inset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
         let y = PaneTabStripLadder.stripHeight - inset - 0.5
 
-        // **Sampled, not assumed.** The harness fills its backdrop with `Color(red: 0.95, …)`, but
-        // that reaches the bitmap as 0.959/0.960/0.969 after SwiftUI's colour conversion. Writing
-        // the nominal value here put a parked chip's grey 0.054 away from it — under the 0.06
-        // threshold — so the first chip went undetected and the run found was the SECOND one.
+        // Sampled, not assumed: the `Color(red: 0.95, …)` backdrop reaches the bitmap as
+        // 0.959/0.960/0.969 after SwiftUI's colour conversion, and against the nominal value a
+        // parked chip's grey falls under the threshold, so the first chip would go undetected.
         let backdrop = parked.colorAt(x: 1, y: 1)!.usingColorSpace(.deviceRGB)!
         let chip = firstRun(parked, atY: y) { p in
             max(abs(p.redComponent - backdrop.redComponent),
@@ -734,8 +630,8 @@ import Design
         #expect(chip.hi - chip.lo > 60,
                 "the parked chip measures \(chip.hi - chip.lo)pt — that is not a chip")
 
-        // The claim. Half a point of tolerance for the corner's antialiased edge, which is the one
-        // place a hard pixel comparison would read a gradient as an overhang.
+        // The claim. Half a point of tolerance for the corner's antialiased edge, where a hard
+        // pixel comparison would read a gradient as an overhang.
         #expect(rule.lo >= chip.lo - 0.5, """
                 the rule starts at \(rule.lo)pt but the chip's paint only starts at \(chip.lo)pt — \
                 its leading end hangs \(chip.lo - rule.lo)pt out over the card behind it
@@ -746,12 +642,10 @@ import Design
                 """)
     }
 
-    /// The FIRST contiguous run where `matches` holds on the scanline at `y` points from the top,
-    /// as (lo, hi) in points. `nil` when nothing on that row matches.
-    ///
-    /// A run and not a min/max: the strip holds several chips on one row, and the leading-edge
-    /// claims above are about the first chip only. A bounding span would reach across the gap to
-    /// the next chip and quietly widen every window it is asked about.
+    /// The first contiguous run where `matches` holds on the scanline at `y` points from the top,
+    /// as (lo, hi) in points, or `nil` when nothing on that row matches. A run, not a min/max: the
+    /// row holds several chips and the claims above are about the first, so a bounding span would
+    /// reach across the gap to the next chip.
     func firstRun(_ rep: NSBitmapImageRep, atY y: CGFloat,
                   matches: (NSColor) -> Bool) -> (lo: CGFloat, hi: CGFloat)? {
         let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
@@ -770,15 +664,10 @@ import Design
         return (CGFloat(lo) / perPoint, CGFloat(hi + 1) / perPoint)
     }
 
-    /// **Where the active chip is, measured rather than assumed** — the bounding box of everything
-    /// that changes when the same strip is rendered with that chip parked instead.
-    ///
-    /// It used to be the bounds of *accent-coloured* pixels, anchored on the chip's 2pt accent
-    /// rule. The rule was removed and put back the same day (2026-08-24 — `activeGround` keeps the
-    /// story), but the colour anchor did not come back with it: a differential against the parked
-    /// render finds the chip's whole raised ground in either appearance without naming a colour —
-    /// `.quaternary` is a different grey in each appearance and deliberately close to the backdrop
-    /// — and it keeps finding the chip whatever marker the chip happens to carry.
+    /// Where the active chip is, measured: the bounding box of everything that changes when the
+    /// same strip is rendered with that chip parked. A differential finds the chip's whole raised
+    /// ground in either appearance without naming a colour (`.quaternary` is a different grey in
+    /// each, and close to the backdrop), whatever marker the chip carries.
     func activeChipBounds(_ live: NSBitmapImageRep, parked: NSBitmapImageRep) -> NSRect {
         var minX = Int.max, maxX = Int.min, minY = Int.max, maxY = Int.min
         guard live.pixelsWide == parked.pixelsWide, live.pixelsHigh == parked.pixelsHigh else { return .zero }
@@ -806,26 +695,14 @@ import Design
     }
 
     /// Pixels between `x0` and `x1` (in points) that differ from `ground`, over the chip's interior
-    /// rows only.
+    /// rows only: a full-height band would count the backdrop above and below the chip. The rows
+    /// come from `stripHeight` and `tabHeight`, which the strip lays itself out from, with the chip
+    /// centred between them, so no render is needed to find them.
     ///
-    /// The rows matter: the chip is shorter than the strip, so a full-height band would count the
-    /// backdrop above and below it as "unlike the ground" and report hundreds of pixels for a band
-    /// that is bare.
-    ///
-    /// The band comes from the LADDER now. It used to be located from the accent rule under the
-    /// chip — `accentBounds(rep).minY - 2` — an anchor that vanished when the rule was briefly
-    /// removed on 2026-08-24; the rule came back the same day, the render-derived anchor did not.
-    /// `stripHeight` and `tabHeight` are the same two numbers the strip lays itself out from, and
-    /// the chip is centred between them, so this needs no render to find.
-    ///
-    /// **`rowInset` is how far in from the chip's top and bottom to start, and 3 is only safe for a
-    /// band away from the chip's ENDS.** The chip's corner arc eats into the rows near each edge,
-    /// and it now eats further: at the shipped `Radius.chip` of 6 the arc intruded 0.8pt at three
-    /// points from the edge, but at `PaneTabStripLadder.chipRadius` (10) it intrudes 2.9pt — enough
-    /// that a six-point band at the chip's trailing edge counted 22 corner pixels and read them as
-    /// a chevron spilling out of the chip. A caller measuring within `chipRadius` of either end
-    /// passes `rowInset: PaneTabStripLadder.chipRadius`, which is the only band the arc cannot
-    /// reach.
+    /// `rowInset` is how far in from the chip's top and bottom to start; 3 is safe only away from
+    /// the chip's ends, where the corner arc (radius `PaneTabStripLadder.chipRadius`) intrudes
+    /// about 3pt and reads as a glyph. Within `chipRadius` of either end, pass `rowInset:
+    /// PaneTabStripLadder.chipRadius`, the only band the arc can't reach.
     func glyphPixels(_ rep: NSBitmapImageRep, from x0: CGFloat, to x1: CGFloat,
                      ground: NSColor, rowInset: CGFloat = 3) -> Int {
         guard x1 > x0 else { return -1 }
@@ -847,16 +724,16 @@ import Design
 
     // MARK: The reorder drag
 
-    /// **The gap tracks the drop index** (roadmap Fig. 8): the chips the dragged tab has passed
-    /// step aside by exactly one stride, and everything else stands still. Priced from the same
-    /// stride the drop index uses, so what the row shows and where the tab lands cannot disagree.
+    /// The gap tracks the drop index: the chips the dragged tab has passed step aside by exactly
+    /// one stride, and everything else stands still. Priced from the stride the drop index uses, so
+    /// what the row shows and where the tab lands can't disagree.
     @Test func theChipsStepAsideForTheDraggedTab() {
         let items = ["A", "B", "C", "D"].map { item($0) }
         let stride: CGFloat = 100
         let dragged = items[0].id
 
         // Dragged two strides right: B and C step left, D is untouched, and the dragged chip is
-        // excluded (it rides the pointer instead).
+        // excluded (it rides the pointer).
         func step(_ index: Int, offset: CGFloat) -> CGFloat {
             PaneTabStrip.displacement(of: items[index], items: items, visible: items,
                                       dragging: dragged, offset: offset, stride: stride)
@@ -875,10 +752,9 @@ import Design
         #expect(backwards == stride)
     }
 
-    /// **The preview and the drop are one rule**, so the row cannot animate a move it will not make.
-    /// Both refusals below were real: a drag across the pin line, which `PaneTabList.move` rejects,
-    /// and a drag past the last visible chip, which would drop the tab into the folded-away region
-    /// where — from the strip — it looks like it vanished.
+    /// The preview and the drop are one rule, so the row can't animate a move it won't make. Two
+    /// refusals: a drag across the pin line, which `PaneTabList.move` rejects, and a drag past the
+    /// last visible chip, which would drop the tab into the folded-away region, out of sight.
     @Test func aDropCannotCrossThePinLineOrLeaveWhatIsOnScreen() {
         let items = [item("P", pinned: true), item("A"), item("B"), item("C")]
 
@@ -892,21 +768,16 @@ import Design
         #expect(PaneTabStrip.dropIndex(from: 2, steps: 3, items: items, visible: shown) == 2)
     }
 
-    /// …and **the drawn indices are not always contiguous**, which the clamp above quietly assumed.
-    ///
-    /// `visible(_:slots:)` draws the pinned PREFIX plus a WINDOW of the unpinned run, so once that
-    /// window has scrolled off the head there is a folded-away gap between the two — and a clamp
-    /// into `[first, last]` still lands inside it. The case above cannot see this, because its
-    /// `shown` is a contiguous prefix; the fixture here is the shape that fails, and it is not
-    /// contrived: one pin, four tabs and three slots is a rail-width strip.
-    ///
-    /// The consequence was the exact one `dropIndex` is named for. Dropping T3 at index 1 or 2 and
-    /// recomputing the window leaves T3 out of it — the chip vanishes into the overflow.
+    /// …and the drawn indices are not always contiguous. `visible(_:slots:)` draws the pinned
+    /// prefix plus a window of the unpinned run, so once that window scrolls off the head there is
+    /// a folded-away gap between them, and a clamp into `[first, last]` can land in it, sending the
+    /// chip into the overflow. The case above has a contiguous `shown`; this one (one pin, four
+    /// tabs, three slots) is a rail-width strip.
     @Test func aDropCannotLandInTheGapBetweenThePinsAndTheWindow() {
         let items = [item("P", pinned: true), item("T1"), item("T2"), item("T3"),
                      item("T4", active: true)]
         let shown = PaneTabStrip.visible(items, slots: 3)
-        // The premise: the window really has scrolled, so indices 1 and 2 are drawn by nothing.
+        // The premise: the window has scrolled, so indices 1 and 2 are drawn by nothing.
         #expect(shown.map(\.title) == ["P", "T3", "T4"])
 
         let drawn = Set(shown.map(\.id))
@@ -917,29 +788,22 @@ import Design
                         "\(items[from].title) dropped onto folded-away index \(to) at \(steps) steps")
             }
         }
-        // And the snap goes BACK toward the drag's origin rather than outward past a hidden tab:
-        // T3 dragged hard left stops where it is, not at the head of the unpinned run.
+        // And the snap goes back toward the drag's origin rather than outward past a hidden tab: T3
+        // dragged hard left stops where it is, not at the head of the unpinned run.
         #expect(PaneTabStrip.dropIndex(from: 3, steps: -9, items: items, visible: shown) == 3)
     }
 
-    /// **The other half, stated so nobody reads the guarantee as the wider one.**
-    ///
-    /// `dropIndex` promises the tab LANDS where a chip is drawn. It does not promise the chip is
-    /// still drawn afterwards: `visible(_:slots:)` re-derives its window from the ACTIVE tab, and
-    /// the move changes the order that window is taken from. The case below needs no pins at all —
-    /// three tabs in two slots, dragging the parked one past the active one — and it is the
-    /// window's design rather than a hole in the drop rule, since the tab is then in the overflow
-    /// menu exactly as a newly opened tab would be.
-    ///
-    /// Pinned as a fact rather than left implicit, because the first version of the fix beside this
-    /// described itself as stopping a chip from "appearing to disappear" — true of the mechanism it
-    /// closed and not of this one, and an overstated guarantee is how the next reader stops looking.
+    /// The other half, so nobody reads the guarantee as wider than it is. `dropIndex` promises the
+    /// tab lands where a chip is drawn, not that it is still drawn afterwards: `visible(_:slots:)`
+    /// re-derives its window from the active tab, and the move changes the order. Three tabs in two
+    /// slots, dragging the parked one past the active one, puts it in the overflow menu as a newly
+    /// opened tab would be: the window's design, not a hole in the drop rule.
     @Test func aLegalDropStillLandsWhereItWasAimed() {
         let items = [item("T0"), item("T1"), item("T2", active: true)]
         let shown = PaneTabStrip.visible(items, slots: 2)
         #expect(shown.map(\.title) == ["T1", "T2"], "the window is not where this case needs it")
 
-        // Dragging the parked chip one step right is a legal drop onto a DRAWN index…
+        // Dragging the parked chip one step right is a legal drop onto a drawn index…
         let to = PaneTabStrip.dropIndex(from: 1, steps: 1, items: items, visible: shown)
         #expect(to == 2)
         #expect(shown.contains { $0.id == items[to].id }, "the drop did not land on a drawn chip")
@@ -955,7 +819,7 @@ import Design
 
     // MARK: Pinned tabs
 
-    /// A pinned chip wears a pin where an unpinned one wears its ✕ — the two strips are otherwise
+    /// A pinned chip wears a pin where an unpinned one wears its ✕. The two strips are otherwise
     /// identical, so the box isolates that slot.
     @Test(.machinePinned(.pixelSampling)) func aPinnedTabWearsAPinInsteadOfItsCloseButton() {
         let ids = [UUID(), UUID()]
@@ -982,24 +846,23 @@ import Design
         #expect(differingPixels(pinned, plain, in: title) < 20, "pinning moved the chip's name")
     }
 
-    /// **Pinned tabs never fold away.** They are pinned precisely so they stay reachable, and the
-    /// active tab is still named by the header underneath it when it folds.
+    /// Pinned tabs never fold away: they are pinned so they stay reachable, and a folded active tab
+    /// is still named by the header underneath.
     @Test func pinnedTabsKeepTheirSlotsWhenTheStripRunsOutOfRoom() {
         let items = [item("Pinned", pinned: true), item("A"), item("B"), item("C"), item("D", active: true)]
         let shown = PaneTabStrip.visible(items, slots: 2)
         #expect(shown.map(\.title) == ["Pinned", "D"],
                 "a pinned tab was folded away, or the active tab was")
 
-        // With every slot taken by pins, the pins win — an active tab folded away still has the
+        // With every slot taken by pins, the pins win: an active tab folded away still has the
         // header under it saying where the pane is.
         let allPinned = [item("P1", pinned: true), item("P2", pinned: true), item("Q", active: true)]
         #expect(PaneTabStrip.visible(allPinned, slots: 2).map(\.title) == ["P1", "P2"])
     }
 
-    /// **The overflow menu lists the folded-away tabs newest first** (roadmap Fig. 7). A menu's
-    /// contents never reach the bitmap, so this is the one claim in this file made against a value
-    /// rather than against pixels — and it is here rather than in the ladder tests because it is
-    /// about what the strip DRAWS in that menu.
+    /// The overflow menu lists the folded-away tabs newest first. A menu's contents never reach the
+    /// bitmap, so this claim is made against a value, not pixels; it is here rather than in the
+    /// ladder tests because it is about what the strip draws in that menu.
     @Test func theOverflowMenuListsTheNewestTabsFirst() {
         let items = ["A", "B", "C", "D", "E"].map { item($0) }
         let hidden = PaneTabStrip.hidden(from: items, showing: [items[0], items[1]])
@@ -1014,15 +877,11 @@ import Design
         #expect(inked(rep) < 50, "an empty strip painted something")
     }
 
-    /// The strip is one 34pt row, at every rung — it shares the pane's vertical budget with a
-    /// header pinned at 81pt, and a strip that grew a second row would push the list down.
-    ///
-    /// **Measured on a canvas TALLER than a row, because the strip pins its own height.** This
-    /// asserted `rep.size.height == stripHeight` against a bitmap `render()` had just sized to
-    /// `stripHeight` — true by construction at every width, and it could not have failed. The
-    /// clamp is also not a clip: SwiftUI's `.frame(height:)` lets content overflow, so a rung that
-    /// wanted two rows paints *outside* the row rather than growing it, and the pane below wears
-    /// the difference. So the question is asked in pixels, below the row where nothing may be.
+    /// The strip is one 34pt row at every rung: it shares the pane's vertical budget with an 81pt
+    /// header, and a second row would push the list down. Measured on a canvas taller than a row,
+    /// since `render()` sizes its bitmap to the row: `.frame(height:)` doesn't clip, so a rung that
+    /// wanted two rows paints outside the row rather than growing it. So the question is asked in
+    /// pixels, above and below the row, where nothing may be.
     @Test(.machinePinned(.pixelSampling)) func theStripIsOneRowAtEveryRung() {
         let canvasHeight = PaneTabStripLadder.stripHeight * 3
         for width in [CGFloat(900), 620, 340, 220] {
@@ -1033,15 +892,15 @@ import Design
             let rowHeight = PaneTabStripLadder.stripHeight * scale
             let top = (CGFloat(rep.pixelsHigh) - rowHeight) / 2
 
-            // The control: the row itself really did draw. Without it, a strip that rendered
-            // nothing at all would satisfy the emptiness checks below at every width.
+            // The control: the row itself drew. Otherwise a strip that rendered nothing would
+            // satisfy the emptiness checks below at every width.
             let row = NSRect(x: 0, y: top, width: CGFloat(rep.pixelsWide), height: rowHeight)
             #expect(inked(rep, in: row) > 200,
                     "the strip drew almost nothing at \(width)pt — the checks below would be vacuous")
 
             // …and a clear band on each side of it. A second rank of chips, or a chip taller than
-            // its budget, lands in one or both — `.frame(height:)` centres rather than clips, so it
-            // can overflow upward just as easily as down.
+            // its budget, lands in one or both: `.frame(height:)` centres rather than clips, so it
+            // can overflow upward as easily as down.
             for (name, band) in [("above", NSRect(x: 0, y: 0, width: CGFloat(rep.pixelsWide), height: top - 2)),
                                  ("below", NSRect(x: 0, y: top + rowHeight + 2,
                                                   width: CGFloat(rep.pixelsWide),
@@ -1052,14 +911,12 @@ import Design
         }
     }
 
-    /// Mounts the strip at `width` with **no imposed height**, centred in a canvas of `height`, so
-    /// anything the strip draws outside one row is visible rather than cropped by the bitmap. The
-    /// note below says why centred rather than top-aligned, which this line used to contradict.
+    /// Mounts the strip at `width` with no imposed height, centred in a canvas of `height`, so
+    /// anything it draws outside one row is visible rather than cropped by the bitmap.
     func renderInTallCanvas(items: [PaneTabStrip.Item], width: CGFloat,
                             height: CGFloat) -> NSBitmapImageRep {
-        // **Centred, with a clear band on BOTH sides.** Top-aligned, the region above the row was
-        // off-bitmap — and `.frame(height:)` centres its content, so a chip taller than its budget
-        // overflows equally in both directions and only half the evidence was measurable.
+        // Centred, with a clear band on both sides: `.frame(height:)` centres its content, so a
+        // chip taller than its budget overflows both ways; top-aligned, half would be off-bitmap.
         let subject = VStack(spacing: 0) {
             Spacer(minLength: 0)
             PaneTabStrip(items: items,

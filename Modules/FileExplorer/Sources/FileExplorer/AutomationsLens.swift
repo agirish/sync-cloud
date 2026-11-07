@@ -68,11 +68,10 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
     }
 }
 
-/// The chip text with person ids replaced by names — "Daughter" rather than the `daughter` slug.
-///
-/// A separate entry point rather than a parameter on the one above: only a surface with a roster
-/// in hand can resolve — the rule card, which the lens hands the household — and every other
-/// caller should keep getting a chip that needs nothing. Falls back to the plain text, so a rule pointing at a removed person still renders.
+/// The chip text with person ids replaced by names: "Daughter", not the `daughter` slug. A separate
+/// entry point because only a surface with a roster can resolve (the rule card); every other
+/// caller keeps a chip that needs nothing. Falls back to the plain text, so a rule pointing at a
+/// removed person still renders.
 func automationConditionChipText(_ condition: AutomationCondition, people: [Person]) -> String {
     guard case .personIs(let id) = condition, !id.isEmpty else {
         return automationConditionChipText(condition)
@@ -82,32 +81,27 @@ func automationConditionChipText(_ condition: AutomationCondition, people: [Pers
 
 // MARK: - Automations lens
 
-/// The Automations lens's host-owned view state.
-///
-/// It lives outside the lens because the lens's controls ride ``LensWorkspaceView``'s shared header card
-/// now: the "Preview all" button is rendered up there and has to be able to flip this lens into
-/// its results view. Owned by the host as a `@StateObject`, so it survives the lens being
-/// rebuilt.
+/// The Automations lens's host-owned view state. Outside the lens because its "Preview all" button
+/// lives in ``LensWorkspaceView``'s shared header card and must flip the lens into its results
+/// view. Held by the host as a `@StateObject`, so it survives the lens being rebuilt.
 @MainActor
 public final class AutomationsLensState: ObservableObject {
-    /// True once the user has asked to see dry-run results — keeps the results view up until they
+    /// True once the user has asked to see dry-run results; keeps the results view up until they
     /// go back.
     @Published public var viewingResults = false
     public init() {}
 }
 
-/// The Rules lens on Organize's rail (N2): the one home for the user's rules — authored
-/// plain-words automations and rules taught by example (the migrated "remembered" rules, now
-/// `mentions` conditions). Rules steer Organize's suggestions on every scan; here they can also be dry-run
-/// over the focused folder and their matches filed for real after per-file confirmation. Rendered
-/// inside ``LensWorkspaceView``'s content card, so this view provides only the inner rule-list /
-/// previewing / results states.
+/// The Rules lens on Organize's rail: the one home for the user's rules, whether written in plain
+/// words or taught by example (as `mentions` conditions). Rules steer Organize's suggestions on
+/// every scan; here they can also be dry-run over the focused folder and their matches filed after
+/// per-file confirmation. Rendered inside ``LensWorkspaceView``'s content card, so this view
+/// provides only the rule-list, previewing and results states.
 public struct AutomationsLens: View {
     @ObservedObject public var syncManager: FileSyncManager
     @ObservedObject private var state: AutomationsLensState
-    /// The rules to list — already filtered by the header card's search. The lens never reads
-    /// `syncManager.automationRules` for its list, so what's on screen is exactly what the
-    /// header counted.
+    /// The rules to list, already filtered by the header card's search. The lens never reads
+    /// `syncManager.automationRules` for its list, so what's on screen is what the header counted.
     private let rules: [AutomationRule]
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -117,15 +111,15 @@ public struct AutomationsLens: View {
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private let providerName: String?
-    /// The provider root that rule destinations resolve against — the same anchor the preview uses
-    /// (NOT the focused subfolder). Passed to the rule editor so its Browse… button relativizes a
-    /// picked folder against the provider root, yielding the exact path the preview will resolve.
+    /// The provider root that rule destinations resolve against, the preview's anchor (not the
+    /// focused subfolder). The rule editor's Browse… relativizes a picked folder against it, so it
+    /// yields the exact path the preview will resolve.
     private let destinationRoot: URL?
-    /// Kicks off a dry-run preview (host owns the root/provider derivation). nil = all enabled rules,
-    /// a rule id = just that rule.
+    /// Starts a dry-run preview (the host derives root and provider): nil runs all enabled rules,
+    /// a rule id just that rule.
     private let onPreview: (UUID?) -> Void
-    /// Quick Look a matched file (absolute path — the same convention Organize's cards use).
-    /// nil hides the Preview affordances on the dry-run rows and the per-file review.
+    /// Quick Look a matched file (absolute path, as Organize's cards use). nil hides the Preview
+    /// affordances on the dry-run rows and the per-file review.
     private let onQuickLook: ((String) -> Void)?
     /// Reveal a matched file in Finder (absolute path). nil hides the Reveal affordances.
     private let onReveal: ((String) -> Void)?
@@ -134,24 +128,20 @@ public struct AutomationsLens: View {
     /// header card's "New rule" goes through the host's own editor sheet instead.
     @State private var editingRule: AutomationRule?
 
-    /// Per-file "ask each time" filing — the cursor, its queue, and the approvals. The rules live
-    /// in `FilingWalkthrough` (a tested value type) rather than in four loose `@State` vars,
-    /// because this is the gate in front of `applyAutomationFiling`, which moves files.
+    /// Per-file "ask each time" filing: the cursor, its queue and the approvals. Kept in
+    /// `FilingWalkthrough`, a tested value type, because this is the gate in front of
+    /// `applyAutomationFiling`, which moves files.
     @State private var filing = FilingWalkthrough()
 
-    /// The rule whose Delete has been clicked and not yet confirmed.
-    ///
-    /// **Deleting a rule is the one destructive control in this lens that nothing takes back.**
-    /// Everything else here is reversible — a toggle re-toggles, an edit re-edits, and filing
-    /// registers a move undo — while `removeAutomationRule` drops the rule and persists the list,
-    /// with no ⌘Z and nothing on disk to recover it from. A rule is hand-built: its conditions,
-    /// its destination template and its ordering are work, and the button sits in the same row as
-    /// Edit and Preview.
+    /// The rule whose Delete was clicked and not yet confirmed. Deleting a rule is the one control
+    /// in this lens that nothing takes back: `removeAutomationRule` drops the rule and persists the
+    /// list, with no ⌘Z and nothing on disk to recover it from. A rule's conditions, destination
+    /// and order are hand-built work, and Delete sits in the same row as Edit and Preview.
     @State private var rulePendingDeletion: AutomationRule?
 
-    /// Bumped on every walkthrough decision so the card re-claims key focus for the next row —
-    /// a File/Skip click leaves a text field's editor holding first responder, and the card's
-    /// passive claim declines to take focus from one (see `FilingWalkthroughCard.focusNudge`).
+    /// Bumped on every walkthrough decision so the card reclaims key focus for the next row: a
+    /// File/Skip click leaves a text field's editor holding first responder, and the card's
+    /// passive claim won't take focus from one (`FilingWalkthroughCard.focusNudge`).
     @State private var filingFocusNudge = 0
 
     public init(
@@ -195,9 +185,9 @@ public struct AutomationsLens: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { syncManager.ensureAutomationRulesLoaded() }
-        // A new dry run retires any per-file review still in progress — the review's rows belong to
-        // the report this run is about to replace (see `dryRunRunningChanged`). LensWorkspaceView applies the
-        // same rule to its lenses' session state on scan start.
+        // A new dry run retires any per-file review still in progress, whose rows belong to the
+        // report this run replaces (`dryRunRunningChanged`). LensWorkspaceView does the same for
+        // its lenses' session state on scan start.
         .onChange(of: syncManager.automationDryRunLifecycle.isRunning) { _, isRunning in
             filing.dryRunRunningChanged(to: isRunning)
         }
@@ -236,8 +226,8 @@ public struct AutomationsLens: View {
     private func newRule() { editingRule = AutomationRule(name: "") }
 
     /// One greyed sample rule in the setup card: its condition chips, then where matching files
-    /// go. The chips borrow the real cards' glyph vocabulary (`automationConditionIcon`) rather
-    /// than inventing icons, so the sample and the thing it describes look like each other.
+    /// go. The chips use the real cards' glyphs (`automationConditionIcon`), so the sample looks
+    /// like the thing it describes.
     private func ruleSample(conditions: [(icon: String, text: String)],
                             destination: String) -> some View {
         LensSetupSampleRow {
@@ -264,20 +254,18 @@ public struct AutomationsLens: View {
 
     // MARK: Why a rule can't run
 
-    /// The warning pill beside a rule's name, or nil when the rule is fine.
-    ///
-    /// Two ways of not running, and they need different words. "Incomplete" is advice — finish the
-    /// rule and it will work. A rule written by a **newer build** is not incomplete: it has its
-    /// condition and its destination, this build just cannot read part of it, and telling that user
-    /// to add a condition sends them looking for something that is not missing.
+    /// The warning pill beside a rule's name, or nil when the rule is fine. Two ways of not running
+    /// need different words. Incomplete is advice: finish the rule and it works. A rule written by
+    /// a newer build isn't incomplete; this build just can't read part of it, and telling the user
+    /// to add a condition would send them looking for something that isn't missing.
     nonisolated static func inertPillLabel(for rule: AutomationRule) -> String? {
         if rule.hasUnreadableValues { return "newer version" }
         return rule.isRunnable ? nil : "incomplete"
     }
 
-    /// The disabled Preview button's tooltip. It must name the REAL blocker: a complete rule with no
-    /// focused provider folder doesn't need "a condition and destination" — it needs a folder to
-    /// preview over; and a rule from a newer build needs neither.
+    /// The disabled Preview button's tooltip, naming the real blocker: a complete rule with no
+    /// focused provider folder needs a folder to preview over, not a condition, and a rule from a
+    /// newer build needs neither.
     nonisolated static func previewHelp(for rule: AutomationRule, hasDestinationRoot: Bool) -> String {
         if rule.hasUnreadableValues {
             return "This rule was saved by a newer version of SyncCloud. It’s kept as-is and left "
@@ -300,16 +288,13 @@ public struct AutomationsLens: View {
     @ViewBuilder
     private var rulesState: some View {
         if syncManager.automationRules.isEmpty {
-            // Rules before its first rule — the setup card, like every other lens's before-screen.
-            // It was a centred `EmptyStateView` with the same words and no samples, which left
-            // this the one lens where the first real card is also the first sighting of its own
-            // shape. A rule reads as condition chips → destination, and that is what the samples
-            // draw: the two the tree actually earns (a name match, a kind + folder match) and the
-            // one with a `{year}` token, so a dated destination is a familiar idea before someone
-            // meets it in the editor.
+            // Before the first rule: the setup card, like every other lens's before-screen. The
+            // samples draw a rule's shape, condition chips → destination: a name match, a kind +
+            // folder match, and one with a `{year}` token, so a dated destination is familiar
+            // before the editor shows one.
             //
-            // **Its trigger writes a rule rather than starting a scan**, and the words say so —
-            // Rules is the one lens in Organize with no scan of its own.
+            // Its trigger writes a rule rather than starting a scan, and its words say so: Rules is
+            // the one lens in Organize with no scan of its own.
             LensSetupCard(
                 intro: LensIntros.rules(providerName: providerName),
                 accent: accent,
@@ -323,9 +308,8 @@ public struct AutomationsLens: View {
                     + "are samples, not rules you have written.",
                 onStart: newRule
             ) {
-                // Deliberately the rule the message above quotes, drawn: the sentence says what a
-                // rule is in words, and the first sample is that exact rule in the shape the
-                // editor will show it. Two different examples would read as two ideas.
+                // The first sample is the rule the intro quotes, drawn as the editor will show it;
+                // two different examples would read as two ideas.
                 ruleSample(conditions: [("textformat", "name mentions “invoice”")],
                            destination: "Documents/Invoices/{year}")
                 ruleSample(conditions: [("doc.text", "PDFs"), ("folder", "in Scans")],
@@ -334,10 +318,9 @@ public struct AutomationsLens: View {
                            destination: "Work/Payslips")
             }
         } else {
-            // No header row here any more: the shared LensHeaderCard above carries this lens's
-            // count, its New rule / Preview all controls, and its search. This card renders the
-            // list only — which is also what makes the workspace's header height a promise
-            // instead of a per-lens accident.
+            // No header row: the shared LensHeaderCard above carries this lens's count, its New
+            // rule / Preview all controls and its search. This card renders the list only, which
+            // keeps the workspace's header the same height for every lens.
             VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(spacing: densityMetrics.cardListSpacing) {
@@ -453,7 +436,7 @@ public struct AutomationsLens: View {
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
-    /// The counts at a glance — scanned / would-file / needs-a-look / already-there.
+    /// The counts at a glance: scanned, would file, need a look, already there.
     private func summaryStrip(_ report: AutomationDryRunReport) -> some View {
         HStack(spacing: 8) {
             statPill(report.filesScanned, "scanned", .secondary)
@@ -499,13 +482,12 @@ public struct AutomationsLens: View {
 
     // MARK: Filing (per-file "ask each time")
 
-    /// Records a decision and, when that was the last file, applies the approved set as ONE
-    /// reversible run. `advance` returns non-nil exactly at the end, so the apply happens in one
-    /// place rather than being re-derived from the cursor by the caller.
+    /// Records a decision and, after the last file, applies the approved set as one reversible run.
+    /// `advance` returns non-nil exactly at the end, so the apply happens in one place.
     private func advanceFiling(approved: Bool) {
-        // Every decision is a gesture aimed at the card — a click on File/Skip (which leaves a
-        // text field's editor as first responder) or a key the already-focused card handled —
-        // so send key focus back to it for the next row (see `FilingWalkthroughCard.focusNudge`).
+        // Every decision is a gesture aimed at the card (a File/Skip click, which leaves a text
+        // field's editor as first responder, or a key the focused card handled), so send key focus
+        // back to it for the next row (`FilingWalkthroughCard.focusNudge`).
         filingFocusNudge += 1
         guard let toFile = filing.advance(approved: approved) else { return }
         guard !toFile.isEmpty else { return }
@@ -519,8 +501,8 @@ public struct AutomationsLens: View {
             total: filing.queue.count,
             accent: accent,
             providerName: provider,
-            // Preview/Reveal recover the card's key focus without spending a decision — see
-            // `FilingWalkthroughCard.recoveringFocus` and `focusNudge`.
+            // Preview and Reveal recover the card's key focus without spending a decision
+            // (`FilingWalkthroughCard.recoveringFocus`, `focusNudge`).
             onQuickLook: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onQuickLook),
             onReveal: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onReveal),
             focusNudge: filingFocusNudge,
@@ -556,56 +538,47 @@ public struct AutomationsLens: View {
 
 // MARK: - Filing walkthrough card
 
-/// The per-file "File or skip?" confirmation the walkthrough shows for each match. Internal (not
-/// private in `AutomationsLens`) so the key-handling tests can host it directly.
+/// The per-file "File or skip?" confirmation the walkthrough shows for each match. Internal so the
+/// key-handling tests can host it.
 ///
-/// The card is the walkthrough's key-event anchor: focusable so ⏎/→/esc work the moment the
-/// walkthrough starts, deliberately NOT window-level `.keyboardShortcut`s — a key equivalent is
-/// consulted before the first responder, and these shipped as `.keyboardShortcut(.return,
-/// modifiers: [])` / `.keyboardShortcut(.rightArrow, modifiers: [])`, so a ⏎ typed into the lens
-/// header's search field (or the Settings overlay) MOVED the current file on disk, and → silently
-/// skipped it, with no back-step to undo the skip. Same anchor-plus-`.onKeyPress` shape as
-/// `ReviewCardView`, which is where the rule is measured and written down.
+/// The card is the walkthrough's key anchor: focusable so ⏎/→/esc work as soon as it starts, and
+/// deliberately not window-level `.keyboardShortcut`s. A key equivalent is consulted before the
+/// first responder, so a ⏎ typed into the lens header's search field (or the Settings overlay)
+/// would move the current file on disk, and → would skip it with no way back. Same
+/// anchor-plus-`.onKeyPress` shape as `ReviewCardView`, where the rule is written down.
 struct FilingWalkthroughCard: View {
     let row: AutomationDryRunRow
-    /// One-based "File N of M" position and total, precomputed by the host's `FilingWalkthrough`.
+    /// One-based "File N of M" position and total, computed by the host's `FilingWalkthrough`.
     let position: Int
     let total: Int
     let accent: Color
-    /// Already-resolved display name ("this provider" fallback applied by the host).
+    /// Already-resolved display name (the host applies the "this provider" fallback).
     let providerName: String
     /// Quick Look / Reveal a matched file (absolute path). nil hides the affordance.
     let onQuickLook: ((String) -> Void)?
     let onReveal: ((String) -> Void)?
-    /// Bumped by the host for every gesture aimed squarely at the card — each File/Skip decision
-    /// (`advanceFiling`), and the non-destructive Preview/Reveal inspections (via
-    /// `recoveringFocus`). A decision is either a key the already-focused card handled
-    /// (re-claiming is then a no-op) or a CLICK on one of the card's buttons — and on macOS a
-    /// click on a plain button does NOT dislodge a text field's field editor from first
-    /// responder, so without this hatch a visit to the lens header's search field (it lives
-    /// outside the lens body and stays mounted) would leave ⏎/→/esc dead for the rest of the
-    /// walkthrough. Same host-driven recovery hatch as `ReviewCardView.focusNudge`, whose host
-    /// bumps it on review-table clicks for the same reason. (Unlike ReviewCardView there is no
-    /// passive per-row claim to fall back on — see the comment at `.onAppear` below for why one
-    /// would be dead code here.)
+    /// Bumped by the host for every gesture aimed at the card: each File/Skip decision
+    /// (`advanceFiling`) and the Preview/Reveal inspections (`recoveringFocus`). On macOS a click
+    /// on a plain button doesn't take first responder from a text field's field editor, so without
+    /// this a visit to the header's search field (outside the lens body, still mounted) would leave
+    /// ⏎/→/esc dead for the rest of the walkthrough. Same hatch as `ReviewCardView.focusNudge`, but
+    /// with no passive per-row claim to fall back on (see `.onAppear` below).
     let focusNudge: Int
     /// The decision for the current row: true = File, false = Skip. The host owns the cursor.
     let onDecision: (Bool) -> Void
-    /// Abandon the walkthrough (approvals discarded — see `FilingWalkthrough.cancel`).
+    /// Abandon the walkthrough, discarding approvals (`FilingWalkthrough.cancel`).
     let onCancel: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Bool
     @Environment(\.runWriteLock) private var runWriteLock
 
-    /// Wraps a non-destructive inspection gesture (Preview / Reveal) so it FIRST bumps the host's
-    /// focus nudge, then runs. Those clicks are gestures aimed squarely at the card, yet before
-    /// this the only gesture that recovered key focus was an irreversible File/Skip — a user who
-    /// had clicked into the header's search field had to SPEND a decision to get ⏎/→/esc back.
-    /// `nil` in, `nil` out, so the host's "closure absent hides the affordance" contract survives
-    /// the wrap. Static and internal so the tests can prove the bump-then-run order and the reclaim
-    /// end-to-end — the buttons themselves cannot be clicked under `swift test` (see
-    /// `PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
+    /// Wraps a non-destructive inspection (Preview, Reveal) so it first bumps the host's focus
+    /// nudge, then runs: getting ⏎/→/esc back after clicking into the search field must not cost an
+    /// irreversible File/Skip. `nil` in, `nil` out, so "no closure hides the affordance" survives.
+    /// Static and internal so tests can prove the order and the reclaim, since the buttons can't be
+    /// clicked under `swift test`
+    /// (`PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
     static func recoveringFocus(via bumpNudge: @escaping () -> Void,
                                 _ inner: ((String) -> Void)?) -> ((String) -> Void)? {
         guard let inner else { return nil }
@@ -648,126 +621,87 @@ struct FilingWalkthroughCard: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        // A tap anywhere on the card is a gesture aimed at the walkthrough, so it recovers key
-        // focus — the cheap way back after clicking into the header's search field, one that
-        // spends no File/Skip. `.contentShape` first: an unfilled shape has no hit area, so
-        // without it the tap would only register on the card's painted pixels. The buttons sit
-        // above this gesture and keep their own hits.
+        // A tap anywhere on the card recovers key focus: the way back after clicking into the
+        // header's search field that spends no File/Skip. `.contentShape` first, or the tap would
+        // register only on painted pixels. The buttons sit above this gesture and keep their hits.
         .contentShape(Rectangle())
         .onTapGesture {
             Task { @MainActor in focused = true }
         }
-        // `.down` only, no `.repeat`, on ALL THREE keys. ⏎ moves a real file and → skips one that
-        // no back-step can revisit, so a held-a-beat-too-long key must decide exactly ONE file —
-        // auto-repeat marching through the queue was half of the key-equivalent bug this card
-        // replaced — and esc keeps the same phase rule for uniformity. (Same rule, same reason,
-        // as ReviewCardView's ⌫-skip.)
+        // `.down` only, no `.repeat`, on all three keys: ⏎ moves a real file and → skips one no
+        // back-step can revisit, so a key held a beat too long must decide exactly one file. esc
+        // follows the same rule, as does ReviewCardView's ⌫-skip.
         //
-        // `press.isPlainKeystroke` on all three: `onKeyPress` delivers MODIFIED presses to its
-        // handler (the single-key `onKeyPress(_:)` overload does not filter them either — measured
-        // on ReviewCardView, see the ⏎ note there), so without the check
-        // ⌘⏎/⇧⏎ filed the current item and ⌥→/⌃→ irreversibly skipped it (measured in
-        // FilingWalkthroughCardKeyTests). The keycaps advertise plain keystrokes; a chord is
-        // `.ignored` so whoever owns it still sees it.
+        // `press.isPlainKeystroke` on all three: `onKeyPress` delivers modified presses too, so
+        // without it ⌘⏎/⇧⏎ would file the item and ⌥→/⌃→ skip it. A chord is `.ignored` so whoever
+        // owns it still sees it. It reads ⌘⌥⌃⇧ only: `modifiers.isEmpty` is false for every arrow
+        // (`.function` + `.numericPad` are intrinsic to them) and for every key under Caps Lock
+        // (`KeyPress.isPlainKeystroke`).
         //
-        // It reads ⌘⌥⌃⇧ ONLY, and the first cut of this guard did not: it was
-        // `press.modifiers.isEmpty`, which is false for every arrow AppKit has ever delivered
-        // (`.function` + `.numericPad` are intrinsic to the arrow keys) and false for everything
-        // at all while Caps Lock is engaged. Shipped, that spelling meant → skipped NOTHING and
-        // Caps Lock killed all three keys. See `KeyPress.isPlainKeystroke` for the measured
-        // values.
+        // `guard focused` on the two decision keys: `.onKeyPress` fires for a key delivered
+        // anywhere in its subtree, so with Full Keyboard Access a ⏎ aimed at a focused Cancel
+        // button would reach this handler and file the item (a focused macOS button activates on
+        // Space, not Return). With focus on a descendant, `.ignored` hands the key back. The
+        // premise is pinned by
+        // `ReviewCardKeyTests.anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant`; FKA
+        // itself can't be turned on under test (`NSApp` is nil there), so check by hand when
+        // touching this: turn on FKA, Tab to the walkthrough's Cancel, press ⏎, and nothing may be
+        // filed. esc isn't gated on `focused`: cancelling from a focused button is harmless.
         //
-        // `guard focused` on the two DECISION keys: with Full Keyboard Access the card's buttons
-        // become focusable, and a ⏎ aimed at the focused Cancel button would otherwise bubble to
-        // this ancestor handler and FILE the item (a focused macOS button activates on Space, not
-        // Return). When focus sits on a descendant rather than the card itself, deciding is not
-        // what the keystroke meant — `.ignored` hands it back.
-        //
-        // **The premise is measured, and an earlier revision of this comment overstated what was
-        // unverifiable.** `.onKeyPress` fires for a key delivered anywhere in its SUBTREE, so an
-        // ancestor handler really does run while a DESCENDANT holds focus and `focused` reads
-        // false — probed on the suites' real-window harness by driving a `@FocusState` onto a
-        // descendant (a `Button` and a plain `.focusable()` view alike) and pressing ⏎: the
-        // handler fired both times with `focused == false` inside it. That probe is now
-        // `ReviewCardKeyTests.anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant`, and
-        // `ReviewCardView`'s ⏎/⌫ carry this same term as of 2026-08-21 — it had been left out of
-        // the donor, so with FKA on, a ⏎ aimed at its focused Skip button ran a real copy/move.
-        //
-        // What is genuinely unverifiable is the ROUTE that puts focus on those buttons in the
-        // app: FKA is what makes them focusable, and `NSApp` is nil in the test process
-        // (measured), so FKA cannot be read there, let alone turned on. Manual check when
-        // touching this: turn
-        // on Full Keyboard Access, Tab to the walkthrough's Cancel button, press ⏎ — nothing may
-        // be filed. esc is deliberately NOT gated on `focused`: cancelling from a focused button
-        // is harmless and is what esc means there anyway.
-        // BOTH Enter keycaps: a full-size keyboard has two, and `.return` matches only the main
-        // row's. The keypad's Enter is keyCode 76 sending U+0003 (`NSEnterCharacter`), so the set
-        // needs `.keypadEnter` beside `.return` or that keycap files nothing — silently, with the
-        // card's hint row still advertising ⏎. It arrives with `.numericPad` and `.function` set,
-        // which is the second reason the guard is `isPlainKeystroke` and not `modifiers.isEmpty`.
-        // See `KeyEquivalent.keypadEnter` for the measured delivery.
+        // Both Enter keys: `.return` matches only the main row's, and the keypad's Enter
+        // (keyCode 76, U+0003) needs `.keypadEnter` or it silently files nothing. It arrives with
+        // `.numericPad` and `.function` set, the second reason the guard is `isPlainKeystroke`
+        // (`KeyEquivalent.keypadEnter`).
         .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
-            // ↩ files, so it waits with the File button while a long run is going (BZ).
+            // ↩ files, so it waits with the File button while a long run is going.
             if runWriteLock == nil { onDecision(true) }
             return .handled
         }
         // ⌫ skips as well as →: Compare's one-at-a-time review skips on ⌫, and someone who has
-        // learned either walkthrough should not be retrained by the other (LN21).
+        // learned either walkthrough shouldn't be retrained by the other.
         .onKeyPress(keys: [.rightArrow, .delete], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
             onDecision(false)
             return .handled
         }
-        // esc rides the same anchor rather than `.keyboardShortcut(.cancelAction)` — that too is a
-        // window-level equivalent, and it would discard the walkthrough's approvals on an esc the
-        // user typed to clear the search field.
+        // esc rides the same anchor, not `.keyboardShortcut(.cancelAction)`: that is window-level
+        // too, and would discard the walkthrough's approvals on an esc typed to clear the search.
         .onKeyPress(keys: [.escape], phases: .down) { press in
             guard press.isPlainKeystroke else { return .ignored }
             onCancel()
             return .handled
         }
-        // The card's focus claims, and a deliberate divergence from the ReviewCardView donor:
-        // there is NO passive per-row (`.task(id:)`) claim here, because it would be dead code.
-        // In ReviewCardView an advance can arrive from an async copy outcome with no nudge bump,
-        // so its guarded per-row claim ("don't yank focus while an NSTextView holds it") is live.
-        // Here every row change comes through `advanceFiling`, which unconditionally bumps
-        // `focusNudge` — so the unconditional `onChange` claim below fires in the same update as
-        // any per-row claim would, and a guarded claim beside it could never decline anything:
-        // its "don't yank mid-typing" promise was void. One claim per cause, each unconditional,
-        // each for a gesture aimed squarely at the walkthrough:
+        // The card's focus claims. Unlike `ReviewCardView`, no passive per-row (`.task(id:)`)
+        // claim: every row change here comes through `advanceFiling`, which bumps `focusNudge`, so
+        // the `onChange` claim below fires in the same update and a guarded per-row claim could
+        // never decline anything. One unconditional claim per cause, each for a gesture aimed at
+        // the walkthrough.
         //
-        // Appearance — the card only ever mounts from a click on the results header's "File N…"
-        // button (`filing.start` has no other caller, and a dry run can only END a walkthrough,
-        // never start one), and `onChange` cannot cover a mount: a freshly inserted view was born
-        // with the current nudge and sees no change. Deferred one turn because a FocusState write
-        // in the same transaction that inserts the view can be silently dropped (same gotcha as
-        // ReviewCardView, the header search field).
+        // Appearance: the card mounts only from a click on the results header's "File N…" button
+        // (`filing.start` has no other caller), and `onChange` can't see a mount, since a new view
+        // is born with the current nudge. Deferred one turn because a FocusState write in the
+        // transaction that inserts the view can be silently dropped.
         .onAppear {
             Task { @MainActor in focused = true }
         }
         // The per-decision claim: the host bumps `focusNudge` in `advanceFiling`, so a File/Skip
-        // click reclaims key focus for the NEXT row even though the click left the field editor
-        // holding it (see `focusNudge`).
+        // click reclaims key focus for the next row though the click left the field editor holding
+        // it.
         .onChange(of: focusNudge) { _, _ in
             Task { @MainActor in focused = true }
         }
-        // The card-level accessibility the `ReviewCardView` donor has and this card was missing.
-        // Without a containing element VoiceOver reads "File 1 of 3", the filename and the
-        // destination as three unrelated siblings, so the one question the walkthrough asks —
-        // WHICH file am I deciding about — has no single element that answers it.
+        // Card-level accessibility, as `ReviewCardView` has: without a containing element
+        // VoiceOver reads the position, file name and destination as unrelated siblings, and no
+        // single element answers which file is being decided.
         //
-        // `.contain` and not `.combine`: the card holds real controls (Skip, File, Cancel,
-        // Preview, Reveal) and `.combine` would flatten them into the label, taking away the
-        // buttons the decision is actually made with.
+        // `.contain`, not `.combine`: the card holds real controls (Skip, File, Cancel, Preview,
+        // Reveal), and `.combine` would flatten them into the label.
         //
-        // The hint is unconditional, exactly as the donor's is and for the same reason: the
-        // keycaps are drawn by `shortcutKeycap`, which renders them only while the reveal is
-        // active. Whether SwiftUI drops a hidden keycap from the accessibility tree is not
-        // something this project can verify — there is no assistive client under `swift test`, so
-        // a test of it would pass vacuously either way — so the guarantee is made here, where it
-        // does not depend on the answer. (`shortcutKeycap`'s own per-button hint is already
-        // ungated by the reveal, which covers the buttons; this covers the card.)
+        // The hint is unconditional: `shortcutKeycap` draws keycaps only while the reveal is
+        // active, and whether SwiftUI drops a hidden keycap from the accessibility tree can't be
+        // tested (no assistive client under `swift test`). `shortcutKeycap`'s own per-button hint
+        // covers the buttons; this covers the card.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Self.cardSpeech(fileName: row.fileName,
                                             destination: row.destinationLabel,
@@ -775,16 +709,10 @@ struct FilingWalkthroughCard: View {
         .accessibilityHint(Self.keyHintSpeech)
     }
 
-    /// What the walkthrough card tells VoiceOver it is deciding about.
-    ///
-    /// A function with a test rather than an interpolation at the call site, following
-    /// `ReviewCardModel.keyHintSpeech`: the donor's first version of its own hint announced
-    /// "Return copys" on every Copy review, in the one channel the hint exists to serve, and
-    /// nothing on screen showed it.
-    ///
-    /// The destination is part of the label because it is half the decision — "File or skip?"
-    /// cannot be answered from the filename alone — and it falls back to the same wording the
-    /// card draws when a row has no resolved destination, rather than to silence.
+    /// What the walkthrough card tells VoiceOver it is deciding about. A tested function, like
+    /// `ReviewCardModel.keyHintSpeech`, because a wrong spoken string shows nowhere on screen. The
+    /// destination is half the decision, and falls back to the wording the card draws when a row
+    /// has none, rather than to silence.
     static func cardSpeech(fileName: String, destination: String?,
                            position: Int, total: Int) -> String {
         "File \(position) of \(total), \(fileName), to \(destination ?? "its destination")"
@@ -811,15 +739,14 @@ struct FilingWalkthroughCard: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             if isCollision {
-                // A sentence, so it takes the readable ink rather than raw orange (DS2).
+                // A sentence, so it takes the readable ink rather than raw orange.
                 Text("A file with this name is already there — it’ll be kept as a copy.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
                     .multilineTextAlignment(.center)
             }
-            // Inspection before deciding: Quick Look the file or see it in Finder — the same
-            // Preview/Reveal pair Organize's cards offer, since "File or skip?" is exactly the
-            // moment the user needs to check what the file actually is.
+            // Inspection before deciding: Quick Look the file or see it in Finder, the same pair
+            // Organize's cards offer, since "File or skip?" is when the user needs to check it.
             if onQuickLook != nil || onReveal != nil {
                 HStack(spacing: 9) {
                     if let onQuickLook {
@@ -845,15 +772,11 @@ struct FilingWalkthroughCard: View {
 // MARK: - Rule card
 
 /// The echo-suppression decision behind `AutomationRuleCard`'s enable switch, extracted so both
-/// directions can be unit-tested.
-///
-/// The card mirrors `rule.enabled` into local `@State` (the switch needs a plain `Binding`), which
-/// means an EXTERNAL write to `rule.enabled` — an import, a bulk toggle, an undo — flows into
-/// `isEnabled` and out through its `onChange` as if the user had flipped the switch: a
-/// `setAutomationRule` model write the user never made. This is the same `lastApplied` idiom the
-/// launch-at-login toggle uses (`SettingsView.lastAppliedLaunchAtLogin`): remember the last value
-/// set programmatically and let `onChange` skip its echo, while a genuine gesture — which by
-/// definition moves the switch AWAY from the last applied value — still goes through.
+/// directions can be unit-tested. The card mirrors `rule.enabled` into local `@State`, so an
+/// external write (an import, a bulk toggle, an undo) would flow out through `onChange` as a
+/// `setAutomationRule` the user never made. The same `lastApplied` idiom as Settings'
+/// `LoginItemEchoGuard`: remember the last value set programmatically and skip its echo; a real
+/// gesture always moves the switch away from it, so it still goes through.
 struct AutomationToggleEchoGuard {
     /// The last value `isEnabled` is known to hold for a non-gesture reason (init, an external
     /// model write we mirrored, or a user gesture we already forwarded).
@@ -889,22 +812,22 @@ private struct AutomationRuleCard: View {
     let people: [Person]
     let accent: Color
     let canPreview: Bool
-    /// The Preview button's tooltip — names the real blocker when disabled (host computes it,
-    /// since only the host knows whether a provider folder is focused).
+    /// The Preview button's tooltip, naming the real blocker when disabled. The host computes it,
+    /// since only the host knows whether a provider folder is focused.
     let previewHelp: String
-    /// Row measurements per the appearance density setting (D4). Comfortable must render this card
-    /// pixel-identical to the pre-density look.
+    /// Row measurements for the appearance density setting. Comfortable must keep this card's
+    /// original look, pixel for pixel.
     let densityMetrics: ListDensityMetrics
     let onToggle: (Bool) -> Void
     let onPreview: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    /// Mirrors `rule.enabled` so the switch binds to local `@State` (a plain `Binding`) rather than a
-    /// captured closure — the latter trips Swift 6's `@Sendable`-setter check on `Binding(set:)`.
+    /// Mirrors `rule.enabled` so the switch binds to local `@State` rather than a captured
+    /// closure, which trips Swift 6's `@Sendable`-setter check on `Binding(set:)`.
     @State private var isEnabled: Bool
-    /// Tells a user's flip apart from the echo of an external `rule.enabled` write — see
-    /// `AutomationToggleEchoGuard`.
+    /// Tells a user's flip apart from the echo of an external `rule.enabled` write
+    /// (`AutomationToggleEchoGuard`).
     @State private var echoGuard: AutomationToggleEchoGuard
 
     init(rule: AutomationRule, people: [Person], accent: Color, canPreview: Bool, previewHelp: String,
@@ -935,13 +858,13 @@ private struct AutomationRuleCard: View {
                 .labelsHidden()
                 .help(isEnabled ? "Turn this rule off — To File stops suggesting its destination"
                                 : "Turn this rule on — To File suggests its destination for matching files")
-                // labelsHidden leaves VoiceOver announcing a bare switch in a card full of
-                // switches — name whose rule this one enables.
+                // labelsHidden leaves VoiceOver announcing a bare switch in a list of them, so name
+                // whose rule this one enables.
                 .accessibilityLabel("Rule \(rule.name.isEmpty ? "Untitled rule" : rule.name) enabled")
                 .padding(.top, 1)
                 // Forward genuine gestures only: the resync below routes external `rule.enabled`
-                // writes through this same onChange, and echoing those back out as `onToggle`
-                // turned every import/bulk-toggle/undo into a model write the user never made.
+                // writes through this same onChange, and echoing them would turn every import, bulk
+                // toggle or undo into a model write the user never made.
                 .onChange(of: isEnabled) { _, newValue in
                     if echoGuard.shouldForwardSwitchChange(to: newValue) { onToggle(newValue) }
                 }
@@ -952,8 +875,8 @@ private struct AutomationRuleCard: View {
                 }
             VStack(alignment: .leading, spacing: 7) {
                 nameRow
-                // The condition chips are the secondary detail compact hides (D4); the rule's
-                // name and destination pill still say what it is and where it files.
+                // The condition chips are the secondary detail compact hides; the rule's name and
+                // destination pill still say what it is and where it files.
                 if densityMetrics.showsSecondaryDetail { conditionRow }
                 DestinationPill(template: rule.destinationTemplate, accent: accent)
             }
@@ -992,7 +915,7 @@ private struct AutomationRuleCard: View {
                 }
                 ForEach(Array(completeConditions.enumerated()), id: \.offset) { _, condition in
                     // The roster overload: a "Person is" chip reads "Daughter", not the
-                    // `daughter` id the rule stores (LN5).
+                    // `daughter` id the rule stores.
                     ConditionChip(icon: automationConditionIcon(condition),
                                   text: automationConditionChipText(condition, people: people))
                 }
@@ -1023,8 +946,8 @@ private struct AutomationRuleCard: View {
 
 // MARK: - Condition chip & destination pill
 
-/// A single condition rendered as an icon + compact label chip.
-/// Internal (not private) so the snapshot tests can pin its wrapping inside ``FlowLayout``.
+/// A single condition as an icon + compact label chip. Internal so the snapshot tests can pin its
+/// wrapping inside ``FlowLayout``.
 struct ConditionChip: View {
     let icon: String
     let text: String
@@ -1064,13 +987,13 @@ private struct DestinationPill: View {
 // MARK: - Dry-run row
 
 /// One matched file in the dry run: icon, name, what would happen, and a verdict chip.
-/// Right-click offers Preview (Quick Look) / Reveal so a match can be inspected before filing —
-/// the same pair Organize's suggestion cards carry.
+/// Right-click offers Preview (Quick Look) and Reveal, the pair Organize's suggestion cards carry,
+/// so a match can be inspected before filing.
 private struct AutomationDryRunRowView: View {
     let row: AutomationDryRunRow
     let accent: Color
-    /// Row measurements per the appearance density setting (D4). Comfortable must render this row
-    /// pixel-identical to the pre-density look.
+    /// Row measurements for the appearance density setting. Comfortable must keep this row's
+    /// original look, pixel for pixel.
     let densityMetrics: ListDensityMetrics
     var onQuickLook: (() -> Void)? = nil
     var onReveal: (() -> Void)? = nil
@@ -1090,8 +1013,7 @@ private struct AutomationDryRunRowView: View {
         }
         .padding(.horizontal, 14)
         // This row's comfortable padding (9) is smaller than the shared card-row metric (11), so
-        // clamp rather than substitute: comfortable stays exactly 9; compact tightens to the
-        // metric's 6.
+        // clamp rather than substitute: comfortable stays 9, compact tightens to the metric's 6.
         .padding(.vertical, min(9, densityMetrics.cardRowVerticalPadding))
         .lensCard()
         .contentShape(Rectangle())
@@ -1122,9 +1044,9 @@ private struct AutomationDryRunRowView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         case .alreadyThere:
-            // Fully redundant with the "Already there" verdict chip, so it's the one detail line
-            // compact can drop (D4). The "would file" destination and "needs a look" reason stay
-            // in both densities — without them the row loses what would happen / what's wrong.
+            // Redundant with the "Already there" verdict chip, so it's the one detail line compact
+            // can drop. The "would file" destination and "needs a look" reason stay in both
+            // densities, or the row loses what would happen or what's wrong.
             if densityMetrics.showsSecondaryDetail {
                 Text("already in its destination")
                     .scaledFont(.system(size: 11))
@@ -1147,18 +1069,15 @@ private struct AutomationDryRunRowView: View {
 
 // MARK: - Flow layout
 
-/// A minimal wrapping layout: places children left-to-right, breaking to a new line when the next
-/// child won't fit. Used for a rule's condition chips so they wrap inside the card. Each child's
-/// width is clamped to the container's, so one over-wide chip (a long `mentions` phrase) is
-/// proposed the container width — its truncating Text elides — instead of drawing past the card
-/// border. The geometry lives in ``FlowLayoutMath`` so it's testable without Layout subviews.
+/// A minimal wrapping layout: places children left to right, breaking to a new line when the next
+/// won't fit, so a rule's condition chips wrap inside the card. Each child's width is clamped to
+/// the container's, so an over-wide chip (a long `mentions` phrase) truncates instead of drawing
+/// past the card border. The geometry lives in ``FlowLayoutMath`` so it's testable without Layout
+/// subviews.
 ///
-/// **Public because MacApp's Help card needs exactly this and had started writing a third copy.**
-/// There were already two — this one and `Settings.FlowLayout`, written for the person editor's
-/// name chips — and the Help book's related-topic row was an `HStack` that squeezed rather than
-/// wrapped, which is the defect this type exists to prevent. Widening the most complete of the
-/// three beat adding a fourth; `Settings`' remains its own, and folding all of them into `Design`
-/// is a separate change with three modules' tests behind it.
+/// Public because MacApp's Help card wraps its related-topic row with it. `Settings.FlowLayout`
+/// is a separate copy for the person editor's chips; folding the two into `Design` would be its
+/// own change.
 public struct FlowLayout: Layout {
     public var spacing: CGFloat = 6
     public var lineSpacing: CGFloat = 6

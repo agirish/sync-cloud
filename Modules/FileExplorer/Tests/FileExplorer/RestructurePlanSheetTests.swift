@@ -4,9 +4,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.4's sheet rules, tested as the pure text rules they are — the lens's own `cleanTitle` /
-/// `revealTitle` pattern. The derivation itself is `RestructurePlannerTests`' (in Sync); this
-/// suite owns what the sheet SAYS about it.
+/// The plan sheet's rules, tested as the pure text rules they are, like the lens's `cleanTitle` /
+/// `revealTitle`. The derivation itself is `RestructurePlannerTests`' (in Sync); this suite owns
+/// what the sheet says about it.
 @MainActor
 @Suite struct RestructurePlanSheetTests {
 
@@ -19,9 +19,8 @@ import Testing
 
     // MARK: The chooser's labels (§5.4 step 1)
 
-    /// *The most recent* is derived from the members' year tokens, never from scheme order — the
-    /// flagship's own trap: its most recent vouched scheme is the `IRS Docs - 2023/2024` pair,
-    /// which sorts nowhere near first.
+    /// *The most recent* comes from the members' year tokens, never scheme order: a recent scheme
+    /// like the `IRS Docs - 2023/2024` pair can sort nowhere near first.
     @Test func mostRecentComesFromYearTokensNotSchemeOrder() {
         let finding = Self.shapeFinding(schemes: [
             .init(vocabulary: ["forms", "reference"], members: ["2016", "2017", "2018", "2019"]),
@@ -48,9 +47,8 @@ import Testing
                 "a lone scheme is the only choice, not the largest of anything")
     }
 
-    /// When the genuinely newest members are drift, there is no current shape — and saying so is
-    /// the finding, not a failure to produce one (§5.4 step 1). The flagship's 2023–2025 are all
-    /// drift; its newest vouched scheme stops at 2024.
+    /// When the newest members are drift there is no current shape, and saying so is the finding,
+    /// not a failure to produce one.
     @Test func newestMembersBeingDriftMeansNoCurrentShape() {
         let flagshipShaped = Self.shapeFinding(
             schemes: [.init(vocabulary: ["docs"], members: ["IRS Docs - 2023", "IRS Docs - 2024"])],
@@ -78,8 +76,8 @@ import Testing
 
     // MARK: The review list
 
-    /// The sheet groups primitives the way §5.4 words them: a merge is one line per
-    /// source-into-target with its counts, in the order the manifest runs.
+    /// The sheet groups primitives into readable lines: a merge is one line per source-into-target
+    /// with its counts, in the order the manifest runs.
     @Test func operationLinesGroupMergesAndKeepManifestOrder() {
         let family = "Finance/US/Income Tax"
         let manifest = RestructureManifest(
@@ -103,7 +101,7 @@ import Testing
         ])
     }
 
-    /// Each refusal is its own sentence — a person reads why, not that.
+    /// Each refusal is its own sentence: a person reads why, not just that.
     @Test func refusalSentencesAreDistinctAndNonEmpty() {
         let sentences = [
             RestructurePlanSheet.refusalText(.nothingMapped),
@@ -138,7 +136,7 @@ import Testing
         #expect(on.contains("Billed to your API key"))
     }
 
-    /// Declined is a first-class rendered outcome — its row has its own words, not an absence.
+    /// Declined is a rendered outcome: its row has its own words, not an absence.
     @Test func everyVerdictHasItsOwnLine() {
         #expect(RestructurePlanSheet.proposalLine(
             .init(source: "s", verdict: .propose(target: "Forms"), why: "w")) == "→ Forms")
@@ -151,8 +149,8 @@ import Testing
 
     // MARK: The card's trigger (§5.7)
 
-    /// *Plan…* creates; *Review N operations* reopens what exists. The pair never both show —
-    /// one title, switched by whether a draft is saved.
+    /// *Plan…* creates; *Review N operations* reopens what exists. Never both: one title, switched
+    /// by whether a draft is saved.
     @Test func theTriggerOffersReviewOnceADraftExists() {
         #expect(RestructureLens.planTriggerTitle(planned: nil) == "Plan…")
         #expect(RestructureLens.planTriggerTitle(
@@ -165,7 +163,7 @@ import Testing
 
     // MARK: Render smoke
 
-    /// The sheet renders offscreen against a dictionary-backed tree — layout crashes and
+    /// The sheet renders offscreen against a dictionary-backed tree, so layout crashes and
     /// unresolved bindings fail here rather than at first click.
     @Test func theSheetRendersAgainstAFixtureTree() throws {
         let family = "Finance/US/Income Tax"
@@ -195,20 +193,19 @@ import Testing
             tree: tree, profileId: "p",
             accent: .blue, initialRows: nil, onExport: { _, _ in .saved(filename: "f.json") },
             onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 560))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 }
 
-/// §5.4's review section grew a before/after of one member (proposal O3) — the words it puts on
-/// each row, and the choice of which member to draw.
+/// The review section's before/after of one member: the words it puts on each row, and the choice
+/// of which member to draw.
 @MainActor
 @Suite struct RestructureTreePreviewSurfaceTests {
 
-    /// Every fate the rule can produce has words except the one that means "nothing happened" —
-    /// an annotation on every row is an annotation nobody reads.
+    /// Every fate has words except "nothing happened": an annotation on every row is one nobody
+    /// reads.
     @Test func everyFateThatMattersCarriesANote() {
         typealias Fate = RestructurePlanner.RestructurePreview.Fate
         #expect(RestructurePlanSheet.fateNote(.renamedFrom("Federal Tax")) == "was Federal Tax")
@@ -224,15 +221,15 @@ import Testing
                 "an untouched folder says nothing rather than saying \"unchanged\"")
     }
 
-    /// A kept folder's note is the one that has to explain itself: it is there BECAUSE the target
-    /// shape has no slot for it, and "kept" alone reads as a choice the user made.
+    /// A kept folder's note explains itself: it is kept because the target shape has no slot for
+    /// it, and "kept" alone reads as the user's choice.
     @Test func theKeptNoteSaysWhy() {
         let note = try? #require(RestructurePlanSheet.fateNote(.kept))
         #expect(note?.contains("no slot") == true)
     }
 
-    /// The sheet draws the preview from the planner's rule rather than deriving a second answer,
-    /// and it picks a member the plan actually touches — two identical columns teach nothing.
+    /// The sheet draws the preview from the planner's rule rather than a second derivation, and
+    /// picks a member the plan touches: two identical columns teach nothing.
     @Test func theSheetDrawsTheRulesPreviewForATouchedMember() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -247,8 +244,8 @@ import Testing
                 "the sheet asks the rule; a private method could be stubbed to nil unnoticed")
     }
 
-    /// The exemplar is a member the plan TOUCHES, and nil when it touches none — the case that
-    /// draws two identical columns and teaches nothing.
+    /// The exemplar is a member the plan touches, and nil when it touches none, which would draw
+    /// two identical columns.
     @Test func theExemplarIsAMemberThePlanActuallyTouches() {
         let family = "Finance/US/Income Tax"
         let members = ["2013", "2014"]
@@ -310,7 +307,7 @@ import Testing
         return try #require(rep.representation(using: .png, properties: [:]))
     }
 
-    /// The whole sheet renders with the preview present — a layout crash fails here rather than
+    /// The whole sheet renders with the preview present, so a layout crash fails here rather than
     /// on a real family.
     @Test func thePlanSheetRendersWithItsPreview() throws {
         let finding = StructureFinding(
@@ -337,8 +334,7 @@ import Testing
             initialRows: [.init(source: "Federal Tax", target: "Forms"),
                           .init(source: "State Tax", target: "Forms")],
             onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 620))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
@@ -363,10 +359,9 @@ import Testing
             landedOrExported: landedOrExported)
     }
 
-    /// **A draft saved by Export earlier in the same sheet could not be dropped from it.** Opened
-    /// fresh, mapped, exported, then set back to all-keep: the rows matched the seed, so closing
-    /// did nothing, and Discard Plan showed only on a sheet opened on a draft — the draft and its
-    /// card stood over a plan just undone. The export moves the baseline and marks a draft saved.
+    /// A draft saved by Export earlier in the same sheet can be dropped from it. Export moves the
+    /// baseline and marks a draft saved, so setting the rows back to all-keep and closing removes
+    /// the draft rather than leaving it and its card over a plan just undone.
     @Test func aDraftExportedInThisSheetCanBeDroppedFromIt() {
         let allKeep = [RestructureMapping.Row(source: "Federal")]
         let mapped = [RestructureMapping.Row(source: "Federal", target: "Forms")]
@@ -388,8 +383,8 @@ import Testing
                                                 landedOrExported: false) == "Close")
     }
 
-    /// **Esc threw a hand-built mapping away**, because only Export saved the draft. A changed
-    /// mapping that derives a plan is kept when the sheet closes — fresh or opened on a draft.
+    /// A changed mapping that derives a plan is kept when the sheet closes, Esc included, whether
+    /// the sheet opened fresh or on a draft.
     @Test func closingAChangedMappingKeepsItsPlan() {
         #expect(Self.disposition() == .keep(Self.keptPlan))
         #expect(Self.disposition(openedFromDraft: true) == .keep(Self.keptPlan))
@@ -397,20 +392,18 @@ import Testing
         #expect(Self.disposition(vocabularyOnly: true) == .keep(Self.keptPlan))
     }
 
-    /// **Nothing could remove a draft except landing it.** Reopening a saved plan, setting every
-    /// row back to keep and closing left the old draft — and its *Review N operations* card —
-    /// standing. Now that close removes it; on a sheet that opened fresh there is nothing to
-    /// remove.
+    /// Reopening a saved plan, setting every row back to keep and closing removes the draft and its
+    /// *Review N operations* card; a sheet that opened fresh has nothing to remove.
     @Test func closingADraftSetBackToAllKeepRemovesIt() {
         #expect(Self.disposition(plan: .failure(.nothingMapped), openedFromDraft: true) == .discard)
         #expect(Self.disposition(plan: .failure(.nothingMapped), openedFromDraft: false) == .nothing,
                 "a fresh sheet has no draft to remove")
     }
 
-    /// And the closes that must leave the store alone: opened and closed untouched (no *Planned,
-    /// not applied* card for a plan nobody made, and a reopened draft stays as it was), already
-    /// landed or exported (a re-save would drop the export's file name), and a mapping that
-    /// refuses for a reason other than all-keep — a half-finished clash is not a discard.
+    /// The closes that must leave the store alone: untouched (no *Planned, not applied* card for a
+    /// plan nobody made, and a reopened draft stays as it was), already landed or exported (a
+    /// re-save would drop the export's file name), and a mapping refusing for a reason other than
+    /// all-keep (a half-finished clash is not a discard).
     @Test func closingKeepsNothingElse() {
         #expect(Self.disposition(changed: false) == .nothing, "an untouched sheet minted a draft")
         #expect(Self.disposition(changed: false, openedFromDraft: true) == .nothing)
@@ -426,9 +419,9 @@ import Testing
                 "a clashing mapping threw the saved plan away")
     }
 
-    /// **Close silently dropped a clashing edit** to a saved plan, beside Help's promise that
-    /// closing keeps a changed plan. The disposition is right — a clash is not a discard — so the
-    /// footer says so before the click; only the clash on a saved plan gets the sentence.
+    /// Closing drops a clashing edit to a saved plan, which is right (a clash is not a discard)
+    /// but sits beside Help's promise that closing keeps a changed plan, so the footer says so
+    /// before the click. Only a clash on a saved plan gets the sentence.
     @Test func closingAClashingEditToASavedPlanSaysItKeepsTheOldOne() throws {
         let seeded = [RestructureMapping.Row(source: "Federal")]
         let edited = [RestructureMapping.Row(source: "Federal", target: "Forms")]
@@ -457,8 +450,8 @@ import Testing
         #expect(sheet.contains("Text(Self.closeDropsEditSentence)"), "the footer draws it")
     }
 
-    /// **"Cancel" read as a discard** over a close that keeps the plan. Done after a landing;
-    /// Close whenever a plan is or will be kept; Cancel only when closing leaves no trace.
+    /// The close button says what closing does: Done after a landing, Close whenever a plan is or
+    /// will be kept, Cancel only when closing leaves no trace.
     @Test func theCloseButtonSaysWhatClosingDoes() {
         typealias Sheet = RestructurePlanSheet
         let keep = Sheet.CloseDisposition.keep(Self.keptPlan)
@@ -478,7 +471,7 @@ import Testing
                                  landedOrExported: false) == "Cancel")
     }
 
-    /// The rules are the footer's: a rule extracted for testing is one revert away from unused.
+    /// The footer uses the rules: a rule extracted for testing is one revert away from unused.
     @Test func theFooterAndTheHostUseTheCloseRules() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -504,8 +497,8 @@ import Testing
         #expect(host.contains("onDiscardDraft: { store.removeDraft(for: key) }"))
     }
 
-    /// *Discard Plan* paints on a sheet opened from a saved draft. The comparison holds the close
-    /// button's title fixed (both read Close) so the difference is the Discard button alone.
+    /// *Discard Plan* paints on a sheet opened from a saved draft. Both renders' close buttons read
+    /// Close, so the difference is the Discard button alone.
     @Test func discardPlanPaintsOnASheetOpenedFromADraft() throws {
         func render(discard: Bool) throws -> NSBitmapImageRep {
             let finding = StructureFinding(

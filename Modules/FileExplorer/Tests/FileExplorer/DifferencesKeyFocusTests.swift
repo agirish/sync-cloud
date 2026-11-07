@@ -5,21 +5,13 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// The differences list has to take the keyboard when it is clicked, for a reason the panes did not
-/// have: something else already holds it.
+/// The differences list takes the keyboard when clicked, because otherwise a pane's list still
+/// holds it, and ⇧↓ would go on extending the pane's selection while the user watches this list.
 ///
-/// Measured in the app on 2026-09-25, with `PaneListKeyFocus` shipped for the panes and nothing for
-/// this table: clicking a difference left first responder on the LEFT PANE's list, so ⇧↓ went on
-/// extending the pane's selection while the user watched the differences list — `[sel] left list
-/// wrote 2 … 3 … 4 … 5 item(s)` against a table the click had never touched. Keys landing on the
-/// surface you are not looking at is worse than keys doing nothing, which is what the same gesture
-/// did before the panes could take focus at all.
-///
-/// **The click cannot be found by hit-testing.** In the app it reports the window's root hosting
-/// view, with no `NSTableView` in the chain — `[hit] DOWN … | no enclosing table` on a click that
-/// really does select a row. That is what `target(covering:in:)` exists for, and why these tests
-/// assert on it rather than on the hit-test route the pane tests already cover.
-/// A content view whose hit-testing always answers one view, whatever the point — the app's
+/// In the app the click can't be found by hit-testing: it reports the window's root hosting view,
+/// with no `NSTableView` in the chain. So these tests assert on `target(covering:in:)`, not the
+/// hit-test route the pane tests cover.
+/// A content view whose hit-testing always answers one view, whatever the point: the app's
 /// behaviour, staged. See `aHitOutsideItsOwnViewportIsNotBelieved`.
 private final class LyingContent: NSView {
     weak var answer: NSView?
@@ -62,8 +54,8 @@ private final class LyingContent: NSView {
         return (host, window)
     }
 
-    /// The differences table: the window's one MULTI-column table, which is how every other piece
-    /// of this code tells it from a pane list.
+    /// The differences table: the window's one multi-column table, which is how this code tells it
+    /// from a pane list.
     private func differencesTable(in view: NSView) -> NSTableView? {
         PaneListResolver.tables(in: view, multiColumn: true).first
     }
@@ -109,9 +101,8 @@ private final class LyingContent: NSView {
 
     // MARK: The outcome
 
-    /// **The report, end to end, with its own control.** Asserted on the table's OWN selection: the
-    /// view's `selection` is private `@State`, and `selectedRowIndexes` is what AppKit actually did
-    /// with the keystroke either way.
+    /// End to end, with its own control. Asserted on the table's own selection: the view's
+    /// `selection` is private `@State`, and `selectedRowIndexes` is what AppKit did with the key.
     @Test("A click in the differences list gives it the keyboard, and ⇧↓ then extends its selection")
     func clickThenShiftArrowExtends() async {
         guard let (window, table) = await mountedAndRegistered() else { return }
@@ -119,7 +110,7 @@ private final class LyingContent: NSView {
         window.makeFirstResponder(nil)
         #expect(window.firstResponder === window, "the fixture must start with the window holding focus")
 
-        // Control: the app as it is today. The key reaches the window and moves nothing here.
+        // Control: with the window focused, the key moves nothing here.
         window.sendEvent(key(125, shift: true, in: window))
         _ = await LayoutPumpWait.pump(window, upTo: 2) { table.selectedRowIndexes.count > 1 }
         #expect(table.selectedRowIndexes == IndexSet([2]),
@@ -134,8 +125,8 @@ private final class LyingContent: NSView {
                 "⇧↓ after the click should select two rows (\(extended.pumps) pumps, got \(table.selectedRowIndexes.map { $0 }))")
     }
 
-    /// The call site: mounting the real view registers its table. Without this the rule above is a
-    /// function nothing calls.
+    /// The call site: mounting the real view registers its table, or the rule above is a function
+    /// nothing calls.
     @Test("Mounting the differences view registers its table for key focus")
     func theViewRegistersItsTable() async {
         guard let (_, table) = await mountedAndRegistered() else { return }
@@ -145,9 +136,8 @@ private final class LyingContent: NSView {
 
     // MARK: The frame route
 
-    /// The property the app needs: the table is found from the click's POINT, with no reliance on
-    /// hit-testing reaching it. Prints what hit-testing manages here, because the test window and
-    /// the app disagree about that and a reader will want to know which they are looking at.
+    /// The table is found from the click's point, without relying on hit-testing. Prints what
+    /// hit-testing manages here, because the test window and the app disagree about it.
     @Test("The differences list is found by the point a click lands on")
     func foundByFrame() async {
         guard let (window, table) = await mountedAndRegistered() else { return }
@@ -164,12 +154,9 @@ private final class LyingContent: NSView {
         #expect(PaneListKeyFocus.target(covering: outside, in: window) == nil)
     }
 
-    /// **The app's actual condition, staged.** In the app the click's hit view is the window's root
-    /// hosting view with no table above it, so the hit route returns nothing and the claim has to
-    /// come from the point alone. Here an opaque overlay over the table produces the same shape —
-    /// a hit view that is not in any table — which is what makes this the one test that fails if the
-    /// frame route is removed. The end-to-end test above cannot: hit-testing reaches the table in a
-    /// test window (it prints which route it took), so it passes either way.
+    /// The app's condition, staged: the hit view is in no table, so the claim must come from the
+    /// point alone. An overlay over the table gives that shape, making this the one test that fails
+    /// if the frame route is removed; in a plain test window hit-testing reaches the table.
     @Test("A click whose hit view is not in any table still gives the list the keyboard")
     func claimSurvivesHitTestingThatCannotSeeTheTable() async {
         guard let (window, table) = await mountedAndRegistered() else { return }
@@ -190,10 +177,9 @@ private final class LyingContent: NSView {
                 "with hit-testing blind, the point alone must still find the list")
     }
 
-    /// The call site for the normalizer: mounting the real view puts one on its table. This is the
-    /// half that has no other proof — the harness cannot show that a recognizer is NEEDED, because
-    /// in a test window these clicks reach the event stream perfectly well. That necessity was
-    /// measured in the app by adding, removing and re-adding it; this only pins that it is there.
+    /// Mounting the real view puts a click normalizer on its table. A test window can't show the
+    /// normalizer is needed, since clicks reach the event stream fine there; this only pins that it
+    /// is installed.
     @Test("Mounting the differences view puts a click normalizer on its table")
     func theViewInstallsAClickNormalizer() async {
         guard let (_, table) = await mountedAndRegistered() else { return }
@@ -202,8 +188,8 @@ private final class LyingContent: NSView {
                 "want exactly one normalizer, found \(normalizers.count) among \(table.gestureRecognizers.count) recognizers")
     }
 
-    /// It observes and never recognizes: a recognizer that claimed the click would make the rows
-    /// dead to selection, the failure `PaneBackgroundDeselect` documents for its own.
+    /// It observes and never recognizes: claiming the click would make the rows dead to selection,
+    /// the failure `PaneBackgroundDeselect` documents for its own.
     @Test("The normalizer never consumes the click")
     func theNormalizerNeverRecognizes() async {
         guard let (window, table) = await mountedAndRegistered() else { return }
@@ -214,10 +200,9 @@ private final class LyingContent: NSView {
                                              shouldAttemptToRecognizeWith: mouseUp(onRow: 2, of: table, in: window)) == false)
     }
 
-    /// **The defect that made this positional.** A pane's table answers hit-tests for points well
-    /// outside its own viewport, so a click on the differences list's top rows resolved to a pane
-    /// row and the keys went there. Staged with two registered lists whose viewports do not
-    /// overlap: the click's POINT is in the lower one, its HIT VIEW is in the upper one.
+    /// Why the claim is positional: a pane's table answers hit-tests for points well outside its own
+    /// viewport, so a click on the differences list's top rows could resolve to a pane row. Staged
+    /// with two lists whose viewports don't overlap: the point is in the lower, the hit in the upper.
     @Test("A hit-test answer is ignored when the click is outside that list's viewport")
     func aHitOutsideItsOwnViewportIsNotBelieved() async {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600),
@@ -235,10 +220,8 @@ private final class LyingContent: NSView {
         let upper = list(at: NSRect(x: 0, y: 400, width: 400, height: 200))
         let lower = list(at: NSRect(x: 0, y: 0, width: 400, height: 360))
         window.contentView?.layoutSubtreeIfNeeded()
-        // **Hit-testing has to lie, because that is the defect.** In the app the pane's table
-        // answers for points outside its own viewport; a plain test window never would, so the
-        // content view is replaced by one that always answers `upper` — and without that, this
-        // test passes with the validation deleted (measured: the first version did exactly that).
+        // Hit-testing has to lie, as it does in the app. A plain test window never would, so the
+        // content view always answers `upper`; without it, this passes with the validation deleted.
         let liar = LyingContent(frame: window.contentView!.bounds)
         for view in window.contentView!.subviews { liar.addSubview(view) }
         liar.answer = upper
@@ -251,8 +234,8 @@ private final class LyingContent: NSView {
         #expect(PaneListKeyFocus.visibleRect(of: lower).contains(point))
         #expect(!PaneListKeyFocus.visibleRect(of: upper).contains(point),
                 "the fixture needs viewports that do not overlap")
-        // The control that makes this test capable of failing: hit-testing at the click's own
-        // point resolves INTO the upper list, which is what the validation has to overrule.
+        // The control that lets this fail: hit-testing at the click's point resolves into the
+        // upper list, which the validation must overrule.
         let hit = liar.hitTest(liar.convert(point, from: nil))
         #expect(PaneListKeyFocus.target(forHit: hit) === upper,
                 "the staged hit-test must answer `upper`, or the validation is never exercised")
@@ -269,9 +252,8 @@ private final class LyingContent: NSView {
 
     // MARK: The normalizer's lifetime
 
-    /// **A rebuild must not stack recognizers.** SwiftUI recreates the styler that holds the
-    /// normalizer, and the first version installed one per instance — each outliving the object
-    /// whose delegate call refuses it, on a table that keeps them all.
+    /// A rebuild must not stack recognizers: SwiftUI recreates the styler that installs the
+    /// normalizer, and the table would keep one per instance.
     @Test("Installing a normalizer twice leaves one recognizer, not two")
     func installIsIdempotent() async {
         guard let (_, table) = await mountedAndRegistered() else { return }
@@ -283,10 +265,9 @@ private final class LyingContent: NSView {
         #expect(second === first, "the second install should adopt the recognizer already there")
     }
 
-    /// **The retain that closes the orphan hazard.** The recognizer's `delegate` is weak and its
-    /// `target` unowned, so nothing but this association keeps the normalizer alive — and a
-    /// recognizer whose delegate has gone stops being refused, begins recognizing clicks, and sends
-    /// its action to freed memory. Dropping every reference the test holds must not collect it.
+    /// The recognizer's `delegate` is weak and its `target` unowned, so only this association
+    /// keeps the normalizer alive. A recognizer whose delegate has gone stops being refused,
+    /// recognizes clicks, and sends its action to freed memory.
     @Test("The recognizer keeps its normalizer alive on its own")
     func theRecognizerOwnsItsNormalizer() {
         let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
@@ -302,9 +283,8 @@ private final class LyingContent: NSView {
         #expect(recognizer?.delegate != nil, "a nil delegate is exactly the orphan this guards against")
     }
 
-    /// The recognizer stays with the TABLE across a styler that comes and goes — the opposite of
-    /// what an earlier version did, where the styler leaving the window took the recognizer with it
-    /// and left a mounted list carrying none (measured, and the reason ownership moved).
+    /// The recognizer stays with the table across a styler that comes and goes; if the styler took
+    /// it on leaving the window, a mounted list would be left carrying none.
     @Test("A styler leaving the window leaves the list's recognizer in place")
     func leavingTheWindowKeepsTheRecognizer() async {
         guard let (window, table) = await mountedAndRegistered() else { return }
@@ -328,8 +308,8 @@ private final class LyingContent: NSView {
         window.contentView?.layoutSubtreeIfNeeded()
         #expect(bare.enclosingScrollView == nil, "the fixture needs a table with no scroll view")
 
-        // A table with no columns shrinks to fit its content, so the point comes FROM the rect
-        // rather than from the frame it was created with (measured: it resized to 20x15).
+        // A table with no columns shrinks to fit its content, so the point comes from the rect, not
+        // the frame it was created with.
         let rect = PaneListKeyFocus.visibleRect(of: bare)
         #expect(!rect.isEmpty, "an empty rect would make this list unclaimable by either route")
         #expect(rect == bare.convert(bare.bounds, to: nil), "got \(NSStringFromRect(rect))")
@@ -338,8 +318,8 @@ private final class LyingContent: NSView {
         #expect(PaneListKeyFocus.target(covering: NSPoint(x: rect.midX, y: rect.midY), in: window) === bare)
     }
 
-    /// A table nobody registered is invisible to the frame route too — otherwise every `NSTableView`
-    /// in the window would take the keyboard, the review queue included.
+    /// A table nobody registered is invisible to the frame route too, or every `NSTableView` in the
+    /// window would take the keyboard, the review queue included.
     @Test("The frame route ignores a table that never registered")
     func frameRouteIgnoresUnregistered() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
@@ -359,9 +339,9 @@ private final class LyingContent: NSView {
                 "control: the same point finds it once registered, so the refusal above was the registry")
     }
 
-    /// **The refusal, driven through the door the app uses.** The rule alone is not enough: a
-    /// `noteMouseUp` that never consults it would leave the rule green and still take the keys off
-    /// a caret. The field sits OVER a registered table, so the frame route would otherwise claim it.
+    /// The field refusal, through the entry point the app uses: a `noteClick` that never consults
+    /// the rule would take the keys off a caret. The field sits over a registered table, so the
+    /// frame route would otherwise claim it.
     @Test("A click into a field over the list does not take the list's keyboard")
     func noteMouseUpRefusesAClickInAField() async {
         guard let (window, table) = await mountedAndRegistered() else { return }
@@ -381,13 +361,9 @@ private final class LyingContent: NSView {
                 "a click that put a caret in a field must leave the keys with the field")
     }
 
-    /// The frame route asks what is VISIBLE, not how tall the table is. A list is as tall as its
-    /// rows, so a long table's own frame reaches far outside its scroll view — and a click out
-    /// there, on whatever else is in the window, would otherwise be claimed by it.
-    ///
-    /// The rows are what make this measurable: a document view is sized by its content, so an
-    /// empty table shrinks to fit its viewport and the two rects coincide (measured — the first
-    /// version of this test staged nothing and let the mutation live).
+    /// The frame route asks what is visible, not how tall the table is: a long table's frame
+    /// reaches far outside its scroll view, and would claim clicks on whatever else is there. The
+    /// rows make this measurable; an empty table shrinks to its viewport and the rects coincide.
     @Test("A click outside a long list's visible area is not claimed by it")
     func frameRouteAsksTheVisibleArea() {
         final class Rows: NSObject, NSTableViewDataSource {
@@ -418,7 +394,7 @@ private final class LyingContent: NSView {
         #expect(PaneListKeyFocus.target(covering: insideVisible, in: window) === table,
                 "control: a point inside the viewport is the list's")
 
-        // Inside the TABLE's frame, outside its viewport: the mutation's point of view versus this one.
+        // Inside the table's frame but outside its viewport: a frame-based route would claim it.
         let outside = NSPoint(x: visible.midX, y: visible.minY - 100)
         #expect(whole.contains(outside) && !visible.contains(outside),
                 "the fixture needs a point in the table's frame but outside the viewport (table \(whole), viewport \(visible))")
@@ -426,8 +402,8 @@ private final class LyingContent: NSView {
                 "a click outside the list's viewport is not a click in the list")
     }
 
-    /// A caret keeps its click on BOTH routes. The field is outside any table here, which is the
-    /// case the frame route would otherwise claim for whatever list sits under the point.
+    /// A caret keeps its click on both routes. The field is outside any table here, the case the
+    /// frame route would otherwise claim for whatever list sits under the point.
     @Test("A click that puts a caret in a field is refused before either route")
     func aCaretKeepsItsClick() {
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 22))

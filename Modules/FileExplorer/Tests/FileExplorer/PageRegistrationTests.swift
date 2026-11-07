@@ -3,12 +3,10 @@ import Foundation
 import CoreGraphics
 @testable import FileExplorer
 
-/// **Does the estimator recover a transform it was given?** That is the only question worth asking
-/// of a "best effort" alignment, and it is asked here on synthetic pairs where the answer is known
-/// exactly — a page rendered once, then re-rendered shifted and skewed by amounts this file chose.
-///
-/// A test over real scans could only ever say "the number looked plausible". These say "we moved it
-/// by 1.25° and 6px, and the estimate came back within a quarter degree and a pixel" — or they fail.
+/// Does the estimator recover a transform it was given? Asked on synthetic pairs where the answer
+/// is known exactly: a page rendered once, then re-rendered shifted and skewed by amounts this file
+/// chose. A test over real scans could only say the number looked plausible; these say how close
+/// the estimate came, or fail.
 @Suite struct PageRegistrationTests {
 
     typealias Grid = PageRegistrationEstimator.Grid
@@ -24,8 +22,8 @@ import CoreGraphics
                 }
             }
         }
-        // A block of "text" lines, a heading, and a rule down one side — scaled to the grid so
-        // the fixture keeps its proportions if the working resolution moves again.
+        // A block of "text" lines, a heading, and a rule down one side, scaled to the grid so the
+        // fixture keeps its proportions if the working resolution changes.
         let u = width / 96
         fill(14 * u, 10 * u, 50 * u, 4 * u, 0.15)
         for line in 0..<9 { fill(14 * u, (24 + line * 8) * u, 62 * u, 3 * u, 0.25) }
@@ -61,14 +59,10 @@ import CoreGraphics
     func itRecoversATranslation(_ offset: (dx: Double, dy: Double)) {
         let a = page()
         let b = transformed(a, degrees: 0, dx: offset.dx, dy: offset.dy)
-        // `b` is `a` moved by (dx, dy); to bring `b` back onto `a` the estimate must be the SAME
-        // sign, because `error` applies it to `b` with the same inverse mapping `transformed` used.
         let got = PageRegistrationEstimator.estimate(a, b, scale: 1)
 
-        // **The estimate is the CORRECTION, so it is the negative of the movement.** `b` is `a`
-        // moved by (dx, dy); what brings `b` back onto `a` is (-dx, -dy), and that is what a warp
-        // needs to be handed. Measured both ways before this was written down: every magnitude
-        // came back exact and every sign inverted, which is a convention rather than a defect.
+        // The estimate is the correction, so it is the negative of the movement: `b` is `a` moved
+        // by (dx, dy), and what brings it back onto `a` is (-dx, -dy), which a warp needs.
         #expect(abs(got.dx - (-offset.dx)) <= 1,
                 "dx came back \(got.dx); correcting a page moved \(offset.dx) needs \(-offset.dx)")
         #expect(abs(got.dy - (-offset.dy)) <= 1,
@@ -94,9 +88,8 @@ import CoreGraphics
         let a = page()
         let b = transformed(a, degrees: 1.0, dx: 5, dy: -3)
         let got = PageRegistrationEstimator.estimate(a, b, scale: 1)
-        // Measured when this was written: the recovered transform reaches the SAME residual as
-        // the exact inverse (0.0124 against a 0.1315 baseline), so the search is not merely close
-        // — it lands on the answer.
+        // The recovered transform must reach the exact inverse's residual, so the search lands on
+        // the answer, not merely near it.
         let residual = PageRegistrationEstimator.error(a, b, degrees: got.degrees,
                                                        dx: got.dx, dy: got.dy, inset: 21)
         let ideal = PageRegistrationEstimator.error(a, b, degrees: -1.0, dx: -5, dy: 3, inset: 21)
@@ -111,8 +104,8 @@ import CoreGraphics
 
     // MARK: What it refuses
 
-    /// **An identical pair must claim nothing.** Reporting an alignment here would move a page that
-    /// was already aligned, and the diff would then glow along every edge it shifted.
+    /// An identical pair must claim nothing: an alignment here would move a page that was already
+    /// aligned, and the diff would glow along every edge it shifted.
     @Test func anIdenticalPairIsNotWorthAligning() {
         let a = page()
         let got = PageRegistrationEstimator.estimate(a, a, scale: 1)
@@ -120,9 +113,9 @@ import CoreGraphics
                 "an identical pair claimed an alignment (\(got.degrees)°, \(got.dx), \(got.dy), confidence \(got.confidence))")
     }
 
-    /// **Two genuinely different pages must not be forced into agreement.** This is the failure the
-    /// confidence floor exists for: a search always returns its best candidate, and "best" over two
-    /// unrelated pages is still meaningless.
+    /// Two different pages must not be forced into agreement. A search always returns its best
+    /// candidate, and "best" over two unrelated pages is meaningless; the confidence floor stops
+    /// it.
     @Test func twoDifferentPagesReportLowConfidence() {
         let a = page()
         var other = [Double](repeating: 1, count: 256 * 331)
@@ -137,9 +130,8 @@ import CoreGraphics
 
     // MARK: What it says
 
-    /// **The caption never claims a correction too small to see.** A search over two already-aligned
-    /// pages returns hundredths of a degree and sub-pixel shifts; captioning those would put a
-    /// finding on screen where there is none.
+    /// The caption never claims a correction too small to see: two aligned pages search out to
+    /// hundredths of a degree and sub-pixel shifts, which are not a finding.
     @Test func aNegligibleCorrectionSaysNothing() {
         #expect(PageRegistration(degrees: 0.01, dx: 0.2, dy: -0.4, confidence: 0.9).caption == nil)
         #expect(PageRegistration.none.caption == nil)
@@ -189,10 +181,9 @@ import CoreGraphics
         #expect(light > grid.samples.count / 3, "the paper half did not read as light (\(light) samples)")
     }
 
-    /// **The refusal reaches the comparison, not just the estimate.** `isUsable` being false is
-    /// only half a promise: what matters is that `compareAligning` then compares the pages AS THEY
-    /// ARE and reports no registration, so nothing downstream captions an alignment that was
-    /// declined.
+    /// The refusal reaches the comparison, not just the estimate: `compareAligning` compares the
+    /// pages as they are and reports no registration, so nothing downstream captions a declined
+    /// alignment.
     @Test func aPairItWillNotAlignIsComparedUnchanged() throws {
         func image(_ draw: (CGContext) -> Void) throws -> CGImage {
             let ctx = try #require(CGContext(data: nil, width: 128, height: 160,
@@ -218,23 +209,15 @@ import CoreGraphics
                 "the declined alignment still changed what was compared")
     }
 
-    /// **The glow and the outlines are one arithmetic, on every path out of `compareAligning`.**
-    /// It used to walk the aligned pair for the numbers and the UNALIGNED pair for the picture, so
-    /// a de-skewed page was outlined from one comparison and lit from another. The invariant is
-    /// stated in the only terms that cannot drift: the picture IS the per-channel distance, so
-    /// counting the pixels in it that clear ``BitmapDiff/tolerance`` must reproduce
-    /// `changedFraction` exactly.
+    /// The glow and the outlines come from one comparison on every path out of `compareAligning`.
+    /// The picture is the per-channel distance, so counting its pixels that clear
+    /// ``BitmapDiff/tolerance`` must reproduce `changedFraction` exactly. Fails if the picture is
+    /// drawn from the unaligned pair while the figures come from the aligned one.
     ///
-    /// **All three returns, because the aligned one is the RARE one.** The estimator refuses most
-    /// real pairs, so the fallback is what a reader usually gets, and pinning only the aligned path
-    /// would leave the common case uncovered.
-    ///
-    /// **Two guards, and they are what stop this going vacuous.** Each case has to take the branch
-    /// it is named for — a change that quietly stopped aligning anything would otherwise turn the
-    /// whole test green — and on the aligned case the unaligned picture has to actually disagree,
-    /// or the fixture could not tell the old behaviour from the new. Measured when this was
-    /// written: the old shape put 0.068 of ink on screen against a reported 0.029, and this test
-    /// fails on it by that margin.
+    /// Covers all three returns, since the estimator refuses most real pairs and the fallback is
+    /// what a reader usually gets. Two guards keep it from going vacuous: each case must take the
+    /// branch it is named for, and on the aligned case the unaligned picture must actually
+    /// disagree.
     @Test func thePictureAndTheFigureAreOfTheSamePair() throws {
         let left = try barPage(edited: false)
 
@@ -281,12 +264,9 @@ import CoreGraphics
         }
     }
 
-    /// **A caller that did not ask for the picture must not be given one.** The difference raster is
-    /// a third full-page image — ~13 MB at the size the sheet compares at — and the swipe and onion
-    /// modes never draw it; `CompareCopiesSheet.wantsAlignedDifference` exists to keep them from
-    /// paying for it. Nothing asserted that `compareAligning` honours the flag on the ALIGNED path,
-    /// so a stray `true` there would have cost that raster silently, in the one mode that also pays
-    /// for the estimator.
+    /// A caller that didn't ask for the picture must not get one on the aligned path. The
+    /// difference raster is a third full-page image (~13 MB at the sheet's size) that the swipe and
+    /// onion modes never draw; `CompareCopiesSheet.wantsAlignedDifference` exists to spare them it.
     @Test func askingForNoPictureOnAnAlignedPairAllocatesNone() throws {
         let left = try barPage(edited: false)
         let right = try skewed(barPage(edited: true), degrees: -1.0)

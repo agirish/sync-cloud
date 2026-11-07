@@ -2,22 +2,16 @@ import AppKit
 import Design
 import SwiftUI
 
-/// The read-only side-by-side text diff.
-///
-/// **Read-only, deliberately, and this is the one that answers ROADMAP §11.** The Compare
-/// workspace has been asking for exactly this pane — "for a selected pair in the Differences
-/// list… a read-only side-by-side or unified diff" — and it is the same component, because the
-/// question is the same one: what is different between these two files. Nothing here can write.
+/// The read-only side-by-side text diff of two files. Nothing here can write.
 struct TextPairDiffView: View {
 
     let diff: TextPairDiff
-    /// A line above the rows when something about the files, rather than their content, differs —
-    /// mixed line endings, a lossy decode. Absent when there is nothing to say.
+    /// Lines above the rows when something about the files, not their content, differs: mixed
+    /// line endings, a lossy decode. Empty when there is nothing to say.
     let notes: [String]
     let accent: Color
 
-    /// The region ↑/↓ last stepped to, or nil while nothing has been stepped to yet — the pane is
-    /// then showing the top of the file rather than any change. See
+    /// The region ↑/↓ last stepped to, or nil while the pane still shows the top of the file. See
     /// ``TextPairDiff/steppedRegion(from:direction:count:)``.
     @Binding var focusedRegion: Int?
 
@@ -37,12 +31,9 @@ struct TextPairDiffView: View {
                     }
                     .padding(.vertical, 4)
                 }
-                // **No animation, and none suppressed either.** `proxy.scrollTo` outside a
-                // transaction does not animate, so a `withAnimation(nil)` wrapper here would be a
-                // motion site that has to be classified in `WithAnimationCoverageScanTests` while
-                // doing nothing — the scan is right to ask, and the honest answer is to not write
-                // one. Stepping to a change should land instantly: a reader pressing ↓ four times
-                // must not wait out four scrolls.
+                // No animation, and no `withAnimation(nil)`: `proxy.scrollTo` outside a
+                // transaction doesn't animate, so a wrapper would only be a site for
+                // `WithAnimationCoverageScanTests` to classify. Steps land instantly.
                 .onChange(of: focusedRegion) { _, index in
                     guard let index, diff.regions.indices.contains(index) else { return }
                     proxy.scrollTo(diff.regions[index].lowerBound, anchor: .center)
@@ -59,11 +50,9 @@ struct TextPairDiffView: View {
                     .foregroundStyle(diff.isIdentical ? Color.secondary : Color.primary)
                 Spacer(minLength: 8)
                 if !diff.regions.isEmpty {
-                    // **Drawn at rest, invisibly.** The counter says nothing until a change has
-                    // been stepped to — "1 of 5" would name a change the pane has not scrolled to,
-                    // and the summary beside it already carries the count. Hiding it with
-                    // `opacity` rather than an `if` keeps its width in the bar, so the stepper
-                    // does not jump sideways under the reader's cursor on the first press.
+                    // Invisible until a change is stepped to, since "1 of 5" would name one not
+                    // scrolled to. `opacity`, not `if`, keeps its width so the stepper doesn't
+                    // jump on the first press.
                     Text("\(min((focusedRegion ?? 0) + 1, diff.regions.count)) of \(diff.regions.count)")
                         .scaledFont(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -96,9 +85,7 @@ struct TextPairDiffView: View {
         .controlSize(.small)
     }
 
-    /// Wraps around, both ways. A stepper that stops at the last change leaves the reader to
-    /// scroll back to the first by hand — and the count beside it already says where they are, so
-    /// wrapping cannot be mistaken for "nothing happened". The rule itself is
+    /// Wraps around both ways; the count beside it shows where the reader is. The rule is
     /// ``TextPairDiff/steppedRegion(from:direction:count:)``, shared with the ↑/↓ keys.
     private func step(_ direction: Int) {
         focusedRegion = TextPairDiff.steppedRegion(from: focusedRegion, direction: direction,
@@ -133,12 +120,8 @@ struct TextPairDiffView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The line, with its changed runs picked out.
-    ///
-    /// **Built by concatenating `Text`s, which is a single laid-out string** — not an `HStack` of
-    /// them. An HStack cannot wrap or truncate as one line: each run would be its own view, so a
-    /// long line would push the row and the stack would wrap between runs at arbitrary points.
-    /// That is the same trap the duplicates card's breadcrumb was rebuilt to avoid.
+    /// The line, with its changed runs picked out. Concatenated `Text`s, one laid-out string, not
+    /// an `HStack`, which would push the row on a long line and wrap between runs at random.
     @ViewBuilder
     private func lineText(_ text: String?, segments: [TextPairDiff.Segment]?) -> some View {
         if let segments, !segments.isEmpty {
@@ -155,8 +138,8 @@ struct TextPairDiffView: View {
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
         } else {
-            // No line on this side at all — a marker, not an empty cell, so the reader can see
-            // that the file simply ends (or has not started) here rather than holding a blank.
+            // No line on this side: a marker, not an empty cell, so it can't be read as a blank
+            // line.
             Text("—")
                 .scaledFont(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(.quaternary)
@@ -168,11 +151,9 @@ struct TextPairDiffView: View {
     /// The line numbers' size at the default text size.
     static let gutterPointSize: CGFloat = 10
 
-    /// **The line-number column, as wide as the largest number at the text size drawn** (TE134).
-    /// It was a fixed 34pt, which a five-digit number overran at Large and Largest and a seven-digit
-    /// one at every size, so a long file's numbers were cut. At least three digits wide, so a short
-    /// file's column does not shrink to almost nothing; the numbers are monospaced, so one digit's
-    /// width times the count is the width, plus a point for rounding.
+    /// The line-number column, as wide as the largest number at the drawn text size, so a long
+    /// file's numbers are never cut. At least three digits wide; monospaced, so one digit's width
+    /// times the count, plus a point for rounding.
     static func gutterWidth(largestNumber: Int, scale: CGFloat) -> CGFloat {
         let size = FontSize.scaledPointSize(gutterPointSize, scale: scale)
         let font = NSFont.checkedMonospacedSystemFont(ofSize: size, weight: .regular)
@@ -183,28 +164,16 @@ struct TextPairDiffView: View {
 
     // MARK: How much of a line is drawn
 
-    /// The most characters one side of one row will lay out.
-    ///
-    /// **A row whose word pass was refused is drawn whole, and "whole" has no upper bound.** The
-    /// budget in ``TextPairDiff/maxIntraLineWork`` declines to compare a 4 MiB single-line file word
-    /// by word — minified JavaScript, JSON saved on one line, a log whose writer never flushed —
-    /// and then hands the row's text straight to a `Text` with `.textSelection(.enabled)` on it.
-    /// Refusing the diff and then laying out millions of glyphs in a lazy cell spends the cost the
-    /// refusal was there to avoid, in the layout engine instead of in the diff.
-    ///
-    /// 4,000 characters is far more than any line a person reads and about forty screen-widths of
-    /// the pane, so nothing an ordinary diff draws is touched.
+    /// The most characters one side of one row will lay out. A row whose word pass was refused
+    /// (``TextPairDiff/maxIntraLineWork``) is drawn whole, and laying out a 4 MiB line would spend
+    /// in layout the cost the refusal avoided. 4,000 is far past any line a person reads.
     static let maxRenderedCharacters = 4_000
 
-    /// The line as the pane will draw it: itself, or its head with a note saying what was left off.
+    /// The line as the pane will draw it: itself, or its head with a note saying how much was left
+    /// off, since a bare ellipsis reads as the line's end.
     ///
-    /// **How much is left off is stated, rather than an ellipsis left to imply it.** A truncated
-    /// line that only trails off reads as the end of the file's line; a reader comparing two copies
-    /// has to be able to tell that there is more, and roughly how much.
-    ///
-    /// **Measured in BYTES, and asked of `utf8`, because that count is free.** `String.count` walks
-    /// the whole string for grapheme breaks — on the 4 MiB line this exists for, that is the cost
-    /// being avoided, paid once per render of the row instead of once per diff.
+    /// Measured in UTF-8 bytes, which is free; `String.count` walks the whole line for grapheme
+    /// breaks on every render.
     static func rendered(_ text: String) -> String {
         guard text.utf8.count > maxRenderedCharacters else { return text.isEmpty ? " " : text }
         let head = String(text.prefix(maxRenderedCharacters))
@@ -216,16 +185,11 @@ struct TextPairDiffView: View {
 
     // MARK: Tints
 
-    /// **The row's meaning is carried by its position and its line numbers, and only reinforced by
-    /// colour.** A removed row has a left line number and no right one; an added row the reverse.
-    /// That is what a reader who cannot separate the two tints reads it by.
+    /// The row's ground tint. Meaning is carried by position and line numbers (a removed row has
+    /// only a left number, an added row only a right one), and colour only reinforces it.
     ///
-    /// The row's ground is the only place colour is spent. There were per-side text tints here too
-    /// — red on a removed line, green on an added one — computed, threaded through two functions,
-    /// and never applied: `lineText` paints from the segments and the row's presence, and took the
-    /// colour only to drop it. Deleted rather than wired up, because the ground already carries the
-    /// same distinction and a second, stronger statement of it would fight the intra-line
-    /// highlight, which is the one thing on the row that has to stand out.
+    /// The ground is the only place colour is spent: tinted text would fight the intra-line
+    /// highlight, which is what has to stand out.
     private func tintRow(_ kind: TextPairDiff.RowKind) -> Color {
         switch kind {
         case .same: return .clear

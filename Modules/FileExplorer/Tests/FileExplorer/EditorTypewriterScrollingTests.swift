@@ -4,13 +4,13 @@ import SwiftUI
 import AppKit
 @testable import FileExplorer
 
-/// Typewriter scrolling (TE62): with Text ▸ Typewriter Scrolling on, a keyboard move of Source's
-/// caret holds its line at mid-height; a click, a selection and an input method scroll as AppKit
-/// always has, and off is AppKit's own throughout.
+/// Typewriter scrolling: with Text ▸ Typewriter Scrolling on, a keyboard move of Source's caret
+/// holds its line at mid-height; a click, a selection and an input method scroll as AppKit always
+/// has, and off is AppKit's own throughout.
 ///
-/// **Every assertion is against the off control or a literal**, never the rule against itself: a
-/// caret brought into view by AppKit lands at the screen's edge, a centred one at its middle, and
-/// the gap between them is many lines.
+/// Every assertion is against the off control or a literal, never the rule against itself: a caret
+/// brought into view by AppKit lands at the screen's edge, a centred one at its middle, and the gap
+/// between them is many lines.
 @MainActor
 @Suite(.serialized) struct EditorTypewriterScrollingTests {
 
@@ -18,7 +18,7 @@ import AppKit
 
     // MARK: The setting
 
-    /// **Off by default**, on its own key: nobody's editor starts moving under them on upgrade.
+    /// Off by default, on its own key, so nobody's editor starts moving under them on upgrade.
     @Test func theSwitchIsOffByDefault() {
         #expect(EditorTextSettings.typewriterScrollingDefault == false)
         #expect(EditorTextSettings.typewriterScrollingKey == "editorTypewriterScrolling")
@@ -44,8 +44,8 @@ import AppKit
         view.textContainerInset = EditorReadableColumn.baseInset
         view.string = text ?? (1...400).map { "line \($0)" }.joined(separator: "\n")
         PlainTextEditor.applyWrapping(true, to: view, in: scroll)
-        // The caret at the top, as a fresh editor's is after `restoreCaret` — so turning the switch
-        // on below centres nothing, and the on and off rigs start alike.
+        // The caret at the top, as a fresh editor's is after `restoreCaret`, so turning the switch
+        // on below centres nothing and the on and off rigs start alike.
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.typewriterScrolling = on
         window.makeFirstResponder(view)
@@ -70,10 +70,10 @@ import AppKit
     }
 
     /// Where the caret's line sits on screen: its centre's distance from the top of the clip, as a
-    /// share of the clip's height — 0.5 is centred.
+    /// share of the clip's height (0.5 is centred).
     ///
-    /// **Measured by AppKit's `firstRect`, not by ``EditorTextView/caretRect(at:)``**, which is the
-    /// rule's own measure: asked of the rule, a wrong row would be centred and measured centred.
+    /// Measured by AppKit's `firstRect`, not by ``EditorTextView/caretRect(at:)``, the rule's own
+    /// measure: asked of the rule, a wrong row would be centred and measured centred.
     private func caretShare(_ rig: (window: NSWindow, scroll: EditorDocumentScrollView, view: EditorTextView)) throws -> CGFloat {
         let caret = try caretRectByAppKit(rig.view, at: rig.view.selectedRange().location)
         let bounds = rig.scroll.contentView.bounds
@@ -108,9 +108,9 @@ import AppKit
         return NSRange(location: line.location, length: 0)
     }
 
-    /// **On, a caret low on the screen comes up to the middle; off, AppKit leaves a visible caret
-    /// where it is** — the control that makes the first worth anything. (A caret OFF the screen
-    /// is no control: TextKit 2's own scroll centres that one too, measured at 0.49.)
+    /// On, a caret low on the screen comes up to the middle; off, AppKit leaves a visible caret
+    /// where it is, the control that makes the first worth anything. A caret off the screen is no
+    /// control: TextKit 2's own scroll centres that one too.
     @Test func aBareCaretIsCentredOnlyWhileOn() throws {
         let on = hosted(on: true), off = hosted(on: false)
         defer { withExtendedLifetime((on.window, off.window)) {} }
@@ -123,8 +123,8 @@ import AppKit
                 "the editor fell back to TextKit 1")
     }
 
-    /// The UTF-16 offset of a line far down a long file still lands centred — Go to Line, a heading
-    /// jump — with TextKit 2 laid out from the caret, not from the top.
+    /// The UTF-16 offset of a line far down a long file still lands centred (Go to Line, a heading
+    /// jump), with TextKit 2 laid out from the caret, not from the top.
     @Test func aFarCaretInALongFileIsCentred() throws {
         let text = (1...6000).map { "line \($0) " + String(repeating: "word ", count: $0 % 7) }.joined(separator: "\n")
         let rig = hosted(text: text, on: true)
@@ -138,8 +138,8 @@ import AppKit
         #expect(line == 4800, "the line drawn at the caret's height is \(line), not the caret's")
     }
 
-    /// **The end of the file reaches mid-height too** — the bottom inset is what lets it; without
-    /// it the last line could only sit at the bottom edge.
+    /// The end of the file reaches mid-height too: the bottom inset is what lets it; without it the
+    /// last line could only sit at the bottom edge.
     @Test func theLastLineReachesMidHeight() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -151,8 +151,8 @@ import AppKit
         #expect(abs(share - 0.5) < 0.03, "the last line sits at \(share) of the height")
     }
 
-    /// **…and the empty line after a final line break** — where a caret goes after Return at the
-    /// end of a file, and TextKit 2 has no fragment of its own.
+    /// And so does the empty line after a final line break, where a caret goes after Return at the
+    /// end of a file and TextKit 2 has no fragment of its own.
     @Test func theEmptyLastLineReachesMidHeight() throws {
         let rig = hosted(text: (1...400).map { "line \($0)" }.joined(separator: "\n") + "\n", on: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -161,7 +161,7 @@ import AppKit
         #expect(abs(share - 0.5) < 0.03, "the empty last line sits at \(share) of the height")
     }
 
-    /// **Turned on, the caret's line comes to the middle at once** — not at the next keystroke.
+    /// Turned on, the caret's line comes to the middle at once, not at the next keystroke.
     @Test func turningItOnCentresTheCaretAtOnce() throws {
         let rig = hosted(on: false)
         defer { withExtendedLifetime(rig.window) {} }
@@ -175,8 +175,8 @@ import AppKit
         #expect(abs(share - 0.5) < 0.03, "turned on, the caret's line sits at \(share)")
     }
 
-    /// **Unwrapped, a caret far along a long line is brought in sideways as well** — centring
-    /// only the height would leave it off the right edge.
+    /// Unwrapped, a caret far along a long line is brought in sideways as well; centring only the
+    /// height would leave it off the right edge.
     @Test func anUnwrappedCaretIsBroughtInSideways() throws {
         let long = String(repeating: "a long unwrapped line ", count: 80)
         let rig = hosted(text: (1...200).map { "line \($0) " + ($0 == 120 ? long : "") }.joined(separator: "\n"), on: true)
@@ -193,7 +193,7 @@ import AppKit
         #expect(abs((caret.midY - bounds.minY) / bounds.height - 0.5) < 0.03, "and not centred in height")
     }
 
-    /// **The first line stays where it is**: there is no room above it, and none is invented.
+    /// The first line stays where it is: there is no room above it, and none is invented.
     @Test func theFirstLinesStayAtTheTop() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -202,7 +202,7 @@ import AppKit
         #expect(abs(rig.scroll.contentView.bounds.minY) < 1, "the clip is at \(rig.scroll.contentView.bounds.minY)")
     }
 
-    /// **A wrapped paragraph centres the caret's ROW, not the paragraph** — the line being typed.
+    /// A wrapped paragraph centres the caret's row, the line being typed, not the paragraph.
     @Test func aWrappedParagraphCentresTheCaretsRow() throws {
         let paragraph = String(repeating: "a long paragraph that wraps across many rows ", count: 60)
         let text = (1...80).map { "line \($0)" }.joined(separator: "\n") + "\n" + paragraph + "\n"
@@ -221,7 +221,7 @@ import AppKit
 
     // MARK: What it leaves alone
 
-    /// **A selection scrolls as AppKit's does** — a Find match is shown where it always was.
+    /// A selection scrolls as AppKit's does, so a Find match is shown where it always was.
     @Test func aSelectionKeepsNormalScrolling() throws {
         let on = hosted(on: true), off = hosted(on: false)
         defer { withExtendedLifetime((on.window, off.window)) {} }
@@ -235,8 +235,8 @@ import AppKit
         #expect(abs(onTop - offTop) < 1, "a selection scrolled to \(onTop) on and \(offTop) off")
     }
 
-    /// **An input method composing is not moved under its candidate window** — a caret low on the
-    /// screen stays there, as off, where a centring would move it up half a screen.
+    /// An input method composing is not moved under its candidate window: a caret low on the screen
+    /// stays there, as off, where a centring would move it up half a screen.
     @Test func markedTextLeavesItToAppKit() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -250,7 +250,7 @@ import AppKit
         #expect(share > 0.8, "while composing the caret was moved to \(share)")
     }
 
-    /// **And a composing caret already at mid-height stays put** — AppKit sees the whole screen as
+    /// And a composing caret already at mid-height stays put: AppKit sees the whole screen as
     /// visible, room below the text included, so it has nothing to scroll.
     @Test func aCentredCompositionDoesNotJitter() throws {
         let rig = hosted(on: true)
@@ -265,10 +265,10 @@ import AppKit
                 "composing at mid-height scrolled \(before) → \(rig.scroll.contentView.bounds.minY)")
     }
 
-    /// **With Page on, the room below the last line is page too** — the column and its margins,
-    /// the window outside them, as above the end of the text. The room is the clip's, past the end
-    /// of the text view that draws the page, so it is drawn there. Rendered and read back, against
-    /// a pixel of the page above it.
+    /// With Page on, the room below the last line is page too: the column and its margins, the
+    /// window outside them, as above the end of the text. The room is the clip's, past the end of
+    /// the text view that draws the page, so it is drawn there. Rendered and read back against a
+    /// pixel of the page above it.
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func withPageOnTheRoomBelowTheTextIsPage(_ appearance: NSAppearance.Name) throws {
         let rig = hosted(text: (1...40).map { "line \($0)" }.joined(separator: "\n"), on: true)
@@ -302,10 +302,10 @@ import AppKit
         #expect(below[0].alphaComponent < 0.05 && below[4].alphaComponent < 0.05,
                 "the room's margins are painted: \(below[0]), \(below[4])")
 
-        // **The clip redraws the room when the page or its column changes** — `cacheDisplay` above
-        // draws afresh whatever is marked, so only a real display pass sees a room left stale.
-        // Counted, because `needsDisplay` reads back false here even just after being set; and
-        // a pass is a run-loop turn and a flush, since `displayIfNeeded` alone draws nothing.
+        // The clip redraws the room when the page or its column changes. `cacheDisplay` above draws
+        // afresh whatever is marked, so only a real display pass sees a room left stale. Counted,
+        // because `needsDisplay` reads back false here even just after being set; and a pass is a
+        // run-loop turn and a flush, since `displayIfNeeded` alone draws nothing.
         let roomClip = try #require(clip as? EditorDocumentClipView)
         var drawn: [NSRect] = []
         roomClip.onDraw = { drawn.append($0) }
@@ -343,8 +343,8 @@ import AppKit
                          isARepeat: false, keyCode: code)!
     }
 
-    /// **↓ re-centres; off, ↓ inside the screen scrolls nothing.** A real key event, through the
-    /// window, so this is AppKit's own path from the key to the scroll.
+    /// ↓ re-centres; off, ↓ inside the screen scrolls nothing. A real key event through the window,
+    /// so this is AppKit's own path from the key to the scroll.
     @Test func anArrowKeyReCentres() throws {
         let on = hosted(on: true), off = hosted(on: false)
         defer { withExtendedLifetime((on.window, off.window)) {} }
@@ -363,7 +363,7 @@ import AppKit
         #expect(off.scroll.contentView.bounds.minY == offBefore, "off, ↑ inside the screen scrolled")
     }
 
-    /// **Typing re-centres too** — a Return, the commonest move of a writer's caret.
+    /// Typing re-centres too: a Return, the commonest move of a writer's caret.
     @Test func aReturnReCentres() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -379,9 +379,9 @@ import AppKit
 
     // MARK: The room below the last line
 
-    /// **On, the bounds may run half a screen past the end of the text, and a resize carries it;
-    /// off, every bound is AppKit's** — and turning it off while scrolled into the room puts the
-    /// text's end back at the bottom edge.
+    /// On, the bounds may run half a screen past the end of the text, and a resize carries it; off,
+    /// every bound is AppKit's, and turning it off while scrolled into the room puts the text's end
+    /// back at the bottom edge.
     @Test func theRoomBelowTheTextFollowsTheHeightAndGoesAwayCleanly() throws {
         let rig = hosted(on: false)
         defer { withExtendedLifetime(rig.window) {} }
@@ -390,7 +390,7 @@ import AppKit
             clip.constrainBoundsRect(NSRect(origin: NSPoint(x: 0, y: 1e6), size: clip.bounds.size)).minY
         }
         let end = rig.view.frame.maxY, height = clip.bounds.height, appKits = furthest()
-        // AppKit's own: near the text's height less the clip's — measured 6pt past it.
+        // AppKit's own: near the text's height less the clip's (a few points past it).
         #expect(abs(appKits - (end - height)) < 10, "off, the bounds run to \(appKits) for a \(end)pt text in \(height)pt")
         let insets = rig.scroll.contentInsets, automatic = rig.scroll.automaticallyAdjustsContentInsets
 
@@ -415,8 +415,8 @@ import AppKit
         #expect(furthest() == appKitsTaller)
     }
 
-    /// **The text in the lower half is drawn** — a content inset marks the region as covered, and
-    /// a view that believed it would leave it blank. Rendered and read back.
+    /// The text in the lower half is drawn: a content inset marks the region as covered, and a view
+    /// that believed it would leave it blank. Rendered and read back.
     @Test func theLowerHalfIsDrawn() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -425,7 +425,7 @@ import AppKit
         let rect = view.bounds
         let rep = try #require(view.bitmapImageRepForCachingDisplay(in: rect))
         view.cacheDisplay(in: rect, to: rep)
-        // Rows of ink in the bottom quarter — the overscroll's own region, filled with lines 160 on.
+        // Rows of ink in the bottom quarter, the overscroll's own region, filled with lines 160 on.
         var inkedRows = 0
         for y in stride(from: rep.pixelsHigh * 3 / 4, to: rep.pixelsHigh, by: 2) {
             if (0..<rep.pixelsWide / 3).contains(where: { (rep.colorAt(x: $0, y: y)?.alphaComponent ?? 0) > 0.3 }) {
@@ -460,9 +460,9 @@ import AppKit
         return (window, host, found!, storage)
     }
 
-    /// **The call site: the editor reads the switch and hands it to the text view** — and a flip
-    /// under a mounted editor arrives, both ways. The rule above is one revert away from unused
-    /// without this.
+    /// The call site: the editor reads the switch and hands it to the text view, and a flip under a
+    /// mounted editor arrives, both ways. Without this, the rule above is one revert away from
+    /// unused.
     @Test func theEditorAppliesTheSwitch() {
         defaults.removeObject(forKey: EditorTextSettings.typewriterScrollingKey)
         let rig = mounted()
@@ -483,10 +483,9 @@ import AppKit
         #expect(clip?.allowsTypewriterOverscroll == false)
     }
 
-    /// **Split's Preview leads, and Source follows to the line it names — at the top, not pulled to
-    /// the caret.** The follow is the reader's scroll, made in the other half. It moves the clip and
-    /// never the caret, so nothing reaches the centring (mutation-tested: a guard against it there
-    /// changed nothing, and is not kept); this pins that it stays so.
+    /// Split's Preview leads, and Source follows to the line it names, at the top, not pulled to
+    /// the caret. The follow is the reader's scroll, made in the other half: it moves the clip and
+    /// never the caret, so nothing reaches the centring. This pins that it stays so.
     @Test func aPreviewLedFollowIsNotPulledBackToTheCaret() throws {
         defaults.set(true, forKey: EditorTextSettings.typewriterScrollingKey)
         let rig = mounted()
@@ -503,8 +502,8 @@ import AppKit
         #expect(rig.view.selectedRange().location == offset(ofLine: 10, in: rig.view), "the follow moved the caret")
     }
 
-    /// **An edit made from outside — Split's Preview typing into the same storage — leaves Source
-    /// where the reader has it**, as off.
+    /// An edit made from outside (Split's Preview typing into the same storage) leaves Source where
+    /// the reader has it, as off.
     @Test func anEditFromOutsideDoesNotMoveSource() throws {
         for on in [true, false] {
             let rig = hosted(on: on)
@@ -525,10 +524,10 @@ import AppKit
 
     // MARK: The mouse (decision BI)
 
-    /// **A caret the mouse moves is AppKit's to scroll, never a centring** — a click, or a drag that
+    /// A caret the mouse moves is AppKit's to scroll, never a centring: a click, or a drag that
     /// autoscrolls. Inside ``EditorTextView/trackingMouse(_:)``, which `mouseDown(with:)` wraps
     /// around AppKit's tracking loop, a caret low on screen stays put; outside it, the same scroll
-    /// centres — the control.
+    /// centres (the control).
     @Test func theMousesCaretIsNotCentred() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }

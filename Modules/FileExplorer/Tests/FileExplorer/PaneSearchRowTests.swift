@@ -22,8 +22,8 @@ import Sync
 
     // MARK: - The count pill
 
-    /// A closed folder with hits inside it says so — otherwise the tree hides the answer behind a
-    /// row that looks exactly like the ones with nothing in them.
+    /// A closed folder with hits inside it says so; otherwise the tree hides the answer behind a
+    /// row that looks like the ones with nothing in them.
     @Test("A closed folder with matches inside shows its count")
     func aClosedFolderWithMatchesShowsACount() {
         let irs = context("/root/Documents/IRS")
@@ -31,7 +31,7 @@ import Sync
         #expect(irs.showsContainedCount)
     }
 
-    /// An OPEN folder's count says nothing its own rows are not already saying — and in Columns it
+    /// An open folder's count says nothing its own rows aren't already saying, and in Columns it
     /// would sit on the very folder you drilled through.
     @Test("An open folder does not repeat the count its rows already show")
     func anOpenFolderShowsNoCount() {
@@ -65,7 +65,7 @@ import Sync
 
     // MARK: - The side annotation
 
-    /// The two panes must not both say “left only”. The label names THIS pane, so it has to come
+    /// The two panes must not both say “left only”. The label names this pane, so it has to come
     /// from the side rather than from the sentence.
     @Test("A one-sided hit names the pane it is on")
     func theOneSidedLabelNamesItsOwnSide() {
@@ -75,7 +75,7 @@ import Sync
 
     @Test("The annotation is only produced where there is a second tree")
     func theRailAnnotatesNothing() {
-        // No `otherPaths` — the single-source rail.
+        // No `otherPaths`: the single-source rail.
         #expect(context("/root/Documents/Finance/tax-notes.md").side == nil)
         // With one, the hit is annotated.
         let compared = context("/root/Documents/Finance/tax-notes.md",
@@ -85,11 +85,10 @@ import Sync
 
     // MARK: - The emphasized name
 
-    /// The clamp, exercised: the range and the string reach this view from different places — the
-    /// results computed against the tree that was published when the query ran, the row rendered
-    /// from the tree published since — so one republish between them hands it a range past the end.
-    /// Without the bounds check `display[..<match.lowerBound]` traps and takes the process with it,
-    /// which is why this test renders rather than asserting a return value.
+    /// The clamp: the range comes from the tree published when the query ran and the name from the
+    /// tree published since, so one republish between them hands the view a range past the end.
+    /// Unclamped, `display[..<match.lowerBound]` traps and takes the process with it, which is why
+    /// this test renders rather than asserting a return value.
     @Test("A stale match range past the end of the name renders instead of trapping")
     func aStaleMatchRangeIsClamped() {
         for match in [40..<45, -3..<2, 2..<2, 0..<3] {
@@ -103,14 +102,11 @@ import Sync
 
     // MARK: - The annotation must not resize the row
 
-    /// **A row is one line tall, however long its name and whether or not a search annotates it.**
-    /// The name is held to one line and cut, and the annotation is shown whole or not at all. It was
-    /// not always so: while the name had no line limit, a 60-character filename at the 250pt clamp
-    /// the pane split enforces went from 60pt to 76pt the moment it matched — the annotation took
-    /// the width that made it wrap.
-    ///
-    /// Measured against a SHORT, plain row rather than against the same row unannotated, at three
-    /// widths: a name that wraps on its own would make both of those taller alike, and pass.
+    /// A row is one line tall, however long its name and whether or not a search annotates it: the
+    /// name is held to one line and cut, and the annotation is shown whole or not at all, so it
+    /// can't take the width that makes the name wrap. Measured against a short plain row, not the
+    /// same row unannotated, at three widths: a name that wraps on its own would make both taller
+    /// and pass.
     @Test("Annotating a row never makes it taller", .machinePinned(.layoutMetrics))
     func theAnnotationNeverGrowsTheRow() {
         let long = "Quarterly Tax Return and Supporting Schedules 2025 final.pdf"
@@ -130,8 +126,8 @@ import Sync
         }
     }
 
-    /// What a row's annotation says — the one definition the row's gate (`hasAnnotation`) and the
-    /// label both read, so a kind added to one cannot go missing from the other.
+    /// What a row's annotation says: the one definition the row's gate (`hasAnnotation`) and the
+    /// label both read, so a kind added to one can't go missing from the other.
     @Test("Each kind of annotation, and none, is said once")
     func theAnnotationIsOneDefinition() {
         var context = PaneSearchRowContext.none
@@ -148,14 +144,10 @@ import Sync
         #expect(context.annotation == .containedMatches(3), "the count outranks the side, as the label draws it")
     }
 
-    /// …and where it does not fit it is omitted WHOLE rather than truncated to a bare “…”, which is
-    /// a glyph with no meaning and a tooltip nobody will find.
-    ///
-    /// **Counted in painted pixels, because nothing else can tell the two apart.** Both an omitted
-    /// annotation and one truncated to an ellipsis occupy no useful width and change no laid-out
-    /// size — the row is width-constrained either way. The difference is entirely whether anything
-    /// is drawn, and the annotation is the only tinted thing on the row, so its own colour is the
-    /// probe. A test that measured geometry here passed against the truncating version.
+    /// …and where it doesn't fit it is omitted whole rather than truncated to a bare “…”, a glyph
+    /// with no meaning and a tooltip nobody will find. Counted in painted pixels, because geometry
+    /// can't tell the two apart: the row is width-constrained either way. The annotation is the
+    /// only tinted thing on the row, so its colour is the probe.
     @Test("Where it cannot fit, the annotation is omitted rather than left as an ellipsis", .machinePinned(.pixelSampling))
     func theAnnotationDegradesToNothing() {
         let long = "Quarterly Tax Return and Supporting Schedules 2025 final.pdf"
@@ -172,8 +164,8 @@ import Sync
                 "a row too narrow for the label should show none of it, not an ellipsis")
     }
 
-    /// Pixels carrying the annotation's warning tint. It is the only tinted element on the row —
-    /// the name, badges and detail are all greyscale — so a non-grey pixel is the annotation.
+    /// Pixels carrying the annotation's warning tint. The name, badges and detail are all
+    /// greyscale, so a non-grey pixel is the annotation.
     private static func tintedPixels(_ view: some View, width: CGFloat) -> Int {
         let host = NSHostingView(rootView: view.frame(width: width)
             .background(Color(nsColor: .textBackgroundColor)))
@@ -216,9 +208,9 @@ import Sync
         return host.fittingSize.width
     }
 
-    /// The emphasis is drawn on the MARKED form (“Swimming ” → “Swimming␣”), and the offsets have to
-    /// survive that substitution — `NameDisplay.visibleName` replaces one character with one, so
-    /// they do. A fold that changed the length here would silently bold the wrong run.
+    /// The emphasis is drawn on the marked form (“Swimming ” → “Swimming␣”), so the offsets must
+    /// survive that substitution: `NameDisplay.visibleName` replaces one character with one. A fold
+    /// that changed the length would silently bold the wrong run.
     @Test("A name whose affix whitespace is marked keeps the same character count")
     func theMarkedNameIsTheSameLength() {
         #expect(Array(NameDisplay.visibleName("Swimming ")).count == Array("Swimming ").count)

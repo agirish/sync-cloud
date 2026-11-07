@@ -6,23 +6,18 @@ import SwiftUI
 import Sync
 import UniformTypeIdentifiers
 
-/// The file the preview is showing, reduced to scalars.
-///
-/// Deliberately not a `PaneRow`/`FileNode`: a view that stores a node keeps that node's subtree
-/// reachable from the view graph (the reason `FileRowInfo` exists at all), and a preview needs none
-/// of it.
+/// The file the preview is showing, reduced to scalars. Not a `PaneRow` or `FileNode`: a view that
+/// stores a node keeps its subtree reachable from the view graph (why `FileRowInfo` exists), and a
+/// preview needs none of it.
 struct ColumnPreviewItem: Equatable {
     let path: String
     let name: String
-    /// The file's type, which decides which renderer draws it — see `PreviewRenderer`.
-    ///
-    /// Resolved from the walk's UTI when it has one and from the path's extension when it does not.
-    /// The fallback is not decoration: `FileNode.kind` comes from a resource-value read that a
-    /// deferred column listing can skip, and a PDF that arrived without its type would otherwise be
-    /// drawn by the renderer this whole change is about replacing.
+    /// The file's type, which decides the renderer (see `PreviewRenderer`). From the walk's UTI when
+    /// it has one, else the path's extension: `FileNode.kind` comes from a resource-value read that a
+    /// deferred column listing can skip, and a PDF without its type would get the wrong renderer.
     let contentType: UTType?
 
-    /// From the node — the Info inspector has a `FileNode` from the manager's path index, never a
+    /// From the node: the Info inspector has a `FileNode` from the manager's path index, never a
     /// pane's projected row.
     init(node: FileNode) {
         self.path = node.id
@@ -32,10 +27,9 @@ struct ColumnPreviewItem: Equatable {
 
     /// The file's type, from the walk's identifier or, failing that, its extension.
     ///
-    /// **A dynamic identifier counts as no answer.** `UTType("dyn.…")` succeeds — the system mints a
-    /// placeholder type for anything it does not recognise rather than returning nil — so a plain
-    /// `if let` here would accept `dyn.ah62d4rv4ge8086dcta` as the file's type and never reach the
-    /// extension, which is the one thing left that still knows it is a PDF.
+    /// A dynamic identifier counts as no answer. `UTType("dyn.…")` succeeds, because the system
+    /// mints a placeholder type for anything it doesn't recognise, so a plain `if let` would accept
+    /// it and never reach the extension, the one thing that still knows the file is a PDF.
     static func type(uti: String?, path: String) -> UTType? {
         if let uti, let type = UTType(uti), !type.isDynamic { return type }
         let ext = (path as NSString).pathExtension
@@ -45,20 +39,18 @@ struct ColumnPreviewItem: Equatable {
 
 /// What the preview column can actually show for a path.
 enum ColumnPreviewSource: Equatable, Sendable {
-    /// Content is on disk — hand the path to Quick Look.
+    /// Content is on disk: hand the path to Quick Look.
     case quickLook
-    /// A cloud-only (dataless) placeholder. **Not** previewed: rendering it would force the provider
-    /// to download the whole file, and this pane exists to browse cloud folders, where that is the
-    /// normal case rather than the exception. Selecting a 4 GB video must not start a 4 GB transfer,
-    /// so the column offers the download instead of performing it — the same rule
-    /// `FileContentVerifier` already applies before reading a file's bytes.
+    /// A cloud-only (dataless) placeholder. **Not** previewed: rendering it would make the provider
+    /// download the whole file, and in a cloud folder that is the normal case. Selecting a 4 GB video
+    /// must not start a 4 GB transfer, so the column offers the download instead, the same rule
+    /// `FileContentVerifier` applies before reading a file's bytes.
     case cloudOnly
     /// The path is gone (a rescan hasn't caught up with a move or a delete yet).
     case missing
 
-    /// Pure policy, given the two facts about the file. The dataless check comes first for the reason
-    /// `FileContentVerifier` documents: a cloud-only placeholder is a placeholder whatever else is
-    /// true of it.
+    /// Pure policy, given the two facts about the file. The dataless check comes first, as in
+    /// `FileContentVerifier`: a cloud-only placeholder is a placeholder whatever else is true of it.
     static func classify(exists: Bool, isCloudOnly: Bool) -> ColumnPreviewSource {
         if isCloudOnly { return .cloudOnly }
         return exists ? .quickLook : .missing
@@ -67,17 +59,10 @@ enum ColumnPreviewSource: Equatable, Sendable {
 
 /// What the preview area offers under the icon, for the file the column is showing.
 ///
-/// A named value rather than a `ProgressView`/`Button` swap written inline in `body`, for exactly
-/// the reason `ColumnPreviewColumn.paneToken` has no default: the user-visible half of
-/// `isAwaitingDownload` was otherwise unprovable. Replacing the swap with `if false` — every
-/// preview-started download losing its spinner and going on offering a Download button for a file
-/// already downloading — left the whole suite green, because the only channel a test could read it
-/// through does not exist. SwiftUI builds no accessibility tree at all without an assistive client
-/// attached, so `accessibilityChildren()` on a hosted pane comes back empty under `swift test` and
-/// any caption assertion passes vacuously; and whether SwiftUI's macOS `ProgressView` and `Button`
-/// bridge to an `NSProgressIndicator`/`NSButton` a view walk could find is a version-dependent
-/// implementation detail, not a contract worth resting a test on. Deciding it in a pure value moves
-/// the decision somewhere a unit test can simply call.
+/// A named value rather than an inline `ProgressView`/`Button` swap in `body`, so a unit test can
+/// call the decision. The rendered form can't be read from a test: SwiftUI builds no accessibility
+/// tree without an assistive client, so `accessibilityChildren()` is empty under `swift test`, and
+/// how `ProgressView` and `Button` bridge to AppKit views is a version-dependent detail.
 enum PreviewAccessory: Equatable, Sendable {
     /// A spinner: the pane is watching a download of this file.
     case downloading
@@ -88,7 +73,7 @@ enum PreviewAccessory: Equatable, Sendable {
 
     /// Pure policy, given the file's classification and whether the pane is watching a download of
     /// it. Only a `.cloudOnly` placeholder has anything to offer: a materialized file is previewed
-    /// and a vanished one cannot be fetched, so neither takes a control.
+    /// and a vanished one can't be fetched.
     static func decide(source: ColumnPreviewSource?, isAwaitingDownload: Bool) -> PreviewAccessory {
         guard source == .cloudOnly else { return .none }
         return isAwaitingDownload ? .downloading : .offer
@@ -100,12 +85,11 @@ struct ColumnPreviewProbe: Equatable, Sendable {
     let source: ColumnPreviewSource
 
     /// Reads it. `nonisolated async`, so it runs on the cooperative pool rather than the caller's
-    /// actor (SE-0338) — an existence check and an `lstat` are cheap but they are still I/O, and
-    /// this runs on every file click.
+    /// actor (SE-0338): an existence check and an `lstat` are cheap, but still I/O on every click.
     ///
-    /// `MaterializationStatus.isCloudOnly` is an `lstat`, which is metadata-only: it does not fetch
-    /// the file. Nothing here opens the path. It is asked of the file a link points to (TE206): the
-    /// link itself is always local, and Quick Look on it fetched the file behind it.
+    /// `MaterializationStatus.isCloudOnly` is an `lstat`, metadata only, and nothing here opens the
+    /// path, so nothing fetches the file. It is asked of the file a link points to: the link itself
+    /// is always local, and Quick Look on it would fetch the file behind it.
     nonisolated static func read(path: String) async -> ColumnPreviewProbe {
         let exists = FileManager.default.fileExists(atPath: path)
         return ColumnPreviewProbe(
@@ -117,18 +101,14 @@ struct ColumnPreviewProbe: Equatable, Sendable {
 
 /// How a preview column probes the file it is showing.
 ///
-/// A seam, not a policy — the default is the real `ColumnPreviewProbe.read`, unconditionally. It
-/// exists because `.cloudOnly` is otherwise unreachable from a test, and `.cloudOnly` is the state
-/// the entire download half of this column renders in: the Download button, the "Downloading…"
-/// caption, and the re-probe when the pane's watch concludes. `SF_DATALESS` is an `SF_` *system*
-/// flag — `chflags` refuses it to anyone but root, and in practice only a File Provider ever sets
-/// it — so no fixture a test can build classifies as cloud-only, and that whole half shipped with
-/// no mounted coverage at all.
+/// A seam, not a policy: the default is always the real `ColumnPreviewProbe.read`. It exists
+/// because no test fixture can be cloud-only (`SF_DATALESS` is a system flag that `chflags` refuses
+/// to anyone but root; only a File Provider sets it), and `.cloudOnly` is where this column's whole
+/// download half renders: the Download button, the "Downloading…" caption, and the re-probe.
 ///
-/// Carried in the ENVIRONMENT rather than as an argument, because the wiring under test runs
-/// through a view the test cannot pass arguments to: `InspectorFilePreview` builds this column, and
-/// a test has to mount the real view beside the pane that watches its download to prove the hop
-/// from that watch is live. An environment value reaches through without either having to know.
+/// Carried in the environment, because the test has to mount the real `InspectorFilePreview`, which
+/// builds this column, beside the pane that watches its download; an environment value reaches
+/// through without either knowing.
 struct ColumnPreviewProbeReader: Sendable {
     let read: @Sendable (String) async -> ColumnPreviewProbe
 
@@ -147,70 +127,54 @@ extension EnvironmentValues {
 }
 
 /// The selected file rendered by Quick Look or PDFKit, as the Info inspector draws it
-/// (`InspectorFilePreview`). The name, kind and dates are the inspector's own details, not this
-/// view's.
+/// (`InspectorFilePreview`). The name, kind and dates are the inspector's own details.
 ///
-/// Two things it deliberately does not do. It never previews a cloud-only placeholder (see
-/// `ColumnPreviewSource.cloudOnly`), and it does not mount Quick Look the instant the selection
-/// changes — `previewSettleDelay` passes first, so holding ↓ through a column of files walks the
-/// selection without spawning a preview extension per row. The file's icon appears immediately
-/// either way, so the preview is never blank while it waits.
+/// It never previews a cloud-only placeholder (see `ColumnPreviewSource.cloudOnly`), and it waits
+/// `previewSettleDelay` before mounting Quick Look, so holding ↓ through a column doesn't spawn a
+/// preview extension per row. The file's icon shows meanwhile, so the preview is never blank.
 struct ColumnPreviewColumn: View {
     let item: ColumnPreviewItem
-    /// The pane this preview belongs to, so a download started HERE is watched by that pane — the
-    /// same handshake a row-menu download uses (the notification is pane-scoped: see
+    /// The pane this preview belongs to, so a download started here is watched by that pane: the
+    /// same handshake as a row-menu download (the notification is pane-scoped; see
     /// `CloudDownloadRequest`).
     ///
-    /// **Required, with no default, deliberately.** It was `PaneToken? = nil`, and `requestDownload`
-    /// downgraded the nil to "requested, unwatched" behind a debug log — so DELETING the argument at
-    /// the one call site compiled, left the whole suite green, and cost every preview-started
-    /// download its watch: no "Downloading…" caption, no badge clearing when the content landed.
-    /// Nothing legitimately needs nil (the sole production caller is `InspectorFilePreview`, which
-    /// always knows the pane), so the silent path is gone and the omission is a compile error instead.
+    /// Required, with no default, deliberately: if it were optional, dropping the argument would
+    /// compile and silently cost every preview-started download its watch (no "Downloading…"
+    /// caption, no badge clearing). The sole caller, `InspectorFilePreview`, always knows the pane.
     let paneToken: PaneToken
     /// Whether the pane is watching a download of the file this column is showing, as
     /// `InspectorFilePreview` follows the pane's `PaneDownloadWatch`: this column shows
-    /// "Downloading…" while it is true, and re-probes when it goes false — the pane's watch
-    /// concluding is what tells a materialized file it may be previewed.
+    /// "Downloading…" while it is true, and re-probes when it goes false, since the watch ending is
+    /// what tells a materialized file it may be previewed.
     ///
-    /// Read rather than run. This column used to keep its own `Task`, its own poll (twenty probes
-    /// at 1.5 s) and its own `CloudOnlyBadgeCache.forget` for a download the pane's row was already
-    /// polling — two watches and two forgets per download, and every forget invalidates every
-    /// in-flight badge stat in BOTH panes. The pane is the single owner now (`PaneDownloadWatch`),
-    /// and a pane-owned watch also covers the case this column made common: a download whose row is
-    /// not realized at all.
+    /// Read, not run: the pane is the single owner of the watch. A second watch here would mean a
+    /// second `CloudOnlyBadgeCache.forget` per download, and every forget invalidates every in-flight
+    /// badge stat in both panes. A pane-owned watch also covers a download whose row isn't realized.
     ///
-    /// No default, for the reason `paneToken` has none: a `Bool` defaulting to `false` is an
-    /// argument whose deletion compiles and silently disables the whole downloading state.
+    /// No default, for `paneToken`'s reason: a `Bool` defaulting to `false` is an argument whose
+    /// deletion compiles and silently disables the whole downloading state.
     let isAwaitingDownload: Bool
 
-    /// Where this column ANNOUNCES a download, and it must be the same channel the pane that will
-    /// watch it is listening on — see `FileTreeView.downloadChannel`.
+    /// Where this column announces a download. It must be the channel the watching pane listens on
+    /// (see `FileTreeView.downloadChannel`).
     ///
-    /// Defaulted, unlike the two properties above, because `.default` is a correct answer rather
-    /// than a silently broken one: it is the channel the app runs on, and the only callers that
-    /// pass anything else are tests isolating themselves from each other.
+    /// Defaulted, unlike the two above, because `.default` is a correct answer: it is the app's
+    /// channel, and only tests isolating themselves pass anything else.
     var downloadChannel: NotificationCenter = .default
 
     /// How long a file must stay selected before Quick Look is mounted for it.
     static let previewSettleDelay = Duration.milliseconds(180)
 
-    /// One probe and the path it describes, as a SINGLE value.
+    /// One probe and the path it describes, as a single value.
     ///
-    /// Folded together because the two are only ever meaningful as a pair, and the frame in which
-    /// they disagreed was a real defect. `probe`/`hasSettled` used to be independent `@State`, reset
-    /// at the top of `.task(id:)` — which runs *after* the body has already been committed with the
-    /// NEW `item`. Walking from a settled local file to a cloud-only one therefore rendered one
-    /// frame of `case .quickLook where hasSettled` for the new path, and that mounts
-    /// `QLPreviewView` on it, which is the provider download `ColumnPreviewSource.cloudOnly` exists
-    /// to prevent — "selecting a 4 GB video must not start a 4 GB transfer". The stale states were
-    /// symmetric and all wrong: an old `.cloudOnly` offered a Download button captioned for the new
-    /// file, an old `.missing` said "no longer here" about a file that is present.
+    /// **Never** split these into separate `@State` reset in `.task(id:)`: that task runs after the
+    /// body is already committed with the new `item`, so for one frame a newly selected cloud-only
+    /// file would read the old file's settled `.quickLook` and mount `QLPreviewView` on it, starting
+    /// the very download `ColumnPreviewSource.cloudOnly` prevents. Stale states would also offer
+    /// Download for the wrong file, or say a present file is "no longer here".
     ///
-    /// Carrying the path makes the reset synchronous instead: `probe` and `hasSettled` below read
-    /// as "not probed yet" the instant `item` changes, in the same body evaluation, with no state
-    /// written during it. A task cannot beat a render it runs after, so it must not be the thing
-    /// that clears this.
+    /// Carrying the path makes the reset synchronous: `probe` and `hasSettled` read as "not probed
+    /// yet" the instant `item` changes, in the same body evaluation, with no state written during it.
     private struct ProbeResult: Equatable {
         let path: String
         let probe: ColumnPreviewProbe
@@ -218,15 +182,14 @@ struct ColumnPreviewColumn: View {
         var hasSettled: Bool
     }
 
-    /// How to probe a path — the real `lstat` everywhere but in the tests that need `.cloudOnly`.
+    /// How to probe a path: the real `lstat` everywhere but in the tests that need `.cloudOnly`.
     /// See `ColumnPreviewProbeReader`.
     @Environment(\.columnPreviewProbe) private var probeReader
 
-    /// The last probe to complete, whatever path it was for. Read through `probe`/`hasSettled`,
-    /// never directly — a result for a path this column has moved off is not an answer about the
-    /// file it is showing.
+    /// The last probe to complete, whatever path it was for. Read through `probe` and `hasSettled`,
+    /// never directly: a result for a path this column has moved off says nothing about this file.
     @State private var probed: ProbeResult?
-    /// Bumped to re-probe the same path — when the pane's download watch concludes.
+    /// Bumped to re-probe the same path, when the pane's download watch concludes.
     @State private var probeGeneration = 0
 
     /// The probe for the file on screen right now, or nil while one is in flight for it.
@@ -253,37 +216,35 @@ struct ColumnPreviewColumn: View {
             // the inspector should widen the picture, not add margins.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         // No click catcher of its own, deliberately. The pane's deselect recognizers hang off each
-        // column's own table view, so a click here cannot reach one — and a SwiftUI tap gesture
-        // wrapped around a hosted `QLPreviewView` would compete with the preview's OWN controls
-        // (a PDF's page arrows, a video's scrubber) for the same click.
+        // column's table view, so a click here can't reach one, and a SwiftUI tap gesture around a
+        // hosted `QLPreviewView` would compete with the preview's own controls (a PDF's page
+        // arrows, a video's scrubber).
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Preview of \(item.name)")
-        // No reset at the top: this task runs after the body it would be resetting for has already
-        // been committed. `ProbeResult` carries the path so the reset is the render's own, and this
-        // task only ever writes results tagged with the path they describe.
+        // No reset at the top: this task runs after the body it would reset for is committed.
+        // `ProbeResult` carries the path so the render does the reset, and this task only writes
+        // results tagged with their path.
         .task(id: ProbeID(path: item.path, generation: probeGeneration)) {
             let path = item.path
             let resolved = await probeReader.read(path)
-            // `.task(id:)` cancels on a new id but the body still runs to its next suspension, so
-            // every resumption re-checks: without this a fast walk down a column could commit an
-            // earlier file's probe over a later one's.
+            // `.task(id:)` cancels on a new id, but the body runs on to its next suspension, so
+            // re-check here, or a fast walk down a column could commit an earlier file's probe.
             guard !Task.isCancelled else { return }
-            // Settled-ness survives a RE-probe of the same path (the download the pane was watching
-            // has concluded) and only that: for any other path `hasSettled` is already false. The
-            // settle delay exists so holding ↓ through a column does not spawn a preview extension
-            // per row, and a file the user explicitly asked to download is not that.
+            // Settledness survives only a re-probe of the same path (the pane's watched download
+            // has concluded); for any other path `hasSettled` is already false. The settle delay is
+            // for holding ↓ through a column, not for a file the user asked to download.
             probed = ProbeResult(path: path, probe: resolved, hasSettled: hasSettled)
             try? await Task.sleep(for: Self.previewSettleDelay)
             guard !Task.isCancelled, probed?.path == path else { return }
             probed?.hasSettled = true
         }
         // The pane's watch for the file on screen has ended (it landed, or the attempts ran out):
-        // probe again so a file that materialized mounts its preview, and one that did not settles
-        // back on the offer. Only the falling edge — arming the watch changes nothing on disk.
+        // probe again so a materialized file mounts its preview and one that didn't settles back on
+        // the offer. Only the falling edge, since arming the watch changes nothing on disk.
         //
-        // Nothing to cancel when the selection moves on: this column owns no task now, and the pane
-        // resolves this flag against the file the column is CURRENTLY showing, so it simply reads
-        // false once the selection has moved off the downloading one.
+        // Nothing to cancel when the selection moves: this column owns no task, and the pane
+        // resolves this flag against the file currently shown, so it reads false once the
+        // selection has moved off.
         .onChange(of: isAwaitingDownload) { wasWatching, isWatching in
             if wasWatching, !isWatching { probeGeneration += 1 }
         }
@@ -293,12 +254,11 @@ struct ColumnPreviewColumn: View {
 
     /// The line under the icon, for a classification and a download the pane may be watching.
     ///
-    /// Pure and `static` so it can be called rather than rendered — see `PreviewAccessory` for why
-    /// the rendered form is unreadable from a test. It takes the source rather than reading
-    /// `probe?.source` so every case can be asked for directly, including the two nobody can stage:
-    /// `.cloudOnly` needs the `SF_DATALESS` system flag, which only a File Provider ever sets.
+    /// Pure and `static` so it can be called rather than rendered (see `PreviewAccessory`). It takes
+    /// the source rather than reading `probe?.source` so a test can ask for every case, including
+    /// `.cloudOnly`, which needs a system flag only a File Provider sets.
     ///
-    /// Nil for a file that is fine — a caption saying so would be noise under its own preview.
+    /// Nil for a file that is fine: a caption saying so would be noise under its own preview.
     static func caption(source: ColumnPreviewSource?, isAwaitingDownload: Bool) -> String? {
         switch source {
         case .cloudOnly: return isAwaitingDownload ? "Downloading…" : "Not downloaded"
@@ -309,7 +269,7 @@ struct ColumnPreviewColumn: View {
     }
 
     /// The line under the icon while a PDF preview has no page to show: none while it is still
-    /// opening — the page is a moment away and a caption would flash — and the reason once it has
+    /// opening (the page is a moment away and a caption would flash), and the reason once it has
     /// failed. Pure and `static` for `caption(source:isAwaitingDownload:)`'s reason.
     static func pdfCaption(_ outcome: PDFOpenOutcome?) -> String? {
         switch outcome {
@@ -331,20 +291,19 @@ struct ColumnPreviewColumn: View {
 
     // MARK: - Preview area
 
-    /// Which renderer draws this file once it has settled — see `PreviewRenderer`.
+    /// Which renderer draws this file once it has settled (see `PreviewRenderer`).
     var renderer: PreviewRenderer { PreviewRenderer.forType(item.contentType) }
 
     @ViewBuilder
     private var preview: some View {
         switch probe?.source {
         case .quickLook where hasSettled:
-            // The settle delay applies to both renderers, and for the same reason: holding ↓ through
-            // a folder of PDFs should not build a `PDFDocument` per row any more than it should spawn
-            // a Quick Look extension per row.
+            // The settle delay applies to both renderers: holding ↓ through a folder of PDFs
+            // shouldn't build a `PDFDocument` per row any more than a Quick Look extension.
             switch renderer {
             case .pdfPages:
                 // The icon stays behind the page until it is parsed, and keeps a caption if it
-                // never is — see `PDFPagePreview`.
+                // never is (see `PDFPagePreview`).
                 PDFPagePreview(url: URL(fileURLWithPath: item.path)) { outcome in
                     placeholder(caption: Self.pdfCaption(outcome))
                 }
@@ -362,7 +321,7 @@ struct ColumnPreviewColumn: View {
         }
     }
 
-    /// The control below the caption, rendered from `accessory` — the decision itself lives there.
+    /// The control below the caption, rendered from `accessory`, where the decision lives.
     @ViewBuilder
     private var accessoryView: some View {
         switch accessory {
@@ -399,31 +358,27 @@ struct ColumnPreviewColumn: View {
 
     // MARK: - Download
 
-    /// Asks the provider for the file's content, then watches for it to arrive.
+    /// Asks the provider for the file's content, then lets the pane watch for it to arrive.
     ///
-    /// **The row menu's own verb, not a copy of it.** On success it is exactly the handshake the
-    /// row menu's Download uses: the post hands the watch to the pane, which forgets the memo's
-    /// pre-download answer, polls once for the whole app, and drops its latch when the content
-    /// lands or the attempts run out. This column re-probes off that latch (`isAwaitingDownload`)
-    /// instead of running a second poll — two watches meant two `forget`s, and each one invalidates
-    /// every in-flight badge stat in both panes. A refused request reveals the file in Finder, as
-    /// this column always did.
+    /// The row menu's own verb, not a copy: the post hands the watch to the pane, which forgets the
+    /// pre-download answer, polls once for the whole app, and drops its latch when the content lands
+    /// or the attempts run out. This column re-probes off that latch (`isAwaitingDownload`) rather
+    /// than polling itself. A refused request reveals the file in Finder.
     private func requestDownload() {
         CloudDownloadRequest.requestDownload(path: item.path, name: item.name, from: paneToken,
                                              through: downloadChannel)
     }
 }
 
-/// `QLPreviewView` in SwiftUI — the same renderer Finder's preview column and the Quick Look panel
-/// use, so PDFs page, images fit, text scrolls and video gets its controls without this app knowing
-/// anything about those formats.
+/// `QLPreviewView` in SwiftUI: the renderer Finder's preview column and the Quick Look panel use,
+/// so PDFs page, images fit, text scrolls and video gets its controls without this app knowing the
+/// formats.
 ///
-/// `autostarts` is off: a preview column fills as a side effect of clicking a row, and a video that
-/// started playing because you selected it would be a sound the user did not ask for.
+/// `autostarts` is off: the preview fills as a side effect of selecting a row, and a video playing
+/// because you selected it is a sound nobody asked for.
 ///
-/// `close()` on dismantle is not optional housekeeping. Each live preview holds a Quick Look
-/// extension process; a column that dropped its view without closing would leak one per file
-/// previewed for as long as the app ran.
+/// `close()` on dismantle is required. Each live preview holds a Quick Look extension process, and
+/// a view dropped without closing leaks one per file previewed for as long as the app runs.
 struct QuickLookPreview: NSViewRepresentable {
     let url: URL
 
@@ -433,7 +388,7 @@ struct QuickLookPreview: NSViewRepresentable {
         let view = QLPreviewView(frame: .zero, style: .normal) ?? QLPreviewView()
         view.autostarts = false
         // Otherwise the view tears its preview down when the window closes and never rebuilds it,
-        // which for a pane that outlives sheets and full-screen transitions reads as a dead column.
+        // so a pane that outlives sheets and full-screen transitions shows a dead column.
         view.shouldCloseWithWindow = false
         view.previewItem = url as NSURL
         return view
@@ -441,7 +396,7 @@ struct QuickLookPreview: NSViewRepresentable {
 
     func updateNSView(_ view: QLPreviewView, context: Context) {
         // Guarded: re-assigning the same item restarts the extension's render for nothing, and
-        // `updateNSView` runs on every ancestor re-render — every scroll, every hover.
+        // `updateNSView` runs on every ancestor re-render, every scroll and hover.
         guard (view.previewItem as? NSURL) as URL? != url else { return }
         view.previewItem = url as NSURL
     }

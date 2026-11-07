@@ -1,14 +1,11 @@
 import Foundation
 import FileExplorer
 
-/// **Text files on disk for tests — and gone when the test process is.**
+/// Text files on disk for tests, gone when the test process is.
 ///
-/// Five suites carried a copy of the same `document(named:)`: make a folder under
-/// `NSTemporaryDirectory()`, write the file, load it. None removed the folder, so every run left
-/// one per call behind — hundreds a run, across the render suites that call it in loops. Here
-/// every file is made under ONE folder per test process, removed when the process exits; a process
-/// that died before it could (a crash, a killed run) has its folder swept by the next process to
-/// make a file, once its pid is gone.
+/// Every file is made under one folder per test process, removed when the process exits. A process
+/// that died first (a crash, a killed run) has its folder swept by the next process to make a
+/// file, once its pid is gone.
 ///
 /// Each call still gets a folder of its own, so a test that lists a document's folder sees only
 /// its own file.

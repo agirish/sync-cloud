@@ -1,8 +1,8 @@
 import Foundation
 
-/// **One file a run wrote, exactly as it landed** — the path the keep-both rule gave it and the
-/// stamp of the file the writer created, so whoever asked can later tell that file from one that has
-/// replaced or changed it (an Ask Claude card's Undo, TE294).
+/// One file a run wrote, exactly as it landed: the path the keep-both rule gave it and the stamp
+/// of the file the writer created, so whoever asked can later tell that file from one that has
+/// replaced or changed it (an Ask Claude card's Undo).
 public struct PDFWrittenFile: Equatable, Sendable {
     /// The file it was made from — the first input, for a run over several.
     public var source: String
@@ -21,9 +21,9 @@ public struct PDFWrittenFile: Equatable, Sendable {
     }
 }
 
-/// **How a run asked for by a request ended** — the PDF tools', a batch's or Save as PDF's — as
-/// data, for a caller with no banner to read (TE294). The banner's own words come with it, so
-/// what the caller says is what the pane would have said.
+/// How a run asked for by a request ended (the PDF tools', a batch's or Save as PDF's), as data
+/// for a caller with no banner to read. The banner's own words come with it, so the caller says
+/// what the pane would have said.
 public struct PDFRunResult: Equatable, Sendable {
     public enum Outcome: Equatable, Sendable {
         /// Every file it was asked about was written.

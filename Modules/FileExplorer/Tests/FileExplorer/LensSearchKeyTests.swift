@@ -2,38 +2,28 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **Which slot the search writes to.**
+/// Which slot the search writes to.
 ///
-/// `LensWorkspaceView` keeps one query per lens, and it has two names for "which lens": `lens` is the
-/// *workspace's* — always `.filing` inside Organize, whatever the rail is showing — and
-/// `effectiveLens` resolves the rail item on top of it. Every read has always used the resolved
-/// one. Two writes used the workspace's, and the fold that turned Duplicates and Rules from
-/// workspaces into rail items turned that from a distinction without a difference into the only
-/// reachable case:
+/// `LensWorkspaceView` keeps one query per lens and has two names for "which lens": `lens` is the
+/// workspace's (always `.filing` inside Organize, whatever the rail shows), and `effectiveLens`
+/// resolves the rail item on top of it. With Duplicates and Rules as rail items, a write keyed on
+/// `lens` lands in To File's slot: a chip's ✕ would rewrite To File's parked query, and the
+/// "Nothing matches" button would clear To File's query and leave the one hiding the rows.
 ///
-///   * a chip's ✕ removed nothing from the list in front of you and overwrote To File's parked
-///     query with the duplicates query minus one word;
-///   * the "Nothing matches" dead-end's button cleared To File's query, collapsed To File's search
-///     field, left the query that was actually hiding the rows standing, and never reset the type
-///     filter — so the empty state redrew unchanged on every click.
-///
-/// Neither could be seen by the suites: the only test mounting the duplicates apparatus passes
-/// `lens: .duplicates`, a configuration the app can no longer produce, in which the two names are
-/// equal and both bugs vanish. So these are source-level, using the harness in
-/// ``OrganizeScopeCallSiteTests`` — which names its file and fails when it cannot be read.
+/// The mounted suites can't see this, since the only one mounting the duplicates apparatus passes
+/// `lens: .duplicates`, where the two names are equal. So these are source-level, using the harness
+/// in ``OrganizeScopeCallSiteTests``, which names its file and fails when it can't read it.
 @Suite struct LensSearchKeyTests {
 
     static func workspaceSource() throws -> String { try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift") }
 
-    /// The general rule, which is what makes this more than two spot checks: a search slot is
-    /// addressed either by `effectiveLens` or by a lens **named outright** (`.duplicates` for the
-    /// reveal's own query, `.storage` when a build starts). Never by the bare `lens` variable —
-    /// that is the one spelling that silently means "some other lens's slot".
+    /// The general rule: a search slot is addressed by `effectiveLens` or by a lens named outright
+    /// (`.duplicates` for the reveal's own query, `.storage` when a build starts), never by the
+    /// bare `lens` variable, which silently means some other lens's slot.
     @Test func noSearchSlotIsAddressedByTheWorkspacesLens() throws {
         let source = OrganizeScopeCallSiteTests.codeOnly(try Self.workspaceSource())
-        // `[lens, default: ""]` is in the list because that subscript form is the one the file
-        // actually uses elsewhere (`searchQueries[.duplicates, default: ""]`), so it is the most
-        // likely way a bare `lens` comes back — and the four-spelling sweep did not catch it.
+        // `[lens,` covers the `[_, default: ""]` subscript form the file uses elsewhere
+        // (`searchQueries[.duplicates, default: ""]`), the likeliest way a bare `lens` comes back.
         for spelling in ["searchQueries[lens]",
                          "searchQueries[lens,",
                          "searchExpandedLenses.insert(lens)",
@@ -61,9 +51,9 @@ import Foundation
                 "the ✕ writes back to a different lens's query than the one it read the chips from")
     }
 
-    /// The dead-end's button clears the query that is hiding the rows, collapses that lens's field,
-    /// and — on Duplicates — resets the type filter, which is the other thing that can be hiding
-    /// them. All three keyed the same way, or the button half-works.
+    /// The dead-end's button clears the query hiding the rows, collapses that lens's field, and on
+    /// Duplicates resets the type filter, the other thing that can hide them. All three keyed the
+    /// same way, or the button half-works.
     @Test func theEmptyStateButtonClearsTheLensItIsShownFor() throws {
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
@@ -75,39 +65,35 @@ import Foundation
                 "the type filter is reset for the workspace's lens, so on Duplicates it never resets")
     }
 
-    /// **The filter-only narrowing has its own sentence.** With a type filter set and no query at
-    /// all, the old wording asserted a search that was not running and offered to clear it. The
-    /// cause is resolved first, and the control names what it will actually do.
+    /// With a type filter set and no query, the empty state says the filter is the cause rather
+    /// than blaming a search that isn't running, and its control names what it will actually do.
     @Test func aFilterOnlyEmptyStateSaysSoRatherThanBlamingASearch() throws {
         let view = try Self.workspaceSource()
         let body = try OrganizeScopeCallSiteTests.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
             in: view)
-        // The cause, not the spelling: whichever way the predicate is written, the branch must be
-        // decided by "no query AND the type filter is narrowing" and must name the filter.
+        // The cause, not the spelling: the branch is decided by "no query and the type filter is
+        // narrowing", and names the filter.
         #expect(body.contains("let filterOnly = query.isEmpty && filterIsNarrowing && total > 0"),
                 "the empty state no longer distinguishes a filter-only narrowing from a search")
-        // The exact label, quoted: `"Show All Kinds".contains("Show All")` is true, so the loose
-        // form could not see the copy fix it was updated for. "Kinds" appears nowhere in the
-        // control — the filter's own name for that option is "All".
+        // The exact label, quoted, because `"Show All Kinds".contains("Show All")` is true. The
+        // filter's own name for that option is "All", so "Kinds" must not appear.
         #expect(body.contains("\"Show All\" : \"Clear Search\""),
                 "a filter-only dead-end still offers to clear a search that isn't running")
         #expect(!body.contains("Show All Kinds"), "the button names a choice the filter does not offer")
         #expect(body.contains("filter.label"), "the filter-only message does not name the filter")
 
-        // **And the cause is resolved before the scope's sentence.** `filterOnly` requires an empty
-        // query, so routing the empty-query case straight to `scopeHidesAllState` made this branch
-        // unreachable under any scope — and told the reader that all N groups were somewhere else
-        // while they were right there behind the filter.
+        // The cause is resolved before the scope's sentence. `filterOnly` needs an empty query, so
+        // sending every empty query to `scopeHidesAllState` would make this branch unreachable
+        // under any scope, and blame the scope for rows hidden behind the filter.
         #expect(view.contains("if scopedTotal == 0, let scope {"),
                 "a filter-narrowed scoped list still blames the scope, and the branch above is dead there")
         // One predicate, so the chooser and the wording cannot drift apart.
         #expect(view.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
-        // **Neither a query nor a filter can be the cause of an empty list it had no part in.**
-        // Over a scope holding nothing, both sentences degenerate to "hides all 0 …" with a button
-        // that clears the control and re-renders the same empty list, while the scope's own
-        // sentence names what is elsewhere and offers the one click that shows it. Asserted as a
-        // behaviour of the message text below, not only as the predicate above.
+        // Over a scope holding nothing, neither the query nor the filter is the cause: their
+        // sentences would read "hides all 0 …" and offer a click that changes nothing, while the
+        // scope's sentence names what is elsewhere. Pinned on the message text, not only the
+        // predicate.
         #expect(body.contains("total == 1 ? \"\" : \"s\""),
                 "the empty state no longer counts what it claims to be hiding")
         #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: view)

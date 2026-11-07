@@ -7,16 +7,12 @@ import Sync
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **The PDF header's width, at every text size** — Phase 6a's rungs.
+/// The PDF header's width at every text size, and its rungs.
 ///
-/// The name row is the name, then Find, Fill & Sign and Tools ▾, a divider, Expand and ×. The page
-/// field, the zoom and the layout left it for the floating capsule, which is what gave the name its
-/// room back: before 6a the narrowest rung left it 55pt in the column at the smallest window
-/// (measured 2026-10-17), and the mockup gave it about 140.
-///
-/// The bound is the one decided 2026-10-17: **the document column at the smallest window**, the
-/// actions shedding their words together as it narrows (``EditorPDFHeaderControls/Rung``) and the name
-/// keeping what is pinned here.
+/// The name row is the name, then Find, Fill & Sign and Tools ▾, a divider, Expand and ×; the page
+/// field, zoom and layout live in the floating capsule, which leaves the name its room. The bound
+/// is the document column at the smallest window: the actions shed their words together as it
+/// narrows (``EditorPDFHeaderControls/Rung``), and the name keeps what is pinned here.
 @MainActor
 @Suite(.serialized) final class EditorPDFHeaderWidthTests {
 
@@ -30,15 +26,12 @@ import FileExplorerTestSupport
     deinit { try? FileManager.default.removeItem(atPath: folder) }
 
     /// The document column at the app's 760pt window floor, with the folder sidebar at its own
-    /// 150pt minimum and the rail open — `EditorLayoutTests`' conservative reading, ~368pt.
+    /// 150pt minimum and the rail open: `EditorLayoutTests`' conservative reading, ~368pt.
     static var column: CGFloat { 760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter }
 
-    /// **What the name keeps at the narrowest rung, at every text size.**
-    ///
-    /// Measured 2026-10-18 on macOS 27, at the narrowest rung: the row's chrome is 204pt at 90% and
-    /// 230pt at 135%, leaving the name 164pt down to **138pt at the largest size**. Pinned 4pt
-    /// under that, as the 55pt it replaces was pinned; the failure message prints what the name is
-    /// left.
+    /// What the name keeps at the narrowest rung, at every text size. Measured on macOS 27, the
+    /// row's chrome is 204pt at 90% and 230pt at 135%, leaving the name 164pt down to 138pt at the
+    /// largest size; pinned 4pt under that. The failure message prints what the name is left.
     static let nameFloor: CGFloat = 134
 
     private func open(pages: Int) async throws -> EditorPDFDocument {
@@ -61,7 +54,7 @@ import FileExplorerTestSupport
     }
 
     /// The name row at `rung`, inside the document header's own padding, with the workspace's own
-    /// Expand button — measured as a column holds it.
+    /// Expand button, measured as a column holds it.
     private func row(_ pdf: EditorPDFDocument, _ rung: EditorPDFHeaderControls.Rung) -> some View {
         let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
         return EditorDocumentHeader {
@@ -73,14 +66,14 @@ import FileExplorerTestSupport
         }
     }
 
-    /// Everything in the row but the name, at `rung` — the row's width less the name's own.
+    /// Everything in the row but the name, at `rung`: the row's width less the name's own.
     private func chrome(_ pdf: EditorPDFDocument, _ rung: EditorPDFHeaderControls.Rung, scale: CGFloat) -> CGFloat {
         width(row(pdf, rung), scale: scale)
             - width(Text(pdf.name).scaledFont(.system(size: 13, weight: .semibold)), scale: scale)
     }
 
-    /// **At the smallest window, the narrowest rung leaves the name its floor, at every step of the
-    /// Text size slider** — Find, Fill & Sign and Tools as bezelled glyphs, Expand and ×.
+    /// At the smallest window, the narrowest rung (Find, Fill & Sign and Tools as bezelled glyphs,
+    /// Expand and ×) leaves the name its floor at every step of the Text size slider.
     @Test func theNarrowestRungLeavesTheNameRoomAtTheSmallestWindow() async throws {
         let pdf = try await open(pages: 64)
         let narrowest = try #require(EditorPDFHeaderControls.Rung.allCases.last)
@@ -94,8 +87,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **All three shed their words together** (revised 2026-10-19): a header with Fill & Sign
-    /// worded beside a bare magnifier and wrench read as two styles at once.
+    /// All three shed their words together: Fill & Sign worded beside a bare magnifier and wrench
+    /// would read as two styles at once.
     @Test func theActionsShedTheirWordsTogether() throws {
         let rungs = EditorPDFHeaderControls.Rung.allCases
         #expect(rungs == [.worded, .glyphs])
@@ -106,9 +99,8 @@ import FileExplorerTestSupport
         #expect(source.contains("EditorPDFToolsMenu(tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)"))
     }
 
-    /// **The actions keep their width when the row is short of it** — the name gives way instead.
-    /// Find and Fill & Sign used to shrink their bezels under words that cannot shrink, and each
-    /// word overprinted its neighbour (seen at a 380pt column, 2026-10-19).
+    /// The actions keep their width when the row is short of it, and the name gives way instead.
+    /// A bezel squeezed under words that can't shrink would overprint its neighbour.
     @Test func theActionsAreNeverSqueezed() async throws {
         let pdf = try await open(pages: 4)
         for rung in EditorPDFHeaderControls.Rung.allCases {
@@ -122,8 +114,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **Each rung is narrower than the one before it**, at every text size — or `ViewThatFits`
-    /// has nothing to choose between, and the floor above is measuring the only rung there is.
+    /// Each rung is narrower than the one before it, at every text size, or `ViewThatFits` has
+    /// nothing to choose between and the floor above measures the only rung there is.
     @Test func eachRungShedsWidth() async throws {
         let pdf = try await open(pages: 64)
         for percent in FontSize.selectablePercents {
@@ -133,8 +125,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **The three file actions keep their bezel when they lose their words** — one style for all
-    /// three (decided 2026-10-19), and Expand and × outside it.
+    /// The three file actions keep their bezel when they lose their words: one style for all three,
+    /// with Expand and × outside it.
     @Test func theFileActionsShareOneBezelledStyle() throws {
         let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         let tools = try ChromeGlassWiringTests.source("EditorPDFToolViews.swift")
@@ -144,8 +136,8 @@ import FileExplorerTestSupport
         #expect(tools.contains("symbol: \"wrench.and.screwdriver\""), "Tools lost the wrench it has always drawn")
         // The bezel is the style's, not the word's: nothing in it reads the rung.
         let style = try #require(card.range(of: "struct EditorPDFActionStyle: ViewModifier {"))
-        // To the struct's own closing brace: a fixed-length window ran on into Find's button, which
-        // does read it.
+        // Up to the struct's own closing brace: a fixed-length window would run on into Find's
+        // button, which does read it.
         let rest = card[style.upperBound...]
         let end = try #require(rest.range(of: "\n}\n"))
         let styleBody = String(rest[..<end.lowerBound])
@@ -153,15 +145,15 @@ import FileExplorerTestSupport
         #expect(!styleBody.contains("worded"), "the bezel depends on whether the word is drawn")
     }
 
-    /// **The header chooses among all of them, widest first** — the name row's `ViewThatFits`.
+    /// The header chooses among all the rungs, widest first, in the name row's `ViewThatFits`.
     @Test func theHeaderChoosesAmongTheRungs() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         #expect(source.contains("ForEach(EditorPDFHeaderControls.Rung.allCases, id: \\.self) { rung in"))
         #expect(source.contains("accent: accent, accentFill: accentFill, onAccent: onAccent, rung: rung)"), "the actions are not drawn at the chosen rung")
     }
 
-    /// **No "PDF" tag beside the name, and no page, zoom or layout control in the header** — the
-    /// name ends in .pdf, and the capsule moves around the page now.
+    /// No "PDF" tag beside the name, and no page, zoom or layout control in the header: the name
+    /// ends in .pdf, and the capsule carries those.
     @Test func theNameRowHoldsTheFileAndWhatActsOnIt() throws {
         let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         let start = try #require(card.range(of: "func nameRow(_ rung: EditorPDFHeaderControls.Rung) -> some View {"))

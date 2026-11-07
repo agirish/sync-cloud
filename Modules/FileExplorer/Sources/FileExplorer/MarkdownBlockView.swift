@@ -1,17 +1,10 @@
 import SwiftUI
 import Design
 
-/// One block of a rendered Markdown document — the unit the preview and the printed page are both
-/// built out of.
-///
-/// **It exists so that "print what the preview shows" is one body of code rather than two.** These
-/// arms were `MarkdownPreview`'s own private methods until printing arrived (roadmap RD9); a
-/// second copy for paper would have started identical and drifted on the first heading-size change,
-/// and the claim the File menu makes — that the PDF is the preview — would have quietly stopped
-/// being true with nothing failing.
-///
-/// What differs between the two mediums is small, named, and lives in ``Medium``: a page cannot
-/// scroll, and a page cannot wait for an image to load.
+/// One block of a rendered Markdown document, the unit both the preview and the printed page are
+/// built from. One body of code for both, so the File menu's promise that the PDF is the preview
+/// stays true; a second copy for paper would drift. What differs lives in ``Medium``: a page
+/// can't scroll, and can't wait for an image to load.
 struct MarkdownBlockView: View {
 
     let block: MarkdownBlock
@@ -29,23 +22,20 @@ struct MarkdownBlockView: View {
     /// no later frame for a loaded image to arrive in. See ``MarkdownImageView/Preloaded``.
     var preloadedImages: [String: MarkdownImageView.Preloaded] = [:]
 
-    /// Settings ▸ Text size. Read here rather than relied on ambiently because the `Text`
-    /// concatenation in ``styled(_:)`` builds `Text` VALUES, which the `View`-level `.scaledFont`
-    /// modifier cannot reach — those need the `Text` overload, and it takes the scale by hand.
+    /// Settings ▸ Text size, read here because ``styled(_:)`` builds an `AttributedString`, whose
+    /// inline-code font the `View`-level `.scaledFont` modifier can't reach.
     @Environment(\.appFontScale) private var fontScale
     /// Which shade of the hue a link is drawn in — see ``linkInk(_:accent:)``.
     @Environment(\.colorScheme) private var colorScheme
 
-    /// What the block is being drawn onto, and therefore the two things it may not assume.
+    /// What the block is drawn onto, and so the two things it may not assume.
     ///
-    /// **A page cannot scroll.** Wide code and wide tables sit inside `ScrollView(.horizontal)` on
-    /// screen, which on paper is a container that draws its first page-width of content and silently
-    /// loses the rest. On paper a code block wraps instead — a wrapped line is visibly a wrapped
-    /// line, where a clipped one is indistinguishable from a short one — and a table is drawn at its
-    /// natural width for ``DocumentPDF`` to scale down to the page.
+    /// A page can't scroll: a `ScrollView(.horizontal)` on paper draws its first page-width and
+    /// silently loses the rest. So on paper a code block wraps (a clipped line looks like a short
+    /// one) and a table is drawn at natural width for ``DocumentPDF`` to scale to the page.
     ///
-    /// **A page cannot wait.** `MarkdownImageView` loads in a `.task`, which never runs during an
-    /// offscreen render; on paper the image arrives already decoded through ``preloadedImages``.
+    /// A page can't wait: `MarkdownImageView` loads in a `.task`, which never runs in an offscreen
+    /// render, so on paper the image arrives decoded through ``preloadedImages``.
     enum Medium: Equatable { case screen, page }
 
     var body: some View {
@@ -72,24 +62,16 @@ struct MarkdownBlockView: View {
     /// How far each level of list nesting indents.
     static let indentStep: CGFloat = 18
 
-    /// The most nesting the preview will draw in, in levels.
-    ///
-    /// **A ceiling, because the document decides the depth and the column does not grow.** A
-    /// forwarded mail thread pasted into a note is routinely eight to fifteen `>` levels, and each
-    /// one costs a 2pt bar plus 10pt of spacing; a deep list costs `indentStep` each. At twelve
-    /// levels the bars alone take 144pt out of a column guaranteed only 260, and past twenty the
-    /// text is squeezed to one word a line. Clamping renders the deep levels at the same inset
-    /// instead — the nesting stops being legible either way, and this way the words stay readable.
+    /// The most nesting the preview draws, in levels. The document decides the depth but the column
+    /// doesn't grow: a pasted mail thread can be fifteen `>` levels at 12pt each, in a column
+    /// guaranteed only 260pt. Deeper levels share this inset, so the words stay readable.
     static let maxNestingDrawn = 6
 
     /// The nesting depth actually drawn for `level`.
     static func drawnDepth(_ level: Int) -> Int { min(max(level, 0), maxNestingDrawn) }
 
-    /// The front matter, folded into one line that opens.
-    ///
-    /// **Folded rather than hidden.** It is part of the file and it is what a lot of tooling reads,
-    /// so a preview that dropped it would be describing a document the file is not — but expanded
-    /// by default it puts six lines of machine-readable keys above the first sentence, every time.
+    /// The front matter, folded into one line that opens. Folded, not hidden: it is part of the
+    /// file and tooling reads it, but expanded it puts lines of keys above the first sentence.
     @ViewBuilder
     private func frontMatterChip(_ matter: String) -> some View {
         let keys = MarkdownFrontMatter.keyCount(in: matter)
@@ -104,8 +86,7 @@ struct MarkdownBlockView: View {
             HStack(spacing: 6) {
                 Text("Front matter")
                     .scaledFont(.system(size: 10, weight: .semibold))
-                // The count is what makes the closed chip worth reading: it says how much is folded
-                // away, so nobody has to open it to find out whether it matters.
+                // The count says how much is folded away, so nobody has to open it to find out.
                 Text(keys == 1 ? "1 key" : "\(keys) keys")
                     .scaledFont(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -139,12 +120,9 @@ struct MarkdownBlockView: View {
             frontMatterChip(matter)
 
         case .image(let source, let alt):
-            // **The raw source, resolved inside the image view rather than here.** Resolving is
-            // four filesystem calls — an existence check, a cloud-placeholder check, a symlink
-            // resolve and a stat — and this is a `body`, so it ran once per visible image on every
-            // render pass, which in preview or split is every keystroke. It happens once per image
-            // in a task now. See ``MarkdownImageView``.
-            // On paper the answer is already in hand — see ``preloadedImages`` and ``Medium``.
+            // The raw source, resolved inside ``MarkdownImageView``, not here: resolving costs four
+            // filesystem calls, and a `body` runs on every keystroke in preview or split. On paper
+            // the answer is already in hand (``preloadedImages``).
             MarkdownImageView(source: source, folder: documentFolder, alt: alt, accent: accent,
                               preloaded: preloadedImages[source])
 
@@ -165,13 +143,9 @@ struct MarkdownBlockView: View {
                         .scaledFont(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
-                // Sideways inside its own container, for the reason the table below scrolls:
-                // wrapping a code line mid-token is a different line of code.
-                //
-                // **On paper it wraps instead**, because there is nothing to scroll and the
-                // alternative is worse than a wrap: a `ScrollView` on a page draws its first
-                // page-width and drops the rest, and a clipped code line is indistinguishable
-                // from a short one. A wrapped one is visibly wrapped.
+                // Scrolls sideways on screen: wrapping a code line mid-token makes a different line
+                // of code. On paper it wraps, since a page's `ScrollView` would clip it, and a
+                // clipped line looks like a short one (see ``Medium``).
                 if medium == .page {
                     Text(code)
                         .scaledFont(.system(size: 12, design: .monospaced))
@@ -205,8 +179,7 @@ struct MarkdownBlockView: View {
             Circle()
                 .fill(.tertiary)
                 .frame(width: 4, height: 4)
-                // Nudged onto the first line's baseline — a dot aligned to the top of the line box
-                // sits noticeably above the text it belongs to.
+                // Nudged onto the first line's baseline; at the top of the line box it sits high.
                 .padding(.top, 6)
         case .ordered(let number):
             Text("\(number).")
@@ -214,10 +187,9 @@ struct MarkdownBlockView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         case .task(let done):
-            // **A button only when there is a line to rewrite and a document that accepts it.**
-            // Both halves are real: a block the parser gave no range to cannot be found in the
-            // buffer, and a read-only document must not gain a writable control in the one mode
-            // that was never supposed to have any.
+            // A button only with a line to rewrite and a document that accepts edits: a block
+            // with no line can't be found in the buffer, and a read-only document must not gain
+            // a writable control.
             if let line, let onToggleTask {
                 Button { onToggleTask(line) } label: {
                     checkbox(done)
@@ -234,29 +206,20 @@ struct MarkdownBlockView: View {
         }
     }
 
-    /// The box itself, drawn the same whether or not it can be clicked — a checklist that looked
-    /// different on a read-only file would read as a rendering bug rather than as a permission.
+    /// The box, drawn the same whether or not it can be clicked: a different look on a read-only
+    /// file would read as a rendering bug, not a permission.
     private func checkbox(_ done: Bool) -> some View {
         Image(systemName: done ? "checkmark.square.fill" : "square")
             .scaledFont(.system(size: 11))
             .foregroundStyle(done ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
-            // A 4pt glyph is a hard target for a pointer; the shape gives it a real one without
-            // changing what is drawn.
+            // A bigger hit target than the small glyph, without changing what is drawn.
             .contentShape(Rectangle().inset(by: -3))
     }
 
-    /// A table, scrolling sideways inside its own container rather than widening the document.
-    ///
-    /// **A `Grid`, because columns have to agree across rows.** Rows built as independent `HStack`s
-    /// line up only while every cell is narrower than its `minWidth` — one long cell and the table
-    /// below it renders as a staircase. `Grid` measures the columns once and shares the answer,
-    /// which is the whole reason it exists.
-    ///
-    /// **On paper there is no scroller**, so the grid is drawn at its natural width and
-    /// ``DocumentPDF`` scales the block down to the page — which keeps every column rather than
-    /// dropping the ones past the paper's edge. A table is the one block where wrapping is not an
-    /// option: a cell that wraps is still in its column, but a column that falls off the page is
-    /// gone.
+    /// A table, scrolling sideways in its own container rather than widening the document. A
+    /// `Grid`, so columns agree across rows: independent `HStack` rows turn into a staircase after
+    /// one long cell. On paper there is no scroller, so the grid is drawn at natural width and
+    /// ``DocumentPDF`` scales it to the page, keeping every column on the paper.
     @ViewBuilder
     private func tableView(header: [MarkdownText], rows: [[MarkdownText]]) -> some View {
         let grid = Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
@@ -291,17 +254,10 @@ struct MarkdownBlockView: View {
 
     /// One line of styled text: a single `AttributedString`, one run at a time.
     ///
-    /// **One `Text`, not a stack of them.** Only a single `Text` wraps as one paragraph; an
-    /// `HStack` of runs would lay each out as its own unbreakable unit and a bold word mid-sentence
-    /// would stop the line wrapping where it should.
-    ///
-    /// **An `AttributedString` rather than `Text + Text`**, which is the same single-`Text` result
-    /// by the route the platform still supports — the `+` operator is deprecated as of macOS 26 and
-    /// was the branch's one deprecation warning. It also fixes a defect the concatenation carried:
-    /// the styling arms below used to be exclusive, so `` **`code`** `` rendered monospaced and not
-    /// bold. Emphasis is expressed as an *intent* rather than a resolved font, so it composes with
-    /// whatever size the block around it sets — which is what let the two be exclusive in the first
-    /// place, since a resolved font could only be one or the other.
+    /// One `Text`, because only a single `Text` wraps as one paragraph; an `HStack` of runs would
+    /// make each run an unbreakable unit. An `AttributedString`, not `Text + Text`, which is
+    /// deprecated as of macOS 26. Emphasis is an intent, not a resolved font, so it composes with
+    /// code and with the block's size: `` **`code`** `` is bold and monospaced.
     private func styled(_ line: MarkdownText) -> Text {
         var result = AttributedString()
         for run in line.runs {
@@ -310,11 +266,10 @@ struct MarkdownBlockView: View {
         return Text(result)
     }
 
-    /// **A link is the window's hue, in a shade that reads as text (FE2).** The raw accent measured
-    /// 3.7:1 on white at Blue, 2.7:1 at Green and Coral and 2.2:1 at Amber, against the 4.5:1 body
-    /// text needs. `ChromeInk.bodyText` is the path the app's other coloured sentences take: deepened
-    /// in light, lifted in dark, the hue kept. Editable Preview draws its links with the same rule
-    /// (`PreviewEditorView`), so turning Edit in Preview on or off does not change a link's colour.
+    /// A link is the window's hue in a shade that reads as text: the raw accent falls well short of
+    /// the 4.5:1 body text needs. `ChromeInk.bodyText` deepens it in light and lifts it in dark,
+    /// keeping the hue. `PreviewEditorView` uses the same rule, so toggling Edit in Preview leaves
+    /// a link's colour alone.
     static func linkInk(_ scheme: ColorScheme, accent: Color) -> Color {
         ChromeInk.bodyText(scheme, accent)
     }
@@ -323,9 +278,8 @@ struct MarkdownBlockView: View {
                            fontScale: CGFloat) -> AttributedString {
         var piece = AttributedString(run.text)
         if run.isCode {
-            // Scaled like everything around it. A bare `.font(.system(size:))` here left inline
-            // code at a fixed 12pt inside paragraphs that grow with Settings ▸ Text size, visibly
-            // wrong at the sizes people choose deliberately.
+            // Scaled like everything around it; a bare `.font(.system(size:))` would stay at 12pt
+            // inside paragraphs that grow with Settings ▸ Text size.
             piece.font = ScaledFont.system(size: 12, design: .monospaced).resolved(scale: fontScale)
         }
         var intents: InlinePresentationIntent = []
@@ -333,12 +287,8 @@ struct MarkdownBlockView: View {
         if run.isItalic { intents.insert(.emphasized) }
         if run.isStruck { intents.insert(.strikethrough) }
         if !intents.isEmpty { piece.inlinePresentationIntent = intents }
-        // **Clickable now, and the app still fetches nothing.** The comment here used to argue that
-        // a preview which opened a browser would be "doing something the editor does not"; what it
-        // actually does is hand a URL to the system, which is what every Markdown preview on the
-        // platform does and what a reader clicking a link is asking for. Rendering the *contents*
-        // of a remote thing is the line, and it is still not crossed — see `MarkdownImageView`.
-        //
+        // Clickable, and the app still fetches nothing: a click hands the URL to the system.
+        // Rendering a remote thing's contents is the line not crossed (see `MarkdownImageView`).
         // A `#fragment` is intercepted rather than opened: see `openLink`.
         if let link = run.link {
             piece.foregroundColor = linkInk(scheme, accent: accent)
@@ -347,8 +297,8 @@ struct MarkdownBlockView: View {
         return piece
     }
 
-    /// The heading ramp. Six levels compressed into a range the app's own type can carry — h1 is
-    /// deliberately not enormous, because a document opened in a rail-width column is not a poster.
+    /// The heading ramp: six levels in a range the app's type can carry. h1 is not enormous,
+    /// because a document in a rail-width column is not a poster.
     static func headingSize(_ level: Int) -> CGFloat {
         switch level {
         case 1: return 22

@@ -3,8 +3,8 @@ import CoreGraphics
 import Foundation
 @testable import FileExplorer
 
-/// **`PictureText.bitmap` for a PDF the app didn't make** (Ask Claude's scan reading, TE264): the
-/// crop box, clipped, and a size cap. Pure CoreGraphics, so any Mac.
+/// `PictureText.bitmap` for a PDF the app didn't make (Ask Claude's scan reading): the crop box,
+/// clipped, and a size cap. Pure CoreGraphics, so any Mac.
 @Suite struct PictureTextBitmapTests {
 
     /// One page of `size` points, black in its bottom half, cropped to its top half when `crop`,
@@ -37,8 +37,8 @@ import Foundation
         return pixels.min() ?? 255
     }
 
-    /// **The crop box is what is drawn.** The black half lies outside the crop: drawn by the media
-    /// box it fills half the bitmap; drawn by the crop box none of it shows.
+    /// The crop box is what is drawn. The black half lies outside the crop: drawn by the media box
+    /// it fills half the bitmap; drawn by the crop box none of it shows.
     @Test func theCropBoxHidesWhatTheCropHides() throws {
         let page = try Self.page(CGSize(width: 612, height: 792), cropTop: true)
         let media = try #require(PictureText.bitmap(of: page))
@@ -48,8 +48,8 @@ import Foundation
         #expect(try Self.darkest(cropped) > 200)
     }
 
-    /// **A crop box reaching past the media box draws no more than the media box**, as viewers
-    /// clip it; CoreGraphics gives the crop as written. And a crop wholly outside it draws nothing.
+    /// A crop box reaching past the media box draws no more than the media box, as viewers clip it;
+    /// CoreGraphics gives the crop as written. A crop wholly outside it draws nothing.
     @Test func aCropBoxIsClippedToTheMediaBox() throws {
         let wide = try Self.page(CGSize(width: 612, height: 792), cropBox: CGRect(x: -100, y: -100, width: 812, height: 992))
         try #require(wide.getBoxRect(.cropBox).width == 812, "CoreGraphics clipped the crop itself; the case isn't staged")
@@ -59,8 +59,8 @@ import Foundation
         #expect(PictureText.bitmap(of: outside, box: .cropBox, longestSide: PictureText.readSize) == nil)
     }
 
-    /// **A page one picture pixel to a point is drawn at `longestSide`, not at its own size.** The
-    /// media box's floor keeps 14,400 points as 14,400 pixels, a bitmap of about 600 MB.
+    /// A page one picture pixel to a point is drawn at `longestSide`, not at its own size: the
+    /// media box's floor would keep 14,400 points as 14,400 pixels, a bitmap of about 600 MB.
     @Test func aHugePageIsCappedAtItsLongestSide() throws {
         let page = try Self.page(CGSize(width: 14_400, height: 10_800))
         let capped = try #require(PictureText.bitmap(of: page, box: .cropBox, longestSide: PictureText.readSize))

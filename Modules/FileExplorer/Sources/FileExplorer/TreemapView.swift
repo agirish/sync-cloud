@@ -9,37 +9,22 @@ import Design
 struct TreemapView: View {
     let nodes: [TreemapNode]
 
-    /// The hue the ramp is built from. Defaults to the app's blue rather than reading
-    /// `@AppStorage` here, so the view stays a pure function of what it is handed and the one
-    /// caller decides.
+    /// The hue the ramp is built from. Handed in rather than read from `@AppStorage`, so the view
+    /// stays a pure function of its inputs.
     var hue: LiquidGlassHue = .blue
 
-    /// One sequential ramp, deep to pale, ordered by size — so **colour is the ranking** rather
-    /// than a rotating ten-hue palette assigned by index, where blue-for-Work meant nothing and
-    /// the eye kept looking for a legend that could not exist.
+    /// One sequential ramp, deep to pale, ordered by size, so colour is the ranking and no legend
+    /// is needed.
     ///
-    /// Built from the hue's own accent: step 0 **is** that accent, and each later step desaturates
-    /// toward white. Luminance is therefore **strictly monotonic** for every hue, which is the
-    /// property that lets the ramp be read as an order; `TreemapRampTests` pins it over all twelve.
+    /// Step 0 is the hue's own accent and each later step desaturates toward white, so luminance
+    /// is strictly monotonic for every hue; `TreemapRampTests` pins it over all twelve. Why: HSB→RGB
+    /// is `b · (1 − s·f)`, so falling `s` and rising `b` both raise every component. `max(0, …)`
+    /// keeps `b` from falling for hues already at `b = 1.0`; those ramp on saturation alone.
     ///
-    /// The argument, because the first version of this comment gave the wrong one. HSB→RGB is
-    /// `b · (1 − s·f)`, with `f ∈ [0,1]` fixed per component by the hue. Falling `s` raises every
-    /// component; rising `b` raises every component; so both moves agree — **provided `b` actually
-    /// rises**. Six of the twelve hues have `b = 1.0` already, blue and the app's default among
-    /// them, and against a flat 0.97 ceiling their brightness would *fall* by three points while
-    /// saturation fell. Luminance still rose (saturation dominates), so the ramp was right and the
-    /// reason given for it was not. `max(0, …)` makes the ceiling a floor-under-no-change: those
-    /// hues hold `b` and ramp on saturation alone, and the sentence above is true as written.
-    ///
-    /// Absolute endpoints were tried first and abandoned: forcing every hue into one luminance
-    /// band turns amber into a dark brown at the deep end. Ramping from each hue's own accent
-    /// keeps the hue recognisable and costs only that pale-hued ramps sit higher overall — which
-    /// the label rule below already answers.
+    /// Not absolute endpoints: one luminance band for every hue turns amber brown at the deep end.
     nonisolated static func ramp(_ hue: LiquidGlassHue, count: Int) -> [Color] {
-        // `.none` resolves to the *system* accent, which is a dynamic color: sampling its
-        // components fixes it to whatever appearance happens to be current, and it will not
-        // re-resolve when that changes. Every other case is static sRGB. Blue is the app's own
-        // default and what this treemap's palette already led with.
+        // `.none` is the system accent, a dynamic color: sampling its components would freeze it
+        // to the current appearance. Every other hue is static sRGB; blue is the app's default.
         let base = hue == .none ? LiquidGlassHue.blue : hue
         guard count > 0 else { return [] }
         guard let hsb = NSColor(base.accentColor).usingColorSpace(.sRGB) else {
@@ -63,29 +48,15 @@ struct TreemapView: View {
         return ramp[index]
     }
 
-    /// The label color, from **the fill the tile actually took** rather than a fixed table
-    /// parallel to a fixed palette.
-    ///
-    /// The old `labelPalette` was ten precomputed answers for ten fixed hues; a ramp has as many
-    /// fills as there are tiles, so there is nothing to precompute against. `Color.onFillLabel` is
-    /// the app's one on-fill pairing rule and it takes a color, so asking it per tile is both
-    /// shorter and correct for fills it has never seen.
-    ///
-    /// **This is why the ramp does not simply delete the contrast problem, as the plan for it
-    /// assumed.** That reasoning was "the pale end lands on the small tiles, which carry no
-    /// labels anyway" — but the fold floors the smallest visible tile at `labelMinWidth`, which
-    /// is exactly the width at which a tile *starts* drawing its name. The palest step is
-    /// therefore labelled, and needs the pairing as much as amber ever did.
+    /// The label color for the fill the tile actually took, from `Color.onFillLabel`, the app's
+    /// one on-fill pairing rule. Needed even at the pale end: the fold floors the smallest visible
+    /// tile at `labelMinWidth`, exactly where a tile starts drawing its name.
     private func labelColor(for index: Int, in ramp: [Color], node: TreemapNode) -> Color {
         node.name == "Other" ? .primary : Color.onFillLabel(color(for: index, in: ramp, node: node))
     }
 
-    /// The width below which a tile draws no name — and, since the fold landed, the width below
-    /// which it stops being its own tile at all.
-    ///
-    /// `nonisolated` because the two functions that decide widths from it — `fold` and
-    /// `visibleWidths` — are pure arithmetic and say so. Reading a main-actor constant from them
-    /// warned at every call site while changing nothing about the value.
+    /// The width below which a tile draws no name, and below which the fold absorbs it.
+    /// `nonisolated` so the pure `fold` and `visibleWidths` can read it without a main-actor hop.
     nonisolated static let labelMinWidth: CGFloat = 46
 
     /// What the fold decided: the tiles that keep their identity, and the ones the tail absorbs.
@@ -95,21 +66,16 @@ struct TreemapView: View {
         var tailBytes: Int { folded.reduce(0) { $0 + $1.bytes } }
     }
 
-    /// Folds the sub-label-width suffix into one tail (v4.0 polish P9). A part-of-whole picture
-    /// that ends in anonymous slivers silently drops its smallest parts; the tail accounts for
-    /// them in words — "+3 more · 6.2 MB" — and every byte stays on screen: visible + folded
-    /// always sum to the input, which is what `TreemapFoldTests` pins.
+    /// Folds the sub-label-width suffix into one tail, "+3 more · 6.2 MB", so the picture doesn't
+    /// end in anonymous slivers. Visible plus folded always sum to the input (`TreemapFoldTests`).
     ///
-    /// Two deliberate edges: a fold of ONE would relabel a tile "+1 more" in the same space its
-    /// own name could use, so a single sub-threshold node keeps its identity (the view widens it
-    /// to the label floor instead); and nodes are assumed largest-first, so the fold is a suffix.
-    /// Iterative, and that is the correctness point (found in adversarial review): the tail is
-    /// clamped to the label floor, and the width that clamp takes comes out of the visible
-    /// tiles — which can push the smallest of THEM under the floor, the exact anonymous-sliver
-    /// state the fold exists to remove. So the decision replays against the post-clamp widths
-    /// until it settles: fold the last tile while it cannot carry a label, then re-measure.
-    /// Nodes arrive largest-first, so widths descend and the settled visible set is entirely
-    /// at or above the floor.
+    /// A fold of one is refused: "+1 more" would use the space the tile's own name could, so a
+    /// lone straggler keeps its identity and the view widens it to the floor. Nodes are assumed
+    /// largest-first, so the fold is a suffix.
+    ///
+    /// Iterative, because the tail is clamped to the label floor and that width comes out of the
+    /// visible tiles, which can push the smallest under the floor. So it re-measures after each
+    /// fold until the last visible tile can carry a label.
     nonisolated static func fold(nodes: [TreemapNode], availableWidth: CGFloat,
                                  spacing: CGFloat = 3) -> Fold {
         guard nodes.count > 1, availableWidth > 0 else { return Fold(visible: nodes, folded: []) }
@@ -129,8 +95,7 @@ struct TreemapView: View {
             guard lastWidth < labelMinWidth else { break }
             folded.insert(visible.removeLast(), at: 0)
         }
-        // A fold of ONE would relabel a tile "+1 more" in the same space its own name could
-        // use — the straggler keeps its identity (the view widens it to the floor instead).
+        // A fold of one keeps its identity instead; the view widens it to the floor.
         guard folded.count >= 2 else { return Fold(visible: nodes, folded: []) }
         return Fold(visible: visible, folded: folded)
     }
@@ -142,8 +107,8 @@ struct TreemapView: View {
             let total = max(1, nodes.reduce(0) { $0 + $1.bytes })
             let tileCount = fold.visible.count + (fold.folded.isEmpty ? 0 : 1)
             let available = max(0, geo.size.width - spacing * CGFloat(max(0, tileCount - 1)))
-            // The tail never falls below the label floor — its whole job is to be readable —
-            // and the visible tiles share what remains in their own proportions.
+            // The tail never falls below the label floor, since it exists to be read; the
+            // visible tiles share what remains in proportion.
             let tailWidth = fold.folded.isEmpty ? 0
                 : max(Self.labelMinWidth, available * CGFloat(fold.tailBytes) / CGFloat(total))
             let visibleBytes = max(1, total - fold.tailBytes)
@@ -164,23 +129,15 @@ struct TreemapView: View {
         .frame(height: 88)
     }
 
-    /// The visible tiles' widths, which **sum to `available`** — that is the whole point of doing
-    /// it here rather than per-tile inside the `ForEach`.
+    /// The visible tiles' widths, which sum to `available`: computed together, not per tile.
     ///
-    /// A single sub-threshold straggler left visible by the fold (a "+1 more" would use the space
-    /// its own name could) is held at the label floor, same as the tail. It was widened in place,
-    /// though, without the extra being taken from anyone: the other tiles had already been sized to
-    /// fill the row, so `[10 000, 8 000, 100]` at 900pt drew about 941pt of tiles. An `HStack` of
-    /// fixed-width children does not compress and a `GeometryReader` does not clip, so the excess
-    /// was simply painted past the card's right edge.
+    /// A lone straggler the fold left visible is held at the label floor and takes its width
+    /// first; the rest share what remains in proportion. Widening it without taking the extra from
+    /// the others would paint past the card's edge, since an `HStack` of fixed widths doesn't
+    /// compress and a `GeometryReader` doesn't clip.
     ///
-    /// The floored tile is paid for exactly the way the tail is: it takes its width first, and the
-    /// rest share what remains in their own proportions.
-    ///
-    /// One exception to "sum to `available`", stated so the invariant is not read as wider than it
-    /// is: an all-zero-byte visible set has no proportions to divide, so the floored tile takes the
-    /// label floor and the rest take nothing. That is under-fill, never overflow, and a report with
-    /// zero-byte areas has nothing to draw anyway.
+    /// One exception: an all-zero-byte visible set has no proportions, so the floored tile takes
+    /// the floor and the rest nothing. Under-fill, never overflow.
     nonisolated static func visibleWidths(_ visible: [TreemapNode], floorLastTile: Bool,
                                           available: CGFloat, visibleBytes: Int) -> [CGFloat] {
         guard !visible.isEmpty else { return [] }
@@ -226,7 +183,7 @@ struct TreemapView: View {
 
     @ViewBuilder
     private func tile(_ node: TreemapNode, color: Color, label: Color, width: CGFloat) -> some View {
-        // Never let a real (nonzero) area collapse to nothing — a hairline still shows it exists.
+        // A real area never collapses to nothing: a hairline still shows it exists.
         let clamped = max(width, 3)
         RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .fill(color.gradient)

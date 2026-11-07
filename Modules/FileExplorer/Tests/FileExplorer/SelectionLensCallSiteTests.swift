@@ -5,26 +5,19 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// Every FileExplorer control that marks one choice among siblings really hosts a selection lens
-/// (roadmap RD46): in Frosted and Clear the lens sits exactly on the chosen stop.
-///
-/// Glass draws nothing offscreen, so these render with the probe (`drawsProbe`) — the lens's own
-/// geometry in flat magenta. That is what makes this a call-site test rather than a test of the
-/// seam: the seam's behaviour is pinned in `SelectionLensTests`; what is pinned here is that each
-/// control wired its host and its stops, and wired them to the right frames. A control that
-/// dropped its host would render no magenta at all; one whose stops sat on the wrong view would
-/// render it in the wrong place.
-///
-/// Solid needs no test here: with no appearance set every control draws today's marker, and the
-/// suites that already render these controls (`PaneTabStripRenderTests` and the rest) are that
-/// test — untouched.
+/// Every FileExplorer control that marks one choice among siblings hosts a selection lens: in
+/// Frosted and Clear the lens sits exactly on the chosen stop. Glass draws nothing offscreen, so
+/// these render the probe (`drawsProbe`), the lens's geometry in flat magenta. `SelectionLensTests`
+/// pins the seam; this pins that each control wired its host and stops to the right frames. No host
+/// draws no magenta; stops on the wrong view draw it in the wrong place. Solid needs nothing here:
+/// the suites that already render these controls (`PaneTabStripRenderTests` and the rest) cover it.
 @MainActor
 @Suite(.serialized) struct SelectionLensCallSiteTests {
 
     static let probe = SelectionLensAppearance(level: .frosted, hue: .blue, tint: 0, drawsProbe: true)
 
     /// `view` at `size` on white, pinned to the light scheme, an active window, and the appearance
-    /// given — held in a `ProbeRig`, so a test that waits can read the same view again.
+    /// given, held in a `ProbeRig` so a test that waits can read the same view again.
     static func rig<V: View>(_ view: V, size: CGSize, appearance: SelectionLensAppearance = probe) -> ProbeRig<AnyView> {
         ProbeRig(AnyView(view
             .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -97,10 +90,10 @@ import Sync
         Self.expectNear(box, x: PaneTabStripLadder.stripGutter, height: PaneTabStripLadder.tabHeight)
     }
 
-    /// **Choosing another tab from the chip rung's menu leaves the lens where it is.** The rung has
-    /// one stop, the active tab's, so choosing another re-labels it: the lens was drawn there and is
-    /// wanted there. The first version found no stop for the old tab, took the move for a growth,
-    /// and blinked the lens out to regrow it from 40% on the same chip, every time.
+    /// Choosing another tab from the chip rung's menu leaves the lens where it is. The rung has one
+    /// stop, the active tab's, so choosing another only re-labels it. Finding no stop for the old
+    /// tab must not read as a growth, which would blink the lens out and regrow it on the same
+    /// chip.
     @Test(.machinePinned(.pixelSampling))
     func theChipRungsLensStaysPutWhenAnotherTabIsChosen() throws {
         let titles = ["Documents", "Taxes 2025", "Photos", "Receipts"]
@@ -132,11 +125,10 @@ import Sync
                 "the lens left the chip when another tab was chosen: \(before) → \(String(describing: after))")
     }
 
-    /// **The active chip's slab steps aside for the lens.** Every chip wears a grey slab, and the
-    /// active one's used to stay — drawn in the chip's own background, above the host's, so it laid
-    /// an 85% quaternary film over the lens. Under that film the probe still reads as magenta to
-    /// `Pixel.lensProbe` (it is that loose on purpose), so this reads the lens's middle against
-    /// the bare probe, to within a couple of steps a channel.
+    /// The active chip's slab steps aside for the lens. Every chip wears a grey slab, drawn in its
+    /// own background above the host's, so the active one's would lay a film over the lens.
+    /// `Pixel.lensProbe` is loose on purpose and still matches under that film, so this reads the
+    /// lens's middle against the bare probe, to within 3 steps a channel.
     @Test(.machinePinned(.pixelSampling))
     func theActiveChipsSlabStepsAsideForTheLens() throws {
         let titles = ["Documents", "Taxes 2025", "Photos"]
@@ -152,10 +144,9 @@ import Sync
                 "the lens's face is \(face), not the bare probe \(bare) — something is drawn over it")
     }
 
-    /// **The overflow menu's glass is a 22pt capsule, the ＋'s height.** AppKit sizes a borderless
-    /// menu to its own 16pt and ignores the label's frame, so the first version, which took the
-    /// label's 26pt at its word, drew a 10pt sliver. Read per control: the menu and the ＋ are the
-    /// strip's two cyan runs.
+    /// The overflow menu's glass is a 22pt capsule, the ＋'s height. AppKit sizes a borderless menu
+    /// to its own 16pt and ignores the label's frame, so glass sized from the label's 26pt would
+    /// draw a 10pt sliver. Read per control: the menu and the ＋ are the strip's two cyan runs.
     @Test(.machinePinned(.pixelSampling))
     func theOverflowMenusGlassIsAsTallAsTheNewTabButtons() throws {
         let titles = (1...9).map { "Folder number \($0)" }
@@ -183,16 +174,15 @@ import Sync
         return host.fittingSize
     }
 
-    /// Today's marker colour in these fixtures: pure green, passed as the capsule's fill, so
-    /// the Solid render's marker can be found exactly — and compared with where the lens lands.
+    /// Today's marker colour in these fixtures: pure green, passed as the capsule's fill, so the
+    /// Solid render's marker can be found exactly and compared with where the lens lands.
     static let markerGreen = Color(red: 0, green: 1, blue: 0)
     nonisolated static let isMarkerGreen: Pixel.Match = { r, g, b in g > 229 && r < 26 && b < 26 }
 
-    /// **The lens lands exactly where today's marker is drawn** — the strongest call-site claim
-    /// there is, and one that needs no knowledge of the control's internal insets. For the first
-    /// and the last segment: render Solid and find the green marker, render the probe and find the
-    /// lens, and require the same rectangle. Then require the two segments' lenses to differ, so a
-    /// lens stuck on one segment cannot pass.
+    /// The lens lands exactly where today's marker is drawn, a claim that needs no knowledge of the
+    /// control's insets. For the first and last segment: render Solid and find the green marker,
+    /// render the probe and find the lens, and require the same rectangle. Then require the two
+    /// segments' lenses to differ, so a lens stuck on one segment can't pass.
     static func expectLensOnTodaysMarker<V: View>(first: V, last: V,
                                                   sourceLocation: SourceLocation = #_sourceLocation) {
         let size = fittingSize(first)
@@ -210,7 +200,8 @@ import Sync
             }
             #expect(Pixel.same(marker, lens),
                     "\(name): lens \(lens) is not today's marker \(marker)", sourceLocation: sourceLocation)
-            // The chosen label: white on Solid's fill, black on light-mode glass (`selectionLensLabelInk`).
+            // The chosen label: white on Solid's fill, black on light-mode glass
+            // (`selectionLensLabelInk`).
             #expect(Pixel.count(solid, width: canvas.width, in: marker, Pixel.whiteInk) > 10,
                     "\(name): Solid's chosen label is not white on its fill", sourceLocation: sourceLocation)
             // Inset 4pt: a capsule leaves its box's corners to the light track behind it.
@@ -257,7 +248,7 @@ import Sync
             last: EditorRailTabBar(tab: .constant(.outline), accentFill: Self.markerGreen, onAccent: .white).frame(width: 232))
     }
 
-    /// The Files list filter's Names | Contents switch (RD38) — its own lens, the tab bar's look.
+    /// The Files list filter's Names | Contents switch: its own lens, in the tab bar's look.
     @Test(.machinePinned(.pixelSampling))
     func editsFilterScopeSwitchHostsItsLens() {
         Self.expectLensOnTodaysMarker(
@@ -288,17 +279,15 @@ import Sync
     static let restructureCanvas = CGSize(width: 720, height: 520)
 
     /// The lens once it has grown onto the chip Solid washes, or the box it was left at.
-    ///
-    /// The fixture's filter is SEEDED — `RestructureLens` applies `initialCrowdingFilter` in its
-    /// own `onAppear`, after the lens has mounted with nothing chosen — so the lens grows in, the
-    /// way it does when someone picks a chip, and the first frame shows it at opacity 0. Waited for
-    /// in main-actor turns, not seconds (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"),
-    /// and until it MATCHES the washed chip: "two reads in a row agree" was the first condition, and
-    /// two frames of a growth the starved clock had not advanced between agree as well.
+    /// `RestructureLens` applies `initialCrowdingFilter` in its own `onAppear`, after the lens
+    /// mounts with nothing chosen, so the lens grows in from opacity 0 as when someone picks a
+    /// chip. Waited for in main-actor turns, not seconds (`docs/flaky-tests.md`, "Fixed pumps and
+    /// fixed sleeps"), until it matches the washed chip: two equal reads in a row aren't enough,
+    /// since a starved clock can leave a growth unmoved between frames.
     static func grownLens(_ filter: DeadWeightClass) async throws
         -> (lens: CGRect?, washed: CGRect, rig: ProbeRig<AnyView>, pumps: Int) {
         let solid = rig(restructure(filter), size: restructureCanvas, appearance: .today)
-        // The chip row is the wash's FIRST run of rows: the open list below it paints pale green too.
+        // The chip row is the wash's first run of rows: the open list below paints pale green too.
         let rep = solid.capture()
         let top = try #require(Pixel.box(rep, width: restructureCanvas.width, isGreenWash), "Solid drew no washed chip")
         var bottom = top.minY
@@ -343,9 +332,8 @@ import Sync
 
     // MARK: - The destination picker's rail
 
-    /// The rail the picker is modelled on Settings' after, and it now draws its highlighted row the
-    /// same way: a lens exactly where Solid fills the row, the row's label white on that fill and
-    /// black on the glass.
+    /// The picker's rail, modelled on Settings', draws its highlighted row the same way: a lens
+    /// exactly where Solid fills the row, the label white on that fill and black on the glass.
     @Test(.machinePinned(.pixelSampling))
     func theDestinationRailHostsItsLens() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lens-rail-\(UUID().uuidString)")
@@ -354,8 +342,8 @@ import Sync
         let defaults = ScratchDefaults("SelectionLensCallSiteTests-picker")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         let picker = DestinationPicker(
-            // The item in the folder the card opens on, so the "now here" row is the highlighted one;
-            // an item from elsewhere opens with nothing highlighted.
+            // The item in the folder the card opens on, so the "now here" row is the highlighted
+            // one; an item from elsewhere opens with nothing highlighted.
             request: DestinationRequest(sourcePaths: [dir.appendingPathComponent("a.txt").path], firstItemName: "a.txt",
                                         isMove: true, providerRoot: dir.path, providerName: "Projects", openAt: dir.path),
             availableSize: CGSize(width: 700, height: 540), recents: [],

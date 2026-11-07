@@ -12,10 +12,10 @@ import EventsTestSupport
 /// More fixtures for the tools: a real catalog form, an owner-restricted file, and a scan heavy
 /// enough for Compress to make smaller.
 extension PDFFixtures {
-    /// A 2-page PDF carrying a REAL catalog `/AcroForm` with one text field on page 1 — assembled
-    /// byte by byte, because PDFKit will not write an `/AcroForm` from widget annotations (a fixture
-    /// built that way reports no form and tests nothing). pdf-toolkit's own fixture, ported.
-    /// `pages` past 2 repeats page 2; the default writes the original fixture byte for byte.
+    /// A 2-page PDF carrying a real catalog `/AcroForm` with one text field on page 1, assembled byte
+    /// by byte, since PDFKit won't write an `/AcroForm` from widget annotations (a fixture built that
+    /// way reports no form). pdf-toolkit's own fixture, ported. `pages` past 2 repeats page 2; the
+    /// default writes the original fixture byte for byte.
     static func writeAcroForm(_ path: String, pages: Int = 2) throws {
         let stream = "BT /Helv 24 Tf 72 396 Td (MARKERPAGE1) Tj ET"
         let extra = (2..<max(pages, 2)).map { 8 + $0 - 2 }
@@ -45,7 +45,7 @@ extension PDFFixtures {
         try Data(pdf.utf8).write(to: URL(fileURLWithPath: path))
     }
 
-    /// Opens without a password; page assembly needs the owner's — what Protect's Restrict editing
+    /// Opens without a password; page assembly needs the owner's. What Protect's Restrict editing
     /// writes, and what bank statements often are.
     static func writeRestricted(_ path: String, pages: Int = 3) {
         let plain = path + ".plain.pdf"
@@ -57,9 +57,9 @@ extension PDFFixtures {
         try? FileManager.default.removeItem(atPath: plain)
     }
 
-    /// Encrypted, yet every permission allowed and no password to open — an encryption dictionary
-    /// with nothing restricted. Clean Metadata still cannot run on it (the toolkit refuses any
-    /// encrypted file), and its skip must not blame an owner's restrictions it does not have (L11).
+    /// Encrypted, yet every permission allowed and no password to open: an encryption dictionary
+    /// with nothing restricted. Clean Metadata still can't run on it (the toolkit refuses any
+    /// encrypted file), and its skip must not blame owner restrictions the file doesn't have.
     static func writeEncryptedUnrestricted(_ path: String, pages: Int = 1) {
         let plain = path + ".plain.pdf"
         write(plain, pages: pages)
@@ -75,8 +75,8 @@ extension PDFFixtures {
         try? FileManager.default.removeItem(atPath: plain)
     }
 
-    /// Pages that are one large noise picture each — a scan, as far as Compress is concerned: no
-    /// text layer, and far more bytes than a redraw at a lower resolution needs.
+    /// Pages that are one large noise picture each, a scan as far as Compress is concerned: no text
+    /// layer, and far more bytes than a redraw at a lower resolution needs.
     static func writeScan(_ path: String, pages: Int, pixels: Int = 900) {
         var generator = SystemRandomNumberGenerator()
         let bytes = (0..<(pixels * pixels)).map { _ in UInt8.random(in: 0...255, using: &generator) }
@@ -96,7 +96,7 @@ extension PDFFixtures {
     }
 }
 
-/// **Edit's PDF tools — every one writes a NEW copy beside the original and never touches it.**
+/// Edit's PDF tools: every one writes a new copy beside the original and never touches it.
 ///
 /// Serialized, because every tool runs in `PDFKitSerialAccess`'s one lane. No test here holds the
 /// lane: each awaits its own run, so a crowded lane makes them slow, never wrong.
@@ -117,7 +117,7 @@ extension PDFFixtures {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).sorted()
     }
 
-    /// Tools attached to `file` as an open would attach them, without a reader — and with every
+    /// Tools attached to `file` as an open would attach them, without a reader, and with every
     /// question answered yes unless the test says otherwise.
     private func tools(_ file: String, encryption: PDFEncryptionState = .none) -> EditorPDFTools {
         let tools = EditorPDFTools()
@@ -128,8 +128,8 @@ extension PDFFixtures {
         return tools
     }
 
-    /// The original as it was, to hold it to afterwards: its bytes and its modification date —
-    /// set into the past first, so a write in this second could not hide behind it.
+    /// The original as it was, to compare against afterwards: its bytes and its modification date,
+    /// set into the past first so a write in this second can't hide behind it.
     private struct Original {
         let bytes: Data
         let modified: Date
@@ -200,8 +200,8 @@ extension PDFFixtures {
         return (file, .none)
     }
 
-    /// **The whole contract, per tool**: a new file with the tool's name, the original byte for
-    /// byte and date for date as it was, a second run named "… 2", and never two parses at once.
+    /// The whole contract, per tool: a new file with the tool's name, the original byte for byte and
+    /// date for date as it was, a second run named "… 2", and never two parses at once.
     @Test(arguments: Case.allCases)
     func everyToolWritesANewCopyAndLeavesTheOriginal(_ item: Case) async throws {
         let (file, encryption) = fixture(for: item)
@@ -227,9 +227,9 @@ extension PDFFixtures {
 
     // MARK: Writing — never over anything
 
-    /// **A file that appears after the name was chosen is refused by the write, not replaced** — the
-    /// name chooser here answers from a stale look at the folder, as a sync landing a file in between
-    /// would leave it. `createNew` refuses with `RENAME_EXCL`; `write` would have swapped it out.
+    /// A file that appears after the name was chosen is refused by the write, not replaced. The
+    /// name chooser here answers from a stale look at the folder, as a sync landing a file in
+    /// between would leave it. `createNew` refuses with `RENAME_EXCL`; `write` would swap it out.
     @Test func aCopyNeverReplacesAFileThatAppearedUnderItsName() throws {
         let original = path("Statement.pdf")
         PDFFixtures.write(original, pages: 1)
@@ -263,10 +263,10 @@ extension PDFFixtures {
         #expect(EditorPDFPageMenu.rangeText([1, 2, 3, 6]) == "2-4, 7")
     }
 
-    /// **A run on a file that changed since the reader read it writes nothing** — the reload has not
-    /// landed yet, so the copy would come from pages nobody was shown: Fill & Sign's items placed
-    /// by the old pages' boxes, Rotate's pages by the old numbering. A pane's run, with no reader,
-    /// checks nothing; the reader's load sets what it read.
+    /// A run on a file that changed since the reader read it writes nothing: before the reload
+    /// lands, the copy would come from pages nobody was shown (Fill & Sign's items placed by the old
+    /// pages' boxes, Rotate's pages by the old numbering). A pane's run, with no reader, checks
+    /// nothing; the reader's load sets what it read.
     @Test func aRunOnAFileThatChangedSinceItWasReadWritesNothing() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -307,7 +307,7 @@ extension PDFFixtures {
         for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
         #expect(pdf.phase == .open)
         #expect(pdf.tools.shownStamp == EditorFileStore.stamp(ofPath: file), "the reader's load did not set what it read")
-        // So does a load that found the file locked to open — Remove Password is a run like any other.
+        // So does a load that found the file locked to open: Remove Password is a run like any other.
         let locked = path("Locked.pdf")
         PDFFixtures.writeLocked(locked, password: "secret")
         let held = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
@@ -317,11 +317,10 @@ extension PDFFixtures {
         #expect(held.tools.shownStamp == EditorFileStore.stamp(ofPath: locked), "the locked load did not set what it read")
     }
 
-    /// **A reload that lands while the form-loss question is up does not let the run through
-    /// (FR54).** The tool and its page numbers were fixed against the revision the run started on;
-    /// the reload moves `shownStamp` on to the new one, so the re-check after the question must
-    /// compare with the stamp the run started from, not the live one — or Extract writes the new
-    /// file's pages by the old numbering.
+    /// A reload that lands while the form-loss question is up doesn't let the run through. The tool
+    /// and its page numbers were fixed against the revision the run started on, and the reload
+    /// moves `shownStamp` on, so the re-check after the question must compare with the starting
+    /// stamp, not the live one, or Extract writes the new file's pages by the old numbering.
     @Test func aReloadDuringTheFormQuestionDoesNotPassTheChangedCheck() async throws {
         let form = path("Form.pdf")
         try PDFFixtures.writeAcroForm(form, pages: 3)
@@ -340,10 +339,10 @@ extension PDFFixtures {
         #expect(!files().contains { $0.hasPrefix("Form (") }, "a copy was written from the reloaded revision: \(files())")
     }
 
-    /// **A file replaced while the run waits for its lane turn writes nothing either.** The checks
-    /// above are made before the turn, and a duplicate scan or a pane's Compress can hold the lane
-    /// long after them. The file is replaced here as the run's turn begins: Rotate turned the new
-    /// file's page 2, and Fill & Sign's save — the same run — put its words by the old pages' boxes.
+    /// A file replaced while the run waits for its lane turn writes nothing either. The checks above
+    /// come before the turn, and a duplicate scan or a pane's Compress can hold the lane long after
+    /// them. Replaced as the turn begins, Rotate would turn the new file's page 2, and Fill & Sign's
+    /// save (the same run) would put its words by the old pages' boxes.
     @Test func aFileReplacedWhileTheRunWaitsForTheLaneWritesNothing() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -369,9 +368,9 @@ extension PDFFixtures {
         #expect(pdf.fill.hasUnsavedChanges, "the refused save dropped the item")
     }
 
-    /// **A file evicted while the run waits for its lane turn is not read either.** Eviction keeps
-    /// the stamp, so the stamp check passes it; the toolkit opening the placeholder would download
-    /// it inside the lane every duplicate scan waits on.
+    /// A file evicted while the run waits for its lane turn isn't read either. Eviction keeps the
+    /// stamp, so the stamp check passes it; the toolkit opening the placeholder would download it
+    /// inside the lane every duplicate scan waits on.
     @Test func aFileEvictedWhileTheRunWaitsForTheLaneIsNotRead() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -385,9 +384,8 @@ extension PDFFixtures {
         #expect(tools.banner?.download == file, "the banner offers no Download (TE185)")
     }
 
-    /// **Cancel or a leave while the copy is being written still writes nothing** — the button's
-    /// help says "Stop — nothing is written" and the leave question "nothing is written". The copy
-    /// landed anyway, with "Wrote …" after a Cancel.
+    /// Cancel or a leave while the copy is being written still writes nothing, as the button's help
+    /// ("Stop — nothing is written") and the leave question promise.
     @Test func cancellingOrLeavingWhileTheCopyIsWrittenLeavesNoCopy() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -401,8 +399,8 @@ extension PDFFixtures {
         _ = await tools.run(.rotate(pages: [1], quarterTurns: 1))
         #expect(files() == ["Four.pdf"], "a run whose file was closed left \(files())")
 
-        // **Only the file the run created**: a copy replaced before the run looks is someone
-        // else's now, and stays.
+        // Only the file the run created is removed: a copy replaced before the run looks is
+        // someone else's now, and stays.
         let replaced = self.tools(file)
         replaced.writeStartedHook = { replaced.cancelRun() }
         replaced.writeLandedHook = { landed in
@@ -422,7 +420,7 @@ extension PDFFixtures {
 
     // MARK: Rotate
 
-    /// **Exactly the pages asked for turn**, and by the amount asked.
+    /// Exactly the pages asked for turn, and by the amount asked.
     @Test func rotateTurnsExactlyTheSelectedPages() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -439,7 +437,7 @@ extension PDFFixtures {
 
     // MARK: Delete
 
-    /// **Deleting every page is refused before the lane is asked**, and nothing is written.
+    /// Deleting every page is refused before the lane is asked, and nothing is written.
     @Test func deletingEveryPageIsRefused() async {
         let file = path("Two.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -448,7 +446,7 @@ extension PDFFixtures {
         #expect(outcome == .failed(PDFOperationError.cannotRemoveEveryPage.errorDescription!))
         #expect(files() == ["Two.pdf"], "something was written: \(files())")
         #expect(tools.banner?.kind == .failure)
-        // BEFORE the lane: on a path with no file there, the toolkit would say it couldn't open it.
+        // Before the lane: on a path with no file there, the toolkit would say it couldn't open it.
         let unread = EditorPDFTools()
         unread.attach(path: path("not-there.pdf"), pageCount: 2, encryption: .none)
         #expect(await unread.run(.deletePages([1, 0])) == .failed(PDFOperationError.cannotRemoveEveryPage.errorDescription!))
@@ -458,8 +456,8 @@ extension PDFFixtures {
 
     // MARK: Reorder
 
-    /// **An order that is not a permutation is refused** — the toolkit would keep a repeated page
-    /// twice and drop the missing one, under the name "reordered".
+    /// An order that isn't a permutation is refused: the toolkit would keep a repeated page twice
+    /// and drop the missing one, under the name "reordered".
     @Test func reorderValidatesThePermutation() async {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -472,8 +470,8 @@ extension PDFFixtures {
         #expect(EditorPDFToolEngine.isPermutation([2, 0, 1], pageCount: 3))
     }
 
-    /// **A drag is a pending order, written nowhere** until Save; Reset puts the pages back; Save
-    /// writes the copy in the dragged order and the pending order goes.
+    /// A drag is a pending order, written nowhere until Save; Reset puts the pages back; Save writes
+    /// the copy in the dragged order and the pending order goes.
     @Test func aDraggedOrderIsWrittenOnlyOnSave() async throws {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -506,9 +504,9 @@ extension PDFFixtures {
         try expectUntouched(file, original, "reorder")
     }
 
-    /// **Leaving with a pending order asks first** — No keeps it and stays; Yes lets the document
-    /// go, and the order goes only when it really does (the close), so a leave that fails after the
-    /// answer keeps it. With no pending order nothing is asked.
+    /// Leaving with a pending order asks first: No keeps it and stays; Yes lets the document go, and
+    /// the order goes only when it really does (the close), so a leave that fails after the answer
+    /// keeps it. With no pending order nothing is asked.
     @Test func leavingWithAnUnsavedOrderAsksFirst() async {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -538,8 +536,8 @@ extension PDFFixtures {
         #expect(pdf.tools.arrangement == nil, "the close kept the order")
     }
 
-    /// **A tool still running is asked about too**, in the words of what stops — and nothing is
-    /// asked once it has finished.
+    /// A tool still running is asked about too, in the words of what stops, and nothing is asked
+    /// once it has finished.
     @Test func leavingWhileAToolRunsAsksFirst() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -554,8 +552,8 @@ extension PDFFixtures {
         #expect(asked == 1)
         _ = await run.value
         #expect(tools.mayLeave() && asked == 1, "asked again with nothing running")
-        // A tool's sheet still waiting for its options is asked about too — ⌘Q took a half-typed
-        // password with no question, where a pane's sheet asks.
+        // A tool's sheet still waiting for its options is asked about too, as a pane's sheet is,
+        // so ⌘Q can't take a half-typed password without a question.
         let sheetTools = self.tools(path("Sheet.pdf"))
         var sheetAsked = 0
         sheetTools.confirmDiscardingArrangement = { _ in sheetAsked += 1; return false }
@@ -572,9 +570,9 @@ extension PDFFixtures {
         #expect(EditorPDFTools.leaveQuestion(running: nil, hasArrangement: true).go == "Discard")
     }
 
-    /// **⌘Q's question says Quit** (TE158), and no leave or quit question lets Return throw work
-    /// away (TE184, decision BS): the answer that does is marked destructive and has no key, and
-    /// Cancel keeps Esc — the file pane's quit question included.
+    /// ⌘Q's question says Quit, and no leave or quit question lets Return throw work away: the
+    /// answer that does is marked destructive and has no key, and Cancel keeps Esc, the file pane's
+    /// quit question included.
     @Test func theQuitQuestionSaysQuitAndReturnLosesNothing() {
         let rotate = EditorPDFTools.Running(.rotate(pages: [0], quarterTurns: 1))
         let stop = EditorPDFTools.leaveQuestion(running: rotate, hasArrangement: true, quitting: true)
@@ -609,8 +607,8 @@ extension PDFFixtures {
         }
     }
 
-    /// **A different document clears the selection and the pending order**; the same one reloaded
-    /// with the same pages keeps them.
+    /// A different document clears the selection and the pending order; the same one reloaded with
+    /// the same pages keeps the selection.
     @Test func theSelectionAndOrderBelongToOneDocument() {
         let tools = EditorPDFTools()
         tools.attach(path: "/a/one.pdf", pageCount: 3, encryption: .none)
@@ -636,7 +634,7 @@ extension PDFFixtures {
         #expect(selection.pages == [1, 3])
         selection.click(4, .plain, order: order)
         #expect(selection.pages == [4])
-        // Extends over the pages as SHOWN — a pending order is not page order.
+        // Extends over the pages as shown: a pending order is not page order.
         selection.click(4, .plain, order: [4, 0, 2, 1, 3])
         selection.click(2, .extend, order: [4, 0, 2, 1, 3])
         #expect(selection.pages == [4, 0, 2])
@@ -661,7 +659,7 @@ extension PDFFixtures {
 
     // MARK: Extract
 
-    /// **Extract keeps the order typed** — "3-5, 1" is pages 3, 4, 5 and then 1, named for it.
+    /// Extract keeps the order typed: "3-5, 1" is pages 3, 4, 5 and then 1, named for it.
     @Test func extractKeepsTheOrderTyped() async throws {
         let file = path("Five.pdf")
         PDFFixtures.write(file, pages: 5)
@@ -674,15 +672,15 @@ extension PDFFixtures {
         #expect(texts(path("Five (pages 3–5, 1).pdf")) == ["Page 3", "Page 4", "Page 5", "Page 1"])
         #expect(EditorPDFPageRangeSheet.parse("", action: .extract, pageCount: 5).pages == nil, "blank means everything")
         #expect(EditorPDFPageRangeSheet.parse("9", action: .extract, pageCount: 5).pages == nil)
-        // What was wrong, and what to type instead — not the toolkit's "Invalid page range: x".
+        // What was wrong, and what to type instead, not the toolkit's "Invalid page range: x".
         #expect(EditorPDFPageRangeSheet.parse("9", action: .extract, pageCount: 5).caption == "This PDF has no page 9 — it has 5 pages.")
         #expect(EditorPDFPageRangeSheet.parse("x", action: .extract, pageCount: 5).caption.hasSuffix("type pages like 3-5, 1."))
     }
 
     // MARK: Compress
 
-    /// **A compress that does not help writes nothing** — a lean text PDF redrawn as images comes
-    /// back no smaller, and the toolkit hands back the original's bytes.
+    /// A compress that doesn't help writes nothing: a lean text PDF redrawn as images comes back no
+    /// smaller, and the toolkit hands back the original's bytes.
     @Test func aCompressThatDoesNotHelpWritesNothing() async throws {
         let file = path("Lean.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -694,12 +692,11 @@ extension PDFFixtures {
         try expectUntouched(file, original, "no-gain compress")
     }
 
-    /// **Cancel stops Compress BETWEEN PAGES and leaves nothing** — no copy, no `.tmp_` orphan.
+    /// Cancel stops Compress between pages and leaves nothing: no copy, no `.tmp_` orphan.
     ///
-    /// Cancelled from inside the lane, at page 2, through the run's own flag: the main actor could
-    /// otherwise see its first report only after the lane had finished. What proves the toolkit
-    /// stopped — rather than the run finishing and the cancel being caught afterwards — is that no
-    /// page past 2 was ever begun.
+    /// Cancelled from inside the lane, at page 2, through the run's own flag, since the main actor
+    /// might see its first report only after the lane had finished. No page past 2 being begun
+    /// proves the toolkit stopped, rather than the run finishing and the cancel caught afterwards.
     @Test func cancellingACompressStopsBetweenPagesAndLeavesNoFile() async throws {
         let file = path("Scan.pdf")
         PDFFixtures.writeScan(file, pages: 5)
@@ -717,7 +714,7 @@ extension PDFFixtures {
         #expect(tools.running == nil)
     }
 
-    /// **Cancel pressed while the run still waits for the lane** writes nothing either.
+    /// Cancel pressed while the run still waits for the lane writes nothing either.
     @Test func cancellingACompressBeforeItStartsLeavesNoFile() async throws {
         let file = path("Scan.pdf")
         PDFFixtures.writeScan(file, pages: 2)
@@ -730,7 +727,7 @@ extension PDFFixtures {
         #expect(files() == ["Scan.pdf"], "a cancelled run left: \(files())")
     }
 
-    /// **Compress's progress reaches the main actor** — every page, ending on the last — however late
+    /// Compress's progress reaches the main actor for every page, ending on the last, however late
     /// the hops land behind the lane. Bounded in main-actor turns, not seconds.
     @Test func compressProgressReachesTheMainActor() async throws {
         let file = path("Scan.pdf")
@@ -743,8 +740,8 @@ extension PDFFixtures {
         #expect(tools.progress?.total == 3, "\(String(describing: tools.progress))")
     }
 
-    /// **A size target**: one the file already meets is said and nothing written; one no setting
-    /// reaches writes the smallest and says it missed, giving the size; one that is met says the sizes.
+    /// A size target the file already meets is said and nothing written; one no setting reaches
+    /// writes the smallest and says it missed, giving the size; one that is met says the sizes.
     @Test func compressToATargetSaysWhatHappened() async throws {
         let file = path("Scan.pdf")
         PDFFixtures.writeScan(file, pages: 2)
@@ -772,9 +769,9 @@ extension PDFFixtures {
 
     // MARK: Fidelity
 
-    /// **The form warning is pdf-utils' per tool**: Compress flattens, Extract and Reorder orphan,
-    /// and Rotate and Delete lose nothing — and it is asked only of a file that HAS a form. Declining
-    /// writes nothing.
+    /// The form warning is pdf-utils' per tool: Compress flattens, Extract and Reorder orphan, and
+    /// Rotate and Delete lose nothing; it is asked only of a file that has a form. Declining writes
+    /// nothing.
     @Test func aFormWarnsOnCompressExtractAndReorderOnly() async throws {
         let form = path("Form.pdf")
         try PDFFixtures.writeAcroForm(form)
@@ -818,7 +815,7 @@ extension PDFFixtures {
     // MARK: A pending order rides Rotate and Delete
 
     /// A folder of the test's own for a combined run's middle bytes, so "nothing left behind" is
-    /// read there rather than in a temporary folder every other process shares.
+    /// checked there rather than in a temporary folder every other process shares.
     private func staging(_ tools: EditorPDFTools) throws -> String {
         let root = path(".staging-root")
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
@@ -830,9 +827,9 @@ extension PDFFixtures {
         (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? ["<unreadable>"]
     }
 
-    /// **Rotate with a dragged order writes ONE copy in that order, with the pages turned** — the
-    /// texts and the turns both in the new order, the original as it was, nothing staged left
-    /// beside it or in the private folder, and the order done with. The banner and the log say both.
+    /// Rotate with a dragged order writes one copy in that order, with the pages turned: the texts
+    /// and the turns in the new order, the original as it was, nothing staged left beside it or in
+    /// the private folder, and the order done with. The banner and the log say both.
     @Test func aRotateTakesThePendingOrderAlong() async throws {
         let log = LogCapture()
         let file = path("Turn-\(UUID().uuidString.prefix(6)).pdf")
@@ -862,8 +859,8 @@ extension PDFFixtures {
         #expect(line.contains("rotate 90° right page 1 in the new page order 3, 1, 2"), "\(line)")
     }
 
-    /// **Delete with a dragged order leaves the survivors in that order** — and a page that was
-    /// already turned in the original keeps its turn where the drag put it.
+    /// Delete with a dragged order leaves the survivors in that order, and a page already turned in
+    /// the original keeps its turn where the drag put it.
     @Test func aDeleteTakesThePendingOrderAlong() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -890,13 +887,13 @@ extension PDFFixtures {
                 "banner: \(tools.banner?.message ?? "nothing")")
     }
 
-    /// **The middle bytes go to the private folder and nowhere else** — with that folder unusable
-    /// the run fails, rather than staging beside the PDF, and writes nothing there.
+    /// The middle bytes go to the private folder and nowhere else: with that folder unusable the run
+    /// fails rather than staging beside the PDF, and writes nothing there.
     @Test func aCombinedRunStagesOnlyInItsPrivateFolder() async throws {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
         let tools = tools(file)
-        // A FILE where the folder should be: nothing can be made under it.
+        // A file where the folder should be, so nothing can be made under it.
         let blocked = path(".not-a-folder")
         try Data("x".utf8).write(to: URL(fileURLWithPath: blocked))
         tools.stagingRoot = URL(fileURLWithPath: blocked, isDirectory: true)
@@ -908,8 +905,8 @@ extension PDFFixtures {
         #expect(tools.arrangement == [2, 0, 1], "a failed run dropped the order")
     }
 
-    /// **A delete that takes every moved page is a plain delete** — the rest are in the file's
-    /// order, so the copy is named for the delete alone and the order stays pending.
+    /// A delete that takes every moved page is a plain delete: the rest are in the file's order, so
+    /// the copy is named for the delete alone and the order stays pending.
     @Test func aDeleteOfTheMovedPageIsAPlainDelete() async throws {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -921,7 +918,7 @@ extension PDFFixtures {
         #expect(tools.arrangement == [2, 0, 1], "the order went with a copy that does not carry it")
     }
 
-    /// **Extract keeps the order typed, pending order or not** — and leaves the order pending.
+    /// Extract keeps the order typed, pending order or not, and leaves the order pending.
     @Test func anExtractIgnoresThePendingOrder() async throws {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -935,8 +932,8 @@ extension PDFFixtures {
         #expect(!caption.contains("new page order") && caption.contains("(pages 2, 1)"), "\(caption)")
     }
 
-    /// **The header's lines — and so File ▸ PDF Tools, drawn from the same entries — and the Delete
-    /// sheet say and do the same.** Rotate All Pages, run from its entry, takes the order along.
+    /// The header's lines (and so File ▸ PDF Tools, drawn from the same entries) and the Delete sheet
+    /// say and do the same. Rotate All Pages, run from its entry, takes the order along.
     @Test func everySurfaceTakesThePendingOrderAlong() async throws {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -958,14 +955,14 @@ extension PDFFixtures {
                 == [180, 180, 180])
     }
 
-    /// **A reorder orphans a form, so Rotate and Delete warn when they take the order along** —
-    /// neither does alone (``aFormWarnsOnCompressExtractAndReorderOnly``). Declined, nothing is
+    /// A reorder orphans a form, so Rotate and Delete warn when they take the order along, though
+    /// neither does alone (``aFormWarnsOnCompressExtractAndReorderOnly()``). Declined, nothing is
     /// written and the order stays.
     @Test func aCombinedRunOnAFormWarns() async throws {
         let form = path("Form.pdf")
         try PDFFixtures.writeAcroForm(form, pages: 3)
-        // Delete page 2, not page 1: [2, 3, 1] without page 1 is [2, 3] — the file's own order, a
-        // plain delete that rightly does not warn.
+        // Delete page 2, not page 1: [2, 3, 1] without page 1 is [2, 3], the file's own order, a
+        // plain delete that rightly doesn't warn.
         for tool: EditorPDFTool in [.rotate(pages: [0], quarterTurns: 1), .deletePages([1])] {
             let tools = tools(form)
             tools.move([0], onto: 2)
@@ -982,8 +979,8 @@ extension PDFFixtures {
 
     // MARK: Encryption
 
-    /// **A file locked to open offers Remove Password and nothing else**, with the reason; read in
-    /// the lane when the PDF opens.
+    /// A file locked to open offers Remove Password and nothing else, with the reason, read in the
+    /// lane when the PDF opens.
     @Test func aFileLockedToOpenOffersOnlyRemovePassword() async throws {
         let file = path("Locked.pdf")
         PDFFixtures.writeLocked(file, password: "open-sesame")
@@ -1005,8 +1002,8 @@ extension PDFFixtures {
         #expect(tools.encryption == nil && tools.path == nil)
     }
 
-    /// **A restricted file opens, offers the page tools, and a page tool that cannot run on it says
-    /// why in the toolkit's words.** Clean Metadata and Protect are not offered at all.
+    /// A restricted file opens and offers the page tools, and a page tool that can't run on it says
+    /// why in Edit's words. Clean Metadata and Protect are not offered at all.
     @Test func aRestrictedFileSaysWhatItsOwnerForbids() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
@@ -1019,7 +1016,7 @@ extension PDFFixtures {
         #expect(!tools.offersMetadata && !tools.offersProtect)
 
         let outcome = await tools.run(.rotate(pages: [0], quarterTurns: 1))
-        // In Edit's words: the toolkit's own sent the reader to PDF Utils' "Password Protect".
+        // In Edit's words: the toolkit's own would send the reader to PDF Utils' "Password Protect".
         let expected = "“Statement.pdf”’s owner doesn’t allow changing its pages. " + EditorPDFToolEngine.liftRestrictionsStep
         #expect(outcome == .failed(expected), "\(outcome)")
         #expect(tools.banner?.message == expected && tools.banner?.kind == .failure)
@@ -1029,8 +1026,8 @@ extension PDFFixtures {
 
     // MARK: Passwords
 
-    /// **No password reaches the log** — not Protect's, not Remove Password's, not a wrong one —
-    /// nor the description of the tool that carries it.
+    /// No password reaches the log (not Protect's, not Remove Password's, not a wrong one), nor the
+    /// description of the tool that carries it.
     @Test func passwordsNeverAppearInTheLog() async throws {
         let log = LogCapture()
         let secret = "Zebra-Quartz-9931"
@@ -1048,7 +1045,7 @@ extension PDFFixtures {
 
         let lockedTools = tools(copy, encryption: .lockedToOpen)
         let wrong = await lockedTools.run(.removePassword(EditorPDFSecret(secret + "-wrong")))
-        // In Edit's words, naming the file (TE186) — not PDF Utils' "did not unlock this PDF".
+        // In Edit's words, naming the file, not PDF Utils' "did not unlock this PDF".
         #expect(wrong == .failed(EditorPDFDocument.wrongPasswordMessage((copy as NSString).lastPathComponent)))
         let unlocked = await lockedTools.run(.removePassword(EditorPDFSecret(secret)))
         guard case .wrote(let open) = unlocked else { Issue.record("\(unlocked)"); return }
@@ -1061,7 +1058,7 @@ extension PDFFixtures {
         #expect(leaked.isEmpty, "a password reached the log: \(leaked.map(\.message))")
     }
 
-    /// **The log line says what was written, from what, and how** — with sizes for Compress.
+    /// The log line says what was written, from what, and how, with sizes for Compress.
     @Test func aCopyIsLoggedWithWhatWasDone() async throws {
         let log = LogCapture()
         let file = path("Ledger-\(UUID().uuidString.prefix(6)).pdf")
@@ -1075,8 +1072,8 @@ extension PDFFixtures {
 
     // MARK: What the review found
 
-    /// **A symlinked PDF compresses** — the toolkit measures the source with a call that does not
-    /// follow a link, so it is handed the file itself; the copy is still named beside the link.
+    /// A symlinked PDF compresses: the toolkit measures the source with a call that doesn't follow a
+    /// link, so it is handed the file itself; the copy is still named beside the link.
     @Test func aSymlinkedPDFCompresses() async throws {
         let real = path("real-scan.pdf")
         PDFFixtures.writeScan(real, pages: 2)
@@ -1087,8 +1084,8 @@ extension PDFFixtures {
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == real, "the link was replaced")
     }
 
-    /// **Cancel holds for every tool**, not only Compress's page loop — pressed while the run waits
-    /// for the lane, it still writes nothing.
+    /// Cancel holds for every tool, not only Compress's page loop: pressed while the run waits for
+    /// the lane, it still writes nothing.
     @Test func cancelStopsAToolThatHasNoPageLoop() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -1101,8 +1098,8 @@ extension PDFFixtures {
         #expect(files() == ["Four.pdf"], "a cancelled rotate wrote: \(files())")
     }
 
-    /// **A run that ends after its file was closed says nothing about the next one** — no banner,
-    /// no running state carried over.
+    /// A run that ends after its file was closed says nothing about the next one: no banner, no
+    /// running state carried over.
     @Test func aRunThatOutlivesItsFileLeavesTheNextOneAlone() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -1117,7 +1114,7 @@ extension PDFFixtures {
         #expect(tools.running == nil)
     }
 
-    /// **No drop is taken where no reorder can be saved** — a file locked to open, or while a run is
+    /// No drop is taken where no reorder can be saved: on a file locked to open, or while a run is
     /// in flight, whose save would clear an order dragged since.
     @Test func aReorderIsRefusedWhereItCouldNotBeSaved() async {
         let locked = EditorPDFTools()
@@ -1137,9 +1134,9 @@ extension PDFFixtures {
         #expect(tools.arrangement == nil)
     }
 
-    /// **The same file changed on disk under a pending order drops the order, and says so** —
-    /// with the same page count too, since the pages may now say something else. The selection
-    /// stays while the count does.
+    /// The same file changed on disk under a pending order drops the order, and says so, even with
+    /// the same page count, since the pages may now say something else. The selection stays while
+    /// the count does.
     @Test func anOrderDroppedByAChangeOnDiskIsSaid() {
         for count in [4, 3] {
             let tools = EditorPDFTools()
@@ -1153,7 +1150,7 @@ extension PDFFixtures {
         }
     }
 
-    /// **A password survives no reflection** — `dump` walks a value's mirror, not its description.
+    /// A password survives no reflection: `dump` walks a value's mirror, not its description.
     @Test func aPasswordSurvivesNoReflection() {
         let secret = "Plover-Sextant-4417"
         var dumped = ""
@@ -1176,8 +1173,8 @@ extension PDFFixtures {
         #expect(EditorPDFCompression.bytes(megabytes: 1000) == 1_000_000_000)
     }
 
-    /// **A greyed Save says why** (PD9): the line under the size field is the reason, in red,
-    /// exactly where the button greys — read from the same rule — and the plain line otherwise.
+    /// A greyed Save says why: the line under the size field is the reason, in red, exactly where
+    /// the button greys (read from the same rule), and the plain line otherwise.
     @Test func aTargetThatGreysSaveSaysWhy() throws {
         for typed in ["2", " 1,5 ", "0.1"] {
             #expect(EditorPDFCompression.megabytes(typed) != nil)
@@ -1201,10 +1198,9 @@ extension PDFFixtures {
 
     static let readableRed = "ChromeInk.bodyText(colorScheme, SemanticColor.error)"
 
-    /// **The sheets' red sentences read at AA** (DS2): an 11- or 10-point line in bare `.red`
-    /// measured under 4.5:1 on the light window ground; the readable red clears it in both
-    /// appearances. Compress's size line, the page range's and the passwords' mismatch — no sheet
-    /// sentence is bare red.
+    /// The sheets' red sentences read at AA: an 11- or 10-point line in bare `.red` reads under 4.5:1
+    /// on the light window ground, while the readable red clears it in both appearances. Compress's
+    /// size line, the page range's and the passwords' mismatch: no sheet sentence is bare red.
     @Test func theSheetsRedSentencesTakeTheReadableRed() throws {
         func srgb(_ c: NSColor) -> NSColor { c.usingColorSpace(.sRGB) ?? c }
         func luminance(_ c: NSColor) -> CGFloat {
@@ -1233,8 +1229,8 @@ extension PDFFixtures {
 
     // MARK: The second review
 
-    /// **A sheet closes when its run says something, and stays when it failed or was declined** —
-    /// a failure is shown in place, beside the field that caused it.
+    /// A sheet closes when its run ended, and stays when it failed or was declined: a failure is
+    /// shown in place, beside the field that caused it.
     @Test func aSheetClosesOnlyWhenItsRunEnded() async {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -1258,8 +1254,8 @@ extension PDFFixtures {
         #expect(formTools.sheet == .compress, "a declined warning closed the sheet")
     }
 
-    /// **The window hears of a copy exactly once, and only of a copy** — never of a failure, a
-    /// refusal or a compress that gained nothing.
+    /// The window hears of a copy exactly once, and only of a copy, never of a failure, a refusal or
+    /// a compress that gained nothing.
     @Test func theWindowHearsOfEachCopyOnce() async {
         let file = path("Lean.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -1274,8 +1270,8 @@ extension PDFFixtures {
         #expect(written == [path("Lean (rotated).pdf")], "the window heard of something that wrote nothing: \(written)")
     }
 
-    /// **A second run while one is in flight is refused as a failure** — so a sheet keeps itself
-    /// up and says why, rather than closing as if it had run.
+    /// A second run while one is in flight is refused as a failure, so a sheet keeps itself up and
+    /// says why, rather than closing as if it had run.
     @Test func aRunWhileAnotherRunsIsRefused() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -1289,8 +1285,8 @@ extension PDFFixtures {
         guard case .wrote = await first.value else { Issue.record("the first run did not write"); return }
     }
 
-    /// **The Tools menu, as the reader meets it** — what each kind of file offers, and the
-    /// selection's own lines.
+    /// The Tools menu as the reader meets it: what each kind of file offers, and the selection's own
+    /// lines.
     @Test func theToolsMenuOffersWhatTheFileAllows() {
         func enabled(_ tools: EditorPDFTools) -> Set<String> {
             Set(EditorPDFToolsMenuEntry.entries(tools).filter(\.enabled).map { ($0.submenu.map { $0 + " ▸ " } ?? "") + $0.title })
@@ -1307,7 +1303,7 @@ extension PDFFixtures {
         #expect(entries.first?.submenu == "Rotate 2 Selected Pages")
         #expect(entries.first?.action == .run(.rotate(pages: [0, 2], quarterTurns: -1)))
         #expect(entries.contains { $0.action == .sheet(.pages(.delete, prefill: "1, 3")) })
-        // Named for the selection, as the rotate submenu above them is (TE128).
+        // Named for the selection, as the rotate submenu above them is.
         #expect(enabled(plain).isSuperset(of: ["Extract 2 Selected Pages…", "Delete 2 Selected Pages…"]),
                 "\(enabled(plain).sorted())")
         plain.click(1, .toggle)
@@ -1337,8 +1333,8 @@ extension PDFFixtures {
         #expect(!enabled(one).contains("Delete Pages…"), "a one-page file offers to delete its only page")
     }
 
-    /// **A dragged order puts Save Reordered Copy and Reset Page Order in the Tools menu** — and so in
-    /// File ▸ PDF Tools, which draws the same entries — last, after a divider, for as long as the
+    /// A dragged order puts Save Reordered Copy and Reset Page Order in the Tools menu (and so in
+    /// File ▸ PDF Tools, which draws the same entries), last, after a divider, for as long as the
     /// reorder bar above the pages shows them, and gone once the order is put back.
     @Test func aPendingOrderPutsItsTwoActionsInTheMenu() throws {
         let tools = EditorPDFTools()
@@ -1360,8 +1356,8 @@ extension PDFFixtures {
         #expect(!actions().contains(.saveArrangement), "Save Reordered Copy outlived the order it saves")
     }
 
-    /// **The menu's two reorder lines do what the reorder bar's buttons do** — the same two calls.
-    /// The items are a view only a running menu builds, so the switch that maps them is read.
+    /// The menu's two reorder lines do what the reorder bar's buttons do: the same two calls. The
+    /// items are a view only a running menu builds, so the switch that maps them is read.
     @Test func theReorderLinesCallTheBarsActions() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/EditorPDFToolViews.swift")
@@ -1371,8 +1367,8 @@ extension PDFFixtures {
         #expect(flat.contains("case .resetArrangement: Button(entry.title) { tools.resetArrangement() }.disabled(!entry.enabled)"))
     }
 
-    /// **The page field reads what it prefills and what it shows** — hyphens, en dashes from the
-    /// copy's own name, and a Delete range.
+    /// The page field reads what it prefills and what it shows: hyphens, en dashes from the copy's
+    /// own name, and a Delete range.
     @Test func thePageFieldReadsItsOwnWords() throws {
         let pages = [1, 2, 3, 6]
         let text = EditorPDFPageMenu.rangeText(pages)
@@ -1386,7 +1382,7 @@ extension PDFFixtures {
         #expect(blank.pages == nil && blank.isBlank, "a blank field reads as an error before anything is typed")
     }
 
-    /// **Clean Metadata's copy carries no metadata** — the fields the file had are gone, not only
+    /// Clean Metadata's copy carries no metadata: the fields the file had are gone, not only
     /// renamed.
     @Test func cleanMetadataClearsTheCopy() async throws {
         let file = path("Word.pdf")
@@ -1406,8 +1402,8 @@ extension PDFFixtures {
                 "the copy still says: \(after)")
     }
 
-    /// **Restrict editing writes a restricted copy, and Remove Password lifts it with nothing typed**
-    /// — the toolkit cannot check an owner password on a file that opens freely.
+    /// Restrict editing writes a restricted copy, and Remove Password lifts it with nothing typed,
+    /// since the toolkit can't check an owner password on a file that opens freely.
     @Test func restrictEditingRoundTrips() async throws {
         let file = path("Plain.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -1420,8 +1416,8 @@ extension PDFFixtures {
         #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: open)) == PDFEncryptionState.none)
     }
 
-    /// **A copy of a restricted file says it is not restricted** — the rebuilding tools write a fresh
-    /// document, and that is the reader's to know.
+    /// A copy of a restricted file says it isn't restricted: the rebuilding tools write a fresh
+    /// document, and the reader should know.
     @Test func aCopyOfARestrictedFileSaysItIsNotRestricted() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
@@ -1429,12 +1425,13 @@ extension PDFFixtures {
         guard case .wrote(let copy) = await tools.run(.extract([0])) else { Issue.record("extract did not write"); return }
         #expect(tools.banner?.message.hasSuffix("The copy has no editing restrictions") == true,
                 "\(tools.banner?.message ?? "")")
-        // And the sentence is true of the file — said, and so, for each tool that can reach it.
+        // And the sentence is true of the file, for each tool that can reach it.
         #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: copy)) == PDFEncryptionState.none)
         guard case .wrote(let reordered) = await tools.run(.reorder([2, 0, 1])) else { Issue.record("reorder"); return }
         #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: reordered)) == PDFEncryptionState.none)
 
-        // Compress needs a scan to gain anything — a restricted one, made the way Restrict editing makes it.
+        // Compress needs a scan to gain anything: a restricted one, made as Restrict editing makes
+        // it.
         let scan = path("RestrictedScan.pdf"), plainScan = path("plain-scan.pdf")
         PDFFixtures.writeScan(plainScan, pages: 2)
         let wrote = PDFDocument(url: URL(fileURLWithPath: plainScan))?.write(
@@ -1449,9 +1446,9 @@ extension PDFFixtures {
                 "Compress's copy kept the restrictions its banner says it dropped")
     }
 
-    /// **A name near the volume's limit still gets a copy** — the base is shortened, a whole
-    /// character at a time, so the name fits the volume's 255 with room for " 2". "é" because it is
-    /// two units once decomposed, which is how the limit counts.
+    /// A name near the volume's limit still gets a copy: the base is shortened a whole character at
+    /// a time, so the name fits the volume's 255 with room for " 2". "é" because it is two units once
+    /// decomposed, which is how the limit counts.
     @Test func aVeryLongNameStillGetsACopy() async throws {
         let base = String(repeating: "é", count: 120) + "-statement"   // 250 units decomposed
         let file = path("\(base).pdf")
@@ -1467,8 +1464,8 @@ extension PDFFixtures {
         #expect(files().filter { $0.contains("(rotated)") }.count == 2)
     }
 
-    /// **A file evicted to the cloud since it opened is refused before the lane** — opening a
-    /// dataless file there downloads it on the lane every duplicate scan waits on.
+    /// A file evicted to the cloud since it opened is refused before the lane: opening a dataless
+    /// file there would download it on the lane every duplicate scan waits on.
     @Test func aCloudOnlyFileIsRefusedBeforeTheLane() async {
         let tools = EditorPDFTools()
         tools.attach(path: path("not-there.pdf"), pageCount: 3, encryption: .none)
@@ -1476,9 +1473,9 @@ extension PDFFixtures {
         #expect(await tools.run(.compress(.quality(0.35))) == .failed(EditorPDFTools.cloudOnlyReason("not-there.pdf")))
     }
 
-    /// **Clean Metadata… does not download a file evicted since it opened** — its sheet reads the
-    /// file's fields by URL in the lane, and PDFKit opening the placeholder downloads it there. The
-    /// run already refused such a file; the sheet's read came first and did not.
+    /// Clean Metadata… doesn't download a file evicted since it opened. Its sheet reads the file's
+    /// fields by URL in the lane, where PDFKit opening the placeholder would download it, and that
+    /// read comes before the run's own refusal.
     @Test func cleanMetadataDoesNotOpenAFileEvictedSinceItOpened() async throws {
         let file = path("Evicted.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -1494,7 +1491,7 @@ extension PDFFixtures {
         #expect(PDFURLOpens.count(opened) > opens, "the control never opened the file, so the count proves nothing")
     }
 
-    /// **A copy that has since gone is said to be gone** — the banner's Open does not silently do
+    /// A copy that has since gone is said to be gone, so the banner's Open doesn't silently do
     /// nothing.
     @Test func aBannerDoorToAGoneCopySaysSo() {
         let tools = EditorPDFTools()
@@ -1504,7 +1501,7 @@ extension PDFFixtures {
         #expect(tools.banner?.message == "“gone.pdf” is no longer there — it was moved or deleted.")
     }
 
-    /// **VoiceOver's reorder is the drag's** — one place at a time, a pending order like any other.
+    /// VoiceOver's reorder is the drag's: one place at a time, a pending order like any other.
     @Test func moveEarlierAndLaterReorder() {
         let tools = EditorPDFTools()
         tools.attach(path: "/a/x.pdf", pageCount: 3, encryption: .none)
@@ -1520,8 +1517,8 @@ extension PDFFixtures {
         #expect(tools.selection.pages.isEmpty)
     }
 
-    /// **Every way a run ends is in the log** — a refusal, a decline and a cancel included, so a
-    /// copy that never appeared is explained there.
+    /// Every way a run ends is in the log, a refusal, a decline and a cancel included, so a copy that
+    /// never appeared is explained there.
     @Test func everyEndingIsLogged() async throws {
         let log = LogCapture()
         let stem = "Logged-\(UUID().uuidString.prefix(8))"
@@ -1540,9 +1537,9 @@ extension PDFFixtures {
         #expect(lines.contains { $0.hasPrefix("Edit cancelled compress") }, "\(lines)")
     }
 
-    /// **The Tools menu fits the header's pinned card at every text size** — open, where it sits
-    /// beside the page controls, and locked, where it is the only control. The header's height is
-    /// pinned to the pane toolbar card's, so rows taller than the pin would be clipped, not grown.
+    /// The Tools menu fits the header's pinned card at every text size, open and locked. The
+    /// header's height is pinned to the pane toolbar card's, so rows taller than the pin would be
+    /// clipped, not grown.
     @Test func theToolsMenuFitsTheHeaderAtEveryTextSize() async throws {
         let open = path("Open.pdf"), locked = path("Locked.pdf")
         PDFFixtures.write(open, pages: 3)
@@ -1569,8 +1566,8 @@ extension PDFFixtures {
         }
     }
 
-    /// **A file closed while the form warning is up writes nothing** — the answer comes back for a
-    /// file no longer open, and is not acted on.
+    /// A file closed while the form warning is up writes nothing: the answer comes back for a file
+    /// no longer open, and is not acted on.
     @Test func aCloseDuringTheFormWarningWritesNothing() async throws {
         let form = path("Form.pdf")
         try PDFFixtures.writeAcroForm(form)

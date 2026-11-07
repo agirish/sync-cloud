@@ -4,17 +4,16 @@ import Testing
 
 /// The document survey card's words and its bar.
 ///
-/// **What this screen says has been wrong more often than what it draws**, which is why the copy is
-/// static functions a test can read rather than string literals inside a view body. The assertions
-/// below are mostly about honesty: that the offer states its cost, that a pause explains itself,
-/// and that a finished survey names what it could not read.
+/// The copy is static functions a test can read, not literals in a view body, because the words
+/// are what go wrong. The checks are mostly about honesty: the offer states its cost, a pause
+/// explains itself, and a finished survey names what it could not read.
 @Suite struct DocumentSurveyCardTests {
 
     // MARK: - Time remaining
 
-    /// **"About", always, and rounded above the hour.** The estimate is a rate over a serial read
-    /// of wildly uneven documents; "1 h 47 min left" claims a precision it does not have, and a
-    /// figure that ticks every minute invites someone to sit and watch it.
+    /// "About", always, and rounded above the hour. The estimate is a rate over very uneven
+    /// documents, so "1 h 47 min left" claims a precision it lacks, and a per-minute tick invites
+    /// watching.
     @Test func remainingIsRoundedAndHedged() {
         #expect(DocumentSurveyCardText.remaining(30) == "under a minute left")
         #expect(DocumentSurveyCardText.remaining(60) == "about 1 min left")
@@ -41,16 +40,16 @@ import Testing
                 "the offer does not say the commitment can be taken back")
     }
 
-    /// **A small library is offered in minutes** (FC7) — the card says the figure through
-    /// `DocumentSurveyCost`, so a dozen documents no longer cost "About 3 h".
+    /// A small library is offered in minutes: the card prices through `DocumentSurveyCost`, so a
+    /// dozen documents don't cost "About 3 h".
     @Test func theOfferForAFewDocumentsSaysAFewMinutes() {
         let detail = DocumentSurveyCardText.detail(for: .offered(documents: 12))
         #expect(detail.contains("A few minutes for 12 documents, in the background."), "\(detail)")
         #expect(!detail.contains("3 h"))
     }
 
-    /// **A walk that found no document offers no read of them** (RD8): the card says there is
-    /// nothing to read, prices nothing, and its verb looks again rather than offering to read.
+    /// A walk that found no document offers no read: the card says there is nothing to read,
+    /// prices nothing, and its verb looks again.
     @MainActor @Test func aWalkThatFoundNothingOffersNoRead() throws {
         let detail = DocumentSurveyCardText.detail(for: .offered(documents: 0))
         #expect(detail.hasSuffix("No document here is in a format this app can open, so there is nothing to read yet."),
@@ -64,13 +63,10 @@ import Testing
         #expect(one.verbs.map(\.title) == ["Read My Documents"])
     }
 
-    /// **The count is optional, and the copy has to hold up without it.** Knowing how many
-    /// documents would be read means walking the whole tree, which is not something to do every
-    /// time Organize opens — and the cheap numbers lying around are the wrong ones: the profile's
-    /// summed `fileCount` is every file, 11,835 against the 11,019 the survey opens on the
-    /// reference tree. Overstating the work by 7% in the sentence someone decides on is worse than
-    /// not stating it, so the card says how long without saying how many, and promises the count
-    /// before it opens anything.
+    /// The count is optional, and the copy holds up without it. Counting means walking the whole
+    /// tree, too much for every Organize open, and the cheap figure (the profile's summed
+    /// `fileCount`) counts every file, not the documents read. So the uncounted card says how long,
+    /// not how many, and promises the count before it opens anything.
     @Test func theOfferHoldsUpBeforeAnythingHasBeenCounted() {
         let detail = DocumentSurveyCardText.detail(for: .offered(documents: nil))
         #expect(!detail.isEmpty)
@@ -78,13 +74,13 @@ import Testing
         #expect(detail.lowercased().contains("paused"))
         #expect(detail.contains("says how many"),
                 "the uncounted offer does not promise the count it is withholding")
-        // And it must not invent one.
+        // It must not invent one.
         #expect(!detail.contains("11,835"))
         #expect(!detail.contains("7,558"))
     }
 
-    /// No bar before anything has happened, and none after it is done — in the first case there is
-    /// nothing to draw, in the second a full bar is a second way of saying "Documents read".
+    /// No bar before anything has happened, and none once done, where a full bar would only repeat
+    /// "Documents read".
     @Test func onlyTheRunningStatesDrawABar() {
         #expect(DocumentSurveyCardText.fraction(for: .offered(documents: 10)) == nil)
         #expect(DocumentSurveyCardText.fraction(for: .finished(summary: "x", unreadableTypes: 0)) == nil)
@@ -93,8 +89,7 @@ import Testing
             for: .running(done: 2, total: 4, folder: nil, secondsRemaining: nil, pause: nil)) == 0.5)
     }
 
-    /// An empty plan must not divide by zero — it is reachable on a tree of nothing but Office
-    /// documents, which is a real shape rather than a hypothetical one.
+    /// An empty plan must not divide by zero; a tree of nothing but Office documents produces one.
     @Test func anEmptyPlanDoesNotDivideByZero() {
         #expect(DocumentSurveyCardText.fraction(
             for: .running(done: 0, total: 0, folder: nil, secondsRemaining: nil, pause: nil)) == nil)
@@ -119,8 +114,8 @@ import Testing
         #expect(detail.contains("about 1 h 50 min left"))
     }
 
-    /// **The ETA is withheld rather than guessed**, and the card has to say something in its place.
-    /// A blank where a number belongs reads as a bug.
+    /// A withheld ETA still leaves the card saying something: a blank where a number belongs reads
+    /// as a bug.
     @Test func anAbsentETAStillSaysSomething() {
         let detail = DocumentSurveyCardText.detail(
             for: .running(done: 3, total: 7558, folder: nil, secondsRemaining: nil, pause: nil))
@@ -128,9 +123,8 @@ import Testing
         #expect(detail.lowercased().contains("how long"))
     }
 
-    /// **A paused card must not look like a stalled one.** The title says paused, and the detail
-    /// carries the reason rather than the ETA — an estimate under a survey that is not running is
-    /// a number counting down to nothing.
+    /// A paused card must not look stalled: the title says paused, and the detail gives the reason
+    /// instead of an ETA that would count down to nothing.
     @Test func aPausedCardSaysSoAndGivesTheReason() {
         let pause = DocumentSurveyCardState.PauseNote(
             sentence: "Paused — the display is asleep, so iCloud has stopped handing files over.",
@@ -145,7 +139,7 @@ import Testing
         #expect(!detail.contains("1 h 50"), "a paused card is counting down to nothing")
     }
 
-    /// The user's own pause does NOT claim to resume on its own — it is the one that does not.
+    /// The user's own pause doesn't claim to resume on its own, because it doesn't.
     @Test func aUserPauseDoesNotPromiseToResumeItself() {
         let pause = DocumentSurveyCardState.PauseNote(sentence: "Paused.", resumesOnItsOwn: false)
         let detail = DocumentSurveyCardText.detail(
@@ -155,9 +149,8 @@ import Testing
 
     // MARK: - Interrupted, which is decision 3's whole surface
 
-    /// **It states the remainder, not the original ask.** "4,687 still to read" is a far easier
-    /// second decision than the three hours the first card asked for, and it is the reason an
-    /// offered resume is viable at all rather than a survey that sits at 38% for ever.
+    /// The interrupted card states the remainder, not the original ask: "4,687 still to read" is
+    /// an easier second decision than the three hours first asked for.
     @Test func theInterruptedCardSaysHowLittleIsLeft() {
         let state = DocumentSurveyCardState.interrupted(done: 2871, total: 7558)
         #expect(DocumentSurveyCardText.title(for: state).contains("2,871 of 7,558"))
@@ -166,13 +159,10 @@ import Testing
         #expect(!detail.contains("3 h"), "it is re-asking the original three-hour question")
     }
 
-    /// **Nothing left to read is a different sentence, not a zero.**
-    ///
-    /// This test used to assert "0 still to read", which was the copy at the time and read as a
-    /// bug on screen — reached for real when the corpus write fails after a complete pass, where
-    /// the checkpoint is kept, the remainder is zero, and what is actually left is the write.
-    /// A hand-edited checkpoint claiming more done than planned lands in the same branch, which is
-    /// why the clamp is still asserted: what must never appear is a negative.
+    /// Nothing left to read is its own sentence, not "0 still to read". It happens when the corpus
+    /// write fails after a complete pass: the checkpoint stays and what's left is the write. A
+    /// hand-edited checkpoint claiming more done than planned lands here too, so no negative count
+    /// may appear.
     @Test func nothingLeftToReadSaysWhatIsActuallyLeft() {
         for state: DocumentSurveyCardState in [.interrupted(done: 7558, total: 7558),
                                                .interrupted(done: 99, total: 10)] {
@@ -181,7 +171,7 @@ import Testing
                     "the card does not say what is actually outstanding")
             #expect(!detail.contains("still to read"),
                     "the card offers to read documents when none are left")
-            // A NEGATIVE NUMBER, not a hyphen — the sentence legitimately says "re-reading".
+            // A negative number, not a hyphen: the sentence legitimately says "re-reading".
             #expect(detail.range(of: "-[0-9]", options: .regularExpression) == nil,
                     "a negative remainder reached the copy")
             #expect(!DocumentSurveyCardText.title(for: state).contains("paused at"),
@@ -191,9 +181,8 @@ import Testing
 
     // MARK: - Finished
 
-    /// **The completion names what it could NOT open.** A summary that reports only what it managed
-    /// reads as complete when it was not, and Office formats are the largest single gap in a
-    /// derived survey — 816 of 11,835 documents on the reference tree.
+    /// The completion names what it could not open, or it reads as complete when it wasn't. Office
+    /// formats are the largest single gap in a derived survey.
     @Test func theCompletionNamesTheFormatsItCouldNotRead() {
         let detail = DocumentSurveyCardText.detail(
             for: .finished(summary: "10,203 documents read.", unreadableTypes: 816))
@@ -202,7 +191,7 @@ import Testing
         #expect(detail.contains("Word"))
     }
 
-    /// And says nothing about them when there were none — a zero stated is a claim nobody asked for.
+    /// It says nothing about them when there were none.
     @Test func aCleanCompletionDoesNotMentionFormatsAtAll() {
         let detail = DocumentSurveyCardText.detail(
             for: .finished(summary: "12 documents read.", unreadableTypes: 0))
@@ -211,12 +200,9 @@ import Testing
 
     // MARK: - Settled: the receipt, and the gap it closed
 
-    /// **The state whose absence left the feature with no front door.**
-    ///
-    /// Once a memory existed the card returned nil, so Organize's overview said nothing about the
-    /// reading at all — the "surveyed 3 days ago" line was on Restructure's card and the refresh
-    /// was an item in a dropdown on To File's rescan button. Three places, none of them where
-    /// somebody looks, and no way to tell the reading had ever happened.
+    /// Once the documents have been read, the card becomes a receipt: what was learned, when, and
+    /// a refresh that says it reads only what changed. It is Organize's one place to see that the
+    /// reading happened and to refresh it.
     @Test func theSettledReceiptStatesWhatIsKnownAndOffersTheRefresh() {
         let detail = DocumentSurveyCardText.detail(
             for: .settled(folders: 2306, lastRead: Date().addingTimeInterval(-3 * 86_400)))
@@ -228,8 +214,8 @@ import Testing
                 == "Documents read")
     }
 
-    /// A corpus written before the stamp existed — or by the offline builder — has no date. The
-    /// card states what it knows and skips what it does not, rather than inventing a "just now".
+    /// A corpus with no stamp (an older one, or the offline builder's) has no date. The card says
+    /// what it knows rather than inventing a "just now".
     @Test func aSettledReceiptWithNoStampSaysWhatItKnows() {
         let detail = DocumentSurveyCardText.detail(for: .settled(folders: 2306, lastRead: nil))
         #expect(detail.contains("2,306"))
@@ -237,13 +223,13 @@ import Testing
         #expect(detail.lowercased().contains("only what has changed"))
     }
 
-    /// A receipt is not a to-do: no bar, no badge — the rule Storage's card already follows.
+    /// A receipt is not a to-do: no bar, no badge, as on Storage's card.
     @Test func theSettledReceiptDrawsNoProgressBar() {
         #expect(DocumentSurveyCardText.fraction(for: .settled(folders: 2306, lastRead: nil)) == nil)
     }
 
-    /// Singular and plural, **verb included** — a one-folder tree is a real first survey, and
-    /// pluralising the noun while leaving the verb gave "1 folder have learned content".
+    /// Singular and plural, verb included, so a one-folder tree never reads "1 folder have learned
+    /// content".
     @Test func theSettledReceiptCountsGrammatically() {
         let one = DocumentSurveyCardText.detail(for: .settled(folders: 1, lastRead: nil))
         #expect(one.contains("1 folder has learned content"))
@@ -254,11 +240,8 @@ import Testing
 
     // MARK: - Every state
 
-    /// **Finishing is not a pause, and rendering it as one said three false things at once.**
-    /// It first arrived as a `PauseNote`, which made the card read "Reading documents · paused at
-    /// 7,558 of 7,558 … Resumes on its own" — over a survey that was not paused, could not be
-    /// resumed, and was doing the least interruptible minutes of its work — while offering a Pause
-    /// button for something with nothing to pause.
+    /// Finishing is not a pause. Shown as one, the card would say "paused … Resumes on its own" over
+    /// a survey that isn't paused, can't be resumed, and is in its least interruptible minutes.
     @Test func finishingSaysWhatItIsDoingRatherThanClaimingToBePaused() {
         let state = DocumentSurveyCardState.finishing(done: 7558)
         let title = DocumentSurveyCardText.title(for: state)
@@ -269,7 +252,7 @@ import Testing
                 "finishing promises a resume for something that is not stopped")
         #expect(detail.lowercased().contains("nothing to do"),
                 "finishing does not tell the reader there is nothing for them to do")
-        // No bar: the reading has stopped counting, and a full one would be counting it anyway.
+        // No bar: the reading has stopped counting.
         #expect(DocumentSurveyCardText.fraction(for: state) == nil)
     }
 
@@ -294,9 +277,8 @@ import Testing
 
     // MARK: - The verbs do what they say
 
-    /// **Start over asks, and a yes starts over — never the start that resumes.** It ran
-    /// `onStart`, which adopts the progress on disk, so it carried on exactly as Resume did. It now
-    /// runs `onStartOver`, and only after the question; a no runs nothing.
+    /// Start Over asks, and a yes runs `onStartOver`, never `onStart`, which adopts the progress on
+    /// disk and so would resume. A no runs nothing.
     @MainActor @Test func startOverAsksThenRunsTheVerbThatDiscards() throws {
         final class Calls { var log: [String] = [] }
         for answer in [true, false] {
@@ -318,8 +300,8 @@ import Testing
         }
     }
 
-    /// Its question: what the click costs, in counts, with the answer that throws the reading
-    /// away off Return and Cancel on Esc — the leave questions' shape (decision BS).
+    /// Its question says what the click costs, in counts, keeps the answer that discards the reading
+    /// off Return, and puts Cancel on Esc, like the app's other leave questions.
     @MainActor @Test func theStartOverQuestionSaysWhatItCostsAndKeepsReturnOffIt() {
         let alert = DocumentSurveyCard.startOverAlert(done: 4_687, total: 11_019)
         #expect(alert.informativeText.contains("4,687 documents"))
@@ -330,7 +312,7 @@ import Testing
         #expect(alert.buttons[1].keyEquivalent == "\u{1b}", "Esc doesn’t cancel")
     }
 
-    /// Both verbs say what they do, now that they do it.
+    /// Resume Now and Start Over both carry a tooltip saying what they do.
     @MainActor @Test func resumeNowAndStartOverHaveTooltips() throws {
         let paused = DocumentSurveyCard(
             state: .running(done: 10, total: 100, folder: nil, secondsRemaining: nil,

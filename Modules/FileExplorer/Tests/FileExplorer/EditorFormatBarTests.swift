@@ -6,21 +6,18 @@ import Design
 import FileExplorerTestSupport
 import EventsTestSupport
 
-/// The format bar (TE52): what it holds against the Markup menu, where it is drawn, what it lights,
-/// how it narrows, and what a press does to the caret.
+/// The format bar: what it holds against the Markup menu, where it is drawn, what it lights, how it
+/// narrows, and what a press does to the caret.
 @MainActor
 @Suite(.serialized) struct EditorFormatBarTests {
 
     // MARK: Parity with the Markup menu
 
-    /// **The bar holds the Markup menu's verbs — every one, once — in the menu's groups and the
-    /// menu's order, with one move: the heading group leads, as the Body menu.** All of it read off
-    /// `MarkupVerb.menuOrder`, the list the menu bar's Markup menu and the right-click submenu are
-    /// built from (`TextMarkupMenuTests` holds the built menu to the same list). The table run sits
-    /// inside the last group and is one Table button where it starts (TE68, decision AA = C6).
-    ///
-    /// Mutations: drop a verb from a group, reorder two within one, move Quote back to the lists,
-    /// or move the table run to the end — each fails a line.
+    /// The bar holds every Markup menu verb once, in the menu's groups and order, except that the
+    /// heading group leads, as the Body menu. Read off `MarkupVerb.menuOrder`, which the Markup
+    /// menu and right-click submenu are built from (`TextMarkupMenuTests` holds the built menu to
+    /// it). The table run sits inside the last group as one Table button. Dropping or reordering a
+    /// verb, moving Quote to the lists, or moving the table run to the end each fails a line.
     @Test func theBarHoldsTheMarkupMenusVerbsInItsGroupsAndOrder() throws {
         let menu = MarkupVerb.menuOrder.compactMap { $0 }
         let bar = EditorFormatBar.barOrder
@@ -41,7 +38,7 @@ import EventsTestSupport
         // The bar reads as the menu does, headings moved to the front.
         #expect(bar == EditorFormatBar.headingVerbs + menu.filter { !EditorFormatBar.headingVerbs.contains($0) },
                 "the bar's reading order is not headings first, then the menu's order")
-        // The spelled-out groups, so the derivation above cannot quietly agree with a changed menu.
+        // The spelled-out groups, so the derivation above can't quietly agree with a changed menu.
         #expect(EditorFormatBar.groups.map { $0.map(\.title) } == [
             ["Bold", "Italic", "Strikethrough"],
             ["Bulleted List", "Numbered List", "Task Item"],
@@ -57,13 +54,12 @@ import EventsTestSupport
         #expect(EditorFormatBar.headingVerbs.map(\.title) == ["Heading 1", "Heading 2", "Heading 3", "Body"])
     }
 
-    /// **The press runs the Markup menu's own function.** A synthetic click does not reach a
-    /// SwiftUI `Button` under `swift test`, so the wiring is read from the source, comments stripped:
-    /// each button and each menu item hands its verb to `onVerb`; the workspace hands `onVerb` to the
-    /// text view's handle; and the handle ends in `EditorDocumentSurface.applyMarkup` — the function
-    /// Markup ▸ runs (`MarkupVerbCommands.apply`). What that function then does is pinned below and
-    /// in `EditorMenuChordTests`. Mutations: `Button {}`, a handle that calls `PlainTextEditor.apply`
-    /// directly, or a workspace that hands `onVerb` anything else — each fails a line.
+    /// The press runs the Markup menu's own function. A synthetic click doesn't reach a SwiftUI
+    /// `Button` under `swift test`, so the wiring is read from the source, comments stripped: each
+    /// button and menu item hands its verb to `onVerb`, the workspace hands `onVerb` to the text
+    /// view's handle, and the handle ends in `EditorDocumentSurface.applyMarkup`, which Markup ▸
+    /// runs (`MarkupVerbCommands.apply`). `Button {}`, a handle calling `PlainTextEditor.apply`
+    /// directly, or a workspace passing anything else as `onVerb` each fails a line.
     @Test func everyPressRunsTheMarkupMenusFunction() throws {
         let bar = try Self.source("EditorFormatBar.swift")
         #expect(bar.contains("Button { onVerb(verb) }"), "a bar button does not hand its verb to onVerb")
@@ -84,8 +80,8 @@ import EventsTestSupport
 
     // MARK: A press and the caret
 
-    /// A text view in a window, marked as `PlainTextEditor` marks its own — `EditorMenuChordTests`'
-    /// fixture.
+    /// A text view in a window, marked as `PlainTextEditor` marks its own (as in
+    /// `EditorMenuChordTests`).
     private func hosted(text: String) -> (view: NSTextView, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -99,7 +95,7 @@ import EventsTestSupport
         return (view, window)
     }
 
-    /// **The ordinary press: the caret is in the text, the verb applies, and the caret stays.**
+    /// The ordinary press: the caret is in the text, the verb applies, and the caret stays.
     @Test func aPressAppliesTheVerbAndLeavesTheCaretInTheText() {
         let (view, window) = hosted(text: "one two three\n")
         window.makeFirstResponder(view)
@@ -112,11 +108,10 @@ import EventsTestSupport
         #expect(window.firstResponder === view, "the press left the caret outside the text")
     }
 
-    /// **A press with the caret elsewhere puts it back first, on the selection the text kept.** The
-    /// menu's function refuses unless the caret is in the text; the bar sits on that text, so its
-    /// press takes the caret back rather than doing nothing. Here a field holds the caret, as a
-    /// click on a SwiftUI button might leave it; the text's selection survives the resign.
-    /// Mutation: drop the `makeFirstResponder` and the verb refuses.
+    /// A press with the caret elsewhere puts it back first, on the selection the text kept: the
+    /// menu's function refuses unless the caret is in the text, and the bar sits on that text. Here
+    /// a field holds the caret, as a click on a SwiftUI button might leave it. Dropping the
+    /// `makeFirstResponder` makes the verb refuse.
     @Test func aPressWithTheCaretElsewhereBringsItBackAndApplies() async {
         let log = LogCapture()
         let (view, window) = hosted(text: "# Title\nbody\n")
@@ -137,10 +132,9 @@ import EventsTestSupport
                 "the press pulled the caret out of a field and said nothing")
     }
 
-    /// **No text view — or one that cannot be written — and the press does nothing, and says so.**
-    /// A button that does nothing and says nothing is the defect the menu's own refusal line exists
-    /// for, so the bar's refusals are logged too — each case on its own verb, because a capture also
-    /// sees its sibling cases' lines.
+    /// With no text view, or one that can't be written, the press does nothing and says so in the
+    /// log, as the menu's refusals do. Each case uses its own verb, because a capture also sees its
+    /// sibling cases' lines.
     @Test func aPressWithNoWritableTextViewDoesNothingAndSaysSo() async {
         let log = LogCapture()
         let handle = EditorTextViewHandle()
@@ -160,9 +154,9 @@ import EventsTestSupport
 
     // MARK: Where it is drawn
 
-    /// **Only for a writable Markdown document, open, in Source or Split, with the bar switched on.**
-    /// Every gate flipped alone, against the one case that shows it. Mutation: drop any term of
-    /// `isShown` and its line fails.
+    /// Only for a writable Markdown document, open, in Source or Split, with the bar switched on.
+    /// Every gate flipped alone, against the one case that shows it; dropping any term of `isShown`
+    /// fails its line.
     @Test func theBarShowsOnlyForAWritableMarkdownDocumentInSourceOrSplit() {
         func shown(preference: Bool = true, hasDocument: Bool = true, isRefused: Bool = false,
                    isMarkdown: Bool = true, isReadOnly: Bool = false, mode: EditorMode = .edit) -> Bool {
@@ -173,7 +167,7 @@ import EventsTestSupport
         #expect(shown(mode: .split), "no bar over Split")
         #expect(!shown(mode: .preview), "a bar over Preview, which has no text to act on")
         #expect(!shown(isMarkdown: false), "a bar over plain text")
-        // A plain-text file remembered in Split is drawn as Source — and still gets no bar.
+        // A plain-text file remembered in Split is drawn as Source, and still gets no bar.
         #expect(!shown(isMarkdown: false, mode: .split), "a bar over plain text left in Split")
         #expect(!shown(isReadOnly: true), "a bar over a read-only file")
         #expect(!shown(isRefused: true), "a bar over a refused file")
@@ -182,11 +176,10 @@ import EventsTestSupport
         #expect(EditorTextSettings.showsFormatBarDefault, "the bar is off by default")
     }
 
-    /// **Drawn where the rule says, in a mounted workspace:** the bar's buttons sit between the
-    /// header and the text — eleven of them and its two menus at this width — and the text starts
-    /// under it; with no bar the text starts at the header's edge. Plain text, read-only, Preview
-    /// and the preference off each draw none. Rings are counted between the header card's bottom and
-    /// the text view's top, so the header's own buttons and the status line are not counted.
+    /// Drawn where the rule says, in a mounted workspace: the bar's buttons (eleven and two menus
+    /// at this width) sit between the header and the text, which starts under it; with no bar the
+    /// text starts at the header's edge. Plain text, read-only, Preview and the preference off draw
+    /// none. Rings are counted between the header card's bottom and the text view's top only.
     @Test func theBarIsDrawnAboveTheTextExactlyWhereTheRuleSaysAndNowhereElse() throws {
         let markdown = try TestTextFiles.document(named: "Notes.md", text: "# Notes\n\nhello\n")
         let plain = try TestTextFiles.document(named: "Notes.txt", text: "hello\n")
@@ -199,24 +192,23 @@ import EventsTestSupport
         #expect(on.textTop - LiquidGlass.headerHeight > 20, "the text starts \(on.textTop - LiquidGlass.headerHeight)pt under the header — not under a bar")
         let split = Self.mounted(markdown, mode: .split)
         #expect(split.bar.count >= 1, "Split draws no bar")
-        // The Edit pill (TE67) sits in Split's Preview half; the bar's own buttons stay in Source's.
+        // The Edit pill sits in Split's Preview half; the bar's own buttons stay in Source's.
         let splitBar = split.bar.filter { !($0.width < 90 && $0.height < 30 && $0.minX > Self.width / 2) }
         #expect(split.bar.count - splitBar.count <= 1, "Split's Preview half draws more than the Edit pill")
         #expect(splitBar.allSatisfy { $0.maxX <= Self.width / 2 + 1 }, "the bar reaches past Split's Source half")
 
-        // Preview draws no bar — only Edit in Preview's pill (TE67), one small control at its
-        // trailing edge, which the bar's rule says nothing about.
+        // Preview draws no bar, only Edit in Preview's pill, one small control at its trailing
+        // edge, which the bar's rule says nothing about.
         let preview = Self.mounted(markdown, mode: .preview)
         #expect(preview.bar.count == 1, "Preview draws \(preview.bar.count) controls above its text — the pill alone")
-        // The pill: small, and at the column's trailing side — not one of the bar's buttons leaking in.
+        // The pill: small, at the column's trailing side, not one of the bar's buttons leaking in.
         #expect(preview.bar.allSatisfy { $0.minX > Self.width / 2 },
                 "the one control over Preview is not at its trailing side: \(preview.bar)")
         #expect(preview.bar.allSatisfy { $0.width < 90 && $0.height < 30 },
                 "Preview draws something other than the Edit pill above its text: \(preview.bar)")
-        // Editable Preview draws the bar over its text — and the Edit pill ends the bar's row,
-        // overlapping none of its buttons (reported 2026-10-05: it lay over Link, Table and Divider)
-        // — at every width, including the ones where the bar runs to the column's edge, down to the
-        // narrowest document column the workspace allows (review V16: it stopped at 800).
+        // Editable Preview draws the bar over its text, and the Edit pill ends the bar's row,
+        // overlapping none of its buttons, at every width down to the narrowest document column the
+        // workspace allows, including where the bar runs to the column's edge.
         for width: CGFloat in [Self.width, 1_000, 900, 800, 640, 520, 400, EditorLayoutMetrics.minDocumentOnlyWidth] {
             let editing = Self.mounted(markdown, mode: .preview, editsInPreview: true, width: width)
             print("[bar-overlap] \(width): \(editing.bar.count) controls, last ends \(editing.bar.map(\.maxX).max() ?? 0)")
@@ -243,7 +235,7 @@ import EventsTestSupport
                 "the bar takes no height — the text starts where a plain file's does")
     }
 
-    /// Wide enough for every word at the default size, a quarter larger (TE75).
+    /// Wide enough for every word at the default size.
     static let width: CGFloat = 1_300
 
     /// A workspace with the rail folded, in a window, with View ▸ Format Bar set as asked: the rings
@@ -280,8 +272,8 @@ import EventsTestSupport
             if !host.isFlipped { frame.origin.y = size.height - frame.maxY }
             return frame
         }
-        // The bar's band: under the header, above the text, and no deeper than a bar could reach —
-        // Preview has no text view, and its own controls further down are not the bar.
+        // The bar's band: under the header, above the text, and no deeper than a bar could reach,
+        // since Preview has no text view and its own controls further down are not the bar.
         let bar = rings.filter {
             $0.minY >= LiquidGlass.headerHeight - 1 && $0.maxY <= min(textTop + 1, LiquidGlass.headerHeight + 60)
         }
@@ -290,19 +282,18 @@ import EventsTestSupport
 
     // MARK: What it lights
 
-    /// **Lit exactly where a press would take the formatting off** — the verbs' own test, so a
-    /// lit button's press unwraps and a dark one's wraps. Each case is a buffer with its selection
-    /// in brackets. Mutations: light Link, compute a line verb's lit state from the strip pattern,
-    /// or drop the "something written" term (a blank line lights every line verb) — each fails.
+    /// Lit exactly where a press would take the formatting off (the verbs' own test), so a lit
+    /// button's press unwraps and a dark one's wraps. Each case is a buffer with its selection in
+    /// brackets. Lighting Link, a line verb lit by the strip pattern, or dropping the "something
+    /// written" term (a blank line would light every line verb) each fails.
     @Test func eachVerbLightsWhereItsPressWouldTakeItOff() {
         let cases: [(text: String, lit: Set<MarkupVerb>)] = [
             ("4. Finish with **⟦plenty⟧** of parmesan.", [.bold, .numberedList]),
-            // A caret inside the word is NOT lit: Bold there would add a second pair. Selecting the
-            // word (a double-click does) is what lights it — the verbs' own rule.
+            // A caret inside the word is not lit: Bold there would add a second pair. Selecting the
+            // word (as a double-click does) lights it, the verbs' own rule.
             ("4. Finish with **ple‸nty** of parmesan.", [.numberedList]),
-            // Bold alone (FMT-4): `**loud**` selected whole is not italic, and Italic over it adds a
-            // third star rather than taking bold's two away — so Italic stays dark. This line read
-            // [.bold, .italic] while Italic demoted the bold.
+            // Bold alone: `**loud**` selected whole is not italic, and Italic over it adds a third
+            // star rather than taking bold's two away, so Italic stays dark.
             ("say ⟦**loud**⟧ now", [.bold]),
             ("say ⟦***loud***⟧ now", [.bold, .italic]),   // bold-italic: both come off
             ("say ***⟦loud⟧*** now", [.bold, .italic]),
@@ -316,9 +307,8 @@ import EventsTestSupport
             ("- [ ] milk‸", [.taskItem]),                    // not Bulleted List: a task is not a bullet
             ("- ⟦milk⟧", [.bulletList]),
             ("> ⟦quoted⟧", [.blockQuote]),
-            // A quote nests, and the list under it is read past its `> ` (FMT-7): Bullets lights
-            // too, and its press takes the dash off inside the quote. This read [.blockQuote]
-            // while Bullets on it wrote `- > - both`.
+            // A quote nests, and the list under it is read past its `> `: Bullets lights too, and
+            // its press takes the dash off inside the quote.
             ("> - ⟦both⟧", [.blockQuote, .bulletList]),
             ("  - ⟦nested⟧", [.bulletList]),
             ("⟦plain text⟧", []),
@@ -337,18 +327,14 @@ import EventsTestSupport
         }
     }
 
-    /// **The lit state and the press can never disagree**: over every verb that toggles and a
-    /// spread of buffers, a lit verb's press takes its formatting off and a dark verb's press puts it
-    /// on. "Off" for an inline verb is a shorter buffer; for a line verb, no touched line still
-    /// carries the verb's own marker. This is the property the lit state exists to have, checked
-    /// against `MarkdownEdits.apply` rather than against a copy of its rules.
-    ///
-    /// **And a lit inline press takes off ITS formatting, and only its** (FMT-22): the rendering
-    /// keeps its words, the verb's own styled characters drop, and every other style's count stays.
-    /// "A shorter buffer" alone let Italic demote `**loud**` to `*loud*` (FMT-4) and invert two
-    /// italic spans (FMT-5) and still pass — both are shorter. The buffers now hold the shapes the
-    /// review found broken: a bold word for Italic, two spans, bold-italic, a nested and a quoted
-    /// list, a quoted heading, a bare task box, a setext heading and a comment in code.
+    /// The lit state and the press never disagree: over every toggling verb and a spread of
+    /// buffers, a lit verb's press takes its formatting off and a dark one's puts it on, checked
+    /// against `MarkdownEdits.apply` itself. "Off" for a line verb is no touched line still
+    /// carrying its marker. A lit inline press takes off only its own formatting: the words stay,
+    /// its styled characters drop, other styles' counts stay, since "a shorter buffer" alone would
+    /// pass Italic demoting `**loud**` to `*loud*`. The buffers hold the tricky shapes: a bold word
+    /// for Italic, two spans, bold-italic, nested and quoted lists, a quoted heading, a bare task
+    /// box, a setext heading and a comment in code.
     @Test func aLitButtonsPressTakesItOffAndADarkOnesPutsItOn() {
         let buffers = ["**bold**", "say **loud** now", "*it*", "a **b** c", "~~x~~", "`c`", "# One",
                        "## Two", "### Three", "#### Four", "- item", "- [ ] task", "- [x] done",
@@ -383,13 +369,14 @@ import EventsTestSupport
                     checked += 1
                     let tookOff: Bool
                     if let prefix = MarkdownEdits.linePrefix(for: verb) {
-                        // The SAME lines, by index: a line verb rewrites prefixes and never adds or
-                        // removes a line, while the selection it leaves can drift onto the next one.
+                        // The same lines, by index: a line verb rewrites prefixes and never adds or
+                        // removes a line, while the selection it leaves can drift onto the next
+                        // one.
                         let touched = MarkdownEdits.lineRanges(covering: selection, in: ns).map { range in
                             ns.substring(to: range.location).filter { $0 == "\n" }.count
                         }
                         let after = edit.text.components(separatedBy: "\n")
-                        // Read past each line's quote markers and indentation, as the verbs do (FMT-7).
+                        // Read past each line's quote markers and indentation, as the verbs do.
                         tookOff = !touched.contains { index in
                             guard index < after.count else { return false }
                             let line = after[index]
@@ -449,35 +436,31 @@ import EventsTestSupport
         return (plain, counts)
     }
 
-    /// **The whole way from a caret to a lit button, in a mounted workspace** — the text view's
-    /// selection reaches the workspace, the debounced task derives the state off the main actor, and
-    /// the bar draws it. Each step is pinned on its own elsewhere; this is the one that fails if they
-    /// stop being connected (a task keyed on the wrong value, a state never handed to the bar).
+    /// The whole way from a caret to a lit button, in a mounted workspace: the text view's
+    /// selection reaches the workspace, the debounced task derives the state off the main actor,
+    /// and the bar draws it. This is the test that fails if the separately pinned steps stop being
+    /// connected.
     ///
-    /// The caret is moved in the real text view and the bar's band read for the accent. It starts
-    /// LIT (a list item), so the first "nothing lit" is a change and not the resting state. Then:
-    /// a caret and a selection at the same place (only the length moves, so the task must be keyed
-    /// on it); a switch to Split with Bold lit (the rebuilt text view holds a bare caret, so Bold
-    /// must go dark — the stale-lit bug the second review found), then the same word selected again
-    /// (the stored length must have followed the new view, or the key does not move); and the bar
-    /// turned off and on with a word selected (the length is not kept while it is off).
-    ///
-    /// Polled, never slept. The thresholds are in POINTS, so the display's scale cannot move them.
-    /// Mutations: hand the bar `.none`; drop the length from the key; drop the length reset on a
-    /// switch; drop the length's catch-up when the bar comes on — each fails a step.
+    /// It starts lit (a list item), so the first "nothing lit" is a change. Then: a caret and a
+    /// selection at one place (only the length moves, so the task must be keyed on it); a switch to
+    /// Split with Bold lit (the rebuilt view has a bare caret, so Bold must go dark), then the word
+    /// selected again (the stored length must follow the new view); and the bar turned off and on
+    /// with a word selected (the length must catch up). Polled, never slept; thresholds in points.
+    /// Handing the bar `.none`, or dropping the length from the key, its reset on a switch, or its
+    /// catch-up, each fails a step.
     @Test(.machinePinned(.pixelSampling))
     func aCaretOnAListItemLightsBulletedListInTheMountedBar() async throws {
         let doc = try TestTextFiles.document(named: "Lit.md", text: "plain words\n- an item\n**bold** end\n")
         let defaults = ScratchDefaults("EditorFormatBarTests.lit")
         defaults.set(true, forKey: EditorTextSettings.showsFormatBarKey)
         defaults.set(SurfaceStyle.unified.rawValue, forKey: LiquidGlass.surfaceStyleKey)
-        // Split's Preview half read-only: Edit in Preview is on by default (v5.5), and its pill
-        // draws "Editing" in the accent inside the band this counts.
+        // Split's Preview half read-only: Edit in Preview is on by default, and its pill draws
+        // "Editing" in the accent inside the band this counts.
         defaults.set(false, forKey: EditorTextSettings.editsInPreviewKey)
         let size = CGSize(width: 900, height: 300)
-        // One wrapper for both modes, so swapping the root keeps the workspace's identity — and with
-        // it the `@State` the stale-lit check is about. A different wrapper would reset that state
-        // and pass the check for the wrong reason.
+        // One wrapper for both modes, so swapping the root keeps the workspace's identity and the
+        // `@State` the stale-lit check is about; a different wrapper would reset it and pass
+        // falsely.
         func root(_ mode: EditorMode) -> AnyView {
             AnyView(EditorWorkspaceView.fixture(document: doc, mode: mode).defaultAppStorage(defaults)
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -497,16 +480,16 @@ import EventsTestSupport
         rig.window.makeFirstResponder(text)
         // The bar's band: under the header, above the first line of text.
         let band: ClosedRange<CGFloat> = LiquidGlass.headerHeight...(LiquidGlass.headerHeight + 44)
-        // A lit button is its accent WASH: its words and glyph are label colour (DS1, RB2), so
-        // the wash is what is counted — the accent's soft tint, light and blue-leaning, as
-        // `theExpandButtonLightsWhenTheRailIsHidden` reads the header's.
+        // A lit button is its accent wash, since its words and glyph are label colour: the
+        // accent's soft tint, light and blue-leaning, as `theExpandButtonLightsWhenTheRailIsHidden`
+        // reads the header's.
         let accent: Pixel.Match = { r, g, b in b > 242 && (153...237).contains(r) && g > r }
         let perPoint = { () -> CGFloat in let rep = rig.capture(); return CGFloat(rep.pixelsWide * rep.pixelsHigh) / (size.width * size.height) }()
 
         /// The band's accent, in square points.
         func lit() -> CGFloat { CGFloat(rig.count(rows: band, accent)) / perPoint }
-        /// Waits — through `LayoutPumpWait`, which yields the main actor so the debounced task can
-        /// run — for the band to settle on `on`'s side.
+        /// Waits for the band to settle on `on`'s side, through `LayoutPumpWait`, which yields the
+        /// main actor so the debounced task can run.
         func settle(on: Bool) async -> CGFloat {
             var area: CGFloat = 0
             _ = await LayoutPumpWait.pump(rig.window, upTo: 5) {
@@ -539,10 +522,9 @@ import EventsTestSupport
         let again = await select(NSRange(location: 24, length: 4), on: true)
         #expect(again >= Self.litAccentFloor, "in Split, “bold” selected again does not light Bold (\(again)pt²)")
 
-        // The bar off, a selection made, the bar on: it lights from the selection there IS. The
-        // caret is collapsed first WITH the bar on, so the length last kept is 0 and the one made
-        // while the bar is off is 4 — a length that is not caught up when the bar comes on reads
-        // as a bare caret and leaves Bold dark.
+        // The bar off, a selection made, the bar on: it lights from the selection there is. The
+        // caret is collapsed first with the bar on, so the length kept is 0 and the one made while
+        // it is off is 4; a length not caught up when the bar returns would leave Bold dark.
         let collapsedFirst = await select(NSRange(location: 24, length: 0), on: false)
         #expect(collapsedFirst <= Self.unlitAccentCeiling)
         defaults.set(false, forKey: EditorTextSettings.showsFormatBarKey)
@@ -557,15 +539,14 @@ import EventsTestSupport
         print("[format-lit] item \(item) · paragraph \(paragraph) · caret \(atWord) · word \(word) · split \(split) · again \(again) · bar-on \(barOn) · collapsed \(collapsed) (pt²)")
     }
 
-    /// See ``aCaretOnAListItemLightsBulletedListInTheMountedBar``: one lit button's wash, in square
+    /// For ``aCaretOnAListItemLightsBulletedListInTheMountedBar``: one lit button's wash, in square
     /// points, clears the floor; an unlit bar draws no accent at all.
     static let litAccentFloor: CGFloat = 10
     static let unlitAccentCeiling: CGFloat = 2.5
 
-    /// **The Heading menu names the level exactly** — `# Title` is Heading 1 and not Heading 3, a
-    /// level the menu has no item for is "Heading", body text is Body. The conflation this guards
-    /// against once demoted `# Title` when Heading 3 was asked for. Mutation: ask the strip pattern
-    /// (`pattern`) before the level-exact one, and `# Title` reads as whatever level is asked first.
+    /// The Heading menu names the level exactly: `# Title` is Heading 1, not Heading 3; a level the
+    /// menu has no item for is "Heading"; body text is Body. Asking the strip pattern (`pattern`)
+    /// before the level-exact one makes `# Title` read as whatever level is asked first.
     @Test func theHeadingMenuNamesTheLevelExactly() {
         func level(_ marked: String) -> MarkdownEdits.HeadingLevel {
             let (text, selection) = Self.unmark(marked)
@@ -596,7 +577,7 @@ import EventsTestSupport
         #expect(!EditorFormatBar.isCurrent(.heading(0), .otherHeading), "Body is ticked on a Heading 4")
     }
 
-    /// **The tooltip is the verb's name and the chord the menu bar registers** — read from
+    /// The tooltip is the verb's name and the chord the menu bar registers, read from
     /// `MarkupVerb.chord`, so ⌘B in a tooltip is the ⌘B Markup ▸ Bold answers.
     @Test func eachTooltipNamesTheVerbAndItsRegisteredChord() {
         #expect(EditorFormatBar.tooltip(.bold) == ShortcutHint.tooltip("Bold", AppChord.bold.display))
@@ -609,8 +590,8 @@ import EventsTestSupport
         }
     }
 
-    /// **Every glyph is a symbol the system has** — the verbs', the folded groups', the Table
-    /// capsule's and the merged menu's. A misspelt name draws an empty button and fails nothing else.
+    /// Every glyph is a symbol the system has: the verbs', the folded groups', the Table capsule's
+    /// and the merged menu's. A misspelt name draws an empty button and fails nothing else.
     @Test func everyGlyphIsASymbolTheSystemHas() {
         let parts = EditorFormatBar.foldableGroups + [.table]
         let names = MarkupVerb.menuOrder.compactMap({ $0 }).map(EditorFormatBar.symbol)
@@ -618,21 +599,19 @@ import EventsTestSupport
         for name in names {
             #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name) is not a symbol")
         }
-        // Divider no longer wears the bare dash that read as a minus (TE69).
+        // Divider doesn't wear the bare dash, which reads as a minus.
         #expect(EditorFormatBar.symbol(.horizontalRule) != "minus")
         #expect(MarkupVerb.horizontalRule.title == "Divider" && EditorFormatBar.word(.horizontalRule) == "Divider")
     }
 
     // MARK: Narrowing, group by group (TE72)
 
-    /// **The ladder: words off group by group, then the Body menu shortens, then each group folds
-    /// into a button of its own, and only last do the folded groups merge into one » — Bold, Italic
-    /// and Strikethrough last of all.** Out of a table, Insert's words go first and Insert folds
-    /// first, the end people press least; in one, the greyed groups go first and the Table capsule
-    /// last. Icon Only is the same ladder from where the words are off.
-    ///
-    /// Mutations: fold before the words are off, fold Lists before Insert, merge before every
-    /// group is folded, or start Icon Only on a worded rung — each fails a line.
+    /// The ladder: words off group by group, then the Body menu shortens, then each group folds
+    /// into a button of its own, and only last do the folded groups merge into one », with Bold,
+    /// Italic and Strikethrough last of all. Out of a table, Insert goes first, the end people
+    /// press least; in one, the greyed groups go first and the Table capsule last. Icon Only is the
+    /// same ladder from where the words are off. Folding before the words are off, Lists before
+    /// Insert, merging early, or Icon Only starting worded each fails a line.
     @Test func theLadderTakesWordsOffThenFoldsGroupByGroup() {
         typealias Part = EditorFormatBar.Part
         let lists = Part.group(1), code = Part.group(2), insert = Part.group(3)
@@ -659,7 +638,7 @@ import EventsTestSupport
                                                       [lists, code, insert], [lists, code, insert, .table],
                                                       [lists, code, insert, .table]],
                 "in a table the groups fold \(inside.map { $0.folded.map(EditorFormatBar.title) })")
-        // The groups merge BEFORE the Table capsule folds, so the table's own edits outlast them.
+        // The groups merge before the Table capsule folds, so the table's own edits outlast them.
         #expect(inside.map(\.merged) == Array(repeating: false, count: 9) + [true, true, true])
         #expect(inside.last?.marksFolded == true && inside.filter(\.marksFolded).count == 1)
 
@@ -682,9 +661,9 @@ import EventsTestSupport
         #expect(EditorTextSettings.formatBarShowsLabelsDefault, "Icon and Text is not the default (decision Q)")
     }
 
-    /// **A folded group, and the merged », say what they hide that is applied** — to VoiceOver, as
-    /// their accent says it on screen — and the verbs that never light are plain items in them, not
-    /// toggles that are always off.
+    /// A folded group, and the merged », tell VoiceOver what they hide that is applied, as their
+    /// accent says it on screen; verbs that never light are plain items in them, not toggles that
+    /// are always off.
     @Test func aFoldedGroupNamesWhatItHidesThatIsApplied() {
         let lists = EditorFormatBar.verbs(of: .group(1))
         #expect(EditorFormatBar.appliedValue(lists, lit: []) == "")
@@ -700,9 +679,9 @@ import EventsTestSupport
         }
     }
 
-    /// **The bar is compared on what it draws, and nothing else** — so `.equatable()` holds off the
-    /// redraw a keystroke causes, and still lets every change the reader could see through. The
-    /// press closure is the one member left out. And the host really applies `.equatable()`.
+    /// The bar is compared on what it draws and nothing else, so `.equatable()` holds off the
+    /// redraw a keystroke causes yet lets every visible change through. The press closure is the
+    /// one member left out, and the host really applies `.equatable()`.
     @Test func theBarIsComparedOnWhatItDraws() throws {
         let a = EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in })
         #expect(a == EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in print("another") }),
@@ -739,9 +718,9 @@ import EventsTestSupport
         )).fittingSize.width
     }
 
-    /// **Each rung of the ladder is narrower than the one before it, at every text size, in a table
-    /// and out of one** — which is what makes the ladder a degrade order: `ViewThatFits` takes the
-    /// first that fits, so a rung wider than its predecessor would never be drawn.
+    /// Each rung is narrower than the one before it, at every text size, in a table and out:
+    /// `ViewThatFits` takes the first that fits, so a rung wider than its predecessor is never
+    /// drawn.
     @Test func eachRungIsNarrowerThanTheOneBeforeIt() {
         for table in [false, true] {
             for percent in FontSize.selectablePercents {
@@ -755,21 +734,13 @@ import EventsTestSupport
         }
     }
 
-    /// **At the narrowest a Split half may be — `minSplitColumnWidth`, 220pt — and at every
-    /// selectable text size, the bar fits**, in a table and out of one. The bar's width does not
-    /// depend on what is lit (the Body menu is laid out at its widest label), so the forced rungs
-    /// measured with nothing lit ARE its widths. The rung drawn is the first that fits the half less
-    /// the bar's insets, which is `ViewThatFits`' own rule; the real, unforced bar is then mounted at
-    /// that width and every control it draws must lie inside.
-    ///
-    /// **What it keeps there**, measured 2026-10-05 (208pt once the insets are off) and printed as
-    /// `[format-bar-fit]`: at every size, in a table and out of one, the Body menu shortened to ¶
-    /// and Bold, Italic and Strikethrough with the merged » beside them — 161 to 199pt from 90% to
-    /// 135%. In a table the Table capsule has folded into the » too. The floor pinned is that
-    /// fact: B, I and S never leave the bar there.
-    ///
-    /// Mutations: drop the merged rungs, or fold the marks before the groups merge, and a floor
-    /// fails or the bar overflows.
+    /// At the narrowest a Split half may be (`minSplitColumnWidth`) and every selectable text size,
+    /// the bar fits, in a table and out. Its width doesn't depend on what is lit (the Body menu is
+    /// laid out at its widest label), so the forced rungs with nothing lit are its widths; the rung
+    /// drawn is the first that fits the half less the insets, `ViewThatFits`' rule, and the real
+    /// bar mounted there must keep every control inside. The floor: the Body menu as ¶, then B, I
+    /// and S with the merged » beside them, printed as `[format-bar-fit]`. Dropping the merged
+    /// rungs, or folding the marks before the groups merge, fails.
     @Test func theBarFitsTheNarrowestSplitHalfAtEveryTextSize() throws {
         let available = EditorLayoutMetrics.minSplitColumnWidth - 2 * EditorWorkspaceView.formatBarInset
         var report: [String] = []
@@ -786,8 +757,8 @@ import EventsTestSupport
                 #expect(!rung.marksFolded,
                         "\(table ? "in a table, " : "")at \(percent)% Bold, Italic and Strikethrough go behind the » at \(available)pt")
 
-                // The real bar, choosing for itself, in that width — each way. Icon and Text
-                // changes nothing here: none of its worded rungs fits.
+                // The real bar, choosing for itself, in that width, each way. Icon and Text changes
+                // nothing here: none of its worded rungs fits.
                 var drawn: [[CGRect]] = []
                 for labels in [false, true] {
                     let rings = Self.rings(of: EditorFormatBar(state: state, accent: .blue, showsLabels: labels,
@@ -805,8 +776,8 @@ import EventsTestSupport
         print("[format-bar-fit] at \(Int(available))pt: \(report.joined(separator: " · "))")
     }
 
-    /// **Every button wears a word but B, I and S, and the word is the menu's title, shortened** —
-    /// pinned, because the words ARE the feature, and the full names stay in the tooltips.
+    /// Every button but B, I and S wears a word, the menu's title shortened; the words are the
+    /// feature, and the full names stay in the tooltips.
     @Test func everyButtonButTheLettersWearsAShortWord() {
         let expected: [MarkupVerb: String] = [
             .inlineCode: "Code", .link: "Link", .bulletList: "Bullets", .numberedList: "Numbered",
@@ -828,10 +799,9 @@ import EventsTestSupport
         }
     }
 
-    /// **A quarter larger than it first shipped** (TE75, decision AD): 14-point glyphs in 25-point
-    /// boxes and 12.5-point words, against 11, 20 and 11 — and a bare button really is its box wide,
-    /// and the capsules really stand apart: the room between Strikethrough and Bullets is a capsule
-    /// gap wider than the room between Bold and Italic.
+    /// The bar's sizes: 14-point glyphs in 25-point boxes and 12.5-point words. A bare button is
+    /// its box wide, and the capsules stand apart: Strikethrough to Bullets is a capsule gap wider
+    /// than Bold to Italic.
     @Test func theBarIsAQuarterLargerAndItsGroupsStandApart() throws {
         #expect(EditorFormatBar.glyphPoint == 14 && EditorFormatBar.boxSize == 25 && EditorFormatBar.wordPoint == 12.5)
         #expect(EditorFormatBar.box(at: 1) == 25)
@@ -841,9 +811,8 @@ import EventsTestSupport
         #expect(abs(rings[1].width - 25) < 1, "a bare Bold is \(rings[1].width)pt wide, not its 25pt box")
         let inside = rings[2].minX - rings[1].maxX
         let between = rings[4].minX - rings[3].maxX
-        // A fixed figure, not `capsuleGap` itself, which a mutation would move with the bar: the
-        // two capsules' insets (3pt each) and an 8pt gap stand between them, against the 2pt between
-        // two buttons in one capsule.
+        // A fixed figure, not `capsuleGap`, which would move with the bar: two capsule insets (3pt
+        // each) and an 8pt gap, against the 2pt between two buttons in one capsule.
         #expect(between >= inside + 10, "Strikethrough and Bullets are \(between)pt apart, Bold and Italic \(inside)pt — no capsule gap")
     }
 
@@ -862,13 +831,11 @@ import EventsTestSupport
         return FocusRings.frames(in: host).sorted { $0.minX < $1.minX }
     }
 
-    /// **The words come off group by group as the room shrinks — Insert's, then Code and Quote's,
-    /// then the lists' — and never a button**, at every text size, on the real bar choosing for
-    /// itself. At exactly each worded rung's width it draws that rung: words on nine buttons, then
-    /// six, then three, then none; and every button is still on the bar, nothing folded.
-    ///
-    /// A ring counts as worded when it is clearly wider than a bare glyph's box. Mutations: drop a
-    /// word, take Lists' words off first, or word B — each fails a count.
+    /// The words come off group by group as the room shrinks (Insert's, then Code and Quote's, then
+    /// the lists'), never a button, at every text size, on the real bar choosing for itself: words
+    /// on nine buttons, then six, three, none, with nothing folded. A ring is worded when clearly
+    /// wider than a bare glyph's box. Dropping a word, Lists' words first, or a worded B fails a
+    /// count.
     @Test func theWordsComeOffBeforeAnyButtonAsTheBarNarrows() {
         let buttons = EditorFormatBar.groups.flatMap { $0 }
         let ladder = EditorFormatBar.ladder(showsLabels: true, inTable: false)
@@ -881,8 +848,7 @@ import EventsTestSupport
             let expected = [9, 6, 3, 0]
             for (index, width) in widths.enumerated() {
                 // 8pt over the measured width, because `ViewThatFits` asks for a little more room
-                // than the rung draws in (measured 2026-10-04: up to 4pt over). The rungs are far
-                // more than 8pt apart, so 8pt cannot reach the one before.
+                // than the rung draws in (up to 4pt); the rungs are far more than 8pt apart.
                 let rings = Self.rings(of: EditorFormatBar(state: .none, accent: .blue, showsLabels: true, onVerb: { _ in }),
                                        width: width.rounded(.up) + 8, scale: scale)
                 // The Body menu, then one ring per button: nothing folded.
@@ -905,8 +871,8 @@ import EventsTestSupport
         print("[format-bar-words] all · Insert bare · Code bare · icons, in pt: \(report.joined(separator: " — "))")
     }
 
-    /// **In the workspace, Icon and Text draws the words and Icon Only does not** — the choice read
-    /// from the stored setting by the host, at a Source width with room for every word.
+    /// In the workspace, Icon and Text draws the words and Icon Only doesn't: the host reads the
+    /// stored setting, at a Source width with room for every word.
     @Test func theStoredChoiceDecidesWordsInTheWorkspace() throws {
         let markdown = try TestTextFiles.document(named: "Notes.md", text: "# Notes\n\nhello\n")
         let words = Self.mounted(markdown, mode: .edit, labels: true).bar.sorted { $0.minX < $1.minX }
@@ -922,11 +888,9 @@ import EventsTestSupport
         #expect(words.first == icons.first, "the Heading menu moved between the two")
     }
 
-    /// **A lit worded button lights its word too** — the wash spans the glyph and the word, not the
-    /// glyph's square alone. Counted as in `theExpandButtonLightsWhenTheRailIsHidden`: pixels of the
-    /// accent's soft tint, in square points, here in the word's half of the Bullets ring.
-    ///
-    /// Mutation: wash the glyph alone (the old square) and the word half holds none.
+    /// A lit worded button lights its word too: the wash spans glyph and word. Counted as in
+    /// `theExpandButtonLightsWhenTheRailIsHidden`, the accent's soft tint in square points, in the
+    /// word's half of the Bullets ring. Washing the glyph's square alone leaves that half empty.
     @Test(.machinePinned(.pixelSampling))
     func aLitWordedButtonWashesItsWordToo() throws {
         let rung = EditorFormatBar.ladder(showsLabels: true, inTable: false)[0]
@@ -952,9 +916,9 @@ import EventsTestSupport
         #expect(on.nameRowRings == row, "lighting Bullets moved the bar's buttons")
     }
 
-    /// **The right-click menu: Icon and Text, Icon Only, then Hide Format Bar** — each choice
-    /// written to its setting and said in the log once, a press on the ticked one changing nothing,
-    /// and Hide turning off the very setting View ▸ Format Bar ticks.
+    /// The right-click menu: Icon and Text, Icon Only, then Hide Format Bar. Each choice is written
+    /// to its setting and logged once, a press on the ticked one changes nothing, and Hide turns
+    /// off the setting View ▸ Format Bar ticks.
     @Test func theRightClickMenuChoosesWordsOrIconsAndHidesTheBar() async throws {
         let log = LogCapture()
         var labels = true
@@ -1009,14 +973,11 @@ import EventsTestSupport
         (text as NSString).range(of: needle).location
     }
 
-    /// **What the Table capsule's controls do** (TBL-17): Row adds a row BELOW and Column a column
-    /// to the RIGHT, each chevron offering both sides; Delete asks which; Format formats. Nothing
-    /// pinned it — the control count and a grep for `onVerb(verb)` both read the same with Above and
-    /// Below swapped, and "Row" names both — so the list the capsule draws from is read, and the
-    /// capsule is held to drawing from it rather than naming verbs of its own.
-    ///
-    /// Mutations: swap a press and its other side in the list, or draw a control from a verb
-    /// written in `tableCapsule(worded:)` — each fails a line.
+    /// What the Table capsule's controls do: Row adds a row below and Column a column to the right,
+    /// each chevron offering both sides; Delete asks which; Format formats. A control count can't
+    /// see Above and Below swapped, so the list the capsule draws from is read, and the capsule is
+    /// held to drawing from it. Swapping a press and its other side, or a verb written in
+    /// `tableCapsule(worded:)`, fails a line.
     @Test func theTableCapsulesPressesDoWhatTheirWordsSay() throws {
         #expect(EditorFormatBar.tableCapsule == [
             .press(.addRowBelow, chevron: [.addRowAbove, .addRowBelow]),
@@ -1042,17 +1003,17 @@ import EventsTestSupport
         }
     }
 
-    /// **The Table capsule comes with the caret into a table and goes when it leaves** (TE73): six
-    /// more controls — Row and its chevron, Column and its chevron, Delete, Format — on the real
-    /// bar, from the state the caret's place derives. Mutations: draw the capsule on `touchesTable`
-    /// rather than `isInTable`, or drop a control — a count fails.
+    /// The Table capsule comes with the caret into a table and goes when it leaves: six more
+    /// controls (Row and its chevron, Column and its chevron, Delete, Format) on the real bar.
+    /// Drawing it on `touchesTable` rather than `isInTable`, or dropping a control, fails a count.
     @Test func theTableCapsuleComesAndGoesWithTheCaret() {
         let text = Self.tableText
         let inCell = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "Gion"), length: 0))
         let outside = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "After"), length: 0))
         #expect(inCell.isInTable && inCell.touchesTable, "a caret in a cell is not in the table")
         #expect(!outside.isInTable && !outside.touchesTable, "a caret in the prose after is in the table")
-        // From the prose INTO the table: it touches the table (and greys), but no capsule — its start is outside.
+        // From the prose into the table: it touches the table (and greys), but no capsule, since
+        // its start is outside.
         let into = MarkupFormatState.of(text, selection: NSRange(location: Self.offset(of: "Intro"),
                                                                   length: Self.offset(of: "Gion") - Self.offset(of: "Intro")))
         #expect(into.touchesTable && !into.isInTable)
@@ -1065,14 +1026,12 @@ import EventsTestSupport
         #expect(count(into) == 13, "a selection that only ends in a table draws the Table capsule")
     }
 
-    /// **In a table, what would break it greys — on the bar, in the right-click menu, and in the
-    /// verbs themselves** (TE76): headings, the lists, Quote, Code Block and Divider rewrite whole
-    /// lines and would take rows out of the table; the inline marks and Link work inside a cell.
-    /// The bar's Table button greys too, since a table cannot hold one. A selection from the prose
-    /// before a table to the prose after is NOT refused — its ends say the table is part of it.
-    ///
-    /// Mutations: drop `touchesTable` from `isOffered`, refuse on one end only, take `.blockQuote`
-    /// out of `breaksTables`, or drop the refusal from `apply` — each fails a line.
+    /// In a table, what would break it greys on the bar and in the right-click menu, and the verbs
+    /// refuse: headings, lists, Quote, Code Block and Divider rewrite whole lines; inline marks and
+    /// Link work inside a cell. Table greys too, since a table can't hold one. A selection from
+    /// prose before a table to prose after is not refused. Dropping `touchesTable` from
+    /// `isOffered`, refusing on one end only, `.blockQuote` out of `breaksTables`, or no refusal in
+    /// `apply` fails.
     @Test func whatWouldBreakATableGreysAndIsRefusedThere() throws {
         let breaking: Set<MarkupVerb> = [.heading(1), .heading(2), .heading(3), .heading(0), .bulletList,
                                          .numberedList, .taskItem, .blockQuote, .codeBlock, .horizontalRule]
@@ -1126,14 +1085,10 @@ import EventsTestSupport
                 "the right-click menu is not told the caret is in a table")
     }
 
-    /// **An inline mark or a link across a table's cells is greyed and refused; inside one cell it
-    /// works** (FMT-1). A triple-clicked header row wrapped in Bold became three cells over a
-    /// delimiter row that no longer was one, and the table read as paragraphs; the bar kept Bold
-    /// offered, because the marks "only wrap words inside a cell". The right-click menu greys them
-    /// by the same rule.
-    ///
-    /// Mutation: drop the `crossesCells` term from `breaksTable`, and every refusal fails; drop it
-    /// from `isOffered`, and the bar's lines do.
+    /// An inline mark or a link across a table's cells is greyed and refused; inside one cell it
+    /// works. Bold over a triple-clicked header row would break the delimiter row and turn the
+    /// table into paragraphs. The right-click menu greys them by the same rule. Dropping
+    /// `crossesCells` from `breaksTable` fails every refusal; from `isOffered`, the bar's lines.
     @Test func anInlineMarkAcrossTableCellsIsGreyedAndRefused() {
         let text = Self.tableText
         let start = Self.offset(of: "| Day")
@@ -1167,13 +1122,10 @@ import EventsTestSupport
         #expect(!marks.contains { live.contains($0.title) }, "the right-click menu offers \(live) across cells")
     }
 
-    /// **Whether a selection crosses cells costs no parse of its own** (FMT-1 with TBL-19). TBL-19
-    /// reads a selection's table questions with one parse per end through `MarkdownTables.reading`;
-    /// FMT-1's `crossesCells` asked `touches` again, a second parse of the note down to the table for
-    /// every selection with something in it, on the main thread as the selection moves. The format
-    /// bar and both right-click menus hand it the answer they already have.
-    ///
-    /// Mutation: `touches: nil` in `MarkupFormatState.of`, and the counts go to 2 and 3.
+    /// Whether a selection crosses cells costs no parse of its own: `MarkdownTables.reading` parses
+    /// once per end, and the format bar and both right-click menus hand `crossesCells` that answer
+    /// rather than parsing the note again on the main thread as the selection moves.
+    /// `touches: nil` in `MarkupFormatState.of` raises the counts to 2 and 3.
     @Test func aSelectionsCellCrossingCostsNoParseOfItsOwn() throws {
         let text = Self.tableText
         let ns = text as NSString
@@ -1201,9 +1153,9 @@ import EventsTestSupport
         }
     }
 
-    /// **The Table button makes a table from the selected lines when they split into cells, else
-    /// inserts one** (decision AB) — and says which in its tooltip; it is the run's first section
-    /// in a folded Insert. Mutation: always insert, and the first line fails.
+    /// The Table button makes a table from the selected lines when they split into cells, else
+    /// inserts one, and says which in its tooltip; it is the run's first section in a folded
+    /// Insert. Always inserting fails the first line.
     @Test func theTableButtonMakesATableFromTheSelectionOrInsertsOne() throws {
         let rows = "a,b\nc,d\n"
         let selected = MarkupFormatState.of(rows, selection: NSRange(location: 0, length: (rows as NSString).length))
@@ -1217,13 +1169,11 @@ import EventsTestSupport
                 && button.contains(".help(verb.title)"), "the Table button does not press, or name, the verb it chose")
     }
 
-    /// **A folded menu offers each Table item only where that item acts** (FMT-16). The Table
-    /// button is live when either of its two would act, because it picks between them; a folded or
-    /// merged menu lists them as two items, and "Insert Table" was live wherever only Make Table
-    /// from Selection was, its press refused — while the right-click menu greyed it.
-    ///
-    /// Mutation: have `item(_:)` ask `isOffered` again, and the source line fails; make
-    /// `isItemOffered` fall through to `isOffered` for table verbs, and the state lines fail.
+    /// A folded menu offers each Table item only where that item acts. The Table button is live
+    /// when either would act, since it picks between them; a folded or merged menu lists them
+    /// separately, so each is greyed alone, as the right-click menu does. `item(_:)` asking
+    /// `isOffered` fails the source line; `isItemOffered` falling through to `isOffered` fails the
+    /// state lines.
     @Test func aFoldedMenuOffersEachTableItemOnlyWhereItActs() throws {
         let onlyFromSelection = MarkupFormatState(lit: [], heading: .body, tables: [.fromSelection])
         #expect(EditorFormatBar.isOffered(EditorFormatBar.tableMenuStandIn, in: onlyFromSelection),
@@ -1248,16 +1198,15 @@ import EventsTestSupport
                 "a folded menu's item is not greyed by its own rule")
     }
 
-    /// **The Body menu draws each style as it looks** (TE74, decision AC): a popover of Heading 1,
-    /// 2, 3 and Body, each larger than the next and the headings bold, as Notes draws its Aa list —
-    /// ticked at the level the selection is at. Mutations: draw every row at 13 points, or tick by
-    /// anything but `isCurrent`, and a line fails.
+    /// The Body menu draws each style as it looks: a popover of Heading 1, 2, 3 and Body, each
+    /// larger than the next and the headings bold, as Notes draws its Aa list, ticked at the
+    /// selection's level. Every row at 13 points, or ticking by anything but `isCurrent`, fails.
     @Test func theBodyMenuDrawsEachStyleAsItLooks() throws {
         let sizes = EditorFormatBar.headingVerbs.map { EditorStylePicker.font($0).size }
         #expect(sizes == sizes.sorted(by: >) && Set(sizes).count == sizes.count, "the styles' sizes read \(sizes)")
         #expect(EditorFormatBar.headingVerbs.dropLast().allSatisfy { EditorStylePicker.font($0).weight == .semibold })
         #expect(EditorStylePicker.font(.heading(0)) == (13, .regular))
-        // Preview's sizes, not a ramp of the picker's own (ED13).
+        // Preview's sizes, not a ramp of the picker's own.
         #expect([1, 2, 3].map { EditorStylePicker.font(.heading($0)).size } == [22, 18, 15.5])
         #expect([1, 2, 3].map { EditorStylePicker.font(.heading($0)).size } == [1, 2, 3].map(MarkdownBlockView.headingSize))
         // Drawn: the picker is taller than four rows of body text would be.
@@ -1275,7 +1224,7 @@ import EventsTestSupport
 
     // MARK: Helpers
 
-    /// `text` with its selection marked — `⟦…⟧` around a selection, `‸` for a caret — unmarked:
+    /// `text` with its selection marked (`⟦…⟧` around a selection, `‸` for a caret), unmarked into
     /// the buffer and the range. Marks no Markdown uses, so a task box or a link stays itself.
     static func unmark(_ marked: String) -> (String, NSRange) {
         let ns = marked as NSString
@@ -1327,7 +1276,7 @@ import EventsTestSupport
             .joined(separator: "\n")
     }
 
-    /// A line up to its `//` comment — a `//` inside a string literal (a URL) is text, not a
+    /// A line up to its `//` comment. A `//` inside a string literal (a URL) is text, not a
     /// comment, and cutting there would let the scan miss code after it.
     static func codePart(of line: String) -> String {
         var inString = false
@@ -1348,7 +1297,7 @@ import EventsTestSupport
     }
 
     /// `code` with every space and line break taken out, so a scan survives the source being
-    /// rewrapped — the reason `ChromeGlassWiringTests` moved to a whitespace-blind match.
+    /// rewrapped (as `ChromeGlassWiringTests` matches too).
     static func squeezed(_ code: String) -> String {
         code.filter { !$0.isWhitespace }
     }

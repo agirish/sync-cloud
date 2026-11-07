@@ -2,22 +2,15 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **A menu item may not carry the rows it was built from.**
+/// A menu item may not carry the rows it was built from. The bulk context menu's buttons resolve
+/// their rows from ids when they fire: an open NSMenu outlives the table state, so a scan landing
+/// or a row's action flipping behind it would leave the click acting on the old table.
+/// `DifferencesView` applies the same rule at `focusedSceneValue` and in `runCopyOrMove`.
 ///
-/// `DifferencesView` already states this rule twice — at `focusedSceneValue` ("No rows captured
-/// here", because a focused value is not re-armed while a menu is open) and in `runCopyOrMove`,
-/// which re-reads the move modifier at invocation rather than at menu build. The bulk context
-/// menu's ITEMS were the half still frozen: `bulkMenu` captured filtered `FileDifference` values
-/// and its Buttons acted on them, so anything landing behind an open NSMenu — a scan completing, a
-/// row's action flipping — left the click operating on the table as it had been.
-///
-/// The rules themselves are covered behaviourally in `DifferencesShortcutRulesTests`. What that
-/// cannot see is whether the VIEW calls them at fire time, which is the whole regression, so it is
-/// pinned here on the structure of the action closures.
-///
-/// **A source scan, and honest about its reach**: it proves the action bodies name `ids` and do
-/// not name the snapshot bindings. It cannot prove `bulkTransfer` resolves against live rows —
-/// that is `transferItemsReturnsTheCurrentRowNotTheOneTheCallerRemembers`' job, one file over.
+/// `DifferencesShortcutRulesTests` covers the rules; this pins that the view calls them at fire
+/// time. A source scan: it proves the action bodies name `ids` and not the snapshot bindings. That
+/// `bulkTransfer` resolves live rows is
+/// `transferItemsReturnsTheCurrentRowNotTheOneTheCallerRemembers`' job.
 @Suite struct DifferencesBulkMenuFreshnessTests {
 
     private static func viewSource() throws -> String {
@@ -68,13 +61,12 @@ import Foundation
         }
     }
 
-    /// The snapshot may be COUNTED in a label and must never be ACTED on. Stated as an absence
-    /// inside the action bodies specifically, rather than over the whole function, because the
-    /// labels legitimately mention it.
+    /// The snapshot may be counted in a label but never acted on. Checked inside the action bodies,
+    /// not the whole function, because the labels legitimately mention it.
     @Test func noBulkMenuActionActsOnTheBuildTimeSnapshot() throws {
         let body = try Self.bulkMenuBody()
-        // The premise: the snapshot bindings still exist and the labels still use them. Without
-        // this the absence below passes on a function that simply stopped having them.
+        // The premise: the snapshot bindings exist and the labels use them, or the absence below
+        // passes on a function that no longer has them.
         #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected,"),
                 "the snapshot bindings are gone — this absence is no longer measuring anything")
         #expect(body.contains("\\(toRight.count)"), "the label stopped counting the snapshot")
@@ -89,10 +81,9 @@ import Foundation
 
     // MARK: - The single-row menu's one WRITE
 
-    /// The per-row menu was left on the captured row when the bulk menu was converted, and most of
-    /// it should stay that way: Get Info, Reveal and Copy Path name a side of the row the user
-    /// pointed at. The ignore toggle is different in kind — it WRITES `ignoredPaths`, keyed on the
-    /// row's paths, and an NSMenu outlives the table state it was built from.
+    /// Most of the per-row menu takes the captured row: Get Info, Reveal and Copy Path name a side
+    /// of the row the user pointed at. The ignore toggle differs: it writes `ignoredPaths`, keyed on
+    /// the row's paths, and an NSMenu outlives the table state it was built from.
     @Test func theSingleRowIgnoreToggleResolvesItsRowWhenItFires() throws {
         let source = try Self.viewSource()
         let start = try #require(source.range(of: "private func singleRowMenu("),
@@ -107,10 +98,9 @@ import Foundation
                 "the toggle does not use the resolved row")
     }
 
-    /// **And the read-only items deliberately still take the captured row.** Stated as an
-    /// assertion so the distinction is a decision rather than an accident — converting them would
-    /// make Reveal do nothing for a row that scrolled out of the filtered list, which is worse than
-    /// revealing what the user pointed at.
+    /// The read-only items deliberately take the captured row: resolving them would make Reveal do
+    /// nothing for a row that left the filtered list, which is worse than revealing what the user
+    /// pointed at.
     @Test func theInspectionItemsStillTakeTheClickedRow() throws {
         let source = try Self.viewSource()
         #expect(source.contains("inspectionMenuItems(for: difference)"),

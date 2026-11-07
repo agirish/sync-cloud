@@ -2,23 +2,14 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// The line table, held against the walks it replaced.
-///
-/// **Equivalence is the whole test, so it is asserted rather than argued.** `EditorLineIndex` exists
-/// only to answer two questions `EditorCaret` already answers by walking the buffer from index 0 —
-/// which line an offset is on, and where a line begins. The table is what the split's scroll sync
-/// and the outline's caret now read, so a table that disagrees with the walk is the editor being off
-/// by one in the two places a reader would notice immediately.
-///
-/// So every case below asks BOTH, at every offset and for every line, and compares. A table that
-/// agreed with the walk only on ASCII with LF endings would pass a hand-picked assertion and fail
-/// on the first file that arrived from Windows.
+/// The line table, held against the walks it replaced. `EditorLineIndex` answers what
+/// `EditorCaret` answers by walking the buffer (which line an offset is on, where a line begins),
+/// for the split's scroll sync and the outline's caret. Any disagreement is the editor off by one,
+/// so every case asks both, at every offset and every line, across CRLF, CR and emoji samples.
 @Suite struct EditorLineIndexTests {
 
-    /// The inputs that have historically broken line maths in this repo, plus the ordinary ones.
-    ///
-    /// `"\r\n"` is ONE `Character` in Swift — the fact that makes `hasSuffix("\n")` false for every
-    /// CRLF file on earth, and the reason an offset can land *inside* a line terminator.
+    /// Inputs that break line maths, plus the ordinary ones. `"\r\n"` is one `Character` in Swift,
+    /// so `hasSuffix("\n")` is false for a CRLF file and an offset can land inside a terminator.
     private static let samples: [(name: String, text: String)] = [
         ("empty", ""),
         ("one line, no terminator", "hello"),
@@ -39,13 +30,9 @@ import Foundation
         ("nothing but CRs", "\r\r\r"),
     ]
 
-    /// **Every UTF-16 offset, including the ones inside a surrogate pair and inside a CRLF.**
-    ///
-    /// Those two are the interesting ones: an `NSTextView` reports selections in UTF-16, and the
-    /// walk's documented behaviour for an offset that lands mid-character is to consume the whole
-    /// character — "the position the caret can actually occupy". The table has to make the same
-    /// choice, and the only way to know it does is to ask at every offset rather than at the ones
-    /// that look like boundaries.
+    /// Every UTF-16 offset, including those inside a surrogate pair or a CRLF: an `NSTextView`
+    /// reports selections in UTF-16, and for a mid-character offset the walk consumes the whole
+    /// character. The table must make the same choice.
     @Test func theTableAgreesWithTheWalkAtEveryOffset() {
         for sample in Self.samples {
             let index = EditorLineIndex(text: sample.text)
@@ -62,11 +49,9 @@ import Foundation
         }
     }
 
-    /// The inverse, over every line the buffer has and two it does not.
-    ///
-    /// **`nil` past the end is part of the contract**, not an accident: a caller asking for line 900
-    /// of a 400-line file has made a mistake worth reporting, and silently landing at the end would
-    /// hide it. So the out-of-range cases are asserted rather than skipped.
+    /// The inverse, over every line the buffer has and a few it doesn't. `nil` out of range is part
+    /// of the contract: asking for line 900 of a 400-line file is a mistake that landing at the end
+    /// would hide.
     @Test func theTableAgreesWithTheWalkForEveryLineStart() {
         for sample in Self.samples {
             let index = EditorLineIndex(text: sample.text)
@@ -80,12 +65,8 @@ import Foundation
         }
     }
 
-    /// The positive control the two tests above need.
-    ///
-    /// **Without it, a table that answered `1` to everything would agree with a walk that also
-    /// answered `1` to everything on a one-line sample and be caught by nothing.** This pins that
-    /// the samples really do span several lines and several offsets, so "they agree" is a claim
-    /// about a range of answers rather than about a constant.
+    /// The positive control for the two tests above: the samples span several lines, so "they
+    /// agree" covers a range of answers, not a constant both sides could return.
     @Test func theSamplesReallyExerciseMoreThanOneLine() {
         let lines = Self.samples.map { EditorLineIndex(text: $0.text).lineStarts.count }
         #expect(lines.contains { $0 >= 4 }, "no sample has four lines: \(lines)")
@@ -96,12 +77,9 @@ import Foundation
         #expect(crlf.utf16Offset(ofLine: 2) == 5, "line 2 does not begin after the whole CRLF")
     }
 
-    /// A table built from one buffer must be rejected by the caret path when it is shown another.
-    ///
-    /// **The caret cannot take a stale answer, and the length is what says so.** The table is
-    /// rebuilt on the status line's 150 ms debounce, so a scroll request arriving in the same render
-    /// pass as the text it names — opening a file straight at a heading — would otherwise be
-    /// answered against the previous document's line starts.
+    /// The caret path rejects a table built from another buffer, told apart by its length. The
+    /// table is rebuilt on the status line's debounce, so a request arriving with the text it names
+    /// (opening a file straight at a heading) would otherwise use the previous document's lines.
     @Test func theCaretPathFallsBackToTheWalkWhenTheTableDescribesAnotherBuffer() {
         let stale = EditorLineIndex(text: "one\ntwo\nthree\n")
         let now = "a\nb\nc\nd\ne\n"
@@ -110,8 +88,8 @@ import Foundation
         #expect(EditorCaret.utf16Offset(ofLine: 5, in: now) == 8)
         #expect(PlainTextEditor.utf16Offset(ofLine: 5, in: now, using: stale) == 8,
                 "a table describing another buffer was trusted for a caret")
-        // And a line BOTH describe: the stale table's answer for line 2 is 4, the buffer's is 2,
-        // so taking the table here would be silently wrong rather than absent.
+        // A line both describe: the stale table says 4, the buffer 2, so trusting the table would
+        // be silently wrong rather than absent.
         #expect(stale.utf16Offset(ofLine: 2) == 4)
         #expect(PlainTextEditor.utf16Offset(ofLine: 2, in: now, using: stale) == 2)
         // And where the table does describe the buffer, it is used and gives the same answer.

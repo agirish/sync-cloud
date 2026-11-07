@@ -18,7 +18,7 @@ import Testing
 
     /// The rule the single-button shape exists to answer, and the one a majority-flip would get
     /// backwards. Mixed is what you get after collapsing everything and opening one folder, so the
-    /// way back out is closing it again — at ANY ratio, including one lone expanded section.
+    /// way back out is closing it again, at any ratio, including one lone expanded section.
     @Test func anyExpandedSectionOffersCollapse() {
         for collapsed in 0..<4 {
             #expect(FoldAllAction.next(collapsedOnScreen: collapsed, sectionCount: 4) == .collapse,
@@ -26,7 +26,7 @@ import Testing
         }
     }
 
-    /// Not "all collapsed" — there is nothing to expand. Unreachable while `isOffered` gates the
+    /// Not "all collapsed": there is nothing to expand. Unreachable while `isOffered` gates the
     /// control, and pinned so a future caller can't be handed a surprising `.expand`.
     @Test func anUnsectionedTableOffersCollapseRatherThanExpand() {
         #expect(FoldAllAction.next(collapsedOnScreen: 0, sectionCount: 0) == .collapse)
@@ -65,7 +65,7 @@ import Testing
 
     // MARK: How it presents
 
-    /// Three controls in this row collapse something — the section triangles, the pane's show/hide
+    /// Three controls in this row collapse something: the section triangles, the pane's show/hide
     /// chevron, and this. The other two are chevrons; this one must not become a third.
     @Test func theGlyphsAreNotChevrons() {
         #expect(!FoldAllAction.collapse.systemImage.contains("chevron"))

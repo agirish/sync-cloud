@@ -28,14 +28,12 @@ struct ReviewCardModel: Equatable {
         /// Items anywhere under a destination folder a replace would remove; counting stops
         /// at `childCountCap` (`destinationChildCountCapped` then reads "N+ items").
         ///
-        /// **nil means the folder could not be listed**, not that it holds nothing — a folder that
-        /// really is empty carries `0`. The warning turns nil into "everything", which is the only
-        /// honest thing to say about contents nobody could see.
+        /// nil means the folder could not be listed, not that it is empty (that is `0`). The
+        /// warning turns nil into "everything", the only honest claim about unseen contents.
         var destinationChildCount: Int? = nil
         var destinationChildCountCapped: Bool = false
-        /// True when part of the folder could be read and part could not, so the count is a floor.
-        /// Distinct from `destinationChildCountCapped`, which is a floor we chose; this one is a
-        /// floor the disk imposed.
+        /// True when only part of the folder could be read, so the count is a floor the disk
+        /// imposed, unlike `destinationChildCountCapped`, a floor we chose.
         var destinationChildCountIsPartial: Bool = false
     }
 
@@ -183,12 +181,10 @@ struct ReviewCardModel: Equatable {
         return (source > destination ? "+" : "−") + magnitude
     }
 
-    /// The amber banner. A HELD row (`FileDifference.heldBack`) leads with its own note — why its
-    /// direction is a guess — because the card otherwise presented the guess as a plain copy:
-    /// Compare's list shows the note, the card showed nothing of it. Then the replace hazard, if
-    /// any: folder wholesale-replace wins over destination-newer, since it implies it and losing a
-    /// folder's contents is the bigger hazard. Wording matches the collision alert's Finder-style
-    /// folder warning.
+    /// The amber banner. A held row (`FileDifference.heldBack`) leads with its note on why its
+    /// direction is a guess, as Compare's list does, so the card never presents it as a plain
+    /// copy. Then the replace hazard, if any: folder wholesale-replace wins over destination-newer,
+    /// being the bigger hazard. Wording matches the collision alert's Finder-style warning.
     static func warningText(
         difference: FileDifference,
         facts: Facts,
@@ -217,16 +213,15 @@ struct ReviewCardModel: Equatable {
                     // needs no second hedge.
                     removed = "\(count)+ items"
                 } else if facts.destinationChildCountIsPartial {
-                    // Part of the folder was withheld, so the count is what we could see and the
-                    // real number is larger. Saying the bare number would understate a destructive
-                    // action, which is the one direction this sentence must never err in.
+                    // Part of the folder was unreadable, so the real number is larger; the bare
+                    // count would understate a destructive action.
                     removed = "at least \(count) item\(count == 1 ? "" : "s")"
                 } else {
                     removed = "\(count) item\(count == 1 ? "" : "s")"
                 }
             } else {
-                // The folder could not be listed at all. Not "0 items" — nobody knows what is in
-                // there, and this sentence is the last thing shown before it is replaced.
+                // The folder could not be listed. Not "0 items": nobody knows what is in it, and
+                // this is the last thing shown before it is replaced.
                 removed = "everything"
             }
             return "Replacing this folder replaces its entire contents — \(removed) on \(destinationName) will be removed."
@@ -253,17 +248,11 @@ struct ReviewCardModel: Equatable {
 extension ReviewCardModel {
     /// What the review card tells VoiceOver its keys do.
     ///
-    /// Phrased with infinitives — "Return to copy" — rather than a conjugated verb, and that is the
-    /// whole point of it being a function with a test. The first version interpolated
-    /// `primaryVerb.lowercased()` followed by an `"s"` and announced **"Return copys"** on every
-    /// Copy review, which is most of them, in the one channel the hint exists to serve.
+    /// Phrased with infinitives ("Return to copy"), because "copy" and "move" conjugate
+    /// differently and appending "s" to the verb would announce "copys".
     ///
-    /// There is no correct `+ "s"` here: "copy" and "move" conjugate differently, and carrying a
-    /// second spelling on the model would be a second thing to keep in step with the first. An
-    /// infinitive needs neither.
-    ///
-    /// **Delete only — not Right Arrow.** The card skips on ⌫ alone (→ means "to the right pane"
-    /// everywhere else in Compare); the Rules walkthrough takes both and says so in its own hint.
+    /// Delete only, not Right Arrow: the card skips on ⌫ alone, since → means "to the right pane"
+    /// elsewhere in Compare. The Rules walkthrough takes both and says so in its own hint.
     static func keyHintSpeech(primaryVerb: String) -> String {
         "Return to \(primaryVerb.lowercased()), Delete to skip, Space to preview, Escape to end the review"
     }

@@ -4,49 +4,39 @@ import SwiftUI
 
 /// The three overlay modes — swipe, onion, difference — drawn from two rendered rasters.
 ///
-/// One view for all three because they are one picture with three reveals: the same two rasters,
-/// aligned in the same frame, differing only in what decides which pixels of the top one show. A
-/// view per mode would give three chances for the alignment to drift apart.
+/// One view for all three: the same two rasters in the same frame, differing only in which pixels
+/// of the top one show, so the alignment can't drift between modes.
 struct VisualPairModeView: View {
 
     let mode: ComparePairMode
     let left: CGImage?
     let right: CGImage?
-    /// Whether the rasters are still coming or are never going to. Without it a pane with no image
-    /// spins for ever on a file that cannot be rendered — see ``PairRenderOutcome``.
+    /// Whether the rasters are still coming or never will, so a file that can't be rendered
+    /// doesn't spin for ever. See ``PairRenderOutcome``.
     let outcome: PairRenderOutcome
     /// The two file names, for a message that says which copy could not be read.
     let leftName: String
     let rightName: String
-    /// The precomputed per-channel distance, for `.difference`. Passed in rather than computed
-    /// here: it is the same arithmetic the page strip's verdict comes from, and computing it twice
-    /// is how two numbers about one page start disagreeing.
+    /// The precomputed per-channel distance, for `.difference`. Passed in because the page strip's
+    /// verdict comes from the same arithmetic, and computing it twice could disagree.
     let difference: CGImage?
     /// The app's accent, for the swipe divider and the changed-region outlines. Handed in because
-    /// `Color.accentColor` here is the SYSTEM accent, which ignores the hue the user picked.
+    /// `Color.accentColor` here is the system accent, which ignores the hue the user picked.
     let accent: Color
     /// The changed regions in the difference raster's pixel coordinates, drawn as callouts over
-    /// it. Empty where there is nothing to outline — including the over-the-cap case, which
-    /// ``ChangedRegionCallouts/maxDrawn`` decides and the mode bar's caption discloses.
+    /// it. Empty when there is nothing to outline, including past ``ChangedRegionCallouts/maxDrawn``,
+    /// which the mode bar's caption discloses.
     var changedRegions: [CGRect] = []
     @Binding var swipeFraction: Double
     @Binding var onionOpacity: Double
 
-    /// The divider's position WHILE it is being dragged.
-    ///
-    /// **The committed fraction lives in the surface, and this is the frame-by-frame one.** A drag
-    /// that wrote straight to the binding re-ran the whole compare surface's body on every pointer
-    /// event — its facts strip, its mode bar, its verdict — for a line that only this view draws.
-    /// Written back on release, so the position still survives a mode switch, which is why it is
-    /// held up there in the first place (the same reason the PDF zoom is).
+    /// The divider's position while it is being dragged. Writing the binding per pointer event
+    /// would re-run the whole compare surface's body for a line only this view draws. Written back
+    /// on release, so the position survives a mode switch.
     @State private var liveSwipeFraction: Double?
 
-    /// The rasters wrapped for drawing, rebuilt only when a raster actually arrives.
-    ///
-    /// **`Image(nsImage: NSImage(cgImage:size:))` in a `body` is a new wrapper per render**, and
-    /// this body re-runs on every frame of a divider drag and on every publish of the manager the
-    /// host observes. The `CGImage`s themselves are immutable and shared; only the wrapper was
-    /// being rebuilt, and only their identity decides when it has to be.
+    /// The rasters wrapped for drawing, rebuilt only when a raster's identity changes. Wrapping in
+    /// `body` would build new `NSImage`s on every frame of a divider drag.
     @State private var wrapped: (left: NSImage?, right: NSImage?, difference: NSImage?) = (nil, nil, nil)
 
     /// Which three rasters ``wrapped`` was built from. Identity, not equality: a `CGImage` is
@@ -79,8 +69,8 @@ struct VisualPairModeView: View {
                 Color(nsColor: .textBackgroundColor)
                 switch mode {
                 case .sideBySide, .textDiff:
-                    // Drawn by the typed pair viewer and the text pane respectively — this view
-                    // owns only the three modes that composite two rasters.
+                    // Drawn by the typed pair viewer and the text pane; this view owns only the
+                    // three modes that composite two rasters.
                     EmptyView()
                 case .swipe:
                     swipe(in: proxy.size)
@@ -97,9 +87,8 @@ struct VisualPairModeView: View {
 
     // MARK: Swipe
 
-    /// The right page over the left, revealed left-of-divider. The divider is dragged, and it is
-    /// also the only control: a swipe with a slider somewhere else would put the reader's hand and
-    /// their eye in two places.
+    /// The right page over the left, revealed left of the divider. The divider is the only
+    /// control, so hand and eye stay in one place.
     @ViewBuilder
     private func swipe(in size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
@@ -149,9 +138,7 @@ struct VisualPairModeView: View {
 
     // MARK: Difference
 
-    /// The distance image on black, plus the caveat. **The caveat is part of the mode, not a
-    /// tooltip**: two scans of the same sheet of paper glow everywhere from scanner noise, and a
-    /// reader who has not been told that reads the glow as content.
+    /// The distance image on black, with changed-region outlines.
     @ViewBuilder
     private func differenceView(in available: CGSize) -> some View {
         ZStack {
@@ -161,9 +148,8 @@ struct VisualPairModeView: View {
                 Image(nsImage: drawable)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                // **The callouts are laid out against the same fitted rect the image gets**,
-                // recomputed rather than inferred from a container — an outline that is plausibly
-                // near the change rather than on it looks like a working feature.
+                // Callouts are laid out against the same fitted rect the image gets, recomputed
+                // rather than inferred, so an outline sits on the change, not near it.
                 ForEach(Array(ChangedRegionCallouts.drawable(regions: changedRegions,
                                                              imageSize: size,
                                                              in: available).enumerated()),
@@ -175,15 +161,14 @@ struct VisualPairModeView: View {
                         .allowsHitTesting(false)
                 }
             } else if let message = differenceMessage {
-                // Light on black, like the mode itself — a message here is read against the same
-                // ground the picture would have been.
+                // Light on black, the ground the picture would have had.
                 unrenderable(message, onDark: true)
             } else {
                 ProgressView().controlSize(.small)
             }
         }
-        // One element: the outlines are a visual index of the same finding the caption states, and
-        // reading out a dozen unlabelled rectangles would be worse than the sentence.
+        // One element: the outlines restate the caption's finding, and a dozen unlabelled
+        // rectangles would read worse than the sentence.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Difference")
         .accessibilityValue(ChangedRegionCallouts.caption(regionCount: changedRegions.count)
@@ -234,23 +219,20 @@ struct VisualPairModeView: View {
 
 // MARK: - The page strip
 
-/// One mark per page, shaped and coloured by what the diff found — and no mark at all until it
-/// has found something.
+/// One mark per page, shaped and coloured by what the diff found, and no mark at all until it has
+/// found something.
 ///
-/// **A page with no dot is a page nothing has claimed anything about.** The strip is read as a map
-/// of where the two documents differ, so a marker that appears before its comparison has run reads
-/// as "checked, and unremarkable" — a claim nobody made, on a surface whose next button trashes a
-/// file. An earlier design gave `.pending` a grey dot; the number alone turned out to be the
-/// honest resting state, and a dot appearing is then a real event. `PageDiffState.dot` is where
-/// that rule lives.
+/// A pending page has no dot. The strip reads as a map of where the documents differ, so a mark
+/// before its comparison runs would claim "checked, and unremarkable" on a surface whose next
+/// button trashes a file. The number alone is the resting state; `PageDiffState.dot` owns the rule.
 struct PageStrip: View, Equatable {
 
     let pairing: PagePairing
     let states: [Int: PageDiffState]
     let current: Int
     let accent: Color
-    /// Whether a ↑/↓ search is walking pages right now. The caption says so, because on a document
-    /// whose next difference is twenty pages away the key otherwise looks dead until it lands.
+    /// Whether a ↑/↓ search is walking pages now. The caption says so, or a key whose next
+    /// difference is far away would look dead until it lands.
     var isSearching: Bool = false
     var onSelect: (Int) -> Void
 
@@ -261,23 +243,18 @@ struct PageStrip: View, Equatable {
                 .foregroundStyle(.tertiary)
                 .fixedSize()
             ScrollView(.horizontal, showsIndicators: false) {
-                // **Lazy, because the strip is one chip per PAGE.** A 300-page report built 300
-                // buttons — each with its own label, capsule and help string — on every render of
-                // the surface, for the dozen the scroll view can show.
+                // Lazy, because there is one chip per page and the scroll view shows a dozen.
                 LazyHStack(spacing: 3) {
-                    // `Array(0..<n)`, not `0..<n`: SwiftUI's range `ForEach` is the CONSTANT-range
-                    // initializer, and a strip whose length changes when the page counts land
-                    // would be re-identifying a range it promised would not move.
+                    // `Array(0..<n)`, not `0..<n`: the range `ForEach` is the constant-range
+                    // initializer, and this length changes when the page counts land.
                     ForEach(Array(0..<pairing.stripLength), id: \.self) { index in
                         chip(index)
                     }
                 }
                 .padding(.vertical, 1)
             }
-            // How much of the pair has actually been judged — "of N compared", never "of N
-            // pages": only visited and searched pages have verdicts, and a count phrased against
-            // the document's length would claim the whole of it had been checked. The same
-            // over-claim the strip refuses when it withholds a dot from a pending page.
+            // "of N compared", never "of N pages": only visited and searched pages have verdicts,
+            // and a count against the document's length would claim all of it was checked.
             if let counted = PageDifferenceStepper.caption(states: states,
                                                            stripLength: pairing.stripLength) {
                 Text(isSearching ? "still comparing…" : counted)
@@ -296,13 +273,8 @@ struct PageStrip: View, Equatable {
         }
     }
 
-    /// One page.
-    ///
-    /// **The dot is drawn only once its comparison has resolved.** A grey dot under every page is
-    /// what the strip looked like in side-by-side mode, where no diff is computed at all — a row
-    /// of markers that mean nothing, which is worse than no markers: they read as "checked, and
-    /// unremarkable". The number alone is the honest resting state, and a dot appearing is then a
-    /// real event.
+    /// One page. The dot is drawn only once its comparison has resolved, so in side-by-side mode,
+    /// where no diff runs, the strip shows numbers alone.
     private func chip(_ index: Int) -> some View {
         let state = states[index] ?? .pending
         let pinned = pairing.leftIsPinned(at: index) || pairing.rightIsPinned(at: index)
@@ -312,7 +284,7 @@ struct PageStrip: View, Equatable {
                 Text("\(index + 1)")
                     .scaledFont(.system(size: 10.5, weight: isCurrent ? .semibold : .regular,
                                         design: .monospaced))
-                    // Label-colour words; the accent is the current chip's wash (DS1).
+                    // Label-colour words; the accent is the current chip's wash.
                     .foregroundStyle(isCurrent ? Color.primary : Color.secondary)
                 if let dot = state.dot {
                     // Shape and colour both, from the meaning — see `PageDiffState.Dot.symbol`.
@@ -336,22 +308,18 @@ struct PageStrip: View, Equatable {
         .accessibilityValue(help(for: state, pinned: pinned, index: index))
     }
 
-    /// Compared on everything it DRAWS, so `.equatable()` can hold a redraw off.
-    ///
-    /// **The closure is the one member left out, and it has to be.** A `(Int) -> Void` is not
-    /// comparable at all, and this one is `{ page = $0 }` written at the single call site — it
-    /// closes over a `@State` projection that does not move. Everything the strip renders from is
-    /// above it, so a difference the reader could see is a difference this reports.
-    /// `nonisolated`, because `Equatable` is: a `View` is `@MainActor`, and every member read here
-    /// is an immutable `let` of a Sendable type, which is what makes that safe to say.
+    /// Compared on everything it draws, so `.equatable()` can hold a redraw off. The closure is
+    /// left out: it can't be compared, and the one call site's `{ page = $0 }` captures a `@State`
+    /// projection that doesn't move.
+    /// `nonisolated`, as `Equatable` requires; safe because every member read here is an
+    /// immutable value of a Sendable type.
     nonisolated static func == (lhs: PageStrip, rhs: PageStrip) -> Bool {
         lhs.pairing == rhs.pairing && lhs.states == rhs.states && lhs.current == rhs.current
             && lhs.accent == rhs.accent && lhs.isSearching == rhs.isSearching
     }
 
-    /// The dot's meaning in words — the whole vocabulary in one place, so the colour and the
-    /// sentence cannot drift, and so a reader who cannot separate green from orange gets the same
-    /// answer.
+    /// The dot's meaning in words, the whole vocabulary in one place, so colour and sentence can't
+    /// drift and a reader who can't tell green from orange gets the same answer.
     private func help(for state: PageDiffState, pinned: Bool, index: Int) -> String {
         if pinned {
             return "Page \(index + 1) exists on one side only — the shorter document is showing its last page."
@@ -369,10 +337,8 @@ struct PageStrip: View, Equatable {
 }
 
 extension PageDiffState.Dot {
-    /// The severity table rather than four literal hues (LN22), so a strip mark means what the
-    /// same colour means everywhere else in the app. The literal red was also drawn at 60%
-    /// opacity — fainter than the other three for the one meaning that says a page could not be
-    /// checked at all.
+    /// The severity table rather than literal hues, so a strip mark means what the same colour
+    /// means everywhere else in the app.
     var tint: Color {
         switch self {
         case .same: return SemanticColor.success

@@ -8,18 +8,18 @@ import Sync
 /// A row must not change shape when its cloud badge lands.
 ///
 /// `FileRowView` resolves `isCloudOnly` with a per-row `lstat` off the main actor, so the answer
-/// arrives after the row is already on screen — one row at a time, in bursts, whenever a column
-/// opens or the list scrolls. Anything the row's geometry does at that moment it does long after
-/// the user has stopped expecting the pane to move.
+/// arrives after the row is on screen, one row at a time, in bursts, whenever a column opens or the
+/// list scrolls. Any geometry change then happens long after the user has stopped expecting the
+/// pane to move.
 ///
-/// These measure the LAID-OUT result (`NSHostingView.fittingSize`), not the declaration: the
+/// These measure the laid-out result (`NSHostingView.fittingSize`), not the declaration: the
 /// question is what AppKit ends up with, and a reservation that doesn't survive layout is no
 /// reservation at all.
 @MainActor
 @Suite struct FileRowAccessoryStabilityTests {
 
-    /// - Parameter leadingGap: the gap each drawn item keeps before it — 10pt in a comfortable row,
-    ///   which is what the rows pass, so that is what is measured unless a case says otherwise.
+    /// - Parameter leadingGap: the gap each drawn item keeps before it: 10pt in a comfortable row,
+    /// which is what the rows pass, so that is what is measured unless a case says otherwise.
     private func size(cloudOnly: Bool, reserves: Bool, diff: FileDifference.DifferenceType? = nil,
                       contained: Int = 0, leadingGap: CGFloat = 10) -> NSSize {
         let view = HStack(spacing: 8) {
@@ -45,9 +45,8 @@ import Sync
         }
     }
 
-    /// **The ☁ is painted** — in the slot a file row holds for it, and not for a downloaded file. The
-    /// zone's SIZE cannot see this: an overlay that drew nothing measures exactly the same, and the
-    /// render tests that did see it went with the ⌂ badge they were written for.
+    /// The ☁ is painted, in the slot a file row holds for it, and not for a downloaded file. The
+    /// zone's size cannot see this: an overlay that drew nothing measures exactly the same.
     @Test(.machinePinned(.pixelSampling)) func testTheCloudBadgePaintsInItsSlot() throws {
         func rendered(_ cloudOnly: Bool) throws -> NSBitmapImageRep {
             let subject = FileRowAccessories(isCloudOnly: cloudOnly, reservesCloudSlot: true,
@@ -80,7 +79,7 @@ import Sync
         #expect(differing > 20, "a cloud-only file's slot painted \(differing) pixels differently — no ☁ was drawn")
     }
 
-    /// …and with a difference badge alongside it, which is the common case in a compared folder.
+    /// And with a difference badge alongside it, the common case in a compared folder.
     @Test func testTheZoneIsStableWithADifferenceBadgeToo() {
         let before = size(cloudOnly: false, reserves: true, diff: .differentDates)
         let after = size(cloudOnly: true, reserves: true, diff: .differentDates)
@@ -88,7 +87,7 @@ import Sync
     }
 
     /// Directories never show the badge (`FileRowView` forces it false for them), so they must not
-    /// pay for a slot that can never be filled — a folder-heavy pane would otherwise gain a column
+    /// pay for a slot that can never be filled; a folder-heavy pane would otherwise gain a column
     /// of permanent blank space.
     @Test func testDirectoryRowsDoNotReserveASlotTheyCanNeverFill() {
         let reserved = size(cloudOnly: false, reserves: true, contained: 3)
@@ -97,8 +96,8 @@ import Sync
                 "a directory row is holding space for a badge it can never show")
     }
 
-    /// The measurement is only meaningful if an UNRESERVED zone genuinely does change size — this
-    /// is the behaviour being fixed, and it is what the reservation above is worth.
+    /// The positive control: an unreserved zone does change size, so the measurement above means
+    /// something, and this is what the reservation is worth.
     @Test func testWithoutTheReservationTheZoneReallyDoesResize() {
         let before = size(cloudOnly: false, reserves: false)
         let after = size(cloudOnly: true, reserves: false)

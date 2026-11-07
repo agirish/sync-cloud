@@ -1,18 +1,14 @@
 import AppKit
 
-/// **Re-reading only what an edit touched** (TE67 §3.7, measured 2026-10-07).
+/// Re-reading only what an edit touched. A full projection costs about 130 ms at 256 KB, too much
+/// for every keystroke, so this re-reads the document-level blocks the edit touched, with one
+/// untouched block either side, and keeps the rest of the old projection, moved by the edit.
 ///
-/// A full projection costs about 20 ms on a 40 KB note and 130 ms at 256 KB, and the editable
-/// preview made one on every keystroke. This re-reads the document-level blocks the edit touched,
-/// with one untouched block either side, and keeps the rest of the old projection, moved by the
-/// edit's length.
-///
-/// **It is only ever an optimisation: when it cannot show the result is the full projection's, it
-/// makes the full one.** The block after the edit is the proof: it must come back from the re-read
-/// exactly as it was, so an edit that reached past its own blocks — a fence that now runs on, an
-/// HTML block opened — is caught at the first block it changed. It also declines
-/// outright where a block's meaning comes from elsewhere in the file: link reference definitions,
-/// which reach across the whole document, and front matter, which the first line decides.
+/// Only ever an optimisation: when it can't show the result equals the full projection, it makes
+/// the full one. The block after the edit is the proof: it must come back exactly as it was, so an
+/// edit that reached past its own blocks (a fence that now runs on, an HTML block opened) is
+/// caught. It declines outright where a block's meaning comes from elsewhere in the file: link
+/// reference definitions, and front matter, which the first line decides.
 /// `PreviewEditPropertyTests` holds it to the full projection on every random edit.
 extension MarkdownProjection {
 
@@ -35,14 +31,14 @@ extension MarkdownProjection {
         return whole
     }
 
-    /// How a projection was made from the one before it — for the `[edit]` log line, which has to
-    /// say why a slow keystroke was slow, and for the tests, which hold every path to being taken.
+    /// How a projection was made from the one before it: for the `[edit]` log line, which says why a
+    /// slow keystroke was slow, and for the tests, which check every path is taken.
     enum Reuse: Equatable, CustomStringConvertible {
         /// The same source: the projection before, as it was.
         case unchanged
-        /// Re-read in part — with the block before the edit re-read too, or none where the edit is
-        /// in the first; proved by the block after it, or none where it is in the last; and after
-        /// front matter, or not.
+        /// Re-read in part: with the block before the edit re-read too (`left`, none when the edit
+        /// is in the first), proved by the block after it (`right`, none when it is in the last),
+        /// and after front matter or not.
         case partial(left: Bool, right: Bool, frontMatter: Bool)
         /// Re-read whole, and why the part would not do.
         case whole(String)
@@ -62,9 +58,9 @@ extension MarkdownProjection {
     /// How a projection came from the one before it.
     struct Lineage {
         var reuse = Reuse.whole("first read")
-        /// The rendering before, and where this one's differs from it — so the decoration need
-        /// not compare the two whole again, which at 256 KB was a quarter of a keystroke
-        /// (measured 2026-10-09). Weak: it is the session's to keep, not this one's.
+        /// The rendering before, and where this one differs from it, so the decoration needn't
+        /// compare the two whole again (a large share of a keystroke on a long note). Weak: the
+        /// session keeps it, not this projection.
         weak var base: NSAttributedString?
         var changed: (old: NSRange, new: NSRange)?
     }
@@ -77,14 +73,11 @@ extension MarkdownProjection {
     /// This projection with every list that continues one of `previous`'s given that list's
     /// `NSTextList`, and the rest of `previous`'s rendering kept where it draws the same.
     ///
-    /// **A whole re-read keeps the lists too** (review, 2026-10-09). It made every list anew, so a
-    /// keystroke in a note with a reference definition — re-read whole every time — replaced the
-    /// list it was in, whole, in the decoration and on screen: the 340 ms of a 256 KB list, back.
-    /// The same patch the part re-read makes, over the whole rendering.
-    ///
-    /// **The session's to ask, for the projection it keeps** (round 2, 2026-10-10): asked by every
-    /// whole re-read, it ran for each of the translator's checks — up to three for one keystroke,
-    /// on a note that always goes whole — and for a new text size, where every run is new anyway.
+    /// A whole re-read keeps the lists too, or a keystroke in a note that always goes whole (one
+    /// with a reference definition) would replace the whole list it is in, in the decoration and on
+    /// screen. The same patch the part re-read makes, over the whole rendering. The session asks it
+    /// for the projection it keeps, not every whole re-read, which would run it for each of the
+    /// translator's checks and for a new text size, where every run is new anyway.
     func keepingLists(of previous: MarkdownProjection) -> MarkdownProjection {
         let patch = PreviewListIdentity.patch(previous.rendered,
                                               window: NSRange(location: 0, length: previous.rendered.length),
@@ -97,13 +90,12 @@ extension MarkdownProjection {
     }
 
     /// This projection at `style`, where only the column's width moved and every table still fits
-    /// it, or still does not — `nil` where only a re-read is right.
+    /// it, or still doesn't; `nil` where only a re-read is right.
     ///
-    /// **The width decides one thing here: whether a table is too wide to edit** (§3.8). The
-    /// window's every live-resize frame set a new width, and each was a whole re-read, a whole
-    /// decoration and a whole comparison, and dropped a held space or an opened paragraph on the
-    /// way (review, 2026-10-09). A rule's and an image's size follow the column too, but those are
-    /// the decoration's, not the projection's.
+    /// The width decides one thing here: whether a table is too wide to edit. Every live-resize
+    /// frame sets a new width, and a whole re-read for each would cost a full decoration and
+    /// comparison and drop a held space or an opened paragraph. A rule's and an image's size follow
+    /// the column too, but those are the decoration's, not the projection's.
     func restyled(_ style: Style) -> MarkdownProjection? {
         var moved = style
         moved.columnWidth = self.style.columnWidth
@@ -120,7 +112,7 @@ extension MarkdownProjection {
                                   blocks: blocks, segments: segments, spans: spans, lineage: Lineage(reuse: .unchanged))
     }
 
-    /// One document-level block — or two, where the first has no place in the file — its blocks,
+    /// One document-level block (or two, where the first has no place in the file), its blocks,
     /// and the whole lines it spans.
     private struct Group {
         var topLevel: Int
@@ -173,12 +165,10 @@ extension MarkdownProjection {
         let touchedLast = groups.firstIndex { NSMaxRange($0.lines) >= NSMaxRange(changed) } ?? groups.count
         let left = touchedFirst - 1 >= 0 ? touchedFirst - 1 : nil
         var right = touchedLast + 1 < groups.count ? touchedLast + 1 : nil
-        // **A block that draws nothing proves nothing about its line** — an empty item's marker and
-        // list are on the break after it, which the next block draws. Past the part re-read, that
-        // break was kept as it was: `1. ` typed before `- b` started a list that the empty `2.`
-        // below carries on, and the `2.` came back the same block, its line still in a list of its
-        // own, starting at 2 (2026-10-12, seed 13228 of the 50,000-run). So the part runs on to the
-        // next block, which draws the break, and that one is the proof.
+        // A block that draws nothing proves nothing about its line: an empty item's marker and
+        // list are on the break after it, which the next block draws, and a stale break would
+        // leave its line in the wrong list. So the part runs on to the next block, which draws the
+        // break, and that one is the proof.
         while let last = right, blocks[groups[last].blocks.upperBound - 1].rendered.length == 0 {
             right = last + 1 < groups.count ? last + 1 : nil
         }
@@ -203,9 +193,9 @@ extension MarkdownProjection {
         // Old spans by source: walk order is source order, so each part is one run of the array.
         let spanStart = spans.firstIndex { $0.source.location >= start } ?? spans.count
         let spanEnd = spans.firstIndex { $0.source.location > end } ?? spans.count
-        // The break before the first block re-read belongs to it, but stands before the stretch,
-        // and the re-read does not make one. Kept as it was after a block before the edit; made
-        // anew after front matter, where the edit may have changed the blank lines it stands for.
+        // The break before the first block re-read belongs to it but stands before the stretch, and
+        // the re-read doesn't make one. Kept as it was after a block before the edit; made anew
+        // after front matter, where the edit may have changed the blank lines it stands for.
         var oldSegmentStart = segments.firstIndex { $0.block >= oldBlocks.lowerBound } ?? segments.count
         var lead: [PreviewSegment] = []
         if oldBlocks.lowerBound > 0, oldSegmentStart < segments.count, segments[oldSegmentStart].kind == .blockBreak {
@@ -263,8 +253,8 @@ extension MarkdownProjection {
             newSpans.append(span)
         }
 
-        // Only what renders differently, each list in it still the list it was: a whole long list
-        // replaced at every keystroke in it was most of the keystroke (PreviewListIdentity).
+        // Only what renders differently, each list in it still the list it was: replacing a long
+        // list whole at every keystroke in it would be most of the keystroke (PreviewListIdentity).
         let rendered = NSMutableAttributedString(attributedString: self.rendered)
         let patch = PreviewListIdentity.patch(self.rendered, window: NSRange(location: renderedStart,
                                                                              length: renderedEnd - renderedStart),
@@ -277,9 +267,9 @@ extension MarkdownProjection {
                                                          base: self.rendered, changed: Self.changed(by: patch)))
 
         // The proof: the block after the edit came back as it was, so nothing after it can read
-        // differently. The block before needs none — it is re-read, so whatever the edit joins to
-        // it is right, and nothing before it can change: it starts a document-level block, and a
-        // block starts the same however the one above it ended.
+        // differently. The block before needs none: it is re-read, so whatever the edit joins to it
+        // is right, and nothing before it can change, since a document-level block starts the same
+        // however the one above it ended.
         if let right {
             let count = groups[right].blocks.count
             let newEnd = oldBlocks.upperBound + blockShift
@@ -298,17 +288,15 @@ extension MarkdownProjection {
     }
 
     /// Which of the two `units` hold, if either: a carriage return, or a line that could start a
-    /// reference definition — one pass over the text for both.
+    /// reference definition, in one pass over the text.
     ///
-    /// **A definition starts a line, so only a line can be one** (review, 2026-10-09). It used to
-    /// be any `]:` at all, and a note with `if row[0]:` in a code block, `[[Page]]: status` or
-    /// `see a[1]: b` in a sentence went the whole way at every keystroke — 130 ms at 256 KB, and the
-    /// translator projects up to three times for one. A definition is a `[`, a label with no
-    /// bracket in it, `]` and `:`, at the start of a paragraph's first line, which may stand after
-    /// indentation and any `>` and list markers. **Wider than the parser, never narrower**: every
-    /// `>`, `-`, `+`, `*`, digit, `.` and `)` is passed over, not only a well-formed marker; a line
-    /// in a fence or inside a paragraph counts; and the label may run over lines, as the parser's
-    /// may — `[a` + newline + `b]: /url` defines "a b".
+    /// A definition starts a line, so only a line-start `]:` counts; any `]:` at all (`if row[0]:`
+    /// in code, `see a[1]: b`) would send common notes the whole way at every keystroke. A
+    /// definition is a `[`, a label with no bracket, `]` and `:`, at a line's start after
+    /// indentation and any `>` and list markers. Wider than the parser, never narrower: every `>`,
+    /// `-`, `+`, `*`, digit, `.` and `)` is passed over, not only a well-formed marker; a line in a
+    /// fence or mid-paragraph counts; and the label may run over lines, as the parser's may
+    /// (`[a` + newline + `b]: /url` defines "a b").
     static func reachesAcross(_ units: [UInt16]) -> String? {
         let count = units.count
         var at = 0
@@ -357,13 +345,11 @@ extension MarkdownProjection {
 
     /// The document-level blocks in order, or none when their lines do not follow one another.
     ///
-    /// **A block the parser gives no position joins the one after it.** A table under a paragraph
-    /// with no blank line between takes the paragraph's last line for its header, and swift-markdown
-    /// then reports the paragraph left above with no range, and the table as starting on that line
-    /// (measured 2026-10-08). Only the two together have lines of their own — **from the first
-    /// line either has**: a list whose item holds an empty heading, `- #`, waits for the block
-    /// after it, and the lines it does have were dropped, so the re-read started at the next block
-    /// and the list was lost (found 2026-10-09 by the wider random documents).
+    /// A block the parser gives no position joins the one after it. A table right under a paragraph
+    /// takes the paragraph's last line for its header, and swift-markdown then reports the paragraph
+    /// above with no range and the table as starting on that line, so only the two together have
+    /// lines of their own. The group starts from the first line either has: a list whose item holds
+    /// an empty heading, `- #`, waits for the block after it but keeps the lines it does have.
     private func groups(from firstBlock: Int) -> [Group] {
         var groups: [Group] = []
         var waiting: (topLevel: Int, block: Int, lower: Int, upper: Int)?
@@ -440,20 +426,20 @@ extension MarkdownProjection {
 }
 
 extension NSAttributedString.Key {
-    /// On a table's rows: how far its last column ends from the text's left edge, as a `CGFloat` —
-    /// a table wider than the column is read-only, so this is what says whether a new column width
-    /// changes anything in the projection (``MarkdownProjection/restyled(_:)``).
+    /// On a table's rows: how far its last column ends from the text's left edge, as a `CGFloat`.
+    /// A table wider than the column is read-only, so this says whether a new column width changes
+    /// anything in the projection (``MarkdownProjection/restyled(_:)``).
     static let previewTableWidth = NSAttributedString.Key("SyncCloud.preview.tableWidth")
 }
 
-/// **Attributed text compared by what it draws**, for two renderings made at different times.
+/// Attributed text compared by what it draws, for two renderings made at different times.
 ///
-/// Every projection makes its own `NSTextList`s and `NSTextAttachment`s, and each is equal only to
-/// itself — so two renderings of the same text are never `isEqual`. Lists compare here by their
-/// shape (marker, start, options) **and by how they group the items**: one list on one side must be
-/// one list on the other, all through a comparison — TextKit numbers by that grouping, and a list
-/// split in two can look the same item by item while its numbers start again (review, 2026-10-09).
-/// Attachments compare by being there, fonts by name and size, and everything else as it stands.
+/// Every projection makes its own `NSTextList`s and `NSTextAttachment`s, each equal only to itself,
+/// so two renderings of the same text are never `isEqual`. Lists compare by shape (marker, start,
+/// options) and by how they group the items: one list on one side must be one list on the other
+/// throughout, because TextKit numbers by that grouping, and a list split in two can match item by
+/// item while its numbers restart. Attachments compare by being there, fonts by name and size, and
+/// everything else as it stands.
 enum PreviewAttributeShape {
 
     /// Where two renderings differ, and the old list each new one stands for where they agree.
@@ -464,12 +450,12 @@ enum PreviewAttributeShape {
         var lists: [ObjectIdentifier: NSTextList]
     }
 
-    /// Where `new` differs from `old` — or from `window` of it — in characters, or attributes by
+    /// Where `new` differs from `old` (or from `window` of it) in characters, or attributes by
     /// shape, as the range in each; `nil` when they are the same. Everything before the two ranges
     /// is the same in both, and so is everything after them.
     ///
-    /// **Characters compared as one buffer, attributes by RUN**: a document's few hundred runs, not
-    /// a dictionary bridged per character, which on a long note was the bulk of a keystroke.
+    /// Characters are compared as one buffer, attributes by run: a document's few hundred runs, not
+    /// a dictionary bridged per character, which on a long note would be most of a keystroke.
     static func difference(from old: NSAttributedString, in window: NSRange? = nil,
                            to new: NSAttributedString) -> Difference? {
         let window = window ?? NSRange(location: 0, length: old.length)
@@ -486,11 +472,9 @@ enum PreviewAttributeShape {
             guard same(attributes(of: old, at: base + at, &a), attributes(of: new, at: at, &b), &memo) else { prefix = at; break }
             at = min(NSMaxRange(a) - base, NSMaxRange(b))
         }
-        // **The characters' suffix is measured after the prefix is pulled back**, against what is
-        // left: where only attributes changed — a link's target — the characters all match, and a
-        // suffix measured first was none, so the difference ran on to the end. That end was
-        // replaced with lists of its own while the character after it kept the old one, and one
-        // list was split in two (2026-10-09, once an empty item's line carries its list).
+        // The characters' suffix is measured after the prefix is pulled back, against what is left:
+        // where only attributes changed (a link's target), every character matches, and a suffix
+        // measured first would be empty, running the difference to the end and splitting a list.
         var suffix = 0
         while suffix < shorter - prefix, before[before.count - 1 - suffix] == after[after.count - 1 - suffix] { suffix += 1 }
         var back = 0
@@ -507,8 +491,8 @@ enum PreviewAttributeShape {
                           lists: memo.oldLists)
     }
 
-    /// The characters in one copy — `Array(string.utf16)` reads a storage's string a character at a
-    /// time, and on a long note that alone cost more than the projection's walk.
+    /// The characters in one copy: `Array(string.utf16)` reads a storage's string a character at a
+    /// time, which on a long note costs more than the projection's walk.
     static func units(_ text: NSAttributedString) -> [unichar] {
         MarkdownSourceIndex.units(of: text.string as NSString)
     }
@@ -528,7 +512,7 @@ enum PreviewAttributeShape {
     }
 
     /// A run's attributes as the string holds them. `attributes(at:effectiveRange:)` bridges each
-    /// run to a Swift dictionary and comparing bridges it back — most of a comparison, measured.
+    /// run to a Swift dictionary, and comparing bridges it back: most of a comparison's cost.
     static func attributes(of text: NSAttributedString, at index: Int, _ range: inout NSRange) -> NSDictionary {
         var run = CFRange()
         let attributes = CFAttributedStringGetAttributes(text as CFAttributedString, index, &run) as NSDictionary
@@ -536,8 +520,8 @@ enum PreviewAttributeShape {
         return attributes
     }
 
-    /// Paragraph styles already compared — a list's items share one style object, so each pair is
-    /// compared once, not once per run — and the lists paired so far, each with one other only.
+    /// Paragraph styles already compared (a list's items share one style object, so each pair is
+    /// compared once, not per run), and the lists paired so far, each with one other only.
     struct Memo {
         fileprivate var known: [Pair: Bool] = [:]
         fileprivate var last: (pair: Pair, same: Bool)?
@@ -546,7 +530,7 @@ enum PreviewAttributeShape {
         /// The left list each right list was paired with.
         fileprivate private(set) var oldLists: [ObjectIdentifier: NSTextList] = [:]
 
-        /// Whether `a`'s lists may be `b`'s, as every pair before had them — and they are, after.
+        /// Whether `a`'s lists may be `b`'s, consistent with every pair before; if so, pairs them.
         fileprivate mutating func pair(_ a: [NSTextList], _ b: [NSTextList]) -> Bool {
             guard a.count == b.count else { return false }
             for (x, y) in zip(a, b) {
@@ -569,8 +553,8 @@ enum PreviewAttributeShape {
     /// stands is taken apart.
     static func same(_ a: NSDictionary, _ b: NSDictionary, _ memo: inout Memo) -> Bool {
         if a.isEqual(b) {
-            // The same lists, which must still pair with themselves — asked of the memo first, by
-            // the styles' identity, before any list is read.
+            // The same lists, which must still pair with themselves: asked of the memo first, by the
+            // styles' identity, before any list is read.
             guard let style = a.object(forKey: paragraphStyleKey) else { return true }
             return sameShape(style, b.object(forKey: paragraphStyleKey) as Any, &memo)
         }
@@ -585,8 +569,8 @@ enum PreviewAttributeShape {
             if key.isEqual(paragraphStyleKey) {
                 equal = sameShape(value, other, &memo)
             } else if key.isEqual(fontKey), let x = value as? NSFont, let y = other as? NSFont {
-                // The font the system stands in for a glyph the text's own lacks — 中 in Helvetica —
-                // is a new object each time, and not `isEqual` to the last one.
+                // The fallback font for a glyph the text's own lacks (中 in Helvetica) is a new
+                // object each time, and not `isEqual` to the last one.
                 equal = x.fontName == y.fontName && x.pointSize == y.pointSize
             } else {
                 equal = (value as AnyObject).isEqual(other)

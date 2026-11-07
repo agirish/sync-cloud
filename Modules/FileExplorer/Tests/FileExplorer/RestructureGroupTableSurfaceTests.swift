@@ -4,11 +4,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The group table and batch planning on the sheet (proposal O17).
-///
-/// The rules are next door in `Sync`; what only a render can answer is whether the grid is drawn,
-/// whether it stays out of the way until asked for, and whether turning the toggle on visibly
-/// changes what the mapping covers.
+/// The group table and batch planning on the plan sheet. The rules are tested in `Sync`; these
+/// check what only a render can: that the grid is drawn, stays out of the way until asked for, and
+/// that the toggle visibly changes what the mapping covers.
 @MainActor
 @Suite struct RestructureGroupTableSurfaceTests {
 
@@ -42,9 +40,8 @@ import Testing
             onClose: {})
     }
 
-    /// **The collapsed header carries the number that decides whether to open it.** A group
-    /// that already agrees says so, rather than offering a grid under a count of zero — the
-    /// sentence IS the answer there, and the table would only confirm it row by row.
+    /// The collapsed header carries the number that decides whether to open it. A group that
+    /// already agrees says so rather than offering a grid under a count of zero.
     @Test func theHeaderStatesHowFarApartTheFamiliesAre() {
         #expect(RestructurePlanSheet.groupHeaderText(disagreements: 3, families: 3)
                     == "3 names are not shared by all 3")
@@ -56,18 +53,16 @@ import Testing
                     == "Both families already agree on every name")
     }
 
-    /// **The grid and its checkbox are actually drawn.** The first version of this test asserted
-    /// an ink floor on a sheet whose fixture never cleared `parallelFamilies`' three-shared-names
-    /// bar — so it rendered no group at all, and passed at 146,125 inked pixels against a bar of
-    /// 2,000 with the entire feature absent. The comparison is against the same sheet over a tree
-    /// whose siblings share too little to be a group, which is the only difference between them.
+    /// The grid and its checkbox are drawn. An ink floor alone passes with no group on the sheet,
+    /// so this compares against the same sheet over a tree whose siblings share too little to
+    /// clear `parallelFamilies`' bar: the group is the only difference.
     @Test func theGroupTableAndItsCheckboxAreDrawn() throws {
         let lonely: [String: [String]] = [
             "Immigration": ["H-1B", "H-4"],
             "Immigration/H-1B": ["2023", "2024"],
             "Immigration/H-1B/2023": ["Petition", "Approval", "Correspondence", "Receipts"],
             "Immigration/H-1B/2024": ["Petition", "Approval"],
-            // One shared name only — under the bar, so no group forms.
+            // One shared name only: under the bar, so no group forms.
             "Immigration/H-4": ["2023"],
             "Immigration/H-4/2023": ["Approval", "Deportation"],
         ]
@@ -89,10 +84,9 @@ import Testing
                 "the pointer sentence, the disclosure header and the checkbox are on the sheet")
     }
 
-    /// **The mapping's sources widen to the group.** This is the rule the toggle drives, checked
-    /// where it is decided: planning H-1B alone maps three names, and planning the trio together
-    /// maps four — the fourth being `Application`, which only the siblings have and which is
-    /// exactly the name a plan for H-1B alone would leave them disagreeing about.
+    /// The mapping's sources widen to the group, the rule the toggle drives. Planning the trio
+    /// together adds `Application`, which only the siblings have and which a plan for H-1B alone
+    /// would leave them disagreeing about.
     @Test func planningTogetherWidensTheSourcesToTheWholeGroup() {
         let families = ["Immigration/H-1B", "Immigration/H-4", "Immigration/H-4 EAD"]
         let alone = RestructurePlanner.distinctSources(family: "Immigration/H-1B",
@@ -107,14 +101,13 @@ import Testing
 
     // MARK: Toggling the group must not eat typed work
 
-    /// **A target chosen for a sibling-only name survives the round trip.** Narrowing the mapping
-    /// back to one family drops that row, so a version that rebuilt the memory from `rows` on the
-    /// way in lost it: toggle off, toggle on, and the choice is gone with no undo.
+    /// A target chosen for a sibling-only name survives toggling off and on. Narrowing to one
+    /// family drops that row, so memory rebuilt from `rows` would lose the choice with no undo.
     @Test func aTargetForASiblingOnlyNameSurvivesTogglingTheGroupOffAndOn() throws {
         let groupSources = ["Application", "Approval", "Correspondence", "Petition"]
         let familySources = ["Approval", "Correspondence", "Petition"]
 
-        // Planning together, the user maps two names — one of them a name only the siblings have.
+        // Planning together, the user maps two names, one of them only the siblings have.
         let wide = RestructurePlanSheet.rewidened(
             rows: groupSources.map { RestructureMapping.Row(source: $0) },
             to: groupSources, remembering: [:])

@@ -1,12 +1,12 @@
 import Foundation
 import Sync
 
-/// What Download offers for a selection — the row menu's question and File ▸ Download's, asked
-/// once so the two cannot disagree (`PanePDFToolOffer`'s reason).
+/// What Download offers for a selection: the row menu's question and File ▸ Download's, asked once
+/// so the two can't disagree (`PanePDFToolOffer`'s reason).
 public enum CloudDownloadOffer: Equatable, Sendable {
-    /// One file whose content is still in the cloud: **Download**.
+    /// One file whose content is still in the cloud: "Download".
     case file(path: String, name: String)
-    /// Folders in a cloud location and cloud-only files, together: **Download All** — every
+    /// Folders in a cloud location and cloud-only files, together: "Download All", for every
     /// cloud-only file among the files and at any depth below the folders.
     case all(files: [String], folders: [String])
 
@@ -19,20 +19,18 @@ public enum CloudDownloadOffer: Equatable, Sendable {
 
     /// The offer for `nodes`, or nil when nothing in them could be fetched.
     ///
-    /// A folder is offered when it is in a cloud location — whether it holds anything cloud-only
+    /// A folder is offered when it is in a cloud location; whether it holds anything cloud-only
     /// would take a walk to know. A file is offered when `isCloudOnly` says so; nil (not known yet)
-    /// is not a yes.
+    /// isn't a yes.
     ///
     /// - Parameter isCloudOnly: the caller's answer for a file. The row menu asks the badge memo
-    ///   and, for its own single row, a fresh `lstat`; File ▸ Download and a multi-selection ask
-    ///   the memo alone — File ▸ on every window render, and a multi-selection's menu once per
-    ///   selected row opened, each rebuilt with its row.
+    ///   and, for its own single row, a fresh `lstat`; File ▸ Download (on every window render) and
+    ///   a multi-selection's menus ask the memo alone.
     /// - Parameter isInCloudLocation: a test's answer for a folder. The app's is
-    ///   `MaterializationStatus.isInCloudLocation`, with its one attribute read — the domain of
-    ///   `~/Desktop` or `~/Documents` — asked once per offer rather than once per selected folder:
-    ///   two hundred folders selected in Documents would otherwise read the same attribute two
-    ///   hundred times, on every selected row's render.
-    /// - Parameter home: the home that app answer measures from — a test's scratch folder, so it
+    ///   `MaterializationStatus.isInCloudLocation`, with its one attribute read (the domain of
+    ///   `~/Desktop` or `~/Documents`) asked once per offer, not once per selected folder on every
+    ///   selected row's render.
+    /// - Parameter home: the home that app answer measures from; a test's scratch folder, so it
     ///   never reads below the real one (`FileContextMenu.cloudHome`).
     public static func forSelection(
         _ nodes: [FileNode],
@@ -55,10 +53,10 @@ public enum CloudDownloadOffer: Equatable, Sendable {
 
 extension CloudDownloadOffer {
     /// File ▸ Download's offer for the active pane's selection, asked on every `ContentView` body
-    /// pass. A file is answered from the badge memo alone; a folder's cloud location — for one under
-    /// `~/Desktop` or `~/Documents`, the attribute naming their File Provider domain, which is the
-    /// read that hangs on a wedged provider — is read off the main thread (`BoundedCloudRead`). Nil
-    /// when nothing could be fetched, and when the read did not answer in time.
+    /// pass. A file is answered from the badge memo alone. A folder's cloud location (for one under
+    /// `~/Desktop` or `~/Documents`, the attribute naming their File Provider domain, the read that
+    /// hangs on a wedged provider) is read off the main thread (`BoundedCloudRead`). Nil when
+    /// nothing could be fetched, or when the read didn't answer in time.
     @MainActor
     public static func forActiveSelection(_ nodes: [FileNode]) -> CloudDownloadOffer? {
         let badges = nodes.reduce(into: [String: Bool]()) { known, node in
@@ -70,23 +68,22 @@ extension CloudDownloadOffer {
 
 /// What Keep Downloaded offers for a selection: its tick, and whether a click can change it.
 struct KeepDownloadedOffer: Equatable, Sendable {
-    /// Every item is kept — by its own pin or a folder's.
+    /// Every item is kept, by its own pin or a folder's.
     let isOn: Bool
     /// Every item is kept by a folder above it, so no click here changes anything.
     let isLocked: Bool
     /// The folder keeping a single item, for the item's tooltip.
     let keptBy: String?
 
-    /// Above this many items the multi-selection is not offered Keep Downloaded at all. The tick
-    /// costs an `lstat` and a `getxattr` per item per level — ~9 µs, measured 2026-10-27 — and the
-    /// menu waits for it at the right-click, and again whenever an opened row's menu is rebuilt with
-    /// its row. Off the main thread now (`BoundedCloudRead`), but the wait is the same, and a read
-    /// that outlives the deadline stops every menu's reads until it returns: 20 is well under a
-    /// millisecond a level, where a selection of thousands could pass the 200 ms a wedge is told by.
+    /// Above this many items a multi-selection isn't offered Keep Downloaded at all. The tick costs
+    /// an `lstat` and a `getxattr` per item per level (~9 µs), and the menu waits for it at the
+    /// right-click and whenever an opened row's menu is rebuilt. A read that outlives
+    /// `BoundedCloudRead`'s deadline stops every menu's reads until it returns: 20 stays well under a
+    /// millisecond a level, where thousands could pass the 200 ms a wedge is told by.
     static let selectionCap = 20
 
-    /// The offer for `nodes`, or nil when any of them is outside iCloud Drive (where the pin was
-    /// measured ignored) or there are more than `selectionCap`.
+    /// The offer for `nodes`, or nil when any is outside iCloud Drive (where the pin is ignored) or
+    /// there are more than `selectionCap`.
     static func forSelection(_ nodes: [FileNode],
                              state: (String) -> KeepDownloaded.State) -> KeepDownloadedOffer? {
         guard !nodes.isEmpty, nodes.count <= selectionCap else { return nil }
@@ -107,7 +104,7 @@ struct KeepDownloadedOffer: Equatable, Sendable {
     }
 }
 
-/// One offer's answers to "whose domain is this folder?" — see `CloudDownloadOffer.forSelection`.
+/// One offer's answers to "whose domain is this folder?" (`CloudDownloadOffer.forSelection`).
 private final class DomainMemo: @unchecked Sendable {
     private let lock = NSLock()
     private var known: [String: String?] = [:]

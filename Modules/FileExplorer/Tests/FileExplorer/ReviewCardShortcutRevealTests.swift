@@ -5,16 +5,13 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The review card's key-cap row after it joined the ⌥-hold reveal: empty by default, keycaps only
-/// while ⌥ is held, and the same footprint either way.
+/// The review card's keycap row under the ⌥-hold reveal: empty by default, keycaps only while ⌥ is
+/// held, and the same footprint either way.
 ///
-/// **Measured on `ReviewKeyHints` directly, and that is the point of this file.** The obvious test
-/// — host the whole card, assert its size doesn't change — is vacuous: the row sits in an `HStack`
-/// with the action buttons, which are taller than it is, so deleting the row outright changes the
-/// card's height by nothing. The first version of this file did exactly that and passed against
-/// *both* mutations it was written to catch: gate-removed and row-branched-out-of-the-layout. Its
-/// pixel half was worse than useless, because it was detecting the `␣` badge on the Quick Look
-/// button beside the row rather than the row.
+/// Measured on `ReviewKeyHints` directly. Hosting the whole card is vacuous: the row shares an
+/// `HStack` with the taller action buttons, so deleting it changes the card's height by nothing,
+/// and a pixel check there sees the `␣` badge on the Quick Look button beside the row instead.
+/// Removing the gate, or branching the row out of the layout, must each fail here.
 @MainActor
 @Suite(.serialized) struct ReviewCardShortcutRevealTests {
 
@@ -30,9 +27,9 @@ import Testing
         let subject = view
             .environment(\.shortcutRevealActive, revealed)
             .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .leading)
-            // The keycaps are a dark `.quaternary` chip; without a real background behind them they
-            // composite to a zero pixel delta against the borderless window's own buffer, and this
-            // test would report "nothing painted" whatever the code did.
+            // The keycaps are a dark `.quaternary` chip; without a real background they composite
+            // to a zero pixel delta against the borderless window's buffer, and this would report
+            // "nothing painted" whatever the code did.
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
 
@@ -67,20 +64,17 @@ import Testing
 
     // MARK: The reservation
 
-    /// The row occupies its full footprint whether the keycaps are showing or not — which is what
-    /// keeps the card from resizing when ⌥ goes down and moving the Copy button out from under a
-    /// pointer that is already resting on it, mid-review.
+    /// The row occupies its full footprint whether the keycaps show or not, so the card doesn't
+    /// resize when ⌥ goes down and move the Copy button out from under a resting pointer.
     @Test func theHintRowKeepsItsFullFootprintInBothStates() {
         let closed = hosted(Self.hints, revealed: false).fittingSize
         let open = hosted(Self.hints, revealed: true).fittingSize
         #expect(closed == open, "the hint row resized when ⌥ went down: \(closed) → \(open)")
     }
 
-    /// ...and that footprint is the row's real one, not zero.
-    ///
-    /// This is the assertion the vacuous version was missing. `closed == open` is satisfied just as
-    /// well by a row that has been branched out of the layout in *both* states — comparing the
-    /// hidden row against the row at full strength is what makes "reserved" mean something.
+    /// ...and that footprint is the row's real one, not zero. `closed == open` also holds for a row
+    /// branched out of the layout in both states; comparing the hidden row with the row at full
+    /// strength is what makes "reserved" mean something.
     @Test func theReservedFootprintIsTheRowAtFullStrength() {
         let reserved = hosted(Self.hints, revealed: false).fittingSize
         let full = hosted(Self.hints.row, revealed: false).fittingSize
@@ -101,15 +95,15 @@ import Testing
             Issue.record("no bitmap rep")
             return
         }
-        // Four keycaps, four verbs and three separators — thousands of pixels at 2x. 500 is a floor
+        // Four keycaps, four verbs and three separators: thousands of pixels at 2x. 500 is a floor
         // no anti-aliasing difference reaches and no real row misses.
         #expect(pixelsDiffering(atRest, revealed) > 500,
                 "only \(pixelsDiffering(atRest, revealed)) pixels changed — the row did not fill in")
     }
 
-    /// At rest the row paints *nothing at all*, which is the actual product change: the card no
-    /// longer teaches its shortcuts at everyone forever. Compared against a blank canvas rather
-    /// than against the other state, so a row that merely dimmed would fail this.
+    /// At rest the row paints nothing at all, so the card doesn't teach its shortcuts to everyone
+    /// forever. Compared against a blank canvas, not the other state, so a row that merely dimmed
+    /// fails.
     @Test(.machinePinned(.pixelSampling))
     func theRowPaintsNothingAtRest() {
         guard let atRest = render(Self.hints, revealed: false),
@@ -123,16 +117,14 @@ import Testing
 
     // MARK: End-to-end
 
-    /// The whole card, as an outer net: it must not resize either. Weak on its own — see the type
-    /// doc — but it is the assertion that would catch someone reserving the row correctly and then
-    /// putting a *badge* somewhere in the card that does shift layout.
+    /// The whole card, as an outer net: it must not resize either. Weak on its own (see the type
+    /// doc), but it catches a badge elsewhere in the card that shifts layout.
     @Test func theWholeCardIsTheSameSizeInBothStates() {
         let queue = [FileDifference(
             id: UUID(),
             relativePath: "Reports/Q3-summary.pdf",
-            // Deliberately absent from disk, so the card's fact load resolves to its placeholders
-            // ("—", "…") — which hold their own width, so the layout it settles at is the one it
-            // starts at and neither measurement can race it.
+            // Absent from disk, so the fact load resolves to its placeholders ("—", "…"), which
+            // hold their own width: the layout never changes, so neither measurement can race it.
             leftItemPath: "/nonexistent-left/Reports/Q3-summary.pdf",
             rightItemPath: "/nonexistent-right/Reports/Q3-summary.pdf",
             type: .missingOnRight,

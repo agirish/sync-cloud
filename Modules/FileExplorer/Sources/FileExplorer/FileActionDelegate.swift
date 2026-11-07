@@ -18,98 +18,59 @@ public protocol FileActionDelegate: Sendable {
     func handleSort(_ option: SortOption)
     func handleIgnore(_ nodes: [FileNode])
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool
-    /// Opens the destination picker for `nodes` — the absolute "put this in the folder I pick"
-    /// verb, as distinct from `handleMove`/`handleCopy`, which put each item where its counterpart
-    /// belongs in the opposite pane. `isMove` chooses the verb throughout.
+    /// Opens the destination picker for `nodes`: "put this in the folder I pick", unlike
+    /// `handleMove`/`handleCopy`, which put each item at its counterpart in the other pane.
     func handleChooseDestination(_ nodes: [FileNode], isMove: Bool)
 
     /// Hands `path` to the Editor workspace: switches there, points its rail at the file's folder,
-    /// and opens the file.
-    ///
-    /// **A requirement rather than an extension member with a default**, which is the rule this
-    /// protocol states for its cloud-hostile-name members a few lines down and the reason is the
-    /// same: a default doing nothing would let a conformer inherit a menu item that silently is not
-    /// wired, and the failure has no symptom short of a user clicking it and watching nothing
-    /// happen.
-    ///
-    /// **Editing always HAPPENS in the one editor workspace**, which is why this is a hand-off
-    /// rather than an in-place edit: dirty state, the undo stack and the save circuit exist in
-    /// exactly one place, and a second writable surface would need its own copy of all three.
+    /// and opens the file. A requirement, not a defaulted extension member, so no conformer can
+    /// inherit a menu item that silently does nothing. A hand-off, not an in-place edit, because
+    /// dirty state, undo and saving live only in the one editor workspace.
     func handleOpenInEditor(_ path: String)
-    /// Whether either clipboard holds files to paste — the app's own list or the system
-    /// pasteboard, resolved by `ClipboardSource`. Drives the enablement
-    /// of the "Paste here" menu items (pasting from an empty clipboard is a silent no-op).
+    /// Whether either clipboard (the app's own list or the system pasteboard, via
+    /// `ClipboardSource`) holds files to paste. Enables the "Paste here" menu items.
     var clipboardHasItems: Bool { get }
 
     /// Whether `other` would do the same thing as `self` for every call the pane can make.
+    /// `FileTreeView` is `Equatable` so SwiftUI can skip re-rendering a pane, and a delegate holds
+    /// closures, which aren't comparable, so the pane needs this answer from the conformer.
     ///
-    /// This exists for one reason: `FileTreeView` is `Equatable` so SwiftUI can skip re-evaluating
-    /// a pane (and therefore every visible row of it) when nothing it renders from has changed —
-    /// and a delegate is one of the things it renders from. SwiftUI cannot answer the question
-    /// itself: a delegate is an existential holding closures, and closures are not comparable, so
-    /// the default memberwise comparison declares every pane different from its predecessor and
-    /// the optimization never engages.
-    ///
-    /// A conformer answers `true` only when its own *value* inputs match. It may ignore its
-    /// closures, but only if they dispatch through reference types or property wrappers that read
-    /// live state — a closure that captured a plain snapshot would go stale behind a `true`.
+    /// Answer `true` only when the *value* inputs match. Closures may be ignored only if they read
+    /// live state through reference types or property wrappers; a captured snapshot would go stale
+    /// behind a `true`.
     func isEquivalent(to other: FileActionDelegate) -> Bool
 
     // MARK: - Cloud-hostile names
     //
-    // **These are requirements, not extension members, and that distinction is load-bearing.**
-    // Every caller reaches this protocol through an existential (`FileContextMenu.delegate`,
-    // `FileTreeView.delegate`), and a method that exists ONLY in a protocol extension is dispatched
-    // statically: the existential has no witness for it, so the call binds to the extension's
-    // default at compile time and the conformer's override is never reached.
-    //
-    // This is not hypothetical. `riskyName(for:)` and `handleFixName(_:)` were introduced as
-    // extension members, so `if let risky = delegate.riskyName(for: singleNode)` in
-    // `FileContextMenu` bound to the `nil` default for every delegate in the app — "Fix name" was
-    // unreachable from the moment it was written, and nothing caught it: the app built, the tests
-    // exercised `PaneActionDelegate`'s method directly (where dispatch IS static and correct), and
-    // a menu item that is merely absent looks exactly like a menu item that is correctly withheld.
-    // Declaring them here puts them in the witness table, which is what makes an override an
-    // override. The defaults below are unchanged and still serve conformers that want them.
+    // **Every member here must be a requirement, not only an extension member.** Callers reach
+    // this protocol through an existential (`FileContextMenu.delegate`, `FileTreeView.delegate`),
+    // and an extension-only method has no witness: the call binds to the extension's default at
+    // compile time and the conformer's override is never reached. Nothing flags it, because an
+    // absent menu item looks just like a correctly withheld one. The defaults below still serve
+    // conformers that want them.
 
-    /// What is wrong with this node's name for the provider it lives on, or nil when nothing is.
-    /// Asked while the menu is being built — i.e. on open — so it costs nothing per row.
-    ///
-    /// The RAW verdict: it does not consult the kept-names store, because "Fix name" stays a
-    /// sensible offer for a name you previously decided to live with and have now changed your mind
-    /// about. The badge, which must stay silent on a kept name, goes through `riskyNameReason`.
+    /// What is wrong with this node's name for its provider, or nil. Asked only when the menu is
+    /// built. The raw verdict, ignoring kept names, so "Fix name" stays on offer for a name the
+    /// user once kept; the badge goes through `riskyNameReason` instead.
     func riskyName(for node: FileNode) -> RiskyName?
     /// Applies that fix, through the same undoable path the batch uses.
     func handleFixName(_ node: FileNode)
 
-    /// Why this NAME will give the provider trouble, or nil when it won't — nil also when the user
-    /// has kept it (see `KeptNamesStore`), because a badge is exactly what keeping silences.
-    ///
-    /// Takes the name rather than the node, and answers a `String` rather than a `RiskyName`, for
-    /// one reason: unlike everything else on this protocol it is called **eagerly, per visible row,
-    /// per render pass**. A name and a `Bool`-ish answer is all the badge renders from, so nothing
-    /// larger needs building — and the pair (name, provider) is precisely what the answer is a
-    /// function of, which is what lets `RiskyNameBadgeCache` memoize it. Handing a `FileNode` here
-    /// would also put a folder's whole subtree back within reach of a per-row call.
+    /// Why this name will give the provider trouble, or nil when it won't or the user has kept it
+    /// (`KeptNamesStore`). Called per visible row on every render, so it takes a name and answers a
+    /// `String`: that pair is all the badge needs, lets `RiskyNameBadgeCache` memoize it, and keeps
+    /// a folder's subtree out of reach of a per-row call.
     func riskyNameReason(forName name: String, isDirectory: Bool) -> String?
 
-    /// Why the Editor workspace would refuse this row, in the words the row's tooltip shows, or
-    /// `nil` when it would open it — or when this delegate does not serve the Editor at all,
-    /// which is every workspace but one. Eager and per-row like `riskyNameReason`, so it is a
-    /// path and two facts the row already holds, never a `FileNode`.
-    ///
-    /// **Only the two cheap refusals**: the kind, which is path math, and the size, which the row
-    /// already carries. Cloud-only is deliberately not among them — the row learns that by its own
-    /// lazy `lstat`, and the editor answers a click on one with the same "Not downloaded" caption
-    /// one step later.
+    /// Why the Editor workspace would refuse this row, in the row tooltip's words, or `nil` when it
+    /// would open it or this delegate doesn't serve the Editor. Per-row like `riskyNameReason`, so
+    /// only the two cheap refusals: kind (path math) and size (already on the row). Cloud-only is
+    /// left to the editor, which says "Not downloaded" on the click.
     func editorRefusal(forPath path: String, isDirectory: Bool, size: Int) -> String?
 
 
-    /// Whether the user has said they meant this name.
-    ///
-    /// Separate from `riskyNameReason` returning nil, which conflates "fine" with "kept". The row
-    /// menu needs to tell them apart: a fine name is offered nothing, a kept one is offered its way
-    /// back.
+    /// Whether the user has said they meant this name. `riskyNameReason` returning nil can't tell
+    /// "fine" from "kept", and the row menu offers a kept name its way back.
     func isKeptName(_ name: String) -> Bool
 
     /// Records "I meant that name", durably, so neither the badge nor Organize's list reports it
@@ -118,119 +79,91 @@ public protocol FileActionDelegate: Sendable {
     /// Withdraws a keep — the badge returns immediately.
     func handleStopKeepingName(_ node: FileNode)
 
-    /// Whether this host can open the Duplicates lens on a file. Gates the row menu item, so
-    /// a conformer with no workspace behind it (every test stub, any pane that isn't a real
-    /// provider view) draws nothing rather than a door that opens onto a no-op.
+    /// Whether this host can open the Duplicates lens on a file. Gates the row menu item, so a
+    /// conformer with no workspace behind it (every test stub) draws nothing rather than a no-op.
     var canFindDuplicates: Bool { get }
 
     /// Opens Duplicates on this file's source and reveals the group holding it — starting a scan
     /// first when there is no current one. Files only: a folder overlap group is a different unit.
     func handleFindDuplicates(_ node: FileNode)
 
-    /// Whether this host can point Organize at a folder. Gates the row menu item for the same
-    /// reason `canFindDuplicates` does: a conformer with no workspace behind it draws nothing
-    /// rather than a door that opens onto a no-op.
+    /// Whether this host can point Organize at a folder. Gates the row menu item, as
+    /// `canFindDuplicates` does.
     var canOrganizeFolder: Bool { get }
 
-    /// Opens Organize scoped to this folder and scans it. **Folders only** — the question
-    /// "where do the loose files in here belong" has no meaning aimed at a single file, which
-    /// already has a home.
+    /// Opens Organize scoped to this folder and scans it. Folders only: a single file already has
+    /// a home.
     func handleOrganizeFolder(_ node: FileNode)
 
-    /// Opens the Restructure lens scoped to this folder — ROADMAP v5 §5.10's deliberate route:
-    /// the shape question, asked from the row you are standing on. Folders only, gated by
-    /// `canOrganizeFolder` like its sibling above (same workspace behind both doors).
+    /// Opens the Restructure lens scoped to this folder, to ask the shape question from the row
+    /// you are on. Folders only, gated by `canOrganizeFolder` (same workspace behind both).
     func handleCheckFolderShape(_ node: FileNode)
 
     /// Whether this host can open the shared file-pair viewer. Gates both Compare items in the row
-    /// menu for the reason `canFindDuplicates` gates its own: a conformer with no window behind it
-    /// draws nothing rather than a door onto a no-op.
+    /// menu, as `canFindDuplicates` gates its own.
     var canCompareFilePair: Bool { get }
 
-    /// Opens the file-pair viewer — the Compare Copies surface, with the Differences host's
-    /// Done-only bar — on two files the reader picked in the panes.
+    /// Opens the file-pair viewer (Compare Copies, with the Differences host's Done-only bar) on
+    /// two files picked in the panes. Files only: this viewer can't render a folder pair, as
+    /// `DifferencesPairCompare.pair(for:paneNames:)` also rules.
     ///
-    /// **Files only, both sides.** A folder pair has nothing this viewer can render, which is the
-    /// rule `DifferencesPairCompare.pair(for:paneNames:)` already applies to its own rows; Compare
-    /// has a whole workspace for two folders.
-    ///
-    /// `first` is always the row that was right-clicked; `second` comes either from the OTHER
-    /// pane's selection or from this one's, and `secondIsInOtherPane` says which. The host needs
-    /// that flag for two reasons: a same-pane pair's subtitle cannot read "iCloud vs iCloud", and
-    /// a cross-pane pair is re-ordered so the viewer's two columns match the two panes ON SCREEN
-    /// rather than which row happened to be clicked — the subtitle names them left-to-right, and
-    /// columns that disagreed with it would be a puzzle. A same-pane pair has no such constraint,
-    /// so there `first` does take the left column.
+    /// `first` is the right-clicked row; `secondIsInOtherPane` says where `second` came from. A
+    /// same-pane pair needs its own subtitle (not "iCloud vs iCloud"), and a cross-pane pair is
+    /// reordered so the viewer's columns match the panes on screen. A same-pane pair puts `first`
+    /// on the left.
     func handleCompareFilePair(_ first: FileNode, with second: FileNode, secondIsInOtherPane: Bool)
 
-    /// Arms `node` for comparison and puts the window into pick mode — the next file clicked, in
-    /// either pane, becomes its counterpart.
-    ///
-    /// **Offered on every file row, with no precondition**, which is the point and a change from
-    /// the two items above. Those appear only when a counterpart already exists, and
-    /// ``PaneComparePairMenu``'s own doc names the consequence this caused: an item that is merely
-    /// absent looks identical to one correctly withheld, so a menu with no Compare in it reads as
-    /// a feature that does not exist. Arming has no precondition beyond the row being a file, so
-    /// the menu now always has a door — and sometimes a faster one beside it.
+    /// Arms `node` for comparison and puts the window into pick mode: the next file clicked, in
+    /// either pane, becomes its counterpart. Offered on every file row, unlike the two items
+    /// above, so the menu always has a Compare door; see ``PaneComparePairMenu``.
     func handleArmComparePick(_ node: FileNode)
 
-    /// The path currently armed for comparison, or nil when no pick is live — what a row asks to
-    /// decide whether it wears the marker.
-    ///
-    /// **A path, not a flag per row**, because the marker has to survive everything a selection
-    /// does not: the selection moving to the other pane, a scroll, and a navigation away from the
-    /// armed folder and back. Answered from the host's one `ComparePick`, so every row agrees.
+    /// The path armed for comparison, or nil when no pick is live; a row asks it to decide whether
+    /// it wears the marker. A path, not a per-row flag, so the marker survives the selection moving
+    /// panes, a scroll, and navigating away and back. Answered from the host's one `ComparePick`.
     var armedComparePath: String? { get }
 
-    /// Whether this host can open a folder in a new tab. Gated for the same reason the two above
-    /// are: a conformer with no pane strip behind it draws nothing rather than a door onto a no-op.
+    /// Whether this host can open a folder in a new tab. Gated like the doors above: a conformer
+    /// with no pane strip behind it draws nothing rather than a no-op.
     var canOpenInNewTab: Bool { get }
 
-    /// Opens this folder in a new tab of the pane the row belongs to — **the discovery route for
-    /// tabs**, and the only entry point that opens the new tab somewhere different from the one
-    /// you are in. Folders only: a tab is a location.
+    /// Opens this folder in a new tab of the row's pane: the discovery route for tabs, and the only
+    /// one that opens the tab somewhere other than where you are. Folders only: a tab is a place.
     func handleOpenInNewTab(_ node: FileNode)
 
-    /// Whether this host keeps a Favorites list at all. Gated like the three above: a conformer
-    /// with no sidebar behind it would draw a verb that changes nothing anybody can see.
+    /// Whether this host keeps a Favorites list at all. Gated like the doors above: with no
+    /// sidebar behind it, the verb would change nothing anybody can see.
     var canFavoriteFolder: Bool { get }
 
-    /// Whether this folder is already in Favorites, so the menu can say which way it goes.
-    ///
-    /// **Read when the menu is built, not held** — which is with its row, on every render of it,
-    /// not only when the menu opens. So the answer is as fresh as the row's last render, not as the
-    /// click; the item therefore acts on what its label said (`FileContextMenu.favoriteLabelStillHolds`)
-    /// rather than toggling whatever is true by then.
+    /// Whether this folder is already in Favorites, so the menu can say which way it goes. Read
+    /// when the row renders, not on the click, so the item acts on what its label said
+    /// (`FileContextMenu.favoriteLabelStillHolds`) rather than toggling whatever is true by then.
     func isFolderFavorite(_ node: FileNode) -> Bool
 
-    /// Adds this folder to Favorites, or takes it out. **Folders only** — Favorites is a list of
-    /// places you go, and a file is not somewhere a pane can be pointed.
+    /// Adds this folder to Favorites, or takes it out. Folders only: Favorites lists places a pane
+    /// can be pointed at.
     func handleToggleFolderFavorite(_ node: FileNode)
 
-    /// A new tab on the folder the pane is showing — the background menu's version of ⌘T.
-    ///
-    /// **The only right-click route to a tab that works at ONE tab.** The row menu's "Open in New
-    /// Tab" needs a folder under the pointer and the strip's own menu needs a strip, which does not
-    /// exist until there are two tabs; without this, the state every install starts in has no mouse
-    /// route to a second tab at all.
+    /// A new tab on the folder the pane shows, the background menu's ⌘T. The only right-click route
+    /// to a second tab at one tab: the row item needs a folder under the pointer, and the strip's
+    /// menu needs a strip, which appears only at two tabs.
     func handleNewTab(at path: String)
 
-    /// Whether this pane has a tab to close — false at one tab, where the only thing left to close
-    /// is the window, and a menu item reading "Close Tab" that closes the window is a trap.
+    /// Whether this pane has a tab to close. False at one tab, where "Close Tab" would close the
+    /// window.
     var canCloseTab: Bool { get }
 
     /// Closes the pane's active tab.
     func handleCloseTab()
 
     /// Whether this host can run the PDF tools on a row's files. Gated like the doors above: a
-    /// conformer with no window behind it — every test stub — draws no PDF Tools submenu rather
-    /// than one whose items do nothing.
+    /// conformer with no window behind it draws no PDF Tools submenu.
     var canRunPDFTools: Bool { get }
 
-    /// Runs one of Edit's whole-file PDF tools from a row's menu — on one PDF, or on several for
-    /// Rotate All Pages, Compress and Clean Metadata. Every tool writes a NEW copy next to each
-    /// original and never touches the original. The window reads each file again in the PDFKit
-    /// lane before anything runs; the menu's answer is only what it offered.
+    /// Runs one of Edit's whole-file PDF tools from a row's menu, on one PDF (or several for Rotate
+    /// All Pages, Compress and Clean Metadata). Each tool writes a new copy beside the original and
+    /// never touches it. The window re-reads each file in the PDFKit lane before running; the menu
+    /// only says what it offered.
     func handlePDFTool(_ request: PDFToolRequest, paths: [String])
 
     /// Whether this host can save a row's files as PDF. Gated like PDF Tools: a conformer with no
@@ -274,36 +207,24 @@ extension FileActionDelegate {
     /// enabled rather than permanently disabled.
     public var clipboardHasItems: Bool { true }
 
-    /// No-op default so the protocol can grow without every test double having to. The menu item
-    /// that reaches this is gated on `isSingleSource` — only the single-source rail draws it, and its host
-    /// implements the method — so this arm is never taken from the UI.
+    /// No-op default so test doubles needn't implement it. Its menu item is drawn only by the
+    /// single-source rail (`isSingleSource`), whose host implements it.
     public func handleChooseDestination(_ nodes: [FileNode], isMove: Bool) {}
 
-    /// Assume nothing. A conformer that has not opted in is treated as different from every other
-    /// delegate, which is exactly the behaviour every caller had before `isEquivalent` existed:
-    /// the pane re-evaluates, as it always did.
-    ///
-    /// The default is `false` and not `true` deliberately. A wrong `true` is invisible — the pane
-    /// silently keeps calling a delegate that should have been replaced, and the symptom surfaces
-    /// somewhere else entirely (an action aimed at the previous provider). A wrong `false` costs
-    /// only the re-render it was already paying. So the safe answer is the default, and a
-    /// conformer opts into the fast path by proving it can.
+    /// Assume nothing: a conformer that hasn't opted in is never equivalent, so the pane
+    /// re-renders. `false` because a wrong `true` is invisible (the pane keeps calling a stale
+    /// delegate and acts on the previous provider), while a wrong `false` costs only a re-render.
     public func isEquivalent(to other: FileActionDelegate) -> Bool { false }
 }
 
 // MARK: - Fixing one cloud-hostile name in place
 
-/// Rename stopped being a workspace, so the single-file case needs a door of its own: the queue in
-/// Organize is for a batch, and this is for the one file you are looking at right now.
-///
-/// Both are defaulted rather than required. A conformer that has no provider context — every test
-/// stub, and any pane that isn't a real provider view — answers "not risky" and never offers the
-/// item, which is the correct behaviour for them rather than a stub they are forced to write.
+/// Fixing one file's name from its row: Organize's queue is for a batch, this is for the file
+/// you are looking at.
 extension FileActionDelegate {
-    /// See the requirements above for why these live in the protocol body and only their *defaults*
-    /// live here. A conformer with no provider context — every test stub, and any pane that isn't a
-    /// real provider view — answers "not risky, not kept" and is offered nothing, which is the
-    /// correct behaviour for them rather than a stub they are forced to write.
+    /// Only the defaults live here; the members are requirements above (see that MARK). A conformer
+    /// with no provider context, such as a test stub, answers "not risky, not kept" and is offered
+    /// nothing.
     public func riskyName(for node: FileNode) -> RiskyName? { nil }
     public func handleFixName(_ node: FileNode) {}
     public func riskyNameReason(forName name: String, isDirectory: Bool) -> String? { nil }
@@ -316,18 +237,13 @@ extension FileActionDelegate {
     public var canFindDuplicates: Bool { false }
     public func handleFindDuplicates(_ node: FileNode) {}
 
-    /// Same default, same reason. **Both members are protocol REQUIREMENTS above rather than
-    /// extension-only additions**: every caller reaches this through an existential, so a member
-    /// that exists only in the extension dispatches statically to the default and a conformer's
-    /// override is never reached. That bug shipped once here and made "Fix name" unreachable
-    /// from the day it was written.
+    /// Same default, same reason. These are requirements above too: an extension-only member would
+    /// dispatch statically through the existential and never reach the conformer's override.
     public var canOrganizeFolder: Bool { false }
     public func handleOrganizeFolder(_ node: FileNode) {}
     public func handleCheckFolderShape(_ node: FileNode) {}
 
-    /// Same default, same reason, and declared as requirements above for the same one — an
-    /// extension-only member would dispatch statically through the existential and the conformer's
-    /// answer would never be reached, which is how "Fix name" shipped unreachable.
+    /// Same default, same reason, and declared as requirements above for the same one.
     public var canCompareFilePair: Bool { false }
     public func handleCompareFilePair(_ first: FileNode, with second: FileNode,
                                       secondIsInOtherPane: Bool) {}

@@ -16,8 +16,8 @@ import Design
         #expect(policy.suspendedCount == 0)
     }
 
-    /// `nil` is "nothing is open", not "autosave is off" — a caller that confused the two would
-    /// draw the header's switch in the wrong position the moment the editor was empty.
+    /// `nil` is "nothing is open", not "autosave is off"; confusing the two would draw the header's
+    /// switch wrong whenever the editor is empty.
     @Test func noDocumentIsNotTheSameAsSwitchedOff() {
         let policy = EditorAutosavePolicy()
         #expect(policy.isOn(nil))
@@ -25,7 +25,7 @@ import Design
         #expect(policy.isOn(nil), "an empty editor reported autosave off")
     }
 
-    /// **Per file, which is the whole point.** Switching one off must not quiet the others.
+    /// Per file: switching one off must not quiet the others.
     @Test func switchingOneOffLeavesTheRestAlone() {
         let policy = EditorAutosavePolicy()
         policy.setOn(false, for: "/n/risky.md")
@@ -43,20 +43,17 @@ import Design
         #expect(policy.suspendedCount == 0, "switching back on left the path behind")
     }
 
-    /// Closing a file and opening it again in the same session keeps its setting — the set is keyed
-    /// by path and nothing clears it. This is the half of the rule that a session-scoped store has
-    /// to get right; the other half, forgetting at quit, is a property of the object's lifetime and
-    /// is asserted by the app owning it rather than by anything here.
+    /// A file reopened in the same session keeps its setting: the set is keyed by path and nothing
+    /// clears it. Forgetting at quit is the object's lifetime, owned by the app, not checked here.
     @Test func aFileReopenedInTheSameSessionKeepsItsSetting() {
         let policy = EditorAutosavePolicy()
         policy.setOn(false, for: "/n/risky.md")
-        // …open something else, then come back.
+        // Open something else, then come back.
         #expect(policy.isOn("/n/other.md"))
         #expect(!policy.isOn("/n/risky.md"), "the setting was forgotten between visits")
     }
 
-    /// Two files with similar names are two files. Trivial, and the kind of thing a prefix match
-    /// would get wrong.
+    /// Two files with similar names are two files, which a prefix match would get wrong.
     @Test func pathsAreMatchedWholeRatherThanByPrefix() {
         let policy = EditorAutosavePolicy()
         policy.setOn(false, for: "/n/plan.md")
@@ -80,8 +77,8 @@ import Design
                                                         isReadOnly: false))
     }
 
-    /// The three cases where autosave was never going to write anyway. A switch that changes
-    /// nothing reads as a broken control rather than an unavailable one.
+    /// The three cases where autosave would never write anyway: a switch that changes nothing reads
+    /// as broken, not unavailable.
     @Test func nothingOpenAndNothingWritableGetNoSwitch() {
         #expect(!EditorWorkspaceView.showsAutosaveSwitch(hasPath: false, wasRefused: false,
                                                          isReadOnly: false))
@@ -103,8 +100,8 @@ import Design
 
     private var scales: [CGFloat] { FontSize.allCases.map(\.scale) }
 
-    /// **Oval, not round.** A 1:1 track is a dot, which is the radio button this replaced; the
-    /// proportion is what makes it read as a switch before anybody has looked at the knob.
+    /// Oval, not round: a 1:1 track reads as a radio button, and the proportion is what makes it
+    /// read as a switch before anyone looks at the knob.
     @Test func theTrackIsWiderThanItIsTall() {
         for scale in scales {
             let height = AutosaveSwitchTrack.height(at: scale)
@@ -114,15 +111,10 @@ import Design
         }
     }
 
-    /// It sits on a `lineLimit(1)` row beside its own label, so the thing that matters is not how
-    /// it scales in the abstract but that it scales **with that label** — a switch that outgrew the
-    /// words would be what pushed the status word out of the row.
-    ///
-    /// **Measured against a rendered `Text`, not against the ramp's arithmetic.** The first version
-    /// of this asserted the height stayed under a number derived from the ramp's knee, which was
-    /// simply wrong — the knee is 11pt and this text is 10, so it scales linearly by design. And a
-    /// test that recomputed `scaledBox` would pass for a bare multiply too, since below the knee
-    /// they agree. Comparing the drawn control to the drawn label is the claim itself.
+    /// It sits on a `lineLimit(1)` row beside its label, so it must scale with that label; a switch
+    /// that outgrew the words would push the status word out of the row. Measured against a
+    /// rendered `Text`, not the ramp's arithmetic: below the ramp's 11pt knee, recomputing
+    /// `scaledBox` would agree with a bare multiply and prove nothing.
     @Test func theTrackKeepsItsProportionToTheLabelBesideIt() {
         var ratios: [CGFloat] = []
         for scale in scales {
@@ -132,17 +124,14 @@ import Design
             #expect(label.height > 0, "the label rendered to nothing at scale \(scale)")
             ratios.append(track / label.height)
         }
-        // **A band, not a stability bound, and the measurement is why.** Across Small · Default ·
-        // Large · Largest the ratio runs 0.90 · 0.85 · 0.92 · 0.93 — non-monotonic, because the
-        // label's height is a LINE BOX and line boxes step while the track's height is continuous.
-        // A tight spread would be measuring that quantisation. What is worth asserting is that the
-        // switch stays a switch beside its words at every size: never shrivelled, never towering.
+        // A band, not a tight spread: the ratio runs about 0.85 to 0.93 across the sizes, not
+        // monotonically, because the label's line box steps while the track grows smoothly. The
+        // claim is that the switch never shrinks away or towers over its words.
         for (index, ratio) in ratios.enumerated() {
             #expect(ratio > 0.75 && ratio < 1.05,
                     "at scale \(scales[index]) the switch is \(ratio)× its label's line box")
         }
-        // And it really does grow — a control pinned at one size would have a perfect ratio spread
-        // of zero against a label that grew, so this is the positive control for the line above.
+        // The control for the band: the track really grows with the text size.
         let heights = scales.map { AutosaveSwitchTrack.height(at: $0) }
         #expect((heights.last ?? 0) > (heights.first ?? 0), "the track is flat: \(heights)")
     }
@@ -159,10 +148,9 @@ import Design
 @MainActor
 @Suite struct EditorAutosaveResumeTests {
 
-    /// **Turning it back on has to write what is already waiting.** The debounce is a `.task(id:)`
-    /// keyed on the buffer's version, so it does not re-fire because a setting changed — without
-    /// the callback, autosave came back on and the file stayed unwritten until the next keystroke,
-    /// which is the one moment somebody is most entitled to expect it to be saved.
+    /// Turning autosave back on must write what is already waiting. The debounce is a `.task(id:)`
+    /// keyed on the buffer's version and doesn't re-fire for a setting change, so without this
+    /// signal the file would stay unwritten until the next keystroke.
     @Test func switchingBackOnReportsThatItResumed() {
         let policy = EditorAutosavePolicy()
         policy.setOn(false, for: "/n/a.md")
@@ -170,8 +158,8 @@ import Design
                 "the toggle did not report the ON transition the resume hangs off")
     }
 
-    /// And switching OFF must not: a write triggered by turning writing off would be the exact
-    /// opposite of what was asked for.
+    /// Switching off must not report a resume: a write triggered by turning writing off is the
+    /// opposite of what was asked.
     @Test func switchingOffReportsOff() {
         let policy = EditorAutosavePolicy()
         #expect(policy.toggle("/n/a.md") == false)

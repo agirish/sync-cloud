@@ -4,8 +4,8 @@ import AppKit
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// TE56's file half, against a real folder: where a dropped or pasted image is written, what it is
-/// called, and every refusal — each one asserted to leave the folder exactly as it was.
+/// Image import's file half, against a real folder: where a dropped or pasted image is written,
+/// what it is called, and every refusal, each asserted to leave the folder exactly as it was.
 @Suite(.serialized) struct EditorImageImportTests {
 
     private let fm = FileManager.default
@@ -61,8 +61,8 @@ import FileExplorerTestSupport
         #expect(listing(folder(of: note) + "/Images") == ["Pasta-1.png", "Pasta-2.png", "Pasta-3.png"])
     }
 
-    /// **Never over an existing file — and never into a number a deleted image left**, because the
-    /// note may still link that name and a new picture would appear in its place.
+    /// Never over an existing file, and never into a number a deleted image left: the note may
+    /// still link that name, and a new picture would appear in its place.
     @Test func anExistingNameIsNeverReused() throws {
         let note = try note()
         let images = folder(of: note) + "/Images"
@@ -76,8 +76,8 @@ import FileExplorerTestSupport
         #expect(try Data(contentsOf: URL(fileURLWithPath: images + "/Pasta-7.gif")) == theirs)
     }
 
-    /// **The write itself refuses an existing file** — the guard against a file landing between the
-    /// listing and the write, which no listing can see.
+    /// The write itself refuses an existing file, guarding against one landing between the listing
+    /// and the write.
     @Test func theNewFileDoorNeverReplaces() throws {
         let note = try note()
         let target = folder(of: note) + "/taken.png"
@@ -91,8 +91,8 @@ import FileExplorerTestSupport
         #expect(listing(folder(of: note)).filter { $0.hasPrefix(".tmp_") }.isEmpty)
     }
 
-    /// **A failed write gives the reason, not the hidden staged file's name** — Foundation's own
-    /// sentence names `.tmp_<UUID>`, which the reader never asked for and cannot find.
+    /// A failed write gives the reason, not the hidden staged file's name: Foundation's own
+    /// sentence names `.tmp_<UUID>`, which the reader can't find.
     @Test func aFailedWriteSaysWhyAndNotWhere() throws {
         let note = try note()
         let locked = folder(of: note) + "/Locked"
@@ -129,8 +129,8 @@ import FileExplorerTestSupport
         #expect(listing(folder(of: note) + "/Images") == ["Pasta-1.png"])
     }
 
-    /// **A folder made as `images` is used, and linked by ITS name** — `Images/` would open it on
-    /// this disk and not on a case-sensitive one, or on GitHub.
+    /// A folder made as `images` is used, and linked by its own name: `Images/` would open it on
+    /// this disk but not on a case-sensitive one, or on GitHub.
     @Test func aDifferentlyCasedFolderIsUsedByItsOwnName() throws {
         let note = try note()
         try fm.createDirectory(atPath: folder(of: note) + "/images", withIntermediateDirectories: false)
@@ -157,8 +157,8 @@ import FileExplorerTestSupport
             return
         }
         #expect(links == [link])
-        // **The preview finds the file from the link Edit wrote** — through the image paragraph
-        // and `MarkdownImageSource`, the two things that draw it.
+        // The preview finds the file from the link Edit wrote, through the image paragraph and
+        // `MarkdownImageSource`, the two things that draw it.
         let blocks = MarkdownBlocks.blocks(from: "![](\(link))")
         guard case .image(let source, _)? = blocks.first?.kind else {
             Issue.record("\(link) is not an image paragraph")
@@ -169,8 +169,8 @@ import FileExplorerTestSupport
                     "Images/" + (files[0] as NSString).lastPathComponent)))
     }
 
-    /// **The name actually written** for the longest note name a disk allows — 240 bytes of "é" —
-    /// fits the 255-byte limit, the stem shortened and the number and extension kept.
+    /// The name written for the longest note name a disk allows (240 bytes of "é") fits the
+    /// 255-byte limit, the stem shortened and the number and extension kept.
     @Test func aLongNoteNameStillFitsTheLimit() throws {
         let note = try note(String(repeating: "é", count: 120) + ".md")
         let source = try imageElsewhere("photo.jpeg")
@@ -185,9 +185,9 @@ import FileExplorerTestSupport
         #expect(links.count == 1)
     }
 
-    /// **A decomposed note name gives a composed image name and link** — git stores names composed,
-    /// so a decomposed link would not find the file once the folder is pushed. A link the note
-    /// already holds counts in either form.
+    /// A decomposed note name gives a composed image name and link: git stores names composed, so a
+    /// decomposed link would miss the file once the folder is pushed. A link the note already holds
+    /// counts in either form.
     @Test func aDecomposedNameIsWrittenComposed() throws {
         let note = try note("Cafe\u{301}.md")
         guard case .wrote(_, _, let links, _) = EditorImageImport.importImages(
@@ -198,8 +198,8 @@ import FileExplorerTestSupport
         #expect(links == ["Images/Caf%C3%A9-5.png"])
     }
 
-    /// An unreadable photo is refused as unreadable, before anything is written — not reported
-    /// as one that "couldn't be saved".
+    /// An unreadable photo is refused as unreadable, before anything is written, not as one that
+    /// "couldn't be saved".
     @Test func anUnreadableSourceIsRefusedAsUnreadable() throws {
         let note = try note()
         let source = try imageElsewhere()
@@ -210,7 +210,7 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: before, mentioning: "can’t be read")
     }
 
-    /// A file of `bytes` — sparse, so a test of the limit costs no disk.
+    /// A file of `bytes`, sparse, so a test of the limit costs no disk.
     private func sized(_ name: String, _ bytes: Int, in folder: String? = nil) throws -> String {
         let path = try folder.map { $0 + "/" + name } ?? TestTextFiles.write("", named: name)
         if !fm.fileExists(atPath: path) { fm.createFile(atPath: path, contents: nil) }
@@ -220,9 +220,9 @@ import FileExplorerTestSupport
         return path
     }
 
-    /// **One drop or paste adds at most 25 MB, counted before anything is written** (review IMG-5,
-    /// his call): over it, nothing is copied, no folder is made, and the reason gives the size and
-    /// the limit — of one file, of several together, or of a pasted image.
+    /// One drop or paste adds at most 25 MB, counted before anything is written. Over it, nothing
+    /// is copied, no folder is made, and the reason gives the size and the limit, for one file,
+    /// several together, or a pasted image.
     @Test func anImportOverTheLimitAddsNothing() throws {
         let note = try note()
         let limit = EditorImageImport.maxTotalBytes
@@ -239,8 +239,8 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: before, mentioning: "The pasted image is a little over 25 MB")
     }
 
-    /// **The limit is 25,000,000 bytes — 25 MB as Finder counts it — and Preview's is untouched**
-    /// (his call, 2026-10-16). One byte more is refused, its size written as Finder writes it.
+    /// The limit is 25,000,000 bytes, 25 MB as Finder counts it, and Preview's is untouched. One
+    /// byte more is refused, its size written as Finder writes it.
     @Test func theLimitIsTwentyFiveMillionBytesAsFinderCountsThem() throws {
         #expect(EditorImageImport.maxTotalBytes == 25_000_000)
         #expect(MarkdownImageSource.maxBytes == 25 * 1024 * 1024, "Preview's drawing limit moved")
@@ -261,8 +261,8 @@ import FileExplorerTestSupport
         for file in files { try? fm.removeItem(atPath: file) }
     }
 
-    /// **Up to the limit, exactly, is added** — and an image already in the Images folder is linked
-    /// whatever its size, because linking it copies nothing.
+    /// Exactly the limit is added, and an image already in the Images folder is linked whatever its
+    /// size, because linking copies nothing.
     @Test func theLimitItselfIsAddedAndImagesAlreadyThereDoNotCount() throws {
         let note = try note()
         let limit = EditorImageImport.maxTotalBytes
@@ -281,8 +281,8 @@ import FileExplorerTestSupport
         for file in files + [big] { try? fm.removeItem(atPath: file) }
     }
 
-    /// **The Help states the limit** — the number the code holds, as the reason reads it — and no
-    /// longer says a larger image is saved all the same.
+    /// Help states the limit the code holds, as the reason reads it, and doesn't say a larger image
+    /// is saved all the same.
     @Test func theHelpStatesTheLimit() throws {
         let images = try EditRepoFile.helpParagraph("To put a picture in a Markdown note")
         #expect(images.contains("at most \(EditorImageImport.sizeText(EditorImageImport.maxTotalBytes)) of images"))
@@ -323,9 +323,9 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: after, mentioning: "Images folder here can’t be written")
     }
 
-    /// **Images already in a read-only Images folder are linked where they are** — that writes
-    /// nothing, so the folder's permission is no reason to refuse (review IMG-6). One image that
-    /// would be copied in still asks, and is refused.
+    /// Images already in a read-only Images folder are linked where they are: that writes nothing,
+    /// so the folder's permission is no reason to refuse. One image that would be copied in is
+    /// refused.
     @Test func imagesAlreadyInAReadOnlyFolderAreStillLinked() throws {
         let note = try note()
         _ = EditorImageImport.importImages([.png(png()), .png(png())], forNote: note)
@@ -340,7 +340,7 @@ import FileExplorerTestSupport
                       in: images, before: ["Pasta-1.png", "Pasta-2.png"], mentioning: "can’t be written to")
     }
 
-    /// **The real permission, not the injected one** — a read-only folder on disk.
+    /// The real permission, not the injected one: a read-only folder on disk.
     @Test func aReallyReadOnlyFolderIsRefused() throws {
         let note = try note()
         let folder = folder(of: note)
@@ -351,8 +351,8 @@ import FileExplorerTestSupport
                       in: folder, before: before, mentioning: "can’t be written to")
     }
 
-    /// **A cloud-only file is refused, not fetched** — copying it would download it on the main
-    /// thread, for as long as the provider takes.
+    /// A cloud-only file is refused, not fetched: copying it would download it on the main thread,
+    /// for as long as the provider takes.
     @Test func aCloudOnlySourceIsRefused() throws {
         let note = try note()
         let source = try imageElsewhere()
@@ -361,8 +361,8 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: before, mentioning: "still in the cloud")
     }
 
-    /// **The cloud-only refusal reads for a paste as well as a drop** (review IMG-11) — a file copied
-    /// in Finder and pasted was told to be dropped again.
+    /// The cloud-only refusal reads for a paste as well as a drop, never telling a pasted file to
+    /// be dropped again.
     @Test func theCloudOnlyRefusalDoesNotSayDrop() throws {
         let note = try note()
         let report = EditorImageImport.importImages([.file(try imageElsewhere())], forNote: note, isCloudOnly: { $0.hasSuffix(".png") })
@@ -374,8 +374,8 @@ import FileExplorerTestSupport
         #expect(!reason.contains("drop"), "\(reason)")
     }
 
-    /// **An `Images` alias whose folder has gone is said to be one** (review IMG-10) — not "a file
-    /// called Images", which the reader goes looking for and does not find.
+    /// An `Images` alias whose folder has gone is called an alias, not "a file called Images",
+    /// which the reader would look for and not find.
     @Test func anImagesAliasWithNothingBehindItIsNamedAsOne() throws {
         let note = try note()
         try fm.createSymbolicLink(atPath: folder(of: note) + "/Images", withDestinationPath: folder(of: note) + "/Gone")
@@ -403,9 +403,8 @@ import FileExplorerTestSupport
 
     // MARK: - Found by the 2026-10-04 review
 
-    /// **A Finder-locked, read-only image is copied as bytes alone** — the lock and the mode stay
-    /// with the original, the new file is an ordinary writable one, and nothing hidden is left
-    /// behind in the synced folder.
+    /// A Finder-locked, read-only image is copied as bytes alone: the lock and mode stay with the
+    /// original, the new file is ordinary and writable, and nothing hidden is left in the folder.
     @Test func aLockedReadOnlyImageCopiesCleanly() throws {
         let note = try note()
         let source = try imageElsewhere()
@@ -420,8 +419,8 @@ import FileExplorerTestSupport
         #expect(listing(folder(of: note) + "/Images") == ["Pasta-1.png"], "something hidden was left behind")
     }
 
-    /// **An import that wrote nothing takes back the folder it made** — only an empty one — and is
-    /// a refusal with the disk as it was.
+    /// An import that wrote nothing takes back the folder it made (only an empty one) and is a
+    /// refusal with the disk as it was.
     @Test func aFailureAfterTheFolderWasMadeLeavesNoFolder() throws {
         let note = try note()
         let source = try imageElsewhere()
@@ -437,7 +436,7 @@ import FileExplorerTestSupport
         #expect(listing(folder(of: note)) == before, "the made folder was left behind")
     }
 
-    /// **A number the note still links is never given out again**, even with its file gone.
+    /// A number the note still links is never given out again, even with its file gone.
     @Test func aNumberTheNoteLinksIsNotReused() throws {
         let note = try note("Weeknight Pasta.md")
         let text = "![](Images/Weeknight%20Pasta-5.png)\n\n![](<Images/Weeknight Pasta-7.png>)"
@@ -449,9 +448,9 @@ import FileExplorerTestSupport
         #expect(links == ["Images/Weeknight%20Pasta-8.png"])
     }
 
-    /// **A number given out once is not given out again, with its file AND its link gone** — the
-    /// link can still be in the undo history (review IMG-3): paste A, delete its line and its file,
-    /// paste B, and ⌘Z twice brought A's link back over B's picture.
+    /// A number given out once isn't given out again this session, even with its file and link
+    /// gone: the link can still be in the undo history, and ⌘Z would bring it back over a new
+    /// picture.
     @Test func aNumberGivenOutIsNotGivenOutAgainThisSession() throws {
         let note = try note()
         guard case .wrote(let first, _, _, _) = EditorImageImport.importImages([.png(png())], forNote: note) else {
@@ -468,8 +467,8 @@ import FileExplorerTestSupport
         #expect(links == ["Images/Pasta-2.png"], "a number given out this session was given out again")
     }
 
-    /// A note whose name is long enough to be shortened still counts on from its own images — 250
-    /// characters, which no volume takes with `-1.png` after it unshortened.
+    /// A note whose name is long enough to be shortened (250 characters, too long with `-1.png`
+    /// after it) still counts on from its own images.
     @Test func aLongNamesImagesStillCountOn() throws {
         let stem = String(repeating: "x", count: 250)
         let note = try note(stem + ".md")
@@ -483,13 +482,13 @@ import FileExplorerTestSupport
                 "\(files) did not count on")
     }
 
-    /// Names that only look like a number — too long to be one, or signed — are not counted on from.
+    /// Names that only look like a number (too long to be one, or signed) aren't counted on from.
     @Test func onlyRealNumbersCount() {
         #expect(EditorImageImport.highestNumber(for: "Pasta", among: ["Pasta-99999999999999999999.png",
                                                                       "Pasta-+5.png", "Pasta-3.png"]) == 3)
     }
 
-    /// **Through a symlinked Images folder, the folder it leads to is the one asked about.**
+    /// Through a symlinked Images folder, the folder it leads to is the one asked about.
     @Test func aSymlinkedImagesFolderIsAskedAboutWhereItLeads() throws {
         let note = try note()
         let target = try TestTextFiles.write("", named: "x")
@@ -503,9 +502,9 @@ import FileExplorerTestSupport
                       in: folder(of: note), before: before, mentioning: "still in the cloud")
     }
 
-    /// **A note opened through a symlink gets its images beside the FILE, not the link** (review
-    /// IMG-1). The note is saved where the link leads, so that is the folder its `Images/…` link is
-    /// read from — by other devices, and by Preview and print here, which ask the same question.
+    /// A note opened through a symlink gets its images beside the file, not the link. The note is
+    /// saved where the link leads, so its `Images/…` link is read from there, by other devices and
+    /// by Preview and print here.
     @MainActor
     @Test func aSymlinkedNotesImagesGoBesideTheFileItLeadsTo() throws {
         let real = try note()
@@ -529,7 +528,7 @@ import FileExplorerTestSupport
         #expect(try EditRepoFile.text("MacApp/EditorPrinting.swift").contains("folder: EditorImageImport.linkFolder(ofNote: path),"))
     }
 
-    /// A FOLDER named like an image is not an image drop: AppKit's drop goes ahead.
+    /// A folder named like an image is not an image drop: AppKit's drop goes ahead.
     @MainActor
     @Test func aFolderNamedLikeAnImageIsNotAnImage() throws {
         let note = try note()

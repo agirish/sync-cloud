@@ -4,9 +4,9 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// **TE61 — Go to Line's field, mounted.** The status line hosted with a live binding in a key
-/// window, and the field read the only ways a hosted SwiftUI popover can be read: the popover
-/// windows on screen, the field editor that holds the typing, and what the binding and `onGo` hear.
+/// Go to Line's field, mounted: the status line hosted with a live binding in a key window, and
+/// the field read the only ways a hosted SwiftUI popover can be: the popover windows on screen, the
+/// field editor that holds the typing, and what the binding and `onGo` hear.
 @MainActor
 @Suite(.serialized) struct EditorGoToLineFieldTests {
 
@@ -104,8 +104,8 @@ import Design
 
     // MARK: Opening
 
-    /// **The field opens once, focused, its arrow on "Line, Col"** — with and without a heading
-    /// leading the line, which draws a second ladder.
+    /// The field opens once, focused, its arrow on "Line, Col", with and without a heading leading
+    /// the line, which draws a second ladder.
     @Test(arguments: [false, true])
     func theFieldOpensFocusedUnderTheCaret(withHeadings: Bool) throws {
         let model = Model()
@@ -145,10 +145,9 @@ import Design
             headings: withHeadings ? headings : nil).fixedSize()).fittingSize.width
     }
 
-    /// **The field stays up, with what was typed, whatever rung the line moves to** (review of
-    /// TE61). The popover hung on the caret button, which every rung draws afresh, so a change of
-    /// rung took the field away mid-typing. Each case was run against the old line and closed the
-    /// field there, so none of them leaves the rung alone and passes for that.
+    /// The field stays up, with what was typed, whatever rung the line moves to. Every rung draws
+    /// the caret button afresh, so a popover hung on it would close mid-typing. Each case requires
+    /// that the caret really moved, so none passes by leaving the rung alone.
     @Test(arguments: RungChange.allCases, [false, true])
     func theFieldSurvivesARungChange(change: RungChange, withHeadings: Bool) throws {
         let model = Model()
@@ -191,10 +190,9 @@ import Design
 
     static let notice = "Reloaded — changed elsewhere"
 
-    /// **⌃⌘L while a notice is up opens the field at once, on the caret.** The notice once held the
-    /// slot the caret is drawn in, so the field had nothing to hang from and opened by itself
-    /// seconds later; it now stands where the hint does (``EditorStatusLine/HintPlace``), and the
-    /// caret it hangs from never moves for it.
+    /// ⌃⌘L while a notice is up opens the field at once, on the caret. The notice stands where the
+    /// hint does (``EditorStatusLine/HintPlace``), never in the caret's slot, so the caret the
+    /// field hangs from never moves for it.
     @Test func askingForTheFieldUnderANoticeOpensItOnTheCaret() throws {
         let quiet = Model()
         let (quietWindow, quietHost) = mount(quiet)
@@ -225,8 +223,8 @@ import Design
         #expect(popovers().count == 1 && model.shown)
     }
 
-    /// **A notice arriving while the field is up waits** — the field, what was typed and the caret it
-    /// hangs from all stay, and the notice is said once the field closes, if its seconds are not up.
+    /// A notice arriving while the field is up waits: the field, the typing and the caret all stay,
+    /// and the notice is said once the field closes, if its seconds aren't up.
     @Test func aNoticeArrivingWhileTheFieldIsUpWaits() throws {
         let model = Model()
         let (window, host) = mount(model)

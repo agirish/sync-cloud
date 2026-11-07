@@ -4,8 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.1's era strip: the eras of a year-named shape family drawn in order, and — just as
-/// important — nothing at all for a family that is not about years.
+/// The era strip: the eras of a year-named shape family drawn in order, and nothing at all for a
+/// family that isn't about years.
 @MainActor
 @Suite struct RestructureEraStripTests {
 
@@ -26,8 +26,8 @@ import Testing
         #expect(segments.map(\.scheme) == [0, 1])
     }
 
-    /// Members arrive in profile order, not year order — the strip's whole claim is chronology,
-    /// so it sorts. With the input already sorted this test could not fail.
+    /// Members arrive in profile order, not year order, and the strip's claim is chronology, so it
+    /// sorts. The input is unsorted so this can fail.
     @Test func theStripIsInYearOrderWhateverOrderTheMembersArriveIn() throws {
         let segments = try #require(RestructureLens.eraSegments(
             schemes: [Self.scheme(["a"], ["2019", "2013"]),
@@ -38,8 +38,8 @@ import Testing
                 "an era that resumes after another gets a second segment, not a merged one")
     }
 
-    /// Drift is a segment with no scheme — drawn hollow, because "no two agree on one shape" is
-    /// the absence of an era rather than another one.
+    /// Drift is a segment with no scheme, drawn hollow: "no two agree on one shape" is the absence
+    /// of an era, not another one.
     @Test func driftIsItsOwnUnschemedSegment() throws {
         let segments = try #require(RestructureLens.eraSegments(
             schemes: [Self.scheme(["a"], ["2013", "2014"])],
@@ -63,8 +63,8 @@ import Testing
         #expect(segments[0].count == 3)
     }
 
-    /// **The common, correct answer for most families.** A family of category names has no order
-    /// to draw, and inventing one would be worse than the text rows the strip sits above.
+    /// The common, correct answer for most families: category names have no order to draw, and
+    /// inventing one would be worse than the text rows below.
     @Test func aFamilyThatIsNotAboutYearsGetsNoStrip() {
         #expect(RestructureLens.eraSegments(
             schemes: [Self.scheme(["photos"], ["Naming Ceremony", "Birthday"]),
@@ -73,11 +73,11 @@ import Testing
         #expect(RestructureLens.eraSegments(schemes: [], drift: []) == nil)
     }
 
-    /// The bar is 80%, so one oddly-named member among many years does not suppress the strip —
-    /// and a mostly-unnamed family does not get one. Both sides, or the threshold is a constant.
+    /// The bar is 80%: one oddly-named member among many years doesn't suppress the strip, and a
+    /// mostly-unnamed family doesn't get one. Both sides are checked.
     @Test func theYearBarIsCrossedFromBothSides() {
-        // The VALUE, not just a band: 0.9 and 0.5 alone left anything in (0.5, 0.9] passing, and
-        // a 4-of-7 family would have gained a strip.
+        // The value, not just a band: 0.9 and 0.5 alone would pass anything in (0.5, 0.9], so a
+        // 4-of-7 family would gain a strip.
         let sevenWithFour = RestructureLens.eraSegments(
             schemes: [.init(vocabulary: ["a"],
                             members: ["2013", "2014", "2015", "2016", "A", "B", "C"])],
@@ -106,9 +106,8 @@ import Testing
             schemes: [Self.scheme(["a"], ["2013"])], drift: []) == nil)
     }
 
-    /// The strip is a picture, so it carries the sentence it makes — and it names each scheme
-    /// by its VOCABULARY, the way the rows below name them. An ordinal ("shape 1") is a number
-    /// nothing else on the card establishes, so a listener has nothing to map it onto.
+    /// The strip is a picture, so it carries the sentence it makes, naming each scheme by its
+    /// vocabulary as the rows below do. An ordinal ("shape 1") maps onto nothing the card shows.
     @Test func theStripSpeaksItsErasForVoiceOver() {
         let segments = [RestructureLens.EraSegment(scheme: 0, label: "2013–2015", count: 3),
                         RestructureLens.EraSegment(scheme: 1, label: "2016", count: 1)]
@@ -120,9 +119,8 @@ import Testing
                 "an ordinal names nothing the card shows")
     }
 
-    /// Shapeless members are members: leaving them out of the bar's denominator let a family of
-    /// four years and ten unnamed folders draw "the eras across a shape family" over a third
-    /// of itself.
+    /// Shapeless members count in the bar's denominator, or four years and ten unnamed folders
+    /// would draw eras over a third of the family.
     @Test func shapelessMembersCountAgainstTheYearBar() {
         let schemes = [Self.scheme(["a"], ["2013", "2014", "2015", "2016"])]
         #expect(RestructureLens.eraSegments(schemes: schemes, drift: []) != nil)
@@ -131,8 +129,8 @@ import Testing
                 "four of fourteen members is not a family about years")
     }
 
-    /// Every scheme's fill has to read as filled — the fourth step was faint enough to pass for
-    /// the hollow drift treatment it must be distinguishable from — and no two may match.
+    /// Every scheme's fill must read as filled, distinct from the hollow drift segment, and no two
+    /// may match.
     @Test func everySchemeFillIsDistinctAndVisible() {
         let opacities = RestructureLens.schemeOpacities
         #expect(opacities.count == 4)
@@ -141,8 +139,8 @@ import Testing
                 "a fainter fill reads as the hollow drift segment")
     }
 
-    /// A fiscal member carries an ASCII hyphen and the run label joins with an EN DASH, so
-    /// splitting on the wrong one produced "2014-2015–2016".
+    /// A fiscal member carries an ASCII hyphen and the run label joins with an en dash; splitting
+    /// on the wrong one yields "2014-2015–2016".
     @Test func aRunLabelDoesNotSwallowAFiscalMembersOwnHyphen() throws {
         let segments = try #require(RestructureLens.eraSegments(
             schemes: [Self.scheme(["a"], ["2014-2015", "2016", "2017"])], drift: []))
@@ -152,11 +150,9 @@ import Testing
                 "the member's own hyphen survives inside the run's label")
     }
 
-    /// **Proportional is the strip's whole claim**, and it is the one thing a render comparison
-    /// cannot check: two families with different member counts also carry different LABELS, so
-    /// their images differ either way. (That test was written first, and passed with the widths
-    /// mutated back to equal — a fixture whose expected value equals the fallback.) So the share
-    /// is a rule, and the call site is pinned below.
+    /// Proportional widths are the strip's claim, and a render comparison can't check them: two
+    /// families with different counts also carry different labels, so their images differ
+    /// anyway. So the share is a rule, and its call site is pinned below.
     @Test func widthsFollowMemberCounts() {
         let segments = [RestructureLens.EraSegment(scheme: 0, label: "2013–2015", count: 3),
                         RestructureLens.EraSegment(scheme: 1, label: "2016–2022", count: 7),
@@ -182,8 +178,7 @@ import Testing
         #expect(RestructureLens.eraSegmentWidths([], available: 100) == [])
     }
 
-    /// The rule is one revert away from being unused — which is exactly how the strip drew wrong
-    /// in the first place.
+    /// The rule is one revert away from being unused, so the strip's call is pinned.
     @Test func theStripActuallyAsksForThoseWidths() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -191,9 +186,8 @@ import Testing
             .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
         #expect(text.contains("widths: Self.eraSegmentWidths(segments, available: geo.size.width)"))
-        // And that they REACH a frame. Pinning only the call left
-        // `.frame(maxWidth: .infinity)` free to ignore them, with `eraSegmentWidths` correct and
-        // unused — which is the same defect in a new disguise.
+        // And that they reach a frame: pinning only the call leaves `.frame(maxWidth: .infinity)`
+        // free to ignore them.
         #expect(text.contains(".frame(maxWidth: widths.map { $0[index] } ?? .infinity)"),
                 "the computed width has to be the frame's width")
         #expect(!text.contains(".layoutPriority(Double(segment.count))"),
@@ -212,8 +206,7 @@ import Testing
         ] {
             let lens = RestructureLens(findings: [finding], hasProfile: true, folderCount: 10,
                                        accent: .blue, onReveal: { _ in }, hasReviewed: true)
-            // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-            // `VStack`, so it passed with the subject of this test deleted.
+            // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
             let rep = try #require(RestructureRender.raster(lens, width: 640, height: 300))
             #expect(RestructureRender.inkedPixels(rep) > 1000)
         }

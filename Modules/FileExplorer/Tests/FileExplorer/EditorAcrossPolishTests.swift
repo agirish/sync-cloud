@@ -4,9 +4,8 @@ import Testing
 @testable import Design
 @testable import FileExplorer
 
-/// **Edit's words and sizes, one surface to the next** (TE120, TE123, TE129, TE132, TE134 — the
-/// 2026-10-20 polish audit's "across Edit" findings). Each literal pinned here is what the screen
-/// says; the scans hold the rule for strings nobody has written yet.
+/// Edit's words and sizes, consistent from one surface to the next. Each literal pinned here is
+/// what the screen says; the scans hold the rule for strings nobody has written yet.
 @MainActor
 @Suite struct EditorAcrossPolishTests {
 
@@ -30,9 +29,9 @@ import Testing
         #expect(tab.contains(".accessibilityLabel(\"File list\")"), "VoiceOver's name for the list's panel")
     }
 
-    /// **No sentence in Edit's sources says "rail"** — strings with a space in them, that is, which
-    /// is what a person reads; `"editor.rail.tabs"` and the like are keys. Mutation: put back
-    /// "Rail contents" and this names EditorRailTab.swift.
+    /// No sentence in Edit's sources says "rail": strings with a space, which a person reads;
+    /// `"editor.rail.tabs"` and the like are keys. Writing "Rail contents" into EditorRailTab.swift
+    /// must make this fail, naming the file.
     @Test func noSentenceInEditSaysRail() throws {
         let rail = try NSRegularExpression(pattern: #"\brails?\b"#, options: .caseInsensitive)
         var found: [String] = []
@@ -56,7 +55,7 @@ import Testing
         #expect(EditorPDFCapsule.zoomStepHelp(in: false) == "Zoom out   ⌘−")
     }
 
-    /// The call sites — a rule extracted for a test is one revert away from unused.
+    /// The call sites: a rule extracted for a test is one revert away from unused.
     @Test func theTooltipsAreTheOnesDrawn() throws {
         let capsule = try Self.source("EditorPDFCapsule.swift")
         #expect(capsule.contains(".help(Self.pageStepHelp(forward: forward))"))
@@ -77,15 +76,15 @@ import Testing
                 "Find in a PDF: Expand's keycap beside it, so a keycap on Find too")
     }
 
-    /// Source, Preview and Split are ⌃⌘1, ⌃⌘2 and ⌃⌘3 — the tooltip and the menu say one thing.
+    /// Source, Preview and Split are ⌃⌘1, ⌃⌘2 and ⌃⌘3: the tooltip and the menu say one thing.
     @Test func theModeTooltipsCarryTheirChords() {
         #expect(EditorMode.allCases.map { ShortcutHint.tooltip($0.title, $0.chord.display) }
                 == ["Source   ⌃⌘1", "Preview   ⌃⌘2", "Split   ⌃⌘3"])
     }
 
-    /// **The zoom label's menu shows Fit Page's and Fit Width's keys, and ticks Actual Size at
-    /// 100%.** Labels only: the menu is gone before a key could reach it, and the menu bar's Text ▸
-    /// Fit Page answers ⌃⌘1.
+    /// The zoom label's menu shows Fit Page's and Fit Width's keys, and ticks Actual Size at 100%.
+    /// Labels only: the menu is gone before a key could reach it, and the menu bar's Text ▸ Fit
+    /// Page answers ⌃⌘1.
     @Test func theZoomMenuShowsTheFitsKeysAndTicksActualSize() throws {
         let state = EditorPDFViewState(defaults: defaults)
         state.fit = nil
@@ -100,7 +99,7 @@ import Testing
         state.fit = .actual
         menu = EditorPDFZoomMenu.menu(for: state)
         #expect(menu.items.filter { $0.state == .on }.map(\.title) == ["Actual Size", "100%"])
-        // Not at another scale, and not while a fit holds the page — even one that lands on 100%.
+        // Not at another scale, nor while a fit holds the page, even one that lands on 100%.
         state.fit = nil
         state.scale = 1.25
         #expect(EditorPDFZoomMenu.menu(for: state).items.filter { $0.state == .on }.map(\.title) == ["125%"])
@@ -117,12 +116,10 @@ import Testing
         #expect(EditorPDFFind.unreadableCaption == "Couldn’t read this PDF’s text")
     }
 
-    /// **No sentence anywhere in the app has a straight apostrophe or straight quotes** — Edit's
-    /// files first, then Help and the keyboard shortcuts window (TE173), and since ST17 every source
-    /// in `MacApp/` and the packages: an alert said “can't” beside a row that said “can’t”. Log
-    /// statements are skipped, and the strings no one sees are named in
-    /// `AppCopyScan.punctuationExemptions`. Mutation: straighten “doesn’t” in Help, “aren’t” in a
-    /// Settings caption or the quotes around a name in a Sync banner, and this names the line.
+    /// No sentence in any source in `MacApp/` or the packages has a straight apostrophe or straight
+    /// quotes, so an alert never says “can't” beside a row that says “can’t”. Log statements are
+    /// skipped; strings no one sees are named in `AppCopyScan.punctuationExemptions`. Straightening
+    /// “doesn’t” in Help or the quotes in a Sync banner must fail this, naming the line.
     @Test func everySentenceInTheAppUsesCurlyApostrophesAndQuotes() throws {
         let literals = try AppCopyScan.literals()
         try #require(Set(literals.map(\.path)).count > 400, "not reading the app's sources")
@@ -139,9 +136,8 @@ import Testing
         #expect(bare.isEmpty, "straight quotes in multi-line strings:\n\(bare.map { "\($0.path):\($0.line)" }.joined(separator: "\n"))")
     }
 
-    /// **US spelling, app-wide** (ST16): colour, reorganisation, judgement and grey had reached
-    /// Setup, Organize, Help and a PDF tool past the Edit-only check. Mutation: spell “color” in
-    /// a Dashboard tooltip the British way and this names it.
+    /// US spelling, app-wide. Spelling “color” the British way in a Dashboard tooltip must fail
+    /// this, naming it.
     @Test func everySentenceInTheAppIsSpelledTheUSWay() throws {
         let found = try AppCopyScan.violations(of: AppCopyScan.britishSpelling, sentencesOnly: false, exemptions: AppCopyScan.spellingExemptions)
         #expect(found.isEmpty, "\(found.map { "\($0.path):\($0.line): \($0.text)" }.joined(separator: "\n"))")
@@ -152,7 +148,7 @@ import Testing
         #expect(!AppCopyScan.matches(AppCopyScan.britishSpelling, "scroll towards the end"))
     }
 
-    /// **The exemptions still exempt something** — one that no longer matches would hide the next
+    /// Every exemption still exempts something; one that no longer matches would hide the next
     /// string written where it points.
     @Test func everyCopyExemptionIsStillNeeded() throws {
         let staleApostrophe = try AppCopyScan.staleExemptions(AppCopyScan.punctuationExemptions, rule: AppCopyScan.straightApostrophe,
@@ -169,10 +165,9 @@ import Testing
         #expect(staleSpelling.isEmpty, "\(staleSpelling.map { "\($0.file): \($0.contains)" })")
     }
 
-    /// **An exemption covers the strings it names, not their neighbours.** CloudFilingProtocol and
-    /// MappingRefine were exempt whole, for their prompts — and so were the model picker's labels,
-    /// "Chosen by Claude" and the plan sheet's reversal notes beside them, which people read. And
-    /// an exemption names a path, not a file name: `FilingClassifier.swift` is two files.
+    /// An exemption covers the strings it names, not their neighbors: exempting a file's prompts
+    /// must not also hide the labels beside them that people read. And it names a path, not a file
+    /// name: `FilingClassifier.swift` is two files.
     @Test func exemptionsCoverOnlyWhatTheyName() throws {
         let literals = try AppCopyScan.literals()
         for (path, fragment) in [("Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", "cheapest (default)"),
@@ -225,11 +220,11 @@ import Testing
 
     // MARK: TE132 — one tooltip pattern
 
-    /// **Every palette tooltip reads "Name — what it does"**, the name as the tool's title is
-    /// capitalised: Date's used to say "Date · …" and Text Size's "Text size — …".
+    /// Every palette tooltip reads "Name — what it does", the name capitalized as the tool's title
+    /// is: "Text Size — …", never "Date · …".
     @Test func thePalettesTooltipsReadNameDashWhatItDoes() throws {
         let palette = try Self.source("EditorPDFFillPalette.swift")
-        // What a live tool says (`hint`), and why a greyed one is greyed (`refusal`, TE108).
+        // What a live tool says (`hint`), and why a grayed one is grayed (`refusal`).
         var cases: [Substring] = []
         for head in ["static func hint(_ tool: Tool) -> String {", "static func refusal(_ tool: Tool, fill: EditorPDFFillSign) -> String? {"] {
             let start = try #require(palette.range(of: head))
@@ -245,15 +240,14 @@ import Testing
         #expect(palette.contains("case .size: return \"Text Size — of the selected text, and of the next\""))
     }
 
-    /// **Both ＋s say the header's sentence**, and the list's folder row no longer shows it over the
-    /// folder's name — only the ＋ does.
+    /// Both ＋s say the header's sentence, and only the ＋ shows it, not the list's whole folder row.
     @Test func bothPlusButtonsShareOneTooltip() throws {
         #expect(EditorWorkspaceView.newTextFileTitle(folderName: "Downloads") == "New text file in Downloads")
         let rail = try Self.source("EditorFileRailView.swift")
         #expect(rail.contains("EditorWorkspaceView.newTextFileTitle(folderName: newFileFolderName ?? folderName)"))
         #expect(rail.contains(".help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))"))
         #expect(!rail.contains("New files are created in"))
-        // The row-wide tooltip is gone: `.help(contextHelp)` sits once, on the other tabs' name.
+        // No row-wide tooltip: `.help(contextHelp)` sits once, on the other tabs' name.
         #expect(rail.components(separatedBy: ".help(contextHelp)").count == 2)
         let row = try #require(rail.range(of: "private var contextRow: some View"))
         let rowBody = rail[row.upperBound...]
@@ -266,10 +260,10 @@ import Testing
 
     // MARK: TE134 — sizes that grow with the text
 
-    /// **The line numbers fit their column at every text size.** A `Text` in a frame narrower than
-    /// its own width is cut ("10…"), so the column must be at least the width SwiftUI lays the
-    /// number out at — measured from the view, at that text size, not from the font arithmetic the
-    /// column uses. The control: the old fixed 34pt is narrower than 10482 at Largest.
+    /// The line numbers fit their column at every text size. A `Text` in a narrower frame is cut
+    /// ("10…"), so the column must be at least the width SwiftUI lays the number out at, measured
+    /// from the view, not the column's font arithmetic. The control: a fixed 34pt column is
+    /// narrower than 10482 at Largest.
     @Test func theLineNumbersFitTheirColumn() {
         for scale in [FontSize.small.scale, 1, FontSize.large.scale, FontSize.extraLarge.scale] {
             for number in [9, 482, 10_482, 1_204_830] {
@@ -310,9 +304,9 @@ import Testing
 
     // MARK: TE144 — every header button wears a word, or none does
 
-    /// **New Text File, Find and Close keep their width when the row is short of it** — the name
-    /// gives way. A worded chip sits at its own width under a narrower proposal (a squeezed one tracks
-    /// it), at every text size, and is wider than the bare glyph, so the rung means something.
+    /// New Text File, Find and Close keep their width when the row is short of it; the name gives
+    /// way. A worded chip keeps its own width under a narrower proposal at every text size, and is
+    /// wider than the bare glyph, so the rung means something.
     @Test func theHeaderChipsAreNeverSqueezed() {
         let bare = NSHostingView(rootView: EditorHeaderChipLabel(symbol: "plus")).fittingSize.width
         for scale in [FontSize.small.scale, 1, FontSize.large.scale, FontSize.extraLarge.scale] {
@@ -329,9 +323,9 @@ import Testing
                 == ["New Text File", "Find", "Close"])
     }
 
-    /// **The text header's four buttons read one rung** — all worded, or all bare — and their words
-    /// go before the capsule's. The drawn sweep is `EditorHeaderDoorsTests`' (pixel-pinned, so it
-    /// runs on this Mac only); this holds the wiring everywhere.
+    /// The text header's four buttons share one rung, all worded or all bare, and their words go
+    /// before the capsule's. The drawn sweep is `EditorHeaderDoorsTests`' (pixel-pinned, so it runs
+    /// on this Mac only); this holds the wiring everywhere.
     @Test func theTextHeadersButtonsShareOneRung() throws {
         #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false])
         #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.capsule) == [.labelled, .labelled, .glyphOnly])
@@ -346,7 +340,7 @@ import Testing
         }
     }
 
-    /// **The PDF header's Close and Expand shed their words with Find, Fill & Sign and Tools.**
+    /// The PDF header's Close and Expand shed their words with Find, Fill & Sign and Tools.
     @Test func thePDFHeadersWindowButtonsShareTheActionsRung() throws {
         let card = Self.squashed(try Self.source("EditorPDFCard.swift"))
         #expect(card.contains("EditorCloseChip(name: pdf.name, worded: rung.isWorded, accent: accent, action: onClose)"))
@@ -388,7 +382,7 @@ import Testing
             .appendingPathComponent("Sources/FileExplorer")
     }
 
-    /// Every string literal with a space in it — a sentence, not a key — in Edit's own files,
+    /// Every string literal with a space in it (a sentence, not a key) in Edit's own files,
     /// skipping comment lines and log lines.
     static func sentenceLiterals() throws -> [(file: String, literal: String)] {
         let names = try FileManager.default.contentsOfDirectory(atPath: sourcesFolder.path)

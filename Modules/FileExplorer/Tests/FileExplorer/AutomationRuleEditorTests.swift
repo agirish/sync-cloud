@@ -3,7 +3,7 @@ import Testing
 @testable import FileExplorer
 
 /// Pins the Browse… destination helper: a picked folder becomes a path relative to the preview
-/// root, the same root the folder was previewed against — inside → relative subpath, the root
+/// root, the same root the folder was previewed against: inside → relative subpath, the root
 /// itself → empty, anything outside → nil (which the editor turns into a "pick inside" alert).
 @Suite struct AutomationRuleEditorTests {
 
@@ -32,7 +32,7 @@ import Testing
 
     @Test func mentionsCanonicalizesOnlyAtSave() {
         // Free-typed text (held as one raw element while editing) becomes the engine's canonical
-        // tokens: split on every non-alphanumeric, lowercased, sorted — so "Tesla-Model-3, Insurance"
+        // tokens: split on every non-alphanumeric, lowercased, sorted, so "Tesla-Model-3, Insurance"
         // saves in exactly the form a filename can match.
         #expect(AutomationRuleEditor.canonicalized(.mentionsAll(["Tesla-Model-3, Insurance"]))
                 == .mentionsAll(["insurance", "model", "tesla"]))
@@ -40,7 +40,7 @@ import Testing
         #expect(AutomationRuleEditor.canonicalized(.contentContains("Final Draft")) == .contentContains("Final Draft"))
     }
 
-    /// TE286: "Mentions any of" keeps each comma-separated phrase whole, in the order typed, so
+    /// "Mentions any of" keeps each comma-separated phrase whole, in the order typed, so
     /// "Japan Airlines" needs both words and "JAL" alone is enough.
     @Test func mentionsAnyCanonicalizesEachPhrase() {
         #expect(AutomationRuleEditor.canonicalized(.mentionsAny(["JAL, Japan Airlines,  ,Air-India, jal"]))
@@ -51,11 +51,10 @@ import Testing
     }
 
     @Test func saveGateBlocksAnUnmatchableMentionsRowEvenWhenOtherConditionsRun() {
-        // The gate the warning row promises. The dangerous shape is an ALL-OF rule where a
-        // complete second condition makes the rule runnable while the mentions row would
-        // canonicalize to nothing: saving would silently broaden "kind is PDF AND mentions
-        // 'the'" to EVERY PDF (batch-eligible rules then blind-file on it). isRunnable alone
-        // let exactly that through — canSave must not.
+        // The gate the warning row promises. In an all-of rule whose second condition makes it
+        // runnable, a mentions row that canonicalizes to nothing would silently broaden "kind is
+        // PDF AND mentions 'the'" to every PDF, and batch rules would file on it. isRunnable
+        // alone lets that through; canSave must not.
         #expect(!AutomationRuleEditor.canSave(
             isRunnable: true,
             conditions: [.kindIs(.pdf), .mentionsAll(["the"])]))
@@ -63,7 +62,7 @@ import Testing
         #expect(AutomationRuleEditor.canSave(
             isRunnable: true,
             conditions: [.kindIs(.pdf), .mentionsAll(["tesla"])]))
-        // A blank mentions row is plain "incomplete" — it gates via isRunnable, not this check.
+        // A blank mentions row is plain "incomplete": it gates via isRunnable, not this check.
         #expect(!AutomationRuleEditor.canSave(
             isRunnable: false,
             conditions: [.mentionsAll([""])]))
@@ -71,12 +70,12 @@ import Testing
 
     @Test func unmatchableMentionsRowsAreDetected() {
         // Visible text that canonicalizes to NOTHING (stopwords, bare numbers, 1-char fragments)
-        // must block Save — silently dropping the condition would broaden an all-of rule.
+        // must block Save: silently dropping the condition would broaden an all-of rule.
         #expect(AutomationRuleEditor.isUnmatchableMentions(.mentionsAll(["the, draft, 3"])))
         #expect(AutomationRuleEditor.isUnmatchableMentions(.mentionsAll(["1099"])))   // bare number, not a year
         // Words that survive canonicalization are fine.
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAll(["tesla"])))
-        // A blank row is plain "incomplete", not a trap — it never looked filled.
+        // A blank row is plain "incomplete", not a trap: it never looked filled.
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAll([""])))
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAll([])))
         // Other condition types are never flagged.

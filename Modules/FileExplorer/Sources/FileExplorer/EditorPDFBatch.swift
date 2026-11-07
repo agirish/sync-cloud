@@ -5,15 +5,15 @@ import PDFKit
 import PDFToolkitCore
 import Sync
 
-/// One of the tools that runs over several files — the whole-file ones whose options do not
-/// depend on the file. Passwords are not here: each file's is its own.
+/// One of the tools that runs over several files: the whole-file ones whose options don't depend
+/// on the file. Passwords are not here, since each file's is its own.
 public enum EditorPDFBatchTool: Equatable, Sendable {
     case rotate(quarterTurns: Int)
     case compress(EditorPDFCompression)
-    /// Every field cleared — there is no one file's fields to edit.
+    /// Every field cleared: there is no one file's fields to edit.
     case cleanMetadata
 
-    /// The tool as Edit runs it on one file of `pageCount` pages — so the copy's name, the log's
+    /// The tool as Edit runs it on one file of `pageCount` pages, so the copy's name, the log's
     /// words and the toolkit call are Edit's own, not a second table of them.
     func tool(pageCount: Int) -> EditorPDFTool {
         switch self {
@@ -23,7 +23,7 @@ public enum EditorPDFBatchTool: Equatable, Sendable {
         }
     }
 
-    /// What a file's log line says was done — Edit's words, except that Rotate names every page
+    /// What a file's log line says was done: Edit's words, except that Rotate names all pages
     /// without knowing how many there are.
     var logDetail: String {
         if case .rotate(let turns) = self { return "rotate \(EditorPDFCopyName.degrees(turns)) all pages" }
@@ -47,29 +47,26 @@ public enum EditorPDFBatchKind: Equatable, Sendable {
     case cleanMetadata
 }
 
-/// **Edit's whole-file PDF tools over several files at once** — Rotate All Pages, Compress and
-/// Clean Metadata, from a pane's menu.
+/// Edit's whole-file PDF tools over several files at once: Rotate All Pages, Compress and Clean
+/// Metadata, from a pane's menu.
 ///
-/// **One file at a time, one lane turn per file.** Each turn opens the file, reads whether it can
-/// run, and runs — then gives the lane back, so a duplicate scan, a thumbnail or find interleaves
-/// between files rather than waiting out the whole batch. The copy is written outside the lane,
-/// by ``EditorPDFCopyWriter``, exactly as one file's run writes it: a new file next to its
-/// original, never over anything, and the original never touched.
+/// One file at a time, one lane turn per file, so a duplicate scan, a thumbnail or find interleaves
+/// between files instead of waiting out the batch. The copy is written outside the lane by
+/// ``EditorPDFCopyWriter``, as a one-file run writes it: a new file, never over anything, and the
+/// original never touched.
 ///
-/// **A file that cannot run is skipped with its reason, not failed with the batch**: one locked to
-/// open (no tool can read it), one encrypted for Clean Metadata (the toolkit refuses), one
-/// whose owner forbids the changes Rotate makes in place, one Compress cannot make smaller. Cancel stops the file in hand — nothing is written for it — and
-/// skips the rest; the copies already written stay.
+/// A file that can't run is skipped with its reason: locked to open, encrypted for Clean Metadata,
+/// restricted by its owner against Rotate's in-place change, or already as small as Compress can
+/// make it. Cancel writes nothing for the file in hand and skips the rest; written copies stay.
 @MainActor
 public final class EditorPDFBatch: ObservableObject, Identifiable {
 
     public enum Skip: Equatable, Sendable {
         case alreadySmall
         case lockedToOpen
-        /// Encrypted for Clean Metadata, which the toolkit refuses on any encrypted file
-        /// (`metadataEncrypted`). Said as encrypted, not as an owner's restrictions (L11): a file
-        /// can be encrypted with every permission allowed, and the skip is the same for it. The way
-        /// past it is Remove Password…, which this one opens without asking for a password.
+        /// Encrypted, for Clean Metadata, which the toolkit refuses on any encrypted file
+        /// (`metadataEncrypted`). Said as encrypted, not as restricted: a file can be encrypted with
+        /// every permission allowed. The way past is Remove Password…, which opens it without asking.
         case passwordProtected
         /// Encrypted with its owner's restrictions, which forbid the changes Rotate makes in place.
         case restrictedByOwner
@@ -106,7 +103,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         public var name: String { (path as NSString).lastPathComponent }
     }
 
-    /// "File 2 of 5 · page 40 of 112" — the file in hand, and Compress's page when it reports one.
+    /// "File 2 of 5 · page 40 of 112": the file in hand, and Compress's page when it reports one.
     public struct Progress: Equatable, Sendable {
         public var file: Int
         public var files: Int
@@ -127,7 +124,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         }
     }
 
-    /// How a run ended, for the sheet — a declined warning leaves it up, anything else closes it.
+    /// How a run ended, for the sheet: a declined warning leaves it up, anything else closes it.
     public enum Outcome: Equatable, Sendable {
         case finished
         case declined
@@ -140,25 +137,25 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     @Published public private(set) var progress: Progress?
     @Published public private(set) var isRunning = false
     @Published public var showsSheet = false
-    /// When the run began — what orders it among the window's other runs in the capsule.
+    /// When the run began, which orders it among the window's other runs in the capsule.
     public private(set) var startedAt: Date?
     @Published public var banner: EditorPDFToolBanner?
 
-    /// Who the log lines say ran it — the workspace the menu was in.
+    /// Who the log lines say ran it: the workspace the menu was in.
     let writer: String
     /// Set by the window; a no-op otherwise, so a test can run a batch without one.
     public var host = PanePDFToolHost()
-    /// Asks once whether to go ahead when some files would lose a form — a native alert in the
+    /// Asks once whether to go ahead when some files would lose a form: a native alert in the
     /// app, a canned answer in a test.
     var confirm: @MainActor (EditorPDFBatchWarning) -> Bool = { EditorPDFBatch.confirmWithAlert($0) }
 
-    /// Where the copies go instead of beside their originals — set by a request that chose a
-    /// folder (TE294). `nil` for every menu.
+    /// Where the copies go instead of beside their originals, set by a request that chose a
+    /// folder. `nil` for every menu.
     var destinationFolder: String?
-    /// **The stamp each file had when it was chosen**, by path — a request's: a file that changed
-    /// since is failed, not run on pages nobody looked at. Empty for a menu, which checks nothing.
+    /// The stamp each file had when a request chose it, by path: a file that changed since is
+    /// failed, not run on pages nobody looked at. Empty for a menu, which checks nothing.
     var expected: [String: EditorFileStore.Stamp] = [:]
-    /// Whether the ending is left off ``banner``, for a run a request made — see ``EditorPDFTools/quiet``.
+    /// Whether the ending is left off ``banner``, for a run a request made (``EditorPDFTools/quiet``).
     var quiet = false
     /// The last ending, said or not.
     private(set) var lastReport: EditorPDFToolBanner?
@@ -168,14 +165,14 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     private var cancelFlag: CancelFlag?
     /// Copies this run wrote from a restricted original that came out unrestricted.
     private var unrestrictedCopies = 0
-    /// Called as each file starts, before its lane turn is asked for — a test's way to cancel at a
-    /// known file rather than racing the lane for it.
+    /// Called as each file starts, before its lane turn is asked for: a test's way to cancel at a
+    /// known file rather than racing the lane.
     var fileStarted: @MainActor (Int) -> Void = { _ in }
-    /// Called on the main actor as a file's copy is handed to the writer — a test's way to cancel
+    /// Called on the main actor as a file's copy is handed to the writer: a test's way to cancel
     /// while the bytes are being written. `nil` in the app.
     var writeStartedHook: (@MainActor () -> Void)?
-    /// Whether a file's bytes are still only in the cloud — asked as each file starts, since the
-    /// menu's answer can be a moment old and opening a placeholder in PDFKit would download it.
+    /// Whether a file's bytes are still only in the cloud, asked as each file starts: the menu's
+    /// answer can be a moment old, and opening a placeholder in PDFKit would download it.
     var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
 
     public init(kind: EditorPDFBatchKind, paths: [String], writer: String) {
@@ -190,9 +187,9 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
 
     // MARK: Running
 
-    /// **Runs `tool` over every file, in order, and says how it went in one banner.** The form
-    /// warning first, as one question naming the files that would lose a form; then each file in
-    /// its own lane turn; then the panes re-read, once per folder a copy landed in.
+    /// Runs `tool` over every file, in order, and says how it went in one banner: the form warning
+    /// first, as one question naming the files that would lose a form; then each file in its own
+    /// lane turn; then the panes re-read, once per folder a copy landed in.
     @discardableResult
     public func run(_ tool: EditorPDFBatchTool) async -> Outcome {
         guard !isRunning else { return .busy }
@@ -212,8 +209,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         if let warning = await formWarning(for: tool, cancelled: flag), !flag.isCancelled {
             guard confirm(warning) else { return .declined }
         }
-        // **The sheet has asked its question, so it goes** (Run Room CH): the run goes on in the
-        // toolbar's capsule with its Stop, beside any other run, and the window stays usable.
+        // The sheet has asked its question, so it goes: the run goes on in the toolbar's capsule
+        // with its Stop, beside any other run, and the window stays usable.
         startedAt = Date()
         showsSheet = false
 
@@ -257,7 +254,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
                           },
                           isCancelled: { flag.isCancelled })
         }
-        // **Cancel holds for the file in hand whatever the tool** — pressed while it waited for the
+        // Cancel holds for the file in hand whatever the tool: pressed while it waited for the
         // lane, or after Compress's last page, it still means "write nothing for it".
         if flag.isCancelled { return .skipped(.cancelled) }
         switch turn {
@@ -276,9 +273,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
             let written = await Task.detached(priority: .userInitiated) {
                 Result { try EditorPDFCopyWriter.writeStamped(data, besides: path, suffix: suffix, into: folder) }
             }.value
-            // **Cancel pressed while the copy was being written still means "write nothing for
-            // it"**, as one file's run already holds: the copy is taken back, if it is still the
-            // file this run made.
+            // Cancel pressed while the copy was being written still means "write nothing for it",
+            // as in a one-file run: the copy is taken back, if it is still the file this run made.
             if case .success(let landed) = written, flag.isCancelled {
                 if EditorFileStore.stamp(ofPath: landed.path) == landed.stamp {
                     try? FileManager.default.removeItem(atPath: landed.path)
@@ -317,12 +313,12 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         case skipped(Skip)
         case failed(String)
         /// `unrestricted`: the original's owner restricted editing and the tool rebuilt the
-        /// document, so the copy carries no restrictions — said, as one file's run says it.
+        /// document, so the copy carries no restrictions; said, as a one-file run says it.
         case output(EditorPDFToolEngine.Output, unrestricted: Bool)
     }
 
-    /// **The whole of one file's turn in the lane**: open it, decide whether it can run — the same
-    /// reading `PDFToolkit.encryptionState` makes — and run. Called from the lane.
+    /// The whole of one file's turn in the lane: open it, decide whether it can run (the reading
+    /// `PDFToolkit.encryptionState` makes), and run. Called from the lane.
     nonisolated static func laneTurn(_ tool: EditorPDFBatchTool, input: URL,
                                      progress: (@Sendable (Int, Int) -> Void)?,
                                      isCancelled: (@Sendable () -> Bool)?) -> Turn {
@@ -346,16 +342,15 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         } catch is CancellationError {
             return .skipped(.cancelled)
         } catch {
-            // In Edit's words, as a single file's run says it — not the toolkit's PDF Utils ones.
+            // In Edit's words, as a one-file run says it, not the toolkit's.
             return .failed(EditorPDFToolEngine.reason(error, tool: edit))
         }
     }
 
-    /// **Whether the owner's restrictions forbid `edit` on this file** (PD3) — the toolkit's own test
-    /// for Rotate and Delete Pages, which change the document in place (`openEditableDocument`):
-    /// encrypted, and no page assembly. Skipped before the run rather than failed by it, whose
-    /// sentence names the file and so named it twice after the reasons line's own name; and the run
-    /// is not paid for. The tools that rebuild the document run on such a file.
+    /// Whether the owner's restrictions forbid `edit` on this file: the toolkit's own test for
+    /// Rotate and Delete Pages, which change the document in place (`openEditableDocument`):
+    /// encrypted, and no page assembly. Skipped before the run, so the run isn't paid for and the
+    /// reason line names the file once. Tools that rebuild the document run on such a file.
     nonisolated static func ownerForbids(_ edit: EditorPDFTool, isEncrypted: Bool, allowsAssembly: Bool) -> Bool {
         switch edit {
         case .rotate, .deletePages: return isEncrypted && !allowsAssembly
@@ -365,8 +360,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
 
     // MARK: The form warning
 
-    /// **One question for the whole batch**, naming only the files that would lose a form — each
-    /// read in its own lane turn, so the lane is given back between files here too.
+    /// One question for the whole batch, naming only the files that would lose a form, each read
+    /// in its own lane turn so the lane is given back between files here too.
     private func formWarning(for tool: EditorPDFBatchTool, cancelled flag: CancelFlag) async -> EditorPDFBatchWarning? {
         let edit = tool.tool(pageCount: 0)
         guard edit.formLoss != nil else { return nil }
@@ -375,7 +370,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         for file in files {
             if flag.isCancelled { return nil }
             // Not a file still in the cloud: reading its form opens it in PDFKit, which downloads
-            // it — the very read ``runOne(_:at:flag:)`` skips it to avoid.
+            // it, the read ``runOne(_:at:flag:)`` skips it to avoid.
             if isCloudOnly(MaterializationStatus.linkTarget(of: file.path)) { continue }
             let input = URL(fileURLWithPath: EditorFileStore.resolved(file.path))
             if let found = await EditorPDFToolEngine.fidelityWarning(for: edit, input: input) {
@@ -399,10 +394,10 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
 
     // MARK: The ending
 
-    /// One log line per file, naming the workspace — never "Edit", which ran nothing here.
+    /// One log line per file, naming the workspace, never "Edit", which ran nothing here.
     private func log(_ file: File, tool: EditorPDFBatchTool) {
         let detail = tool.logDetail
-        // Edit's log name — the folder too, so two same-named PDFs are told apart.
+        // Edit's log name, with the folder, so two same-named PDFs are told apart.
         let name = EditorPDFTools.logName(file.path)
         switch file.status {
         case .wrote(let copy, let sizes):
@@ -443,11 +438,10 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         showsSheet = false
     }
 
-    /// "Saved 2 compressed copies · 1 skipped · 1 failed" — what was written, then how many were
-    /// skipped and how many failed; ``reasons(_:)`` says which, and why, on the line under it.
-    ///
-    /// `unrestricted` copies came from originals whose owner restricted editing, and do not carry
-    /// the restrictions — "· 1 has no editing restrictions", right after what was written.
+    /// "Saved 2 compressed copies · 1 skipped · 1 failed": what was written, then how many were
+    /// skipped and failed; ``reasons(_:)`` says which and why, on the line under it.
+    /// `unrestricted` copies came from restricted originals and carry no restrictions, said as
+    /// "· 1 has no editing restrictions" right after what was written.
     static func summary(_ statuses: [Status], tool: EditorPDFBatchTool, cancelled: Bool,
                         unrestricted: Int = 0) -> String {
         var wrote = 0, skipped = 0, notDone = 0, failed = 0
@@ -471,17 +465,17 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
         return (cancelled ? "Canceled. " : "") + parts.joined(separator: " · ")
     }
 
-    /// The most files ``reasons(_:)`` names before "and N more" — the banner floats over the panes.
+    /// The most files ``reasons(_:)`` names before "and N more", since the banner floats over the
+    /// panes.
     static let reasonsShown = 5
 
-    /// **Which files were skipped or failed, and why** — "“Scan 3.pdf” — locked with a password", one
-    /// per line, in the batch's order: the rows of the sheet that closed, for what went wrong. The
-    /// files Cancel never reached are not named; the summary counts them as "not done".
+    /// Which files were skipped or failed, and why ("“Scan 3.pdf” — locked with a password"), one
+    /// per line in the batch's order. Files Cancel never reached are not named; the summary counts
+    /// them as "not done".
     ///
-    /// **A file skipped for its owner's restrictions ends the reasons with the way past them** —
-    /// Remove Password writes a copy without them, the step the single file's refusal names
-    /// (``EditorPDFToolEngine/liftRestrictionsStep``). Once, however many such files there are, and
-    /// for Clean Metadata's encrypted skip too: a file that reaches it opened without a password.
+    /// Skips for an owner's restrictions, or Clean Metadata's encrypted skip, end the reasons with
+    /// the way past, once however many files: ``EditorPDFToolEngine/liftRestrictionsStep`` or
+    /// ``EditorPDFToolEngine/decryptStep``, the steps a one-file refusal names.
     static func reasons(_ files: [(name: String, status: Status)]) -> String? {
         let lines = files.compactMap { file -> String? in
             switch file.status {
@@ -504,8 +498,8 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
     }
 }
 
-/// **The batch's one form question** — "1 of 3 files has a form that will stop being fillable",
-/// the files named, then the toolkit's own sentences for what goes and what is kept.
+/// The batch's one form question, "1 of 3 files has a form that will stop being fillable": the
+/// files named, then the toolkit's own sentences for what goes and what is kept.
 public struct EditorPDFBatchWarning: Equatable, Sendable {
     public var names: [String]
     public var of: Int

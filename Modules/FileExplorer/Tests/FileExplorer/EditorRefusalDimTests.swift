@@ -4,14 +4,13 @@ import AppKit
 import Sync
 @testable import FileExplorer
 
-/// **A row Edit cannot open recedes, and says why.** Measured in pixels, because the row's
-/// `.opacity` is one ternary and a test that read the source would pass with the modifier deleted.
+/// A row Edit cannot open recedes, and says why. Measured in pixels, because the row's `.opacity`
+/// is one ternary and a test that read the source would pass with the modifier deleted.
 ///
-/// **The detector is positive-controlled** against the search-dim path, which is the same
-/// `PaneSearchDim.opacity` applied by the same modifier: a refused row must come out exactly as
-/// dim as a search-dimmed one. A dim test that cannot tell dim from bright proves nothing
-/// (fittingSize-overstates, glyph-box sweep), so the bright/dim ratio is asserted on the control
-/// first and the refusal is held to the same number.
+/// The detector is positive-controlled against the search-dim path, the same
+/// `PaneSearchDim.opacity` applied by the same modifier: a refused row must come out exactly as dim
+/// as a search-dimmed one. A dim test that cannot tell dim from bright proves nothing, so the
+/// bright/dim ratio is asserted on the control first and the refusal is held to the same number.
 @MainActor
 @Suite(.serialized) struct EditorRefusalDimTests {
 
@@ -79,11 +78,11 @@ import Sync
                 "a refused row measures \(refusedRatio) of bright; a search-dimmed one \(controlRatio)")
     }
 
-    /// The reason is the row's tooltip, attached unconditionally (an empty string is no tooltip)
-    /// so the row keeps one structural identity. A source scan, because a hosted SwiftUI tree exposes no tooltip under
-    /// `swift test` (measured 2026-09-16: `NSView.toolTip` is nil throughout) — the same instrument
-    /// `DuplicateRowPickerTests` uses for its row's help. Sliced to `FileRowView`'s body so a
-    /// `.help` elsewhere in the file cannot stand in.
+    /// The reason is the row's tooltip, attached unconditionally (an empty string is no tooltip) so
+    /// the row keeps one structural identity. A source scan, because a hosted SwiftUI tree exposes
+    /// no tooltip under `swift test` (`NSView.toolTip` is nil throughout), as in
+    /// `DuplicateRowPickerTests`. Sliced to `FileRowView`'s body so a `.help` elsewhere in the file
+    /// cannot stand in.
     @Test func theRefusalIsTheRowsTooltip() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -97,7 +96,7 @@ import Sync
                 "FileRowView no longer attaches the refusal as its tooltip")
         // And the rule keeps the refusal on a row whose name is whole.
         #expect(FileRowView.rowHelp(name: "a.zip", nameIsTruncated: false, editorRefusal: "Why.") == "Why.")
-        // And the dim rides the same modifier as the search dim — one opacity, two reasons.
+        // And the dim rides the same modifier as the search dim: one opacity, two reasons.
         #expect(rowSource.contains(".opacity(searchContext.isDimmed || editorRefusal != nil ? PaneSearchDim.opacity : 1)"),
                 "FileRowView's opacity no longer reads the refusal beside the search dim")
     }

@@ -1,20 +1,16 @@
 import Design
 import SwiftUI
 
-/// Any lens before its first run: what will happen, one trigger, and what a result looks like
-/// (v4.0 polish P12 — the `FilingSetupCard` pattern, generalized).
+/// Any lens before its first run: what will happen, one trigger, and what a result looks like.
+/// The ``FilingSetupCard`` pattern, generalised.
 ///
-/// To File's fresh state was the documented gold standard — top-anchored, the job and the
-/// safety contract in the header, and **sample rows in the shape real results take**, which is
-/// what makes the first real list legible. Every other lens opened as a centred icon and two
-/// sentences. This is that card with the lens-specific parts injected: the words come from
-/// ``LensIntros`` (one place, no drift), the trigger is the lens's own, and the samples are
-/// whatever row shape the lens really draws — greyed and announced as a diagram, never as
-/// findings about the user's disk.
+/// Top-anchored, with the job and safety contract in the header (words from ``LensIntros``) and
+/// sample rows in the shape the lens's real results take, so the first real list is legible. The
+/// samples are greyed and announced as a diagram, never as findings about the user's disk.
 ///
-/// **This replaces not-scanned states only.** A lens that ran and found nothing keeps its
-/// earned terminal state (the seal, the full tray, "agrees with itself") — "never looked" and
-/// "looked and found nothing" must not share a face.
+/// For not-scanned states only. A lens that ran and found nothing keeps its own terminal state
+/// (the seal, the full tray, "agrees with itself"): "never looked" and "looked and found nothing"
+/// must not look the same.
 struct LensSetupCard<Samples: View>: View {
     let intro: LensIntro
     let accent: Color
@@ -23,24 +19,19 @@ struct LensSetupCard<Samples: View>: View {
     let triggerHelp: String
     /// "What a finding looks like" in the lens's own noun.
     let samplesTitle: String
-    /// What VoiceOver says for the whole sample block — read row by row, invented names sound
-    /// like real findings, which is the opposite of what they are.
+    /// What VoiceOver says for the whole sample block. Read row by row, invented names would sound
+    /// like real findings.
     let samplesAccessibility: String
-    /// What the trigger does — **nil withholds the button entirely.**
+    /// What the trigger does; nil withholds the button entirely.
     ///
-    /// Restructure is the lens that needs this: its input is a survey built outside the app, so
-    /// on a machine that has one there is nothing here to press, and a prominent button wired to
-    /// a no-op is worse than none. Every other lens's before-screen is one click from its answer
-    /// and passes a real action.
+    /// For Restructure, whose input is a survey built outside the app: where there is none, there
+    /// is nothing to press, and a prominent button wired to a no-op is worse than none.
     let onStart: (() -> Void)?
-    /// A second, quieter action beside the trigger — **the refresh, when the trigger only
-    /// reveals.**
+    /// A second, quieter action beside the trigger: the refresh, when the trigger only reveals.
     ///
-    /// A lens whose answer already exists at launch (Restructure, off the folder survey) opens
-    /// with a trigger that shows it rather than one that computes it. That leaves "and get a more
-    /// current one" with nowhere to go, and the whole reason for opening on the card is to say
-    /// out loud that these results are cached. So the pair is: reveal, and re-derive. nil on
-    /// every lens whose trigger runs the scan itself, because there the two are the same button.
+    /// A lens whose answer exists at launch (Restructure, off the folder survey) has a trigger that
+    /// shows the cached result, so re-deriving needs a button of its own. nil wherever the trigger
+    /// runs the scan itself.
     var secondary: SecondaryAction? = nil
 
     struct SecondaryAction {
@@ -48,22 +39,16 @@ struct LensSetupCard<Samples: View>: View {
         let symbol: String
         let help: String
         let action: () -> Void
-        /// **The action is already running.** Defaulted so every existing call site is
-        /// untouched; the one lens that has a slow secondary (Restructure's survey re-derive)
-        /// passes it, and the button below goes disabled with a spinner rather than accepting
-        /// presses that the engine will only refuse.
+        /// The action is already running: the button goes disabled with a spinner rather than
+        /// accepting presses the engine would refuse. Set by Restructure's slow survey re-derive.
         var isBusy: Bool = false
     }
-    /// A lens-specific note that belongs on this screen but **must not sit above the header.**
+    /// A lens-specific note for this screen, which **must not sit above the header**: every lens
+    /// opens with its header at the same height, so anything one lens adds goes under the card. To
+    /// File uses it for what the last cloud pass cost and the spend history button.
     ///
-    /// To File is the one lens with something to say before a scan that isn't part of the pitch:
-    /// what the last cloud pass cost, and the button that opens the spend history. That row used
-    /// to render above this card, inside the lens content and outside the card — which pushed To
-    /// File's header down by its own height and left the one lens that has it opening lower than
-    /// the other five. The card is the thing every lens is supposed to open the same way, so
-    /// anything a single lens adds goes *under* it. `AnyView` deliberately, rather than a second
-    /// generic parameter: it is one small row, and generifying it would rewrite every call site
-    /// that has no footnote at all.
+    /// `AnyView` rather than a second generic parameter, so call sites with no footnote stay as
+    /// they are.
     var footnote: AnyView? = nil
     @ViewBuilder let samples: () -> Samples
 
@@ -106,9 +91,9 @@ struct LensSetupCard<Samples: View>: View {
         }
     }
 
-    /// The trigger row. One prominent button, and at most one quiet companion — both at
-    /// `.large`, so a card that has a secondary is exactly as tall here as one that does not and
-    /// the whole ladder below it stays put (`LensSetupCardAlignmentTests` measures that row).
+    /// The trigger row: one prominent button and at most one quiet companion, both `.large`, so a
+    /// card with a secondary is as tall as one without and everything below stays put
+    /// (`LensSetupCardAlignmentTests` measures it).
     @ViewBuilder
     private var trigger: some View {
         if onStart != nil || secondary != nil {
@@ -125,8 +110,8 @@ struct LensSetupCard<Samples: View>: View {
                 }
                 if let secondary {
                     Button(action: secondary.action) {
-                        // The spinner takes the symbol's place rather than sitting beside it,
-                        // so the button keeps its width and the row does not reflow mid-press.
+                        // The spinner takes the symbol's place, so the button keeps its width and
+                        // the row doesn't reflow mid-press.
                         if secondary.isBusy {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
@@ -161,9 +146,8 @@ struct LensSetupCard<Samples: View>: View {
     }
 }
 
-/// One greyed sample row in the shared diagram dress — callers compose their lens's row shape
-/// inside. The wash and the whole-row fade are what make three of these read as a diagram
-/// rather than as findings.
+/// One greyed sample row in the shared diagram dress; callers compose their lens's row shape
+/// inside. The wash and the fade make the rows read as a diagram, not as findings.
 struct LensSetupSampleRow<Content: View>: View {
     @ViewBuilder let content: () -> Content
 

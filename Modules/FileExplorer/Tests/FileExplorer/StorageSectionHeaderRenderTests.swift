@@ -5,12 +5,9 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// **The Storage section header, rendered.**
-///
-/// Nothing mounted `StorageLensView` at all, so the header's two shapes — a fold control on the
-/// All page, a plain row on a page the rail has narrowed — were only ever source-scanned. A scan
-/// can say `if canCollapse` is present; it cannot say the row still fills its width, or that the
-/// chevron is really gone, which is exactly what changed when the header stopped being a button.
+/// The Storage section header, rendered in both shapes: a fold control on the All page, a plain row
+/// on a page the rail has narrowed. A source scan can see `if canCollapse`; only a render can say
+/// the row still fills its width and the chevron is really gone.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct StorageSectionHeaderRenderTests {
 
@@ -35,8 +32,8 @@ import Design
         init(host: NSHostingView<AnyView>, window: NSWindow) { self.host = host; self.window = window }
     }
 
-    /// The window background is not decoration: without one the content composites against the
-    /// borderless window's own buffer and every comparison reads as zero difference.
+    /// The window background matters: without one the content composites against the borderless
+    /// window's own buffer and every comparison reads zero difference.
     private func mount(section: StorageSection?) -> Mounted {
         let manager = FileSyncManager()
         manager.storageLensReport = Self.report()
@@ -65,7 +62,7 @@ import Design
         return rep
     }
 
-    /// Pixels that differ from the window background — "something is painted here".
+    /// Pixels that differ from the window background: "something is painted here".
     private func inked(_ rep: NSBitmapImageRep) -> Int {
         var count = 0
         let background = rep.colorAt(x: 1, y: 1)
@@ -82,14 +79,11 @@ import Design
         return count
     }
 
-    /// The section header's own band, found by the row where its **tint** is painted.
-    ///
-    /// **Located by the icon's colour, not by "the first painted row".** The two pages do not put
-    /// the header in the same place (the All page has a treemap card above it), and the first
-    /// painted row on either is the lens header card, not this. Two earlier versions of this test
-    /// were wrong in both directions because of that: one compared full-height strips between the
-    /// pages and passed with the chevron drawn unconditionally, the next measured the wrong band
-    /// and failed on correct code. `StorageSection.tint` is unique to this row.
+    /// The section header's own band, found by the row where its tint is painted. Not "the first
+    /// painted row": the two pages put the header in different places (the All page has a treemap
+    /// card above it), and the first painted row on either is the lens header card. Full-height
+    /// strips would pass with the chevron drawn everywhere. `StorageSection.tint` is unique to this
+    /// row.
     private func headerBand(_ m: Mounted, tint: NSColor) throws -> CGRect {
         let full = try #require(bitmap(m, CGRect(origin: .zero, size: Self.canvas)))
         let scale = max(full.pixelsHigh / Int(Self.canvas.height), 1)
@@ -117,8 +111,8 @@ import Design
             || abs(c.blueComponent - bg.blueComponent) > 0.06
     }
 
-    /// **The All page keeps its chevron; a narrowed page has none.** The fold does not apply there,
-    /// and a control that cannot act must not offer to.
+    /// The All page keeps its chevron; a narrowed page has none. The fold doesn't apply there, and
+    /// a control that can't act must not offer to.
     @Test func theChevronIsDrawnOnlyWhereTheFoldApplies() throws {
         let tint = try #require(NSColor(SemanticColor.info).usingColorSpace(.sRGB))
         for (section, expectsChevron) in [(StorageSection?.none, true), (.largest, false)] {
@@ -130,7 +124,7 @@ import Design
 
             let leadingInk = inked(try #require(bitmap(m, leading)))
             let trailingInk = inked(try #require(bitmap(m, trailing)))
-            // Non-vacuity: the band really is the header — its icon and title are painted.
+            // Non-vacuity: the band really is the header, with its icon and title painted.
             #expect(leadingInk > 0,
                     "no header content at the leading edge for \(String(describing: section))")
 
@@ -143,9 +137,8 @@ import Design
         }
     }
 
-    /// And the row still spans the width. The header lost an explicit `maxWidth: .infinity` when it
-    /// was extracted; the trailing `Spacer` is what actually claims the row, and if that stopped
-    /// being true the title would drift toward the centre.
+    /// And the row still spans the width. The header has no explicit `maxWidth: .infinity`; its
+    /// trailing `Spacer` claims the row, and without it the title would drift toward the centre.
     @Test func theHeaderRowStillStartsAtTheLeadingEdge() throws {
         let tint = try #require(NSColor(SemanticColor.info).usingColorSpace(.sRGB))
         for section in [StorageSection?.none, .largest] {

@@ -5,9 +5,9 @@ import SwiftUI
 import Sync
 
 /// `carryBack` can be perfect while nothing calls it, and the call it needs is a SwiftUI `onAppear`.
-/// This mounts the Columns presentation for real and watches the channel a column move actually
-/// travels on — `onColumnNavigate`, not the binding, because the seam link mirrors a drill into the
-/// sibling pane and writing the binding straight would move this pane alone.
+/// This mounts the Columns presentation for real and watches the channel a column move travels on:
+/// `onColumnNavigate`, not the binding, because the seam link mirrors a drill into the sibling pane
+/// and writing the binding directly would move this pane alone.
 @MainActor
 @Suite struct PaneTreeCarryBackWiringTests {
 
@@ -43,8 +43,8 @@ import Sync
                     FileNode(id: "\(root)/Claude/Projects/notes.md", name: "notes.md", isDirectory: false),
                 ]),
             ]),
-            // Deliberately somewhere the selection below is NOT, so a search hit and the Tree's
-            // selection give different answers and the precedence test can tell them apart.
+            // Deliberately away from the selection below, so a search hit and the Tree's selection
+            // give different answers and the precedence test can tell them apart.
             dir("\(root)/Family", "Family", [
                 FileNode(id: "\(root)/Family/reunion.txt", name: "reunion.txt", isDirectory: false),
             ]),
@@ -91,8 +91,8 @@ import Sync
     }
 
     /// A hit is a place asked for by name; the Tree's selection is a place left behind. When both
-    /// speak on the same arrival the hit has to win, or searching and then flipping presentation
-    /// would walk the user away from the very row they searched for.
+    /// speak on the same arrival the hit must win, or searching and then flipping presentation
+    /// would walk the user away from the row they searched for.
     @Test func testASearchHitOutranksTheTreesSelection() {
         let hits = PaneSearchResults(side: .left, generation: 1, query: "reunion",
                                      tree: tree(), otherPaths: nil)
@@ -151,7 +151,7 @@ import Sync
         window.isReleasedWhenClosed = false
         window.contentView = host
         for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
-        // The arrival happened under a load; nothing may have moved yet. THEN the load lands.
+        // The arrival happened under a load; nothing may have moved yet. Then the load lands.
         let duringLoad = box.moves
         if search == nil {
             #expect(duringLoad.isEmpty, "the mid-load arrival moved the columns before the tree settled")
@@ -161,13 +161,12 @@ import Sync
         return box.moves
     }
 
-    /// Re-roots the pane under a mounted Columns presentation, exactly as `focusOn` does: a new
-    /// tree, a new `currentPath`, and the column stack reset (which is `resetBrowsePath`).
+    /// Re-roots the pane under a mounted Columns presentation as `focusOn` does: a new tree, a new
+    /// `currentPath`, and the column stack reset (`resetBrowsePath`).
     private final class RootFlag: ObservableObject {
         @Published var index = 0
-        /// A re-root reloads the tree, so the pane really does pass through a load — that is what
-        /// re-asks the carry (`onChange(of: isLoading)`); the reset of `carriedTreePlace` is what
-        /// lets the answer through once it does.
+        /// A re-root reloads the tree, so the pane passes through a load, which re-asks the carry
+        /// (`onChange(of: isLoading)`); resetting `carriedTreePlace` lets the answer through.
         @Published var loading = false
     }
 
@@ -179,8 +178,8 @@ import Sync
 
         private var root: String { roots[flag.index] }
 
-        /// The same two folders under whichever root is live, so the two roots' answers are
-        /// component-identical — which is the whole point: `carriedTreePlace` compares components.
+        /// The same folder under whichever root is live, so the two roots' answers are
+        /// component-identical, which is the point: `carriedTreePlace` compares components.
         private func tree() -> PaneTree {
             PaneTree(side: .left, version: flag.index + 1, nodes: [
                 FileNode(id: "\(root)/Claude", name: "Claude", isDirectory: true, children: []),
@@ -205,15 +204,15 @@ import Sync
                 onColumnNavigate: { onNavigate($0); browse = $0 })
                 .frame(width: 640, height: 420)
                 // `focusOn` resets the stack when a pane re-roots; without this the fixture would
-                // arrive at the new root still holding the old root's columns and the carry would
-                // be skipped for a reason the app never has.
+                // reach the new root holding the old root's columns, and the carry would be skipped
+                // for a reason the app never has.
                 .onChange(of: root) { _, _ in browse = PaneBrowsePath() }
         }
     }
 
-    /// A place carried out of the OLD tree says nothing about a new one. Both roots here hold a
-    /// `Claude`, so the two answers are component-identical — and the latch that stops a tab switch
-    /// re-yanking the columns would otherwise swallow the second carry entirely.
+    /// A place carried out of the old tree says nothing about a new one. Both roots here hold a
+    /// `Claude`, so the two answers are component-identical, and the latch that stops a tab switch
+    /// re-yanking the columns must not swallow the second carry.
     @Test func testReRootingLetsAnIdenticallyNamedPlaceCarryAgain() {
         final class Box: @unchecked Sendable { var moves: [PaneBrowsePath] = [] }
         let box = Box()
@@ -229,7 +228,7 @@ import Sync
         for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         #expect(box.moves.count == 1, "the first root did not carry at all — this test proves nothing")
 
-        // Re-root exactly as the app does: the focus moves and the tree reloads under it.
+        // Re-root as the app does: the focus moves and the tree reloads under it.
         flag.loading = true
         flag.index = 1
         for _ in 0..<20 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
@@ -240,9 +239,8 @@ import Sync
         #expect(box.moves.last?.components == ["Claude"])
     }
 
-    /// The precedence has to survive the RETRY too. A hit still owns the columns when the load
-    /// lands — otherwise finishing a scan walks the user off the row they searched for, which is
-    /// the arrival rule reappearing as a delayed regression one gate further along.
+    /// The precedence must survive the retry too: a hit still owns the columns when the load lands,
+    /// or finishing a scan would walk the user off the row they searched for.
     @Test func testTheLoadsFallingEdgeStillLetsASearchHitWin() {
         let hits = PaneSearchResults(side: .left, generation: 1, query: "reunion",
                                      tree: tree(), otherPaths: nil)
@@ -255,11 +253,11 @@ import Sync
                 """)
     }
 
-    /// **The shallow-tree trap.** Progressive loading publishes the root's children and nothing
-    /// under them before the deep walk finishes, and the carry-back resolves the selection against
-    /// exactly that index — so a selection three folders down prunes to its first component. Applied
-    /// then, it would move the columns somewhere the user never was AND latch, so the right answer
-    /// never arrives. `pruneBrowsePath` refuses under the same circumstances and says why at length.
+    /// The shallow-tree trap. Progressive loading publishes the root's children and nothing under
+    /// them before the deep walk finishes, and the carry-back resolves against that index, so a
+    /// selection three folders down prunes to its first component. Applied then, it would move the
+    /// columns somewhere the user never was and latch, so the right answer never arrives.
+    /// `pruneBrowsePath` refuses in the same circumstances.
     @Test func testAnArrivalMidLoadDecidesNothingFromTheShallowTree() {
         let shallow = PaneTree(side: .left, version: 1, nodes: [
             FileNode(id: "\(Self.root)/Claude", name: "Claude", isDirectory: true, children: []),
@@ -270,7 +268,7 @@ import Sync
                 "the columns were moved to \(moves.map(\.components)) on a tree that had not finished loading")
     }
 
-    /// And refusing is only half of it: the load's falling edge has to re-ask, or an arrival that
+    /// And refusing is only half of it: the load's falling edge must re-ask, or an arrival that
     /// landed mid-load is never carried at all.
     @Test func testTheCarryIsRetriedWhenTheLoadFinishes() {
         let moves = mountColumnsThenFinishLoading(selection: ["\(Self.root)/Claude/Projects"])
@@ -278,16 +276,16 @@ import Sync
                 "an arrival during a load was refused and never retried (moves: \(moves.map(\.components)))")
     }
 
-    /// The reported gap: walk into a folder in the Tree, flip to Columns, and the columns open there
-    /// instead of replaying the stack they were parked with.
+    /// Walk into a folder in the Tree, flip to Columns, and the columns open there instead of
+    /// replaying the stack they were parked with.
     @Test func testTheColumnsOpenOnTheFolderTheTreeWasStandingIn() {
         let moves = mountColumns(selection: ["\(Self.root)/Claude/Projects"])
         #expect(moves.last?.components == ["Claude", "Projects"],
                 "arriving in Columns did not follow the Tree's selection (moves: \(moves.map(\.components)))")
     }
 
-    /// Nothing selected is no answer, and the parked stack is what the user last chose with the
-    /// columns themselves — it must survive untouched rather than be reset to the root.
+    /// Nothing selected is no answer, and the parked stack is what the user last chose in the
+    /// columns themselves, so it must survive untouched rather than be reset to the root.
     @Test func testAParkedStackSurvivesWhenTheTreeNamesNoPlace() {
         let moves = mountColumns(selection: [], parked: PaneBrowsePath(components: ["Claude"]))
         #expect(moves.isEmpty, "the columns were moved on no evidence at all")

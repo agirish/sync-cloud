@@ -4,14 +4,10 @@ import Sync
 /// The per-file "ask each time" filing cursor: which rows are being stepped through, where the
 /// user is, and which ones they approved.
 ///
-/// Extracted from `AutomationsLens`'s `@State` because this is the gate in front of
-/// `applyAutomationFiling`, which MOVES files — the decision about what reaches a destructive
-/// operation should not live in un-extracted view glue where no test can reach it. (The same
-/// argument that got `CompareReviewReducer` and `DuplicateReviewCoordinator` pulled out of
-/// `ContentView`, after two teardown bugs shipped from exactly that shape.)
-///
-/// Nothing moves until the walkthrough finishes: `advance` only accumulates, and `cancel`
-/// discards everything, so abandoning a review mid-way files nothing.
+/// Kept out of `AutomationsLens`'s view state so tests can reach it: it is the gate in front of
+/// `applyAutomationFiling`, which moves files. Nothing moves until the walkthrough finishes:
+/// `advance` only accumulates and `cancel` discards everything, so abandoning a review files
+/// nothing.
 struct FilingWalkthrough: Equatable {
     /// The rows to step through, in order. Empty when no walkthrough is running.
     private(set) var queue: [AutomationDryRunRow] = []
@@ -22,11 +18,9 @@ struct FilingWalkthrough: Equatable {
     /// Whether a walkthrough is in progress.
     private(set) var isRunning: Bool = false
 
-    /// The row awaiting a decision, or nil when nothing is running or the cursor has run off the
-    /// end. An OPTIONAL rather than a subscript on purpose: the view read `queue[index]` behind a
-    /// bounds check made separately by its caller, and a Swift array subscript out of range is a
-    /// fatal trap, not a recoverable error — so any future drift between the two would crash the
-    /// app rather than render nothing.
+    /// The row awaiting a decision, or nil when nothing is running or the cursor is past the end.
+    /// Optional rather than a subscript because an out-of-range array subscript traps: a caller's
+    /// bounds check drifting from the index would crash the app instead of rendering nothing.
     var current: AutomationDryRunRow? {
         guard isRunning, queue.indices.contains(index) else { return nil }
         return queue[index]
@@ -65,9 +59,8 @@ struct FilingWalkthrough: Equatable {
         return result
     }
 
-    /// Why an in-progress walkthrough went away — every retirement writes one log line naming its
-    /// cause, because from the user's side both look the same ("my walkthrough vanished") and
-    /// neither used to leave a trace in `~/sync-cloud.log`.
+    /// Why an in-progress walkthrough went away. Each retirement logs its cause to
+    /// `~/sync-cloud.log`, since to the user both look the same: the walkthrough vanished.
     enum RetirementCause {
         /// The user dismissed it — esc, or the Cancel button (one closure serves both).
         case dismissed
@@ -83,9 +76,8 @@ struct FilingWalkthrough: Equatable {
         }
     }
 
-    /// Abandons the walkthrough. Approvals are discarded, so a cancel files nothing at all — the
-    /// promise the review card makes by not moving anything until the last decision. No default
-    /// for `cause` on purpose: a future call site must say why, or the vanish goes dark again.
+    /// Abandons the walkthrough, discarding approvals, so a cancel files nothing: the review card
+    /// moves nothing until the last decision. `cause` has no default so every call site says why.
     mutating func cancel(because cause: RetirementCause) {
         if isRunning {
             Logger.shared.info("Filing walkthrough \(cause.described) at file \(displayPosition) "
@@ -94,18 +86,13 @@ struct FilingWalkthrough: Equatable {
         self = FilingWalkthrough()
     }
 
-    /// Tracks the dry-run preview's running flag, retiring an in-progress walkthrough when a NEW
-    /// preview STARTS.
+    /// Tracks the dry-run preview's running flag, retiring an in-progress walkthrough when a new
+    /// preview starts. The queue's rows carry the destinations of the report they came from, so
+    /// carrying on over a superseded report would file into folders the new preview no longer
+    /// proposes. Retiring moves nothing; the user re-enters from the new report.
     ///
-    /// The queue is a snapshot of ONE report's rows, and each row carries the destination *that*
-    /// report computed. Hitting "Preview all" mid-review replaces the report underneath the cursor:
-    /// without this, the walkthrough survives the run and resumes at "File 2 of 5" over the
-    /// superseded rows, so approving one files the file into a destination the fresh preview no
-    /// longer proposes. Discarding is the safe direction — `cancel` banks nothing, so a retired
-    /// walkthrough moves no files at all and the user simply re-enters from the new report.
-    ///
-    /// Only the rising edge retires: the flag also goes back to false when the run FINISHES, and
-    /// clearing there would wipe a walkthrough the user had legitimately started meanwhile.
+    /// Only the rising edge retires: the flag also drops when the run finishes, and clearing then
+    /// would wipe a walkthrough the user started meanwhile.
     mutating func dryRunRunningChanged(to isRunningDryRun: Bool) {
         guard isRunningDryRun else { return }
         cancel(because: .newDryRun)

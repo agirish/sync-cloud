@@ -5,12 +5,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// `PaneScrollMemory` — a pane rebuilt by a workspace switch comes back scrolled where it was.
-///
-/// The rebuild is modelled the way the app does it: the pane is torn out of its window and a NEW
-/// `PaneColumnsView` is mounted over the same stack, with nothing carried across but the memory. That
-/// is exactly what `ContentView`'s four layout arms do on a switch, and it is why the offsets lived
-/// nowhere a rebuilt pane could find them.
+/// `PaneScrollMemory`: a pane rebuilt by a workspace switch comes back scrolled where it was. The
+/// rebuild is modelled as the app does it: the pane is torn out of its window and a new
+/// `PaneColumnsView` is mounted over the same stack, with nothing carried across but the memory,
+/// as `ContentView`'s layout arms do on a switch.
 @MainActor
 @Suite(.serialized) struct PaneScrollMemoryTests {
 
@@ -42,10 +40,9 @@ import Sync
         #expect(memory.listPosition(directory: "/root/a3") == nil)
     }
 
-    /// **A position is kept as what it means.** Resting within a point of the end is "at the end",
-    /// and an elastic overscroll is clamped rather than kept as a place. Put back, "at the end" is
-    /// the end of the range as it is NOW — longer or shorter — and anything else is the offset,
-    /// clamped to what fits.
+    /// A position is kept as what it means. Resting within a point of the end is "at the end", and
+    /// an elastic overscroll is clamped rather than kept. Put back, "at the end" is the end of the
+    /// range as it is now, and anything else is the offset, clamped to what fits.
     @Test func aPositionIsKeptAsWhatItMeans() {
         #expect(Position.resting(at: 99.5, in: 0...100) == Position(offset: 99.5, atEnd: true))
         #expect(Position.resting(at: 50, in: 0...100) == Position(offset: 50, atEnd: false))
@@ -83,9 +80,9 @@ import Sync
         #expect(memory.listPosition(directory: "/root/f2")?.offset == 2)
     }
 
-    /// **Only a fresh wheel or trackpad scroll is the user scrolling** — what drops a restore still
-    /// waiting to land. The keystroke that switched workspaces is still `NSApp.currentEvent` while the
-    /// rebuilt pane lays out, and reading it as a scroll would drop every restore it was meant to make.
+    /// Only a fresh wheel or trackpad scroll is the user scrolling, which drops a restore still
+    /// waiting to land. The keystroke that switched workspaces is still `NSApp.currentEvent` while
+    /// the rebuilt pane lays out; read as a scroll, it would drop every restore.
     @Test func onlyAFreshScrollIsTheUserScrolling() throws {
         let scroll = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
                                           wheel1: 4, wheel2: 0, wheel3: 0))
@@ -169,14 +166,11 @@ import Sync
         }
     }
 
-    /// Lets the main run loop run for `seconds` by SUSPENDING, a frame at a time.
-    ///
-    /// **Suspending is load-bearing.** A `@MainActor` test body is itself running on the main queue,
-    /// so spinning `RunLoop.run` synchronously never drains it: every `DispatchQueue.main` block the
-    /// pane queues — the restore's attempts, the reveal's two scrolls — waits until the test yields.
-    /// A synchronous pump made all three rebuild tests fail with nothing restored and nothing revealed
-    /// (traced: the restore was scheduled and never ran) — a harness defect that reads exactly like
-    /// the feature not working. While this sleeps, the run loop does layout, display and the queue.
+    /// Lets the main run loop run for `seconds` by suspending, a frame at a time. It must suspend:
+    /// a `@MainActor` test body runs on the main queue, so spinning `RunLoop.run` synchronously
+    /// never drains it, and every `DispatchQueue.main` block the pane queues (the restore's
+    /// attempts, the reveal's scrolls) waits until the test yields, which reads like the feature
+    /// not working.
     private func pump(_ seconds: Double) async {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
@@ -184,12 +178,10 @@ import Sync
         }
     }
 
-    /// Waits for `condition` — ARRIVAL, not quiescence — polling a frame at a time, up to `timeout`.
-    ///
-    /// Fixed waits were how this suite first failed in a full run: each mount took 18–43 s there
-    /// instead of 3, the fixed pumps expired on schedule, and the assertions read a pane that had not
-    /// laid out yet. A condition with a generous ceiling costs nothing when things are fast and cannot
-    /// be outrun when they are slow (`docs/flaky-tests.md`, the "quiescence is not arrival" family).
+    /// Waits for `condition` to arrive (not for quiescence), polling a frame at a time, up to
+    /// `timeout`. A fixed wait expires on schedule under load and reads a pane not yet laid out; a
+    /// condition with a generous ceiling costs nothing when things are fast and can't be outrun
+    /// when they are slow (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
         let end = Date().addingTimeInterval(timeout)
@@ -200,9 +192,9 @@ import Sync
         return condition()
     }
 
-    /// Mounts a pane ALREADY standing on `components` — a rebuild, not a drill: the stack exists
-    /// before the pane appears, so no `browsePath` change fires. Returns once all three columns are
-    /// laid out, so the stack genuinely overflows — or, in a window `wide` enough, genuinely fits.
+    /// Mounts a pane already standing on `components`: a rebuild, not a drill, so no `browsePath`
+    /// change fires. Returns once all three columns are laid out, so the stack really overflows, or
+    /// in a window `wide` enough, really fits.
     private func mount(_ components: [String], slot: PaneScrollMemorySlot?,
                        searchRevealTarget: String? = nil, watch: FrameWatch? = nil,
                        wide: Bool = false) async -> NSWindow {
@@ -259,12 +251,10 @@ import Sync
         return found
     }
 
-    /// Reads the pane at the end of every main run-loop turn — where AppKit has laid out and Core
-    /// Animation commits what will be drawn — from before the pane is mounted. A position put back
-    /// on the NEXT turn shows up here as a turn that ended with the scroll view visible and in the
-    /// wrong place: the frame the user would see jump.
-    /// `@unchecked Sendable`: it is touched only on the main thread — the observer is on the main
-    /// run loop.
+    /// Reads the pane at the end of every main run-loop turn, after AppKit's layout and Core
+    /// Animation's commit, from before the pane is mounted. A position put back a turn late shows
+    /// up as a turn that ended with the scroll view visible in the wrong place: the frame the user
+    /// would see jump. `@unchecked Sendable`: only touched on the main thread, by its observer.
     final class FrameWatch: @unchecked Sendable {
         weak var window: NSWindow?
         private var observer: CFRunLoopObserver?
@@ -308,26 +298,25 @@ import Sync
         await pump(0.1)
     }
 
-    /// The stack comes back to the offset it was left at — not to its first column, which is where a
-    /// rebuilt pane landed before, and not to the deepest either, which is where a first visit lands.
+    /// The stack comes back to the offset it was left at: not to its first column, and not to the
+    /// deepest either, where a first visit lands.
     @Test func aRebuiltPaneReturnsToItsStackOffset() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
-        // Seeded as a stack already visited and left at its first column, so the first mount RESTORES
-        // (once) rather than REVEALING. A first visit's reveal issues two scrolls from queued blocks,
-        // and in a full suite both landed seconds late, after this test's scroll — traced: the stack
-        // was moved off 50 twice, from 0 and then from 110, with the probe resolved throughout. The
-        // reveal has its own test; this one is about the round trip.
+        // Seeded as a stack already visited and left at its first column, so the first mount
+        // restores once rather than revealing: a first visit's reveal scrolls from queued blocks
+        // that can land seconds late, after this test's scroll. The reveal has its own test; this
+        // is the round trip.
         memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"],
                            position: Position(offset: 0, atEnd: false))
         let first = await mount(["a2", "b3"], slot: slot)
         let firstStack = try stack(first)
         let range = (firstStack.contentView.documentView?.frame.width ?? 0) - firstStack.contentView.bounds.width
         try #require(range > 60, "the stack does not overflow, so there is no offset to keep")
-        // **Scroll to 50 until it STICKS.** The first mount's restore to 0 is queued work too, and under
-        // a loaded main thread it can land after this scroll — once. So the scroll is re-made whenever
-        // it has been moved, until it has held at 50, and been recorded there, for a moment on end. The
-        // ceiling is generous because a starved main actor resumes this loop only every few seconds.
+        // Scroll to 50 until it sticks. The first mount's restore to 0 is queued too and can land
+        // after this scroll under load, so the scroll is redone whenever it moves, until it has
+        // held at 50 and been recorded there for a moment. The ceiling is generous because a
+        // starved main actor resumes this loop only every few seconds.
         let clip = firstStack.contentView
         func kept() -> Position? {
             memory.stackPosition(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"])
@@ -362,10 +351,9 @@ import Sync
         #expect(abs(x - 50) < 1, "the rebuilt stack sits at \(x), not the 50 it was left at")
     }
 
-    /// **A stack kept at its end comes back to the end of what it is NOW.** Kept as "at the end", it is
-    /// put back at the far end of the stack as it lays out — not at the number it was, which a preview
-    /// that has opened since, a narrower window or a column resized elsewhere would leave short of it,
-    /// with the deepest column hidden.
+    /// A stack kept at its end comes back to the end of the stack as it lays out now, not to the
+    /// number it was: a preview opened since, a narrower window or a column resized elsewhere would
+    /// leave that short of the end, with the deepest column hidden.
     @Test func aStackKeptAtItsEndComesBackToItsEndAsItIsNow() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
@@ -382,9 +370,8 @@ import Sync
                 "a stack kept at its end came back at \(clip.bounds.origin.x), not its end at \(farEnd)")
     }
 
-    /// **A position that no longer fits lands as soon as the columns do — clamped, not late.** It used
-    /// to wait for room that was never coming, the whole fallback of checks, with the stack showing its
-    /// first column meanwhile. Now it is resolved against the stack once the stack has laid out.
+    /// A position that no longer fits lands, clamped, as soon as the columns lay out, rather than
+    /// waiting out every fallback check for room that never comes, showing the first column.
     @Test func aPositionThatNoLongerFitsLandsWithoutWaitingOutTheFallback() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
@@ -429,8 +416,8 @@ import Sync
                 "an unscrolled list came back at \(untouchedAfter), not the \(untouchedBefore) it was at")
     }
 
-    /// **A list kept at its bottom comes back to its bottom** — of the list as it is now, which a
-    /// shorter viewport (Compare's panes are shorter than Browse's) or a folder that lost files moves.
+    /// A list kept at its bottom comes back to the bottom of the list as it is now, which a shorter
+    /// viewport (Compare's panes are shorter than Browse's) or a folder that lost files moves.
     @Test func aListKeptAtItsBottomComesBackToItsBottom() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
@@ -446,9 +433,9 @@ import Sync
                 "a list kept at its bottom came back at \(clip.bounds.origin.y), not its bottom at \(bottom)")
     }
 
-    /// **Only the column holding a search hit yields to it.** The hit's column scrolls to the hit;
-    /// every other column keeps its place. The rule used to be pane-wide, and a query left in the
-    /// field — standing state, not a request — turned the whole memory off.
+    /// Only the column holding a search hit yields to it: that column scrolls to the hit and every
+    /// other keeps its place. A query left in the field is standing state, not a request, so it
+    /// must not turn the whole memory off.
     @Test func onlyTheColumnHoldingASearchHitYieldsToIt() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
@@ -486,10 +473,9 @@ import Sync
                 "a changed stack came back at \(clip.bounds.origin.x) instead of revealing its deepest column (\(farEnd))")
     }
 
-    /// **A rebuilt stack is never shown before its position lands.** The restore waits for the
-    /// columns to lay out and is put back on the turn after, so the turn that first lays them out
-    /// would show the stack at its first column — the jump a workspace switch's fade used to hide.
-    /// Every turn from the mount on is read: the stack is either not visible or already in place.
+    /// A rebuilt stack is never shown before its position lands. The restore waits for the columns
+    /// to lay out and lands the turn after, so the turn that first lays them out could show the
+    /// stack at its first column. Every turn from the mount on is read: hidden, or in place.
     @Test func aRebuiltStackIsNeverShownBeforeItsPositionLands() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
@@ -504,12 +490,10 @@ import Sync
         defer { window.contentView = nil }
         let clip = try stack(window).contentView
         let landed = await waitUntil { abs(clip.bounds.origin.x - 50) < 1 && Self.isVisible(clip) }
-        // **Until a turn has shown the stack, not for a fixed 0.1 s.** The control below is what
-        // stops "no turn showed it early" passing on a run that saw no turns at all, and on hosted
-        // CI (2026-10-30, `ea9112808`) a 0.1 s pump after landing ended with none recorded — the
-        // same SHA passed on a re-dispatch. Waiting for the watch's own evidence keeps the control
-        // whole ("The control that stops an absence being vacuous is itself load-dependent",
-        // docs/flaky-tests.md) instead of betting on how many turns fit in 100 ms.
+        // Until a turn has shown the stack, not for a fixed 0.1 s. The control below stops "no turn
+        // showed it early" passing on a run that saw no turns, and under load a fixed pump can end
+        // with none recorded (`docs/flaky-tests.md`, "The control that stops an absence being
+        // vacuous is itself load-dependent").
         await waitUntil { !watch.shown.isEmpty }
         watch.stop()
         try #require(landed, "the stack never came back to 50, so there is nothing to time")
@@ -518,7 +502,7 @@ import Sync
         #expect(early.isEmpty, "the stack was shown at \(early) before it landed at 50")
     }
 
-    /// **A rebuilt list is never shown before its position lands** — `aRebuiltStackIsNeverShownBefore…`
+    /// A rebuilt list is never shown before its position lands: `aRebuiltStackIsNeverShownBefore…`
     /// for a column's vertical position, which waits for the column's rows.
     @Test func aRebuiltListIsNeverShownBeforeItsPositionLands() async throws {
         let memory = PaneScrollMemory()
@@ -537,8 +521,7 @@ import Sync
         defer { window.contentView = nil }
         let middle = try #require(lists(window).dropFirst().first)
         let landed = await waitUntil { abs(middle.contentView.bounds.origin.y - 80) < 1 && Self.isVisible(middle) }
-        // Until a turn has shown the list, not for a fixed 0.1 s — the stack test's fix, for the same
-        // red: at load average 26 (2026-11-01) a 0.1 s pump after landing ended with no turn recorded.
+        // Until a turn has shown the list, not a fixed 0.1 s, for the stack test's reason above.
         await waitUntil { !watch.shown.isEmpty }
         watch.stop()
         try #require(landed, "the middle list never came back to 80, so there is nothing to time")
@@ -547,9 +530,9 @@ import Sync
         #expect(early.isEmpty, "the middle list was shown at \(early) before it landed at 80")
     }
 
-    /// **A column nobody scrolled is never held clear.** Every column is kept from its first layout,
-    /// at its top; a restore cannot move it, so a cover would only blank it for a frame on every
-    /// rebuild — on every switch back to a Columns pane, once the switch fade that hid it was gone.
+    /// A column nobody scrolled is never held clear. Every column is kept from its first layout, at
+    /// its top, which a restore can't move, so a cover would only blank it for a frame on every
+    /// switch back to a Columns pane.
     @Test func aColumnNobodyScrolledIsNeverHeldClear() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
@@ -573,11 +556,10 @@ import Sync
         #expect(!watch.shown.contains(1), "a column at its top was held clear for \(watch.shown.filter { $0 == 1 }.count) turn(s)")
     }
 
-    /// **A row of columns that fits is never held clear.** A stack that scrolled and then came to fit
-    /// — drilled deeper and back, or a window made wider — is kept "at its end" (`noRoomIsEnd`), and
-    /// the end of a range with no room is its start: the restore cannot move it, so a cover would only
-    /// blank the whole pane, every list in it, for a frame on each switch back.
-    /// `aRebuiltStackIsNeverShownBeforeItsPositionLands` is the other half: a stack that can move is.
+    /// A row of columns that fits is never held clear. A stack that scrolled and then came to fit
+    /// is kept "at its end" (`noRoomIsEnd`), and with no room the end is the start, so a restore
+    /// can't move it and a cover would only blank the whole pane for a frame on each switch back.
+    /// `aRebuiltStackIsNeverShownBeforeItsPositionLands` is the other half, for one that can move.
     @Test func aStackThatFitsIsNeverHeldClear() async throws {
         let memory = PaneScrollMemory()
         let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")

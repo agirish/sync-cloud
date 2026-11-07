@@ -32,18 +32,18 @@ extension OperationBanner.FollowUp {
     }
 }
 
-/// **Activity's Now: what is running, and what was said** (TE220, TE221, TE222) — the capsule's
-/// popover, and the Activity window's first tab. The same rows in both, read off ``ActivityCenter``.
+/// Activity's Now: what is running, and what was said. Both the capsule's popover and the Activity
+/// window's first tab, drawing the same rows off ``ActivityCenter``.
 public struct ActivityNowView: View {
     let runs: [ProgressCapsuleListedRun]
     @ObservedObject var center: ActivityCenter
-    /// The cloud app status (RD68), whose rows Now lists.
+    /// The cloud app status, whose rows Now lists.
     @ObservedObject var cloudApps: CloudAppMonitor
-    /// Why writes wait while a long run goes — a row's Undo waits too (decision CF).
+    /// Why writes wait while a long run goes; a row's Undo waits too.
     let runWriteLock: String?
     /// The popover's foot, "Open as Window"; the window itself has none.
     let onOpenWindow: (() -> Void)?
-    /// What "2 min ago" is counted from — the host's timeline tick.
+    /// What "2 min ago" is counted from: the host's timeline tick.
     let now: Date
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -70,7 +70,7 @@ public struct ActivityNowView: View {
         VStack(alignment: .leading, spacing: 0) {
             running(fillsWidth: false)
             Divider()
-            // One-way sync's rows (RD67, DC): what needs you, and what is for your information.
+            // One-way sync's rows: what needs you, and what is for your information.
             if !center.oneWaySync.rows.isEmpty {
                 // The popover hangs from the main window's toolbar: its sheets open there. Capped as
                 // Recent is, so a long list never pushes Open as Window off the screen.
@@ -107,18 +107,18 @@ public struct ActivityNowView: View {
     }
 
     /// The Activity window's Now: the popover's sections at the window's width, set straight on the
-    /// window as History's are — a hairline between them, Recent taking the rest of the height.
+    /// window as History's are, with a hairline between them and Recent taking the rest.
     private var window: some View {
         VStack(alignment: .leading, spacing: 0) {
             running(fillsWidth: true)
-            // One-way sync's rows (RD67, DC), saved: what needs you first, under what runs.
+            // One-way sync's saved rows: what needs you first, under what runs.
             if !center.oneWaySync.rows.isEmpty {
                 Divider()
                 ScrollView { OneWaySyncNowRows(center: center, host: .activity) }
                     .frame(maxHeight: 320)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // A cloud app not syncing (RD68): information, between what runs and what was said.
+            // A cloud app not syncing: information, between what runs and what was said.
             if !cloudApps.notices.isEmpty {
                 Divider()
                 CloudAppNoticeRows(monitor: cloudApps)
@@ -129,7 +129,7 @@ public struct ActivityNowView: View {
                 nothingYet
                 Spacer(minLength: 0)
             } else {
-                // A notification's click brings its row into view (TE227).
+                // A notification's click brings its row into view.
                 ScrollViewReader { proxy in
                     ScrollView { recentRows }
                         .onChange(of: center.highlighted, initial: true) { _, id in
@@ -156,7 +156,7 @@ public struct ActivityNowView: View {
                     .padding(.top, 2)
             }
         } else {
-            // The window is wide and opened to read: its keys are not the runs' (only the popover's).
+            // The window is wide and opened to read, so only the popover's list takes the runs' keys.
             ProgressCapsuleRunList(runs: runs, fillsWidth: fillsWidth, takesKeys: !fillsWidth)
         }
     }
@@ -218,15 +218,15 @@ public struct ActivityNowView: View {
     }
 }
 
-/// One message in Recent, in full: its sentence and detail line, when, and its buttons (TE222). Its
-/// Undo is live only while its step is the newest (TE223).
+/// One message in Recent, in full: its sentence and detail line, when, and its buttons. Its Undo is
+/// live only while its step is the newest.
 struct ActivityRecentRow: View {
     let message: ActivityMessage
     @ObservedObject var center: ActivityCenter
     let runWriteLock: String?
     let now: Date
 
-    /// "2 min. ago" — counted from the host's tick, so a row's age moves with the clock.
+    /// "2 min. ago", counted from the host's tick, so a row's age moves with the clock.
     static func age(of date: Date, now: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
@@ -235,7 +235,7 @@ struct ActivityRecentRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
-            // A stop is grey whatever it saved — the reader ended it (TE221).
+            // A stop is grey whatever it saved: the reader ended it.
             Image(systemName: message.isStopped ? "stop.circle.fill" : Self.symbol(message.severity))
                 .foregroundStyle(message.isStopped ? AnyShapeStyle(.secondary) : AnyShapeStyle(Self.tint(message.severity)))
                 .frame(width: 18)

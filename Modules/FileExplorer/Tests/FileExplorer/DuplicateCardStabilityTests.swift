@@ -6,13 +6,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// His report on the Duplicates card: "when clicking on the thumbnail or the checkboxes, the
-/// ordering changes and it is very confusing if we selected anything."
-///
-/// A pick is a comparison — this one, not that one — and a list that rearranges itself under the
-/// click destroys the before it would be compared against. Worse, the row that lands under the
-/// pointer afterwards is not the row that was clicked, so the one signal that the click landed is
-/// indistinguishable from the whole card repainting.
+/// Picking a keeper on a Duplicates card leaves the rows where they were. A pick is a comparison,
+/// and a list that rearranges under the click destroys what it is compared against; the row then
+/// under the pointer isn't the one clicked, so the click looks like the whole card repainting.
 @Suite struct DuplicateCardStabilityTests {
 
     private func copy(_ path: String, name: String? = nil, size: Int = 100, depth: Int = 1,
@@ -30,32 +26,31 @@ import Testing
 
     // MARK: The rows
 
-    /// **The order is the group's, before and after.** `choosingKeeper` used to return
-    /// `[newKeeper] + rest`, which is what moved the clicked row to the top of the card.
+    /// The order is the group's, before and after. `choosingKeeper` returning
+    /// `[newKeeper] + rest` would move the clicked row to the top of the card.
     @Test func pickingAKeeperLeavesEveryRowWhereItWas() {
         let g = group([copy("/a/x.pdf", keeper: true), copy("/b/x.pdf"), copy("/c/x.pdf")])
         let before = g.copies.map(\.id)
         let after = g.choosingKeeper("/c/x.pdf")
         #expect(after.copies.map(\.id) == before)
         #expect(after.keeper.id == "/c/x.pdf", "a positive control: the pick did land")
-        // And back again — the deepest copy becoming the keeper must not sort anything either.
+        // And back again: the first copy becoming the keeper again must not sort anything either.
         #expect(after.choosingKeeper("/a/x.pdf").copies.map(\.id) == before)
     }
 
-    /// The order holds even when the group did not arrive keeper-first, which is what a second
-    /// pick produces. A rule that only preserved order from the scan's own layout would pass a
-    /// single-click test and fail the second click.
+    /// The order holds when the group didn't arrive keeper-first, as after a second pick. A rule
+    /// that preserved only the scan's own layout would pass one click and fail the second.
     @Test func theOrderIsNotSilentlyReSortedByDepthOrPath() {
-        // Deliberately hostile to both sort keys the old code used: the keeper is last, and the
-        // ids are in reverse alphabetical order with a deep copy in the middle.
+        // Hostile to sorting by depth or by path: the keeper is last, and the ids run in reverse
+        // alphabetical order with a deep copy in the middle.
         let g = group([copy("/z/x.pdf", depth: 1), copy("/m/deep/x.pdf", depth: 3),
                        copy("/a/x.pdf", depth: 1, keeper: true)])
         let after = g.choosingKeeper("/m/deep/x.pdf")
         #expect(after.copies.map(\.id) == ["/z/x.pdf", "/m/deep/x.pdf", "/a/x.pdf"])
     }
 
-    /// The figures still follow the pick — the ordering fix must not have made the card static in
-    /// the ways it is supposed to react.
+    /// The figures still follow the pick: a stable order must not make the card static where it
+    /// should react.
     @Test func theReclaimAndRemovalStillFollowThePick() {
         let g = group([copy("/a/x.pdf", size: 10, keeper: true), copy("/b/x.pdf", size: 500)])
         let after = g.choosingKeeper("/b/x.pdf")
@@ -63,11 +58,9 @@ import Testing
         #expect(after.reclaimableBytes == 10)
     }
 
-    /// **The removal list keeps the card's own order**, which is the half of "nothing needs
-    /// keeper-first order" that was asserted rather than measured. `redundantCopies` is a plain
-    /// filter over `copies`, so dropping the sort changed this list's order too — harmless only
-    /// because every path on it is trashed, and worth pinning because the confirmation dialog
-    /// counts from it.
+    /// The removal list keeps the card's order: `redundantCopies` is a plain filter over `copies`.
+    /// The order is harmless, since every path on it is trashed, but the confirmation dialog
+    /// counts from this list.
     @Test func theRemovalListFollowsTheRowsAfterAReAim() {
         let g = group([copy("/a/x.pdf", keeper: true), copy("/b/x.pdf"), copy("/c/x.pdf")],
                       matchType: .identical)
@@ -80,13 +73,10 @@ import Testing
 
     // MARK: The title
 
-    /// **The card's title names the copy being kept.** Rendered rather than asserted on a string,
-    /// because the claim is about the header a reader sees: a pure `titleName` that nothing draws
-    /// would pass a string test and leave the card headed by the file it is about to trash.
-    ///
-    /// The two arms differ only in which copy carries the keeper flag, and the copies are the same
-    /// size — so the reclaim figure, the subtitle, the badge and the chevron all draw identically
-    /// and every differing pixel is the name.
+    /// The card's title names the copy being kept. Rendered, not checked as a string, because a
+    /// `titleName` nothing draws would pass and leave the card headed by the file it will trash.
+    /// The two arms differ only in which same-sized copy is the keeper, so every differing pixel
+    /// is the name.
     @MainActor
     @Test func theHeaderShowsThePickedCopysName() throws {
         let copies = [copy("/a/Passport.pdf", name: "Passport.pdf", keeper: true),
@@ -116,26 +106,16 @@ import Testing
 
     // MARK: The copy row
 
-    /// **A long file name must not make the card taller.** His report: the breadcrumb cell "goes to
-    /// multi-row for that cell".
+    /// A long file name must not make the card taller. The path is one concatenated `Text`, which
+    /// truncates as a single string; an `HStack` of one `Text` per crumb can't truncate and wraps
+    /// instead. Height is checked because growth is the harm: it pushes the thumbnail, fate chip
+    /// and actions apart.
     ///
-    /// The cause was structural, not a missing `lineLimit`: the breadcrumb was an `HStack` of one
-    /// `Text` per path component ending in the file name, and an `HStack` cannot truncate — each
-    /// crumb is its own view, so a long name pushed the row and the stack wrapped. The name has its
-    /// own line now and the path is one concatenated `Text`, which truncates as a single string.
-    ///
-    /// Height rather than pixels, because height is the harm: a card that grows by two lines per
-    /// copy is what pushed the thumbnail, the fate chip and the actions apart.
-    ///
-    /// **What this does NOT pin, stated rather than implied:** that the path line drops the file
-    /// name. Putting it back — `crumbs(path)` instead of `crumbs(path).dropLast()` — survives this
-    /// test, because a single-line `Text` truncates either way and the card is the same height. The
-    /// two changes are separable: one `Text` instead of an `HStack` is what stopped the wrapping,
-    /// and dropping the leaf is a separate improvement (the name is stated on the line above) that
-    /// costs nothing to get wrong and shows only as a longer, more truncated path.
+    /// Not pinned: that the path line drops the file name. `crumbs(path)` in place of
+    /// `crumbs(path).dropLast()` survives this test, since the line truncates either way.
     @MainActor
     @Test func aVeryLongFileNameDoesNotGrowTheCard() {
-        // 90 characters — comfortably wider than the 460pt card, and the shape of the real one
+        // Over 90 characters, wider than the 460pt card, shaped like a real name
         // ("Passport Old - Mother - All Pages (Jul 2020) - Compressed.pdf").
         let long = String(repeating: "Passport Old - Mother - All Pages ", count: 3) + ".pdf"
         #expect(long.count > 90, "a positive control: this name really is too long for the card")
@@ -165,14 +145,11 @@ import Testing
 
     // MARK: The grid tile
 
-    /// **The whole reason the stacked layout exists**, measured rather than asserted: at a grid
-    /// column's width the one-line header does not fit, and a SwiftUI view that does not fit draws
-    /// at the width it wants instead of the width it was given (`LensHeaderCardOverflowTests` pins
-    /// that mechanism). So a row header in a two-column grid would not have looked cramped — it
-    /// would have drawn over the tile beside it.
+    /// Why the stacked layout exists, measured: at a grid column's width the one-line header doesn't
+    /// fit, and a SwiftUI view that doesn't fit draws at the width it wants, not the one given. A
+    /// row header in a two-column grid would draw over the tile beside it.
     ///
-    /// 220pt is the minimum the duplicates lens asks `LensCardGrid` for, i.e. the narrowest a tile
-    /// is ever drawn at.
+    /// 220pt is the minimum the duplicates lens asks `LensCardGrid` for, the narrowest tile drawn.
     @MainActor
     @Test func theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot() {
         let offered: CGFloat = 220
@@ -205,16 +182,11 @@ import Testing
         #expect(tile == offered,
                 "the stacked header drew \(tile)pt into \(offered)pt — it is insisting like the row does")
 
-        // **And the constant that decides which one is drawn is held to the measurement — plus a
-        // budget, which is the half this test used to be missing.** The scan below finds where the
-        // row stops OVERFLOWING (264 now, 364 while the badge held a slot). But the name may
-        // truncate, so at that width the name has essentially nothing: two `Passport - … - All
-        // Pages.pdf` files both draw as `Passpor…ages.pdf`, which is not an overflow and is not
-        // visible to any fit measurement. Hugging the bare fit is therefore the WRONG rule, and it
-        // is what an earlier version of this assertion demanded — it forced the constant to 280
-        // when the badge left, moving 370pt tiles onto a header that cannot tell their names
-        // apart. The constant must clear the fit by `rowHeaderNameBudget`, and not by so much that
-        // roomy cards stack for nothing.
+        // The constant that picks the layout is held to the measured fit plus a budget. The scan
+        // finds where the row stops overflowing, but there the name has truncated to almost
+        // nothing (two `Passport - … - All Pages.pdf` files both read `Passpor…ages.pdf`), which
+        // no fit measurement sees. So the constant must clear the fit by `rowHeaderNameBudget`,
+        // and not by so much that roomy cards stack for nothing.
         var fits: CGFloat = 0
         for candidate in stride(from: CGFloat(200), through: 640, by: 4)
         where drawnWidth(.row, offered: candidate) <= candidate {
@@ -230,12 +202,11 @@ import Testing
     }
 }
 
-/// The card's note — his second report: "too long and distracting".
+/// The card's note: short enough to read, without losing the claims it carries.
 @Suite struct DuplicateGroupNoteTests {
 
-    /// **The name is a parameter because the overlapping note interpolates it.** Every fixture
-    /// used to be "x.pdf", so the length budget was measured against five characters where his
-    /// actual case is sixty-one — and the note went over, unmeasured.
+    /// The name is a parameter so the length budget can be measured against a realistic name, not
+    /// a five-character stand-in.
     private func group(_ matchType: DuplicateMatchType, unverified: Int = 0,
                        isDirectory: Bool = false, name: String = "x.pdf") -> DuplicateGroup {
         let copies = (0..<2).map { i in
@@ -247,11 +218,10 @@ import Testing
                               copies: copies, reclaimableBytes: 100)
     }
 
-    /// **The budget, per kind.** A length assertion is the only checkable form of "too long", and
-    /// the failure it guards against is the one that already happened: a note grows a clause at a
-    /// time, each defensible on its own, until nobody reads any of them.
+    /// Every kind of note stays within the length budget, the only checkable form of "too long": a
+    /// note grows a clause at a time, each defensible, until nobody reads any of them.
     @Test func everyNoteStaysInsideItsLengthBudget() {
-        // The name that actually appears on his cards, not a five-character stand-in.
+        // A real name from his cards, not a five-character stand-in.
         let realistic = "Passport Old - Mother - All Pages (Jul 2020) - Compressed.pdf"
         #expect(realistic.count > 55, "a positive control: this is the length that went over")
         for matchType: DuplicateMatchType in [.identical, .versions, .sameText,
@@ -264,18 +234,16 @@ import Testing
         }
     }
 
-    /// Shorter, not weaker. Every claim the long same-text note carried is still there — this is
-    /// the note above a destructive button on the one match kind that is *not* proof of identity.
+    /// Short, not weak: the same-text note keeps every claim, since it sits above a destructive
+    /// button on the one match kind that is not proof of identity.
     @Test func theSameTextNoteKeepsItsClaims() {
         let note = try! #require(DuplicateGroupNote.text(for: group(.sameText)))
         #expect(note.contains("bytes differ"), "the match is weaker than byte identity")
         #expect(note.contains("signed"), "and here is how a false match happens")
         #expect(note.contains("Open both first"), "so the user is told what to do about it")
         #expect(note.contains("⌘Z"))
-        // **"Never part of Apply recommended" is deliberately NOT here any more.** It is a fact
-        // about a button on the header, not about these two files, and it was a fifth of a note
-        // reported as too long. It moved to `batchInformativeText`, which is the last thing read
-        // before that button acts — and which was understating the exclusions anyway.
+        // "Never part of Apply recommended" is a fact about a header button, not these two files,
+        // so it lives in `batchInformativeText`, the last thing read before that button acts.
         #expect(!note.contains("Apply recommended"))
         #expect(DuplicateRemovalPrompt.batchInformativeText(copyCount: 3, reclaimText: "1 MB")
                     .contains("same-text"),
@@ -291,14 +259,14 @@ import Testing
         #expect(caveated.contains("1 not content-verified"))
     }
 
-    /// The overlapping note reads its counts off the group rather than asserting them — the
-    /// numbers are the whole reason this note is longer than its neighbours.
+    /// The overlapping note reads its counts off the group; the numbers are why this note is
+    /// longer than the others.
     @Test func theOverlappingNoteCountsWhatMergingWouldBringAcross() {
         let note = try! #require(DuplicateGroupNote.text(for: group(.overlapping(sharedFraction: 0.72))))
         #expect(note.hasPrefix("72% shared"))
         #expect(note.contains("1 unique item"))
-        // The keeper is NOT named here — see `lengthBudget`. The card's header and the "Keep"
-        // chip on the row above say which copy that is.
+        // The keeper is not named here (see `lengthBudget`); the card's header and the row's
+        // "Keep" chip say which copy that is.
         #expect(!note.contains("x.pdf"), "the note must not interpolate a file name")
         #expect(note.contains("the one you keep"))
     }

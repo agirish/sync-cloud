@@ -2,12 +2,12 @@ import AppKit
 import Testing
 import TestProcessFindPasteboard
 
-/// **Every find bar in this test process reads and writes a Find pasteboard of its own**, because
-/// the target links `TestProcessFindPasteboard`, whose constructor points requests for the Find
-/// pasteboard at a board named for this process before any test runs. Fails if the target stops
-/// linking it — and then another test process's search string can land in a find bar between a
-/// test's seeding and its read: `docs/flaky-tests.md` ▸ *A named NSPasteboard is machine-global, so
-/// two test PROCESSES share it*.
+/// Every find bar in this test process reads and writes a Find pasteboard of its own: the target
+/// links `TestProcessFindPasteboard`, whose constructor points the Find pasteboard at a board named
+/// for this process before any test runs. Fails if the target stops linking it, which would let
+/// another test process's search string land in a find bar between a test's seeding and its read
+/// (`docs/flaky-tests.md`, "A named NSPasteboard is machine-global, so two test PROCESSES share
+/// it").
 @Suite struct TestProcessFindPasteboardTests {
     @Test func theFindPasteboardIsThisProcesssOwn() {
         let name = TestProcessFindPasteboardName()

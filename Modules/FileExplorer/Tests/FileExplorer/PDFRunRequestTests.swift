@@ -6,9 +6,9 @@ import Sync
 import FileExplorerTestSupport
 @testable import FileExplorer
 
-/// **The PDF tools and Save as PDF, run from a request** (TE294 step 1) — what an Ask Claude card
-/// will call: a whole tool with its options chosen, no sheet, no alert, and an ending handed back as
-/// data with the stamp of every file written, never posted to the pane.
+/// The PDF tools run from a request, as an Ask Claude card calls them: a whole tool with its
+/// options chosen, no sheet, no alert, and an ending handed back as data with the stamp of every
+/// file written, never posted to the pane.
 ///
 /// Serialized, because every run takes `PDFKitSerialAccess`'s one lane.
 @MainActor
@@ -93,9 +93,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **Each tool writes its copy under the menu's name, with the stamp of the file the writer
-    /// made** — no sheet, no alert, nothing on the banner the pane would post, and the original
-    /// as it was.
+    /// Each tool writes its copy under the menu's name, with the stamp of the file the writer made:
+    /// no sheet, no alert, nothing on the pane's banner, and the original as it was.
     @Test(arguments: Whole.allCases)
     func aToolFromARequestWritesItsCopyAndSaysExactlyWhat(_ whole: Whole) async throws {
         let file = path("\(whole.rawValue).pdf")
@@ -125,8 +124,8 @@ import FileExplorerTestSupport
         try expectUntouched(file, original, "\(whole)")
     }
 
-    /// **A file that changed since it was chosen is left alone**, in words that promise no reload —
-    /// it is not open anywhere.
+    /// A file that changed since it was chosen is left alone, in words that promise no reload,
+    /// since it is not open anywhere.
     @Test func aFileChangedSinceItWasChosenIsLeftAlone() async throws {
         let file = path("Changed.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -140,8 +139,8 @@ import FileExplorerTestSupport
         #expect(files() == ["Changed.pdf"], "a copy was written: \(files())")
     }
 
-    /// **The menu's protection rules hold** — the run itself doesn't check them, so a request
-    /// would otherwise reach the toolkit: Protect on a locked file, Clean Metadata on a protected one.
+    /// The menu's protection rules hold. The run itself doesn't check them, so a request would
+    /// otherwise reach the toolkit: Protect on a locked file, Clean Metadata on a protected one.
     @Test func theMenusProtectionRulesHold() async throws {
         let locked = path("Locked.pdf")
         PDFFixtures.writeLocked(locked, password: "pw")
@@ -156,8 +155,8 @@ import FileExplorerTestSupport
         #expect(files() == ["Locked.pdf", "Restricted.pdf"], "a copy was written: \(files())")
     }
 
-    /// **The form question goes to `allow`, never an alert** — and a loss it doesn't accept
-    /// writes nothing.
+    /// The form question goes to `allow`, never an alert, and a loss it doesn't accept writes
+    /// nothing.
     @Test func aLossTheAskerDidNotAcceptWritesNothing() async throws {
         let form = path("Form.pdf")
         try PDFFixtures.writeAcroForm(form)
@@ -171,8 +170,8 @@ import FileExplorerTestSupport
                 "\(String(describing: accepted))")
     }
 
-    /// **A folder the asker chose takes the copy**, under the same name — for an original whose
-    /// own folder can't be written to.
+    /// A folder the asker chose takes the copy, under the same name, for an original whose own
+    /// folder can't be written to.
     @Test func aCopyGoesIntoTheFolderAskedFor() async throws {
         let file = path("Lease.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -183,8 +182,8 @@ import FileExplorerTestSupport
         #expect(files() == ["Elsewhere", "Lease.pdf"])
     }
 
-    /// **A menu click during a request's run is refused in the pane, as during any run** — and
-    /// the request's own ending never replaces that note. A second request is told it's busy.
+    /// A menu click during a request's run is refused in the pane, as during any run, and the
+    /// request's own ending never replaces that note. A second request is told it's busy.
     @Test func aMenuClickDuringARequestsRunStillGetsItsNote() async throws {
         let file = path("Busy.pdf")
         PDFFixtures.write(file, pages: 2)
@@ -207,8 +206,8 @@ import FileExplorerTestSupport
 
     // MARK: Several files
 
-    /// **A batch from a request keeps each copy's stamp, and leaves a file that changed since it
-    /// was chosen alone** — the rest still run; nothing reaches the pane's banner.
+    /// A batch from a request keeps each copy's stamp and leaves a file that changed since it was
+    /// chosen alone; the rest still run, and nothing reaches the pane's banner.
     @Test func aBatchFromARequestKeepsEachStampAndSkipsAChangedFile() async throws {
         let paths = ["Jan.pdf", "Feb.pdf", "Mar.pdf"].map { path($0) }
         for file in paths { PDFFixtures.write(file, pages: 2) }
@@ -233,7 +232,7 @@ import FileExplorerTestSupport
         #expect(!batch.showsSheet)
     }
 
-    /// **A batch's copies go into the folder asked for.**
+    /// A batch's copies go into the folder asked for.
     @Test func aBatchsCopiesGoIntoTheFolderAskedFor() async throws {
         let paths = ["A.pdf", "B.pdf"].map { path($0) }
         for file in paths { PDFFixtures.write(file, pages: 1) }
@@ -249,7 +248,7 @@ import FileExplorerTestSupport
 
     // MARK: Combine and Split
 
-    /// **Combine from a request: no sheet, the stamp of the file written, nothing on the banner.**
+    /// Combine from a request: no sheet, the stamp of the file written, nothing on the banner.
     @Test func combineFromARequestSaysExactlyWhatItWrote() async throws {
         let paths = ["A.pdf", "B.pdf"].map { path($0) }
         for file in paths { PDFFixtures.write(file, pages: 1) }
@@ -269,7 +268,7 @@ import FileExplorerTestSupport
         #expect(!run.showsSheet && run.banner == nil)
     }
 
-    /// **Split from a request writes each part, says which, and never raises its sheet.**
+    /// Split from a request writes each part, says which, and never raises its sheet.
     @Test func splitFromARequestWritesEachPart() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.write(file, pages: 3)
@@ -288,8 +287,8 @@ import FileExplorerTestSupport
         #expect(run.banner == nil)
     }
 
-    /// **Combine and Split write into the folder the asker chose**, for an original whose own
-    /// folder can't be written to.
+    /// Combine and Split write into the folder the asker chose, for an original whose own folder
+    /// can't be written to.
     @Test func combineAndSplitFromARequestWriteIntoTheFolderChosen() async throws {
         let paths = ["A.pdf", "B.pdf"].map { path($0) }
         for file in paths { PDFFixtures.write(file, pages: 2) }
@@ -310,8 +309,8 @@ import FileExplorerTestSupport
                 "\(String(describing: split))")
     }
 
-    /// **Combine from a request needs two different PDFs** — one, or one named twice, is refused
-    /// with a sentence, not an empty failure.
+    /// Combine from a request needs two different PDFs: one, or one named twice, is refused with a
+    /// sentence, not an empty failure.
     @Test func combineFromARequestNeedsTwoDifferentFiles() async throws {
         let one = path("One.pdf")
         PDFFixtures.write(one, pages: 1)
@@ -326,8 +325,7 @@ import FileExplorerTestSupport
         #expect(files() == ["One.pdf"])
     }
 
-    /// **Why a request's Split can't run is told to the asker only** — never set on the banner the
-    /// pane's layer posts.
+    /// Why a request's Split can't run is told to the asker only, never set on the pane's banner.
     @Test func aRequestsSplitRefusalNeverReachesThePane() async throws {
         let file = path("Single.pdf")
         PDFFixtures.write(file, pages: 1)
@@ -360,8 +358,8 @@ import FileExplorerTestSupport
     }
 }
 
-/// **Save as PDF from a request** (TE294 step 1): nothing asks where to save, a chosen folder gets
-/// the keep-both rule, and the ending comes back as data with each PDF's stamp.
+/// Save as PDF from a request: nothing asks where to save, a chosen folder gets the keep-both
+/// rule, and the ending comes back as data with each PDF's stamp.
 @MainActor
 @Suite(.serialized) final class SaveAsPDFRequestTests {
     let folder = NSTemporaryDirectory() + "save-as-pdf-request-" + UUID().uuidString
@@ -397,7 +395,7 @@ import FileExplorerTestSupport
         return result
     }
 
-    /// **Beside the original, with the written file's stamp, and nothing on the banner.**
+    /// Beside the original, with the written file's stamp, and nothing on the banner.
     @Test func savesBesideTheOriginalAndSaysExactlyWhat() async throws {
         let note = try write("# Trip\n", "Trip.md")
         let model = model()
@@ -411,8 +409,8 @@ import FileExplorerTestSupport
         #expect(model.banner == nil, "the ending is on the banner the pane posts")
     }
 
-    /// **A chosen folder that already holds the name gets “Name 2.pdf”** — the menu's save panel
-    /// can replace a file; a request never does. Nobody is asked where.
+    /// A chosen folder that already holds the name gets “Name 2.pdf”: the menu's save panel can
+    /// replace a file; a request never does. Nobody is asked where.
     @Test func aChosenFolderGetsTheKeepBothRule() async throws {
         let note = try write("Body\n", "Note.txt")
         let out = (folder as NSString).appendingPathComponent("Out")
@@ -429,8 +427,8 @@ import FileExplorerTestSupport
         #expect(asked == 0, "the save panel was asked for")
     }
 
-    /// **A folder that can't be written to, with no folder chosen, fails the file** — nobody is
-    /// asked mid-run.
+    /// A folder that can't be written to, with no folder chosen, fails the file; nobody is asked
+    /// mid-run.
     @Test func anUnwritableFolderWithNoChoiceFailsTheFile() async throws {
         let note = try write("Body\n", "Locked.txt")
         var asked = 0
@@ -443,8 +441,8 @@ import FileExplorerTestSupport
         #expect(asked == 0)
     }
 
-    /// **Each left-out file keeps its own reason, by path** — two files of one name in two
-    /// folders were told apart by name only, and one took the other's reason.
+    /// Each left-out file keeps its own reason, keyed by path, so two files of one name in two
+    /// folders can't swap reasons.
     @Test func reasonsGoToTheirOwnFileEvenWhenNamesMatch() async throws {
         let first = (folder as NSString).appendingPathComponent("a")
         let second = (folder as NSString).appendingPathComponent("b")
@@ -459,7 +457,7 @@ import FileExplorerTestSupport
         #expect(result?.written.map(\.path) == [(second as NSString).appendingPathComponent("Notes.pdf")])
     }
 
-    /// **A file that changed since it was chosen is left alone; the others are saved.**
+    /// A file that changed since it was chosen is left alone; the others are saved.
     @Test func aFileChangedSinceItWasChosenIsLeftAlone() async throws {
         let one = try write("One\n", "One.txt"), two = try write("Two\n", "Two.txt")
         let chosen = [one: EditorFileStore.stamp(ofPath: one)!,

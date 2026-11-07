@@ -3,10 +3,9 @@ import Markdown
 
 /// A run of text in the preview, and what is true of it.
 ///
-/// **Flattened rather than nested.** Markdown's inline tree nests — emphasis inside a link inside
-/// strong — and SwiftUI's `Text` concatenation is flat, so the walk collapses the tree into runs
-/// carrying the accumulated style. Nesting is preserved as *combination*: bold-inside-a-link
-/// arrives as one run that is both.
+/// Flat, not nested: Markdown's inline tree nests (emphasis in a link in strong) but the rendered
+/// line is one flat `AttributedString`, so the walk collapses the tree into runs carrying the
+/// accumulated style. Bold inside a link arrives as one run that is both.
 struct MarkdownRun: Equatable, Sendable {
     var text: String
     var isBold = false
@@ -15,8 +14,8 @@ struct MarkdownRun: Equatable, Sendable {
     var isStruck = false
     /// The destination, when this run is part of a link.
     var link: String?
-    /// Raw inline HTML — drawn as code, like ``isCode``, but no part of a heading's NAME: the outline
-    /// and the status line leave it out (``MarkdownOutline/title(of:)``, CHR-6).
+    /// Raw inline HTML: drawn as code, like ``isCode``, but no part of a heading's name, so the
+    /// outline and the status line leave it out (``MarkdownOutline/title(of:)``).
     var isHTML = false
 }
 
@@ -24,8 +23,8 @@ struct MarkdownRun: Equatable, Sendable {
 struct MarkdownText: Equatable, Sendable {
     var runs: [MarkdownRun]
 
-    /// The plain characters, with every style dropped. What an accessibility label reads, and what
-    /// a test asserts when the styling is not the thing under test.
+    /// The plain characters, every style dropped: what an accessibility label reads, and what a
+    /// test asserts when styling isn't under test.
     var plain: String { runs.map(\.text).joined() }
 
     var isEmpty: Bool { plain.isEmpty }
@@ -35,43 +34,29 @@ struct MarkdownText: Equatable, Sendable {
 enum MarkdownListMarker: Equatable, Sendable {
     case bullet
     case ordered(Int)
-    /// A GFM task item. **Native, not a pre-pass** — this is the whole reason the preview parses
-    /// real GFM rather than pattern-matching `- [ ]` out of the line, which would also have matched
-    /// a literal bracket pair someone typed on purpose.
+    /// A GFM task item, read from the parser rather than by pattern-matching `- [ ]`, which would
+    /// also match a bracket pair someone typed on purpose.
     case task(done: Bool)
 }
 
 /// One block in the rendered preview: what it is, and where the document put it.
 ///
-/// **A flat array, with the nesting carried as data on every block.** The document tree is nested,
-/// and a nested SwiftUI view hierarchy would have to re-derive spacing at every level; a flat list
-/// lays out in one stack with the indentation as numbers.
-///
-/// **`indent` and `quoteDepth` are on the wrapper, not on individual cases**, and that is a
-/// correction. They started as associated values on `.listItem` and a separate `.quote` case, which
-/// meant only those two kinds could say where they were: a bulleted list inside a `>` drew no quote
-/// bar and read as ordinary body text, and a fenced block nested under a bullet rendered flush left,
-/// visually detached from the item it belongs to. Every block can be nested, so every block carries
-/// the answer.
+/// A flat array with the nesting carried as data, so the preview lays out in one stack instead of
+/// re-deriving spacing at every level of a nested view tree. `indent` and `quoteDepth` live on the
+/// wrapper, not on particular cases, because every kind can be nested: a list inside a `>` needs
+/// its quote bar, and a fenced block under a bullet needs its indent.
 struct MarkdownBlock: Equatable, Sendable {
     var kind: Kind
     /// List nesting, 0 at the document's own margin.
     var indent: Int = 0
     /// How many `>` levels enclose this block. 0 when it is not quoted.
     var quoteDepth: Int = 0
-    /// The **1-based source line** this block starts on, or `nil` when the parser reported no range.
+    /// The 1-based source line this block starts on, or `nil` when the parser reported no range.
     ///
-    /// **A line, not a character offset, and that is the cheaper of two correct answers.** Every
-    /// caller asks a question a line answers: scroll the text view to where this heading is, find
-    /// the `[ ]` belonging to this task, keep the preview level with the caret. A character range
-    /// would have to be re-derived into a line for each of them, and — because the buffer is edited
-    /// between parses — would be stale in a way a line number survives: inserting a word does not
-    /// move the line, it moves every offset after it.
-    ///
-    /// `nil` is a real case rather than a defensive default. Blocks the walk synthesises rather
-    /// than reads — a padded table cell, the plain-text fallback for a shape it does not model —
-    /// have no single line to name, and a caller that treats `nil` as "line 1" would scroll
-    /// somewhere it was never told to go.
+    /// A line, not a character offset: every caller asks a line's question (scroll to this heading,
+    /// find this task's `[ ]`, keep the preview level with the caret), and a line survives edits
+    /// between parses that shift every offset after them. `nil` is a real case: a synthesised node
+    /// has no line, and treating it as line 1 would scroll somewhere nobody asked for.
     var line: Int?
 
     enum Kind: Equatable, Sendable {
@@ -85,10 +70,9 @@ struct MarkdownBlock: Equatable, Sendable {
         case frontMatter(String)
         /// A paragraph that is nothing but one image. See ``MarkdownImageSource``.
         ///
-        /// **Only when it is the whole paragraph**, which is how images are written in notes —
-        /// `![alt](shot.png)` on its own line. An image in the middle of a sentence stays an inline
-        /// run showing its alt text, because SwiftUI's `Text` concatenation is what draws a
-        /// sentence and a picture is not a `Text`.
+        /// Only when it is the whole paragraph, which is how notes write images: `![alt](shot.png)`
+        /// on its own line. An image mid-sentence stays an inline run showing its alt text, because
+        /// a sentence is drawn as one `Text` and a picture is not a `Text`.
         case image(source: String, alt: String)
     }
 
@@ -102,38 +86,27 @@ struct MarkdownBlock: Equatable, Sendable {
 
 /// Turns Markdown source into the preview's block list.
 ///
-/// **`swift-markdown`, not a hand-rolled parser** — settled as a design decision, and the reason is
-/// the long tail: setext headings, lazy continuation lines, reference links, tables with escaped
-/// pipes, a `#` inside a fenced block. Each is a rule somebody would otherwise have to rediscover
-/// by being wrong about it in a file of his that mattered.
+/// `swift-markdown`, not a hand-rolled parser, for the long tail: setext headings, lazy
+/// continuation lines, reference links, tables with escaped pipes, a `#` inside a fenced block.
 enum MarkdownBlocks {
 
     /// Parses `source` and walks it into blocks.
     ///
-    /// Never throws and never returns `nil`: Markdown has no invalid input — every byte sequence is
-    /// *some* document — so the failure this has to survive is not a parse error but a shape the
-    /// walk does not know, which becomes its plain text rather than disappearing.
+    /// Never throws and never returns `nil`: every byte sequence is some Markdown document. A shape
+    /// the walk doesn't know becomes its plain text rather than disappearing.
     static func blocks(from source: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
-        // **No `.parseBlockDirectives`.** Block directives are a DocC extension, not Markdown, and
-    // the parser opens one on a bare `@` followed by a name — no parentheses and no braces
-    // required, with "garbage after the opening" explicitly accepted. A note containing
-    // `@channel ping me about **the invoice**` therefore parsed as a directive, and the fallback
-    // arm of the walk renders an unrecognised node with `markup.format()`, which prints a directive
-    // by wrapping its arguments in PARENTHESES the file does not contain and dropping the styling.
-    // The preview was rewriting the user's line. `@media` in an unfenced CSS snippet, `@2x`, and an
-    // `@username` at the start of a line all did the same. Nothing in the walk needs the option.
-    // Front matter is taken off the top first — see `MarkdownFrontMatter` for why leaving it in
-    // turns a YAML key into a heading.
+        // No `.parseBlockDirectives`: directives are a DocC extension, and the parser opens one on
+        // any bare `@name` at a line's start (`@channel`, `@media`, `@2x`). The walk's fallback
+        // would then print it with parentheses the file doesn't contain and drop its styling.
+        // Front matter comes off the top first; `MarkdownFrontMatter` says why.
     let split = MarkdownFrontMatter.split(source)
     let document = Document(parsing: split.body)
         for child in document.children {
             append(child, indent: 0, quoteDepth: 0, into: &blocks)
         }
-        // **Put back into the FILE's numbering, not the body's.** Every line here was measured
-        // against a string that starts below the front matter, and the outline, the task toggle and
-        // the split sync all name lines in the buffer — so a document with six lines of front
-        // matter would send every one of them six lines too high.
+        // Back into the file's numbering, not the body's: these lines count from below the front
+        // matter, and the outline, task toggle and split sync all name lines in the buffer.
         if split.bodyStartLine > 1 {
             let offset = split.bodyStartLine - 1
             for index in blocks.indices {
@@ -148,8 +121,8 @@ enum MarkdownBlocks {
 
     private static func append(_ markup: any Markup, indent: Int, quoteDepth: Int,
                                into blocks: inout [MarkdownBlock]) {
-        // Read once, here, rather than inside `emit` — every arm that emits does so for THIS node,
-        // and an arm that recurses (a quote, a list) passes its children's own ranges down instead.
+        // Read once, here: every arm that emits does so for this node, and an arm that recurses (a
+        // quote, a list) passes its children's own ranges down instead.
         let line = self.line(of: markup)
         func emit(_ kind: MarkdownBlock.Kind) {
             blocks.append(MarkdownBlock(kind, indent: indent, quoteDepth: quoteDepth, line: line))
@@ -166,8 +139,8 @@ enum MarkdownBlocks {
                 break
             }
             let content = text(of: paragraph)
-            // An empty paragraph is a blank the source did not really contain — dropping it keeps
-            // the preview's spacing the stack's business rather than the document's.
+            // An empty paragraph is a blank the source didn't really contain; dropping it leaves
+            // spacing to the stack.
             guard !content.isEmpty else { break }
             emit(.paragraph(content))
 
@@ -195,15 +168,13 @@ enum MarkdownBlocks {
             }
 
         case let code as CodeBlock:
-            // The language tag can be present and empty (a bare ```), which is not the same as
-            // absent for anything that might one day highlight it.
+            // A bare ``` gives an empty language tag; treat it as absent.
             let language = code.language.flatMap { $0.isEmpty ? nil : $0 }
             emit(.codeBlock(language: language, code: code.code))
 
         case let html as HTMLBlock:
-            // Raw HTML is shown as what it is rather than rendered. The preview is the app's own
-            // type ramp, not a web view — and silently dropping a block the file contains would be
-            // the worse answer.
+            // Raw HTML is shown as source, not rendered: the preview is the app's own type, not a
+            // web view, and dropping a block the file contains would be worse.
             emit(.codeBlock(language: "html", code: html.rawHTML))
 
         case is ThematicBreak:
@@ -213,8 +184,8 @@ enum MarkdownBlocks {
             appendTable(table, indent: indent, quoteDepth: quoteDepth, into: &blocks)
 
         default:
-            // Anything the walk does not model — a block directive, a footnote definition — lands
-            // as its plain text rather than vanishing. `format()` is the library's own round-trip.
+            // Anything the walk doesn't model, such as a footnote definition, lands as its plain
+            // text rather than vanishing. `format()` is the library's own round-trip.
             let plain = markup.format().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !plain.isEmpty else { break }
             emit(.paragraph(MarkdownText(runs: [MarkdownRun(text: plain)])))
@@ -223,9 +194,8 @@ enum MarkdownBlocks {
 
     /// The image a paragraph consists of, or `nil` when it holds anything else.
     ///
-    /// **Whitespace-only text around it does not count as "anything else".** `![a](b.png)` followed
-    /// by a newline parses as an image plus an empty text node, and treating that as a mixed
-    /// paragraph would send every image in every file back to the alt-text placeholder.
+    /// Whitespace-only text doesn't count: `![a](b.png)` and a newline parse as an image plus an
+    /// empty text node, and calling that mixed would show every image as its alt text.
     private static func loneImage(in paragraph: Paragraph) -> Markdown.Image? {
         var image: Markdown.Image?
         for child in paragraph.children {
@@ -247,10 +217,8 @@ enum MarkdownBlocks {
 
     /// The 1-based line a node begins on, or `nil` when the parser reported no range.
     ///
-    /// **Not every node has one.** `swift-markdown` populates ranges for what it read out of the
-    /// source, and leaves them empty for nodes it synthesised — which is exactly the set
-    /// ``MarkdownBlock/line`` documents as legitimately `nil`. Asked in one place so the walk never
-    /// grows a second opinion about what an absent range means.
+    /// `swift-markdown` gives ranges only to nodes it read from the source, not ones it
+    /// synthesised (see ``MarkdownBlock/line``). Asked in one place so the walk has one answer.
     static func line(of markup: any Markup) -> Int? {
         markup.range?.lowerBound.line
     }
@@ -259,10 +227,8 @@ enum MarkdownBlocks {
     private static func appendListItem(_ item: ListItem, indent: Int, quoteDepth: Int,
                                        marker: MarkdownListMarker,
                                        into blocks: inout [MarkdownBlock]) {
-        // **The lead is the FIRST child or nothing**, which the `lead == nil` form did not say.
-        // For an item that opens with a fenced block and then explains it, that condition promoted
-        // the *later* paragraph to the item's own line and pushed the code block after it — the
-        // preview showed the explanation above the code it explained.
+        // The lead is the first child or nothing: an item that opens with a fenced block keeps
+        // its later paragraph below the code, not promoted above it.
         var children = Array(item.children)
         var lead: MarkdownText?
         if let paragraph = children.first as? Paragraph {
@@ -283,10 +249,8 @@ enum MarkdownBlocks {
         var rows: [[MarkdownText]] = []
         for row in table.body.rows {
             var cells = Array(row.cells.map { text(of: $0) })
-            // **Padded to the header's width.** A short row left-packs otherwise, so a missing
-            // middle cell shifts every cell after it one column left and the absence appears at the
-            // END of the row — the one place it is not. Markdown allows the ragged row; the table
-            // has to render it in the right columns anyway.
+            // Padded to the header's width, so every row has a cell in every column. Markdown
+            // allows a ragged row, and its cells are the leading columns, so the padding goes last.
             while cells.count < header.count { cells.append(MarkdownText(runs: [])) }
             rows.append(cells)
         }
@@ -321,8 +285,8 @@ enum MarkdownBlocks {
             runs.append(run)
 
         case is SoftBreak:
-            // A single newline in the source is a space in the rendered paragraph — the reflow rule
-            // that makes hard-wrapped Markdown read as prose rather than as short lines.
+            // A single newline is a space in the rendered paragraph, so hard-wrapped Markdown reads
+            // as prose.
             var run = style
             run.text = " "
             runs.append(run)
@@ -340,8 +304,8 @@ enum MarkdownBlocks {
             runs.append(run)
 
         case let image as Image:
-            // No image loading in the preview: this renders the app's own type, and a preview that
-            // reached out to fetch a remote file would be doing something the editor does not.
+            // An image inside a sentence is its alt text; only a paragraph that is one image is
+            // drawn as a picture (`.image`, see `loneImage(in:)`).
             var run = style
             let label = text(of: image).plain
             run.text = label.isEmpty ? "🖼" : "🖼 \(label)"
@@ -364,10 +328,8 @@ enum MarkdownBlocks {
 
     /// Joins neighbouring runs that carry identical styling.
     ///
-    /// The walk emits one run per inline node, so ordinary prose arrives as a handful of runs that
-    /// differ in nothing — and each run becomes its own `Text` in the rendered line. Merging is
-    /// what keeps a paragraph one `Text` rather than thirty, which matters because concatenated
-    /// `Text` is what lets the line wrap as a single paragraph.
+    /// The walk emits one run per inline node, so plain prose arrives as runs that differ in
+    /// nothing; merging keeps a paragraph a few attributed runs rather than thirty.
     private static func merged(_ runs: [MarkdownRun]) -> [MarkdownRun] {
         var merged: [MarkdownRun] = []
         for run in runs where !run.text.isEmpty {

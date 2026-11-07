@@ -4,7 +4,7 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// TE57: the heading the caret is in, leading the status line, as a menu of the document's headings.
+/// The heading the caret is in, leading the status line, as a menu of the document's headings.
 @MainActor
 @Suite(.serialized) struct EditorStatusHeadingTests {
 
@@ -36,7 +36,7 @@ import Design
     }
 
     /// Above the first heading the caret is in no section, and the item says "Headings" rather than
-    /// claiming the first one — the rail's rule (`MarkdownOutline.currentEntry`).
+    /// claiming the first one: the rail's rule (`MarkdownOutline.currentEntry`).
     @Test func aboveTheFirstHeadingItNamesNone() throws {
         let outline = [entry("Later", level: 2, line: 5)]
         let item = try #require(make(outline, caretLine: 2))
@@ -44,20 +44,20 @@ import Design
         #expect(item.current == nil)
     }
 
-    /// **No item without a heading to name**: a plain-text file, or Markdown with none yet.
+    /// No item without a heading to name: a plain-text file, or Markdown with none yet.
     @Test func itIsShownOnlyForMarkdownWithHeadings() {
         #expect(make(pasta, caretLine: 3, isMarkdown: false) == nil)
         #expect(make([], caretLine: 3) == nil)
         #expect(make(pasta, caretLine: 3) != nil)
     }
 
-    /// The rail's words for a heading with none — the same name in both places.
+    /// The rail's words for a heading with none, so the name is the same in both places.
     @Test func aHeadingWithNoWordsIsNamedAsTheRailNamesIt() throws {
         #expect(try #require(make([entry("", level: 2, line: 7)], caretLine: 8)).title == "in Untitled heading")
     }
 
-    /// VoiceOver hears the name the line shows, from the same entry — and "Headings" for none,
-    /// an index out of range included.
+    /// VoiceOver hears the name the line shows, from the same entry, and "Headings" for none, an
+    /// index out of range included.
     @Test func voiceOverHearsTheSameName() throws {
         #expect(try #require(make(pasta, caretLine: 16)).accessibilityName == "Section: Method")
         #expect(try #require(make([entry("Later", level: 2, line: 5)], caretLine: 2)).accessibilityName == "Headings")
@@ -67,9 +67,9 @@ import Design
         #expect(stray.title == "Headings")
     }
 
-    /// **The host's rule for the rail's Outline item**, as `EditorWorkspaceView.statusHeadings`
-    /// asks it: everywhere but on a list already showing its Outline (TE180) — with the list put
-    /// away, whatever tab it would come back on, the item is the way back to it.
+    /// The host's rule for the rail's Outline item, as `EditorWorkspaceView.statusHeadings` asks
+    /// it: offered everywhere but on a list already showing its Outline. With the list put away,
+    /// whatever tab it would come back on, the item is the way back to it.
     @Test func theRailsOutlineIsOfferedOnlyWhereItWouldChangeSomething() {
         #expect(EditorStatusHeadings.offersRailOutline(showsRail: true, railTab: .files))
         #expect(!EditorStatusHeadings.offersRailOutline(showsRail: true, railTab: .outline))
@@ -77,8 +77,8 @@ import Design
         #expect(EditorStatusHeadings.offersRailOutline(showsRail: false, railTab: .outline))
     }
 
-    /// **Equal when it draws the same, whatever the closures** — so a keystroke that changes
-    /// nothing on the line does not rebuild its five rungs — and unequal when it does not.
+    /// Equal when it draws the same, whatever the closures, so a keystroke that changes nothing on
+    /// the line doesn't rebuild its five rungs; unequal when it doesn't.
     @Test func theLineIsComparedOnWhatItDraws() throws {
         let a = try #require(make(pasta, caretLine: 16, picked: { _ in }))
         let b = try #require(make(pasta, caretLine: 16, picked: { _ in Issue.record("never called") }))
@@ -87,15 +87,15 @@ import Design
         #expect(line(a) != line(nil))
     }
 
-    /// Sections step in under the title, one em per level — the depth the rail indents by.
+    /// Sections step in under the title, one em per level: the depth the rail indents by.
     @Test func lowerHeadingsAreIndented() {
         #expect(EditorStatusHeadings.menuTitle(pasta[0]) == "Weeknight pasta")
         #expect(EditorStatusHeadings.menuTitle(pasta[2]) == "\u{2003}Method")
         #expect(EditorStatusHeadings.menuTitle(entry("Deep", level: 4, line: 9, depth: 3)) == "\u{2003}\u{2003}\u{2003}Deep")
     }
 
-    /// **The menu's items, as the menu builds them**: the heading the caret is in is ticked and
-    /// no other, and choosing any item — the ticked one too — goes to that heading, never another.
+    /// The menu's items, as the menu builds them: the heading the caret is in is ticked and no
+    /// other, and choosing any item, the ticked one too, goes to that heading and never another.
     @Test func eachItemTicksItsHeadingAndGoesToIt() throws {
         var picked: [Int] = []
         let item = try #require(make(pasta, caretLine: 16, picked: { picked.append($0.line) }))
@@ -117,7 +117,7 @@ import Design
         #expect(shown == 1)
     }
 
-    /// **A setext heading's hard break is not a line in the menu**, and the tooltip speaks of the
+    /// A setext heading's hard break is not a line in the menu, and the tooltip speaks of the
     /// heading only when there is one to speak of.
     @Test func aNameIsOneLineAndTheTooltipFitsWhatIsShown() throws {
         #expect(EditorStatusHeadings.name(entry("Two\nlines", level: 1, line: 1)) == "Two lines")
@@ -173,7 +173,7 @@ import Design
         return rings
     }
 
-    /// The heading menu's DRAWN width inside a line `width` points wide — read off its focus ring,
+    /// The heading menu's drawn width inside a line `width` points wide, read off its focus ring,
     /// the one handle a hosted SwiftUI button leaves (see `OpenInEditorVerbTests`).
     private func drawnHeading(width: CGFloat, scale: CGFloat, glass: Bool,
                               headings: EditorStatusHeadings? = nil, caret: EditorCaret? = nil) -> CGRect? {
@@ -188,10 +188,10 @@ import Design
         return found.count == 1 ? found[0] : nil
     }
 
-    /// **The heading truncates FIRST: short of room for everything, the name shrinks and both
-    /// counts stay.** At a width 40pt short of the full line, the heading is drawn exactly as wide
-    /// as the FULL rung leaves it — if the character count had gone instead, it would have had room
-    /// for its whole name.
+    /// The heading truncates first: short of room for everything, the name shrinks and both counts
+    /// stay. At a width 40pt short of the full line, the heading is drawn exactly as wide as the
+    /// full rung leaves it; had the character count gone instead, it would have room for its whole
+    /// name.
     @Test(arguments: [false, true])
     func theHeadingTruncatesBeforeAnyCountGoes(glass: Bool) throws {
         for scale in [CGFloat(1), FontSize.allCases.last!.scale] {
@@ -201,9 +201,10 @@ import Design
             let width = full + EditorStatusLine.spacing + whole - 40
             let drawn = try #require(drawnHeading(width: width, scale: scale, glass: glass),
                                      "no heading drawn at scale \(scale)")
-            // What the FULL rung leaves (`full` carries the line's padding once). A truncated name
-            // is a whole number of glyphs, so it can come in under that by up to one — and had the
-            // counts rung been chosen instead, it would be 40pt OVER it, with room for every letter.
+            // What the full rung leaves (`full` carries the line's padding once). A truncated name
+            // is a whole number of glyphs, so it can come in under that by up to one; had the
+            // counts rung been chosen instead, it would be 40pt over it, with room for every
+            // letter.
             let left = width - full - EditorStatusLine.spacing + (try outset(scale: scale, glass: glass))
             #expect(drawn.width <= left + 1 && drawn.width >= left - 12,
                     "at scale \(scale) the heading is \(drawn.width)pt; the full rung leaves \(left)")
@@ -211,8 +212,8 @@ import Design
         }
     }
 
-    /// **And at the narrowest column the layout allows, the heading still fits beside the narrowest
-    /// rung at its floor, at every text size** — nothing past the line's edge.
+    /// And at the narrowest column the layout allows, the heading still fits beside the narrowest
+    /// rung at its floor, at every text size, with nothing past the line's edge.
     @Test(arguments: [false, true])
     func theHeadingFitsBesideTheNarrowestRung(glass: Bool) throws {
         let width = EditorLayoutMetrics.minDocumentWidth
@@ -227,8 +228,8 @@ import Design
         }
     }
 
-    /// **The floor is held: where the full rung fits but leaves the name less than its floor, the
-    /// character count goes instead** — the heading is never squeezed to an ellipsis beside counts
+    /// The floor is held: where the full rung fits but leaves the name less than its floor, the
+    /// character count goes instead, so the heading is never squeezed to an ellipsis beside counts
     /// that could have given way.
     @Test(arguments: [false, true])
     func theFloorIsHeldBeforeTheCharacterCountIsKept(glass: Bool) throws {
@@ -242,9 +243,9 @@ import Design
         }
     }
 
-    /// **A caret longer than the narrowest rung was measured with still fits** — "Line 12408,
-    /// Col 11800" at the largest text size, in the narrowest column: the heading gives up its name
-    /// (the last rung) rather than push the line past the column.
+    /// A caret longer than the narrowest rung was measured with still fits: "Line 12408, Col 11800"
+    /// at the largest text size, in the narrowest column. The heading gives up its name (the last
+    /// rung) rather than push the line past the column.
     @Test(arguments: [false, true])
     func aLongCaretNeverPushesTheLinePastTheColumn(glass: Bool) throws {
         let width = EditorLayoutMetrics.minDocumentWidth
@@ -261,8 +262,8 @@ import Design
         }
     }
 
-    /// **A name shorter than the floor costs only its own width**: the full rung is kept wherever
-    /// the name and the counts fit, floor or no floor.
+    /// A name shorter than the floor costs only its own width: the full rung is kept wherever the
+    /// name and the counts fit, floor or no floor.
     @Test func aShortNameCostsOnlyItsWidth() throws {
         let short = EditorStatusHeadings(outline: [entry("A", level: 1, line: 1)], current: 0,
                                          offersRailOutline: false, accent: .blue,
@@ -274,7 +275,7 @@ import Design
         let drawn = try #require(drawnHeading(width: width, scale: 1, glass: false, headings: short))
         #expect(abs(drawn.width - (try outset(scale: 1, glass: false)) - natural) <= 2,
                 "the short name was drawn \(drawn.width)pt, not its own \(natural)pt")
-        // **And the counts beside it are the FULL rung's**: drawn at this width and at a width with
+        // And the counts beside it are the full rung's: drawn at this width and at a width with
         // room to spare, the line's first `width` points are the same pixels. Had the character
         // count gone, they would not be.
         let tight = try #require(render(line(short), width: width))
@@ -283,7 +284,7 @@ import Design
                 "the line changed rung at \(width)pt with a name narrower than the floor")
     }
 
-    /// The positive control for the pixel comparison: a width that DOES drop the character count
+    /// The positive control for the pixel comparison: a width that does drop the character count
     /// renders differently from one with room, so "the same pixels" above can fail.
     @Test func thePixelComparisonSeesARungChange() throws {
         let full = ideal(line(nil, rung: .full), scale: 1, glass: false).width
@@ -323,7 +324,7 @@ import Design
     // MARK: - The jump, answered once
 
     /// What the workspace hands the read-only Preview: its blocks and the standing scroll request,
-    /// held where the test can change them without rebuilding the preview — as a reload does.
+    /// held where the test can change them without rebuilding the preview, as a reload does.
     final class PreviewInput: ObservableObject {
         @Published var blocks: [MarkdownBlock]
         @Published var request: EditorScrollRequest?
@@ -340,8 +341,8 @@ import Design
         }
     }
 
-    /// Sixty sections, each a heading and a paragraph — and optionally a paragraph added near the top,
-    /// as a save from another app would add one.
+    /// Sixty sections, each a heading and a paragraph, optionally with a paragraph added near the
+    /// top, as a save from another app would add one.
     static func sections(addingAParagraph: Bool) -> String {
         var lines: [String] = []
         for i in 0..<60 {
@@ -361,9 +362,9 @@ import Design
     }
 
     /// Pumps until the preview's offset has held still for half a second, and returns it. A
-    /// `scrollTo` into a lazy stack is not one move: SwiftUI keeps re-aiming it as rows are measured,
-    /// for longer on a loaded machine — measured: a scroll home taken before it settled was undone,
-    /// back to 2582pt, in a full-package run beside two others.
+    /// `scrollTo` into a lazy stack is not one move: SwiftUI keeps re-aiming it as rows are
+    /// measured, for longer on a loaded machine, and a scroll home taken before it settles can be
+    /// undone.
     private func settled(_ scroll: NSScrollView, in window: NSWindow, upTo seconds: Double = 15) async -> CGFloat {
         var last = scroll.contentView.bounds.origin.y
         var still = 0
@@ -383,14 +384,14 @@ import Design
         return nil
     }
 
-    /// **A heading chosen in Preview is gone to once (CHR-1).** Choose one, scroll back up by hand,
-    /// and then the file changes elsewhere and gains a paragraph — TE59's quiet reload, which moves
-    /// the block count. The reader stays where they scrolled: the request was answered, and the
-    /// count is in the scroll's key only so a request made before the blocks arrive is answered
-    /// when they do. It sent the reader back to the old line, by then a different block.
+    /// A heading chosen in Preview is gone to once. Choose one, scroll back up by hand, then the
+    /// file changes elsewhere and gains a paragraph (a quiet reload, which moves the block count).
+    /// The reader must stay where they scrolled: the request was answered, and the count is in the
+    /// scroll's key only so a request made before the blocks arrive is answered when they do.
+    /// Re-answering would send the reader to the old line, by then a different block.
     ///
-    /// The read-only Preview reads no setting, but Edit in Preview is ON by default, so the suite is
-    /// pinned to it off all the same: this is the Preview a reader without editing sees.
+    /// The read-only Preview reads no setting, but Edit in Preview is on by default, so the suite
+    /// pins it off all the same: this is the Preview a reader without editing sees.
     @Test func aChangeFromElsewhereDoesNotGoBackToTheHeadingChosen() async throws {
         let defaults = ScratchDefaults("EditorStatusHeadingTests")
         defaults.set(false, forKey: EditorTextSettings.editsInPreviewKey)
@@ -414,13 +415,13 @@ import Design
         let afterReload = await settled(scroll, in: window)
         #expect(afterReload < 1, "the reload went back to the heading chosen: y = \(afterReload)")
 
-        // And the next choice is still gone to — a new token is a new request.
+        // And the next choice is still gone to: a new token is a new request.
         input.request = EditorScrollRequest(line: chosen.line, token: 2)
         #expect(await settled(scroll, in: window) > 100, "a second choice of the same heading went nowhere")
     }
 
     /// The rule on its own: a request is scrolled for until it has been, and again only when a new
-    /// one — a new token — arrives.
+    /// one (a new token) arrives.
     @Test func aRequestIsAnsweredOnce() {
         let request = EditorScrollRequest(line: 12, token: 3)
         #expect(MarkdownPreview.shouldScroll(request, answered: nil))
@@ -431,9 +432,9 @@ import Design
 
     // MARK: - A jump to where the heading is now
 
-    /// **A finished parse lands unless a later one already has, or the file changed** (CHR-4). A
-    /// keystroke during the parse used to throw it away, so steady typing in a long note kept the
-    /// outline — and with it this line's "in …" and its menu — on the text before the first key.
+    /// A finished parse lands unless a later one already has, or the file changed. A keystroke
+    /// during the parse must not throw it away, or steady typing in a long note would keep the
+    /// outline (and with it this line's "in …" and its menu) on the text before the first key.
     @Test func aFinishedParseLandsUnlessALaterOneHas() {
         #expect(EditorParseLanding.lands(ticket: 4, takenOn: "/n/a.md", current: "/n/a.md", shown: 3),
                 "a parse a keystroke overtook was thrown away")
@@ -444,9 +445,9 @@ import Design
         #expect(!EditorParseLanding.lands(ticket: 5, takenOn: "/n/a.md", current: "/n/a.md", shown: 5))
     }
 
-    /// **What the workspace does with the two rules**: the heading menu's jump — the rail's too —
-    /// sends the line the heading is on NOW, in Source and in Preview, and the parse lands by the
-    /// rule above rather than by whether its task was cancelled.
+    /// What the workspace does with the two rules: the heading menu's jump, the rail's too, sends
+    /// the line the heading is on now, in Source and in Preview, and the parse lands by the rule
+    /// above rather than by whether its task was cancelled.
     @Test func theWorkspaceJumpsToWhereTheHeadingIsAndKeepsAFinishedParse() throws {
         let workspace = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
         let jump = try EditorFormatBarTests.slice(workspace, from: "private func goToHeading(", to: "\n    }\n")
@@ -461,10 +462,10 @@ import Design
         #expect(!parse.contains("Task.isCancelled"), "a finished parse is thrown away when a keystroke overtook it")
     }
 
-    /// **The status line's counts and its caret land by the parse's rule** (F-E6): a large file just
-    /// opened counts at once, and typing on through that count threw it away — and every count after
-    /// it — so the line showed none until the typing stopped. Each has tickets of its own: a count's
-    /// ticket compared with the caret's shown one would drop one or the other at random.
+    /// The status line's counts and its caret land by the parse's rule. A large file just opened
+    /// counts at once, and typing on through that count must not throw it and every later count
+    /// away, or the line would show none until the typing stopped. Each has tickets of its own: a
+    /// count's ticket compared with the caret's shown one would drop one or the other at random.
     @Test func theCountsAndTheCaretLandAFinishedDerivation() throws {
         let workspace = try EditorFormatBarTests.source("EditorWorkspaceView.swift")
         let count = try EditorFormatBarTests.slice(workspace, from: "EditorDocumentFacts.of(source, encoding: encoding)",
@@ -487,10 +488,10 @@ import Design
 
     // MARK: - The menu, built when it opens
 
-    /// **The line carries the label, and no view per heading** (CHR-7). The item was a SwiftUI
-    /// `Menu` with a `Toggle` per heading, drawn in every rung `ViewThatFits` measures — so each
-    /// move of the caret into another section re-evaluated every heading up to seven times. Read off
-    /// the item's own body type: no `ForEach`, no `Toggle`, no `Menu`.
+    /// The line carries the label, and no view per heading. A SwiftUI `Menu` with a `Toggle` per
+    /// heading is drawn in every rung `ViewThatFits` measures, so each move of the caret into
+    /// another section would re-evaluate every heading up to seven times. Read off the item's own
+    /// body type: no `ForEach`, no `Toggle`, no `Menu`.
     @Test func theLineCarriesNoViewPerHeading() throws {
         let many = (0..<50).map { entry("Section \($0)", level: 2, line: $0 * 3 + 1) }
         let item = try #require(make(many, caretLine: 40))
@@ -500,8 +501,8 @@ import Design
         #expect(!drawn.contains("Menu<"), "the heading item is a SwiftUI Menu again: \(drawn.prefix(240))")
     }
 
-    /// **The menu built at the press is the outline as it stands**: every heading in order, stepped
-    /// in by level, the one the caret is in ticked and no other, choosing any — the ticked one too —
+    /// The menu built at the press is the outline as it stands: every heading in order, stepped in
+    /// by level, the one the caret is in ticked and no other, choosing any (the ticked one too)
     /// going to it, and the rail's Outline item last, after a divider, only where it is offered.
     @Test func theMenuBuiltAtThePressIsTheOutline() throws {
         var picked: [Int] = []
@@ -530,9 +531,9 @@ import Design
 
     // MARK: - Through the parse the workspace runs (CHR-8)
 
-    /// What the line says with the caret `extra` UTF-16 units into 1-based `line` of `source` —
-    /// through the parse, the outline and the caret derivation the workspace itself runs, rather
-    /// than an outline written by hand, which is all the tests above give it.
+    /// What the line says with the caret `extra` UTF-16 units into 1-based `line` of `source`,
+    /// through the parse, the outline and the caret derivation the workspace itself runs rather
+    /// than an outline written by hand, as the tests above use.
     private func named(_ source: String, line: Int, extra: Int = 0) throws -> String? {
         let outline = MarkdownOutline.entries(from: MarkdownBlocks.blocks(from: source))
         let start = try #require(EditorCaret.utf16Offset(ofLine: line, in: source), "no line \(line)")
@@ -542,7 +543,7 @@ import Design
 
     /// Each case: a note, where the caret is, and what the line should say. Front matter in all
     /// three line endings, a setext heading and its underline, a `#` in a fenced block, closing
-    /// `#`s, emoji and CJK — measured in UTF-16, as the text view reports the caret — headings in a
+    /// `#`s, emoji and CJK (measured in UTF-16, as the text view reports the caret), headings in a
     /// list item and a quote, and a heading carrying inline HTML.
     nonisolated static let pipelineCases: [(source: String, line: Int, extra: Int, says: String)] = [
         ("---\ntitle: Plan\n---\n\n# Real\nbody\n", 2, 0, "Headings"),
@@ -561,9 +562,9 @@ import Design
         ("## Setup <a id=\"setup\"></a>\n\ntext\n", 3, 0, "in Setup"),
     ]
 
-    /// **The heading the line names, through the real parse** (CHR-8). Mutations: put block lines
-    /// back in the body's numbering rather than the file's, or name the section by the last
-    /// heading strictly BEFORE the caret's line — each fails cases here.
+    /// The heading the line names, through the real parse. Numbering block lines by the body rather
+    /// than the file, or naming the section by the last heading strictly before the caret's line,
+    /// must fail cases here.
     @Test(arguments: pipelineCases)
     func theLineNamesTheSectionThroughTheRealParse(_ example: (source: String, line: Int, extra: Int, says: String)) throws {
         let said = try named(example.source, line: example.line, extra: example.extra)
@@ -579,7 +580,7 @@ import Design
     }
 
     /// The buttons' focus rings on a line `width` points wide, left to right, once the hint's
-    /// measurements have landed — the heading menu's and Line/Col's (the hint's link draws none).
+    /// measurements have landed: the heading menu's and Line/Col's (the hint's link draws none).
     /// Pumped a fixed number of passes: what is waited for is a place being chosen, which leaves
     /// nothing to poll.
     private func buttonRings(width: CGFloat, scale: CGFloat = 1, hint: EditorStatusHint?,
@@ -594,11 +595,11 @@ import Design
 
     private var aHint: EditorStatusHint { EditorStatusHint(token: 1, onShowInSource: {}) }
 
-    /// **The hint moves nothing** (TE213): Line/Col is drawn exactly where it is without the hint,
-    /// at every width from roomy to the narrowest column — the full rung with the whole heading,
-    /// the heading truncated, the counts gone, the caret rung beside a heading that has taken all
-    /// the room. The hint took the whole line for its four seconds, and Line/Col went away under
-    /// the pointer — and came back under it.
+    /// The hint moves nothing: Line/Col is drawn exactly where it is without the hint, at every
+    /// width from roomy to the narrowest column (the full rung with the whole heading, the heading
+    /// truncated, the counts gone, the caret rung beside a heading that has taken all the room). A
+    /// hint that took the whole line would move Line/Col out from under the pointer for its four
+    /// seconds.
     @Test func theHintNeverMovesLineCol() async throws {
         for width: CGFloat in [900, 700, 520, 420, EditorLayoutMetrics.minDocumentWidth] {
             let without = await buttonRings(width: width, hint: nil)
@@ -610,9 +611,8 @@ import Design
         }
     }
 
-    /// **The notice moves nothing either** — "Reloaded — changed elsewhere" took the whole line for
-    /// its seconds, Line/Col with it. It stands where the hint would, at every width the hint is
-    /// held to.
+    /// The notice moves nothing either: a notice such as "Reloaded — changed elsewhere" stands
+    /// where the hint would, at every width the hint is held to, and Line/Col stays put.
     @Test func theNoticeNeverMovesLineCol() async throws {
         let notice = "Reloaded — changed elsewhere"
         for width: CGFloat in [900, 700, 520, 420, EditorLayoutMetrics.minDocumentWidth] {
@@ -623,7 +623,7 @@ import Design
             #expect(with.allSatisfy { $0 == without[0] || $0 == without[1] },
                     "\(width)pt: a button moved with the notice up: \(without) became \(with)")
         }
-        // …and it is drawn: a line that dropped the notice would pass the above.
+        // And it is drawn: a line that dropped the notice would pass the above.
         func drawn(_ notice: String?) async throws -> NSBitmapImageRep {
             let line = EditorStatusLine(facts: facts, caret: EditorCaret(line: 408, column: 118), fileSize: "421 bytes",
                                         headings: long, goToLine: goTo, notice: notice)
@@ -640,8 +640,8 @@ import Design
                 "the notice is not drawn on the line")
     }
 
-    /// **A notice too long for both places is cut short in the roomier one** — the narrowest column
-    /// — and takes the line only where neither has room for its first word.
+    /// A notice too long for both places is cut short in the roomier one (the narrowest column),
+    /// and takes the line only where neither has room for its first word.
     @Test func aNoticeTooLongIsCutShortInTheRoomierPlace() {
         typealias Line = EditorStatusLine
         #expect(Line.noticeCut(freeSpace: 5, headingSlot: 100, atLeast: 50) == .heading(.sentence))
@@ -651,7 +651,7 @@ import Design
         #expect(Line.noticeCut(freeSpace: 40, headingSlot: 49, atLeast: 50) == .aside)
     }
 
-    /// **Where neither place has room for the link: the heading goes, Line/Col stays.** The
+    /// Where neither place has room for the link, the heading goes and Line/Col stays: the
     /// narrowest column at the largest text size.
     @Test func whereNothingHasRoomTheHeadingGoesBeforeLineCol() async throws {
         let width = EditorLayoutMetrics.minDocumentWidth
@@ -663,9 +663,9 @@ import Design
         #expect(with.allSatisfy { $0.maxX <= width + 1 }, "the line runs past the column: \(with)")
     }
 
-    /// **The rule**: the free space first; the heading's place only where the free space has room
-    /// for the link alone and the heading's for words; the line redrawn only where neither has room
-    /// for the link — and nothing until measured.
+    /// The rule: the free space first; the heading's place only where the free space has room for
+    /// the link alone and the heading's for words; the line redrawn only where neither has room for
+    /// the link; and nothing until measured.
     @Test func theHintTakesThePlaceWithRoomForMoreOfIt() {
         let widths: [EditorStatusHint.Rung: CGFloat] = [.sentence: 200, .short: 140, .link: 70]
         typealias Line = EditorStatusLine

@@ -6,10 +6,9 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **Edit's text, Markdown and PDF fixes ahead of 6.1** — ED2, ED3, ED4, ED5, ED10, PD3, PD6: what
-/// the status line says beside a file just opened, a folded format-bar group with nothing to offer,
-/// what Voice Control and VoiceOver hear, the ink editable Preview's links wear, and a restricted
-/// file in a PDF batch.
+/// Edit's text, Markdown and PDF fixes: what the status line says beside a file just opened, a
+/// folded format-bar group with nothing to offer, what Voice Control and VoiceOver hear, the ink
+/// editable Preview's links wear, and a restricted file in a PDF batch.
 ///
 /// Each rule is pinned by value, and its call site read off the code: an offscreen host has no
 /// accessibility tree to ask, and a SwiftUI `Menu`'s disabled state cannot be read back.
@@ -25,8 +24,8 @@ import FileExplorerTestSupport
     private static let counted = EditorDocumentFacts(words: 412, characters: 2_301, lines: 40,
                                                      lineEnding: .crlf, encoding: "UTF-16")
 
-    /// **Counts are shown only beside the file they were counted for** — another file's, or none
-    /// counted yet, and they are left out; the same file's stand, however many keystrokes old.
+    /// Counts are shown only beside the file they were counted for: another file's, or none counted
+    /// yet, are left out; the same file's stand, however many keystrokes old.
     @Test func theCountsAreShownOnlyBesideTheFileTheyWereCountedFor() {
         #expect(EditorStatusLine.shownFacts(Self.counted, countedFor: "/n/Old.md", open: "/n/New.md") == nil,
                 "the last file's counts stood beside the new file")
@@ -34,8 +33,8 @@ import FileExplorerTestSupport
         #expect(EditorStatusLine.shownFacts(Self.counted, countedFor: "/n/New.md", open: "/n/New.md") == Self.counted)
     }
 
-    /// **Without counts the line says the caret and the size, and nothing of the last file** — no
-    /// words, no encoding, no line endings.
+    /// Without counts the line says only the caret and the size: no words, encoding or line
+    /// endings.
     @Test func aLineWithoutCountsSaysOnlyTheCaretAndTheSize() {
         let caret = EditorCaret(line: 3, column: 7)
         #expect(EditorStatusLine.accessibilityLabel(facts: nil, caret: caret, fileSize: "4 KB")
@@ -46,9 +45,9 @@ import FileExplorerTestSupport
                 == "412 words, 2,301 characters, Line 3, Col 7, 4 KB, UTF-16, CRLF line endings")
     }
 
-    /// **The workspace gates the counts and Line/Col on the file** — the call site of the rule
-    /// above, the path each was taken on, and no caret walked on the main actor as a file arrives
-    /// (EP4): a 4 MB file with the caret at its end walked all of it there.
+    /// The workspace gates the counts and Line/Col on the file each was taken on, and walks no
+    /// caret on the main actor as a file arrives (a large file with the caret at its end would be
+    /// walked in full there).
     @Test func theWorkspaceGatesTheCountsAndTheCaretOnTheFile() throws {
         let code = try Self.code("EditorWorkspaceView.swift")
         #expect(code.contains("EditorStatusLine(facts: EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path),"),
@@ -67,8 +66,8 @@ import FileExplorerTestSupport
 
     // MARK: EP4–EP7 — the line holds still while a new file is counted
 
-    /// **A move keeps the counts; an open does not** (EP5) — the same text under a new path is the
-    /// same counts, and an open always writes the buffer, moving its version.
+    /// A move keeps the counts; an open does not. The same text under a new path has the same
+    /// counts, and an open always writes the buffer, moving its version.
     @Test func aMoveKeepsTheCountsAndAnOpenDoesNot() throws {
         #expect(EditorStatusLine.keepsCounts(countedAt: 7, textVersion: 7))
         #expect(!EditorStatusLine.keepsCounts(countedAt: 7, textVersion: 8))
@@ -87,9 +86,9 @@ import FileExplorerTestSupport
         #expect(document.textVersion == reopened, "a move rewrote the buffer")
     }
 
-    /// **Only a file's first count skips the debounce** (EP6) — a keystroke before it lands waits
-    /// its turn, as does every count once it has; the next file's first skips it again, and so does
-    /// a return to a file whose count never landed.
+    /// Only a file's first count skips the debounce. A keystroke before it lands waits its turn, as
+    /// does every later count; the next file's first count skips it again, as does a return to a
+    /// file whose count never landed.
     @Test func onlyAFilesFirstCountSkipsTheDebounce() throws {
         let gate = EditorFirstCountGate()
         #expect(gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "a file's first count waits")
@@ -105,10 +104,9 @@ import FileExplorerTestSupport
                 "the caret's debounce is not asked of the gate")
     }
 
-    /// **A task cancelled before it ran keeps the file's skip for the one that replaced it** (F-E1).
-    /// A file's arrival writes the caret it was left at, which restarts the caret's task before it
-    /// has run; asking the gate first used the skip up, and the file's first Line/Col waited out the
-    /// debounce after all. Driven through a restart: the first task is cancelled before it starts.
+    /// A task cancelled before it ran leaves the file's skip to the task that replaced it. A file's
+    /// arrival writes its caret, which restarts the caret's task before it has run; if the
+    /// cancelled task spent the skip, the file's first Line/Col would wait out the debounce.
     @Test func aRestartedTaskLeavesTheFirstSkipToItsReplacement() async {
         let gate = EditorFirstCountGate()
         let restarted = Task { @MainActor in
@@ -125,8 +123,8 @@ import FileExplorerTestSupport
         #expect(!gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "the replacement did not take the skip")
     }
 
-    /// **The caret names a heading only beside the file it was derived for** (F-E1) — the rail's
-    /// outline and the status line's "in …" read the last file's line against this file's headings.
+    /// The caret names a heading only beside the file it was derived for, so the rail's outline and
+    /// the status line's "in …" never read the last file's line against this file's headings.
     @Test func theCaretNamesAHeadingOnlyBesideItsOwnFile() throws {
         let caret = EditorCaret(line: 30, column: 1)
         #expect(EditorStatusLine.shownCaretLine(caret, derivedFor: "/n/Old.md", open: "/n/New.md") == nil,
@@ -149,7 +147,7 @@ import FileExplorerTestSupport
         #expect(code.contains("EditorStatusLine.shownCaretLine(caret, derivedFor: caretPath, open: document.path)"))
     }
 
-    /// **Go to Line says this file's line count, or none** (EP7) — never the last file's.
+    /// Go to Line says this file's line count, or none; never the last file's.
     @Test func goToLineSaysOnlyThisFilesLineCount() throws {
         #expect(EditorGoToLineField.lineCountCaption(nil) == nil)
         #expect(EditorGoToLineField.lineCountCaption(1) == "This file has 1 line.")
@@ -159,9 +157,9 @@ import FileExplorerTestSupport
                 "Go to Line counts the last file's lines")
     }
 
-    /// **Rendered and read back: while a new file is counted, the line holds still** (EP5). The
-    /// counts and the caret hold their room undrawn, so what IS drawn — the caret once it lands,
-    /// the size — stands exactly where it stood, and nothing of the last file is drawn.
+    /// Rendered and read back: while a new file is counted, the line holds still. The counts and
+    /// the caret hold their room undrawn, so what is drawn (the caret once it lands, the size)
+    /// stays where it stood, and nothing of the last file is drawn.
     @Test func theLineHoldsStillWhileANewFileIsCounted() throws {
         let caret = EditorCaret(line: 48, column: 12)
         let counted = try Self.inkColumns(EditorStatusLine(facts: Self.counted, caret: caret, fileSize: "4 KB",
@@ -182,9 +180,9 @@ import FileExplorerTestSupport
         #expect(EditorStatusLine.accessibilityLabel(facts: nil, caret: nil, fileSize: "4 KB") == "4 KB")
     }
 
-    /// **A caret held undrawn is not a button** (F-E8): no hover wash, tooltip or press over blank
-    /// room, no ⌥ keycap, and VoiceOver's line neither says it nor offers its press. Read off the
-    /// code — a SwiftUI button's hit testing cannot be asked offscreen.
+    /// A caret held undrawn is not a button: no hover wash, tooltip, press or ⌥ keycap over blank
+    /// room, and VoiceOver neither says it nor offers its press. Read off the code, since a SwiftUI
+    /// button's hit testing can't be asked offscreen.
     @Test func anUndrawnCaretIsNotAButton() throws {
         let code = try Self.code("EditorStatusLine.swift")
         #expect(code.contains(".shortcutKeycap(AppChord.goToLine.display, compact: true, shown: caretIsCurrent)"),
@@ -195,8 +193,8 @@ import FileExplorerTestSupport
                 "VoiceOver offers Go to Line on a line with no caret drawn")
     }
 
-    /// The columns of `line` that carry ink, drawn at 1× in a window — saved beside the test's run
-    /// for a look.
+    /// The columns of `line` that carry ink, drawn at 1× in a window and saved beside the run for a
+    /// look.
     private static func inkColumns(_ line: EditorStatusLine, name: String) throws -> Set<Int> {
         let host = NSHostingView(rootView: line.frame(width: 620))
         host.frame = NSRect(x: 0, y: 0, width: 620, height: 30)
@@ -223,7 +221,7 @@ import FileExplorerTestSupport
 
     // MARK: ED3 — a folded group with nothing to offer
 
-    /// **Lists greys when it folds inside a table**, where every list would break it — and only then:
+    /// Lists greys when it folds inside a table, where every list would break it, and only then:
     /// the other groups each keep an item that still works there.
     @Test func aFoldedGroupGreysWhenNoneOfItsItemsWouldAct() throws {
         let inTable = EditorFormatBarTests.inTable
@@ -249,9 +247,8 @@ import FileExplorerTestSupport
         #expect(code.contains("ForEach(Self.itemVerbs(of: part), id: \\.self) { item($0) }"))
     }
 
-    /// **Inside the merged », Lists greys in a table too** (EP2) — read off the » menu's own items as
-    /// AppKit builds them. It opened a submenu of greyed items there; the other groups stay live,
-    /// and outside a table Lists is live again.
+    /// Inside the merged » menu, Lists greys in a table too, read off the menu's items as AppKit
+    /// builds them. The other groups stay live, and outside a table Lists is live again.
     @Test func theMergedMenuGreysAGroupWithNothingToOffer() throws {
         let rung = EditorFormatBar.Rung(headingWorded: false, folded: Set(EditorFormatBar.foldableGroups),
                                         merged: true, marksFolded: true)
@@ -272,7 +269,7 @@ import FileExplorerTestSupport
 
     // MARK: ED4 — Voice Control answers to the bar's words
 
-    /// **"Click Bullets" finds Bulleted List** — the word on screen first, the full name kept.
+    /// "Click Bullets" finds Bulleted List: the word on screen first, the full name kept.
     @Test func theBarsWordsAreWhatVoiceControlAnswersTo() throws {
         func names(_ verb: MarkupVerb) -> [String] {
             EditorSpokenNames.names(word: EditorFormatBar.word(verb), label: verb.title)
@@ -288,8 +285,8 @@ import FileExplorerTestSupport
                 "the Table button does not answer to its word")
     }
 
-    /// **"Click Body" and "Click Heading 2" find the style menu** (EP8) — the word it shows, and "H2"
-    /// where it shows that; "¶" is no word to say.
+    /// "Click Body" and "Click Heading 2" find the style menu: the word it shows, and "H2" where it
+    /// shows that; "¶" is no word to say.
     @Test func theStyleMenuAnswersToItsWord() throws {
         typealias Bar = EditorFormatBar
         #expect(Bar.headingInputLabels(.body, worded: true) == ["Body", "Paragraph style"])
@@ -305,7 +302,7 @@ import FileExplorerTestSupport
 
     private static let coral = NSColor(LiquidGlassHue.coral.accentColor)
 
-    /// **The session colours a link with the hue it is handed, and a new hue redecorates the page.**
+    /// The session colours a link with the hue it is handed, and a new hue redecorates the page.
     @Test func theSessionColoursLinksWithTheHue() throws {
         let source = EditorSourceStorage(text: "See [the plan](https://example.com/plan) today.\n")
         let session = PreviewEditSession(source: source, undoManager: UndoManager(), linkColor: Self.coral)
@@ -319,10 +316,9 @@ import FileExplorerTestSupport
         #expect(ink() == green, "a new hue left the page's links as they were")
     }
 
-    /// **Rendered and read back: the link is the hue, never system blue** — AppKit paints its own
-    /// `linkTextAttributes` over a link's colour, so the run's colour alone was not what was drawn.
-    /// And in the hue's READABLE shade (FE2): in light the deepest warm pixel is the deepened coral,
-    /// where the raw accent drew it at more than twice that luminance.
+    /// Rendered and read back: the link is the hue, never system blue. AppKit paints its own
+    /// `linkTextAttributes` over a link's colour, so the run's colour alone isn't what is drawn. In
+    /// light, the deepest warm pixel is the hue's readable (deepened) shade, not the raw accent.
     @Test(arguments: [false, true]) func editablePreviewDrawsLinksInTheHue(dark: Bool) throws {
         let text = "[Coral coral coral coral coral coral](https://example.com/a)\n"
         let source = EditorSourceStorage(text: text)
@@ -378,9 +374,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// **A hue changed while a document is open repaints its links in the NEW hue's readable
-    /// shade** (RB3) — the `update` path, which a first mount never runs. Mounted at Coral, handed
-    /// Green through a new root view, and read back off the same text view.
+    /// A hue changed while a document is open repaints its links in the new hue's readable shade.
+    /// This is the `update` path, which a first mount never runs: mounted at Coral, handed Green
+    /// through a new root view, and read back off the same text view.
     @Test func aHueChangeWithThePageOpenRepaintsLinksInTheReadableShade() throws {
         let source = EditorSourceStorage(text: "See [the plan](https://example.com/plan) today.\n")
         let undo = UndoManager()
@@ -438,7 +434,7 @@ import FileExplorerTestSupport
     @Test func theDotsNameTellsAStopFromAPendingWrite() throws {
         #expect(EditorSaveStatus.stopped("couldn’t write").dotName == "Not saving")
         #expect(EditorSaveStatus.unsaved.dotName == "Not saved yet")
-        // A held file waits for ⌘S, as its header's "unsaved — ⌘S" says (EP3).
+        // A held file waits for ⌘S, as its header's "unsaved — ⌘S" says.
         #expect(EditorSaveStatus.heldUnsaved.word == "unsaved — ⌘S", "the premise: the header's word")
         #expect(EditorSaveStatus.heldUnsaved.dotName == "Unsaved — ⌘S saves it")
         let rail = try Self.code("EditorFileRailView.swift")
@@ -463,8 +459,8 @@ import FileExplorerTestSupport
     }
 }
 
-/// **PD3 — a restricted file in a PDF batch is skipped before the run**, with its own reason,
-/// rather than failed by the toolkit with a sentence that names the file a second time.
+/// A restricted file in a PDF batch is skipped before the run, with its own reason, rather than
+/// failed by the toolkit with a sentence that names the file a second time.
 @MainActor
 @Suite(.serialized) final class EditorPDFBatchRestrictedTests {
 
@@ -478,9 +474,9 @@ import FileExplorerTestSupport
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// **Rotate skips the restricted file, names it once, and counts it as skipped** — the plain
-    /// file beside it is rotated. The restricted file comes first, so a batch that stopped at it
-    /// would show.
+    /// Rotate skips the restricted file, names it once and counts it as skipped, and rotates the
+    /// plain file beside it. The restricted file comes first, so a batch that stopped at it would
+    /// show.
     @Test func rotateSkipsARestrictedFileWithItsOwnReason() async throws {
         let restricted = path("Scan.pdf"), plain = path("Statement.pdf")
         PDFFixtures.writeRestricted(restricted)
@@ -499,8 +495,8 @@ import FileExplorerTestSupport
         #expect(detail.components(separatedBy: "Scan.pdf").count == 2, "the reason names the file twice: \(detail)")
     }
 
-    /// **The way past the restrictions is said once, last** — however many files they stopped, and
-    /// only when they stopped one: a locked file's line carries no such step.
+    /// The way past the restrictions is said once, last, however many files they stopped, and only
+    /// when they stopped one: a locked file's line carries no such step.
     @Test func theRemovePasswordStepEndsTheReasonsOnce() throws {
         let step = EditorPDFToolEngine.liftRestrictionsStep
         let lines = try #require(EditorPDFBatch.reasons([("A.pdf", .skipped(.restrictedByOwner)),
@@ -511,9 +507,9 @@ import FileExplorerTestSupport
                           "“B.pdf” — locked with a password",
                           "“C.pdf” — its owner doesn’t allow changing its pages", step], "\(lines)")
         #expect(EditorPDFBatch.reasons([("B.pdf", .skipped(.lockedToOpen))]) == "“B.pdf” — locked with a password")
-        // Clean Metadata's encrypted skip is said as encrypted, not as an owner's restriction — a
-        // file can be encrypted with every permission allowed (L11) — with its own way past it,
-        // each step still said once (F-E5).
+        // Clean Metadata's encrypted skip is said as encrypted, not as an owner's restriction (a
+        // file can be encrypted with every permission allowed), with its own way past it; each step
+        // is said once.
         let decrypt = EditorPDFToolEngine.decryptStep
         let metadata = try #require(EditorPDFBatch.reasons([("D.pdf", .skipped(.passwordProtected)),
                                                             ("A.pdf", .skipped(.restrictedByOwner)),
@@ -527,9 +523,9 @@ import FileExplorerTestSupport
                 "Clean Metadata's skip gave no way forward")
     }
 
-    /// **Decided in the lane, before the toolkit runs** — and only for the tools that change the
-    /// file in place: Compress and Clean Metadata rebuild the document and run on it (the latter's
-    /// own password skip aside).
+    /// Decided in the lane, before the toolkit runs, and only for the tools that change the file in
+    /// place: Compress and Clean Metadata rebuild the document and run on it (the latter's own
+    /// password skip aside).
     @Test func onlyTheInPlaceToolsAreSkipped() {
         let rotate = EditorPDFTool.rotate(pages: [0], quarterTurns: 1)
         #expect(EditorPDFBatch.ownerForbids(rotate, isEncrypted: true, allowsAssembly: false))

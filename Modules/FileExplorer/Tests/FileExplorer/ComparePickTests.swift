@@ -3,12 +3,9 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// **The armed file is not a selection, and every test here is a way of saying so.**
-///
-/// The cross-pane compare was reachable only by right-click, because a left-click in the other pane
-/// writes a selection and `applySelectionWrite` clears the first pane in the same update. Pick mode
-/// keeps the armed file outside both sets, so the click that used to destroy the state completes it
-/// instead — and the one-pane-selected invariant is untouched.
+/// The armed file is not a selection. A left-click in the other pane writes a selection, and
+/// `applySelectionWrite` clears the first pane in the same update; pick mode keeps the armed file
+/// outside both sets, so that click completes the pair and one-pane-selected still holds.
 @Suite struct ComparePickTests {
 
     private func node(_ path: String, isDirectory: Bool = false) -> FileNode {
@@ -21,7 +18,7 @@ import Sync
 
     // MARK: The three outcomes
 
-    /// A file in the OTHER pane completes the pick — the gesture that used to lose the armed half.
+    /// A file in the other pane completes the pick.
     @Test func aFileInTheOtherPaneCompletesThePair() throws {
         let outcome = pick().outcome(clicking: node("/right/lease-final-scan.pdf"), inLeftPane: false,
                                      leftPaneName: "iCloud", rightPaneName: "Dropbox")
@@ -34,8 +31,8 @@ import Sync
         #expect(pair.rightPath == "/right/lease-final-scan.pdf")
     }
 
-    /// Armed in the RIGHT pane, clicked in the left: the armed file must land in the right column,
-    /// not the first one. This is the case a "clicked always leads" ordering gets backwards.
+    /// Armed in the right pane, clicked in the left: the armed file lands in the right column. A
+    /// "clicked always leads" ordering gets this backwards.
     @Test func theArmedFileFollowsItsOwnPaneNotTheClickOrder() throws {
         let outcome = pick("/right/scan.pdf", isLeft: false)
             .outcome(clicking: node("/left/original.pdf"), inLeftPane: true,
@@ -49,8 +46,7 @@ import Sync
                 "the armed file was ordered by click order, so the columns contradict the subtitle")
     }
 
-    /// A same-pane pick leads with the ARMED file — the one the reader chose first, and the one the
-    /// strip has been naming since.
+    /// A same-pane pick leads with the armed file, the one chosen first and named by the strip.
     @Test func aSamePanePairLeadsWithTheArmedFile() throws {
         let outcome = pick().outcome(clicking: node("/left/Addendum.pdf"), inLeftPane: true,
                                      leftPaneName: "iCloud", rightPaneName: "Dropbox")
@@ -62,8 +58,8 @@ import Sync
         #expect(pair.rightPath == "/left/Addendum.pdf")
     }
 
-    /// **Clicking the armed row again cancels** — the marker is the off switch, which is the only
-    /// undo a mode anchored to one row can offer without a second control.
+    /// Clicking the armed row again cancels: the marker is the off switch, the only undo a mode
+    /// anchored to one row can offer without a second control.
     @Test func clickingTheArmedRowAgainCancels() {
         #expect(pick().outcome(clicking: node("/left/Lease — Signed.pdf"), inLeftPane: true,
                                leftPaneName: "iCloud", rightPaneName: "Dropbox") == .cancelled)
@@ -72,9 +68,8 @@ import Sync
                                leftPaneName: "iCloud", rightPaneName: "Dropbox") == .cancelled)
     }
 
-    /// **A folder leaves the mode standing.** Finding the counterpart usually means navigating, so
-    /// a folder click that cancelled the pick would make the feature unusable for exactly the pair
-    /// it exists to serve — two files in different folders.
+    /// A folder click leaves the mode standing: finding the counterpart usually means navigating,
+    /// and two files in different folders are the pair this exists for.
     @Test func aFolderClickLeavesTheModeStanding() {
         #expect(pick().outcome(clicking: node("/left/Addenda", isDirectory: true), inLeftPane: true,
                                leftPaneName: "iCloud", rightPaneName: "Dropbox") == .standing)
@@ -84,13 +79,9 @@ import Sync
 
     // MARK: What the reader sees
 
-    /// The indicator is handed the NAME, not a finished sentence.
-    ///
-    /// **Because the name is the part that has to truncate.** Real filenames run long — the one
-    /// this was found on was "Irrigation system check 10-10-2024 ( Clock C ) readvised new
-    /// templet.3-18.pdf" — and a sentence with the name buried inside it truncates the sentence
-    /// too, taking the instruction with it. The strip bounds the name alone and composes the words
-    /// around it.
+    /// The indicator is handed the name, not a finished sentence, because the name is the part
+    /// that truncates. A sentence with the name inside it would lose the instruction too; the strip
+    /// bounds the name alone and composes the words around it.
     @Test func theIndicatorIsGivenTheNameAloneToBound() {
         #expect(pick().armedName == "Lease — Signed.pdf")
         let long = ComparePick(armed: node("/left/Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf"),
@@ -99,8 +90,8 @@ import Sync
                 "the name arrived pre-shortened — truncation belongs to the view, which knows the width")
     }
 
-    /// The row marker is keyed on the armed path, so it survives the selection moving away, a
-    /// scroll, and a navigation — none of which it is derived from.
+    /// The row marker is keyed on the armed path alone, so it survives the selection moving, a
+    /// scroll and a navigation.
     @Test func theMarkerFollowsTheArmedPathAlone() {
         let p = pick()
         #expect(p.marks("/left/Lease — Signed.pdf"))

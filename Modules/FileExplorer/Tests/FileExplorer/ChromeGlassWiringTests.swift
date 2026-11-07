@@ -1,16 +1,15 @@
 import Testing
 import Foundation
 
-/// Chrome glass's call sites in FileExplorer (RD46 follow-up, 2026-10-03): every bar and toolbar
-/// button here sits in glass in Frosted and Clear. The seam's behaviour is rendered and pinned in
-/// Design (`ChromeGlassTests`) and on the pane bar in Dashboard (`ChromeGlassPaneBarTests`); what a
-/// scan can and must catch here is a site that lost its glass — which fails safe to the Solid look
-/// in every appearance, and so would never be noticed on screen.
+/// Chrome glass's call sites in FileExplorer: every bar and toolbar button here sits in glass in
+/// Frosted and Clear. The seam's behaviour is pinned in Design (`ChromeGlassTests`) and on the
+/// pane bar in Dashboard (`ChromeGlassPaneBarTests`); this scan catches a site that lost its glass,
+/// which falls back to the Solid look and would never be noticed on screen.
 ///
-/// Read over `OrganizeScopeCallSiteTests.codeOnly`: these call sites carry comments that name the
-/// very modifiers counted here, and a count over the raw text passed with the code gone.
+/// Read over `OrganizeScopeCallSiteTests.codeOnly`, because these call sites carry comments naming
+/// the very modifiers counted here.
 ///
-/// Where glass may be WRITTEN — on the button, after its style, never inside a label — is pinned
+/// Where glass may be written (on the button, after its style, never inside a label) is pinned
 /// once for every package by the app target's `SelectionLensWiringTests`.
 @Suite struct ChromeGlassWiringTests {
 
@@ -31,26 +30,27 @@ import Foundation
     @Test func theTabStripsPlusAndOverflowWearGlass() throws {
         let strip = try Self.source("PaneTabStrip.swift")
         #expect(Self.count(".chromeGlassGlyphButton()", in: strip) == 1, "the ＋ lost its glass")
-        // 3pt past the 16pt AppKit gives the menu, up and down only — the ＋'s 22pt, and the strip's
-        // 4pt gap kept; the render is `SelectionLensCallSiteTests.theOverflowMenusGlassIsAsTallAsTheNewTabButtons`.
+        // 3pt past the 16pt AppKit gives the menu, up and down only: the ＋'s 22pt, with the
+        // strip's 4pt gap kept. The render is pinned by
+        // `SelectionLensCallSiteTests.theOverflowMenusGlassIsAsTallAsTheNewTabButtons`.
         #expect(strip.contains(".chromeGlassGround(.capsule, horizontalOutset: 0, verticalOutset: 3)"),
                 "the tab overflow lost its glass, or grows sideways into the last chip")
         // The drag's animations enclose the lens's host, and only where a lens draws: at Solid they
-        // would animate a drop's re-windowing, which was always instant there. Their curve is
-        // `dragEase`'s — pinned with its four sites in `PaneTabStripDragEaseTests`.
+        // would animate a drop's re-windowing, which is instant there. Their curve is
+        // `dragEase`'s, pinned with its four sites in `PaneTabStripDragEaseTests`.
         #expect(Self.count(".designAnimation(drawsLens ? Self.dragEase(", in: strip) == 2)
     }
 
     @Test func comparesHeaderPillsAndGlyphsWearGlass() throws {
         let compare = try Self.source("DifferencesView.swift")
-        // Filter, ⋯, Review, Verify, Copy Remaining, Exit Review — and the quiet transfer direction.
+        // Filter, ⋯, Review, Verify, Copy Remaining, Exit Review, and the quiet transfer direction.
         #expect(Self.count(".compareBarGlass(", in: compare) == 7)
         // Every one draws its own hairline, so Clear adds no rim under it.
         #expect(compare.contains("chromeGlassGround(.capsule, rim: false, when: enabled)"))
         #expect(compare.contains(".compareBarGlass(when: weight == .quiet)"),
                 "the quiet transfer lost its glass, or the filled one gained it")
-        // Every outline pill in the header wears it — each one's own, within the lines after its
-        // style — rather than two counts that happen to agree.
+        // Every outline pill in the header wears it, each checked within the lines after its own
+        // style, rather than two counts that happen to agree.
         let lines = compare.components(separatedBy: "\n")
         let pills = lines.indices.filter { lines[$0].contains(".buttonStyle(.actionBar(.outline") }
         #expect(pills.count == 6)
@@ -73,8 +73,8 @@ import Foundation
 
     @Test func editsBarsWearGlass() throws {
         let editor = try Self.source("EditorWorkspaceView.swift")
-        // A capsule per header button since TE144: New Text File and Find no longer share one, so
-        // the header draws no glass group at all.
+        // A capsule per header button: New Text File and Find don't share one, so the header
+        // draws no glass group at all.
         #expect(Self.count(".chromeGlassGroup(", in: editor) == 0, "two of the header's buttons share a capsule again")
         #expect(Self.count(".chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)", in: editor) == 3,
                 "New Text File, Find and Expand do not each wear their own glass capsule")
@@ -92,17 +92,17 @@ import Foundation
     }
 
     /// The rail scrolls, and a move with either end scrolled out of view switches instantly rather
-    /// than gliding across the edge — which only happens if the host is handed what the rail shows.
+    /// than gliding across the edge, which only happens if the host is handed what the rail shows.
     /// The rail's chosen item sits on the lens and must not lift off it on hover; the others lift.
     @Test func organizesChosenRailItemStaysSeatedOnItsLens() throws {
         #expect(Self.count(".chromeHover(onLens: isSelected)", in: try Self.source("LensWorkspaceView.swift")) == 2)
     }
 
     /// The hidden mode bars that only reserve a header's height are drawn at Solid: no lens of their
-    /// own to run on a mode change, no glass track — and the same height either way.
+    /// own to run on a mode change, no glass track, and the same height either way.
     ///
-    /// Matched across any whitespace between the two modifiers: it counted them by their exact
-    /// indentation, so moving the empty page's reservation one level out (TE48) read as a lost one.
+    /// Matched across any whitespace between the two modifiers, so a reindent isn't read as a lost
+    /// one.
     @Test func editsHeightReservationsRunNoLens() throws {
         let editor = try Self.source("EditorWorkspaceView.swift")
         let reservation = try NSRegularExpression(pattern: #"\.environment\(\\\.selectionLensAppearance, \.today\)\s*\.hidden\(\)"#)
@@ -114,9 +114,9 @@ import Foundation
         let picker = try Self.source("DestinationPicker.swift")
         #expect(picker.contains(".selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : railFocus"))
         #expect(picker.contains(".selectionLensStop(Self.railLensChannel, id: PaneBrowsePath.normalized(path))"))
-        // Seeded at init, so opening the picker shows the highlight at rest rather than growing it in.
-        // Since TE289 nothing is picked at open and the rail rests on the item's own folder ("now
-        // here"), which `railFocus` derives from the request — still at rest from the first frame.
+        // Seeded at init, so opening the picker shows the highlight at rest rather than growing it
+        // in. Nothing is picked at open and the rail rests on the item's own folder ("now here"),
+        // which `railFocus` derives from the request, at rest from the first frame.
         #expect(picker.contains("_highlighted = State(initialValue: \"\")"))
         #expect(picker.contains("highlighted.isEmpty ? (itemsAreHere ? itemFolder : \"\") : highlighted"))
         // Hosted on the scroll view's content, with the region it shows, as the sidebar's lenses are.

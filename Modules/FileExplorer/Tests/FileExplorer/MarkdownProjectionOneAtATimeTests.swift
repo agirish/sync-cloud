@@ -2,18 +2,16 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **A projection waits while another is building, at every door** — a whole build, a part
-/// re-read, and the re-read that splices it in (``MarkdownProjection/oneAtATime(_:)``).
+/// A projection waits while another is building, at every door: a whole build, a part re-read, and
+/// the re-read that splices it in (``MarkdownProjection/oneAtATime(_:)``).
 ///
-/// This holds the rule, not the abort it was taken for: a FileExplorer test process died on CI
-/// with four projections building at once and an attribute dictionary they share freed under one
-/// of them. The rule did not stop it — it came back with one projection building, inside this very
-/// test — and no rig made it happen: see "An attribute dictionary freed under a projection's own
-/// run — cause not found" in docs/flaky-tests.md. Each case holds the lock itself, as a build on
-/// another thread would, and a projection asked for meanwhile must not finish until it lets go —
-/// then must.
+/// Projections share attribute dictionaries, and one freed under a build can abort the process
+/// (`docs/flaky-tests.md`, "An attribute dictionary freed under a projection's own run — cause not
+/// found"; the rule alone has not been shown to prevent it). Each case holds the lock itself, as a
+/// build on another thread would, and a projection asked for meanwhile must not finish until it
+/// lets go, then must.
 ///
-/// Mutation: drop `oneAtATime` from one door, and that case finishes inside the hold.
+/// Dropping `oneAtATime` from one door must make that case finish inside the hold.
 @Suite struct MarkdownProjectionOneAtATimeTests {
 
     enum Door: CaseIterable, CustomTestStringConvertible {

@@ -4,7 +4,7 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §4.1's last piece: the survey note's caution tint, with the remedy beside it (proposal O13).
+/// The survey note's caution tint for a stale survey, with the remedy beside it.
 @MainActor
 @Suite struct RestructureStalenessTests {
 
@@ -16,8 +16,8 @@ import Testing
         return f.date(from: iso)!
     }
 
-    /// Both sides of the threshold, with an injected instant — a boundary tested from one side
-    /// is a constant, and one tested against `Date()` is a test that changes its mind overnight.
+    /// Both sides of the threshold, with an injected instant: a boundary tested from one side is a
+    /// constant, and one tested against `Date()` changes its mind overnight.
     @Test func theThresholdIsCrossedFromBothSides() {
         let now = Self.day("2026-08-28 12:00")
         let days = RestructureLens.staleSurveyDays
@@ -30,20 +30,19 @@ import Testing
         #expect(!RestructureLens.surveyIsStale(now, now: now))
     }
 
-    /// The VALUE, not just the boundary — it was measured, and a test that derived its fixture
-    /// from the constant would pass for 14 or 30 alike.
+    /// The value, not just the boundary: it was measured, and a fixture derived from the constant
+    /// would pass for 14 or 30 alike.
     @Test func theThresholdIsTheMeasuredOne() {
         #expect(RestructureLens.staleSurveyDays == 21)
         let now = Self.day("2026-08-28 12:00")
-        // The state this machine was actually in when the number was picked: artifacts written
-        // 9 Aug, nineteen days old, and the only re-survey in a month of log.
+        // A survey nineteen days old is an ordinary state for a real tree, so it must not tint.
         #expect(!RestructureLens.surveyIsStale(Self.day("2026-08-09 23:34"), now: now),
                 "a fortnight would have tinted the ordinary state of this tree")
         #expect(RestructureLens.surveyIsStale(Self.day("2026-08-01 09:00"), now: now))
     }
 
-    /// **Unknown is not stale.** A corpus from before §4.1's stamp existed has no date, and the
-    /// note already declines to invent one — inventing a warning about it is the same overreach.
+    /// Unknown is not stale. An undated corpus gets no invented date in the note, and no invented
+    /// warning either.
     @Test func anUndatedSurveyRaisesNoCaution() {
         #expect(!RestructureLens.surveyIsStale(nil, now: Self.day("2026-08-28 12:00")))
         #expect(!RestructureLens.surveyNoteText(folderCount: 10, surveyedAt: nil,
@@ -58,9 +57,9 @@ import Testing
         #expect(!RestructureLens.surveyIsStale(Self.day("2026-09-30 12:00"), now: now))
     }
 
-    /// **The tint lands on the glyph and never on the sentence** — amber on 11pt body text is
-    /// the documented contrast trap this rule exists for. Pinned at the call site, because the
-    /// rule alone cannot say where its answer is used.
+    /// The tint lands on the glyph, never the sentence: amber on 11pt body text is the contrast
+    /// trap this rule exists for. Pinned at the call site, because the rule can't say where its
+    /// answer is used.
     @Test func onlyTheGlyphTakesTheCaution() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -89,15 +88,10 @@ import Testing
                 "the Rescan link appears with the caution and not otherwise")
     }
 
-    /// **The card acts on `surveyIsStale`.** Comparing a fresh render against a stale one looks
-    /// like the test to write and is not one: the two also carry different date sentences ("1 day
-    /// ago" / "24 days ago"), so they differ whatever the staleness branch does — hard-coding
-    /// `stale = false` at the call site left that comparison passing.
-    ///
-    /// What only staleness controls is whether the Rescan link is offered at all. So the
-    /// comparison holds the date fixed and toggles the handler: on a stale survey that must
-    /// change the card, and on a fresh one it must change nothing, because a fresh survey offers
-    /// no link for a handler to attach to.
+    /// The card acts on `surveyIsStale`. A fresh and a stale render also carry different date
+    /// sentences, so they differ whatever the branch does. What only staleness controls is the
+    /// amber glyph and whether the Rescan link is offered, so this counts the amber and, holding
+    /// the date fixed, toggles the handler. Hard-coding `stale = false` must fail it.
     @Test func theCardOffersItsRemedyOnlyWhenTheSurveyIsStale() throws {
         func lens(daysOld age: Int, remedy: Bool) -> RestructureLens {
             RestructureLens(
@@ -113,9 +107,8 @@ import Testing
                                                           width: 660, height: 520))
         #expect(RestructureRender.inkedPixels(fresh) > 1000, "the note drew at all")
 
-        // §4.1's rule puts the caution on the GLYPH and nowhere else, so amber is present in
-        // exactly one state — and unlike a whole-render comparison it cannot be satisfied by the
-        // date sentence changing.
+        // The caution is on the glyph and nowhere else, so amber appears in exactly one state,
+        // and a changed date sentence can't produce it.
         #expect(RestructureRender.cautionPixels(fresh) == 0, "a fresh survey raises no caution")
         #expect(RestructureRender.cautionPixels(stale) > 5,
                 "a three-week-old survey tints its glyph")

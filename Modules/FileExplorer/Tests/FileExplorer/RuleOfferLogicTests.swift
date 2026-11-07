@@ -2,9 +2,8 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins ``RuleOfferLogic/relativeToProviderRoot(_:providerRoot:)`` across its extraction from
-/// LensWorkspaceView (where it was an instance method reading `automationDestinationRoot`). The learned
-/// rule's destination template is derived from this, so a drift here re-points what users teach.
+/// Pins ``RuleOfferLogic/relativeToProviderRoot(_:providerRoot:)``. The learned rule's destination
+/// template is derived from it, so a drift here re-points what users teach.
 @Suite struct RuleOfferLogicTests {
 
     @Test func insideTheRootYieldsTheRelativePath() {
@@ -18,7 +17,7 @@ import Foundation
 
     @Test func outsideTheRootFallsBackToTheLeafName() {
         #expect(RuleOfferLogic.relativeToProviderRoot("/elsewhere/Docs/Tax", providerRoot: "/p") == "Tax")
-        // A sibling sharing the root as a PREFIX string is still outside it.
+        // A sibling sharing the root as a prefix string is still outside it.
         #expect(RuleOfferLogic.relativeToProviderRoot("/provider2/Docs", providerRoot: "/p") == "Docs")
     }
 

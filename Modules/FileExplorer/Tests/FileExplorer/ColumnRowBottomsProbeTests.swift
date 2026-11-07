@@ -5,18 +5,12 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// `ColumnListProbe`'s bar half — where each open column's visible rows end, for the action bar,
-/// read from the column's table instead of from a `GeometryReader` on every row.
-///
-/// The reason it exists is a cost: a `.global` reader on every column row subscribed every row to
-/// the stack's sideways scroll, and a 12 s swipe in the app kept the main thread 47% busy re-laying
-/// out row hosting views that had not changed. So the suite pins two things. The BEHAVIOUR the bar
-/// depends on — every open column reports its visible rows, a vertical scroll moves them, a closed
-/// column takes them back — and the PROPERTY the change was for: a sideways scroll moves nothing,
-/// and no column row carries a geometry reader to subscribe it again.
-///
-/// Mounted offscreen with the reveal unanimated, like `PaneColumnsScrollTests`, whose harness this
-/// follows: three columns in a 520pt window, so the stack genuinely scrolls sideways.
+/// `ColumnListProbe`'s bar half: where each open column's visible rows end, for the action bar, read
+/// from the column's table rather than a `GeometryReader` per row, which would subscribe every row
+/// to the stack's sideways scroll and keep the main thread busy through a swipe. Pins the behaviour
+/// the bar needs (every open column reports its visible rows, a vertical scroll moves them, a
+/// closed column takes them back) and the property: a sideways scroll moves nothing, and no column
+/// row carries a geometry reader. Harness as in `PaneColumnsScrollTests`: three columns in 520pt.
 @MainActor
 @Suite(.serialized) struct ColumnRowBottomsProbeTests {
 
@@ -94,23 +88,19 @@ import Sync
         var tree: PaneTree { box.tree }
     }
 
-    /// Lets the main run loop run for `seconds` by SUSPENDING, a frame at a time. A synchronous
-    /// `RunLoop.run` inside a `@MainActor` test never drains the main queue, so the pane's queued
-    /// work — the drill's reveal, a probe's `rearm()` — would silently never run; see
-    /// `PaneScrollMemoryTests.pump`, where that made a working feature read as broken.
+    /// Lets the main run loop run for `seconds` by suspending, a frame at a time. A synchronous
+    /// `RunLoop.run` in a `@MainActor` test never drains the main queue, so the pane's queued work
+    /// (the drill's reveal, a probe's `rearm()`) would silently never run.
     private func pump(_ seconds: Double) async {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
     }
 
-    /// Waits for `condition` — ARRIVAL, not a fixed time — and never gives up before
-    /// `LayoutPumpWait.pumpFloor` main-actor turns, however long they take. A fixed pump expires on
-    /// schedule and then asserts against a pane that has not laid out (`docs/flaky-tests.md`,
-    /// "quiescence is not arrival"); a ceiling in seconds alone does the same under load. This was
-    /// fifteen seconds and no floor until 2026-10-28, when a sharded run at load 38 had every
-    /// column report 0 rows when it gave up (mechanism 2). `poll`, not `pump`: these waits never
-    /// drove layout, and the floor was the part that was wrong. Fixed pumps remain only where a
-    /// test asserts that something did NOT happen.
+    /// Waits for `condition` to arrive, never giving up before `LayoutPumpWait.pumpFloor` main-actor
+    /// turns, however long they take: a fixed pump or a ceiling in seconds alone asserts against a
+    /// pane that hasn't laid out under load (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
+    /// `poll`, not `pump`, since these waits don't drive layout. Fixed pumps remain only where a test
+    /// asserts that something did not happen.
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
         await LayoutPumpWait.poll(upTo: timeout, until: condition).held
@@ -163,9 +153,8 @@ import Sync
 
     // MARK: - What the bar reads
 
-    /// Every open column reports its visible rows, and each column's bottoms run down the column in
-    /// row order — the placement can only compare rows it has, and only rows in a sane order mean
-    /// anything to it.
+    /// Every open column reports its visible rows, in row order down the column: the placement can
+    /// only compare rows it has, in a sane order.
     @Test func everyOpenColumnReportsItsVisibleRows() async throws {
         let m = await mount()
         defer { m.window.contentView = nil }
@@ -174,8 +163,8 @@ import Sync
             #expect(reported.count >= 5, "the column listing \(directory) reported \(reported.count) rows")
             #expect(reported == reported.sorted(), "\(directory)'s rows are not reported top to bottom")
         }
-        // And each column's probe found ITS column's table — the lists of a stack are siblings that
-        // only their frames tell apart, and a probe on a neighbour's table reports the wrong rows.
+        // Each column's probe found its own table: the lists are siblings told apart only by their
+        // frames, and a probe on a neighbour's table reports the wrong rows.
         var probes: [ColumnListProbe.ProbeView] = []
         func collect(_ v: NSView) {
             if let p = v as? ColumnListProbe.ProbeView { probes.append(p) }
@@ -189,10 +178,8 @@ import Sync
                 "the probes did not resolve one table each, their own")
     }
 
-    /// **The behaviour the change keeps.** Sliding the stack sideways moves no row vertically, so no
-    /// reported bottom may move. (That nothing is RE-MEASURED to get there — the cost the change was
-    /// for — is not something bottoms can show: per-row global readers left them unchanged too. The
-    /// source scan at the bottom of this suite is what holds that.)
+    /// Sliding the stack sideways moves no row vertically, so no reported bottom may move. (Bottoms
+    /// can't show that nothing was re-measured; the source scan at the end of the suite holds that.)
     @Test func aSidewaysScrollMovesNoRowBottom() async throws {
         let m = await mount()
         defer { m.window.contentView = nil }
@@ -211,9 +198,9 @@ import Sync
         #expect(m.placement.rowBottoms == before, "a sideways scroll moved a row's reported bottom")
     }
 
-    /// The positive control for the test above: a VERTICAL scroll of one column moves that column's
-    /// rows by exactly the distance scrolled, and leaves every other column's rows alone. Without it,
-    /// "nothing moved" could as easily mean "nothing is being reported live".
+    /// Positive control for the test above: a vertical scroll of one column moves its rows by exactly
+    /// the distance scrolled and leaves other columns' rows alone. Otherwise "nothing moved" could
+    /// mean "nothing is reported live".
     @Test func aVerticalScrollMovesThatColumnsRowsByTheScroll() async throws {
         let m = await mount()
         defer { m.window.contentView = nil }
@@ -263,12 +250,10 @@ import Sync
                 "a closed column's rows are still in the placement")
     }
 
-    /// **A folder that shrinks under a scrolled column is reported only for the rows it still has.**
-    /// A republish hands the probe the column's new rows before the List has applied them to its
-    /// table, so for a moment the table's visible range can begin past the end of the new rows —
-    /// which trapped, since reading row N of the rows then asks for one that is not there. The probe
-    /// waits for the table and the rows to agree, then reports the rows that remain and takes back
-    /// the ones that went.
+    /// A folder that shrinks under a scrolled column is reported only for the rows it still has. A
+    /// republish hands the probe the new rows before the List applies them to its table, so the
+    /// visible range can start past the new end, and reading such a row would trap. The probe waits
+    /// for table and rows to agree, then reports what remains and withdraws the rest.
     @Test func aFolderThatShrinksUnderAScrolledColumnReportsOnlyItsRows() async throws {
         let m = await mount()
         defer { m.window.contentView = nil }
@@ -292,11 +277,10 @@ import Sync
         #expect(bottoms == bottoms.sorted(), "the remaining rows are not reported top to bottom")
     }
 
-    /// **A report reads only rows the table and the column agree on.** While a republish is half
-    /// applied the table still holds the old rows: 25 where there are now 30 would give rows their
-    /// neighbours' bottoms, and 30 where a folder shrank to 5 reads past the end. Neither is reported
-    /// — the probe keeps its last values until the two agree — while an agreed range is clamped, and
-    /// an empty one is a report of nothing.
+    /// A report reads only rows the table and the column agree on. Half-applied, a republish leaves
+    /// old rows in the table: a count short would give rows their neighbours' bottoms, a count over
+    /// reads past the end. Neither is reported (the probe keeps its last values); an agreed range is
+    /// clamped, and an empty one reports nothing.
     @Test func aReportReadsOnlyRowsTheTableAndTheColumnAgreeOn() {
         #expect(ColumnListProbe.reportableRows(tableRows: 30, rowsCount: 30, visible: NSRange(location: 15, length: 15)) == 15..<30)
         #expect(ColumnListProbe.reportableRows(tableRows: 30, rowsCount: 30, visible: NSRange(location: 25, length: 10)) == 25..<30)
@@ -306,12 +290,10 @@ import Sync
         #expect(ColumnListProbe.reportableRows(tableRows: 5, rowsCount: 5, visible: NSRange(location: NSNotFound, length: 0))?.isEmpty == true)
     }
 
-    /// **The pane leaving the window takes every row back** — the teardown half, and the one the
-    /// test above cannot see: a CLOSING column's list collapses before it leaves, so its last report
-    /// finds no visible row and clears itself on the way out (traced: `fresh=0` just before the
-    /// exit). A whole pane detached intact reports nothing on its way out, and the placement is
-    /// `ContentView`'s — it outlives the pane across a workspace switch. Without the withdrawal the
-    /// next mount would inherit every row of the last one, at the old layout's positions.
+    /// The pane leaving the window takes every row back. A closing column collapses first and
+    /// clears itself, but a pane detached intact reports nothing on its way out, and the placement
+    /// is `ContentView`'s, outliving the pane across a workspace switch; without the withdrawal the
+    /// next mount would inherit the old rows at the old positions.
     @Test func leavingTheWindowWithdrawsEveryRow() async throws {
         let m = await mount()
         try #require(!m.placement.rowBottoms.isEmpty, "nothing was reported, so a withdrawal would prove nothing")
@@ -323,12 +305,10 @@ import Sync
 
     // MARK: - No per-row reader, ever
 
-    /// **A source scan, because the regression is a construct, not a behaviour a fixture can see.**
-    /// Any geometry read inside a column row — a `GeometryReader`, `onGeometryChange`, a `.global`
-    /// frame — subscribes that row to the stack's sideways scroll, and the cost only shows as frame
-    /// drops under a real swipe. Scoped to the column row's modifier chain and to `FileRowView`'s
-    /// body, which every column row draws; comment lines stripped so the notes that NAME the
-    /// constructs cannot convict themselves.
+    /// A source scan, because the regression is a construct no fixture can see: any geometry read in
+    /// a column row (`GeometryReader`, `onGeometryChange`, a `.global` frame) subscribes it to the
+    /// sideways scroll, and costs only frame drops in a real swipe. Scoped to the column row,
+    /// `ColumnRowView`, `FileRowView` and the row background; comment lines are stripped.
     @Test func noColumnRowCarriesAGeometryReader() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

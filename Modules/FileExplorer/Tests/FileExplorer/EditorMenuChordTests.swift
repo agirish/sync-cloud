@@ -4,21 +4,17 @@ import Design
 @testable import FileExplorer
 import EventsTestSupport
 
-/// The menu bar's half of the editor (roadmap RD1), as seen from this module: which verbs carry a
-/// chord, whether the context menu draws the same one, and where the caret has to be for a verb
-/// fired from the menu bar to reach the document.
-///
-/// **The caret tests are the point.** A menu key equivalent outranks the field editor, so ⌘B
-/// registered on a menu item arrives whether the caret is in the document, in the ⌘K field, or in
-/// the find bar's own Find field. `EditorDocumentSurface.applyMarkup` is where that is decided, and
-/// nothing above it can see the responder — so both directions are asserted here, on a real window
-/// with a real first responder.
+/// The menu bar's half of the editor, as seen from this module: which verbs carry a chord, whether
+/// the context menu draws the same one, and where the caret must be for a menu-bar verb to reach
+/// the document. A menu key equivalent outranks the field editor, so ⌘B arrives wherever the caret
+/// is; `EditorDocumentSurface.applyMarkup` decides, and nothing above it can see the responder, so
+/// both directions are asserted on a real window with a real first responder.
 @MainActor
 @Suite(.serialized) struct EditorMenuChordTests {
 
-    /// A text view in a window, marked the way `PlainTextEditor.makeNSView` marks its own. Same
-    /// fixture as `EditorFindBarTests`, for the same reason: a detached view has no first responder
-    /// to ask about. A test that opens the find bar retires it as it ends, as that file's do.
+    /// A text view in a window, marked the way `PlainTextEditor.makeNSView` marks its own, as in
+    /// `EditorFindBarTests`: a detached view has no first responder to ask about. A test that opens
+    /// the find bar retires it as it ends.
     private func hosted(text: String = "one two three\n") -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -37,8 +33,7 @@ import EventsTestSupport
     // MARK: Which verbs carry a chord
 
     /// The five inline verbs and nothing else. Headings and lists are menu-only because ⌘1…⌘4 are
-    /// the workspaces and ⌥ is barred — a rule, so it is pinned as one rather than left to whoever
-    /// next edits the switch.
+    /// the workspaces and ⌥ is barred.
     @Test func onlyTheInlineVerbsCarryAChord() {
         let chorded = MarkupVerb.menuOrder.compactMap { $0 }.filter { $0.chord != nil }
         #expect(chorded == [.bold, .italic, .strikethrough, .inlineCode, .link],
@@ -60,13 +55,11 @@ import EventsTestSupport
 
     // MARK: The context menu draws the same chords
 
-    /// **The context menu's items carry the menu bar's key equivalents — exactly those, and none
-    /// for the verbs that have none.** They were deliberately blank while nothing registered them;
-    /// now that the Markup menu does, a blank here would be the one surface not saying so, and a
-    /// different key here would be worse.
+    /// The context menu's items carry exactly the menu bar's key equivalents, and none for the
+    /// verbs that have none, so the two surfaces never disagree about a chord.
     @Test func theContextMenuDrawsEachVerbsRegisteredChord() {
         let menu = PlainTextEditor.Coordinator.markupMenu(target: nil, action: #selector(NSText.copy(_:)))
-        // Every verb's item, the Table submenu's included (TE65) — its host item is not a verb.
+        // Every verb's item, the Table submenu's included; its host item is not a verb.
         func verbItems(_ menu: NSMenu) -> [NSMenuItem] {
             menu.items.filter { !$0.isSeparatorItem }.flatMap { $0.submenu.map(verbItems) ?? [$0] }
         }
@@ -89,7 +82,7 @@ import EventsTestSupport
         // …and the menu is genuinely divided the way the menu bar's will be.
         #expect(menu.items.filter(\.isSeparatorItem).count == MarkupVerb.menuOrder.filter { $0 == nil }.count)
         // The Table submenu sits where the table run starts in `menuOrder`: between Link and
-        // Divider, in the group that adds something new (TE68).
+        // Divider, in the group that adds something new.
         let titles = menu.items.map(\.title)
         let at = titles.firstIndex(of: "Table")
         #expect(at.map { titles[$0 - 1] == "Link" && titles[$0 + 1] == "Divider" } == true,
@@ -117,10 +110,9 @@ import EventsTestSupport
         #expect(view.undoManager?.canUndo == true, "the verb registered no undo")
     }
 
-    /// **In the ⌘K field, the rename row, a pane's search — any field editor — the verb refuses.**
-    /// This is decision B's other half, and the reason none of these chords may route on
-    /// `TextEditingChord`: a field editor IS an `NSTextView`, and a ⌘I routed on that would
-    /// italicise the Go-to field.
+    /// In any field editor (the ⌘K field, the rename row, a pane's search) the verb refuses. That
+    /// is why none of these chords may route on `TextEditingChord`: a field editor is an
+    /// `NSTextView`, and ⌘I routed on that would italicise the Go-to field.
     @Test func aVerbRefusesWhenTheCaretIsInAFieldEditor() {
         let (_, view, window) = hosted()
         let field = NSTextField(string: "not the document")
@@ -136,10 +128,9 @@ import EventsTestSupport
         #expect(field.stringValue == "not the document", "the field was edited")
     }
 
-    /// **The find bar's own field is inside the editor's scroll view, and a verb still refuses
-    /// there.** ⌘F treats that field as "in the document" so a second ⌘F does not fall through to
-    /// the pane search; Bold cannot, because the selection the reader is looking at is in the Find
-    /// field and the verb would wrap whatever the document happened to have selected instead.
+    /// The find bar's field is inside the editor's scroll view, and a verb still refuses there. ⌘F
+    /// counts that field as "in the document" so a second ⌘F doesn't fall through to the pane
+    /// search; Bold can't, or it would wrap the document's selection, not what the reader sees.
     @Test func aVerbRefusesInTheFindBarsOwnField() {
         let (scroll, view, window) = hosted()
         defer { PlainTextEditor.retireFindBar(of: view) }
@@ -195,14 +186,11 @@ import EventsTestSupport
         #expect(view.string == "one two three\n")
     }
 
-    /// **In a file that is not Markdown the verbs do nothing, and say so** (FMT-18). ⌘B, the Markup
-    /// menu and the right-click submenu wrote `****`, `- ` and tables into `.txt`, `.yaml` and
-    /// `.json` files. The menu bar greys its items there (`EditorVerbs.canMarkUp`, in the app); the
-    /// right-click submenu is drawn greyed; and the surface refuses, so no door slips through —
-    /// ⌘I asks `markupTextView` and opens the inspector instead. The same view under a `.md`
-    /// coordinator is the control: everything works.
-    ///
-    /// Mutation: have `isMarkdownDocument` answer `true` always, and every refusal line fails.
+    /// In a file that isn't Markdown the verbs do nothing, and say so, rather than writing `****`,
+    /// `- ` or tables into it. The menu bar greys its items (`EditorVerbs.canMarkUp`, in the app),
+    /// the right-click submenu is greyed, and the surface refuses, so ⌘I opens the inspector
+    /// instead. The `.md` case is the control. `isMarkdownDocument` always answering `true` fails
+    /// every refusal.
     @Test func aVerbDoesNothingInAFileThatIsNotMarkdown() async throws {
         let log = LogCapture()
         for (path, isMarkdown) in [("/scratch/notes.txt", false), ("/scratch/config.yaml", false),

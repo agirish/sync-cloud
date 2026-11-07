@@ -6,12 +6,11 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// **The card must SAY that filing also renames.**
+/// The card must say that filing also renames.
 ///
-/// This suite exists because the first cut of the rename-on-the-way-in path shipped without it:
-/// `FilingDestination.proposedName` was computed by the scan, honoured by the apply path, and
-/// rendered by nothing at all — so "File here" moved *and renamed* the file with the card showing
-/// only the move. Every unit test passed, because they all asked the model.
+/// `FilingDestination.proposedName` is computed by the scan and honoured by the apply path, so a
+/// card that didn't render it would let "File here" move and rename the file while showing only the
+/// move, with every model-level test still passing.
 ///
 /// So this asks the pixels. `FilingLensTests` covers what the card decides; this covers that the
 /// decision reaches the screen.
@@ -50,7 +49,7 @@ import Testing
     }
 
     /// Pixels differing from the window background, measured as delta-from-a-corner rather than by
-    /// brightness — the repo's usual `brightness < 0.90` filter is blind to pale secondary text,
+    /// brightness: the repo's usual `brightness < 0.90` filter is blind to pale secondary text,
     /// which is exactly what this row is drawn in.
     @MainActor
     private func ink(_ host: NSHostingView<AnyView>) -> Int {

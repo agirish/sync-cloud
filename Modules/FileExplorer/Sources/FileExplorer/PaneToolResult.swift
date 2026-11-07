@@ -1,18 +1,14 @@
 import Foundation
 import Sync
 
-/// **How a pane-launched PDF tool or Save as PDF ended, as a result message** (Banner Room, TE207).
+/// How a pane-launched PDF tool or Save as PDF ended, as a result message.
 ///
-/// These results were cards of their own at the window's foot, 44pt above its edge and up to 640pt
-/// wide, sticky until their ✕ — over the bottom rows of every pane. They are results of what you
-/// just did, so they go where every other result goes now: the pane's result message, with the same
-/// timing (a success leaves after 5 s, a failure stays) and their doors as its buttons. The run's
-/// PROGRESS stays at the foot; only the ending moves.
-///
-/// The message is plain `OperationBanner` data, so it routes, times out and is announced like the
-/// rest; the doors are the run's own host's, carried beside it for the message's buttons to call.
+/// It goes where every other result goes, the pane's result message, with the same timing (a
+/// success leaves after 5 s, a failure stays) and its doors as buttons; the run's progress stays at
+/// the window's foot. The message is plain `OperationBanner` data, so it routes, times out and is
+/// announced like the rest; the doors are the run's host's, carried beside it.
 public struct PaneToolResult {
-    /// Which run it ends — so the window can send it where that run was started (Run Room CP).
+    /// Which run it ends, so the window can send it where that run was started.
     public enum Source: Equatable, Sendable {
         case pdfTools
         case saveAsPDF
@@ -33,7 +29,7 @@ public struct PaneToolResult {
         self.download = download
     }
 
-    /// A PDF tool's ending — one copy, a batch's copies, a note, or a failure.
+    /// A PDF tool's ending: one copy, a batch's copies, a note, or a failure.
     init(_ result: EditorPDFToolBanner, host: PanePDFToolHost) {
         var followUps: [OperationBanner.FollowUp] = []
         let severity: OperationBanner.Severity
@@ -72,8 +68,8 @@ public struct PaneToolResult {
                   source: .saveAsPDF, open: host.open, reveal: host.reveal)
     }
 
-    /// **The doors go to the files still there** — the rule Edit's banner and a batch's keep
-    /// (``EditorPDFBatch/follow(_:_:)``): a copy trashed or moved since is left out. Empty when none
+    /// The doors go to the files still there, the rule Edit's banner keeps
+    /// (``EditorPDFTools/follow(_:_:)``): a copy trashed or moved since is left out. Empty when none
     /// is left, and the message then says so (``goneMessage(_:)``) instead of a door that does nothing.
     public static func stillThere(_ paths: [String],
                                   exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
@@ -81,7 +77,7 @@ public struct PaneToolResult {
         paths.filter(exists)
     }
 
-    /// The batch's own words for it, so a door from either place says the same.
+    /// Edit's banner's words for it, so a door from either place says the same.
     public static func goneMessage(_ paths: [String]) -> String {
         paths.count == 1
             ? "“\((paths[0] as NSString).lastPathComponent)” is no longer there — it was moved or deleted."

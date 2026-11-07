@@ -4,18 +4,17 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// A click in a column must leave the pane's layout SETTLED.
+/// A click in a column must leave the pane's layout settled.
 ///
-/// AppKit runs update-constraints/layout passes until a window stops dirtying itself, and raises
-/// `NSGenericException` — "marked as needing another update constraints pass, but it has already
-/// had more … passes than there are views in the window" — when it never does. That is a hard
-/// crash, and drilling through folders in Columns produced one: the pane's geometry callback and
-/// its host resolved the action bar's edge from two DIFFERENT selections, each committed its answer
-/// to the shared anchor, and the pane's half wrote host state from inside the very layout pass that
+/// AppKit runs update-constraints and layout passes until a window stops dirtying itself, and
+/// raises `NSGenericException` ("…already had more … passes than there are views in the window")
+/// when it never does: a hard crash. A drill in Columns can cause one if the pane's geometry
+/// callback and its host resolve the action bar's edge from different selections, each commits its
+/// answer to the shared anchor, and the pane writes host state from inside the layout pass that
 /// called it.
 ///
-/// These tests pin the two halves of that: the anchor can no longer be committed from two sources,
-/// and a drill on a low row no longer flips an edge that the host will immediately un-flip.
+/// These pin both halves: the anchor is committed from one source, and a drill on a low row doesn't
+/// flip an edge the host would immediately un-flip.
 @MainActor
 @Suite struct PaneColumnsLayoutLoopTests {
 
@@ -44,10 +43,10 @@ import Sync
     }
 
     /// Stands in for the app's `FileSyncManager` + `ContentView` state. `selection` and
-    /// `hostSelection` are separate on purpose — that IS the app's shape: the pane's List holds the
-    /// clicked row at once, while the host's `barSelectionNodes` is empty for a pane that isn't the
-    /// active one, which includes the just-clicked pane for the turn before the other side's
-    /// selection is cleared.
+    /// `hostSelection` are separate on purpose, as in the app: the pane's List holds the clicked
+    /// row at once, while the host's `barSelectionNodes` is empty for a pane that isn't the active
+    /// one, which includes the just-clicked pane for the turn before the other side's selection is
+    /// cleared.
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -56,7 +55,7 @@ import Sync
 
     private static let root = "/root"
 
-    /// A root of directories, each holding a few files — enough rows that a folder low in the list
+    /// A root of directories, each holding a few files: enough rows that a folder low in the list
     /// sits inside the bar's coverage band.
     private static func tree(folders: Int) -> PaneTree {
         let nodes = (0..<folders).map { i -> FileNode in
@@ -114,16 +113,14 @@ import Sync
         }
     }
 
-    /// Mounts the harness in a real (never ordered-in) window, the way the snapshot harness does —
-    /// a `List` only bridges to an `NSTableView`, and preferences only carry real geometry, inside
-    /// a window that actually lays out.
+    /// Mounts the harness in a real (never ordered-in) window, as the snapshot harness does: a
+    /// `List` only bridges to an `NSTableView`, and preferences only carry real geometry, inside a
+    /// window that actually lays out.
     ///
-    /// The pane is mounted on a `NotificationCenter` of this suite's own. It wants nothing from
-    /// `.cloudDownloadRequested`, but a mounted `FileTreeView` subscribes regardless, and on
-    /// `.default` this left pane accepted the `.left` posts `CloudDownloadWiringTests` makes to
-    /// prove a RIGHT pane ignores them — running `CloudOnlyBadgeCache.forget` on that suite's
-    /// ghosts and failing it for a defect that was never there. See `docs/flaky-tests.md`
-    /// mechanism 9.
+    /// On a `NotificationCenter` of this suite's own: a mounted `FileTreeView` subscribes to
+    /// `.cloudDownloadRequested` regardless, and on `.default` this left pane would take the
+    /// `.left` posts `CloudDownloadWiringTests` makes and fail that suite. See
+    /// `docs/flaky-tests.md`, "A mounted view is a live subscriber, in every suite at once".
     private func mount(_ box: Box, counter: Counter) -> (NSWindow, PaneBarPlacement) {
         let tree = Self.tree(folders: 40)
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
@@ -142,11 +139,11 @@ import Sync
 
     /// Pumps the runloop, re-laying out by hand each turn.
     ///
-    /// **The manual `layoutIfNeeded` here disarms AppKit's runaway guards**, measured: a
-    /// never-settling sibling ping-pong survives 400 rounds of it without raising, while one second
-    /// of the runloop alone raises on the first cycle. These tests pin the action-bar anchor rule,
-    /// which this driver measures fine; they do NOT bound the window's update-constraints budget.
-    /// `ColumnsDisplayCycleTests` does that — see `docs/columns-layout-loop.md`.
+    /// The manual `layoutIfNeeded` disarms AppKit's runaway guards: a never-settling sibling
+    /// ping-pong survives hundreds of rounds of it without raising, while the runloop alone raises
+    /// on the first cycle. So these tests pin the action-bar anchor rule and do not bound the
+    /// window's update-constraints budget; `ColumnsDisplayCycleTests` does (see
+    /// `docs/columns-layout-loop.md`).
     private func pump(_ window: NSWindow, seconds: Double) {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
@@ -155,7 +152,7 @@ import Sync
         }
     }
 
-    /// Rows AppKit actually laid out, per table — the guard against a vacuous pass. A window that
+    /// Rows AppKit actually laid out, per table: the guard against a vacuous pass. A window that
     /// never materialised the columns would satisfy every assertion below while proving nothing.
     private func tableRowCounts(_ view: NSView) -> [Int] {
         var counts: [Int] = []
@@ -167,22 +164,23 @@ import Sync
         return counts
     }
 
-    /// Clicking a folder LOW in a column — the drill the crash was taken during. The pane must not
-    /// ask the host to move the bar for a selection the host isn't showing a bar for.
+    /// Clicking a folder low in a column must not make the pane ask the host to move the bar for a
+    /// selection the host isn't showing a bar for.
     @Test func testDrillOnALowRowDoesNotFlipAnEdgeTheHostWillUnflip() throws {
         let box = Box()
         let counter = Counter()
         let (window, placement) = mount(box, counter: counter)
         // Drops the last reference to the SwiftUI graph, and with it the pane's live subscription,
-        // rather than leaving it to ARC. Not `close()` — see mechanism 8.
+        // rather than leaving it to ARC. Not `close()`: see `docs/flaky-tests.md`, "The wait that
+        // hangs instead of failing".
         defer { window.contentView = nil }
         pump(window, seconds: 0.3)
 
         // Proof the pane really laid out: the root column's rows, and nothing else yet.
         #expect(tableRowCounts(window.contentView!) == [40])
-        // The lowest row INSIDE the viewport — the one a bottom-docked bar would cover, and so the
-        // one whose click asks for the flip. Taken from live geometry, not a row index, so a
-        // density or font change can't quietly move the test off the band it is aiming at.
+        // The lowest row inside the viewport: the one a bottom-docked bar would cover, whose click
+        // asks for the flip. Taken from live geometry, not a row index, so a density or font change
+        // can't move the test off the band.
         let target = try #require(
             placement.rowBottoms
                 .filter { $0.value - placement.viewportGlobalMinY <= placement.viewportHeight }
@@ -194,7 +192,7 @@ import Sync
 
         let settledBodies = counter.bodies
         // The tap: open that folder's column and select it. The host's bar selection stays empty
-        // for this turn, exactly as `activePane`'s tiebreak leaves it after a click.
+        // for this turn, as `activePane`'s tiebreak leaves it after a click.
         var path = box.browsePath
         path.drill(into: (target.key as NSString).lastPathComponent, atDepth: 0)
         box.browsePath = path
@@ -203,16 +201,16 @@ import Sync
 
         // The drilled column is open: the click did what a click does.
         #expect(tableRowCounts(window.contentView!) == [40, 4])
-        // …and the pane asked for no edge flip, because the bar it would move isn't showing.
-        // Before the fix this was 1: the pane resolved `true` from its own raw selection and the
-        // host immediately committed `false` back from its empty one.
+        // …and the pane asked for no edge flip, because the bar it would move isn't showing. Fails
+        // if the pane resolves from its own raw selection while the host commits from its empty
+        // one.
         #expect(counter.flips == 0)
         #expect(placement.atTop == false)
         let cost = counter.bodies - settledBodies
         #expect(cost < 50, "drill re-rendered the pane \(cost)× — layout is not settling")
     }
 
-    /// The anchor has ONE source. A pane re-resolving after a scroll reasons from the selection the
+    /// The anchor has one source. A pane re-resolving after a scroll reasons from the selection the
     /// host committed, so it can never hand back a different edge than the host's next render will.
     @Test func testReresolveCannotDisagreeWithTheHostsCommit() {
         let placement = PaneBarPlacement()

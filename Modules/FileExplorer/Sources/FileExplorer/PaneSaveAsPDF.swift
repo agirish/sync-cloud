@@ -9,13 +9,13 @@ import Sync
 public struct PaneSaveAsPDFHost {
     /// A PDF landed at this path: the panes showing its folder re-read.
     public var didWrite: (String) -> Void
-    /// The banner's Open in Edit — the PDF in Edit's reader.
+    /// The banner's Open in Edit: the PDF in Edit's reader.
     public var open: (String) -> Void
-    /// The banner's Reveal in Browse — the one PDF, or a batch's PDFs.
+    /// The banner's Reveal in Browse: the one PDF, or a batch's PDFs.
     public var reveal: ([String]) -> Void
-    /// **Where to save when the original's folder cannot be written to** — handed the original and
-    /// the name the PDF would have had, answering a path or `nil` for "don't save this one". The app
-    /// asks with a save panel (CV4).
+    /// Where to save when the original's folder can't be written to: handed the original and the
+    /// PDF's would-be name, answering a path or `nil` for "don't save this one". The app asks with a
+    /// save panel.
     public var chooseDestination: (_ original: String, _ suggestedName: String) -> String?
 
     public init(didWrite: @escaping (String) -> Void = { _ in },
@@ -32,18 +32,18 @@ public struct PaneSaveAsPDFHost {
 /// How a run ended, in the banner's words, with what it offers.
 public struct SaveAsPDFBanner: Equatable, Identifiable, Sendable {
     public enum Kind: Equatable, Sendable {
-        /// One PDF, at this path — Open in Edit and Reveal in Browse.
+        /// One PDF, at this path: Open in Edit and Reveal in Browse.
         case saved(String)
-        /// Several PDFs — Reveal in Browse selects them.
+        /// Several PDFs: Reveal in Browse selects them.
         case savedSeveral([String])
-        /// Nothing was saved, and nothing went wrong — a run stopped before its first file.
+        /// Nothing was saved and nothing went wrong: a run stopped before its first file.
         case note
         case failure
     }
     public let id = UUID()
     public var message: String
-    /// A second line: a deck saved as pictures — its text recognised or not — and why each file
-    /// that failed did.
+    /// A second line: a deck saved as pictures (its text recognised or not), and why each failed
+    /// file failed.
     public var detail: String?
     public var kind: Kind
 
@@ -52,21 +52,21 @@ public struct SaveAsPDFBanner: Equatable, Identifiable, Sendable {
     }
 }
 
-/// **Save as PDF, run from a pane's row menu or File ▸ Save as PDF** — one window-level owner for
-/// the run, its progress and its banner.
+/// Save as PDF, run from a pane's row menu or File ▸ Save as PDF: one window-level owner for the
+/// run, its progress and its banner.
 ///
-/// **One file at a time, beside its original, never over anything** (CV4, decision AN): each file
-/// is rendered (``SaveAsPDFRender``) and written as `<name>.pdf` in its own folder — `<name> 2.pdf`
-/// when that is taken — by ``EditorPDFCopyWriter``, which stages the bytes and moves them in with
-/// `RENAME_EXCL`. The original is only ever read. A folder that cannot be written to asks where
-/// instead, through the host. Stop ends the run between files; the PDFs already written stay.
+/// One file at a time, beside its original, never over anything: each file is rendered
+/// (``SaveAsPDFRender``) and written as `<name>.pdf` in its own folder (`<name> 2.pdf` when taken)
+/// by ``EditorPDFCopyWriter``, which stages the bytes and moves them in with `RENAME_EXCL`. The
+/// original is only ever read. An unwritable folder asks where instead, through the host. Stop ends
+/// the run between files; PDFs already written stay.
 ///
 /// One run at a time: a second request while one is in flight is told so, in the running banner.
 @MainActor
 public final class PaneSaveAsPDF: ObservableObject {
 
     public struct Progress: Equatable, Sendable {
-        /// Files finished — written, failed or skipped.
+        /// Files finished: written, failed or skipped.
         public var done: Int
         public var total: Int
         /// The file being rendered now.
@@ -79,17 +79,16 @@ public final class PaneSaveAsPDF: ObservableObject {
     @Published public private(set) var busyNote: String?
     /// Set by the window before each request.
     public var host = PaneSaveAsPDFHost()
-    /// Settings ▸ Text size and the window's accent — what Edit's Print sets a note in.
+    /// Settings ▸ Text size and the window's accent, which Edit's Print sets a note in.
     public var fontScale: CGFloat = 1
     public var accent: Color = LiquidGlassHue.stored().accentColor
 
-    /// The run's task — kept so a test can await it; nothing in the app does.
+    /// The run's task, kept so a test can await it.
     private(set) var work: Task<Void, Never>?
     private var stopRequested = false
 
-    /// **A run a request asked for** (TE294): where each file's PDF goes when its own folder can't
-    /// be written to, the stamp each file had when it was chosen, and who hears the ending — which
-    /// then never reaches ``banner``.
+    /// A run a request asked for: where each file's PDF goes when its own folder can't be written
+    /// to, each file's stamp when chosen, and who hears the ending (which then skips ``banner``).
     private struct Request {
         var folders: [String: String]
         var expected: [String: EditorFileStore.Stamp]
@@ -107,7 +106,7 @@ public final class PaneSaveAsPDF: ObservableObject {
     public init() {}
 
     public var isRunning: Bool { progress != nil }
-    /// When the run in flight was asked for — what orders it among the window's other runs.
+    /// When the run in flight was asked for, which orders it among the window's other runs.
     public private(set) var startedAt: Date?
 
     /// The request a row's menu or File ▸ made, over `paths`. `writer` names the workspace in the log.
@@ -127,11 +126,10 @@ public final class PaneSaveAsPDF: ObservableObject {
         work = Task { @MainActor in await run(paths, writer: writer) }
     }
 
-    /// **Save as PDF asked for by a request** — an Ask Claude card (TE294). The same run as a
-    /// menu's, with two differences: nothing asks where to save — `folders` already says, by
-    /// original, for a file whose own folder can't be written to, and a chosen folder gets the
-    /// keep-both rule too, so nothing is replaced there — and the ending goes to `completion`,
-    /// not the pane. A file that changed since its stamp in `expecting` is left alone.
+    /// Save as PDF asked for by an Ask Claude card. The menu's run, except nothing asks where to
+    /// save (`folders` says, by original, for an unwritable folder, and keep-both applies there too,
+    /// so nothing is replaced), and the ending goes to `completion`, not the pane. A file changed
+    /// since its stamp in `expecting` is left alone.
     public func startFromChat(paths: [String], folders: [String: String] = [:],
                               expecting: [String: EditorFileStore.Stamp], writer: String,
                               completion: @escaping @MainActor (PDFRunResult) -> Void) {
@@ -154,8 +152,7 @@ public final class PaneSaveAsPDF: ObservableObject {
     }
 
     private func run(_ paths: [String], writer: String) async {
-        // Asked for, and watched in the banner: not work for App Nap to slow when the window is
-        // behind another app's.
+        // User-initiated work, so App Nap mustn't slow it when the window is behind another app.
         let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Saving files as PDF")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         var saved: [SaveAsPDFSummary.Saved] = []
@@ -187,8 +184,7 @@ public final class PaneSaveAsPDF: ObservableObject {
     /// One file: rendered, then written. Answers why it was not saved, or `nil` when it was.
     private func save(_ path: String, writer: String, into saved: inout [SaveAsPDFSummary.Saved]) async -> String? {
         let name = (path as NSString).lastPathComponent
-        // Evicted since the menu was built: reading the placeholder would download it, which nobody
-        // asked for.
+        // Evicted since the menu was built: reading the placeholder would download it.
         if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return "it isn’t downloaded" }
         if let want = request?.expected[path], EditorFileStore.stamp(ofPath: path) != want {
             return "it changed since it was chosen"
@@ -247,16 +243,16 @@ public final class PaneSaveAsPDF: ObservableObject {
     }
 }
 
-/// **The banner's words for how a run ended** — pure, so each sentence is pinned by a test.
+/// The banner's words for how a run ended: pure, so each sentence is pinned by a test.
 enum SaveAsPDFSummary {
     struct Saved: Equatable {
         var name: String
         var copy: String
         var pageCount: Int
-        /// Slides that were pictures — all of them, some, or none.
+        /// Slides that were pictures: all, some, or none.
         var picturePages: Int
         var isRecognised: Bool
-        /// The original, the written file's stamp and its size — what a request's result carries.
+        /// The original, the written file's stamp and its size, which a request's result carries.
         var source: String?
         var stamp: EditorFileStore.Stamp?
         var bytes: Int?
@@ -273,7 +269,7 @@ enum SaveAsPDFSummary {
 
     static func pages(_ count: Int) -> String { count == 1 ? "1 page" : "\(count) pages" }
 
-    /// A request's ending as data, with the banner's own words (TE294).
+    /// A request's ending as data, with the banner's own words.
     static func result(_ ending: SaveAsPDFBanner, paths: [String], saved: [Saved], failed: [Failed]) -> PDFRunResult {
         let written = saved.compactMap { one -> PDFWrittenFile? in
             guard let source = one.source, let stamp = one.stamp else { return nil }
@@ -311,7 +307,7 @@ enum SaveAsPDFSummary {
     static func banner(total: Int, saved: [Saved], failed: [Failed], stoppedBefore: Int) -> SaveAsPDFBanner {
         var detail: [String] = []
         // Read by Vision: searchable, with a misread here and there. A deck only partly pictures
-        // says how many of its slides were — the count Abhishek chose on 2026-10-19.
+        // says how many of its slides were.
         let recognised = saved.filter { $0.picturePages > 0 && $0.isRecognised }
         if total == 1, let one = recognised.first {
             detail.append(one.isPictures
@@ -372,9 +368,9 @@ enum SaveAsPDFSummary {
 
 // MARK: - The window's half
 
-/// **Save as PDF's handover to the pane.** Its progress, with Stop, is in the toolbar's capsule
-/// (``RunCapsuleHost``); how it ended is the pane's result message (Banner Room, TE207): handed to
-/// `onResult` and taken off the model. Nothing is drawn at the window's foot.
+/// Save as PDF's handover to the pane. Its progress, with Stop, is in the toolbar's capsule
+/// (``RunCapsuleHost``); its ending is the pane's result message, handed to `onResult` and taken
+/// off the model. Nothing is drawn at the window's foot.
 struct PaneSaveAsPDFLayer: View {
     @ObservedObject var model: PaneSaveAsPDF
     let accent: Color
@@ -391,7 +387,7 @@ struct PaneSaveAsPDFLayer: View {
         }
     }
 
-    /// The capsule's title — its count says how far a batch has got.
+    /// The capsule's title: the file's name, or a batch's file count.
     static func progressTitle(_ progress: PaneSaveAsPDF.Progress) -> String {
         progress.total == 1
             ? "Saving “\(progress.name)” as PDF…"
@@ -399,7 +395,7 @@ struct PaneSaveAsPDFLayer: View {
     }
 }
 
-/// **The row menu's Save as PDF item** — one file or a batch, under the offer's own title.
+/// The row menu's Save as PDF item: one file or a batch, under the offer's own title.
 struct SaveAsPDFMenuItem: View {
     let offer: SaveAsPDFOffer
     let delegate: FileActionDelegate
@@ -410,6 +406,6 @@ struct SaveAsPDFMenuItem: View {
         }
     }
 
-    /// A page with a downward arrow — the mockup's glyph.
+    /// A page with a downward arrow.
     static let glyph = "arrow.down.doc"
 }

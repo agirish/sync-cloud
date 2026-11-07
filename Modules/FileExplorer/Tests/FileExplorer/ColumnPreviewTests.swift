@@ -4,13 +4,10 @@ import Sync
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The rules behind the file preview (the Info inspector's, since TE317 C): *whether* a file may be
-/// handed to Quick Look at all, and what the preview area says when it is not.
-///
-/// Pure on purpose. The rendering is a `QLPreviewView` and can only be judged by eye, but the
-/// policy — never a cloud-only placeholder — is exactly the part that would fail silently:
-/// previewing a dataless placeholder looks like a working preview, right up until the provider has
-/// downloaded four gigabytes nobody asked for.
+/// The rules behind the Info inspector's file preview: whether a file may be handed to Quick Look
+/// at all, and what the preview area says when it isn't. Pure on purpose: the rendering can only
+/// be judged by eye, but the policy (never a cloud-only placeholder) fails silently, looking like
+/// a working preview while the provider downloads gigabytes nobody asked for.
 @Suite struct ColumnPreviewTests {
 
     private static let dir = "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Documents/TODO"
@@ -33,16 +30,14 @@ import UniformTypeIdentifiers
 
     // MARK: - Whether Quick Look may see it
 
-    /// The load-bearing case. This pane browses cloud folders, where a dataless placeholder is the
-    /// normal state of a file rather than an edge case, and handing one to Quick Look forces the
-    /// provider to fetch the whole thing. Selecting a row must never do that.
+    /// The case that matters. In cloud folders a dataless placeholder is a file's normal state, and
+    /// handing one to Quick Look makes the provider fetch it all. Selecting a row must never do that.
     @Test func testACloudOnlyPlaceholderIsNeverHandedToQuickLook() {
         #expect(ColumnPreviewSource.classify(exists: true, isCloudOnly: true) == .cloudOnly)
     }
 
-    /// The dataless check comes FIRST, for the reason `FileContentVerifier` documents: a placeholder
-    /// is a placeholder whatever else is true of it. An ordering that tested existence first would
-    /// classify the (common) present-but-dataless file as previewable.
+    /// The dataless check comes first, as `FileContentVerifier` explains: a placeholder is a
+    /// placeholder whatever else is true of it.
     @Test func testTheDatalessCheckOutranksEverythingElse() {
         #expect(ColumnPreviewSource.classify(exists: false, isCloudOnly: true) == .cloudOnly)
     }
@@ -60,14 +55,10 @@ import UniformTypeIdentifiers
 
     // MARK: - What the preview area says and offers
 
-    /// The user-visible half of `isAwaitingDownload`, which shipped unproven.
-    ///
-    /// Mutating the caption to a constant `"Not downloaded"` and the control swap to `if false` —
-    /// every preview-started download losing its spinner and going on offering a Download button
-    /// for a file already downloading — left all 677 tests green. The rendered form has no channel:
-    /// SwiftUI builds no accessibility tree without an assistive client, so a caption assertion on a
-    /// hosted pane passes vacuously, and whether `ProgressView`/`Button` bridge to findable AppKit
-    /// views is a version-dependent detail. The decision is a value now, so these are calls.
+    /// The user-visible half of `isAwaitingDownload`: a download in flight shows its spinner, not a
+    /// Download button. Tested as values because the rendered form can't be read: SwiftUI builds no
+    /// accessibility tree without an assistive client. Fails if the caption becomes a constant
+    /// `"Not downloaded"` or the control swap `if false`.
     @Test func aDownloadInFlightSaysSoAndShowsProgressInsteadOfTheOffer() {
         #expect(ColumnPreviewColumn.caption(source: .cloudOnly, isAwaitingDownload: true)
                 == "Downloading…")
@@ -81,17 +72,16 @@ import UniformTypeIdentifiers
         #expect(PreviewAccessory.decide(source: .cloudOnly, isAwaitingDownload: false) == .offer)
     }
 
-    /// Only a placeholder has anything to offer. A vanished file cannot be fetched — offering a
-    /// Download button for it is the collapse `testAVanishedFileIsMissingRatherThanCloudOnly`
-    /// prevents one step earlier, arriving at the control instead of at the classification.
+    /// Only a placeholder has anything to offer. A vanished file can't be fetched; this is
+    /// `testAVanishedFileIsMissingRatherThanCloudOnly`'s rule, at the control.
     @Test func aVanishedFileSaysSoAndOffersNothing() {
         #expect(ColumnPreviewColumn.caption(source: .missing, isAwaitingDownload: false)
                 == "This file is no longer here")
         #expect(PreviewAccessory.decide(source: .missing, isAwaitingDownload: false) == .none)
     }
 
-    /// And a materialized or not-yet-probed file is captionless and bare — the icon alone, so the
-    /// column has content the moment it appears.
+    /// A materialized or not-yet-probed file is captionless and bare, the icon alone, so the column
+    /// has content the moment it appears.
     @Test func aPreviewableOrUnprobedFileIsBare() {
         for source: ColumnPreviewSource? in [.quickLook, nil] {
             #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: false) == nil)
@@ -99,10 +89,9 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// `isAwaitingDownload` may only be read THROUGH the classification. The pane resolves the flag
-    /// against the file the column is currently showing, but the probe for that file can still be
-    /// out — and a watch reaching a column that has already moved on to a local file must not
-    /// caption it "Downloading…" or hide its preview behind a spinner.
+    /// `isAwaitingDownload` is read only through the classification. The probe for the shown file can
+    /// still be out, and a watch reaching a column that moved on to a local file must not caption it
+    /// "Downloading…" or hide its preview behind a spinner.
     @Test func aWatchOnAFileThatIsNotAPlaceholderChangesNothing() {
         for source: ColumnPreviewSource? in [.quickLook, .missing, nil] {
             #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: true)
@@ -111,9 +100,9 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// The column reads its own probe: before one completes there is nothing to offer, whatever the
-    /// pane's latch says. Pins the two instance properties onto the statics above — mutate either
-    /// forward to a constant and this fails.
+    /// Before its own probe completes the column offers nothing, whatever the pane's latch says.
+    /// Ties the two instance properties to the statics above: forward either to a constant and this
+    /// fails.
     @MainActor
     @Test func anUnprobedColumnOffersNothing() throws {
         let item = try Self.item("scan.pdf")

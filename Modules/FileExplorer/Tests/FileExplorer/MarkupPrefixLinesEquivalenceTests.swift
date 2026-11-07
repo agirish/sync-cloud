@@ -2,22 +2,14 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **The line-prefix verbs, held against the algorithm they replaced.**
-///
-/// `prefixLines` used to rebuild the whole buffer once per selected line —
-/// `result = result.replacingCharacters(in:with:)` inside the loop — which is O(n) per line and so
-/// O(n · lines) for one press. Quoting a 500-line section of a 200 KB note copied about 100 MB. The
-/// rewrite assembles the covered lines once and splices them in, which is two copies of the buffer
-/// however many lines are selected.
-///
-/// That is a performance change with no behaviour attached to it, and "no behaviour attached" is a
-/// claim rather than an observation — so the old algorithm is written out below, verbatim, and both
-/// are run over every combination of a corpus and the five line verbs. It shares the helpers with
-/// the real one (`stripping`, `applying`, `selectionAfter`), so what is being compared is the loop
-/// and nothing else, which is the only thing that changed.
+/// The line-prefix verbs, held against the per-line loop they replaced. `prefixLines` assembles the
+/// covered lines once and splices them in (two buffer copies per press), where the old loop rebuilt
+/// the whole buffer once per line, O(n · lines). That should change no behaviour, so the old loop
+/// is kept below and both run over a corpus and every line verb. It shares the real helpers
+/// (`stripping`, `applying`, `selectionAfter`), so only the loop is compared.
 @Suite struct MarkupPrefixLinesEquivalenceTests {
 
-    /// The loop as it stood before the rewrite.
+    /// The per-line loop `prefixLines` replaced.
     private static func oldPrefixLines(_ text: String, _ selection: NSRange,
                                        _ prefix: MarkdownEdits.LinePrefix) -> MarkupEdit? {
         let ns = text as NSString
@@ -110,18 +102,16 @@ import Foundation
             }
             for (name, prefix) in Self.prefixes {
                 for selection in selections {
-                    // Departures on purpose, each pinned in `MarkupVerbTests`: on blank lines alone
-                    // the verb starts an item (2026-10-05) — left out — and the selection stays on
-                    // the words it held rather than keeping its index (a bare caret since
-                    // 2026-10-05, every selection since FMT-8) — so the TEXT is compared, and the
-                    // selection is held to its own test.
+                    // Deliberate departures, each pinned in `MarkupVerbTests`: on blank lines alone
+                    // the verb starts an item (left out here), and the selection stays on the words
+                    // it held rather than keeping its index (so only the text is compared).
                     let touched = MarkdownEdits.lineRanges(covering: selection, in: ns)
                     if touched.allSatisfy({ ns.substring(with: $0).trimmingCharacters(in: .whitespaces).isEmpty }) {
                         continue
                     }
-                    // FMT-7: a list or heading verb reads past a line's quote markers and
-                    // indentation, where the old loop read from column 0 — `> quoted` became
-                    // `# > quoted`. Lines with anything in front of their words are left out;
+                    // A list or heading verb reads past a line's quote markers and indentation,
+                    // where the old loop read from column 0 (`> quoted` became `# > quoted`). Lines
+                    // with anything before their words are left out;
                     // `MarkupVerbTests.listAndHeadingVerbsReadPastQuotesAndIndentation` holds them.
                     if touched.contains(where: { range in
                         let line = ns.substring(with: range)
@@ -139,16 +129,16 @@ import Foundation
                 }
             }
         }
-        // **The positive control.** Two functions that both returned `nil` for everything would
-        // agree perfectly, so the comparison only means something if the verbs really did work.
+        // The positive control: two functions that both returned `nil` for everything would agree
+        // perfectly, so the comparison only means something if the verbs really did work.
         #expect(compared > 2000, "the corpus barely exercised anything: \(compared) comparisons")
         #expect(changed > compared / 4,
                 "almost nothing was rewritten — \(changed) of \(compared) produced an edit")
     }
 
-    /// The one property the rewrite depends on and the old loop got for free: **nothing outside the
-    /// lines the selection touches may change.** The new implementation splices a single covering
-    /// range, so if a verb could ever reach past the last covered line this would be the failure.
+    /// Nothing outside the lines the selection touches may change. The old loop got this for free;
+    /// `prefixLines` splices one covering range, so a verb reaching past the last covered line
+    /// fails here.
     @Test func nothingOutsideTheTouchedLinesIsRewritten() {
         let text = "alpha\nbravo\ncharlie\ndelta\necho\n"
         let ns = text as NSString

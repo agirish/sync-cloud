@@ -56,14 +56,14 @@ import Sync
     }
 
     @Test func kindImageClassMatchesAnyImageExtension() {
-        // `kind:image` is a class alias (the "Images" suggestion), matching the fixed extension
-        // set — not just JPEGs, which the suggestion used to silently mean.
+        // `kind:image` is a class alias (the "Images" suggestion), matching the fixed image
+        // extension set, not just JPEGs.
         let query = DuplicateSearch.parse("kind:image")
         #expect(query.matches(group("photo.jpg", keeperSize: 1)))
         #expect(query.matches(group("photo.PNG", keeperSize: 1)))
         #expect(query.matches(group("photo.heic", keeperSize: 1)))
         #expect(!query.matches(group("notes.pdf", keeperSize: 1)))
-        // No extension named "image" would ever match literally — the alias owns the word.
+        // The alias owns the word, so nothing matches "image" literally.
         #expect(!query.matches(group("noext", keeperSize: 1)))
     }
 
@@ -74,8 +74,8 @@ import Sync
     }
 
     @Test func duplicateFamilyChipsMarkEarlierOnesInactive() {
-        // parse is last-wins within a family; chips must read as the effective query, so the
-        // superseded earlier chip renders inactive while both keep their exact raw word for ✕.
+        // Parsing is last-wins within a family, and chips read as the effective query: the
+        // superseded chip renders inactive, and both keep their exact raw word for ✕.
         let chips = DuplicateSearch.chips("kind:pdf kind:png >5mb")
         #expect(chips.count == 3)
         #expect(chips[0].raw == "kind:pdf" && chips[0].isActive == false)
@@ -108,32 +108,28 @@ import Sync
     }
 
     @Test func removingDropsEveryOccurrenceOfTheWord() {
-        // Chips are keyed by raw text, so the ✕ must clear ALL duplicates of the word. With
-        // `kind:pdf kind:png kind:pdf`, removing only the FIRST pdf left the last pdf in place —
-        // the effective (last-wins) filter didn't change and the ✕ appeared dead.
+        // Chips are keyed by raw text, so ✕ clears every occurrence of the word. In
+        // `kind:pdf kind:png kind:pdf`, removing only the first pdf would leave the effective
+        // (last-wins) filter unchanged, and the ✕ would look dead.
         #expect(DuplicateSearch.removing("kind:pdf kind:png kind:pdf", word: "kind:pdf") == "kind:png")
         #expect(DuplicateSearch.parse(DuplicateSearch.removing("kind:pdf kind:png kind:pdf", word: "kind:pdf")).kind == "png")
     }
 
-    /// Full-grammar characterization: ONE composite query exercising every token family (`kind:`
-    /// twice — the second being the `image` class alias — plus both size comparators), multi-word
-    /// free text, and a superseded duplicate-family token — pinning the parsed query fields AND
-    /// the chips() output (raw, label, isActive) together. This is the parse↔chips contract that
-    /// drifted in round 4 (chips claimed superseded tokens were active while parse ran last-wins,
-    /// b9835ab): any change to tokenization, the alias set, last-wins, size parsing, or chip
-    /// labeling flips this one block.
+    /// One composite query exercising every token family (`kind:` twice, the second the `image`
+    /// alias, plus both size comparators), multi-word free text and a superseded token, pinning
+    /// `parse` and `chips()` together so the two can't drift apart. Any change to tokenizing, the
+    /// alias set, last-wins, size parsing or chip labels breaks this one block.
     @Test func fullGrammarSnapshotPinsParseAndChipsTogether() {
         let raw = "kind:JPG >500kb <2mb kind:image draft copy"
 
-        // Parse: last kind wins (jpg is superseded), both comparators land in bytes, the free
-        // words join in order — and the tokens never leak into the name text.
+        // Parse: the last kind wins, both comparators land in bytes, and the free words join in
+        // order without any token leaking into the name text.
         let query = DuplicateSearch.parse(raw)
         #expect(query == DuplicateSearch.Query(kind: "image", sizeAtLeast: 500_000,
                                                sizeAtMost: 2_000_000, text: "draft copy"))
 
-        // Chips: every recognized token in typed order, raw preserved verbatim for ✕ removal,
-        // sizes formatted the way the app displays them, ONLY the superseded family member
-        // inactive.
+        // Chips: every recognized token in typed order, raw kept verbatim for ✕, sizes formatted
+        // as the app shows them, and only the superseded one inactive.
         #expect(DuplicateSearch.chips(raw) == [
             DuplicateSearch.Chip(raw: "kind:JPG", label: "kind: jpg", isActive: false),
             DuplicateSearch.Chip(raw: ">500kb", label: "> \(FileSyncManager.formatBytes(500_000))", isActive: true),
@@ -141,9 +137,9 @@ import Sync
             DuplicateSearch.Chip(raw: "kind:image", label: "kind: image", isActive: true),
         ])
 
-        // And the effective query behaves as the active chips read: the kind really is the class
-        // alias (a PNG matches — the superseded kind:JPG must not still filter), the size bounds
-        // apply to the keeper, and the free text still matches the name.
+        // The effective query behaves as the active chips read: the kind is the alias (a PNG
+        // matches; the superseded kind:JPG doesn't filter), the size bounds apply to the keeper,
+        // and the free text matches the name.
         #expect(query.matches(group("draft copy.png", keeperSize: 1_000_000)))
         #expect(query.matches(group("Draft Copy 2.HEIC", keeperSize: 500_000)))
         #expect(!query.matches(group("draft copy.pdf", keeperSize: 1_000_000)))   // not an image

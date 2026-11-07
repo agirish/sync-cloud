@@ -1,11 +1,9 @@
 import Testing
 @testable import FileExplorer
 
-/// What VoiceOver reads for a `StatPill`.
-///
-/// The pill collapses to a single accessibility element, so this one string is the ENTIRE spoken
-/// content of the differences header's most important control — there is no second element to
-/// correct a wrong one.
+/// What VoiceOver reads for a `StatPill`. The pill collapses to a single accessibility element, so
+/// this one string is all that is spoken for the differences header's most important control, with
+/// no second element to correct a wrong one.
 @Suite struct StatPillAccessibilityTests {
 
     @Test func testACountAndLabelWithNoDetailSpeaksJustThat() {
@@ -19,11 +17,9 @@ import Testing
                 == "576 Differences, scanned 29m ago")
     }
 
-    /// The regression. The label used to compose the spoken form itself as "scanned \(detail)",
-    /// which is right for an age and nonsense for the in-flight state: the differences pill puts
-    /// "scanning…" in that slot while a scan runs, so VoiceOver announced
-    /// "576 Differences, scanned scanning…". The pill no longer writes the grammar — it is handed
-    /// a phrase and reads it — so an in-progress scan can be announced in the present tense.
+    /// The pill reads the phrase it is handed and adds no grammar, so a running scan is announced
+    /// in the present tense. Prefixing "scanned" itself would suit an age but turn the in-flight
+    /// phrase into "576 Differences, scanned scanning…".
     @Test func testAnInFlightScanIsNotAnnouncedAsAlreadyScanned() {
         let spoken = StatPill.accessibilityLabel(count: 576, label: "Differences",
                                                  spokenDetail: "scanning for changes")
@@ -38,9 +34,9 @@ import Testing
                 == "3 conflicts")
     }
 
-    /// Counts are spoken the way they are shown — through `formatted()`, so the grouping separator
-    /// matches the digits on screen. Compared against the formatter rather than a literal: the
-    /// separator is locale-dependent and a hardcoded "1,284" would fail off en_US.
+    /// Counts are spoken the way they are shown, through `formatted()`, so the grouping separator
+    /// matches the digits on screen. Compared against the formatter, not a literal, because the
+    /// separator depends on the locale.
     @Test func testTheCountIsSpokenTheWayItIsShown() {
         #expect(StatPill.accessibilityLabel(count: 1284, label: "identical", spokenDetail: nil)
                 == "\(1284.formatted()) identical")

@@ -27,10 +27,10 @@ extension EditorPDFLayout {
     /// until there are two pages to a row.
     func displaysAsBook(coverSeparately: Bool) -> Bool { isTwoUp && coverSeparately }
 
-    /// **The pages on screen together with `page`**, zero-based — the page alone in a single-page
+    /// The pages on screen together with `page`, zero-based: the page alone in a single-page
     /// layout, else its spread: 1–2, 3–4 … or, with the cover on its own, 1, then 2–3, 4–5 …, the
-    /// pairing PDFKit draws (measured 2026-10-17: `goToNextPage` from page 1 lands in 2–3 with the
-    /// cover separate, 3–4 without). A last odd page stands alone.
+    /// pairing PDFKit draws (`goToNextPage` from page 1 lands in 2–3 with the cover separate, 3–4
+    /// without). A last odd page stands alone.
     static func spread(containing page: Int, pageCount: Int, twoUp: Bool, coverSeparately: Bool) -> ClosedRange<Int> {
         guard pageCount > 0 else { return 0...0 }
         let page = min(max(page, 0), pageCount - 1)
@@ -56,9 +56,9 @@ extension EditorPDFSettings {
         defaults.object(forKey: coverSeparatelyKey) as? Bool ?? coverSeparatelyDefault
     }
 
-    /// **Where the page and zoom capsule floats** (Phase 6a) — stored as the place's name, never as
-    /// points, so it survives a resize and a relaunch at any window size. Bottom centre until it is
-    /// moved, and again after Reset Position or a double-click on its grip.
+    /// Where the page and zoom capsule floats, stored as the place's name, never as points, so it
+    /// survives a resize and a relaunch at any window size. Bottom centre until it is moved, and
+    /// again after Reset Position or a double-click on its grip.
     public static let capsulePlaceKey = "editorPDFCapsulePlace"
     public static let capsulePlaceDefault = EditorPDFCapsulePlace.bottom
 
@@ -66,9 +66,8 @@ extension EditorPDFSettings {
         defaults.string(forKey: capsulePlaceKey).flatMap(EditorPDFCapsulePlace.init(rawValue:)) ?? capsulePlaceDefault
     }
 
-    /// **Where Fill & Sign's palette floats** (Phase 6b, mockup F) — the capsule's eight places,
-    /// stored the same way under its own key. The middle of the left side until it is moved, as
-    /// Acrobat's palette sits.
+    /// Where Fill & Sign's palette floats: the capsule's eight places, stored the same way under its
+    /// own key. The middle of the left side until it is moved, where Acrobat's palette sits.
     public static let palettePlaceKey = "editorPDFPalettePlace"
     public static let palettePlaceDefault = EditorPDFCapsulePlace.leading
 
@@ -77,22 +76,22 @@ extension EditorPDFSettings {
     }
 }
 
-/// **The zoom's ladder and its words** (mockup 15).
+/// The zoom's ladder and its words.
 ///
 /// − and + step through ``presets``, the menu's own stops, so the buttons and the menu never
-/// disagree about where the next zoom is. A pinch is free to land between stops or past either end
-/// (within `EditorPDFViewState.minScale`…`maxScale`), and the next step from there goes to the stop
-/// beyond it in that direction.
+/// disagree about where the next zoom is. A pinch may land between stops or past either end
+/// (within `EditorPDFViewState.minScale`…`maxScale`), and the next step goes to the stop beyond it
+/// in that direction.
 public enum EditorPDFZoom {
     public static let presets: [CGFloat] = [0.5, 0.75, 1, 1.25, 1.5, 2, 4]
 
-    /// A scale as the label says it — whole percents, which is also what decides whether a scale is
-    /// ON a stop: 124.6% is 125%, and + from there goes to 150%.
+    /// A scale as the label says it, in whole percents, which also decides whether a scale is on a
+    /// stop: 124.6% is 125%, and + from there goes to 150%.
     static func percentValue(_ scale: CGFloat) -> Int { Int((scale * 100).rounded()) }
 
     public static func percent(_ scale: CGFloat) -> String { "\(percentValue(scale))%" }
 
-    /// The stop after `scale` in that direction, or `nil` past the last one — what disables + at
+    /// The stop after `scale` in that direction, or `nil` past the last one, which disables + at
     /// 400% and − at 50%.
     static func step(from scale: CGFloat, in zoomingIn: Bool) -> CGFloat? {
         let here = percentValue(scale)
@@ -100,8 +99,8 @@ public enum EditorPDFZoom {
                          : presets.last { percentValue($0) < here }
     }
 
-    /// The control's label: the fit while one holds the page, the percentage otherwise — so a
-    /// pinch says 137%. Actual Size says 100%: it is a scale, and the 100% stop is ticked for it.
+    /// The control's label: the fit while one holds the page, else the percentage, so a pinch says
+    /// 137%. Actual Size says 100%: it is a scale, and the 100% stop is ticked for it.
     public static func label(fit: EditorPDFFit?, scale: CGFloat) -> String {
         switch fit {
         case .page?: return "Fit Page"
@@ -110,7 +109,7 @@ public enum EditorPDFZoom {
         }
     }
 
-    /// The preset to tick, or `nil` — none while Fit Page or Fit Width holds the page (theirs is
+    /// The preset to tick, or `nil`: none while Fit Page or Fit Width holds the page (theirs is
     /// ticked instead), and none for a scale between stops.
     static func tickedPreset(fit: EditorPDFFit?, scale: CGFloat) -> CGFloat? {
         if fit == .page || fit == .width { return nil }

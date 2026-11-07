@@ -3,10 +3,9 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// The availability rules behind the ⇧⌘R / ⇧⌘V / ⇧⌘F menu items. Each test starts from the
-/// one all-good fixture and flips a SINGLE axis, so every parameter is proven to matter — a
-/// parameter the view stopped passing correctly would otherwise go quiet without a failure
-/// (the published value itself is unreadable without a scene).
+/// The availability rules behind the ⇧⌘R / ⇧⌘V / ⇧⌘F menu items. Each test flips one axis of the
+/// all-good fixture, so every parameter is shown to matter; the published value itself can't be
+/// read without a scene.
 @Suite struct DifferencesShortcutRulesTests {
 
     // MARK: ⇧⌘R Review
@@ -68,9 +67,8 @@ import Sync
             suspended: true))
     }
 
-    /// Verify's progress strip renders inside the pane; collapsed to the header strip it would
-    /// be a background run with hidden feedback. (Review deliberately has NO collapse gate —
-    /// starting one re-opens the pane, so the same axis there would gate nothing.)
+    /// Verify's progress strip renders inside the pane, so collapsed it would run with hidden
+    /// feedback. Review has no collapse gate: starting one reopens the pane.
     @Test func aCollapsedPaneWithholdsVerify() {
         #expect(!DifferencesShortcutRules.verifyAvailable(
             sessionActive: false, verifiableCount: 1, blocked: false, collapsed: true,
@@ -114,10 +112,8 @@ import Sync
                        leftFileSize: size, rightFileSize: nil)
     }
 
-    /// **The values come from the rows passed in, never from whatever the caller captured.**
-    ///
-    /// The point of resolving at fire time: a menu built when a row read 100 bytes must act on
-    /// the row as it reads NOW. Same id, different contents, and what comes back is the new one.
+    /// The values come from the rows passed in, never from what the caller captured: a menu built
+    /// when a row read 100 bytes must act on the row as it reads when the item fires.
     @Test func transferItemsReturnsTheCurrentRowNotTheOneTheCallerRemembers() {
         let id = UUID()
         let stale = row("a.txt", .copyToRight, id: id, size: 100)
@@ -129,8 +125,8 @@ import Sync
         #expect(stale.leftFileSize == 100, "fixture: the two rows really do differ")
     }
 
-    /// A row whose action has since flipped is no longer this direction's to move — the case a
-    /// captured array cannot notice, because the capture recorded the old action.
+    /// A row whose action has since flipped is no longer this direction's to move, which a captured
+    /// array can't notice.
     @Test func aRowWhoseActionFlippedIsNoLongerInThatDirection() {
         let id = UUID()
         let flipped = row("a.txt", .copyToLeft, id: id)
@@ -138,8 +134,8 @@ import Sync
                                                        direction: .copyToRight).isEmpty)
     }
 
-    /// Ids that match nothing resolve to nothing. A full rescan mints fresh `FileDifference.id`s,
-    /// so this is what a menu outliving its table does — and doing nothing is the right answer.
+    /// Ids that match nothing resolve to nothing. A rescan mints fresh `FileDifference.id`s, so a
+    /// menu that outlives its table does nothing.
     @Test func idsThatMatchNoLiveRowResolveToNothing() {
         let onScreen = row("a.txt", .copyToRight)
         #expect(DifferencesShortcutRules.transferItems(rows: [onScreen], selection: [UUID()],

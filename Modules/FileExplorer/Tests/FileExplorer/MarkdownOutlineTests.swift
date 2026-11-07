@@ -25,8 +25,8 @@ import SwiftUI
         #expect(rows.map(\.line) == [1, 7])
     }
 
-    /// A note whose headings start at `##` — every file in a folder that reserves `#` for the
-    /// title — draws its top level at the margin, not one step in from it.
+    /// A note whose headings start at `##` (as in a folder that reserves `#` for the title) draws
+    /// its top level at the margin, not one step in from it.
     @Test func depthIsRelativeToTheShallowestHeadingInTheDocument() {
         let rows = outline("""
         ## One
@@ -36,7 +36,7 @@ import SwiftUI
         ## Two
         """)
         #expect(rows.map(\.depth) == [0, 1, 0], "depths came back as \(rows.map(\.depth))")
-        // The level is untouched — it is what the document says, and the a11y label reads it.
+        // The level is untouched: it is what the document says, and the a11y label reads it.
         #expect(rows.map(\.level) == [2, 3, 2])
     }
 
@@ -66,10 +66,10 @@ import SwiftUI
         #expect(rows.first?.title.isEmpty == true)
     }
 
-    /// **A heading's name leaves its inline HTML out** (CHR-6). `## Setup <a id="setup"></a>` is
-    /// the usual way to pin an anchor, and the rail and the status line read the markup as part of
-    /// the name. Inline code is part of a name, so it stays; the space the markup sat beside goes
-    /// with it; and a heading with no HTML is named exactly as before.
+    /// A heading's name leaves its inline HTML out. `## Setup <a id="setup"></a>` is the usual way
+    /// to pin an anchor, and the rail and status line must not read the markup as part of the name.
+    /// Inline code is part of a name, so it stays; the space beside the markup goes with it; and a
+    /// heading with no HTML is named exactly as written.
     @Test func aHeadingsInlineHTMLIsNoPartOfItsName() {
         let rows = outline("""
         ## Setup <a id="setup"></a>
@@ -102,8 +102,8 @@ import SwiftUI
         #expect(MarkdownOutline.currentEntry(forLine: 900, in: rows) == 1)
     }
 
-    /// Text above the first heading is in no section, and saying "the first one" would follow the
-    /// caret into a preamble that row does not describe.
+    /// Text above the first heading is in no section: "the first one" would follow the caret into a
+    /// preamble that row doesn't describe.
     @Test func aboveTheFirstHeadingThereIsNoCurrentRow() {
         let rows = outline("preamble\n\n# One\n")
         #expect(MarkdownOutline.currentEntry(forLine: 1, in: rows) == nil)
@@ -120,8 +120,7 @@ import SwiftUI
     }
 
     /// Scrolled above everything that reported a line, the preview belongs at its top rather than
-    /// nowhere — which is the difference between a sync that settles and one that stops working
-    /// when you scroll back up.
+    /// nowhere, or the sync stops working when you scroll back up.
     @Test func aLineAboveEveryBlockScrollsToTheTop() {
         let blocks = MarkdownBlocks.blocks(from: "\n\n\n# Late\n")
         #expect(MarkdownOutline.blockIndex(forLine: 1, in: blocks) == 0)
@@ -152,10 +151,9 @@ import SwiftUI
     /// line count counts the character.
     // MARK: Where a heading is now
 
-    /// **A heading chosen from an outline taken before the latest edits lands where it is now**
-    /// (CHR-4). The outline waits for the typing to settle and the parse to return, and the jump
-    /// sent the entry's own line — a paragraph pasted above "Method" put the caret a paragraph
-    /// short of it. Lines added above, lines taken out, nothing moved, and the heading gone.
+    /// A heading chosen from an outline taken before the latest edits lands where the heading is
+    /// now. The outline waits for typing to settle and the parse to return, so the entry's own line
+    /// can be stale. Covered: lines added above, lines taken out, nothing moved, the heading gone.
     @Test func aHeadingFromAStaleOutlineIsFoundWhereItIsNow() throws {
         let before = "# Title\n\nintro\n\n## Method\n\nsteps\n\n## Notes\n"
         let method = outline(before)[1]
@@ -167,10 +165,10 @@ import SwiftUI
         #expect(MarkdownOutline.line(of: method, in: "# Title\n\nintro\n") == 5, "a heading that is gone keeps its line")
     }
 
-    /// **The look is for THAT heading** — its level and the name the outline gives it — so a
-    /// heading with the same words at another level, or the level's `#`s over other words, is
-    /// passed over; a setext heading, one in a quote, and one written with emphasis are found; and
-    /// the nearest of two matches wins, below first. Lines are counted as the parser counts them.
+    /// The look is for that heading, its level and the name the outline gives it: the same words at
+    /// another level, or the level's `#`s over other words, are passed over; a setext heading, one
+    /// in a quote, and one written with emphasis are found; and the nearest of two matches wins,
+    /// below first. Lines are counted as the parser counts them.
     @Test func theLookMatchesTheHeadingsLevelAndName() {
         let bold = MarkdownOutlineEntry(line: 2, level: 2, depth: 0, title: "Bold move")
         #expect(MarkdownOutline.line(of: bold, in: "# Bold move\n### Bold move\n## Other\n\n## **Bold** move\n") == 5)
@@ -209,8 +207,8 @@ import SwiftUI
         #expect(MarkdownOutline.line(forAnchor: "one", in: rows) == 1)
     }
 
-    /// No match is no scroll. The anchor convention is GitHub's rather than a standard, so a
-    /// near-miss must not send the reader somewhere they did not ask to go.
+    /// No match is no scroll. The anchor convention is GitHub's, not a standard, so a near-miss
+    /// must not send the reader somewhere they didn't ask to go.
     @Test func aFragmentThatMatchesNothingAnswersNothing() {
         let rows = outline("# One\n")
         #expect(MarkdownOutline.line(forAnchor: "nowhere", in: rows) == nil)

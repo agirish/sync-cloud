@@ -4,9 +4,9 @@ import Foundation
 
 /// Edits made to somebody's file by a click rather than by typing.
 ///
-/// **The bar here is character-for-character.** These functions write to real files in real cloud
-/// folders, so "it looked right in the preview" is not the standard — every case asserts the whole
-/// buffer, including the lines that must not have moved.
+/// The bar is character-for-character. These functions write to real files in real cloud folders,
+/// so "it looked right in the preview" is not the standard: every case asserts the whole buffer,
+/// including the lines that must not move.
 @Suite struct MarkdownEditsTests {
 
     // MARK: Ticking
@@ -21,8 +21,8 @@ import Foundation
         #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [x] one\n") == "- [ ] one\n")
     }
 
-    /// GFM accepts a capital and other tools write one; the flip has to recognise it, and it
-    /// normalises to the lowercase the app writes everywhere else.
+    /// GFM accepts a capital and other tools write one; the flip recognises it and normalises to
+    /// the lowercase the app writes everywhere else.
     @Test func aCapitalXIsRecognisedAndNormalised() {
         #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [X] one\n") == "- [ ] one\n")
     }
@@ -36,8 +36,8 @@ import Foundation
         #expect(MarkdownEdits.toggleTask(onLine: 1, in: "+ [ ] plus\n") == "+ [x] plus\n")
     }
 
-    /// The whole reason the walk parses real GFM rather than pattern-matching: a bracket pair in
-    /// prose is not a checkbox, and this must not turn one into an `[x]`.
+    /// Why the walk parses real GFM rather than pattern-matching: a bracket pair in prose is not a
+    /// checkbox, and must not become an `[x]`.
     @Test func aBracketPairInProseIsLeftAlone() {
         #expect(MarkdownEdits.toggleTask(onLine: 1, in: "See [ ] for the blank.\n") == nil)
         #expect(MarkdownEdits.toggleTask(onLine: 1, in: "A sentence with - [ ] inside it.\n") == nil)
@@ -54,15 +54,15 @@ import Foundation
     }
 
     /// A click can arrive up to a debounce after the buffer changed, naming a line that no longer
-    /// holds a checkbox. Refusing is what stops it writing an `[x]` into whatever is there now.
+    /// holds a checkbox. Refusing stops it writing an `[x]` into whatever is there now.
     @Test func aStaleClickChangesNothing() {
         #expect(MarkdownEdits.toggleTask(onLine: 2, in: "- [ ] one\nplain prose now\n") == nil)
         #expect(MarkdownEdits.toggleTask(onLine: 90, in: "- [ ] one\n") == nil)
         #expect(MarkdownEdits.toggleTask(onLine: 0, in: "- [ ] one\n") == nil)
     }
 
-    /// Nothing outside the three characters moves — including the line's own trailing content and
-    /// the line endings of a file that came from Windows.
+    /// Nothing outside the three characters moves, including the line's own trailing content and
+    /// the line endings of a file from Windows.
     @Test func onlyTheBoxIsRewritten() {
         let crlf = "# Notes\r\n\r\n- [ ] one **bold**\r\n- [x] two\r\n"
         #expect(MarkdownEdits.toggleTask(onLine: 3, in: crlf)
@@ -97,15 +97,15 @@ import Foundation
         #expect(line(4, of: text) == nil)
     }
 
-    /// A lone CR ends a line, and a CR before a CRLF ends one too — the chunked walk's only state.
+    /// A lone CR ends a line, and a CR before a CRLF ends one too: the chunked walk's only state.
     @Test func loneCarriageReturnsEndLinesAsTheyDoInTheLineIndex() {
         let text = "a\rb\r\r\nc"
         #expect([1, 2, 3, 4].map { line($0, of: text) } == ["a", "b", "", "c"])
         #expect(line(5, of: text) == nil)
     }
 
-    /// **A CRLF split across two chunks is still one line ending.** The walk reads
-    /// ``MarkdownEdits/lineScanChunk`` units at a time, and the CR and the LF can fall either side.
+    /// A CRLF split across two chunks is still one line ending. The walk reads
+    /// ``MarkdownEdits/lineScanChunk`` units at a time, and the CR and LF can fall either side.
     @Test(arguments: [MarkdownEdits.lineScanChunk - 2, MarkdownEdits.lineScanChunk - 1, MarkdownEdits.lineScanChunk])
     func aCRLFAcrossAChunkBoundaryIsOneEnding(_ firstLineLength: Int) {
         let text = String(repeating: "x", count: firstLineLength) + "\r\n- [ ] two\r\nthree"
@@ -121,12 +121,12 @@ import Foundation
 
     // MARK: The tick before P52, as the oracle
 
-    /// **Every tick makes exactly the edit the old tick made** — the same range and the same
-    /// character, or the same refusal. Thousands of generated documents with every line ending,
-    /// combining marks next to the box and its brackets, emoji, tabs and digits that are not ASCII,
-    /// each ticked on every line and one past the end, against ``PreP52Tick`` — the code this
-    /// replaced, copied verbatim. Compared by UTF-16 unit, because `==` on two Strings would call
-    /// `é` and `e` + U+0301 the same.
+    /// Every tick makes exactly the edit the character-walking tick made: the same range and
+    /// character, or the same refusal. Thousands of generated documents (every line ending,
+    /// combining marks next to the box and its brackets, emoji, tabs, non-ASCII digits), each
+    /// ticked on every line and one past the end, against ``PreP52Tick``, kept verbatim as the
+    /// oracle. Compared by UTF-16 unit, because `==` on two Strings calls `é` and `e` + U+0301 the
+    /// same.
     @Test func everyTickMakesTheEditTheOldTickMade() {
         var random = SeededGenerator(seed: 52)   // TextPairDiffMyersTests' SplitMix64
         let pieces = ["- ", "* ", "+ ", "1. ", "12) ", "\u{663}. ", "\u{1D7D9}. ", "- [ ] ", "- [x] ", "- [X] ", "[ ]", "[x]", "[",
@@ -160,9 +160,8 @@ import Foundation
         #expect(cases > 12_000 && flips > 1_000, "the generator no longer means anything: \(cases) cases, \(flips) flips")
     }
 
-    /// **The tick reads the document only as far as its line** — the speed half of P52, counted in
-    /// units read rather than timed. A box on line 2 of a 1 MB document reads one chunk of it; the
-    /// tick it replaced copied and walked all of it.
+    /// The tick reads the document only as far as its line, counted in units read rather than
+    /// timed: a box on line 2 of a 1 MB document reads one chunk of it, not the whole document.
     @Test func aTickNearTheTopReadsOneChunkOfALongDocument() throws {
         let text = CountingString.of("# Title\n- [ ] milk\n" + String(repeating: "filler line\n", count: 90_000))
         let change = try #require(MarkdownEdits.taskToggle(onLine: 2, in: text))
@@ -173,7 +172,7 @@ import Foundation
 }
 
 extension MarkdownEdits {
-    /// The whole text after a tick, so these cases can assert every line of it — the edit
+    /// The whole text after a tick, so these cases can assert every line of it: the edit
     /// ``taskToggle(onLine:in:)`` answers, applied.
     static func toggleTask(onLine target: Int, in text: String) -> String? {
         let text = text as NSString
@@ -184,9 +183,9 @@ extension MarkdownEdits {
 
 /// An `NSString` that counts the UTF-16 units read out of it.
 ///
-/// **No initializer of its own, and `base` is set after**: a Swift subclass of `NSString` that
-/// declares one must also provide `init(stringLiteral:)`, which Foundation declares in an extension
-/// where it cannot be overridden. Declaring none inherits them all.
+/// No initializer of its own, and `base` is set after: a Swift subclass of `NSString` that declares
+/// one must also provide `init(stringLiteral:)`, which Foundation declares in an extension where it
+/// can't be overridden. Declaring none inherits them all.
 private final class CountingString: NSString {
     var base: NSString = ""
     private(set) var unitsRead = 0
@@ -210,8 +209,8 @@ private final class CountingString: NSString {
     }
 }
 
-/// **`MarkdownEdits.toggleTask` and `lineRange` as they were before P52, verbatim** — a String
-/// walked a Character at a time and rewritten whole. Kept as the oracle the new tick is held to.
+/// `MarkdownEdits.toggleTask` and `lineRange` as a String walked a Character at a time and
+/// rewritten whole, kept verbatim as the oracle the chunked tick is held to.
 private enum PreP52Tick {
     static func toggleTask(onLine target: Int, in text: String) -> String? {
         guard let range = lineRange(of: target, in: text) else { return nil }

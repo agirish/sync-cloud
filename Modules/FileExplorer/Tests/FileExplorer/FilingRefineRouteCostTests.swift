@@ -6,16 +6,15 @@ import SwiftUI
 
 /// How often does drawing the Organize toolbar ask the app which backend a refine would use?
 ///
-/// The question matters because of what answering it costs in the real app.
-/// `filingBackendIdentity` is wired to `FilingBackendRouter.route(cloudEnabled:hasCloudKey:)`, and
-/// `hasCloudKey` is `AnthropicKeychain.hasKey`, which **reads the secret** — a Keychain decrypt
-/// that, on a locked or ACL-guarded item, raises the password prompt. `AnthropicKeychain` says so
-/// itself and points display-only callers at `isConfigured` instead.
+/// The question matters because of what answering it costs in the real app. `filingBackendIdentity`
+/// is wired to `FilingBackendRouter.route(cloudEnabled:hasCloudKey:)`, and `hasCloudKey` is
+/// `AnthropicKeychain.hasKey`, which reads the secret: a Keychain decrypt that, on a locked or
+/// ACL-guarded item, raises the password prompt. `AnthropicKeychain` says so itself and points
+/// display-only callers at `isConfigured` instead.
 ///
 /// So this is not a micro-benchmark; it is a correctness net for "the toolbar must not interrogate
-/// the Keychain while you type". The deleted `FilingRunPrice` predicted exactly this failure:
-/// *"querying the Keychain from a view that re-renders on every keystroke would be far worse than
-/// the imprecision."*
+/// the Keychain while you type", since a view that re-renders on every keystroke would do so on
+/// every keystroke.
 @MainActor
 @Suite(.serialized) struct FilingRefineRouteCostTests {
 
@@ -35,11 +34,11 @@ import SwiftUI
                          providerRoot: "/root")
     }
 
-    /// Builds the lens in the state the user looks at results in. `configured` mirrors what the
-    /// app wires: nil leaves the seam unset, which is the CLI/test shape.
+    /// Builds the lens in the state the user looks at results in. `configured` mirrors what the app
+    /// wires: nil leaves the seam unset, the CLI/test shape.
     private func mountToolbar(routes: RouteCounter, displayChecks: RouteCounter?,
                               configured: Bool?) -> NSHostingView<AnyView> {
-        // One scratch suite for the manager and the view alike — never the standard domain, which
+        // One scratch suite for the manager and the view alike, never the standard domain, which
         // under `swift test` is one plist shared by every test process on the machine.
         let defaults = ScratchDefaults("FilingRefineRouteCostTests")
         // The cloud toggle gates `filingCloudRefineAvailable` before anything else, so without it
@@ -65,11 +64,11 @@ import SwiftUI
         m.filingClassifier = { _, _, _ in [:] }
 
         let size = CGSize(width: 900, height: 620)
-        // **Organize opens on its overview, so a filing fixture has to name its lens.** The
-        // rail selection lives in defaults, and with the key unset `railLens` is nil — which is
-        // the overview, where no lens's own controls are drawn at all. Without this the mount
-        // renders a summary page and every assertion about a filing control fails as "painted
-        // nothing", which is indistinguishable from the control being broken.
+        // Organize opens on its overview, so a filing fixture has to name its lens. The rail
+        // selection lives in defaults, and with the key unset `railLens` is nil, the overview,
+        // where no lens's own controls are drawn. Without this the mount renders a summary page and
+        // every assertion about a filing control fails as "painted nothing", indistinguishable from
+        // the control being broken.
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         let host = NSHostingView(rootView: AnyView(
             LensWorkspaceView(syncManager: m, lens: .filing, providerName: "Projects",
@@ -105,10 +104,10 @@ import SwiftUI
     }
 
     @Test func anUnwiredDisplaySeamStillAnswersCorrectlyByResolvingTheRoute() throws {
-        // The CLI/test shape. The fallback is the EXPENSIVE path by design — it is the honest
-        // answer, and leaving it as the fallback is what keeps `filingCloudRefineAvailable`
-        // meaningful for callers with no Keychain. The app must wire the seam; this pins that the
-        // unwired behaviour is "correct but costly" rather than "silently no button".
+        // The CLI/test shape. The fallback is the expensive path by design: it is the honest
+        // answer, and keeping it as the fallback keeps `filingCloudRefineAvailable` meaningful for
+        // callers with no Keychain. The app must wire the seam; this pins that the unwired
+        // behaviour is "correct but costly" rather than "silently no button".
         let routes = RouteCounter()
         _ = mountToolbar(routes: routes, displayChecks: nil, configured: nil)
         #expect(routes.count > 0)

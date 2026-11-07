@@ -1,8 +1,7 @@
 import SwiftUI
 import Design
 
-/// **Edit in Preview's switch: a small pill in the Preview column's top-trailing corner** (TE67
-/// §1.2) — subtle and professional, in the user's words.
+/// Edit in Preview's switch: a small, quiet pill in the Preview column's top-trailing corner.
 ///
 /// Off, it reads "Edit" beside a pencil, in the secondary colour. On, "Editing" in the accent, then a
 /// quiet "Experimental" in the caption size: a word, not a badge. It wears the format bar's glass
@@ -11,10 +10,9 @@ import Design
 struct PreviewEditToggle: View {
 
     @Binding var isOn: Bool
-    /// The one-time intro. **Held by the workspace, not here** (review V2, 2026-10-09): turning
-    /// editing on rebuilt the column, and a pill holding its own `@State` was a new pill with the
-    /// intro unshown — already marked seen, so it never showed. The workspace raises it whichever
-    /// door turned editing on, the pill or Text ▸ Edit in Preview.
+    /// The one-time intro, held by the workspace: turning editing on rebuilds the column, so a pill
+    /// holding its own `@State` would lose it after marking it seen. The workspace raises it
+    /// whichever way editing was turned on, the pill or Text ▸ Edit in Preview.
     @Binding var showsIntro: Bool
     var accent: Color
     var scale: CGFloat = 1
@@ -29,11 +27,10 @@ struct PreviewEditToggle: View {
 
     static let tooLongTooltip = "Too long to edit in Preview — use Source."
 
-    /// **The longest document Preview edits: 256 KB of text**, in UTF-16 units — what a text
-    /// view's storage counts, so it is read without walking the document; for English the same as
-    /// the file's size. Past it Preview is read-only. Typing re-reads only the blocks it touched, but
-    /// some edits still re-read the whole document — in front matter, in a note with reference
-    /// links — and that costs about 130 ms at this length (measured 2026-10-07, plan C23).
+    /// The longest document Preview edits: 256 KB of text, in UTF-16 units (what a text view's
+    /// storage counts, so no walk; for English, the file's size). Past it Preview is read-only.
+    /// Some edits still re-read the whole document (front matter, reference links), about 130 ms at
+    /// this length.
     static let maximumLength = 256 * 1024
 
     static func isTooLong(length: Int) -> Bool { length > maximumLength }
@@ -43,7 +40,7 @@ struct PreviewEditToggle: View {
         "[preview-edit] Preview is read-only for this note: \(length) UTF-16 units is over the \(maximumLength) Edit in Preview takes — held until the note is next opened in Preview"
     }
 
-    /// Where the pill is offered: Preview, or Split's Preview half (TE67.4), of a writable Markdown
+    /// Where the pill is offered: Preview, or Split's Preview half, of a writable Markdown
     /// document.
     static func isOffered(hasDocument: Bool, isRefused: Bool, isMarkdown: Bool, isReadOnly: Bool,
                           mode: EditorMode) -> Bool {
@@ -71,9 +68,8 @@ struct PreviewEditToggle: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            // Over the limit, the tertiary style the header's greyed ＋ wears (review V14) — what
-            // the secondary colour at half opacity came to as well (measured: 194 against 192), but
-            // by the same rule as the others now, and without dimming the glass track under it.
+            // Over the limit, the tertiary style the header's greyed ＋ wears, which leaves the
+            // glass track under it undimmed.
             .foregroundStyle(isTooLong ? AnyShapeStyle(.tertiary) : isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
             .lineLimit(1)
             .padding(.horizontal, 8)
@@ -104,21 +100,13 @@ struct PreviewEditToggle: View {
     }
 }
 
-/// **Whether a note is too long to edit in Preview, decided when Preview is OPENED for it and held
-/// while it stays open** (review V4, the lead's decision, 2026-10-09).
+/// Whether a note is too long to edit in Preview, decided when Preview is opened for it and held
+/// while it stays open, so crossing 256 KB mid-keystroke never swaps in the read-only preview. A
+/// note over the limit when opened is read-only, with the pill dimmed.
 ///
-/// Re-read on every render, the limit swapped the read-only preview in mid-keystroke the moment
-/// typing or a paste crossed 256 KB — the caret gone, the bar gone, the pill dimmed, and nothing
-/// said; and in Split, typing in Source back and forth across it rebuilt Preview's half each time.
-/// Now a note that grows past the limit while it is being edited stays editable until it is next
-/// opened; one that is over it when opened is read-only, with the pill dimmed.
-///
-/// **The moments are the key**: the note (its path), the mode, and the setting. Opening a note,
-/// switching to Preview or Split, and turning Edit on each change the key, and a hold for another
-/// key is no hold — the length is read afresh, so the first render after a moment is already
-/// right, before anything has had a chance to be told. The workspace takes the hold at those
-/// moments and hands it up, so the Text and Markup menus agree with it without re-rendering the
-/// window per keystroke.
+/// The key is the note's path, the mode and the setting; opening a note, switching to Preview or
+/// Split, or turning Edit on changes it, and the length is then read afresh. The workspace hands
+/// the hold up, so the Text and Markup menus agree without re-rendering the window per keystroke.
 public struct PreviewLengthHold: Equatable, Sendable {
 
     /// What the decision was made for.

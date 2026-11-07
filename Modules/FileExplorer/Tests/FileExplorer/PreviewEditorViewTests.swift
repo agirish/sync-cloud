@@ -6,9 +6,9 @@ import Design
 import FileExplorerTestSupport
 import EventsTestSupport
 
-/// TE67.3 through the real text view: a keystroke in Preview reaching the source, the document's
-/// buffer and the document's undo stack — and every door that must refuse, follow, or stay out of
-/// the way.
+/// Editable Preview through the real text view: a keystroke in Preview reaching the source, the
+/// document's buffer and the document's undo stack, and every door that must refuse, follow, or
+/// stay out of the way.
 @MainActor
 @Suite(.serialized) struct PreviewEditorViewTests {
 
@@ -56,9 +56,9 @@ import EventsTestSupport
     /// One turn of the run loop: what separates two keystrokes and closes the first one's undo group.
     private func spin() { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
 
-    /// ⌘Z as AppKit sends it: `undo:` up the responder chain from whatever has the keyboard — never
-    /// `undo.undo()`, which names the stack the test expects and so cannot see ⌘Z reaching another
-    /// (UND-10: in editable Preview it reached the window's, the file operations').
+    /// ⌘Z as AppKit sends it: `undo:` up the responder chain from whatever has the keyboard, never
+    /// `undo.undo()`, which names the stack the test expects and so can't see ⌘Z reaching another
+    /// (such as the window's, the file operations').
     private func sendUndo(_ r: Rig) {
         _ = r.window.firstResponder?.tryToPerform(EditorUndoCommands.undo, with: nil)
         spin()
@@ -106,8 +106,8 @@ import EventsTestSupport
         #expect(r.display == "Hello wo")
     }
 
-    /// A space at a line's end renders as nothing, so it is shown and held — not refused — and
-    /// written with the next character. Moved away from, it goes, and nothing is lost.
+    /// A space at a line's end renders as nothing, so it is shown and held, not refused, and written
+    /// with the next character. Moved away from, it goes, and nothing is lost.
     @Test func aSpaceAtALinesEndIsHeldUntilTheNextCharacter() {
         let r = rig("Hello\n\nworld")
         caret(after: "Hello", in: r)
@@ -159,7 +159,7 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)
     }
 
-    /// Several lines pasted into a paragraph are refused (A10 allows them only in code).
+    /// Several lines pasted into a paragraph are refused; they are allowed only in code.
     @Test func pastingSeveralLinesOutsideCodeIsRefused() {
         let r = rig("one")
         let board = NSPasteboard(name: NSPasteboard.Name("PreviewEditorViewTests.\(UUID())"))
@@ -172,13 +172,12 @@ import EventsTestSupport
 
     // MARK: Attribute-only changes (review V1)
 
-    /// **A style change is not a deletion.** Font ▸ Show Fonts, Colors, Underline, the alignment and
+    /// A style change is not a deletion. Font ▸ Show Fonts, Colors, Underline, the alignment and
     /// writing-direction items, a colour swatch dropped on the text: AppKit asks the delegate about
-    /// the whole selection with `nil` replacement strings — "change the attributes, keep the
-    /// characters". Read as empty strings, that was a delete of everything selected (review V1,
-    /// 2026-10-09). Through the real actions, over a one-paragraph note selected whole.
+    /// the whole selection with `nil` replacement strings, meaning "change the attributes, keep the
+    /// characters". Through the real actions, over a one-paragraph note selected whole.
     ///
-    /// Mutation: map `nil` strings to `""` again, and the note is emptied.
+    /// Mutation: map `nil` strings to `""`, and the note is emptied.
     @Test func aStyleChangeFromAppKitLeavesTheTextAlone() {
         defer { forgetTheColorPanelsGeometry() }
         let text = "Salt the **pasta** well."
@@ -201,12 +200,11 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)
     }
 
-    /// **`changeColor` brings up the shared colour panel, whatever its sender**, because
-    /// `NSTextView` reads the colour from `NSColorPanel.shared` rather than from the swatch. AppKit
-    /// then autosaves the panel's frame, toolbar and split-view geometry into the standard
-    /// domain, which under `swift test` is the `swiftpm-testing-helper` plist every test process
-    /// on the machine shares. Nothing reads those keys; they go so a package run leaves that
-    /// domain without them. Matched by name because AppKit, not this code, picks the keys.
+    /// `changeColor` brings up the shared colour panel whatever its sender, because `NSTextView`
+    /// reads the colour from `NSColorPanel.shared`, not the swatch. AppKit then autosaves the
+    /// panel's geometry into the standard domain, under `swift test` the `swiftpm-testing-helper`
+    /// plist every test process on the machine shares. Nothing reads those keys; they are removed so
+    /// a package run leaves that domain clean. Matched by name, because AppKit picks the keys.
     private func forgetTheColorPanelsGeometry() {
         let standard = UserDefaults.standard
         let domain = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
@@ -224,10 +222,10 @@ import EventsTestSupport
         return board
     }
 
-    /// **A file dropped on Preview is refused, never written in as its path** (review V5): with rich
-    /// text off, AppKit's own drop typed the path into the paragraph, and it reached the Markdown as
-    /// a paste — `Hi /tmp/Pasta.jpg`. Source imports an image into Images; Preview says it needs
-    /// Source. An image file and any other file alike. Through `performDragOperation`, AppKit's door.
+    /// A file dropped on Preview is refused, never written in as its path: with rich text off,
+    /// AppKit's own drop types the path into the paragraph, reaching the Markdown as a paste
+    /// (`Hi /tmp/Pasta.jpg`). Source imports an image into Images; Preview says it needs Source, for
+    /// an image or any other file. Through `performDragOperation`, AppKit's door.
     @Test func aFileDroppedOnPreviewIsRefusedNotTypedAsItsPath() async throws {
         let log = LogCapture()
         let image = try TestTextFiles.write("", named: "Pasta.jpg")
@@ -245,10 +243,10 @@ import EventsTestSupport
         #expect(await log.holds(.info, containing: "[preview-edit] Refused a drop of a picture or a file"))
     }
 
-    /// **A picture pasted into Preview says it needs Source** (review V5): a screenshot puts image
-    /// data and no text on the clipboard, and Preview's plain-text paste found nothing and said
-    /// nothing. A file copied in Finder carries its name as text, which is not what anybody meant
-    /// by pasting it. Text pastes as before.
+    /// A picture pasted into Preview says it needs Source: a screenshot puts image data and no text
+    /// on the clipboard, which a plain-text paste would find nothing in and say nothing about. A
+    /// file copied in Finder carries its name as text, which isn't what pasting it means. Text
+    /// pastes as usual.
     @Test func anImagePasteInPreviewSaysItNeedsSource() throws {
         let png = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8,
                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
@@ -275,10 +273,10 @@ import EventsTestSupport
 
     // MARK: Requests from the workspace (review V6)
 
-    /// **A request handed over in a view update reports back a turn later** (review V6): going to
-    /// a line puts the caret there and reports it, and a follow scrolls — both into the workspace's
-    /// state, which must not be written while SwiftUI is updating. Nothing reports inside the call;
-    /// the caret and the report arrive on the next turn. A request already taken is not taken twice.
+    /// A request handed over in a view update reports back a turn later: going to a line puts the
+    /// caret there and reports it, and a follow scrolls, both into the workspace's state, which
+    /// must not be written while SwiftUI is updating. Nothing reports inside the call; the caret and
+    /// the report arrive on the next turn. A request already taken is not taken twice.
     ///
     /// Mutation: act on the request at once, and the first check fails.
     @Test func aRequestFromAnUpdateReportsOnTheNextTurn() async throws {
@@ -289,7 +287,7 @@ import EventsTestSupport
         let request = EditorScrollRequest(line: 41, token: 1)
         r.coordinator.take(follow: nil, scroll: request)
         #expect(reported.isEmpty, "the caret was reported inside the update")
-        // A main-queue turn — which a synchronous test never yields.
+        // A main-queue turn, which a synchronous test never yields.
         try await Task.sleep(for: .milliseconds(50))
         let block = r.coordinator.session.projection.blocks.first { $0.line == 41 }!
         #expect(r.view.selectedRange().location == block.rendered.location)
@@ -299,12 +297,12 @@ import EventsTestSupport
         #expect(reported.count == 1, "the same request was taken twice")
     }
 
-    /// **A triple-clicked paragraph, or a run over several blocks, is reported to the format bar**
-    /// (FMT-14). A triple-click selects the paragraph AND the break after it, which maps to no one
-    /// block, so nothing was reported: the bar kept the last caret's state — dark over a bold
-    /// paragraph whose Bold press took the bold off. It is reported as a verb maps it.
+    /// A triple-clicked paragraph, or a run over several blocks, is reported to the format bar. A
+    /// triple-click selects the paragraph and the break after it, which maps to no one block; it is
+    /// reported as a verb maps it, or the bar keeps the last caret's state (dark over a bold
+    /// paragraph whose Bold press would take the bold off).
     ///
-    /// Mutation: have the session map with `sourceSelection` alone again, and nothing is reported.
+    /// Mutation: have the session map with `sourceSelection` alone, and nothing is reported.
     @Test func aTripleClickedParagraphIsReportedToTheBar() throws {
         let r = rig("**para**\n\nNext.")
         var reported: [NSRange] = []
@@ -324,10 +322,10 @@ import EventsTestSupport
         #expect(across == NSRange(location: 3, length: 9), "reported \(across)")
     }
 
-    /// **A style set for what is typed next is reported, and lit on the bar** (FMT-15). ⌘B with a
-    /// bare caret writes nothing in Preview — it sets Bold for the next character — and the bar
-    /// never showed it: Bold stayed dark, and a second press to check turned it off unseen. The
-    /// workspace lights what Preview reports while the bar acts on Preview.
+    /// A style set for what is typed next is reported, and lit on the bar. ⌘B with a bare caret
+    /// writes nothing in Preview (it sets Bold for the next character), so unlit, a second press
+    /// to check would turn it off unseen. The workspace lights what Preview reports while the bar
+    /// acts on Preview.
     ///
     /// Mutation: drop `reportPending()` from `apply`, and the first report never comes.
     @Test func aPendingStyleIsReportedForTheBarToLight() throws {
@@ -358,10 +356,9 @@ import EventsTestSupport
 
     // MARK: Saying why (review V9)
 
-    /// **A Markup verb Preview refuses says so in the log**, as Source's refusals do (review V9):
-    /// the session's own line was `.debug`, below the app's INFO level, so a verb from the menu that
-    /// did nothing left no trace. It is INFO now, and names the verb as the menu does — the one
-    /// line (round 2: the view wrote a second). Bold over two paragraphs crosses blocks.
+    /// A Markup verb Preview refuses says so in the log at INFO, as Source's refusals do, so a menu
+    /// verb that did nothing leaves a trace. One line, naming the verb as the menu does. Bold over
+    /// two paragraphs crosses blocks.
     ///
     /// Mutation: log the session's refusals at debug, and the capture holds nothing at INFO.
     @Test func aRefusedMarkupVerbIsLogged() async {
@@ -374,21 +371,20 @@ import EventsTestSupport
         #expect(await log.holds(.info, containing: "[edit] preview refused Markup ▸ Strikethrough in paragraph at source 1: crossesBlocks"))
     }
 
-    /// **A Replace All that could not make every match says how many** (review V9): the reason was
-    /// dropped on the way to the status line, which said the generic sentence over a refusal that
-    /// had replaced nothing at all.
+    /// A Replace All that couldn't make every match says how many, not the generic sentence over a
+    /// refusal that may have replaced nothing at all.
     @Test func aRefusedReplaceAllSaysHowManyMatchesNeedSource() throws {
         let hint = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 2, of: 5))
         #expect(hint.sentence(.sentence) == "2 of 5 matches need Source — none were replaced.")
         #expect(hint.sentence(.short) == "2 of 5 need Source.")
         #expect(hint.sentence(.link) == nil)
-        // ST15: one of one is a match that needs Source, not "1 of 1 matches need Source".
+        // One of one is a match that needs Source, not "1 of 1 matches need Source".
         let one = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1, of: 1))
         #expect(one.sentence(.sentence) == "1 of 1 match needs Source — none was replaced.")
         #expect(one.sentence(.short) == "1 of 1 needs Source.")
         let oneOfMany = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1, of: 1_204))
         #expect(oneOfMany.sentence(.sentence) == "1 of 1,204 matches needs Source — none were replaced.")
-        // Both counts past a thousand are grouped, as the rest of Edit's counts are (ED15).
+        // Both counts past a thousand are grouped, as the rest of Edit's counts are.
         let (many, all) = (1_200.formatted(), 12_500.formatted())
         try #require(many != "1200", "this locale groups no digits — the case below measures nothing")
         let large = EditorStatusHint(token: 1, onShowInSource: {}, reason: .replaceAll(failed: 1_200, of: 12_500))
@@ -428,11 +424,10 @@ import EventsTestSupport
         #expect(r.undo.undoActionName == "Typing")
     }
 
-    /// **⌘Z while a word is being composed commits the word and takes nothing back** (UND-8).
-    /// Preview registers nothing for marked text, so ⌘Z went past the composition to the run of
-    /// typing before it, and the redraw threw the half-composed word away: "Hello world" with か
-    /// being composed came back as "Hello". The word is committed, and the next ⌘Z takes it back
-    /// with the typing it joined. Mutation: drop the `hasMarkedText()` branch from `undo(_:)`.
+    /// ⌘Z while a word is being composed commits the word and takes nothing back. Preview registers
+    /// nothing for marked text, so ⌘Z would otherwise reach past the composition to the typing
+    /// before it and throw the half-composed word away. The next ⌘Z takes the word back with the
+    /// typing it joined. Mutation: drop the `hasMarkedText()` branch from `undo(_:)`.
     @Test func undoWhileAWordIsComposedCommitsTheWord() {
         let r = rig("Hello")
         type(" world", in: r)
@@ -451,11 +446,10 @@ import EventsTestSupport
         #expect(r.source.text == "Hello", "the next ⌘Z did not take back the typing and the word")
     }
 
-    /// **⌘Z, sent as AppKit sends it, takes back typing in Preview — never a file operation**, and
-    /// Edit ▸ Undo names the typing (UND-1). The window answers `undo:` for a text view whose
-    /// `allowsUndo` is off with its OWN stack, the file operations', whatever the view's
-    /// `undoManager` says; the property above was right and ⌘Z still missed it.
-    /// Mutation: delete `PreviewTextView.undo(_:)`.
+    /// ⌘Z, sent as AppKit sends it, takes back typing in Preview, never a file operation, and Edit ▸
+    /// Undo names the typing. The window answers `undo:` for a text view whose `allowsUndo` is off
+    /// with its own stack, the file operations', whatever the view's `undoManager` says, so the
+    /// test above alone doesn't cover ⌘Z. Mutation: delete `PreviewTextView.undo(_:)`.
     @Test func undoSentUpTheResponderChainTakesBackTheTyping() throws {
         let r = rig("Hello")
         final class Moves { var undone = 0 }
@@ -474,7 +468,7 @@ import EventsTestSupport
         #expect(r.display == "Hello")
     }
 
-    /// An undo arriving from outside — Source, the Edit menu — is followed: Preview re-renders, and
+    /// An undo arriving from outside (Source, the Edit menu) is followed: Preview re-renders, and
     /// the caret goes to where the change was.
     @Test func aChangeFromOutsideIsFollowed() {
         let r = rig("one two")
@@ -501,7 +495,7 @@ import EventsTestSupport
         #expect(!r.undo.canUndo)   // the composition registered nothing of its own
     }
 
-    /// `unmarkText` accepts the marked text — focus leaving mid-composition keeps the word.
+    /// `unmarkText` accepts the marked text: focus leaving mid-composition keeps the word.
     @Test func unmarkingCommitsTheComposition() {
         let r = rig("ab")
         r.view.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
@@ -526,7 +520,7 @@ import EventsTestSupport
 
     // MARK: Links and task boxes
 
-    /// A plain click on a link places the caret; ⌘-click follows it (§1.2).
+    /// A plain click on a link places the caret; ⌘-click follows it.
     @Test func aPlainClickOnALinkPlacesTheCaretAndCommandClickFollowsIt() {
         let r = rig("See [the end](#end).")
         r.coordinator.clickedOnLink(URL(string: "#end")!, at: 6, command: false); spin()
@@ -536,7 +530,7 @@ import EventsTestSupport
         #expect(r.box.anchors == ["end"])
     }
 
-    /// A click on a task box ticks it in the source — now with undo (A8).
+    /// A click on a task box ticks it in the source, with undo.
     @Test func clickingATaskBoxTicksItWithUndo() throws {
         let r = rig("- [ ] salt")
         let box = try #require((0..<(r.display as NSString).length).first {
@@ -552,14 +546,13 @@ import EventsTestSupport
         #expect(r.source.text == "- [ ] salt")
     }
 
-    /// **A tick far down a note, and its ⌘Z, are one step and leave the scroll where it was** — in
-    /// the editable Preview, the default and the one a tick is clicked in every day (P52). The caret
-    /// goes to the box, as the translator says (`caret: box.source.location`): the click was there,
-    /// and a click in text puts the caret where it lands. What must not happen is the view scrolling
-    /// away from the box — which a tick whose caret lands anywhere else does, since the coordinator
-    /// scrolls to the selection.
-    /// Mutation: the translator's tick caret at 0 — both scroll checks fail. (`splice` replacing the
-    /// whole display does NOT fail it: on this uniform note that moves no scroll, measured 2026-10-17.)
+    /// A tick far down a note, and its ⌘Z, are one step each and leave the scroll where it was, in
+    /// the editable Preview, the default and where ticks are clicked every day. The caret goes to
+    /// the box, as the translator says (`caret: box.source.location`), since the click was there;
+    /// a caret anywhere else would scroll the view away, because the coordinator scrolls to the
+    /// selection.
+    /// Mutation: the translator's tick caret at 0, and both scroll checks fail. (`splice` replacing
+    /// the whole display doesn't fail it: on this uniform note that moves no scroll.)
     @Test func aTickFarDownIsOneStepAndKeepsTheScroll() async throws {
         let text = (1...300).map { $0 == 200 ? "- [ ] milk" : "Line \($0) of the note." }.joined(separator: "\n\n")
         let r = rig(text)
@@ -593,15 +586,15 @@ import EventsTestSupport
         #expect(!r.undo.canUndo, "the tick was more than one undo step")
         #expect(abs(clip.bounds.origin.y - top) < 0.5, "⌘Z scrolled Preview from \(top) to \(clip.bounds.origin.y)")
 
-        // The control: a scroll to the top IS seen here, so the checks above could fail.
+        // The control: a scroll to the top is seen here, so the checks above could fail.
         r.view.scrollRangeToVisible(NSRange(location: 0, length: 0))
         let moved = await LayoutPumpWait.pump(r.window, upTo: 2) { top - clip.bounds.origin.y > 1_000 }
         #expect(moved.held, "a scroll to the top never showed here, so the checks above saw nothing")
     }
 
-    /// **A double-click on a task box is one tick, not a tick and an untick** (review V11): the
-    /// second click of a double-click arrives as a mouse-down of its own, with a click count of 2,
-    /// and ticked the box back — two undo steps for what reads as one press.
+    /// A double-click on a task box is one tick, not a tick and an untick: the second click arrives
+    /// as a mouse-down of its own with a click count of 2, and ticking on it would make two undo
+    /// steps for what reads as one press.
     ///
     /// Mutation: tick on every click count, and the box ends unticked.
     @Test func aDoubleClickOnATaskBoxTicksItOnce() throws {
@@ -624,9 +617,9 @@ import EventsTestSupport
         #expect(!r.undo.canUndo, "the double-click was two steps")
     }
 
-    /// **The arrow over text Preview cannot edit** (review V14): HTML here, so it does not look
-    /// typeable until a keystroke is refused. The text that can be edited is left to AppKit's own
-    /// cursor. Through `mouseMoved`, the view's own door.
+    /// The arrow cursor over text Preview can't edit (HTML here), so it doesn't look typeable until
+    /// a keystroke is refused. Editable text is left to AppKit's own cursor. Through `mouseMoved`,
+    /// the view's own door.
     ///
     /// Mutation: drop the `NSCursor.arrow.set()`, and the cursor stays the I-beam.
     @Test func theCursorIsTheArrowOverReadOnlyText() throws {
@@ -647,8 +640,8 @@ import EventsTestSupport
 
     // MARK: Drawing
 
-    /// Quote bars and code bands come from TextKit 2's fragment hook — and the view stays on
-    /// TextKit 2 having drawn them.
+    /// Quote bars and code bands come from TextKit 2's fragment hook, and the view stays on TextKit
+    /// 2 having drawn them.
     @Test func quotesAndCodeGetTheirFragmentsOnTextKit2() throws {
         let r = rig("> said\n\n```\nlet x\n```\n\nplain")
         let manager = try #require(r.view.textLayoutManager)
@@ -665,8 +658,8 @@ import EventsTestSupport
 
     // MARK: The toggle
 
-    /// Offered in Preview and Split, for a writable Markdown document — never in Source, never for
-    /// a read-only or non-Markdown file, never where the document was refused.
+    /// Offered in Preview and Split, for a writable Markdown document; never in Source, never for a
+    /// read-only or non-Markdown file, never where the document was refused.
     @Test func thePillIsOfferedOnlyForAWritableMarkdownPreview() {
         func offered(_ mode: EditorMode, markdown: Bool = true, readOnly: Bool = false,
                      refused: Bool = false, document: Bool = true) -> Bool {
@@ -682,8 +675,8 @@ import EventsTestSupport
         #expect(!offered(.preview, document: false))
     }
 
-    /// **Past 256 KB Preview is read-only, and the pill says so** (plan C23): still offered — the
-    /// setting is kept — but the gate the workspace and the menus mount by says no.
+    /// Past 256 KB Preview is read-only, and the pill says so: still offered (the setting is kept),
+    /// but the gate the workspace and the menus mount by says no.
     ///
     /// Mutation: drop `isTooLong` from `editsInPreview`, and the over-long note is editable.
     @Test func aDocumentOverTheLimitIsReadOnlyInPreview() {
@@ -700,12 +693,9 @@ import EventsTestSupport
         #expect(PreviewEditToggle.tooLongTooltip == "Too long to edit in Preview — use Source.")
     }
 
-    /// **The dimmed pill is drawn as the window's other unavailable controls are** (review V14):
-    /// the tertiary style, as the header's greyed ＋. The review read the secondary colour at half
-    /// opacity as a quarter of the ink, which it is — and so is the tertiary style: measured
-    /// 2026-10-09, the darkest grey was 194 before, 192 now, 200 for the ＋'s style (139 live). So
-    /// the look was already the others'; it is now the others' by construction, and the glass track
-    /// is no longer dimmed with it. Rendered and read back, on white.
+    /// The dimmed pill is drawn as the window's other unavailable controls are: the tertiary style,
+    /// as the header's greyed ＋, by construction, and the glass track isn't dimmed with it.
+    /// Rendered and read back, on white.
     @Test func theDimmedPillIsAsLegibleAsTheOtherGreyedControls() {
         func darkest(_ view: some View) -> Int {
             let rig = ProbeRig(AnyView(view.frame(width: 140, height: 40).background(Color.white)
@@ -731,7 +721,7 @@ import EventsTestSupport
         #expect(abs(dimmed - greyed) <= 25, "the dimmed pill is not the tertiary style the other greyed controls wear")
     }
 
-    /// The intro shows the first time editing is turned on, and only then; on by default (v5.5).
+    /// The intro shows the first time editing is turned on, and only then; editing is on by default.
     @Test func theIntroShowsOnceAndEditingStartsOn() {
         #expect(PreviewEditToggle.showsIntro(turningOn: true, introSeen: false))
         #expect(!PreviewEditToggle.showsIntro(turningOn: true, introSeen: true))
@@ -758,15 +748,15 @@ import EventsTestSupport
         #expect(width(.sentence, 1) <= EditorLayoutMetrics.minDocumentWidth)
     }
 
-    /// A second refusal while the first is up is a new hint — its token restarts the host's timer.
+    /// A second refusal while the first is up is a new hint: its token restarts the host's timer.
     @Test func eachRefusalIsANewHint() {
         #expect(EditorStatusHint(token: 1, onShowInSource: {}) != EditorStatusHint(token: 2, onShowInSource: {}))
         #expect(EditorStatusHint(token: 1, onShowInSource: {}) == EditorStatusHint(token: 1, onShowInSource: {}))
         #expect(EditorStatusHint.needsSource == "That change needs Source.")
     }
 
-    /// **Markdown only** (his decision, 2026-10-05): with the setting on, a `.txt` — and anything
-    /// else that is not Markdown — still gets no editable Preview, in any mode.
+    /// Markdown only: with the setting on, a `.txt`, or anything else that isn't Markdown, still
+    /// gets no editable Preview, in any mode.
     @Test func onlyMarkdownEverGetsTheEditablePreview() {
         for mode in EditorMode.allCases {
             #expect(!EditorWorkspaceView.editsInPreview(preference: true, hasDocument: true, isRefused: false,
@@ -785,8 +775,8 @@ import EventsTestSupport
 
     // MARK: Routing
 
-    /// The Markup menu and its chords reach Preview when the caret is in it — through the mark on
-    /// its scroll view, and into the SOURCE, never the display.
+    /// The Markup menu and its chords reach Preview when the caret is in it, through the mark on its
+    /// scroll view, and into the source, never the display.
     @Test func markupChordsReachPreviewWhenItHasTheCaret() {
         let r = rig("Salt the pasta well.")
         let found = (r.display as NSString).range(of: "pasta")
@@ -823,8 +813,8 @@ import EventsTestSupport
         return nil
     }
 
-    /// An image block draws the picture — from the document's folder, off the main actor — at its
-    /// own size within the column, not a placeholder.
+    /// An image block draws the picture (from the document's folder, off the main actor) at its own
+    /// size within the column, not a placeholder.
     @Test func anImageBlockDrawsThePicture() async throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
         let folder = (note as NSString).deletingLastPathComponent
@@ -879,8 +869,8 @@ import EventsTestSupport
         #expect(follow.leader == .preview)
     }
 
-    /// Preview follows a source line by moving the view, never the caret — and then reports that
-    /// line as the one at the top.
+    /// Preview follows a source line by moving the view, never the caret, and then reports that line
+    /// as the one at the top.
     @Test func previewFollowsALineWithoutMovingTheCaret() {
         let paragraphs = (1...60).map { "Paragraph number \($0) with some words in it." }
         let r = rig(paragraphs.joined(separator: "\n\n"))
@@ -915,8 +905,8 @@ import EventsTestSupport
 
     // MARK: Tables (TE67.5)
 
-    /// Typing in an aligned table re-aligns it as you go (decision T) — and the run of typing, each
-    /// keystroke of which re-padded the whole table, is still one ⌘Z, giving back the table's bytes.
+    /// Typing in an aligned table re-aligns it as you go, and the run of typing, though each
+    /// keystroke re-pads the whole table, is still one ⌘Z, giving back the table's bytes.
     @Test func typingInATableIsOneUndoStepThatGivesBackItsBytes() {
         let table = "| a   | b   |\n| --- | --- |\n| c   | d   |"
         let r = rig(table)
@@ -931,7 +921,7 @@ import EventsTestSupport
 
     // MARK: Review fixes, 2026-10-05
 
-    /// ⌫ after two held spaces takes a held space — never the next paragraph's first letter.
+    /// ⌫ after two held spaces takes a held space, never the next paragraph's first letter.
     @Test func backspaceAfterHeldSpacesTakesASpaceNotTheNextLetter() {
         let r = rig("Hello\n\nworld")
         caret(after: "Hello", in: r)
@@ -957,7 +947,7 @@ import EventsTestSupport
         #expect(r.box.refusals.isEmpty)
     }
 
-    /// A word composed on the opened paragraph is written there — not into the next one.
+    /// A word composed on the opened paragraph is written there, not into the next one.
     @Test func aCompositionOnAnOpenedParagraphIsWrittenThere() {
         let r = rig("one\n\ntwo")
         caret(after: "one", in: r)
@@ -1014,7 +1004,7 @@ import EventsTestSupport
         #expect(boxes.count == 1)
     }
 
-    /// A table wider than the column is read-only at the column's default width too — and the rule
+    /// A table wider than the column is read-only at the column's default width too, and the rule
     /// survives a text-size change.
     @Test func theWideTableRuleHoldsAtEveryWidthAndSize() {
         let cells = String(repeating: "wide ", count: 40)
@@ -1040,7 +1030,7 @@ import EventsTestSupport
         #expect(try #require(rule()).bounds.width <= 300)
     }
 
-    /// In Split, typing in Source leaves Preview's caret and scroll alone — Preview moving would
+    /// In Split, typing in Source leaves Preview's caret and scroll alone: Preview moving would
     /// scroll Source after it.
     @Test func typingInSourceLeavesPreviewsCaretAlone() {
         let r = rig("one two three")
@@ -1057,8 +1047,8 @@ import EventsTestSupport
         #expect(r.view.selectedRange() == NSRange(location: 2, length: 0))
     }
 
-    /// The heading menu, the outline and a `#fragment` link go to a line in Preview too: caret and
-    /// scroll — not only in Split.
+    /// The heading menu, the outline and a `#fragment` link go to a line in Preview too, caret and
+    /// scroll, not only in Split.
     @Test func navigatingToALinePutsTheCaretThere() {
         let paragraphs = (1...60).map { "Paragraph number \($0) with some words in it." }
         let r = rig(paragraphs.joined(separator: "\n\n"))
@@ -1077,7 +1067,7 @@ import EventsTestSupport
         let menu = try #require(r.coordinator.textView(r.view, menu: NSMenu(), for: event, at: 0))
         #expect(menu.items.first?.title == "Markup")
         #expect(menu.items.contains { $0.title == PlainTextEditor.Coordinator.formatBarTitle })
-        // Check Spelling, as Source's (review V10); no Wrap Lines, which would do nothing here.
+        // Check Spelling, as Source's; no Wrap Lines, which would do nothing here.
         let spelling = try #require(menu.items.first { $0.title == "Check Spelling While Typing" })
         #expect(spelling.target === r.coordinator)
         #expect(!menu.items.contains { $0.title == "Wrap Lines" })
@@ -1105,9 +1095,9 @@ import EventsTestSupport
 
     // MARK: The real workspace, mounted (review V16)
 
-    /// **The workspace in a window, with the real representable** — `makeNSView` and `updateNSView`
-    /// included, which the coordinator rigs above never run. The mode is swapped by swapping the root,
-    /// one wrapper for every mode, so the workspace's `@State` survives it as it does in the app.
+    /// The workspace in a window, with the real representable: `makeNSView` and `updateNSView`
+    /// included, which the coordinator rigs above never run. The mode is swapped by swapping the
+    /// root, one wrapper for every mode, so the workspace's `@State` survives it as in the app.
     @MainActor
     final class Mounted {
         let document: EditorDocument
@@ -1131,7 +1121,7 @@ import EventsTestSupport
             probe.host.layoutSubtreeIfNeeded()
         }
 
-        /// Every 256 KB decision the workspace handed up — what the app's menus gate on.
+        /// Every 256 KB decision the workspace handed up: what the app's menus gate on.
         var holds: [PreviewLengthHold] = []
 
         func root(_ mode: EditorMode) -> AnyView {
@@ -1162,7 +1152,7 @@ import EventsTestSupport
             await settle()
         }
 
-        /// Passes for SwiftUI's updates and the main-queue hops after them — until `condition`, or
+        /// Passes for SwiftUI's updates and the main-queue hops after them, until `condition`, or
         /// the shared floor's worth when there is none to wait for (an absence is a bounded wait).
         func settle(_ condition: () -> Bool = { false }) async {
             _ = await LayoutPumpWait.pump(probe.window, upTo: 1) { condition() }
@@ -1178,8 +1168,8 @@ import EventsTestSupport
         var source: NSTextView? { views(EditorTextView.self).first }
     }
 
-    /// **A Markdown file's Preview is editable for somebody who has never touched the setting** — the
-    /// default reaches the workspace through its `@AppStorage`, not only the constant (v5.5).
+    /// A Markdown file's Preview is editable for someone who never touched the setting: the default
+    /// reaches the workspace through its `@AppStorage`, not only the constant.
     ///
     /// Mutation: `editsInPreviewDefault = false`, and Preview is the read-only one.
     @Test func previewIsEditableWhenTheSettingWasNeverChosen() async throws {
@@ -1189,8 +1179,8 @@ import EventsTestSupport
         #expect(m.preview != nil, "Preview is read-only with the setting unset")
     }
 
-    /// **Text ▸ Continue Lists reaches an editable Preview** (LST-3) — through the view's own
-    /// `@AppStorage`, as Check Spelling does, so turning it off in the menu turns it off here.
+    /// Text ▸ Continue Lists reaches an editable Preview, through the view's own `@AppStorage` as
+    /// Check Spelling does, so turning it off in the menu turns it off here.
     @Test func previewFollowsContinueLists() async throws {
         let m = try Mounted("- one\n- two", mode: .preview, editing: true)
         await m.settle { m.preview != nil }
@@ -1200,17 +1190,17 @@ import EventsTestSupport
         #expect(m.preview?.coordinator?.session.continuesLists == false, "Preview did not hear Continue Lists turned off")
     }
 
-    /// **The intro shows the first time Preview becomes editable, in the default setup** (review V2):
-    /// Preview with the format bar on. Turning editing on moves the pill from its own row into the
-    /// bar's, and the pill used to keep the popover's state itself — so the intro was raised on the
-    /// pill that went away, marked seen, and never shown. Turned on here by the setting, as Text ▸
-    /// Edit in Preview turns it on (the pill writes the same binding), which never showed it either.
+    /// The intro shows the first time Preview becomes editable in the default setup, Preview with
+    /// the format bar on. Turning editing on moves the pill from its own row into the bar's, so the
+    /// workspace, not the pill, holds the popover's state, or the intro is raised on the pill that
+    /// goes away. Turned on here by the setting, as Text ▸ Edit in Preview does (the pill writes the
+    /// same binding).
     ///
     /// Mutations: drop the workspace's `onChange(of: editsInPreview)`, and no popover opens and the
     /// intro is never marked seen.
     @Test func theIntroShowsWhenEditingIsTurnedOnWithTheBarShowing() async throws {
         let m = try Mounted("Salt the pasta.", mode: .preview, editing: false, introSeen: false)
-        // Ordered in — the intro is a popover, which presents only from a visible window — and
+        // Ordered in (the intro is a popover, which presents only from a visible window) and
         // buried, so the editor and its intro open under everything on the user's screen.
         m.probe.window.buryUnderEverything()
         m.probe.window.orderFrontRegardless()
@@ -1233,19 +1223,16 @@ import EventsTestSupport
         popovers().forEach { $0.orderOut(nil) }
     }
 
-    /// **A mode switch keeps the caret where it was** (review V3): Source with the caret in the
-    /// middle of a long paragraph, then Preview, then Source again. The switch's own request — "open
-    /// where the caret is", for the read-only preview — reached the editable one after it was built,
-    /// and `navigate(toLine:)` put the caret at the START of the paragraph and reported it, so Source
-    /// came back there too.
+    /// A mode switch keeps the caret where it was: Source with the caret mid-paragraph, then
+    /// Preview, then Source again. The switch's own request ("open where the caret is", for the
+    /// read-only preview) must not reach the editable one, where `navigate(toLine:)` would put the
+    /// caret at the paragraph's start and report it, bringing Source back there too.
     ///
-    /// **The symptom did not reproduce here** (2026-10-09): the request reached the view before it
-    /// was in a window, and the caret `makeNSView` places a turn later overwrote where it put the
-    /// caret. Which of the two lands last is an ordering of SwiftUI's update passes against a
-    /// main-queue hop, so the request is no longer sent to the editable Preview at all — the last
-    /// check pins that.
+    /// Here the caret `makeNSView` places a turn later may overwrite the request's, an ordering of
+    /// SwiftUI's update passes against a main-queue hop, so the symptom may not show; the last
+    /// check pins that the request isn't sent to the editable Preview at all.
     ///
-    /// Mutation: send the mode switch's request to the editable Preview again, and the last check fails.
+    /// Mutation: send the mode switch's request to the editable Preview, and the last check fails.
     @Test func aModeSwitchKeepsTheCaretMidParagraph() async throws {
         let paragraph = String(repeating: "Salt the pasta water well before it boils. ", count: 12)
         let m = try Mounted("# Title\n\n" + paragraph + "\n\nThe end.", mode: .edit)
@@ -1271,14 +1258,13 @@ import EventsTestSupport
         #expect(back.selectedRange().location == mid, "Source came back at \(back.selectedRange().location)")
     }
 
-    /// **The 256 KB limit is decided when Preview is opened, and held** (review V4, the lead's
-    /// decision): a note that grows past it while being edited stays editable — the caret, the bar
-    /// and the pill where they were — until it is next opened in Preview; then it is read-only. In
-    /// Split, typing in Source past it does not rebuild Preview's half. The decision is handed up,
-    /// so the menus gate on it too.
+    /// The 256 KB limit is decided when Preview is opened, and held: a note that grows past it while
+    /// being edited stays editable (the caret, the bar and the pill where they were) until it is
+    /// next opened in Preview, then it is read-only. In Split, typing in Source past it doesn't
+    /// rebuild Preview's half. The decision is handed up, so the menus gate on it too.
     ///
-    /// Mutation: read the length live again (drop the hold), and the first check fails — Preview
-    /// goes read-only mid-edit.
+    /// Mutation: read the length live (drop the hold), and the first check fails: Preview goes
+    /// read-only mid-edit.
     @Test func theLengthLimitIsHeldWhilePreviewStaysOpen() async throws {
         let line = String(repeating: "x", count: 99) + "\n"
         let start = String(repeating: line, count: PreviewEditToggle.maximumLength / 100 - 1)
@@ -1294,7 +1280,7 @@ import EventsTestSupport
         #expect(m.preview === preview, "Preview went read-only, or was rebuilt, as the note crossed the limit")
         #expect(m.holds.last?.isTooLong == false, "the menus were told it is too long mid-edit")
 
-        // Split, then Preview again: opened over the limit, so read-only — and the menus told.
+        // Split, then Preview again: opened over the limit, so read-only, and the menus told.
         await m.switchTo(.split)
         #expect(m.preview == nil, "Split opened Preview over the limit editable")
         await m.switchTo(.preview)
@@ -1318,11 +1304,10 @@ import EventsTestSupport
         #expect(!PreviewLengthHold.isTooLong(nil, key: key) { 10 })
     }
 
-    /// **Split: the format bar acts on the half the caret is in** (review V7). Foo selected in
-    /// Source, then bar selected in Preview's half: Bold made `**foo**` — Source's old selection,
-    /// the caret moved there. Now the bar's handle targets Preview's half while the caret was last
-    /// there, and Source's again once Source reports a selection of its own. Through the mounted
-    /// workspace's own handle and both real text views; the press is the bar's call.
+    /// Split: the format bar acts on the half the caret is in. With foo selected in Source, then bar
+    /// in Preview's half, Bold must wrap bar, not Source's old selection: the bar's handle targets
+    /// Preview's half while the caret was last there, and Source's again once Source reports a
+    /// selection of its own. Through the mounted workspace's own handle and both real text views.
     ///
     /// Mutations: drop the Preview report's `caretInSplitPreview = true`, and Bold wraps foo; drop
     /// Source's reset, and the last step wraps Preview's selection again.
@@ -1351,10 +1336,9 @@ import EventsTestSupport
         #expect(handle.splitPreview == nil)
     }
 
-    /// **Split: typing in Preview's half moves the caret Preview reopens at** (review V8). Preview's
-    /// half reported nothing in Split, so the remembered caret stayed wherever Source last had it.
-    /// Source's own selection is nudged as Preview's edit lands in the text before it, and Preview
-    /// reports after that, so the caret typed at is the one kept.
+    /// Split: typing in Preview's half moves the caret Preview reopens at. Source's own selection is
+    /// nudged as Preview's edit lands in the text before it, and Preview reports after that, so the
+    /// caret typed at is the one kept.
     ///
     /// Mutation: hand Preview's half no selection callback in Split, and the remembered caret is
     /// Source's.
@@ -1378,8 +1362,8 @@ import EventsTestSupport
                 "Preview would reopen at \(m.document.caretAnchors.offset(for: m.document.path) ?? -1)")
     }
 
-    /// **Preview follows Check Spelling While Typing** (review V10): Help says the switch is the
-    /// text's, and Preview never read it — underlines on in Source stayed off in Preview.
+    /// Preview follows Check Spelling While Typing: Help says the switch is the text's, so
+    /// underlines on in Source are on in Preview too.
     ///
     /// Mutation: drop the setting from `update`, and the first check fails.
     @Test func previewFollowsCheckSpelling() async throws {
@@ -1393,10 +1377,10 @@ import EventsTestSupport
         #expect(!preview.isContinuousSpellCheckingEnabled)
     }
 
-    /// **A follow Source has not acted on is not replayed later** (review V13): Split with editing
-    /// on, Preview scrolled — Source follows; editing off, Source, back to Split (Source rebuilt,
-    /// knowing no follow), editing on: the old follow, never cleared, was handed to the new Source,
-    /// which jumped to a line scrolled to minutes before.
+    /// A follow Source hasn't acted on is not replayed later. Split with editing on, Preview
+    /// scrolled, Source follows; editing off, Source, back to Split (Source rebuilt, knowing no
+    /// follow), editing on: an uncleared follow would make the new Source jump to a line scrolled to
+    /// minutes before.
     ///
     /// Mutation: stop clearing the follow when editing goes off, and Source jumps.
     @Test func aStaleFollowIsNotReplayedToSource() async throws {

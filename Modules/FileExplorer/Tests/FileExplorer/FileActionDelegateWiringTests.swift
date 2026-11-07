@@ -6,11 +6,10 @@ import Foundation
 /// source rather than from a hand list, because the hand-listable half is the half the compiler
 /// already checks.
 ///
-/// The bug class is recorded in the protocol's own doc: `riskyName(for:)` and `handleFixName(_:)`
-/// were introduced as protocol-EXTENSION members, so every call through the existential bound
-/// statically to the extension's nil default and "Fix name" was unreachable from the moment it
-/// was written — the app built, the conformer's methods were tested directly, and a menu item
-/// that is merely absent looks exactly like one that is correctly withheld.
+/// The bug class (the protocol's own doc states the rule): a member declared only in a protocol
+/// extension binds statically, through the existential, to the extension's default, so the
+/// conformer's method is never reached. The app builds, the conformer's methods pass their direct
+/// tests, and a menu item that is merely absent looks exactly like one correctly withheld.
 @Suite struct FileActionDelegateWiringTests {
 
     // MARK: Source readers
@@ -31,19 +30,18 @@ import Foundation
         return text
     }
 
-    /// Whole-line comments stripped, so prose that happens to spell `delegate.someMember` — the
-    /// protocol's own doc does, for the recorded bug — cannot satisfy either walk.
+    /// Whole-line comments stripped, so prose that spells `delegate.someMember` (the protocol file
+    /// has some) cannot satisfy either walk.
     private static func codeOnly(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
     }
 
-    /// Every file that binds the existential — derived rather than listed, so the next consumer
-    /// joins the walk the day it declares one. `PaneColumnsView` consumes seven members through
-    /// the same `delegate:` it declares at its top; a forward walk that read `FileTreeView` alone
-    /// was structurally silent about all of them, which is the recorded bug with a different file
-    /// name on it.
+    /// Every file that binds the existential, derived rather than listed, so the next consumer
+    /// joins the walk the day it declares one. `PaneColumnsView` consumes several members through
+    /// its own `delegate:`; a walk that read `FileTreeView` alone would be silent about all of
+    /// them.
     private static func consumerSources() throws -> [String] {
         let fm = FileManager.default
         let files = try #require(try? fm.contentsOfDirectory(at: sourcesDirectory(),
@@ -59,8 +57,8 @@ import Foundation
         return consumers
     }
 
-    /// The member names declared inside the protocol BODY — the witness table. Extension members
-    /// deliberately excluded: being outside this set is exactly what made the recorded bug.
+    /// The member names declared inside the protocol body, the witness table. Extension members are
+    /// deliberately excluded: being outside this set is exactly the bug.
     private static func protocolRequirements() throws -> Set<String> {
         let text = try source("FileActionDelegate.swift")
         let start = try #require(text.range(of: "public protocol FileActionDelegate"),
@@ -73,18 +71,17 @@ import Foundation
         var names: Set<String> = []
         for match in body.matches(of: /func ([a-zA-Z0-9_]+)\s*\(/) { names.insert(String(match.1)) }
         for match in body.matches(of: /var ([a-zA-Z0-9_]+)\s*:/) { names.insert(String(match.1)) }
-        // The floor is set below EVERY line's protocol size (main >30, v3.x ~25, v2.x 18): it
-        // exists to catch a broken parser (which yields 0–2), not to pin a line's verb count.
+        // The floor sits below every release line's protocol size: it exists to catch a broken
+        // parser (which yields 0–2), not to pin a line's verb count.
         try #require(names.count > 12, "only \(names.count) requirements parsed — the parser is broken, not the protocol")
         return names
     }
 
     /// Every `delegate.<member>` consumed in `text`, comments stripped. The boundary check is
-    /// hand-rolled rather than `\b`: Swift regexes default to UNICODE word boundaries, under
-    /// which `lhs.delegate` is one word and `\b` never fires before the member access — which
-    /// silently dropped `isEquivalent`, whose only consumer is `lhs.delegate.isEquivalent(...)`.
-    /// The check still refuses a `scrollDelegate.someMember`, which must not count as the
-    /// file-action existential.
+    /// hand-rolled rather than `\b`: Swift regexes default to Unicode word boundaries, under which
+    /// `lhs.delegate` is one word and `\b` never fires before the member access, so
+    /// `lhs.delegate.isEquivalent(...)` would be missed. The check still refuses a
+    /// `scrollDelegate.someMember`, which must not count as the file-action existential.
     private static func delegateMemberReferences(inText text: String) -> Set<String> {
         let code = codeOnly(text)
         var names: Set<String> = []
@@ -100,10 +97,10 @@ import Foundation
 
     // MARK: The two directions
 
-    /// Every member the pane consumes through the existential is a protocol REQUIREMENT. A member
+    /// Every member the pane consumes through the existential is a protocol requirement. A member
     /// that exists only in a protocol extension has no witness: the existential call binds to the
     /// extension default at compile time, the conformer's override is never reached, and the
-    /// feature dies silently — the `riskyName` bug, re-armed for whatever member is added next.
+    /// feature dies silently.
     @Test func everyConsumedDelegateMemberIsARequirementNotAnExtensionDefault() throws {
         let requirements = try Self.protocolRequirements()
         var consumed: Set<String> = []
@@ -122,10 +119,9 @@ import Foundation
     }
 
     /// The reverse walk: every requirement is consumed somewhere in this module. A requirement
-    /// nothing calls is a verb no surface can trigger — the "menu item forgotten" direction, which
-    /// the forward walk is structurally silent about (a call that is never written can never be
-    /// wrong). Scanned across every source file, since the differences table and the panes consume
-    /// different subsets.
+    /// nothing calls is a verb no surface can trigger (a forgotten menu item), which the forward
+    /// walk can't see, since a call never written can never be wrong. Scanned across every source
+    /// file, since the differences table and the panes consume different subsets.
     @Test func everyRequirementIsConsumedBySomeSurface() throws {
         let requirements = try Self.protocolRequirements()
         let fm = FileManager.default

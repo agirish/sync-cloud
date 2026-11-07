@@ -4,11 +4,9 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// **Swipe's divider, and Difference's region outlines, draw in the app's accent.**
-///
-/// Both drew in `Color.accentColor`, which in this view is the SYSTEM accent: pick Coral in the app
-/// and the divider stayed whatever System Settings says. The view is now handed the hue's accent.
-/// Rendered and read back, because only the pixels say which accent a 1pt line took.
+/// Swipe's divider and Difference's region outlines draw in the app's accent, handed to the view.
+/// `Color.accentColor` here is the system accent, which ignores the hue picked in the app. Rendered
+/// and read back, because only the pixels say which accent a 1pt line took.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct VisualPairSwipeAccentTests {
 

@@ -2,31 +2,17 @@ import Sync
 
 /// A pane's selection resolved to its nodes once per selection, however many row menus ask.
 ///
-/// **Why the menus ask at all.** SwiftUI builds a row's `.contextMenu` with the row: `FileContextMenu`'s
-/// body runs every time its row renders in a shown window, not only when the menu opens — sampled
-/// inside each row's `NSHostingView.layout`. And every visible row re-renders on every click, in BOTH
-/// panes — the selection is an input of the clicked pane's menus, and the
-/// other pane's menus take it as `otherSelection`. Each body used to walk a pane tree of tens of
-/// thousands of nodes to resolve it: `resolvedSelection` for the row itself, and on the two-pane
-/// surfaces up to two more walks of the other pane's tree ("Copy '…' from ⟨pane⟩" and the
-/// cross-pane Compare item). Sampled 2026-09-27 in the real app while clicking through Columns:
-/// 277 of the 281 samples spent in those menus were the walks (CP9).
+/// SwiftUI builds a row's `.contextMenu` with the row, so `FileContextMenu`'s body runs on every
+/// render of every visible row, in both panes, on every click, and resolving the selection walks a
+/// tree of tens of thousands of nodes. A row outside the selection acts on itself and needs no walk
+/// (`FileContextMenu.menuNodes`). A row inside it, and every row's look at the other pane's
+/// selection (`otherSelection`), needs the same resolved answer: this walks once per (tree,
+/// selection) and hands every later asker the same nodes.
 ///
-/// Two changes remove them, and this type is the second:
-/// - A row OUTSIDE the selection acts on itself alone, and a row cut from the very tree being
-///   searched already IS that tree's node at its path (`PaneRow`'s stamp), so it needs no walk at
-///   all. That is nearly every row on every click — see `FileContextMenu.menuNodes`.
-/// - A row INSIDE the selection, and every row's look at the other pane's selection, needs the
-///   selection resolved — the same answer for every row that asks. This walks once per (tree,
-///   selection) and hands every later asker the same nodes.
-///
-/// Keyed on the tree's stamp exactly as `PaneTree.==` is: equal side and version are the same
-/// published tree, so a hit cannot return another tree's nodes. One entry per side, so a pane's
-/// own selection and the other pane's never evict each other.
-///
-/// An entry holds nodes, and a node holds its subtree, so an entry kept after its selection emptied
-/// would keep a tree the pane has since replaced alive. It is let go when that side's selection is
-/// asked about empty: the other pane's by `nodes(at:in:)`, the pane's own by `FileContextMenu.menuNodes`.
+/// Keyed on the tree's stamp as `PaneTree.==` is, so a hit can't return another tree's nodes. One
+/// entry per side, so the two panes' selections never evict each other. A node holds its subtree,
+/// so an entry kept after its selection emptied would keep a replaced tree alive: it is let go when
+/// that side's selection is asked about empty, by `nodes(at:in:)` or `FileContextMenu.menuNodes`.
 @MainActor
 final class PaneSelectionResolver {
     private struct Entry {
@@ -38,15 +24,15 @@ final class PaneSelectionResolver {
     private var left: Entry?
     private var right: Entry?
 
-    /// How many times this resolver has walked a tree. The answers are a walk's answers by
-    /// construction; the number of walks is the whole point, so it is what the tests count.
+    /// How many times this resolver has walked a tree: the number the tests count, since saving
+    /// walks is the point.
     private(set) var walks = 0
 
     /// `nonisolated` so `@State`'s initializer — which runs outside the actor — can build one.
     nonisolated init() {}
 
     /// `tree.selectedNodes(at: selection)`: the selection's nodes, pruned of any whose ancestor is
-    /// also selected — walking `tree` only the first time this (tree, selection) is asked about.
+    /// also selected, walking `tree` only the first time this (tree, selection) is asked about.
     func nodes(at selection: Set<String>, in tree: PaneTree) -> [FileNode] {
         guard !selection.isEmpty else {
             release(tree.side)
@@ -63,7 +49,7 @@ final class PaneSelectionResolver {
         return entry.nodes
     }
 
-    /// Lets go of `side`'s entry — its selection is empty, and the nodes it holds need not outlive it.
+    /// Lets go of `side`'s entry: its selection is empty, and its nodes need not outlive it.
     func release(_ side: PaneTree.Side) {
         if side == .left { left = nil } else { right = nil }
     }

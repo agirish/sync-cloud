@@ -4,37 +4,36 @@ import SwiftUI
 import Design
 import Sync
 
-/// **The PDF header's file actions** — Find, Fill & Sign and Tools ▾, at the end of the name row
-/// before the divider (Phase 6a, mockup C). Moving around the page — the page field, the zoom and
-/// the layout — is the floating capsule's now (``EditorPDFCapsule``), so the header holds the file
-/// and what acts on it, and nothing that moves on a page turn.
+/// The PDF header's file actions: Find, Fill & Sign and Tools ▾, at the end of the name row before
+/// the divider. Moving around the page (the page field, the zoom and the layout) is the floating
+/// capsule's (``EditorPDFCapsule``), so the header holds the file and what acts on it, and nothing
+/// that moves on a page turn.
 ///
-/// **One button style for the three** (``EditorPDFActionStyle``): a bezel, kept when the word goes,
-/// so the actions read as one group however narrow the column. Expand and Close after the divider
-/// wear the text header's glass capsules instead — they are about the window, not the file — and
-/// shed their words on the same rung as these (TE144).
+/// One button style for the three (``EditorPDFActionStyle``): a bezel, kept when the word goes, so
+/// the actions read as one group however narrow the column. Expand and Close after the divider wear
+/// the text header's glass capsules instead, since they are about the window, not the file, and
+/// shed their words on the same rung as these.
 struct EditorPDFHeaderControls: View {
     let find: EditorPDFFind
     let fill: EditorPDFFillSign
     let tools: EditorPDFTools
     /// Find and Fill & Sign: an open PDF with pages to act on.
     var showsReaderActions: Bool
-    /// Tools: open, or locked — Remove Password is the one tool a file locked to open can take.
+    /// Tools: open, or locked, since Remove Password is the one tool a file locked to open can take.
     var showsTools: Bool
     let accent: Color
-    /// What a lit action fills with — see ``EditorWorkspaceView/accentFill``.
+    /// What a lit action fills with; see ``EditorWorkspaceView/accentFill``.
     let accentFill: Color
     let onAccent: Color
-    /// How many words the actions draw — the header's row picks it (``EditorPDFHeader``).
+    /// How many words the actions draw; the header's row picks it (``EditorPDFHeader``).
     var rung: Rung = .worded
 
-    /// **What sheds as the column narrows** (decided 2026-10-19, revised the same day): all three
-    /// actions lose their words together, and only then does the name truncate, in the middle, on
-    /// the last rung. A middle rung that kept Fill & Sign's word beside a bare magnifier and wrench
-    /// read as a mix of two styles, and was the rung that got squeezed.
+    /// What sheds as the column narrows: all three actions lose their words together, and only then
+    /// does the name truncate, in the middle, on the last rung. A middle rung keeping Fill & Sign's
+    /// word beside a bare magnifier and wrench would read as a mix of two styles.
     ///
-    /// The last rung is what the narrowest column gets, and `EditorPDFHeaderWidthTests` pins what
-    /// it leaves the name in the column at the smallest window.
+    /// The last rung is what the narrowest column gets, and `EditorPDFHeaderWidthTests` pins what it
+    /// leaves the name in the column at the smallest window.
     enum Rung: CaseIterable {
         case worded
         case glyphs
@@ -54,15 +53,14 @@ struct EditorPDFHeaderControls: View {
                     .chromeGlassClearance(showsReaderActions ? .leading : [], rowSpacing: 6)
             }
         }
-        // **Never squeezed.** Tools was already fixed; Find and Fill & Sign were not, and a row
-        // short of its ideal width shrank their bezels under words that cannot shrink, so each
-        // word overprinted its neighbours. The name is what gives way.
+        // Never squeezed: a row short of its ideal width would shrink the bezels under words that
+        // can't shrink, so each word would overprint its neighbours. The name is what gives way.
         .fixedSize()
     }
 }
 
-/// **A file action's label**: its glyph, its word while the rung keeps it, and Tools' chevron —
-/// lit in the deepened accent while what it opens is up, so its white label clears AA.
+/// A file action's label: its glyph, its word while the rung keeps it, and Tools' chevron. Lit in
+/// the deepened accent while what it opens is up, so its white label clears AA.
 struct EditorPDFActionLabel: View {
     let symbol: String
     var word: String?
@@ -96,10 +94,9 @@ struct EditorPDFActionLabel: View {
     }
 }
 
-/// **The bezel the three file actions share** (decided 2026-10-19), on the button after its style,
-/// as `ChromeGlass` asks: a rounded chip of the window's quaternary fill and a hairline at Solid,
-/// and in Frosted and Clear the app's chrome glass in the same shape, grown to the header's other
-/// buttons' height.
+/// The bezel the three file actions share, on the button after its style, as `ChromeGlass` asks: a
+/// rounded chip of the window's quaternary fill and a hairline at Solid, and in Frosted and Clear
+/// the app's chrome glass in the same shape, grown to the header's other buttons' height.
 struct EditorPDFActionStyle: ViewModifier {
     let accent: Color
 
@@ -118,7 +115,7 @@ struct EditorPDFActionStyle: ViewModifier {
     }
 }
 
-/// Find — the PDF's own find card (⌘F), lit while it is up.
+/// Find: the PDF's own find card (⌘F), lit while it is up.
 struct EditorPDFFindButton: View {
     @ObservedObject var find: EditorPDFFind
     let accent: Color
@@ -139,8 +136,8 @@ struct EditorPDFFindButton: View {
     }
 }
 
-/// **The header's Fill & Sign button** — between Find and Tools (mockup C). It turns Fill & Sign's
-/// palette and save pill over the canvas on and off (Phase 6b), and is lit while it is on.
+/// The header's Fill & Sign button, between Find and Tools. It turns Fill & Sign's palette and save
+/// pill over the canvas on and off, and is lit while it is on.
 struct EditorPDFFillSignButton: View {
     @ObservedObject var fill: EditorPDFFillSign
     /// Observed for ``EditorPDFFillSign/mayToggle``: the button greys while a run writes.
@@ -166,7 +163,7 @@ struct EditorPDFFillSignButton: View {
 }
 
 extension EditorPDFFillSignButton {
-    /// `text` as a sentence of its own, ending in one full stop — the menu lines end in one or none.
+    /// `text` as a sentence of its own, ending in one full stop; the menu lines end in one or none.
     static func sentence(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return "" }
@@ -174,19 +171,19 @@ extension EditorPDFFillSignButton {
     }
 }
 
-/// **The zoom's menu** (mockup 15) — built when the label is pressed, from the state as it stands,
-/// as ``EditorHeadingMenu`` builds its own. The top of the capsule's view menu
-/// (``EditorPDFViewMenu``), as it was before there was a layout submenu under it.
+/// The zoom's menu, built when the label is pressed from the state as it stands, as
+/// ``EditorHeadingMenu`` builds its own. The top of the capsule's view menu (``EditorPDFViewMenu``),
+/// above its layout submenu.
 ///
-/// **An `NSMenu` rather than a SwiftUI `Menu`, for the shortcuts.** Zoom In, Zoom Out and Actual
-/// Size show ⌘+, ⌘− and ⌘0 here, and a SwiftUI `Menu` can only show a shortcut by registering it
-/// — which would put a second ⌘+ in the window, answered before the menu bar's, whatever had the
-/// keyboard. This menu exists only while it is open, so its key equivalents are labels. The keys
-/// themselves are the menu bar's: View ▸ Text Size routes them to the PDF while the pages have
-/// the keyboard, and Text ▸ Fit Page and Fit Width are ⌃⌘1 and ⌃⌘2 (TE123).
+/// An `NSMenu` rather than a SwiftUI `Menu`, for the shortcuts. Zoom In, Zoom Out and Actual Size
+/// show ⌘+, ⌘− and ⌘0 here, and a SwiftUI `Menu` can only show a shortcut by registering it, which
+/// would put a second ⌘+ in the window, answered before the menu bar's whatever had the keyboard.
+/// This menu exists only while it is open, so its key equivalents are labels. The keys themselves
+/// are the menu bar's: View ▸ Text Size routes them to the PDF while the pages have the keyboard,
+/// and Text ▸ Fit Page and Fit Width are ⌃⌘1 and ⌃⌘2.
 ///
-/// **Actual Size is ticked at 100%**, by the rule that ticks the 100% stop below it — so it is
-/// ticked after a step or a pinch lands there too, and not while Fit Page or Fit Width holds it.
+/// Actual Size is ticked at 100%, by the rule that ticks the 100% stop below it, so it is ticked
+/// after a step or a pinch lands there too, and not while Fit Page or Fit Width holds it.
 @MainActor
 enum EditorPDFZoomMenu {
     static func menu(for state: EditorPDFViewState) -> NSMenu {
@@ -219,10 +216,9 @@ enum EditorPDFZoomMenu {
     }
 }
 
-/// **The layouts' menu** (mockup 16): the four layouts, the one in use ticked, and Cover Page
-/// Separately — greyed in the single-page layouts, where there is no spread for it to change, and
-/// kept as it was for when two pages come back. The view menu's Page Layout submenu
-/// (``EditorPDFViewMenu``) since the layout button went.
+/// The layouts' menu: the four layouts, the one in use ticked, and Cover Page Separately, greyed in
+/// the single-page layouts, where there is no spread for it to change, and kept as it was for when
+/// two pages come back. It is the view menu's Page Layout submenu (``EditorPDFViewMenu``).
 @MainActor
 enum EditorPDFLayoutMenu {
     static let coverTitle = "Cover Page Separately"
@@ -244,11 +240,10 @@ enum EditorPDFLayoutMenu {
     }
 }
 
-/// **The capsule's view menu** (Phase 6a, mockup E): today's zoom menu unchanged
-/// (``EditorPDFZoomMenu``), then after a separator Page Layout ▸ — the layouts' menu
-/// (``EditorPDFLayoutMenu``), everything the layout button used to open, which is why the button
-/// went. Zoom is reached for all the time and stays on top; a layout is set once and remembered,
-/// so it sits one level down, in the row nearest the capsule when the menu opens upwards.
+/// The capsule's view menu: the zoom menu (``EditorPDFZoomMenu``), then after a separator Page
+/// Layout ▸, the layouts' menu (``EditorPDFLayoutMenu``). Zoom is reached for all the time and stays
+/// on top; a layout is set once and remembered, so it sits one level down, in the row nearest the
+/// capsule when the menu opens upwards.
 @MainActor
 enum EditorPDFViewMenu {
     static let layoutTitle = "Page Layout"
@@ -263,16 +258,16 @@ enum EditorPDFViewMenu {
     }
 }
 
-/// Under the PDF header: the pages, or the state that stands in for them (mockup 5).
+/// Under the PDF header: the pages, or the state that stands in for them.
 struct EditorPDFBody: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
-    /// Fill & Sign's lit tool and Save Filled Copy — see ``EditorWorkspaceView/accentFill``.
+    /// Fill & Sign's lit tool and Save Filled Copy; see ``EditorWorkspaceView/accentFill``.
     let accentFill: Color
     let onAccent: Color
-    /// The one Quick Look panel every other surface shares — the host's.
+    /// The one Quick Look panel every other surface shares: the host's.
     let quickLook: (String) -> Void
-    /// Browse's Download, for a file still in the cloud; the host opens it when it arrives (TE96).
+    /// Browse's Download, for a file still in the cloud; the host opens it when it arrives.
     let download: (String) -> Void
 
     var body: some View {
@@ -286,7 +281,7 @@ struct EditorPDFBody: View {
     private var content: some View {
         switch pdf.phase {
         case .loading:
-            // Said, not a bare spinner (TE161): a big PDF, or one behind other PDF work, takes a while.
+            // Said, not a bare spinner: a big PDF, or one behind other PDF work, takes a while.
             EditorPDFReadingSpinner()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .open:
@@ -306,7 +301,7 @@ struct EditorPDFBody: View {
             EditorPDFStateCard(symbol: "exclamationmark.triangle", title: reason,
                                message: "“\(pdf.name)” may be damaged or not really a PDF. Quick Look or Preview may still open it.") {
                 HStack(spacing: 8) {
-                    // The Files list's Quick Look, word and glyph (TE112).
+                    // The Files list's Quick Look, word and glyph.
                     Button { quickLook(path) } label: { Label("Quick Look", systemImage: "doc.viewfinder") }
                         .help("Try this file in Quick Look")
                     Button("Open in Preview") { EditorPDFBody.openInPreview(path) }
@@ -314,8 +309,8 @@ struct EditorPDFBody: View {
                 .controlSize(.small)
             }
         } else if reason == EditorPDFDocument.notDownloadedReason, let path = pdf.path {
-            // **Download here, not "go and find it in a pane"** (TE96): the card used to send the
-            // reader to another workspace for the one act this file is waiting on.
+            // Download here, rather than sending the reader to another workspace for the one act
+            // this file is waiting on.
             EditorPDFStateCard(symbol: "icloud", title: reason, message: nil) {
                 EditorWorkspaceView.downloadButton(accent: accent) { download(path) }
                     .controlSize(.small)
@@ -325,7 +320,7 @@ struct EditorPDFBody: View {
         }
     }
 
-    /// **What to do next, under a refusal that would otherwise say only what happened.**
+    /// What to do next, under a refusal that would otherwise say only what happened.
     static func nextStep(for reason: String) -> String? {
         switch reason {
         case EditorPDFDocument.goneReason:
@@ -346,8 +341,8 @@ struct EditorPDFBody: View {
     }
 }
 
-/// **A spinner that says what it waits for** — "Reading the PDF…", the Pages tab's words meanwhile
-/// (TE161, TE188). Read as one element: VoiceOver says the words, not "progress indicator".
+/// A spinner that says what it waits for: "Reading the PDF…", as the Pages tab says meanwhile. Read
+/// as one element, so VoiceOver says the words, not "progress indicator".
 struct EditorPDFReadingSpinner: View {
     var body: some View {
         HStack(spacing: 6) {
@@ -390,19 +385,19 @@ struct EditorPDFStateCard<Actions: View>: View {
     }
 }
 
-/// **The password field for a locked PDF.** What is typed is handed to `unlock(password:)` and
-/// cleared from the field whichever way the attempt goes — it is never stored or logged.
+/// The password field for a locked PDF. What is typed is handed to `unlock(password:)` and cleared
+/// from the field whichever way the attempt goes; it is never stored or logged.
 struct EditorPDFUnlockView: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
     @State private var password = ""
-    /// How the last attempt ended — what the card says under its title.
+    /// How the last attempt ended: what the card says under its title.
     @State private var outcome: EditorPDFDocument.UnlockOutcome?
     @State private var isTrying = false
     @FocusState private var focused: Bool
 
-    /// What the card says: why it asks, or how the last attempt ended — in the file's name (TE186),
-    /// and for a file that changed while it was tried, that, not a wrong password (TE160).
+    /// What the card says: why it asks, or how the last attempt ended, in the file's name; for a file
+    /// that changed while it was tried, that, not a wrong password.
     static func message(after outcome: EditorPDFDocument.UnlockOutcome?, name: String) -> String {
         switch outcome {
         case .refused?: return EditorPDFDocument.wrongPasswordMessage(name)
@@ -411,7 +406,7 @@ struct EditorPDFUnlockView: View {
         }
     }
 
-    /// What stands in for Unlock while a password is tried (TE160) — it only greyed.
+    /// What stands in for Unlock while a password is tried, rather than only greying it.
     static let unlockingCaption = "Unlocking…"
 
     var body: some View {
@@ -457,38 +452,37 @@ struct EditorPDFUnlockView: View {
     }
 }
 
-/// **The header for a PDF** (Phase 6a, mockups C and D) — two rows at exactly a text file's header
-/// height, so switching between a PDF and a Markdown file in one column moves nothing
-/// (`thePDFHeaderIsTheTextHeadersHeight`).
+/// The header for a PDF: two rows at exactly a text file's header height, so switching between a
+/// PDF and a Markdown file in one column moves nothing (`thePDFHeaderIsTheTextHeadersHeight`).
 ///
-/// - **Row 1:** the name, then the file actions — Find, Fill & Sign and Tools ▾, one bezelled style
-///   (``EditorPDFHeaderControls``) — a divider, and Expand and ×, plain glyphs. No "PDF" tag beside
+/// - Row 1: the name, then the file actions (Find, Fill & Sign and Tools ▾, one bezelled style,
+///   ``EditorPDFHeaderControls``), a divider, and Expand and ×, plain glyphs. No "PDF" tag beside
 ///   the name: the name ends in .pdf.
-/// - **Row 2:** the file's facts (``EditorPDFFactsRow``), starting with "PDF" the way a text file's
-///   row 2 starts with "Markdown". What the old status line under the pages said about the file
-///   lives here now, and the status line is gone; its page, layout and zoom are the capsule's.
+/// - Row 2: the file's facts (``EditorPDFFactsRow``), starting with "PDF" the way a text file's
+///   row 2 starts with "Markdown". There is no status line under the pages; its page, layout and
+///   zoom are the capsule's.
 ///
-/// **No ＋, no format bar, no Go to Line, no save word**: nothing here writes. **The Tools menu does
-/// not change what row 2 says**: every tool writes a NEW copy beside the file, so the file on screen
-/// is as unwritten after a run as before it.
+/// No ＋, no format bar, no Go to Line, no save word: nothing here writes. The Tools menu doesn't
+/// change what row 2 says: every tool writes a new copy beside the file, so the file on screen is as
+/// unwritten after a run as before it.
 ///
 /// The Expand button is the workspace's own view, handed in. The × is drawn here with the text
 /// header's modifiers and its accessibility label, calling the same host close.
 ///
-/// **No location line** — the text header's "in Finance" or "iCloud › Documents › …" crumbs are
-/// not drawn here (asked 2026-10-17: "it doesn't make sense"). A PDF's second row says only what
-/// it is; the name's right-click menu — the Files list's own — is the way to where it lives.
+/// No location line: the text header's "in Finance" or "iCloud › Documents › …" crumbs aren't drawn
+/// here. A PDF's second row says only what it is; the name's right-click menu, the Files list's own,
+/// is the way to where it lives.
 struct EditorPDFHeader<Trailing: View>: View {
     @ObservedObject var pdf: EditorPDFDocument
     let accent: Color
     let accentFill: Color
     let onAccent: Color
     let onRevealInBrowse: (String) -> Void
-    /// The Files list's row menu, which the name's right-click offers too (TE112).
+    /// The Files list's row menu, which the name's right-click offers too.
     let rowActions: EditorRailRowActions
     let onClose: () -> Void
-    /// What sits between the divider and Close — the workspace's Expand — drawn at the row's rung,
-    /// so it keeps or sheds its word with Find, Fill & Sign, Tools and Close (TE144).
+    /// What sits between the divider and Close (the workspace's Expand), drawn at the row's rung, so
+    /// it keeps or sheds its word with Find, Fill & Sign, Tools and Close.
     @ViewBuilder let trailing: (EditorPDFHeaderControls.Rung) -> Trailing
 
     var body: some View {
@@ -498,11 +492,11 @@ struct EditorPDFHeader<Trailing: View>: View {
         }
     }
 
-    /// **The name row, and which words it draws: the name decides** — the text header's rule
-    /// (``EditorWorkspaceView``'s `nameRow`). `ViewThatFits` asks each rung for its IDEAL width,
-    /// which is the name at full length, so the actions keep a word only while the WHOLE name fits
-    /// beside it; the last rung is laid out in the width there is, and the name truncates there if
-    /// it still must.
+    /// The name row, and which words it draws: the name decides, by the text header's rule
+    /// (``EditorWorkspaceView``'s `nameRow`). `ViewThatFits` asks each rung for its ideal width, which
+    /// is the name at full length, so the actions keep a word only while the whole name fits beside
+    /// it; the last rung is laid out in the width there is, and the name truncates there if it still
+    /// must.
     private var nameRow: some View {
         ViewThatFits(in: .horizontal) {
             ForEach(EditorPDFHeaderControls.Rung.allCases, id: \.self) { rung in
@@ -519,10 +513,10 @@ struct EditorPDFHeader<Trailing: View>: View {
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                // The whole name, and what right-click offers (TE157).
+                // The whole name, and what right-click offers.
                 .help(pdf.path == nil ? "" : EditorRailRowMenu.nameTooltip(pdf.name))
-                // The file's row menu from the Files list (TE112), Reveal in Browse through the
-                // header's own door.
+                // The file's row menu from the Files list, Reveal in Browse through the header's own
+                // door.
                 .contextMenu {
                     if let path = pdf.path {
                         EditorRailRowMenu(path: path,
@@ -535,7 +529,7 @@ struct EditorPDFHeader<Trailing: View>: View {
                                     showsReaderActions: pdf.phase == .open && (pdf.facts?.pageCount ?? 0) > 0,
                                     showsTools: showsTools,
                                     accent: accent, accentFill: accentFill, onAccent: onAccent, rung: rung)
-            // The file's actions on one side, the window's on the other (mockup C).
+            // The file's actions on one side, the window's on the other.
             if showsTools {
                 Rectangle()
                     .fill(Color(nsColor: .separatorColor))
@@ -543,23 +537,23 @@ struct EditorPDFHeader<Trailing: View>: View {
                     .accessibilityHidden(true)
             }
             trailing(rung)
-            // **The row's height is the text header's**: a hidden mode capsule — the tallest thing
-            // in a text file's name row, which a plain-text file reserves the same way — under
-            // Close, at no width. In a ZStack rather than in the row, so it adds no spacing either.
+            // The row's height is the text header's: a hidden mode capsule (the tallest thing in a
+            // text file's name row, which a plain-text file reserves the same way) under Close, at no
+            // width. In a ZStack rather than in the row, so it adds no spacing either.
             ZStack {
                 EditorModeBar(mode: .constant(.edit), accentFill: accentFill, onAccent: onAccent)
                     .environment(\.selectionLensAppearance, .today)
                     .hidden()
                     .frame(width: 0)
-                // "× Close" with the actions' words, × without them — the text header's Close.
+                // "× Close" with the actions' words, × without them: the text header's Close.
                 EditorCloseChip(name: pdf.name, worded: rung.isWorded, accent: accent, action: onClose)
             }
             .chromeGlassClearance(.leading, rowSpacing: 6)
         }
     }
 
-    /// **Row 2: the file's facts**, and the reservation that gives it a text file's row-2 height —
-    /// the autosave switch's label and track, hidden at no width, the empty page's trick.
+    /// Row 2: the file's facts, and the reservation that gives it a text file's row-2 height: the
+    /// autosave switch's label and track, hidden at no width, the empty page's trick.
     private var metaRow: some View {
         HStack(spacing: 6) {
             Color.clear.frame(width: EditorWorkspaceView.dotColumnWidth, height: 1)
@@ -581,24 +575,24 @@ struct EditorPDFHeader<Trailing: View>: View {
     }
 }
 
-/// **Row 2 of the PDF header** (decided 2026-10-19): "PDF · Letter, 8.5 × 11 in · 42 KB · Text
-/// selectable" — plain "PDF", as a text file's row starts "Markdown", then the paper of the page on
-/// screen, the file's size, and whether there is text to select ("Image only" for a scan).
+/// Row 2 of the PDF header: "PDF · Letter, 8.5 × 11 in · 42 KB · Text selectable". Plain "PDF", as a
+/// text file's row starts "Markdown", then the paper of the page on screen, the file's size, and
+/// whether there is text to select ("Image only" for a scan).
 ///
-/// - **No version.** "PDF 1.4" is jargon that tells a reader almost nothing; it is in the tooltip
-///   on "PDF", after the note that Edit never changes the file (``kindHelp(_:)``).
-/// - **No "Read only" pill** — it read as a warning, and "read only" was not true of a file the
-///   tools and Fill & Sign make changed copies of. The tooltip says what is.
-/// - **No unsaved count.** Fill & Sign's "4 items not saved" is the save pill's, over the canvas
-///   (Phase 6b), so row 2 says the same about the file whatever is placed on it.
-/// - **It sheds whole segments**, never a word in half: "Text selectable" first, then the paper's
-///   inches, then the paper's name, then the size — whatever is left of the row always reads.
+/// - No version: "PDF 1.4" is jargon that tells a reader almost nothing; it is in the tooltip on
+///   "PDF", after the note that Edit never changes the file (``kindHelp(_:)``).
+/// - No "Read only" pill: it reads as a warning, and isn't true of a file the tools and Fill & Sign
+///   make changed copies of. The tooltip says what is.
+/// - No unsaved count: Fill & Sign's "4 items not saved" is the save pill's, over the canvas, so
+///   row 2 says the same about the file whatever is placed on it.
+/// - It sheds whole segments, never a word in half: "Text selectable" first, then the paper's
+///   inches, then the paper's name, then the size, so whatever is left of the row always reads.
 ///
-/// Its own view, observing the view state for the page on screen — pages of one file can differ in
-/// size.
+/// Its own view, observing the view state for the page on screen, since pages of one file can
+/// differ in size.
 struct EditorPDFFactsRow: View {
     @ObservedObject var state: EditorPDFViewState
-    /// `nil` until the PDF is open — then the row says only "PDF".
+    /// `nil` until the PDF is open; then the row says only "PDF".
     let facts: EditorPDFFacts?
 
     var body: some View {
@@ -639,9 +633,9 @@ struct EditorPDFFactsRow: View {
         return "\(originalUntouchedNote)\n\(facts.versionFact)"
     }
 
-    /// **Row 2's readings, widest first** — every fact; then without "Text selectable" (or "Image
+    /// Row 2's readings, widest first: every fact; then without "Text selectable" (or "Image
     /// only"); then the paper's name without its inches; then the size alone; then nothing after
-    /// "PDF". A paper with no name has no reading without its inches, and its two readings are one
+    /// "PDF". A paper with no name has no reading without its inches, so its two readings are one
     /// rung. `page` is the first page on screen.
     static func rungs(_ facts: EditorPDFFacts, page: Int) -> [[String]] {
         let size = facts.fileSize.map { [$0] } ?? []

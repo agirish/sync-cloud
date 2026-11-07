@@ -3,10 +3,10 @@ import Foundation
 @testable import FileExplorer
 import Sync
 
-/// Flipping a pane from Columns to Tree used to drop the user at the top of a tree rooted at the
-/// pane's scope, with nothing on screen acknowledging the four columns they had just walked — the
-/// two presentations hold "where you are" in different state (`PaneBrowsePath` against the outline's
-/// expansion set), and only one of them was ever written.
+/// Flipping a pane from Columns to Tree opens the folders the columns were standing in. The two
+/// presentations hold "where you are" in different state (`PaneBrowsePath` against the outline's
+/// expansion set), and without a translation the user would land at the top of the tree with
+/// nothing acknowledging the columns they had walked.
 ///
 /// `FileTreeView.carryOver` is that translation, and the stack is read, never consumed: flipping
 /// back to Columns has to restore exactly the columns that were there.
@@ -27,8 +27,8 @@ import Sync
                 "the row brought into view is the folder the deepest column was listing")
     }
 
-    /// The tree's root has no disclosure row, so a path for it in the expansion set is one nothing
-    /// can ever match — and `expansionPruned` keeps it forever, being under the root by definition.
+    /// The tree's root has no disclosure row, so a path for it in the expansion set matches
+    /// nothing, and `expansionPruned` would keep it forever, being under the root by definition.
     @Test func testTheTreesOwnRootIsNotPutInTheExpansionSet() {
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["Claude"]),
                                            treeRoot: root, tree: [])
@@ -36,8 +36,8 @@ import Sync
         #expect(carry.expanded == ["/Users/me/Documents/Claude"])
     }
 
-    /// Folders the user opened by hand are theirs. A carry-over adds to the set, exactly as a search
-    /// reveal does — it is not a reset of the outline.
+    /// Folders the user opened by hand are theirs. A carry-over adds to the set, as a search reveal
+    /// does; it doesn't reset the outline.
     @Test func testFoldersTheUserOpenedByHandSurvive() {
         let mine: Set<String> = ["/Users/me/Documents/Family", "/Users/me/Documents/Home"]
         let carry = FileTreeView.carryOver(mine, stack: PaneBrowsePath(components: ["Claude"]),
@@ -57,7 +57,8 @@ import Sync
     }
 
     /// A trailing slash on the root is the difference between `…/Documents/Claude` and
-    /// `…/Documents//Claude`, and the second matches no row — the outline keys on `FileNode.id`.
+    /// `…/Documents//Claude`, and the second matches no row, since the outline keys on
+    /// `FileNode.id`.
     @Test func testTheRootIsNormalisedBeforeTheTrailIsBuilt() {
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["Claude"]),
                                            treeRoot: root + "/", tree: [])
@@ -66,10 +67,10 @@ import Sync
 
     // MARK: - Below a folder link
 
-    /// **The Tree opens rows by id, and below a link a column's path is not one.** The walk lists
-    /// `/r/link/sub`'s children where the link leads (`ColumnsBelowALinkTests` measures it on a real
-    /// link), so the composed `/r/link/sub/deeper` named no row: the Tree opened down to `sub` and
-    /// scrolled nowhere.
+    /// The Tree opens rows by id, and below a folder link a column's path isn't one. The walk lists
+    /// `/r/link/sub`'s children where the link leads (`ColumnsBelowALinkTests` measures it on a
+    /// real link), so a composed `/r/link/sub/deeper` would name no row: the Tree would open down
+    /// to `sub` and scroll nowhere.
     @Test func testFoldersBelowAFolderLinkAreOpenedByTheirRowsIds() {
         func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
             FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
@@ -85,8 +86,8 @@ import Sync
                                        tree: tree).expanded == ["/r/plain", "/r/plain/a"])
     }
 
-    /// A component the tree does not hold — a stack the republish has not pruned yet — keeps the
-    /// path it composes to, which is all the trail ever was before rows were consulted.
+    /// A component the tree doesn't hold (a stack the republish hasn't pruned yet) keeps the path
+    /// it composes to.
     @Test func testAComponentTheTreeDoesNotHoldKeepsItsComposedPath() {
         let tree = [FileNode(id: "/r/a", name: "a", isDirectory: true, children: [])]
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["a", "gone"]), treeRoot: "/r",
@@ -97,7 +98,7 @@ import Sync
 
     // MARK: - The call site
 
-    /// A rule extracted for testability is one revert from being unused — and this one is reached
+    /// A rule extracted for testability is one revert from being unused, and this one is reached
     /// from a SwiftUI `onAppear` no unit test can drive. Source-level, with the blind spot that
     /// implies; the helper it borrows fails loudly rather than scanning an empty haystack.
     @Test func testTheTreesArrivalActuallyCarriesTheColumnsOver() throws {
@@ -112,39 +113,37 @@ import Sync
                 "the carry-over must be gated on there being no search hit to reveal instead")
     }
 
-    /// **The refusal while the tree is still arriving, which no picture here can show.**
-    ///
-    /// What the guard protects is the SCROLL: a `scrollTo` for a row the list does not hold yet is
-    /// silently dropped, and the latch below then makes that failure permanent. An offscreen,
-    /// never-key window's scroll position is not a reliable instrument — `PaneColumnsScrollTests`
-    /// documents a test that stayed green with the reveal inert — so the render fixture asserts row
-    /// ARRIVAL, exactly as the search-reveal suites do, and cannot see this. Removing the guard
-    /// leaves that fixture green, which is why the scan exists rather than being redundant with it.
+    /// The refusal while the tree is still arriving, which no picture here can show. The guard
+    /// protects the scroll: a `scrollTo` for a row the list doesn't hold yet is silently dropped,
+    /// and the latch then makes that permanent. The render fixture asserts row arrival, since an
+    /// offscreen, never-key window's scroll position isn't a reliable instrument, so it stays green
+    /// with the guard removed. That is why this scan exists.
     @Test func testTheCarryRefusesWhileTheTreeIsStillArriving() throws {
         let source = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
         let carryBody = try OrganizeScopeCallSiteTests.body(of: "private func carryColumnsIntoTree",
                                                            in: source)
         #expect(carryBody.contains("guard !isLoading else { return }"),
                 "the carry-over decides from a half-built tree again, and latches the result")
-        // Refusing without re-asking is a silent failure with better manners — the pairing is the
-        // point, and the Columns direction makes the same one.
+        // A refusal must be re-asked when the load lands, or it is a silent failure. The Columns
+        // direction pairs them the same way.
         let arrival = try OrganizeScopeCallSiteTests.body(of: "private var paneList: some View",
                                                           in: source)
         #expect(arrival.contains("onChange(of: isLoading)"),
                 "a carry refused mid-load is never re-asked when the load lands")
     }
 
-    /// The scroll is gated on the stack having CHANGED, because the Tree branch appears on every tab
-    /// switch and pane collapse — not only on a mode flip — and a scroll on each of those yanks a
-    /// tree the user has since scrolled somewhere else.
+    /// The scroll is gated on the stack having changed, because the Tree branch appears on every
+    /// tab switch and pane collapse, not only on a mode flip, and scrolling on each would yank a
+    /// tree the user has since scrolled elsewhere.
     @Test func testTheScrollIsGatedOnTheStackHavingChanged() throws {
         let source = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
         let body = try OrganizeScopeCallSiteTests.body(of: "private func carryColumnsIntoTree", in: source)
 
         #expect(body.contains("guard carriedStack != browsePath else { return }"),
                 "without this the carry-over re-scrolls on every appearance of the Tree branch")
-        // And the expansion must happen BEFORE that gate — opening folders is idempotent, so it is
-        // right on every appearance, and skipping it would leave the tree closed after a tab switch.
+        // And the expansion must happen before that gate: opening folders is idempotent, so it is
+        // right on every appearance, and skipping it would leave the tree closed after a tab
+        // switch.
         let gate = try #require(body.range(of: "guard carriedStack != browsePath"))
         let assignment = try #require(body.range(of: "expanded = carry.expanded"))
         #expect(assignment.lowerBound < gate.lowerBound,

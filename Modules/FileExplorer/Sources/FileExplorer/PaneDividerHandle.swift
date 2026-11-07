@@ -1,10 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// One hairline and the 9pt strip that makes it grabbable — the chrome every pane divider wears.
-///
-/// A view of its own, with the gesture as its generic parameter, from when the pane's preview drew
-/// the same seam on its leading edge. The column dividers are its one caller now.
+/// One hairline and the 9pt strip that makes it grabbable: the chrome a pane divider wears. Generic
+/// over its gesture; the column dividers are its one caller.
 struct PaneDividerHandle<G: Gesture>: View {
     let gesture: G
 

@@ -3,13 +3,12 @@ import Sync
 import Events
 import Design
 
-/// The docked review card shown above the differences table during an inline review session:
-/// what the current item is, what the copy would replace (sizes, dates, deltas, warnings), and
-/// the per-item actions. Deliberately dumb about the queue: it renders the `session` value and
-/// reports intents through closures — the host owns every session mutation and the in-flight
-/// state, so a decision landing after the session was torn down (Exit mid-copy) or after the
-/// user jumped rows can be applied — or dropped — with the full picture. The card's own async
-/// work is display-only: statting facts and hashing for the per-item Verify.
+/// The docked review card above the differences table during an inline review: the current
+/// item, what the copy would replace (sizes, dates, deltas, warnings), and the per-item actions.
+/// Deliberately dumb about the queue: it renders `session` and reports intents through closures.
+/// The host owns every session mutation and the in-flight state, so a decision landing after
+/// Exit mid-copy, or after the user jumped rows, is applied or dropped with the full picture.
+/// The card's own async work is display-only: statting facts and hashing for Verify.
 struct ReviewCardView: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
@@ -23,9 +22,8 @@ struct ReviewCardView: View {
     /// True while the host runs the current item's copy/move; gates every decision entry point.
     let isActing: Bool
     /// Bumped by the host whenever a review-table row is clicked: the click hands key focus to
-    /// the Table (a sibling), which would strand the card's key handlers — the card takes focus
-    /// back so ⏎/⌫/␣/esc keep working. (Trade-off: the table's selection highlight always
-    /// renders in its inactive style; the Status column marks the current row regardless.)
+    /// the Table, a sibling, so the card takes it back to keep ⏎/⌫/␣/esc working. The cost: the
+    /// table's selection highlight always draws inactive; the Status column marks the row.
     let focusNudge: Int
     /// Copy/Move the given item (the host records the outcome from what actually happened).
     let onPrimary: (FileDifference) -> Void
@@ -38,29 +36,24 @@ struct ReviewCardView: View {
     /// Called on Esc; the host exits the session (the header's Exit button is the other path).
     let onExit: () -> Void
 
-    /// Facts tagged with the item they were statted for: the card renders empty facts — never
-    /// the PREVIOUS item's dates/warnings — for the frame(s) between an advance and `.task(id:)`
-    /// running (a reset inside the task body lands one render too late, flashing item A's
-    /// folder-replace banner on item B during fast ⏎-driven review).
+    /// Facts tagged with the item they were statted for, so between an advance and `.task(id:)`
+    /// running the card renders empty facts, never the previous item's. A reset inside the task
+    /// body lands a render too late and would flash one item's banner on the next.
     @State private var loadedFacts: (itemID: UUID, facts: ReviewCardModel.Facts)? = nil
     @State private var isVerifying = false
-    /// Liveness token for the in-flight Verify. Re-minted wherever `.task(id: item.id)` resets
-    /// state, so a verify completing after the card advanced compares its captured token against
-    /// the LIVE `@State` (the completion closure captures the view struct, whose `@State` reads
-    /// go through the live storage box) and drops its SPINNER write — otherwise a large pair's
-    /// late return would clear the CURRENT item's spinner mid-hash and defeat the re-entrancy
-    /// guard. Only the spinner: the verdict is reported either way and guarded on the session
-    /// token instead (see `applyVerifyCompletion`).
-    /// NOT comparable to a captured copy of itself: that is a tautology (the inert guard
-    /// ColumnPreviewColumn.watchDownload shipped with) — one side must be the live property.
+    /// Liveness token for the in-flight Verify, re-minted wherever `.task(id: item.id)` resets
+    /// state. A verify completing after the card advanced compares its captured token with the
+    /// live `@State` and drops its spinner write, so it can't clear the current item's spinner
+    /// mid-hash. Only the spinner: the verdict is guarded on the session token instead (see
+    /// `applyVerifyCompletion`). **Never** compare it with a captured copy of itself, which is
+    /// always equal; one side must be the live property.
     @State private var verifyToken = UUID()
-    /// Every Verify this card started, so leaving Review stops their reads. Advancing to another
-    /// item deliberately does not: a late verdict is still wanted (see `applyVerifyCompletion`).
-    /// With no size cap on the hash, a read nobody can see any more could otherwise run on for
-    /// gigabytes.
+    /// Every Verify this card started, so leaving Review stops their reads, which have no size
+    /// cap. Advancing to another item does not: a late verdict is still wanted (see
+    /// `applyVerifyCompletion`).
     @State private var verifyTasks: [Task<Void, Never>] = []
     @FocusState private var focused: Bool
-    /// A long run elsewhere in the window (decision BZ) — the primary copy/move waits for it.
+    /// A long run elsewhere in the window; the primary copy/move waits for it.
     @Environment(\.runWriteLock) private var runWriteLock
 
     var body: some View {
@@ -94,99 +87,54 @@ struct ReviewCardView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(accent.opacity(0.4), lineWidth: 1)
         )
-        // The card is the review's key-event anchor: focusable so the keyboard loop works the
-        // moment the session starts, deliberately NOT window-level `.keyboardShortcut`s — a key
-        // equivalent is consulted before the first responder and would eat Return/Space typed
-        // into fields elsewhere in the window (the Settings overlay; see the pane Quick Look
-        // comment in ContentView+SplitLayout).
+        // The card is the review's key-event anchor: focusable so the keys work the moment the
+        // session starts, and not window-level `.keyboardShortcut`s, which are consulted before
+        // the first responder and would eat Return/Space typed into fields elsewhere in the
+        // window (see the pane Quick Look comment in ContentView+SplitLayout).
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        // **The recovery hatch that has to come with the `focused` guard below.** Adding `focused`
-        // to ⏎ and ⌫ made a card that has lost key focus a card whose advertised keys do nothing —
-        // so there has to be a way back, and clicking the thing you are looking at is the one a
-        // user will try. `.focusable()` alone does NOT claim focus on click (that is why this
-        // modifier exists at all), and `.contentShape` is what makes the card's padding and
-        // background hittable rather than only the text inside it — an unfilled shape is hit-tested
-        // only where it is painted.
-        //
-        // Deferred a turn for the same reason `.task(id:)` below defers its claim: a `@FocusState`
-        // write in the transaction that is already handling the click can be silently dropped.
-        //
-        // `FilingWalkthroughCard` — the sibling this card's guard was copied FROM — carries the
-        // identical pair. It got the hatch; this card got only the restriction.
+        // The way back that the `focused` guard below needs: a card that lost key focus has dead
+        // keys, and clicking it is what a user will try. `.focusable()` alone doesn't claim focus
+        // on click, and `.contentShape` makes the padding and background hittable, since an
+        // unfilled shape is hit-tested only where painted. `reclaimFocus()` defers a turn, as
+        // `.task(id:)` does, because a `@FocusState` write in the click's own transaction can be
+        // dropped. `FilingWalkthroughCard` carries the same pair.
         .contentShape(Rectangle())
         .onTapGesture { reclaimFocus() }
-        // ⏎ — BOTH Enter keycaps, `.down` only, plain keystrokes only.
+        // ⏎: both Enter keycaps, `.down` only, plain keystrokes only.
         //
-        // `.keypadEnter` beside `.return`: a full-size keyboard has two keys marked Enter and
-        // `.return` matches only the main row's. The keypad's is keyCode 76 sending U+0003
-        // (`NSEnterCharacter`), not U+000D, and SwiftUI matches on the character delivered — so
-        // that keycap ran nothing at all here, silently, with the hint row advertising ⏎. See
-        // `KeyEquivalent.keypadEnter` for the measured delivery.
+        // `.keypadEnter` beside `.return`: the keypad's Enter sends U+0003, not U+000D, and
+        // SwiftUI matches on the character, so `.return` alone misses it. See
+        // `KeyEquivalent.keypadEnter`.
         //
-        // This was the single-key `onKeyPress(.return)` overload, which had to go to take a
-        // second key. Two things came with the move, and BOTH were live defects under the old
-        // spelling — measured on this card through `ReviewCardKeyTests`' real-window harness,
-        // not inferred:
+        // `press.isPlainKeystroke`, because `onKeyPress` passes modified presses through, so ⌘⏎
+        // and ⇧⏎ would copy. Not `modifiers.isEmpty`, which refuses every keypad Enter (they
+        // carry `.numericPad` + `.function`). `.down` only, because a held ⏎ repeats, and
+        // `isActing` closes only when the async outcome lands, so repeats could launch several
+        // copies of one row. ␣ and esc take modified presses, but neither moves bytes.
         //
-        // - **The single-key overload does not filter modifiers.** ⌘⏎ and ⇧⏎ each ran the
-        //   primary copy (probe: two presses, two `onPrimary` calls). The comment below and
-        //   `KeyPress.isPlainKeystroke`'s doc both used to claim the opposite. Hence
-        //   `press.isPlainKeystroke` here, the same guard ⌫ carries — and not
-        //   `modifiers.isEmpty`, which would refuse every keypad Enter (they all carry
-        //   `.numericPad` + `.function`).
-        // - **The single-key overload fires on key-repeat.** A held ⏎ produced four `onPrimary`
-        //   calls. `isActing` cannot absorb that: it closes only when the host's async outcome
-        //   lands, so auto-repeat could launch several copies of the same row first. `.down`
-        //   only, exactly like ⌫-skip below.
-        //
-        // ␣ and esc still use the single-key overload and therefore still take modified presses;
-        // neither moves bytes (Quick Look, and leaving the session), so they are left as they are.
-        //
-        // `focused` on BOTH byte-moving keys, matching `FilingWalkthroughCard`'s two decision
-        // keys — and the premise is measured, not assumed. `.onKeyPress` fires for a key
-        // delivered anywhere in its SUBTREE, so when a DESCENDANT holds focus the ancestor
-        // handler still runs while `focused` reads false: probed on this file's real-window
-        // harness by driving a `@FocusState` onto a descendant (both a `Button` and a plain
-        // `.focusable()` view) and pressing ⏎ — the ancestor handler fired each time, with
-        // `focused == false` inside it. `ReviewCardKeyTests.
-        // anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant` is that probe as a test.
-        // This card has focusable descendants (Skip, Quick Look, Verify), so until 2026-08-21 —
-        // when this term was added, eight days after its twin got it — a ⏎ aimed at a focused
-        // Skip button ran the primary COPY/MOVE, a real byte move the keystroke did not mean
-        // (a focused macOS button activates on Space, not Return).
-        //
-        // What is NOT verifiable here is the route that gets focus onto those buttons in the
-        // app: Full Keyboard Access is what makes them focusable, and `NSApp` is nil in this test
-        // process (measured), so FKA cannot even be read there, let alone enabled. Manual check
-        // when touching this: turn on Full Keyboard Access, start a review, Tab to Skip, press ⏎
-        // — nothing may be copied or moved, and ⌫ must not skip the row either.
+        // `focused`, as on `FilingWalkthroughCard`'s decision keys: `.onKeyPress` fires for a key
+        // delivered anywhere in its subtree, so with a descendant focused (Skip, Quick Look,
+        // Verify) the handler still runs with `focused` false, and ⏎ on a focused Skip would
+        // copy. `ReviewCardKeyTests.anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant`
+        // pins that premise. Full Keyboard Access can't be tested here (`NSApp` is nil under
+        // `swift test`), so check by hand when touching this: with FKA on, Tab to Skip and press
+        // ⏎; nothing may be copied or moved, and ⌫ must not skip the row.
         .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
             // Both gates: a copy mid-verify would overwrite the destination while the hash
-            // reads it (same exclusion the bulk paths enforce via isVerifyAllRunning).
+            // reads it (the bulk paths enforce the same via isVerifyAllRunning).
             if !isActing && !isVerifying && runWriteLock == nil { onPrimary(item) }
             return .handled
         }
-        // .down only, no .repeat: Skip is synchronous and decided rows are unrevisitable, so
-        // a held-a-beat-too-long ⌫ must not mass-skip the queue. And `press.isPlainKeystroke`,
-        // because `onKeyPress` delivers MODIFIED presses to its handler — the single-key overload
-        // ␣ and esc use does not filter them either, measured (see the ⏎ note above): without
-        // the check, ⌘⌫ (Finder's "delete immediately", delete-to-start-of-line in text land) and
-        // ⌥⌫ (delete word) skipped the current row (measured in ReviewCardKeyTests). The hint row
-        // advertises a plain keystroke; a chord is `.ignored` so whoever owns it still sees it.
+        // `.down` only: Skip is synchronous and decided rows are unrevisitable, so a held ⌫
+        // must not mass-skip the queue. `press.isPlainKeystroke`, so ⌘⌫ and ⌥⌫ are `.ignored`
+        // for whoever owns them; it checks ⌘⌥⌃⇧ only, since `.capsLock` rides on every event
+        // while the lock is on (see `KeyPress.isPlainKeystroke`). `focused` as for ⏎ above.
         //
-        // ⌘⌥⌃⇧ ONLY, which `press.modifiers.isEmpty` — the first cut — was not: `.capsLock` is
-        // present on every event while the lock is engaged, so that spelling took ⌫-skip away
-        // outright from anyone who left it on. See `KeyPress.isPlainKeystroke`.
-        //
-        // `focused` for the same reason as ⏎ above: a skip is unrevisitable, so a ⌫ aimed at a
-        // focused descendant must not spend the row.
-        // **⌫ only — not →**, though Organize's Rules walkthrough takes both. Everywhere else in
-        // Compare → means "to the right pane" (⌘→ copies there), and a skip cannot be taken
-        // back, so a → pressed out of that habit would spend a row. ⌫ is the key both
-        // walkthroughs share.
+        // ⌫ only, not →, though Organize's Rules walkthrough takes both: elsewhere in Compare →
+        // means "to the right pane", and a → pressed from that habit would spend a row.
         .onKeyPress(keys: [.delete], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
             if !isActing { onSkip(item) }
@@ -204,13 +152,12 @@ struct ReviewCardView: View {
         .task(id: item.id) {
             isVerifying = false
             verifyToken = UUID()   // orphan any verify still hashing the previous item
-            // Deferred one turn: a FocusState write in the same transaction that inserts the
-            // view can be silently dropped (same gotcha as the header search field).
+            // Deferred one turn: a FocusState write in the transaction that inserts the view can
+            // be silently dropped (as with the header search field).
             Task { @MainActor in
-                // Don't yank key focus mid-typing: an async outcome can advance the item while
-                // the user is in a text field (Settings overlay, rename prompt) — claiming
-                // focus then would redirect their next Return into a Copy. Field editors are
-                // NSTextView, so this covers every AppKit text-input surface.
+                // Don't take key focus mid-typing: an async outcome can advance the item while
+                // the user is in a text field, and their next Return would become a Copy. Field
+                // editors are NSTextView, so this covers every AppKit text input.
                 if !(NSApp.keyWindow?.firstResponder is NSTextView) {
                     focused = true
                 }
@@ -226,12 +173,9 @@ struct ReviewCardView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Reviewing \(model.parentPath.isEmpty ? model.fileName : model.parentPath + "/" + model.fileName)")
-        // The keys, stated on the card itself rather than left to the hidden hint row below.
-        // `ReviewKeyHints` renders at zero opacity when the reveal is off, and whether SwiftUI
-        // drops a zero-opacity view from the accessibility tree is not something this project can
-        // verify — there is no assistive client under `swift test`, so any test of it would pass
-        // vacuously either way. So the guarantee is made here, where it does not depend on the
-        // answer: this hint is unconditional and order-independent.
+        // The keys, stated on the card itself. `ReviewKeyHints` renders at zero opacity when the
+        // reveal is off, and whether SwiftUI then drops it from the accessibility tree can't be
+        // tested, so this hint is unconditional.
         .accessibilityHint(ReviewCardModel.keyHintSpeech(primaryVerb: model.primaryVerb))
     }
 
@@ -239,8 +183,8 @@ struct ReviewCardView: View {
 
     private func headerRow(item: FileDifference, model: ReviewCardModel) -> some View {
         HStack(spacing: 8) {
-            // Real file icon in a tile (mockup style), not the diff-type glyph — the direction
-            // chip's "new / replaces existing" carries the type signal here.
+            // Real file icon in a tile, not the diff-type glyph: the direction chip's "new /
+            // replaces existing" carries the type.
             Image(nsImage: FileIconCache.icon(name: model.fileName, isDirectory: model.isFolder))
                 .resizable()
                 .frame(width: 22, height: 22)
@@ -298,7 +242,7 @@ struct ReviewCardView: View {
         .scaledFont(.callout)
     }
 
-    /// One inline fact run: "Copying: **2.4 MB** · Jul 8, 6:12 PM" (mockup style). The date
+    /// One inline fact run: "Copying: **2.4 MB** · Jul 8, 6:12 PM". The date
     /// placeholder holds the width while the stat loads so the row doesn't jump.
     private func inlineFact(label: String, size: String?, date: String?) -> Text {
         (Text("\(label): ").foregroundStyle(.secondary)
@@ -345,15 +289,13 @@ struct ReviewCardView: View {
             .chromeHover(tint: accent)
             .disabled(isActing)
             if let onQuickLook {
-                // One button, source side (same as ␣) — mockup style. The destination copy is
-                // a right-click away on the row (Quick Look per side in the context menu).
+                // One button, source side (same as ␣). The destination's Quick Look is in the
+                // row's context menu.
                 Button {
-                    // Focus back to the card, for the same reason the walkthrough card's Quick
-                    // Look and Reveal go through `recoveringFocus`: this button can take key focus
-                    // (Full Keyboard Access), and the card's ⏎/⌫ are guarded on `focused`, so
-                    // without this a Quick Look leaves the advertised keys dead on a card that is
-                    // still showing their keycaps. Nothing changes the item here, so the
-                    // `.task(id: item.id)` claim below — which covers File and Skip — never fires.
+                    // Focus back to the card, as the walkthrough card's `recoveringFocus` does:
+                    // this button can take key focus under Full Keyboard Access, and ⏎/⌫ are
+                    // guarded on `focused`. The item doesn't change, so `.task(id:)`'s claim
+                    // never fires for it.
                     reclaimFocus()
                     onQuickLook(URL(fileURLWithPath: item.reviewSourcePath))
                 } label: {
@@ -398,10 +340,9 @@ struct ReviewCardView: View {
 
     /// Puts key focus back on the card, one turn later.
     ///
-    /// One spelling for every route that can take focus off it — a click on the card body, and a
-    /// click on one of its own buttons — so the deferral is decided once. The turn matters: a
-    /// `@FocusState` write made inside the transaction handling the click can be dropped, the same
-    /// gotcha `.task(id:)`'s claim below is written around.
+    /// One spelling for every route that can take focus off it (a click on the card body or on
+    /// one of its buttons). The turn matters: a `@FocusState` write inside the transaction
+    /// handling the click can be dropped.
     private func reclaimFocus() {
         Task { @MainActor in focused = true }
     }
@@ -412,14 +353,14 @@ struct ReviewCardView: View {
         return .handled
     }
 
-    /// Per-item content check, reusing the bulk Verify's hashing — but reporting the verdict to
-    /// the host instead of feeding `verifiedIdenticalForCopy` (whose bulk copy-to-match-dates
-    /// dialog would be wrong mid-review). Read-only, so a verdict landing late is harmless —
-    /// the host drops it if the session is gone.
+    /// Per-item content check, reusing the bulk Verify's hashing but reporting the verdict to
+    /// the host rather than feeding `verifiedIdenticalForCopy`, whose bulk dialog would be wrong
+    /// mid-review. Read-only, so a late verdict is harmless; the host drops it if the session
+    /// is gone.
     private func performVerify(_ item: FileDifference) {
         guard !isVerifying else { return }
         isVerifying = true
-        // Both captured BEFORE the unbounded hash: `token` to compare against the live @State
+        // Both captured before the unbounded hash: `token` to compare with the live @State
         // after it, `sessionToken` so the host can drop a verdict from a replaced session.
         let token = verifyToken
         let sessionToken = session.sessionToken
@@ -428,16 +369,13 @@ struct ReviewCardView: View {
                 leftPath: item.leftItemPath,
                 rightPath: item.rightItemPath,
                 fileManager: fileManager,
-                // The same session cache Verify All and the lens scans use. Without it this path
-                // only *said* it reused the bulk hashing: stepping back to an item, or verifying
-                // one Verify All had already hashed, re-read and re-hashed both sides from disk.
-                // Keyed on (path, mtime, size, file number, ctime), so an edited file is bypassed
-                // rather than served.
+                // The session cache Verify All and the lens scans use, so a pair already hashed
+                // isn't read again. Keyed on (path, mtime, size, file number, ctime), so an
+                // edited file is bypassed rather than served.
                 cache: ContentHashCache.shared
             )
-            // `verifyToken` here is a live @State read (the closure's captured struct reads
-            // through the live storage box), never a captured copy — see `verifyToken`. It
-            // decides ONLY the spinner write; the verdict is reported either way.
+            // `verifyToken` here is a live @State read (the captured struct reads through the
+            // live storage box), never a copy — see `verifyToken`. It decides only the spinner.
             Self.applyVerifyCompletion(
                 sameContent: same,
                 stopped: Task.isCancelled,
@@ -451,25 +389,21 @@ struct ReviewCardView: View {
 
     /// Routes a finished Verify: what the completion is allowed to write back to the card.
     ///
-    /// The verdict is reported UNCONDITIONALLY. It is already session-guarded downstream —
-    /// `onVerdict` carries the session token and `ReviewSessionStore.recordVerdict` drops a
-    /// verdict whose session was replaced — so a completion from a card that has since advanced
-    /// still describes the item it actually hashed, and dropping it here would throw away a
-    /// legitimate result: verify a large pair, click another row, click back, and `.task(id:)`
-    /// has re-minted the token twice, leaving the user with no spinner and no answer.
+    /// The verdict is reported unconditionally: it is session-guarded downstream (`onVerdict`
+    /// carries the session token, and `ReviewSessionStore.recordVerdict` drops one from a
+    /// replaced session), and a completion from a card that has since advanced still describes
+    /// the item it hashed. Dropping it would leave someone who clicked away and back with no
+    /// answer.
     ///
-    /// The SPINNER is what the token guards. `isVerifying` belongs to whatever item the card
-    /// shows now; once `.task(id:)` re-minted the token it has already reset the flag for the
-    /// NEW item, and a late completion writing `false` would clear that item's spinner mid-hash
-    /// (the D14 bug) — so only a completion whose token is still live may touch it.
+    /// The token guards only the spinner. `isVerifying` belongs to the item shown now, and a
+    /// late completion writing `false` would clear that item's spinner mid-hash.
     ///
-    /// Split out of the view so the rule is testable: the call site above is a single call, so
-    /// the two decisions cannot drift apart without changing this function.
+    /// Split out of the view so the rule is testable; the call site is a single call.
     /// - Parameters:
     ///   - sameContent: `FileContentVerifier`'s answer — nil when a side couldn't be hashed.
     ///   - stopped: the verify was cancelled (the card left Review). Its nil says nothing about
     ///     the files, so no verdict is reported — "couldn't verify" would blame a readable pair.
-    ///   - liveToken: the card's CURRENT `verifyToken`.
+    ///   - liveToken: the card's current `verifyToken`.
     ///   - startedToken: the token captured when this verify started.
     static func applyVerifyCompletion(
         sameContent: Bool?,
@@ -488,15 +422,14 @@ struct ReviewCardView: View {
 
     // MARK: Facts
 
-    /// How many destination-folder descendants to count before giving up ("1000+ items") —
-    /// the number is orientation for the folder-replace warning, not an audit.
+    /// How many destination-folder descendants to count before giving up ("1000+ items"): the
+    /// number orients the folder-replace warning; it is not an audit.
     private nonisolated static let childCountCap = 1000
 
-    /// Stats what `FileDifference` doesn't carry: both sides' modification dates, and — for a
-    /// folder about to be replaced — how much it contains. Off the main actor: on network/cloud
-    /// volumes a synchronous stat can block for seconds (same reason as `statExists`). Uses the
-    /// injected `FileManaging` so the facts describe the same disk the copy and Verify run
-    /// against (a mocked manager must not have the warning read the real disk).
+    /// Stats what `FileDifference` doesn't carry: both sides' modification dates and, for a
+    /// folder about to be replaced, how much it contains. Off the main actor, because a stat on a
+    /// network or cloud volume can block for seconds. Uses the injected `FileManaging`, so the
+    /// facts describe the disk the copy and Verify run against.
     nonisolated static func loadFacts(for difference: FileDifference, fileManager: FileManaging) async -> ReviewCardModel.Facts {
         let sourcePath = difference.reviewSourcePath
         let destinationPath = difference.reviewDestinationPath
@@ -510,11 +443,10 @@ struct ReviewCardView: View {
             if fileManager.fileExists(atPath: destinationPath, isDirectory: &isDirectory), isDirectory.boolValue {
                 facts.destinationIsDirectory = true
                 let destinationURL = URL(fileURLWithPath: destinationPath)
-                // `childCount` rather than the bare enumerator this used to drain. The enumerator
-                // comes back NON-NIL yielding zero entries for a folder that cannot be listed, so
-                // the count was 0 and the warning read "0 items on iCloud will be removed" about a
-                // folder whose contents were about to go. Leaving the count nil in that case is
-                // what routes the sentence to its already-written "everything" wording.
+                // `childCount`, not a bare enumerator: an enumerator is non-nil and yields
+                // nothing for a folder that can't be listed, which would read as "0 items will be
+                // removed". An unreadable folder leaves the count nil, so the warning says
+                // "everything".
                 let counted = fileManager.childCount(of: destinationURL, options: [], cap: childCountCap)
                 switch counted.outcome {
                 case .unreadable:
@@ -532,27 +464,18 @@ struct ReviewCardView: View {
 
 /// The review card's key-cap hint row: bordered key chips with plain-text verbs between.
 ///
-/// Permanent until now, which made it teaching clutter after the first session — the review card
-/// was the one surface in the app that shouted its shortcuts at everyone, forever. It joins the
-/// ⌥-hold reveal instead: **empty by default, keycaps only while ⌥ is held.**
+/// Part of the ⌥-hold reveal: empty by default, keycaps only while ⌥ is held.
 ///
-/// Hidden with `.opacity`, deliberately, and not by branching the row out of the layout. The card
-/// must not resize when ⌥ goes down — a card that grew a row under a settled pointer would move
-/// the Copy button out from under it, mid-review, which is the one thing this feature promises
-/// never to do. Opacity reserves the row's full footprint in both states, so there is no height to
-/// gain and no width for the enclosing `Spacer` to redistribute.
+/// Hidden with `.opacity`, not branched out of the layout, so the card never resizes when ⌥
+/// goes down and the Copy button can't move under a settled pointer.
 ///
-/// **Accessibility does not rely on this row.** Whether SwiftUI keeps a zero-opacity view in the
-/// accessibility tree is not something this project can check — there is no assistive client under
-/// `swift test`, so a test either way would pass vacuously — so the card states the keys itself in
-/// an unconditional `.accessibilityHint`. A VoiceOver user, who has no ⌥ hold to discover, hears
-/// them whatever SwiftUI decides about this view.
+/// Accessibility doesn't rely on this row: whether SwiftUI keeps a zero-opacity view in the
+/// accessibility tree can't be tested, so the card states the keys in an unconditional
+/// `.accessibilityHint`.
 ///
-/// **Its own type rather than a method on the card, so the reservation can be measured.** Inside
-/// the card this row sits in an `HStack` with the action buttons, which are taller than it is —
-/// so removing it entirely changes the card's height by nothing at all, and a card-level test of
-/// the invariant passes whatever this code does. `ReviewCardShortcutRevealTests` hosts this view
-/// directly for that reason; the first version of that file measured the card and proved nothing.
+/// Its own type so the reserved footprint can be measured: in the card it shares an `HStack`
+/// with taller buttons, so a card-level test couldn't see it. `ReviewCardShortcutRevealTests`
+/// hosts it directly.
 struct ReviewKeyHints: View {
     /// "Copy" or "Move" — whichever verb ⏎ currently performs.
     let primaryVerb: String

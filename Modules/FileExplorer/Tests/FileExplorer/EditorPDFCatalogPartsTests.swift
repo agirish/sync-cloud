@@ -8,8 +8,8 @@ import Sync
 
 extension PDFFixtures {
     /// A 3-page PDF labelled "i", "ii", "1", whose catalog also has tags, layers and a colour output
-    /// intent — what no rebuilding tool's copy keeps (decision BW). Assembled by hand: PDFKit's
-    /// writer produces none of them.
+    /// intent, which no rebuilding tool's copy keeps. Assembled by hand: PDFKit's writer produces
+    /// none of them.
     static func writeTagged(_ path: String) throws {
         let stream = "BT /F1 24 Tf 72 396 Td (Tagged) Tj ET"
         let objects = [
@@ -40,9 +40,9 @@ extension PDFFixtures {
     }
 }
 
-/// **TE201 and TE202 — what a tool's copy keeps, and what each sheet says still goes.** Every copy
-/// keeps a file's page labels, viewer settings, language and attached files (decisions BT, BW);
-/// its tags, layers and colour output intent go, and the tool names the ones the file has.
+/// What a tool's copy keeps, and what each sheet says still goes. Every copy keeps a file's page
+/// labels, viewer settings, language and attached files; its tags, layers and colour output intent
+/// go, and the tool names the ones the file has.
 @MainActor
 @Suite(.serialized) final class EditorPDFCatalogPartsTests {
     let folder = NSTemporaryDirectory() + "editor-pdf-catalog-" + UUID().uuidString
@@ -93,8 +93,8 @@ extension PDFFixtures {
         let keeping: [EditorPDFTool] = [.rotate(pages: [0], quarterTurns: 1), .protect(restrictEditing: false, password: secret),
                                         .fillForm(values: [:], items: [])]
         for tool in keeping { #expect(!tool.dropsCatalogParts(fileHasForm: false, osMajor: 27), "\(tool.title)") }
-        // FR53: on macOS 26 PDFKit drops the catalog on an in-place write too, and the toolkit
-        // cannot carry it onto an encrypted copy — so these three say it there.
+        // On macOS 26 PDFKit drops the catalog on an in-place write too, and the toolkit can't
+        // carry it onto an encrypted copy, so these three say it there.
         for tool in keeping { #expect(tool.dropsCatalogParts(fileHasForm: false, osMajor: 26), "\(tool.title)") }
         #expect(EditorPDFTool.protectedCopyNote(osMajor: 26)?.contains("attached files, page labels") == true)
         #expect(EditorPDFTool.cleanMetadata(.cleared).dropsCatalogParts(fileHasForm: true, osMajor: 26),

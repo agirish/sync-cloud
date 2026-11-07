@@ -2,8 +2,8 @@ import Design
 import SwiftUI
 import Sync
 
-/// To File's words about which survey placed the cards (GK–GN, 2026-10-31) — pure, so a test can
-/// read them without mounting a view.
+/// To File's words about which survey placed the cards, pure so a test can read them without
+/// mounting a view.
 public enum FilingSurveyText {
 
     /// "Dropbox’s", "Documents’".
@@ -199,7 +199,7 @@ struct FilingSurveyMenu: View {
     }
 }
 
-/// The strip under To File's header for a tree placed by name (GL): what is happening, and Learn
+/// The strip under To File's header for a tree placed by name: what is happening, and Learn
 /// Its Folders. Also says what Learn did, until dismissed or another tree is scanned.
 struct FilingSurveyStrip: View {
     @ObservedObject var syncManager: FileSyncManager

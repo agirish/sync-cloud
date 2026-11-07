@@ -5,19 +5,13 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// **The treemap's sequential ramp.**
-///
-/// The ramp replaced a rotating ten-hue palette assigned by index, and it makes one promise the
-/// palette never did: *colour is the ranking*. That promise is a numeric property — luminance rises
-/// with position — and it is the only thing here a reader can be misled by, so it is asserted
-/// directly rather than inferred from a rendered tile.
-///
-/// The second half is what the palette needed a parallel table for. The old `labelPalette` was ten
-/// precomputed label colours for ten fixed fills; a ramp has as many fills as tiles, so the pairing
-/// has to be computed per tile, and these check it lands where the fixed table used to.
+/// The treemap's sequential ramp, whose promise is that colour is the ranking: luminance rises with
+/// position. That is the thing a reader can be misled by, so it is asserted numerically rather than
+/// inferred from a rendered tile. A ramp has as many fills as tiles, so the label colour is paired
+/// per tile, and the second half checks each pairing.
 @Suite struct TreemapRampTests {
 
-    /// Every hue the settings offer, including the two the palette never contained.
+    /// Every hue the settings offer.
     private var hues: [LiquidGlassHue] { LiquidGlassHue.allCases }
 
     @Test func theRampRisesInLuminanceForEveryHueSoColourReadsAsRank() {
@@ -32,8 +26,8 @@ import Design
         }
     }
 
-    /// The deep end is the hue itself, not an invented dark version of it — which is what keeps
-    /// amber recognisably amber instead of the brown an absolute luminance band would force.
+    /// The deep end is the hue itself, not an invented dark version, which keeps amber recognisably
+    /// amber instead of the brown an absolute luminance band would force.
     @Test func theFirstStepIsTheHuesOwnAccent() {
         for hue in hues where hue != .none {
             let first = srgb(TreemapView.ramp(hue, count: 6)[0])
@@ -45,10 +39,9 @@ import Design
         }
     }
 
-    /// `.none` is the *system* accent — a dynamic colour, which resolves to whatever appearance is
-    /// current when its components are read and never re-resolves. The ramp substitutes blue, and
-    /// this is the assertion that says so out loud: a future edit that "simplifies" the special
-    /// case away reintroduces a colour that silently freezes.
+    /// `.none` is the system accent, a dynamic colour that resolves to whatever appearance is
+    /// current when its components are read and never re-resolves. The ramp substitutes blue;
+    /// dropping that special case would bring back a colour that silently freezes.
     @Test func theSystemAccentIsSubstitutedBecauseItIsDynamic() {
         let none = srgb(TreemapView.ramp(.none, count: 5)[0])
         let blue = srgb(LiquidGlassHue.blue.accentColor)
@@ -57,10 +50,9 @@ import Design
                 && abs(none.blueComponent - blue.blueComponent) < 0.01)
     }
 
-    /// The plan for this item said the ramp *dissolves* the contrast problem, because "the pale
-    /// end lands on the small tiles, which carry no labels anyway". It does not: the fold floors
-    /// the smallest visible tile at `labelMinWidth`, which is precisely the width at which a tile
-    /// starts drawing its name. So every step, palest included, has to carry a label.
+    /// Every step, palest included, must carry a label at 3:1. The pale end doesn't fall only on
+    /// unlabelled tiles: the fold floors the smallest visible tile at `labelMinWidth`, exactly the
+    /// width at which a tile starts drawing its name.
     @Test func everyStepCarriesItsLabelAtLargeTextContrast() {
         for hue in hues {
             for count in [1, 2, 5, 12] {
@@ -75,9 +67,9 @@ import Design
         }
     }
 
-    /// The palest steps really do cross the pairing's threshold — otherwise this whole suite would
-    /// be measuring white-on-dark twelve times and the per-tile pairing would be dead code kept
-    /// alive by a green test. Blue is the default hue and the one the old palette led with.
+    /// The palest steps really do cross the pairing's threshold; otherwise this suite would measure
+    /// white-on-dark every time and the per-tile pairing would be dead code kept alive by a green
+    /// test. Blue is the default hue.
     @Test func thePaleEndOfTheRampIsWhereTheLabelFlipsToDarkText() {
         let ramp = TreemapView.ramp(.blue, count: 8)
         #expect(Color.onFillLabel(ramp[0]) == Color.white, "the accent itself should keep white text")

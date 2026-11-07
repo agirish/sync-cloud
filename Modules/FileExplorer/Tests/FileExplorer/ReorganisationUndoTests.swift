@@ -3,11 +3,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// *Undo this reorganisation* asks before it runs a landing's inverse, and says what happened after.
-///
-/// **Both surfaces used to call the engine directly**: a plain text link on the Applied card and an
-/// Organize menu item each ran an inverse that can move hundreds of files, with no question and no
-/// redo — and a success left no banner, so from the menu the window said nothing at all.
+/// *Undo this reorganisation* asks before it runs a landing's inverse, and says what happened
+/// after. The inverse can move hundreds of files and has no redo, so neither the Applied card nor
+/// the Organize menu may run it without the question, and every outcome leaves a banner.
 @MainActor
 @Suite struct ReorganisationUndoTests {
 
@@ -63,8 +61,8 @@ import Testing
         #expect(banner.message.contains("1 skipped"))
     }
 
-    /// An undo that moved back files changed since the landing names them — it cannot tell an
-    /// edit from a document saved over one, so the person checks (his call, 2026-10-27).
+    /// An undo that moved back files changed since the landing names them: it can't tell an edit
+    /// from a document saved over one, so the person checks.
     @Test func anUndoNamesWhatHadChangedSince() {
         var outcome = FileSyncManager.RestructureApplyOutcome()
         outcome.filesMoved = 5
@@ -89,9 +87,8 @@ import Testing
         #expect(store.recordApplied(record), "premise: the ledger took the record")
         let manager = FileSyncManager()
         manager.restructureStore = store
-        // A survey that names its folder, so nothing refuses before the question: the engine's
-        // up-front checks pass, and it refuses only past the question, on the missing profiles
-        // directory.
+        // A survey that names its folder, so the engine's up-front checks pass and it refuses only
+        // past the question, on the missing profiles directory.
         manager.filingFolderProfile = FolderProfile(profileId: "p", root: dir.path, folders: [:],
                                                     personTokens: [])
         #expect(manager.restructureLandingBlocker == nil, "premise: nothing blocks the undo up front")
@@ -113,8 +110,8 @@ import Testing
         #expect(manager.banner == nil)
     }
 
-    /// **It asked even when the engine would refuse at once.** With a scan running, the question
-    /// went up and a Yes was refused; now the refusal is the answer and nothing is asked.
+    /// An undo the engine would refuse at once (a scan running) asks nothing: the refusal is the
+    /// answer, not a question whose Yes is then refused.
     @Test func aBlockedUndoSaysWhyWithoutAsking() async throws {
         let (manager, dir) = try manager(holding: Self.record())
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -150,7 +147,7 @@ import Testing
     // MARK: Nothing goes around the question
 
     /// The engine call lives in one place. A surface that calls it directly runs an inverse that can
-    /// move hundreds of files without asking — which is what both surfaces did.
+    /// move hundreds of files without asking.
     @Test func onlyTheSharedPathCallsTheEngine() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // FileExplorer

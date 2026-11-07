@@ -3,19 +3,12 @@ import Foundation
 @testable import Sync
 @testable import FileExplorer
 
-/// The ⌘K palette's routing table (ROADMAP 14).
+/// The ⌘K palette's routing table.
 ///
-/// ## Why this suite exists in this shape
-///
-/// The last routing table this app shipped went out **inverted** and no test could have caught it:
-/// the decision was three lines inside an `onSubmit`, which cannot be fired from a unit test, on a
-/// SwiftUI `Button` that is not an `NSControl`. It only became testable once the decision was
-/// extracted into a pure function returning a value — `PaneSearchSubmit`, whose own doc comment is
-/// the record of that. `PaletteRouter` is built to that pattern from the start, and this suite is
-/// the reason it is worth the indirection.
-///
-/// Every test below asserts a **route**, not a row's existence. A palette that lists the right
-/// destination and routes it somewhere else is exactly the failure the pane search had.
+/// A routing decision inside an `onSubmit` can't be fired from a unit test, so `PaletteRouter` is a
+/// pure function returning a value, the pattern `PaneSearchSubmit` follows. Every test asserts a
+/// route, not a row's existence: a palette that lists the right destination and routes it
+/// somewhere else is the failure that matters.
 @Suite struct CommandPaletteTests {
 
     // MARK: Fixtures — the real tree's shapes, cut to size
@@ -48,13 +41,10 @@ import Foundation
 
     // MARK: A root that is merely asleep
 
-    /// **The remembered folders are listed, marked, and unrunnable — not dropped.**
-    ///
-    /// The root is checked before any of its children, so a sleeping drive takes out every recent
-    /// and every pin at once. This landing IS that list, so dropping them makes ⌘K open blank and
-    /// "I have no recents" indistinguishable from "my drive is not awake". Decided 2026-08-19
-    /// (ROADMAP v4 §7), narrowing the earlier "a remembered folder that has gone does not appear"
-    /// to the case where the root was there to be asked.
+    /// Under a sleeping root, remembered folders are listed, marked and unrunnable, not dropped.
+    /// The root is checked first, so a sleeping drive takes out every recent and pin at once;
+    /// dropping them would make "no recents" look the same as "drive not awake". A remembered
+    /// folder that has gone is hidden only when the root answered.
     @Test func anAsleepRootListsItsRememberedFoldersMarkedRatherThanHidingThem() throws {
         let index = PaletteIndex(
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
@@ -77,13 +67,9 @@ import Foundation
         #expect(rows[opening].group != .folders)
     }
 
-    /// **The typed query is the same disk**, and it was answering differently.
-    ///
-    /// `folders` comes from the survey profile held in memory, so it matches a query with the drive
-    /// asleep exactly as it does awake. Until 2026-08-19 only the empty-query landing carried the
-    /// mark: ⌘K opened saying "Not available" against every remembered folder, and typing one
-    /// letter replaced them with the same tree offered as live destinations — ↩ then revealed a
-    /// path that is not there. One root, one answer.
+    /// A typed query under a sleeping root marks its folders too. `folders` comes from the survey
+    /// profile in memory, so it matches with the drive asleep; without the mark, typing one letter
+    /// would offer the tree as live destinations and ↩ would reveal a path that isn't there.
     @Test func aTypedQueryUnderAnAsleepRootMarksItsFoldersToo() {
         let index = PaletteIndex(
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
@@ -142,16 +128,16 @@ import Foundation
 
     // MARK: The lede — free-text routing
 
-    /// ROADMAP 14's own example, and the property that makes the palette worth building: a query
-    /// that is a verb and an object routes to **both**, in one row.
+    /// A query that is a verb and an object routes to both, in one row: the property that makes
+    /// the palette worth having.
     @Test func organizeIncomeTaxAimsOrganizeAtThatFolder() {
         let top = try? #require(Self.first("organize income tax"))
         #expect(top == .organize(lens: nil, scope: "\(Self.root)/Finance/US/Income Tax"),
                 "the top row for a verb-and-object query was \(String(describing: top))")
     }
 
-    /// The object must not be dropped. This is the specific silent loss: routing to Organize alone
-    /// lands you there still answering about wherever you were, with nothing on screen saying so.
+    /// The object must not be dropped: routing to Organize alone would land you there still
+    /// answering about wherever you were, with nothing on screen saying so.
     @Test func theFolderHalfOfAVerbQueryIsNeverDiscarded() {
         let rows = PaletteRouter.rows(query: "organize income tax", index: Self.index())
         let scoped = rows.filter {
@@ -167,8 +153,7 @@ import Foundation
         }
     }
 
-    /// A lens name is a verb too — the six rail items are the reason this item got more valuable
-    /// than it was when written.
+    /// A lens name is a verb too, and takes a folder like Organize does.
     @Test func aLensNameAndAFolderRouteToThatLensScoped() {
         #expect(Self.first("duplicates in Legal")
                 == .organize(lens: .duplicates, scope: "\(Self.root)/Legal"))
@@ -177,46 +162,36 @@ import Foundation
                 == .organize(lens: .duplicates, scope: "\(Self.root)/Legal"))
     }
 
-    /// **"rename" reaches the place that fixes names.** ROADMAP 14's founding case: a user who
-    /// thinks "rename" must have something to aim at. That place is Renames now — the Names lens
-    /// folded into it as the "to fix" section — and the vocabulary moved with it, which is what
-    /// this pins: the word still routes, and it routes to where the findings actually live.
+    /// "rename" reaches Renames, the place that fixes names, even though nothing is called
+    /// "rename". Names folded into Renames as its "to fix" section, and its vocabulary moved too.
     @Test func renameReachesTheNamesLensEvenThoughNothingIsCalledRename() {
         #expect(Self.routes("rename").contains(.organize(lens: .renames, scope: nil)))
-        // The folded vocabulary rode along: the words the OLD place answered to reach the
-        // same landing, so no muscle memory dead-ends.
+        // The folded lens's words reach the same landing, so no muscle memory dead-ends.
         #expect(Self.routes("risky").contains(.organize(lens: .renames, scope: nil)))
         #expect(Self.routes("illegal").contains(.organize(lens: .renames, scope: nil)))
-        // And "names" reaches exactly one place — the retired lens is gone, so a second row for
-        // the same landing is now unrepresentable rather than merely absent.
+        // And "names" reaches exactly one place, not a second row for the same landing.
         #expect(Self.routes("names").filter { route in
             if case .organize = route { return true } else { return false }
         }.count == 1)
     }
 
-    /// A place whose name is **two words** is found, object and all.
-    ///
-    /// Named for what it actually proves. It was called *…IsPreferredOverItsFirstWord*, claiming the
-    /// longest-first scan order; mutating that order to shortest-first failed nothing, because no
-    /// two-word name in the vocabulary has a head that is also a name. What the scan genuinely buys
-    /// is the multi-word match at all — a single-word parse loses this query outright. The direction
-    /// is documented as unobservable-today at `splitVerb`, rather than tested for here as if it were.
+    /// A place whose name is two words is found, object and all; a single-word parse loses this
+    /// query. It doesn't prove longest-first order: no two-word name's head is also a name, so the
+    /// direction is unobservable (noted at `splitVerb`).
     @Test func aTwoWordPlaceNameIsFoundBeforeItsFirstWordCanMisfire() {
         #expect(Self.first("to file legal")
                 == .organize(lens: .toFile, scope: "\(Self.root)/Legal"))
     }
 
     @Test func aVerbWithNoObjectIsJustThePlace() {
-        // **"storage" reaches the LENS now, and that is an upgrade rather than a rename.** It used
-        // to resolve to a hand-written `.storage` place whose `takesAFolder` was false — so
-        // "storage Legal" silently dropped the folder. As a derived lens place it carries a scope
-        // like every other lens; the unscoped query still lands in the same page.
+        // "storage" reaches the Storage lens, which carries a scope like every other lens; the
+        // unscoped query lands on the same page.
         #expect(Self.first("storage") == .organize(lens: .storage, scope: nil))
         #expect(Self.first("compare") == .compare)
     }
 
-    /// **Edit answers to what it does with a PDF** (TE196): "pdf", "sign" and "fill" found nothing
-    /// while Edit opens, fills and signs PDFs, and its line under the name said text files only.
+    /// Edit answers to what it does with a PDF: "pdf", "sign" and "fill" reach it, and its line
+    /// under the name mentions PDFs, not just text files.
     @Test func editAnswersToItsPDFWords() {
         for query in ["pdf", "pdfs", "sign", "signature", "fill"] {
             let rows = PaletteRouter.rows(query: query, index: Self.index())
@@ -225,7 +200,7 @@ import Foundation
         #expect(PalettePlace.editor.detail == "Write in a text file, or fill and sign a PDF")
     }
 
-    /// The half the fold actually bought: Storage takes a folder now.
+    /// Storage, as a lens, takes a folder.
     @Test func storageTakesAFolderSinceItBecameALens() {
         #expect(Self.first("storage legal")
                 == .organize(lens: .storage, scope: "\(Self.root)/Legal"),
@@ -247,16 +222,16 @@ import Foundation
         #expect(Self.routes("daughter").contains(.person(id: "p.daughter")))
     }
 
-    /// **Exactly one, or nobody** — delegated to `PersonSearchOffer` precisely so the palette and
-    /// the pane search cannot answer the same question differently. "elder forebear granny"
-    /// names a couple, and picking one of them is the over-attribution these names invite.
+    /// Exactly one person, or nobody. Delegated to `PersonSearchOffer` so the palette and the pane
+    /// search can't answer differently. "elder forebear granny" names a couple, and picking one
+    /// would over-attribute.
     @Test func aQueryNamingTwoPeopleOffersNeither() {
         let rows = PaletteRouter.rows(query: "elder forebear granny", index: Self.index())
         #expect(!rows.contains { if case .person = $0.route { return true } else { return false } })
     }
 
-    /// A roster can outlive the survey it was built beside. The row stays and says why — an offer
-    /// whose accept does nothing is the "nothing happened" this family of features exists to remove.
+    /// A roster can outlive its survey. The row stays, disabled, and says why, rather than
+    /// offering an accept that does nothing.
     @Test func aPersonRowWithNoSurveyIsShownDisabledWithItsReason() {
         let rows = PaletteRouter.rows(query: "daughter", index: Self.index(hasSurvey: false))
         let person = rows.first { if case .person = $0.route { return true } else { return false } }
@@ -267,7 +242,7 @@ import Foundation
 
     // MARK: Availability is a REASON, never an absence
 
-    /// ROADMAP 14 names this case: an unmounted source shown disabled *with its reason*, not hidden.
+    /// An unmounted source is shown disabled with its reason, not hidden.
     @Test func anUnmountedSourceIsListedWithItsReason() {
         let rows = PaletteRouter.rows(query: "backup", index: Self.index())
         let ssd = rows.first { $0.route == .provider(id: "ssd") }
@@ -311,8 +286,8 @@ import Foundation
 
     // MARK: The empty query
 
-    /// "recent and likely actions" — ROADMAP 14. Recents lead because the commonest reason to open
-    /// a palette is to go back to where you just were.
+    /// The empty query offers recents, then places. Recents lead because the commonest reason to
+    /// open a palette is to go back to where you just were.
     @Test func theEmptyQueryLeadsWithRecentsThenPlaces() {
         let rows = PaletteRouter.rows(query: "", index: Self.index(recent: ["Legal", "Medical"]))
         #expect(rows.first?.route == .folder(path: "\(Self.root)/Legal"))
@@ -330,35 +305,29 @@ import Foundation
         }
     }
 
-    /// ⌘K reaches Browse — which takes TWO things, and the second is the one that rots. A
-    /// `PaletteRoute` case with no `PalettePlace` beside it compiles, routes correctly when it is
-    /// run, and can never be run, because nothing ever emits a row carrying it.
+    /// ⌘K reaches Browse by name. A `PaletteRoute` case with no `PalettePlace` beside it compiles
+    /// and routes correctly, but nothing ever emits a row carrying it.
     @Test func browseIsReachableByName() {
         #expect(Self.first("browse") == .browse)
     }
 
-    /// The words someone reaches for when they want to look at their files rather than be told
-    /// something about them. "files" especially: it is the query for "I just want to go and move
-    /// this", which is the whole distinction Browse carries.
+    /// The words for looking at files, rather than being told about them, reach Browse. "files"
+    /// especially: it is the query for "I just want to go and move this".
     @Test func theWordsForLookingAtFilesReachBrowse() {
         for query in ["files", "finder", "folders"] {
             #expect(Self.routes(query).contains(.browse), "'\(query)' does not reach Browse")
         }
     }
 
-    /// `PalettePlace.allCases` is hand-written — the associated-value case rules out the
-    /// synthesized conformance — so it is the one list where a new place can be added to the enum
-    /// and silently never offered. Counted rather than eyeballed: every place the type can build
-    /// has to appear in the list the router walks.
+    /// `PalettePlace.allCases` is hand-written (an associated-value case rules out synthesis), so a
+    /// new place could be added and never offered. Every place the type can build must be in it.
     @Test func everyPlaceIsOfferedByTheHandWrittenAllCases() {
         let offered = Set(PalettePlace.allCases.map(\.id))
-        // Storage is no longer hand-written here: it arrives through `railItems` below, which is
-        // what gives it a scope route the hand-written place never had.
+        // Storage arrives through `railItems`, which gives it a scope route.
         let expected = Set(([PalettePlace.browse, .compare, .editor, .organizeOverview]
                             + OrganizeLens.railItems.map(PalettePlace.lens)).map(\.id))
         #expect(offered == expected)
-        // And the list is what the ROWS come from, so an entry that exists but scores nothing is
-        // still a place nobody can reach.
+        // And the rows come from this list, so an entry that scores nothing is still unreachable.
         let rows = PaletteRouter.rows(query: "", index: Self.index())
         for place in PalettePlace.allCases {
             #expect(rows.contains { $0.route == place.route(scope: nil) },
@@ -366,9 +335,8 @@ import Foundation
         }
     }
 
-    /// Browse takes no scope. It shows wherever the pane already is, and moving the pane is what
-    /// the existing `.folder` route does — so "browse income tax" must not mint a second, silently
-    /// different way of aiming a workspace.
+    /// Browse takes no scope: it shows wherever the pane already is, and the `.folder` route moves
+    /// the pane, so "browse income tax" must not become a second way of aiming a workspace.
     @Test func browseTakesNoFolder() {
         #expect(!PalettePlace.browse.takesAFolder)
         #expect(PalettePlace.browse.route(scope: "\(Self.root)/Finance") == .browse)
@@ -401,9 +369,8 @@ import Foundation
 
     // MARK: Pinned and recent are two different claims
 
-    /// ROADMAP 14 asks the Folders group for "recent and pinned paths". They are two lists because
-    /// they are two claims — *where you just were* and *where you keep going back to* — and a row
-    /// labelled "Recent" for a folder pinned months ago is the wrong one.
+    /// Pinned and recent are two lists because they are two claims, where you keep going back to
+    /// and where you just were. A pinned folder labelled "Recent" would be wrong.
     @Test func theEmptyQueryLeadsWithPinnedThenRecentAndSaysWhichIsWhich() {
         var index = Self.index(recent: ["Medical"])
         index.pinnedFolders = ["Legal"]
@@ -417,11 +384,8 @@ import Foundation
 
     // MARK: ↑ ↓ ↩
 
-    /// The highlight opens on the first row that can actually be **chosen**.
-    ///
-    /// Not row 0: unavailable rows are deliberately kept in the list, and a palette that opened with
-    /// the highlight on one would make ↩ do nothing — which reads as the palette being broken rather
-    /// than as the source being unmounted.
+    /// The highlight opens on the first row that can be chosen, not row 0. Unavailable rows stay in
+    /// the list, and opening on one would make ↩ do nothing, which reads as a broken palette.
     @Test func theHighlightSkipsRowsThatCannotBeChosen() {
         let rows = [PaletteRow(id: "a", group: .sources, title: "Backup SSD", symbol: "x",
                                route: .provider(id: "ssd"), unavailable: "Not mounted"),
@@ -454,9 +418,8 @@ import Foundation
         #expect(PaletteSelection.chosen(at: nil, in: rows) == nil)
     }
 
-    /// An index left over from the previous results names a different row now. The host recomputes
-    /// the selection on every keystroke for that reason; this pins the half that can be tested —
-    /// an index past the end must never be run.
+    /// A leftover index names a different row now, so the host recomputes the selection on every
+    /// keystroke. This pins the testable half: an index out of range runs nothing.
     @Test func aStaleIndexRunsNothing() {
         let rows = [PaletteRow(id: "a", group: .places, title: "A", symbol: "x", route: .compare)]
         #expect(PaletteSelection.chosen(at: 7, in: rows) == nil)
@@ -465,14 +428,10 @@ import Foundation
 
     // MARK: The folder index — the defect the installed app found
 
-    /// **A tilde-spelled profile root still matches an expanded provider root.**
-    ///
-    /// This is the bug the app's own log line caught after everything else was green: the host
-    /// compared `FolderProfile.root` (`~/Documents`) against `lensProviderRootExpanded`
-    /// (`/Users/abhishek/Documents`) as plain strings, so on the real tree the palette indexed
-    /// **0 of 3,013 folders** — every folder query and the entire "organize <folder>" lede silently
-    /// answering nothing, with no error anywhere. The routing tests could not see it: they are
-    /// handed the folder list.
+    /// A tilde-spelled profile root (`~/Documents`) still matches an expanded provider root.
+    /// Compared as plain strings, the palette would index no folders at all, and every folder query
+    /// would answer nothing with no error. The routing tests can't see this: they are handed the
+    /// folder list.
     @Test func aTildeSpelledProfileRootStillMatchesTheProviderRoot() {
         let home = NSHomeDirectory()
         #expect(PaletteIndex.folders(profileRoot: "~/Documents",
@@ -484,37 +443,29 @@ import Foundation
                                      keys: ["Legal"]) == ["Legal"])
     }
 
-    /// A profile about a tree **outside** the provider root contributes nothing.
-    ///
-    /// Containment, not equality — but containment in one direction only. A profile rooted *above*
-    /// the provider root, or off in another tree entirely, yields keys relative to the wrong thing,
-    /// and no prefix repairs them; a folder that cannot be named is not a destination.
+    /// A profile about a tree outside the provider root contributes nothing. A profile rooted
+    /// above it, or in another tree, yields keys relative to the wrong thing that no prefix repairs.
     @Test func aProfileAboutADifferentTreeContributesNoFolders() {
         #expect(PaletteIndex.folders(profileRoot: "/a/Documents", providerRoot: "/b/Documents",
                                      keys: ["Legal"]).isEmpty)
         // Above the provider root: its keys name paths that are not under this source at all.
         #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "/a/Documents",
                                      keys: ["Legal"]).isEmpty)
-        // A sibling that merely shares a string prefix is outside, not inside — the boundary rule
-        // `PathBoundary` exists for, and the one a `hasPrefix` re-implementation would get wrong.
+        // A sibling that only shares a string prefix is outside: the `PathBoundary` rule, which a
+        // `hasPrefix` re-implementation would get wrong.
         #expect(PaletteIndex.folders(profileRoot: "/a/Documentsly", providerRoot: "/a/Documents",
                                      keys: ["Legal"]).isEmpty)
         #expect(PaletteIndex.folders(profileRoot: nil, providerRoot: "/a", keys: ["Legal"]).isEmpty)
         #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "", keys: ["Legal"]).isEmpty)
     }
 
-    /// A profile rooted **inside** the provider root contributes its folders, re-based.
+    /// A profile rooted inside the provider root contributes its folders, re-based. This is the
+    /// ordinary case: a cloud source's root is its account folder, and the profile is surveyed over
+    /// the landing folder inside it, so the two differ by the source's `openAt`.
     ///
-    /// This is the ordinary case now, not an exotic one: a source's root is its account folder
-    /// while the folder profile is surveyed over the source's landing folder inside it, so the two
-    /// differ by exactly that source's `openAt` for every cloud account on the machine.
-    ///
-    /// The re-basing is what makes containment safe where equality used to be required. Every other
-    /// path in the index — recents, pins, a typed path — is measured from the provider root, and a
-    /// route is built by joining that root to what this returns; so a key handed back unchanged
-    /// would name `<account>/Legal` for a folder really at `<account>/Documents/Legal`. Returning
-    /// nothing instead, which is what an equality test does here, is no better: ⌘K's whole Folders
-    /// group and the "organize &lt;folder&gt;" lede go silently empty, which is how this last broke.
+    /// Routes join the provider root to what this returns, so a key left unchanged would name
+    /// `<account>/Legal` for `<account>/Documents/Legal`. Returning nothing instead would leave ⌘K's
+    /// Folders group and the "organize &lt;folder&gt;" lede silently empty.
     @Test func aProfileInsideTheProviderRootContributesItsFoldersRebased() {
         #expect(PaletteIndex.folders(profileRoot: "/a/Documents", providerRoot: "/a",
                                      keys: [".", "Legal", "Finance/US"])
@@ -524,16 +475,12 @@ import Foundation
                                      keys: ["Legal"]) == ["My Drive/Documents/Legal"])
     }
 
-    /// **The prefix the index carries is the segment its folders actually carry.**
+    /// The index's `folderPrefix` is the segment its folders actually carry. The ranker subtracts
+    /// it before scoring, which works only while it matches what `folders` prepended; a drift is
+    /// silent, and every folder would score its whole path again (see the ranker tests below).
     ///
-    /// `folderPrefix` exists so the ranker can subtract the shared `Documents` from every key
-    /// before scoring it; that only works while it is the *same* segment `folders` prepended. The
-    /// two are written as one rule — `folders` calls `folderPrefix` — and this is what stops a
-    /// later edit from splitting them, because a drift is otherwise silent: the ranker would strip
-    /// nothing and every folder would score its whole path again, which is the ⌘K blowup below.
-    ///
-    /// Also pinned: nil from `folderPrefix` on exactly the inputs that make `folders` empty. A `?? ""`
-    /// at the call site must mean "no re-base happened", never "re-base of an unusable pair".
+    /// Also pinned: `folderPrefix` is nil on exactly the inputs that make `folders` empty, so a
+    /// `?? ""` at the call site means "no re-base", never "re-base of an unusable pair".
     @Test func theIndexedFoldersAllCarryTheIndexPrefix() {
         let cases: [(profile: String?, provider: String)] = [
             ("/a/Documents", "/a"),                 // OneDrive / Dropbox
@@ -563,16 +510,11 @@ import Foundation
 
     // MARK: The folder ranker — scored below the landing folder
 
-    /// **A query that only matches the shared prefix ranks nothing.**
+    /// A query that only matches the shared prefix ranks nothing. Every key begins `Documents`, and
+    /// `rankedFolders` scores the path with slashes as spaces, so without the prefix off, `doc`
+    /// would match every surveyed folder and the group would show arbitrary rows.
     ///
-    /// The defect this pins: a source's root is the account *above* its documents tree, so every
-    /// indexed key begins `Documents` — and `rankedFolders` scores the path with its slashes
-    /// flattened to spaces. Typing `doc` therefore scored an identical prefix match on every
-    /// surveyed folder (~3,013 of them on the real tree), and the Folders group answered six
-    /// alphabetically-arbitrary rows rather than the folders whose names contain "doc".
-    ///
-    /// Mutation-checked: dropping the `below(index.folderPrefix, folder)` call — scoring the whole
-    /// key, which is what shipped — returns all four folders here instead of one.
+    /// Dropping the `below(index.folderPrefix, folder)` call must fail this: all four folders rank.
     @Test func aQueryMatchingOnlyTheSharedPrefixRanksNothing() {
         let index = PaletteIndex(
             providerRoot: "/a",
@@ -582,26 +524,20 @@ import Foundation
         let ranked = PaletteRouter.rankedFolders(matching: "doc", in: index)
         #expect(ranked.map(\.path) == ["Documents/Archive/Old Docs"],
                 "\"doc\" matched \(ranked.map(\.path)) — the shared prefix is being scored")
-        // The prefix's own name is no longer a query at all. It was not one before the split
-        // either: the survey anchor was `.` then, and `.` is filtered out of the index.
+        // The prefix's own name is not a query at all.
         #expect(PaletteRouter.rankedFolders(matching: "documents", in: index).isEmpty)
         // ...and a real name still ranks, so the test above is not passing by matching nothing.
         #expect(PaletteRouter.rankedFolders(matching: "legal", in: index).map(\.path)
                 == ["Documents/Legal"])
-        // A multi-word path query still works below the prefix — `Finance/US` is scored as
-        // "Finance US", which is the whole reason the path half of the score exists.
+        // A multi-word path query still works below the prefix: `Finance/US` scores as
+        // "Finance US", the reason the path half of the score exists.
         #expect(PaletteRouter.rankedFolders(matching: "finance us", in: index).map(\.path)
                 == ["Documents/Finance/US"])
     }
 
-    /// **The shared prefix comes off on a component boundary, or not at all.**
-    ///
-    /// A plain `hasPrefix` would take `Documents` off `Documentsly/Q4` and leave `y/Q4` — not a
-    /// path, and scored as though it were one. Same trap as the absolute-side boundary rule in
-    /// `aProfileAboutADifferentTreeContributesNoFolders`, one level down.
-    ///
-    /// A folder that is not under the prefix is kept whole rather than dropped: it is still a real
-    /// destination, and the shared segment says nothing about it either way.
+    /// The shared prefix comes off on a component boundary, or not at all: a plain `hasPrefix`
+    /// would turn `Documentsly/Q4` into `y/Q4`. A folder not under the prefix is kept whole, since
+    /// it is still a real destination.
     @Test func theSharedPrefixComesOffOnlyOnAComponentBoundary() {
         #expect(PaletteRouter.below("Documents", "Documents/Legal") == "Legal")
         #expect(PaletteRouter.below("Documents", "Documentsly/Q4") == "Documentsly/Q4")
@@ -610,13 +546,9 @@ import Foundation
         #expect(PaletteRouter.below("My Drive/Documents", "My Drive/Documents/Legal") == "Legal")
     }
 
-    /// **Depth is measured below the landing folder too.**
-    ///
-    /// The tiebreak says a shallower folder wins, and "shallow" has to mean what the person
-    /// navigating sees. Measured on the whole key it is a constant offset today — one prefix per
-    /// index — so this pins the intent rather than a live bug: the day two sources with different
-    /// `openAt` depths share one index, measuring from the account root would rank Drive's folders
-    /// below OneDrive's for no reason a user could name.
+    /// The depth tiebreak is measured below the landing folder, so "shallow" means what the person
+    /// navigating sees. With one prefix per index this pins intent: sources with different
+    /// `openAt` depths sharing an index would otherwise rank for no reason a user could name.
     @Test func theDepthTiebreakIsMeasuredBelowTheLandingFolder() {
         let index = PaletteIndex(providerRoot: "/a",
                                  folders: ["My Drive/Documents/Legal",
@@ -632,15 +564,9 @@ import Foundation
 
     // MARK: Each group appears once
 
-    /// **A group's header must appear exactly once.**
-    ///
-    /// `PaletteResultsList` emits one wherever the group changes, so a ranking that interleaves
-    /// groups puts the same heading on screen two or three times. The flat score sort this replaced
-    /// did exactly that on nearly every short query — measured over this fixture, `"s"` produced
-    /// *Places, Actions, Sources, Actions, Places, Actions, Folders*: five groups, seven headings.
-    ///
-    /// Swept over one- and two-letter queries because that is where a group's rows spread widest
-    /// across the score range; a single hand-picked query would have missed it, and did.
+    /// A group's header appears exactly once. `PaletteResultsList` emits one wherever the group
+    /// changes, so a flat score sort that interleaves groups repeats headings. Swept over short
+    /// queries, where a group's rows spread widest across the score range.
     @Test func everyGroupAppearsInExactlyOneRun() {
         let letters = "abcdefghijklmnopqrstuvwxyz".map(String.init)
         let queries = letters + ["fi", "re", "st", "or", "le", "do", "in", "organize", "legal"]
@@ -653,12 +579,9 @@ import Foundation
         }
     }
 
-    /// ...and **the top row is still the best-scoring row**, which is what the flat sort was for.
-    ///
-    /// Grouping the rows is only safe if it does not bury the best match: ordering the groups by
-    /// `rank` instead of by their best row would put a weak place match above a strong folder one,
-    /// which is the obvious way to write this and the wrong one. Asserted over a sweep, with the
-    /// cross-group case pinned separately so the sweep cannot pass on single-group queries alone.
+    /// ...and the top row is still the best-scoring row. Ordering groups by `rank` instead of by
+    /// their best row would put a weak place match above a strong folder one. The sweep must span
+    /// two groups at least once, or it proves nothing about ordering between them.
     @Test func theTopRowIsAlwaysTheBestScoringRow() {
         let queries = ["s", "legal", "fi", "organize legal", "in", "medical", "backup", "rescan"]
         var sawMoreThanOneGroup = false

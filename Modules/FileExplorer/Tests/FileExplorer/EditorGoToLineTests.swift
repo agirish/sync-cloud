@@ -4,9 +4,8 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// **TE61 — go to a line.** What the field accepts, where it lands (clamped, in characters, on
-/// lines of the FILE), and that a mounted text view really puts the caret there — on a logical
-/// line, not a row the window wrapped a long one into.
+/// Go to Line: what the field accepts, where it lands (clamped, in characters, on lines of the
+/// file), and that a mounted text view puts the caret on a logical line, not a wrapped row.
 @MainActor
 @Suite(.serialized) struct EditorGoToLineTests {
 
@@ -21,7 +20,8 @@ import Design
         #expect(EditorGoToLine.parse("007") == .init(line: 7, column: nil))
     }
 
-    /// **0 and junk do nothing (the field beeps)** — and a sign is junk: `Int("+3")` would take it.
+    /// 0 and junk do nothing (the field beeps), and a sign is junk, though `Int("+3")` would take
+    /// it.
     @Test func zeroAndJunkAreRefused() {
         for typed in ["", " ", "0", "-3", "+3", "abc", "12a", "1.5", "12:0", "12:x", ":4", "1:2:3", "٣"] {
             #expect(EditorGoToLine.parse(typed) == nil, "“\(typed)” was accepted")
@@ -51,7 +51,7 @@ import Design
         #expect(offset(3) == 12, "the line after a CRLF starts past both units")
     }
 
-    /// **Past the end goes to the last line, past a line's end to its end** — before its CRLF.
+    /// Past the end goes to the last line, past a line's end to its end, before its CRLF.
     @Test func pastTheEndIsClamped() {
         #expect(offset(99) == 12)
         #expect(offset(2, 3) == 8)
@@ -65,14 +65,14 @@ import Design
         #expect(offset(5, 5, in: "") == 0)
     }
 
-    /// **The column is in characters, as the status line's is** — the emoji is one column.
+    /// The column is in characters, as the status line's is: the emoji is one column.
     @Test func theColumnCountsCharacters() {
         #expect(offset(1, 3, in: "a👍b\nc") == 3, "the column counted UTF-16 units")
     }
 
-    /// **The inverse of the status line's caret**, everywhere: for every offset the caret can stand
-    /// on, its line and column go back to that offset. Mixed endings, an emoji and an empty line,
-    /// so a rule that is right for LF only fails here.
+    /// The inverse of the status line's caret: for every offset the caret can stand on, its line
+    /// and column go back to that offset. Mixed endings, an emoji and an empty line catch an
+    /// LF-only rule.
     @Test func goingToTheCaretsLineAndColumnLandsOnTheCaret() {
         let text = "one 👍\r\n\ntwo\rthree\nfour"
         // Every character boundary — the places a caret can stand — including the end.
@@ -86,16 +86,15 @@ import Design
         #expect(offsets.count > 15)
     }
 
-    /// **A stale line table is not trusted** — it describes another text, and its line starts are
-    /// another document's. The answer must be this text's.
+    /// A stale line table, describing another text, is not trusted: the answer must be this text's.
     @Test func aStaleLineTableIsRebuilt() {
         let stale = EditorLineIndex(text: "a much longer first line\nsecond\nthird")
         #expect(offset(2, index: stale) == 6, "the go landed by another text's line table")
         #expect(offset(3, 2, index: stale) == 13)
     }
 
-    /// A heading jump (no column) still names a line start and still refuses a line that is not
-    /// there — the outline's request is unchanged by TE61.
+    /// A heading jump (no column) still names a line start and refuses a line that isn't there;
+    /// only a request with a column clamps.
     @Test func aHeadingJumpIsUnchanged() {
         let index = EditorLineIndex(text: text)
         #expect(PlainTextEditor.offset(for: EditorScrollRequest(line: 2, token: 1), in: text, using: index) == 6)
@@ -123,10 +122,10 @@ import Design
                                                                accent: .blue, onGo: { _ in }) : nil)
     }
 
-    /// **"Line, Col" is DRAWN as a button where Go to Line is offered, and as words where it is not**
-    /// (Preview) — read off the one handle a hosted SwiftUI button leaves, its focus ring
-    /// (`reading-a-hosted-swiftui-control-by-focus-ring`). And being a button costs the line no width
-    /// at any rung: the wash's padding is taken back outside it, so the ladder measures as before.
+    /// "Line, Col" is a button where Go to Line is offered and words where it isn't (Preview), read
+    /// off the one handle a hosted SwiftUI button leaves, its focus ring
+    /// (`reading-a-hosted-swiftui-control-by-focus-ring`). Being a button costs no width at any
+    /// rung: the wash's padding is taken back outside it.
     @Test func theCaretIsAButtonOnlyWhereGoToLineIsOffered() throws {
         func hosted(_ line: EditorStatusLine) -> NSHostingView<AnyView> {
             let host = NSHostingView(rootView: AnyView(line.frame(width: 700)))
@@ -167,9 +166,8 @@ import Design
         }
     }
 
-    /// **Line 3 is the third line of the file, however the window wraps the first.** A first line
-    /// long enough to take many rows at this width, then a go to line 3, column 4: the caret lands
-    /// on the file's third line — where a visual-row count would have put it inside line 1.
+    /// Line 3 is the file's third line however the window wraps the first: with a first line many
+    /// rows long, a go to 3:4 must not land inside line 1, as a visual-row count would.
     @Test func aMountedEditorGoesToTheLogicalLineNotAWrappedRow() throws {
         let long = String(repeating: "wrapped words ", count: 60)
         let text = long + "\nsecond\nthird line\n"

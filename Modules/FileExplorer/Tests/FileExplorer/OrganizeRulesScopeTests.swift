@@ -5,35 +5,27 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// ROADMAP 15's trap, **mounted and read back**: opening Rules aims Organize at the source root,
-/// and leaving it puts the scope back.
+/// Opening Rules aims Organize at the source root, and leaving it puts the scope back, checked by
+/// mounting the lens and reading pixels.
 ///
-/// ## Why this suite is not `OrganizeLensTests`
+/// `OrganizeLensTests` asserts the pure `OrganizeLens.isScoped` rule; this checks the view obeys
+/// it in all three places that must agree: the rows (`filteredRows`), the badges (`railCounts`)
+/// and the chip (`scopeChip`). Each is private to a view a test can't drive, so the instrument is
+/// pixels.
 ///
-/// `OrganizeLens.isScoped` is a pure two-line rule and is asserted directly over there. What that
-/// cannot see is whether the view *obeys* it — a rule extracted for testability is one revert away
-/// from being decorative, and this feature has three distinct places that must agree with it: the
-/// rows (`filteredRows`), the badges (`railCounts`) and the chip (`scopeChip`). Each is a private
-/// member of a view SwiftUI will not let a test drive, so the instrument is pixels.
+/// Every claim is a difference between two mounts of the same lens, one with a scope stored and
+/// one without. Holding the lens fixed matters: comparing Rules against To File would move the
+/// selection ring, the readout and the content card at once.
 ///
-/// ## Every claim is a DIFFERENCE between two mounts that differ in one thing
-///
-/// Each test renders the same lens twice — once with a scope stored, once without — and asserts the
-/// two bands either match or differ. Holding the lens fixed is what makes the comparison mean
-/// something: comparing Rules against To File would move the selection ring, the readout and the
-/// whole content card at the same time, and any of those would explain a difference.
-///
-/// The fixture is the trap itself. The scope is the loose-files inbox — the sticky one-click scope
-/// Organize's own overview offers — and the rules file *out* of it, into `Medical/…` and
-/// `Finance/{year}`, so under the predicate this replaced **every** rule was filtered away.
-///
-/// **`.machinePinned(.pixelSampling)`** — it reads pixels out of a live renderer.
+/// The fixture is the trap itself: the scope is the loose-files inbox, and the rules file out of
+/// it into `Medical/…` and `Finance/{year}`, so a scope predicate applied to Rules hides every
+/// rule. `.machinePinned(.pixelSampling)` because it reads pixels out of a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct OrganizeRulesScopeTests {
 
     private static let canvas = CGSize(width: 1400, height: 620)
     private static let root = "/root"
-    /// The inbox, which is where the rail is parked when the trap springs.
+    /// The inbox, where the scope is parked when the trap springs.
     private static let inbox = "/root/TODO"
 
     /// The rail: six capsules on row 1, badges and all. Same band `OrganizeRailTests` measured.
@@ -45,8 +37,8 @@ import Design
 
     // MARK: Fixtures
 
-    /// Two complete rules, **both filing out of the inbox and into somewhere else** — which is what
-    /// every real rule does, and what made the scope predicate hide all of them.
+    /// Two complete rules, both filing out of the inbox into somewhere else, as every real rule
+    /// does, so a scope predicate would hide them all.
     private static var rules: [AutomationRule] {
         [AutomationRule(name: "Medical bills", matchMode: .any,
                         conditions: [.mentionsAll(["bill"])],
@@ -56,9 +48,9 @@ import Design
                         destinationTemplate: "Finance/{year}")]
     }
 
-    /// Findings for the five lenses that ARE scoped, deliberately placed OUTSIDE the inbox — so a
-    /// scope that is being applied takes their badges to nothing and an unapplied one leaves them
-    /// reporting. That difference is what `theOtherFiveBadgesKeepTheirScope` reads.
+    /// Findings for the five scoped lenses, placed outside the inbox, so an applied scope takes
+    /// their badges to nothing and an unapplied one leaves them reporting.
+    /// `theOtherFiveBadgesKeepTheirScopeWhileRulesIsSelected` reads that difference.
     private static func manager() -> FileSyncManager {
         let m = FileSyncManager()
         m.automationRules = rules
@@ -68,9 +60,9 @@ import Design
                       reason: "colon", isDirectory: false)
         }
         m.hasScannedNames = true
-        // The names now render inside the folded Renames lens, which gates its results on the
-        // file pass having run — without this both scoped and global would show the identical
-        // setup card and the narrowing comparison below would be vacuous.
+        // The risky names render inside Renames, which shows results only after the file pass has
+        // run; without this, scoped and global would show the same setup card and the comparison
+        // would be vacuous.
         m.hasSuggestedFiling = true
         return m
     }
@@ -84,9 +76,8 @@ import Design
         } else {
             defaults.removeObject(forKey: OrganizeLens.defaultsKey)
         }
-        // The scope goes through the key `LensWorkspaceView` actually reads, and as a STORED string — the
-        // hazard a persisted, user-arrangeable value has is that a fixture built from the in-memory
-        // default never exercises what a real launch reads off disk.
+        // The scope goes through the key `LensWorkspaceView` reads, as a stored string, so the
+        // fixture exercises what a real launch reads off disk rather than the in-memory default.
         defaults.set(scope ?? "", forKey: OrganizeScopeDefaults.pathKey)
         let subject = LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                                scanTargetFolder: Self.root, onFindDuplicates: {},
@@ -119,11 +110,9 @@ import Design
         return rep
     }
 
-    /// Pixels that differ between two same-sized bands.
-    ///
-    /// **A count, not a Bool.** "They differ" is satisfied by one stray antialiased pixel, and the
-    /// claims below are about a whole rule list or a whole chip appearing — so the assertions carry
-    /// a floor, and the ones that demand sameness demand exactly zero.
+    /// Pixels that differ between two same-sized bands. A count, not a Bool: one stray antialiased
+    /// pixel would satisfy "they differ", so the assertions carry a floor, and the ones that demand
+    /// sameness demand exactly zero.
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
         var differing = 0
@@ -140,8 +129,8 @@ import Design
         return differing
     }
 
-    /// Pixels in a band that are not its own background corner — the "did anything render" check
-    /// that keeps every comparison below from passing over two blank images.
+    /// Pixels in a band that differ from its background corner: the "did anything render" check
+    /// that keeps the comparisons from passing over two blank images.
     private func inked(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 2, y: 2) else { return 0 }
         var count = 0
@@ -160,13 +149,9 @@ import Design
 
     // MARK: The trap
 
-    /// **The rule list is identical with and without a scope.** This is the whole item.
-    ///
-    /// Scoped to the inbox, the predicate this replaced hid both rules and the lens rendered its
-    /// "nothing matches" state — the one rail item that is not allowed to say "nothing here" saying
-    /// exactly that with rules configured, and the only way out being to abandon the scope you were
-    /// working. Zero differing pixels is the strongest form of "the scope does not reach here": not
-    /// "enough rules survived", but *the scope changed nothing at all*.
+    /// The rule list is identical with and without a scope. Scoped to the inbox, a filtered list
+    /// would draw "nothing matches" with rules configured, and the only way out would be dropping
+    /// the scope. Zero differing pixels means the scope changed nothing at all.
     @Test func theRuleListIsTheSameWithAndWithoutAScope() {
         let scoped = strip(mount(Self.manager(), lens: .rules, scope: Self.inbox), Self.contentZone)
         let global = strip(mount(Self.manager(), lens: .rules, scope: nil), Self.contentZone)
@@ -176,12 +161,9 @@ import Design
                 "the rule list changed when a scope was set — Rules is being narrowed by a folder again")
     }
 
-    /// **The chip stays on screen while Rules suspends it.**
-    ///
-    /// The alternative — hiding it — reads as *the scope was cleared*, and the user's next move is
-    /// to set it again, which is the one-way trip stated backwards. Read as a difference between
-    /// scoped and unscoped on the SAME lens: with the chip suppressed the two rows would be
-    /// identical.
+    /// The chip stays on screen while Rules suspends it. Hiding it would read as the scope having
+    /// been cleared, and the user would set it again. With the chip suppressed, the scoped and
+    /// unscoped rows would be identical.
     @Test func theScopeChipStillDrawsOnRules() {
         let scoped = strip(mount(Self.manager(), lens: .rules, scope: Self.inbox), Self.readoutZone)
         let global = strip(mount(Self.manager(), lens: .rules, scope: nil), Self.readoutZone)
@@ -189,13 +171,10 @@ import Design
                 "row 2 renders the same with and without a scope on Rules — the chip has vanished, which reads as the scope having been cleared")
     }
 
-    /// **Standing on Rules must not lift the scope off the other five badges.**
-    ///
-    /// The rail draws all six whatever is selected. `railCounts` reading the *selected* lens's scope
-    /// — one `let scope = scope` at the top, which is what it used to be — takes every other badge
-    /// back to its global number the instant you click Rules: Names jumping from nothing to 7
-    /// because a sixth item does not use the scope. The fixture's risky names all sit in `Legal`,
-    /// outside the inbox, so an applied scope hides them and an unapplied one does not.
+    /// Standing on Rules must not lift the scope off the other five badges. The rail draws all six
+    /// whatever is selected; if `railCounts` read the selected lens's scope, clicking Rules would
+    /// take every other badge to its global number (Renames jumping from nothing to 7). The risky
+    /// names sit in `Legal`, outside the inbox, so an applied scope hides them.
     @Test func theOtherFiveBadgesKeepTheirScopeWhileRulesIsSelected() {
         let scoped = strip(mount(Self.manager(), lens: .rules, scope: Self.inbox), Self.railZone)
         let global = strip(mount(Self.manager(), lens: .rules, scope: nil), Self.railZone)
@@ -204,17 +183,15 @@ import Design
                 "the rail draws the same badges with and without a scope while Rules is selected — selecting Rules has lifted the scope off the five lenses that do use it")
     }
 
-    /// **The suspended chip drops the accent wash**, so it cannot be mistaken for one that applies.
+    /// The suspended chip drops the accent wash, so it can't be mistaken for one that applies.
+    /// `theScopeChipStillDrawsOnRules` alone would pass with a chip drawn exactly as a live one:
+    /// the worst outcome, lists ignoring a chip that looks like it narrows them.
+    /// `OrganizeScopeChipTests` proves the two states render differently in isolation; this checks
+    /// the wiring.
     ///
-    /// `theScopeChipStillDrawsOnRules` proves the chip is *there*; on its own that is satisfied by a
-    /// chip drawn exactly as a live one, which would be the worst of the three outcomes — the lists
-    /// silently ignoring a chip that still looks like it is narrowing them. `OrganizeScopeChipTests`
-    /// proves the two states render differently *in isolation*; this is the wiring between them,
-    /// which is the half a view-level suite cannot see.
-    ///
-    /// Measured as blue-over-red on the chip's own leading run: the live capsule is an accent wash
-    /// (hue pinned to blue by the fixture) and the suspended one is neutral, so the count separates
-    /// them without depending on either's exact geometry.
+    /// Counted as blue-over-red on the chip's leading run: the live capsule is an accent wash (hue
+    /// pinned to blue) and the suspended one is neutral, so the count separates them without
+    /// depending on either's geometry.
     @Test func theSuspendedChipDropsTheAccentWash() {
         func accentPixels(_ lens: OrganizeLens) -> Int {
             let rep = strip(mount(Self.manager(), lens: lens, scope: Self.inbox),
@@ -235,12 +212,9 @@ import Design
                 "the chip on Rules is still wearing the accent wash (\(suspended) vs \(live) accent pixels) — it looks like it is narrowing a list it is not")
     }
 
-    /// The control case: on a lens that IS scoped, the scope reaches the list.
-    ///
-    /// Without this the three tests above are satisfied by a build where the scope does nothing
-    /// anywhere — the failure mode where a feature is "fixed" by deleting it. Renames is scoped and
-    /// its findings are outside the inbox, so its list must change when the scope is set. It was
-    /// asked of the retired Names lens, whose risky names are the rows this list opens with now.
+    /// The control: on a lens that is scoped, the scope reaches the list. Without it, the tests
+    /// above pass on a build where the scope does nothing anywhere. Renames is scoped and its
+    /// findings are outside the inbox, so its list must change when the scope is set.
     @Test func aScopedLensStillNarrowsItsList() {
         let scoped = strip(mount(Self.manager(), lens: .renames, scope: Self.inbox), Self.contentZone)
         let global = strip(mount(Self.manager(), lens: .renames, scope: nil), Self.contentZone)

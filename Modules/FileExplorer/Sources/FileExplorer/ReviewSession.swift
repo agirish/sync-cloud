@@ -2,12 +2,11 @@ import Combine
 import Foundation
 import Sync
 
-/// Owns the review session ACROSS `DifferencesView` mounts. The view is conditionally mounted
-/// by the host (bottom tab, and an empty differences list unmounts it), so session state kept
-/// in the view's `@State` would die on a tab peek or when an external change resolves the last
-/// live difference mid-review. The host holds this store as `@StateObject` and keeps the view
-/// mounted while `isReviewing`; a decision completing while the view happens to be unmounted
-/// still lands here.
+/// Owns the review session across `DifferencesView` mounts. The host mounts that view
+/// conditionally (bottom tab; an empty differences list unmounts it), so session state in its
+/// `@State` would die on a tab peek or when an external change resolves the last difference.
+/// The host holds this as `@StateObject` and keeps the view mounted while `isReviewing`; a
+/// decision completing while the view is unmounted still lands here.
 @MainActor
 public final class ReviewSessionStore: ObservableObject {
     /// The active session; nil when not reviewing. Internal — hosts only ask `isReviewing`.
@@ -21,12 +20,11 @@ public final class ReviewSessionStore: ObservableObject {
     /// Whether a review session is active — the host's mount condition.
     public var isReviewing: Bool { session != nil }
 
-    /// The ONE way an outcome lands in the store. Id-addressed (the user may have jumped rows
-    /// while a copy ran) and token-guarded: `syncFile` is an unbounded await, and "a session
-    /// exists" is not enough — the user can exit review and start a NEW session over the same
-    /// un-rescanned set (identical difference ids) before the old outcome arrives, and a
-    /// membership check alone would let the stale outcome advance the new session. The token
-    /// must be captured from the session the decision was made against, BEFORE the await.
+    /// The one way an outcome lands in the store. Id-addressed, since the user may have jumped
+    /// rows while a copy ran, and token-guarded: during `syncFile`'s unbounded await the user can
+    /// exit and start a new session over the same un-rescanned set, with identical ids, so a
+    /// membership check alone would let a stale outcome advance it. Capture the token from the
+    /// session decided against, before the await.
     /// - Returns: Whether the outcome was applied (so the caller can check for completion).
     @discardableResult
     func apply(_ outcome: ReviewSession.Outcome, for id: UUID, token: UUID) -> Bool {
@@ -36,8 +34,8 @@ public final class ReviewSessionStore: ObservableObject {
         return true
     }
 
-    /// Records a per-item Verify verdict; same token guard as `apply` — a verdict hashed under
-    /// a torn-down session must not label an item in its replacement.
+    /// Records a per-item Verify verdict, with `apply`'s token guard: a verdict hashed under a
+    /// torn-down session must not label an item in its replacement.
     @discardableResult
     func recordVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID, token: UUID) -> Bool {
         guard var current = session, current.sessionToken == token else { return false }
@@ -47,34 +45,19 @@ public final class ReviewSessionStore: ObservableObject {
     }
 
     /// Runs a decision that returns from an unbounded await and lands its outcome in the session
-    /// it was STARTED against.
+    /// it was started against.
     ///
-    /// `token` is the caller's — captured from the session the user actually decided against, in
-    /// the same synchronous slot that raised `isActing`, never re-read here. Reading
-    /// `session?.sessionToken` inside this function instead would read whatever session exists
-    /// when `decide` first runs, which is already one main-actor hop after the click:
-    /// `reviewPrimary` raises `isActing` and then enters a `Task`, so a teardown plus a fresh
-    /// `startReview` landing in that hop would have the NEW token copied onto the OLD session's
-    /// item. Since exiting review and restarting over the same un-rescanned set yields a session
-    /// with the SAME difference ids, `apply`'s token check would then compare the replacement
-    /// against itself and pass, advancing a queue past an item the user never decided. Every
-    /// guard downstream stays correct while the bug walks straight through.
+    /// **`token` must be the caller's**, captured in the same synchronous slot that raised
+    /// `isActing`, never re-read here. `reviewPrimary` enters a `Task` before calling this, so a
+    /// teardown and fresh `startReview` in that hop would hand the new session's token to the old
+    /// session's item, and with identical ids `apply`'s check would pass and skip an undecided
+    /// item.
     ///
-    /// `isActing` is cleared by `defer`, so it comes down on EVERY exit — including the early
-    /// return below where there is no session left to decide against, and any exit a later edit
-    /// adds. Order relative to `apply` is immaterial: `isActing` and `session` are both
-    /// `@Published` on this object and both land in one synchronous main-actor run, so no view,
-    /// test or caller can observe the intermediate state.
-    ///
-    /// That early return is not a formality. `reviewPrimary` sets `isActing` synchronously and
-    /// then hops through a `Task` to get here, so a session torn down inside that hop —
-    /// `endReviewForComparisonChange` on a pane swap, provider switch or root edit, or Esc —
-    /// lands exactly here, with the flag already raised and no copy ever started. `endSession`
-    /// leaves `isActing` alone because "an in-flight copy's completion clears it"; on this path
-    /// there is no in-flight copy, so nothing else ever will. And `startReview` does not reset
-    /// it, so the flag outlives the session that raised it: the NEXT review opens with its
-    /// Copy, Skip and Verify buttons already disabled and no way to re-enable them short of
-    /// relaunching. Clearing it here is what keeps that from being permanent.
+    /// `isActing` is cleared by `defer`, so it comes down on every exit, including the early
+    /// return when the session was torn down in that hop (pane swap, provider switch, root edit,
+    /// Esc). No copy started then, so nothing else would clear it, and `startReview` doesn't, so
+    /// the next review would open with its buttons disabled. Order relative to `apply` doesn't
+    /// matter: both `@Published` writes land in one synchronous main-actor run.
     /// - Returns: Whether the outcome was applied — false once the session was replaced or torn
     ///   down, so the caller knows not to treat this as a completed step.
     @discardableResult
@@ -85,11 +68,10 @@ public final class ReviewSessionStore: ObservableObject {
         return apply(outcome, for: id, token: token)
     }
 
-    /// Ends the session immediately. For the host's comparison-changing events (pane swap,
-    /// provider switch, root edit): the frozen queue's paths and directions describe the OLD
-    /// comparison, and the card would relabel them against the new pane names — backwards.
-    /// `isActing` is left alone: an in-flight copy's completion clears it, and its outcome
-    /// write is dropped by the host's session guard.
+    /// Ends the session immediately, for the host's comparison-changing events (pane swap,
+    /// provider switch, root edit): the frozen queue describes the old comparison, and the card
+    /// would label it against the new pane names. `isActing` is left alone: an in-flight copy's
+    /// completion clears it, and its outcome is dropped by the session guard.
     public func endSession() {
         session = nil
     }
@@ -97,7 +79,7 @@ public final class ReviewSessionStore: ObservableObject {
 
 /// State machine for the inline guided review (the Differences header's "Review…" mode):
 /// a queue of differences frozen when the session starts, a cursor, and per-item outcomes.
-/// Pure value type owned by the view as `@State` — every transition is unit-testable.
+/// A pure value type held by ``ReviewSessionStore``, so every transition is unit-testable.
 ///
 /// The queue is a snapshot on purpose: a successful sync removes its row from the live
 /// `differences` list, but the review table keeps showing every queued item with its outcome
@@ -120,29 +102,25 @@ struct ReviewSession: Equatable {
         case unverifiable
     }
 
-    /// The session's identity. Two sessions over the same un-rescanned differences are
-    /// content-identical (same queue, same ids), so async work parked across an exit + restart
-    /// can't tell them apart by membership — outcomes and verdicts are guarded on this token
-    /// instead (see `ReviewSessionStore.apply`). Part of the synthesized `==` deliberately:
-    /// value copies of one session share the token, and distinct sessions are distinct.
+    /// The session's identity. Two sessions over the same un-rescanned differences have the same
+    /// queue and ids, so async work spanning an exit and restart is guarded on this token instead
+    /// (see `ReviewSessionStore.apply`). Part of the synthesized `==` on purpose: copies of one
+    /// session share it, and distinct sessions differ.
     let sessionToken = UUID()
     /// Whether the session moves items instead of copying (move modifier held at entry).
     let isMove: Bool
     /// The frozen review queue, in the table order visible when the session started.
     let queue: [FileDifference]
-    /// The Path column's anchor (the compared folder's name), frozen WITH the queue it labels.
-    /// The queue is a snapshot, so reading the live `lastScanRootNames` instead would label
-    /// these rows with whatever the panes scanned NEXT — navigate both panes to Photos
-    /// mid-review and every frozen Home row's Path cell would read "Photos/…", on the exact
-    /// surface where the user is deciding copies. nil renders bare parents + "Top level".
+    /// The Path column's anchor (the compared folder's name), frozen with the queue it labels.
+    /// The live `lastScanRootNames` would label these rows with whatever the panes scan next,
+    /// where the user is deciding copies. nil renders bare parents and "Top level".
     let pathRootName: String?
     private(set) var currentIndex: Int = 0
     private(set) var outcomes: [UUID: Outcome] = [:]
     private(set) var verdicts: [UUID: VerifyVerdict] = [:]
 
     /// nil when there is nothing to review. `pathRootName` has no default on purpose: every
-    /// constructor must decide what anchor travels with the queue, because forgetting it is
-    /// exactly how the live-anchor bug this field fixes would creep back.
+    /// caller must decide what anchor travels with the queue.
     init?(queue: [FileDifference], isMove: Bool, pathRootName: String?) {
         guard !queue.isEmpty else { return nil }
         self.queue = queue
@@ -171,12 +149,10 @@ struct ReviewSession: Equatable {
     func outcome(for id: UUID) -> Outcome? { outcomes[id] }
     func verdict(for id: UUID) -> VerifyVerdict? { verdicts[id] }
 
-    /// Records the outcome for the given item. Id-addressed, not cursor-addressed: a copy's
-    /// outcome lands asynchronously, and the user may have jumped the cursor elsewhere while it
-    /// ran — the decision must stamp the item that was synced, never whatever is now current.
-    /// The cursor advances only when the decided item IS the current one — scanning forward,
-    /// then wrapping to the earliest undecided (a jump can leave undecided islands behind).
-    /// No-op for unknown ids and for items already decided (nothing may double-record).
+    /// Records the outcome for the given item. Id-addressed, not cursor-addressed: the outcome
+    /// lands asynchronously, and must stamp the item synced, not whatever is current now. The
+    /// cursor advances only when the decided item is current: forward, then wrapping to the
+    /// earliest undecided. No-op for unknown or already-decided ids.
     mutating func record(_ outcome: Outcome, for id: UUID) {
         guard outcomes[id] == nil, queue.contains(where: { $0.id == id }) else { return }
         outcomes[id] = outcome

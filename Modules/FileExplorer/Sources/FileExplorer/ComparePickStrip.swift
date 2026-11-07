@@ -1,18 +1,14 @@
 import Design
 import SwiftUI
 
-/// The mode indicator for ``ComparePick`` — one file armed, waiting for its counterpart.
+/// The mode indicator for ``ComparePick``: one file armed, waiting for its counterpart.
 ///
-/// **Not `OperationBannerView`, and that is a correctness point rather than a style one.** Banners
-/// auto-dismiss on `BannerDismissScheduler`'s timers (5s on success, 10s on warning). A mode
-/// indicator that disappears while the mode is still running is a lie about the state of the
-/// window: the next click would still open a comparison, and nothing on screen would say why. This
-/// strip stands for exactly as long as the pick does.
+/// Not an `OperationBannerView`, because banners auto-dismiss on `BannerDismissScheduler`'s timers
+/// and a mode indicator that vanishes while the mode runs would leave the next click opening a
+/// comparison with nothing on screen saying why. This strip stands exactly as long as the pick.
 ///
-/// **It states the three ways out, because a mode with an invisible exit is a trap.** Clicking a
-/// file completes it (that is the prompt), esc or Cancel abandon it, and clicking the armed row
-/// again cancels — the last is discoverable from the row's own marker rather than from here, since
-/// naming all three would make the strip a paragraph.
+/// It names the ways out, since a mode with an invisible exit is a trap: click a file to finish,
+/// esc or Cancel to abandon. Clicking the armed row again also cancels; its marker says so.
 public struct ComparePickStrip: View {
 
     /// The armed file's name, shown on its own so it can be truncated without taking the
@@ -24,13 +20,9 @@ public struct ComparePickStrip: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
 
-    /// The widest the name may draw before it truncates.
-    ///
-    /// **A ceiling, because the first cut had none and the bar was unreadable.** Real filenames are
-    /// not short — the one this was found on was "Irrigation system check 10-10-2024 ( Clock C )
-    /// readvised new templet.3-18.pdf" — and an unbounded name pushed the hint and the Cancel
-    /// button off past the window's edge. Middle truncation keeps the two ends that identify a
-    /// file: what it is, and which version of it.
+    /// The widest the name may draw before it truncates. Real filenames run long, and an unbounded
+    /// one pushes the hint and Cancel past the window's edge. Middle truncation keeps the two ends
+    /// that identify a file: what it is, and which version.
     static let nameWidth: CGFloat = 260
 
     public init(fileName: String, onCancel: @escaping () -> Void) {
@@ -38,11 +30,9 @@ public struct ComparePickStrip: View {
         self.onCancel = onCancel
     }
 
-    /// The whole mode, in one sentence, for VoiceOver — and the seam the sentence is asserted on.
-    ///
-    /// **Internal rather than inlined at the modifier**, because a SwiftUI `Text` cannot be read
-    /// back off a mounted view and the words are the thing under test: the name is bounded and
-    /// truncates, and the instruction must NOT be inside the run that truncates with it.
+    /// The whole mode in one sentence, for VoiceOver. Internal rather than inlined so tests can
+    /// read it, since a mounted `Text` can't be read back; the instruction must stay outside the
+    /// truncating name.
     var accessibilityDescription: String {
         "Comparing with \(fileName). Click another file in either pane, or press escape to cancel."
     }
@@ -105,12 +95,9 @@ public struct ComparePickStrip: View {
     }
 }
 
-/// The marker a row wears while it is the file armed for comparison — see ``ComparePick``.
-///
-/// **It is also the off switch**, which is why it is a visible mark rather than a subtle tint:
-/// clicking the armed row again cancels the pick, and that is the natural undo for a mode whose
-/// only anchor in the panes is this one row. A reader who cannot see which row is armed cannot
-/// find that undo.
+/// The marker a row wears while it is the file armed for comparison (see ``ComparePick``). A
+/// visible mark rather than a tint, because clicking the armed row again cancels the pick, and a
+/// reader who can't see which row is armed can't find that undo.
 struct ComparePickBadge: View {
     let fonts: PaneRowFonts
     /// The pane's accent, passed rather than read from `.tint` — see `PaneSearchAnnotation.accent`.

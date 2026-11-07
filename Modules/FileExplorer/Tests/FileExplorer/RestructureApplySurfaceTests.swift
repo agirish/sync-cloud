@@ -4,15 +4,15 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.5's surfaces: the removal sheet's split-by-name rule, and §5.7's Applied/Undone card
-/// sentences — the text rules tested as text, the views as render smoke.
+/// The landing surfaces: the removal sheet's split-by-name rule and the Applied/Undone card
+/// sentences, the text rules tested as text and the views as render smoke.
 @MainActor
 @Suite struct RestructureApplySurfaceTests {
 
     // MARK: The removal split (§5.5)
 
     /// An empty date bucket is debt and starts ticked; an empty category is a destination and
-    /// does not. The split is by the shape of the NAME — a year, or a year span.
+    /// doesn't. The split is by the shape of the name: a year, or a year span.
     @Test func theRemovalSplitReadsTheShapeOfTheName() {
         #expect(RestructureRemovalSheet.Candidate.isDateBucket("Finance/US/Income Tax/2016"))
         #expect(RestructureRemovalSheet.Candidate.isDateBucket("Immigration/H-1B/2016-2019"))
@@ -23,13 +23,12 @@ import Testing
 
     // MARK: §5.7's sentences
 
-    /// Applied and Undone are different claims and neither borrows the other's words — and the
-    /// Undone line carries the undo run's own counts, because an undo never pretends the tree
-    /// was untouched. The stamp renders in WORDS: this was the one user sentence in the app
-    /// carrying the ledger's machine stamp verbatim, literal `T` included.
+    /// Applied and Undone are different claims and neither borrows the other's words. The Undone
+    /// line carries the undo run's own counts, because an undo never pretends the tree was
+    /// untouched. The stamp renders in words, never as the ledger's machine stamp.
     @Test func appliedAndUndoneNeverBorrowEachOthersWords() {
-        // A fixed "now" well after the stamp's day, so the phrase is the absolute form and the
-        // test does not depend on the day it runs.
+        // A fixed "now" well after the stamp's day, so the phrase is the absolute form whatever
+        // day the test runs.
         let now = ISO8601DateFormatter().date(from: "2026-09-20T10:00:00Z")!
         let applied = ReorganisationDisplay(
             manifestId: "m1", family: "Finance/US/Income Tax",
@@ -53,9 +52,8 @@ import Testing
         #expect(!undoneLine.hasPrefix("Applied"))
     }
 
-    /// The stamp-in-words rule itself: today and yesterday by name, the absolute form beyond,
-    /// and an unparseable stamp rendered as itself — a wrong spelling of the truth beats a
-    /// pretty invention.
+    /// The stamp-in-words rule: today and yesterday by name, the absolute form beyond, and an
+    /// unparseable stamp rendered as itself, since a raw truth beats a pretty invention.
     @Test func theLandingPhraseSpeaksInWords() {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
@@ -72,10 +70,9 @@ import Testing
         #expect(RestructureLens.landingPhrase("not-a-stamp", now: now) == "not-a-stamp")
     }
 
-    /// **The clock and date follow the reader's region (LN19).** They were fixed "HH:mm" and
-    /// "d MMM yyyy", so a 12-hour Mac read "Applied today at 14:04". The same stamps read in a
-    /// 12-hour, month-first region must come out that way; a fixed format cannot. (U+202F is the
-    /// narrow no-break space macOS puts before AM/PM.)
+    /// The clock and date follow the reader's region: a 12-hour, month-first region reads the
+    /// stamps that way, which a fixed format can't. (U+202F is the narrow no-break space macOS
+    /// puts before AM/PM.)
     @Test func theLandingPhraseFollowsTheReadersClockAndRegion() {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
@@ -91,7 +88,7 @@ import Testing
 
     // MARK: Render smoke
 
-    /// The lens renders both card states offscreen — a layout crash fails here, not at first
+    /// The lens renders both card states offscreen, so a layout crash fails here, not at first
     /// apply on a real tree.
     @Test func theLensRendersAppliedAndUndoneCards() throws {
         let lens = RestructureLens(
@@ -108,8 +105,7 @@ import Testing
                                       canUndo: false, hasEmptiedFolders: false),
             ],
             onUndoReorganisation: { _ in }, onRemoveEmptied: { _ in })
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(lens, width: 640, height: 480))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
@@ -123,18 +119,16 @@ import Testing
             ],
             accent: .blue, onRemove: { _ in .landed(removed: 1, skippedCount: 0, caveat: nil) },
             onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
-        // `VStack`, so it passed with the subject of this test deleted.
+        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 480, height: 400))
         #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
     // MARK: The plan sheet's disk root
 
-    /// `FolderProfile.root` is stored tilde-abbreviated, and `URL(fileURLWithPath:)` does NOT
-    /// expand tildes — on every real profile the sheet's tree view read `<cwd>/~/Documents`,
-    /// every listing came back nil, and Plan… derived nothing. This is the one spelling the
-    /// sheet's wiring goes through, pinned.
+    /// `FolderProfile.root` is stored tilde-abbreviated, and `URL(fileURLWithPath:)` doesn't expand
+    /// tildes: unexpanded, the sheet's tree reads `<cwd>/~/Documents`, every listing is nil, and
+    /// Plan… derives nothing. This is the one spelling the sheet's wiring goes through.
     @Test func thePlanDiskRootExpandsTheTilde() {
         #expect(LensWorkspaceView.planDiskRoot("~/Documents").path
                     == NSHomeDirectory() + "/Documents")
@@ -143,9 +137,9 @@ import Testing
                 "an already-absolute root passes through untouched")
     }
 
-    /// The CALL SITE, pinned by source scan — the helper test above stays green if the sheet's
-    /// wiring reverts to the bare `URL(fileURLWithPath: profile.root)` that shipped the bug
-    /// (a tilde root resolved against cwd, so every real profile derived nothing).
+    /// The call site, pinned by source scan: the helper test above stays green if the wiring
+    /// reverts to the bare `URL(fileURLWithPath: profile.root)`, which resolves a tilde root
+    /// against cwd.
     @Test func thePlanSheetWiringGoesThroughPlanDiskRoot() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // FileExplorer (tests)
@@ -161,11 +155,10 @@ import Testing
 
     // MARK: The stamp, written and read across the module boundary
 
-    /// The ledger cards parse `AppliedRecord.at` back into words, and the writer lives in Sync
-    /// — every phrase test above feeds the parser literal strings, which stays green while the
-    /// two spellings drift. This one round-trips a stamp the REAL writer produced: if the
-    /// writer ever gains fractional seconds or a zone suffix, the phrase falls back to the raw
-    /// machine stamp and this fails.
+    /// The ledger cards parse `AppliedRecord.at` back into words, and the writer lives in Sync.
+    /// The phrase tests above feed literal strings, so this round-trips a stamp the real writer
+    /// produced: if the writer gains fractional seconds or a zone suffix, the phrase falls back to
+    /// the raw stamp and this fails.
     @Test func theLedgerStampRoundTripsThroughTheSharedWriter() {
         let instant = Date(timeIntervalSince1970: 1_756_400_000)
         let stamp = FilingArtifactStamp.string(from: instant)
@@ -177,8 +170,8 @@ import Testing
 
     // MARK: The removal sheet's landing sentence
 
-    /// The three shapes of "landed", from the engine's own counts — a bare "Moved to the
-    /// Trash" was printed over runs in which the engine skipped some or every ticked folder.
+    /// The three shapes of "landed", from the engine's own counts: a bare "Moved to the Trash"
+    /// would be false over a run that skipped some or every ticked folder.
     @Test func theRemovalLandingSentenceFollowsTheCounts() {
         let clean = RestructureRemovalSheet.landedSentence(removed: 2, skippedCount: 0,
                                                           caveat: nil)
@@ -205,9 +198,8 @@ import Testing
 
     // MARK: The badge call site
 
-    /// The rail badge's filter is pinned at its CALL SITE: `carriesPlan` itself is table-pinned
-    /// in the store tests, but reverting the badge to count every finding went red nowhere —
-    /// the classic tested-rule-with-an-untested-caller.
+    /// The rail badge's filter, pinned at its call site: `carriesPlan` is table-pinned in the store
+    /// tests, but a badge counting every finding would fail nowhere else.
     @Test func theRailBadgeCountsOnlyPlanBearingKinds() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // FileExplorer (tests)
@@ -221,9 +213,9 @@ import Testing
 
     // MARK: The plan sheet's lockdown seam
 
-    /// One seam for "finished or busy", read by the whole editing surface. Without it, any row
-    /// edit after a successful Apply cleared the outcome, un-retired the sheet, and re-armed
-    /// Export — which minted a "Planned, not applied" draft over a landed reorganisation.
+    /// One seam for "finished or busy", read by the whole editing surface. Without it, a row edit
+    /// after a successful Apply clears the outcome, un-retires the sheet and re-arms Export, which
+    /// mints a "Planned, not applied" draft over a landed reorganisation.
     @Test func thePlanSheetEditorsLockOnTheOneSeam() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -2,29 +2,27 @@ import Design
 import SwiftUI
 import Sync
 
-/// §5.5's removal step: a separate sheet, opt-in, over a list the caller resolved — either the
-/// folders one landing itself emptied, or §5.2's folders that were already empty when the survey
-/// looked (``isStanding``). **Never an unbounded sweep**: both lists are enumerated, re-probed
-/// and ticked one by one. Split by the shape of the name: an empty **date bucket** is debt and
-/// starts ticked; an empty **category** is a destination and does not, its path printed where the
-/// choice is made. No file is ever deleted; folders go to the Trash.
+/// The removal step: a separate, opt-in sheet over a list the caller resolved, either the
+/// folders one landing emptied or folders already empty when the survey looked (``isStanding``).
+/// Never an unbounded sweep: every folder is listed, re-probed and ticked one by one. An empty
+/// date bucket is debt and starts ticked; an empty category is a destination and does not. No
+/// file is ever deleted; folders go to the Trash.
 struct RestructureRemovalSheet: View {
 
     struct Candidate: Equatable, Identifiable {
         let path: String
-        /// Re-probed by the caller at open — a folder that gained a file since the landing is
-        /// shown disabled with the truth, never silently droppable.
+        /// Re-probed by the caller at open: a folder that gained a file since is shown disabled,
+        /// never silently droppable.
         let isStillEmpty: Bool
-        /// Whether the folder stands on disk at all. A candidate already in the Trash (the
-        /// sheet reopened after its own landing) is "already removed" — labelling it
-        /// "no longer empty" would claim it gained content it never had.
+        /// Whether the folder stands on disk at all. One already in the Trash (the sheet
+        /// reopened after its own landing) reads "already removed", not "no longer empty".
         var exists: Bool = true
         var id: String { path }
 
         var isDateBucket: Bool { Self.isDateBucket(path) }
 
-        /// The split §5.5 orders: a bare year or a year span is a date bucket; anything else is
-        /// a category name, and an empty category is a destination someone chose.
+        /// A bare year or a year span is a date bucket; anything else is a category name, and an
+        /// empty category is a destination someone chose.
         static func isDateBucket(_ path: String) -> Bool {
             FolderProfileEntry.looksLikeYear((path as NSString).lastPathComponent)
         }
@@ -32,29 +30,23 @@ struct RestructureRemovalSheet: View {
 
     let candidates: [Candidate]
     let accent: Color
-    /// True when these are §5.2's **pre-existing** empties from the crowding strip rather than
-    /// the folders one landing drained. Only the opening sentence differs — the split, the
-    /// re-probe, the Trash-only rule and the ledger are the same step either way — but that
-    /// sentence is the sheet's whole claim about where the list came from, and the landing's
-    /// wording would be a false one here.
+    /// True when these are pre-existing empties from the crowding strip, not folders a landing
+    /// drained. Only the title and opening sentence differ, but they are the sheet's claim about
+    /// where the list came from.
     var isStanding: Bool = false
 
-    /// What one removal landing came back as. A TYPED outcome, not a `String?` refusal, because
-    /// "landed, but the survey refresh failed" is a landing — the folders ARE in the Trash —
-    /// and carrying that sentence through a refusal channel left the button armed over
-    /// already-trashed rows, where a second click minted a junk all-skip ledger record.
+    /// What one removal landing came back as. Typed, not a `String?` refusal, because "landed,
+    /// but the survey refresh failed" is still a landing: treated as a refusal, it would leave
+    /// the button armed over already-trashed rows.
     enum RemovalResult: Equatable {
-        /// The landing ran; `removed` and `skippedCount` are the engine's own counts, because
-        /// "landed" alone was announced as "Moved to the Trash" even when the engine skipped
-        /// some — or every — ticked folder (one gained a file since the sheet opened, or the
-        /// parent landing was undone underneath it). `caveat` names a follow-up failure (the
-        /// survey refresh) when there was one.
+        /// The landing ran. `removed` and `skippedCount` are the engine's own counts, since it
+        /// can skip some or every ticked folder (one gained a file, or the parent landing was
+        /// undone). `caveat` names a follow-up failure, such as the survey refresh.
         case landed(removed: Int, skippedCount: Int, caveat: String?)
         case refused(String)
     }
 
-    /// The landing sentence, from the counts — the truthful version of what used to be an
-    /// unconditional "Moved to the Trash". Static so the three shapes are testable without
+    /// The landing sentence, from the counts. Static so its three shapes are testable without
     /// the view.
     static func landedSentence(removed: Int, skippedCount: Int, caveat: String?) -> String {
         var sentence: String
@@ -69,9 +61,8 @@ struct RestructureRemovalSheet: View {
             sentence = "Moved to the Trash — Undo This Reorganization on the removal’s own "
                 + "card puts them back, even after a quit."
         }
-        // A survey-refresh failure after a successful trashing composes with the landing,
-        // never replaces it: a sentence that only named the failure read as "nothing
-        // happened" over a sheet whose button had gone dead.
+        // A survey-refresh failure is added to the landing sentence, never replaces it, or it
+        // would read as "nothing happened".
         if let caveat { sentence += " But " + caveat }
         return sentence
     }
@@ -84,10 +75,9 @@ struct RestructureRemovalSheet: View {
     @State private var seeded = false
     @State private var outcome: String?
     @State private var running = false
-    /// True only after a landing SUCCEEDED — the button retires then, and only then. A refusal
-    /// leaves `outcome` set for the sentence but must not kill the button: the refusals here
-    /// are transient (a scan running, the store mid-write), and a dead Remove behind one made
-    /// close-and-reopen the only retry.
+    /// True only after a landing succeeded; the button retires then and only then. A refusal
+    /// sets `outcome` but keeps the button armed, because refusals here are transient (a scan
+    /// running, the store mid-write).
     @State private var landed = false
 
     var body: some View {
@@ -109,9 +99,8 @@ struct RestructureRemovalSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 220)
-            // Frozen while the landing runs and once it lands: the rows' probe labels were
-            // taken at open, and re-ticking against a tree the landing just changed would arm
-            // a button the retire below exists to kill.
+            // Frozen while the landing runs and once it lands: the probe labels were taken at
+            // open, and re-ticking against the changed tree would re-arm the retired button.
             .disabled(running || landed)
             HStack(spacing: 10) {
                 if let outcome {
@@ -121,9 +110,8 @@ struct RestructureRemovalSheet: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                // "Done" only after the landing landed — a refusal closes as "Cancel" (nothing
-                // moved). Held while the landing runs: dismissing mid-run would swallow the
-                // outcome sentence in a torn-down view.
+                // "Done" only after a landing; after a refusal nothing moved, so "Cancel". Held
+                // while the landing runs, or the outcome would arrive in a torn-down view.
                 Button(landed ? "Done" : "Cancel") { onClose() }
                     .scaledFont(.system(size: 11))
                     .keyboardShortcut(.cancelAction)
@@ -139,15 +127,14 @@ struct RestructureRemovalSheet: View {
         .onAppear(perform: seed)
     }
 
-    /// The title is a claim about provenance too: *emptied* says something drained these, which
-    /// is true of a landing's folders and false of the ones that were empty all along.
+    /// The title is a claim about provenance too: *emptied* says something drained these, true
+    /// only of a landing's folders.
     static func titleText(isStanding: Bool) -> String {
         isStanding ? "Remove empty folders" : "Remove emptied folders"
     }
 
-    /// The sentence under the title — where this list came from, then the rule that governs it.
-    /// The second half is shared because the rule is: date buckets are debt and start ticked, an
-    /// empty category is a destination and does not.
+    /// The sentence under the title: where this list came from, then the rule, which both kinds
+    /// share.
     static func introText(isStanding: Bool) -> String {
         let source = isStanding
             ? "Folders that were already empty when the survey looked, and only to the Trash. "
@@ -175,8 +162,8 @@ struct RestructureRemovalSheet: View {
                     if on { ticked.insert(candidate.path) } else { ticked.remove(candidate.path) }
                 }
             )) {
-                // The whole path, inline — there are few enough to read, and the choice is made
-                // where the name is (§5.5).
+                // The whole path, inline: there are few enough to read, and the choice is made
+                // where the name is.
                 Text(candidate.path)
                     .scaledFont(.system(size: 11, design: .monospaced))
                     .lineLimit(1)

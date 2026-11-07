@@ -2,8 +2,8 @@ import Testing
 import CoreGraphics
 @testable import FileExplorer
 
-/// The result message docks in one stack with the action bar (Banner Room, CA), so the bar's flip
-/// rule decides the pair's edge and the zone it covers is the two together. Same geometry as
+/// The result message docks in one stack with the action bar, so the bar's flip rule decides the
+/// pair's edge and the zone it covers is the two together. Same geometry as
 /// `PaneBarPlacementTests`: a 600pt viewport, a 64pt bar, here a 60pt message.
 @Suite struct PaneResultStackPlacementTests {
 
@@ -34,7 +34,7 @@ import CoreGraphics
     }
 
     @Test func anEmptyStackNeverLeavesTheBottom() {
-        // Nothing to draw covers nothing — the render that only records the selection must not flip.
+        // Nothing to draw covers nothing: the render that only records the selection must not flip.
         let p = makePlacement()
         p.rowBottoms = ["/a": 590]
         #expect(p.resolveAtTop(guarding: ["/a"], bar: false, message: false) == false)
@@ -62,7 +62,7 @@ import CoreGraphics
 
     @Test func aScrollBeforeTheActMovesTheSlot() {
         // The geometry callback re-resolves with the selection of record, so the slot follows the
-        // row while it is still on screen — a selection made low, then scrolled up, is no longer low.
+        // row while it is on screen: a selection made low, then scrolled up, is no longer low.
         let p = makePlacement()
         p.rowBottoms = ["/doomed": 580]
         p.resolveAtTop(guarding: ["/doomed"], bar: false, message: false)
@@ -73,8 +73,8 @@ import CoreGraphics
     }
 
     @Test func aSelectionScrolledAwayIsNotReplacedByTheSlot() {
-        // The slot stands in only for a selection that is GONE. One that is merely off screen has
-        // nothing on screen to cover, as for the bar.
+        // The slot stands in only for a selection that is gone. One merely off screen has nothing
+        // on screen to cover, as for the bar.
         let p = makePlacement()
         p.rowBottoms = ["/a": 580]
         p.resolveAtTop(guarding: ["/a"], bar: false, message: false)

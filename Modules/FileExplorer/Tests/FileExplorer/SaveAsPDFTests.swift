@@ -41,13 +41,12 @@ private struct SaveDelegate: FileActionDelegate {
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
 }
 
-/// **Save as PDF: the offer, the row menu's item, the run, and its banner** (CV1–CV5).
-///
-/// Serialized: the runs print through WebKit and AppKit, one operation at a time per process.
+/// Save as PDF: the offer, the row menu's item, the run, and its banner. Serialized: the runs print
+/// through WebKit and AppKit, one operation at a time per process.
 @MainActor
 @Suite(.serialized) final class SaveAsPDFTests {
-    /// The suite's own reader, with a deadline no loaded run reaches: on the shared one a read
-    /// merely slowed by load would leave an offer out, and stop every other suite's reads with it.
+    /// The suite's own reader, with a deadline no loaded run reaches: on the shared one, a read
+    /// slowed by load would leave an offer out and stop every other suite's reads with it.
     static let reads = BoundedCloudRead(deadline: .seconds(30))
 
     let folder = NSTemporaryDirectory() + "save-as-pdf-" + UUID().uuidString
@@ -79,8 +78,8 @@ private struct SaveDelegate: FileActionDelegate {
         let modified: Date
     }
 
-    /// The original's bytes and date — set into the past first, so a write this second could not
-    /// hide behind it.
+    /// The original's bytes and date, set into the past first so a write this second can't hide
+    /// behind it.
     private func pin(_ file: String) throws -> Original {
         let past = Date(timeIntervalSince1970: 1_600_000_000)
         try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file)
@@ -97,7 +96,8 @@ private struct SaveDelegate: FileActionDelegate {
         PDFDocument(url: URL(fileURLWithPath: file))?.string ?? ""
     }
 
-    /// A model whose folders are all writable unless a test says otherwise, and nothing in the cloud.
+    /// A model whose folders are all writable unless a test says otherwise, and nothing in the
+    /// cloud.
     private func model(host: PaneSaveAsPDFHost = PaneSaveAsPDFHost()) -> PaneSaveAsPDF {
         let model = PaneSaveAsPDF()
         model.host = host
@@ -113,7 +113,7 @@ private struct SaveDelegate: FileActionDelegate {
 
     // MARK: The run — beside the original, never over anything
 
-    /// **Beside the original, under its name, and the original untouched** (CV4, decision AN).
+    /// Saves beside the original, under its name, and leaves the original untouched.
     @Test func savesBesideTheOriginalUnderItsName() async throws {
         let note = try write("# Trip\n\nSAVEASPDF-NOTE\n", "Trip notes.md")
         let original = try pin(note)
@@ -132,8 +132,8 @@ private struct SaveDelegate: FileActionDelegate {
         try expectUntouched(note, original, "Trip notes.md")
     }
 
-    /// **A name already taken gets the next number, as Finder numbers it**, and the file that had
-    /// the name is left exactly as it was.
+    /// A name already taken gets the next number, as Finder numbers it, and the file that had the
+    /// name is left exactly as it was.
     @Test func aTakenNameGetsTheNextNumber() async throws {
         let note = try write("SAVEASPDF-CLASH\n", "Lease.txt")
         let taken = path("Lease.pdf"), alsoTaken = path("Lease 2.pdf")
@@ -150,8 +150,7 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(files() == ["Lease 2.pdf", "Lease 3.pdf", "Lease.pdf", "Lease.txt"])
     }
 
-    /// **A folder that cannot be written to asks where** — and a declined panel saves nothing and
-    /// says why.
+    /// A folder that can't be written to asks where; a declined panel saves nothing and says why.
     @Test func aReadOnlyFolderAsksWhere() async throws {
         let note = try write("SAVEASPDF-ELSEWHERE\n", "Wi-Fi.txt")
         let elsewhere = path("Chosen.pdf")
@@ -185,8 +184,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(SaveAsPDFName.folderIsWritable(for: path("a.md")))
     }
 
-    /// **A batch saves each file, and its banner reveals them all.** A file evicted to the cloud by
-    /// its turn is skipped with its reason and named; the rest are saved.
+    /// A batch saves each file, and its banner reveals them all. A file evicted to the cloud by its
+    /// turn is skipped and named with its reason; the rest are saved.
     @Test func aBatchSavesEachAndNamesWhatItCouldNot() async throws {
         let one = try write("SAVEASPDF-ONE\n", "One.md")
         let cloud = try write("x\n", "Cloud.md")
@@ -208,8 +207,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(all.banner?.message == "Saved 2 files as PDF.")
     }
 
-    /// **A link to a file evicted to the cloud is skipped as not downloaded** (TE206), as the file
-    /// itself is — rendering it would read it, which downloads it.
+    /// A link to a file evicted to the cloud is skipped as not downloaded, as the file itself is:
+    /// rendering it would read it, which downloads it.
     @Test func aLinkToAnEvictedFileIsSkippedAsNotDownloaded() async throws {
         let cloud = try write("SAVEASPDF-CLOUD\n", "Cloud.md")
         let link = path("Link.md")
@@ -222,8 +221,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(model.banner?.message == "Couldn’t save “Link.md” as PDF: it isn’t downloaded.")
     }
 
-    /// **Stop ends the run after the file in hand**; what was saved stays, and the banner says how
-    /// far it got.
+    /// Stop ends the run after the file in hand; what was saved stays, and the banner says how far
+    /// it got.
     @Test func stopEndsTheRunBetweenFiles() async throws {
         let paths = try ["A.md", "B.md", "C.md"].map { try write("SAVEASPDF-\($0)\n", $0) }
         var model: PaneSaveAsPDF!
@@ -234,11 +233,9 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(model.banner?.kind == .savedSeveral([path("A.pdf")]))
     }
 
-    /// **A Save as PDF behind a newer run keeps its Stop** (TE217). The capsule draws the newest
-    /// run — here a merge published after the save began — and lists the save beside it with its
-    /// own Stop. It used to draw the first of a fixed order, file operations first, and the save's
-    /// only Stop was the capsule's ✕, which then stopped the merge. Pressing the listed Stop ends
-    /// the save between files and leaves the merge running.
+    /// A Save as PDF behind a newer run keeps its own Stop. The capsule draws the newest run (here
+    /// a merge published after the save began) and lists the save beside it with its own Stop,
+    /// which ends the save between files and leaves the merge running.
     @Test func aSaveBehindANewerRunKeepsItsOwnStop() async throws {
         let paths = try ["A.md", "B.md", "C.md"].map { try write("SAVEASPDF-\($0)\n", $0) }
         let model = model()
@@ -259,8 +256,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(!merge.isCancelled, "the save's Stop stopped the merge")
     }
 
-    /// A run with no start time sorts as the oldest, and equal times keep the kinds' own order —
-    /// so the order never depends on how the runs were handed in.
+    /// A run with no start time sorts as the oldest, and equal times keep the kinds' own order, so
+    /// the order never depends on how the runs were handed in.
     @Test func runsWithoutATimeSortOldest() {
         let now = Date()
         func entry(_ kind: RunCapsuleEntry.Kind, _ at: Date?) -> RunCapsuleEntry {
@@ -283,7 +280,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(files() == ["First.md", "First.pdf", "Second.md"])
     }
 
-    /// Progress reads in the toolbar capsule as the mockup draws it: the title, and a batch's count.
+    /// Progress reads in the toolbar capsule as the mockup draws it: the title, and a batch's
+    /// count.
     @Test func progressReadsAsTheMockup() {
         #expect(PaneSaveAsPDFLayer.progressTitle(.init(done: 3, total: 12, name: "x")) == "Saving 12 files as PDF")
         #expect(PaneSaveAsPDFLayer.progressTitle(.init(done: 0, total: 1, name: "Lease.docx")) == "Saving “Lease.docx” as PDF…")
@@ -310,8 +308,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(SaveAsPDFSummary.banner(total: 1, saved: [memo], failed: [], stoppedBefore: 0).detail == nil)
     }
 
-    /// **A deck of pictures whose words were recognised says so, and that they may be wrong** — the
-    /// sentence Abhishek chose on 2026-10-19 — and a batch names each kind of deck apart.
+    /// A deck of pictures whose words were recognised says so, and that they may be wrong; a batch
+    /// names each kind of deck apart.
     @Test func aDeckOfRecognisedPicturesIsSaidSo() {
         let read = SaveAsPDFSummary.Saved(name: "Survey.pptx", copy: "/f/Survey.pdf", pageCount: 6,
                                           picturePages: 6, isRecognised: true)
@@ -326,8 +324,8 @@ private struct SaveDelegate: FileActionDelegate {
                 + "but may have mistakes. Slides in “Photos.pptx” were pictures, so their text can’t be selected or searched.")
     }
 
-    /// **A deck only partly pictures says how many were** — the count Abhishek chose on 2026-10-19 —
-    /// and nothing at all when Vision read no words in them: a text deck's slide of photos is no news.
+    /// A deck only partly of pictures says how many were, and nothing at all when Vision read no
+    /// words in them: a text deck's slide of photos is no news.
     @Test func aDeckPartlyOfPicturesCountsThem() {
         let council = SaveAsPDFSummary.Saved(name: "Council.pptx", copy: "/f/Council.pdf", pageCount: 50,
                                              picturePages: 1, isRecognised: true)
@@ -381,7 +379,7 @@ private struct SaveDelegate: FileActionDelegate {
 
     // MARK: The offer
 
-    /// **Hidden, not greyed**: a folder, a PDF, a kind nothing converts, a lock file, a cloud-only
+    /// Hidden, not greyed: a folder, a PDF, a kind nothing converts, a lock file, a cloud-only
     /// file, and any selection holding one of them.
     @Test func whatNothingConvertsIsNotOffered() throws {
         let doc = path("Lease.docx"), md = path("Notes.md"), pdf = path("Statement.pdf"), png = path("Photo.png")
@@ -415,7 +413,7 @@ private struct SaveDelegate: FileActionDelegate {
     // MARK: Where the item is drawn
 
     /// Every item of the row menu over `nodes` (the first is the row clicked), in drawn order, as
-    /// widths — `PanePDFToolsTests`' drawn-row approach.
+    /// widths, as `PanePDFToolsTests` reads its drawn rows.
     private static func drawnRowWidths(_ nodes: [FileNode], delegate: FileActionDelegate) -> [CGFloat] {
         let menu = FileContextMenu(row: PaneRow(side: .left, version: 1, node: nodes[0], children: nil),
                                    selection: nodes.count > 1 ? Set(nodes.map(\.id)) : [],
@@ -440,8 +438,8 @@ private struct SaveDelegate: FileActionDelegate {
         return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }
     }
 
-    /// **One convertible file draws Save as PDF in PDF Tools' section: after Quick Look, before
-    /// Rename** — and clicking it hands the delegate that file.
+    /// One convertible file draws Save as PDF in PDF Tools' section, after Quick Look and before
+    /// Rename, and clicking it hands the delegate that file.
     @Test func oneFileDrawsTheItemBetweenQuickLookAndRename() throws {
         let doc = path("Lease Renewal 2026.docx")
         try Data("x".utf8).write(to: URL(fileURLWithPath: doc))
@@ -462,8 +460,8 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(drawn.count == baseline.count + 1)
     }
 
-    /// **A PDF keeps PDF Tools and is never offered Save as PDF** — its whole menu is the menu with
-    /// no Save as PDF at all.
+    /// A PDF keeps PDF Tools and is never offered Save as PDF: its menu matches the menu with no
+    /// Save as PDF at all.
     @Test func aPDFRowDrawsNoSaveAsPDF() {
         let pdf = path("Statement.pdf")
         PDFFixtures.write(pdf, pages: 1)
@@ -473,7 +471,7 @@ private struct SaveDelegate: FileActionDelegate {
                                                                 delegate: SaveDelegate(box: SaveBox())))))
     }
 
-    /// **Several files draw "Save as PDF · 3 files" first after Refresh**; a selection with a PDF in it
+    /// Several files draw "Save as PDF · 3 files" first after Refresh; a selection with a PDF in it
     /// draws none.
     @Test func severalFilesDrawTheBatchItemFirstAfterRefresh() throws {
         let paths = ["Lease.docx", "Deck.pptx", "Trip.md"].map(path)

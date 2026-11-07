@@ -3,16 +3,15 @@ import SwiftUI
 import Design
 import Sync
 
-/// **The amber line under a pane's header while its cloud app isn't syncing** (RD68). The files
-/// below it still show, here and in Finder, and may be out of date; the line says so, and offers
-/// the one thing that fixes it where there is one.
+/// The amber line under a pane's header while its cloud app isn't syncing. The files below still
+/// show, here and in Finder, and may be out of date; the line says so, and offers the one thing
+/// that fixes it where there is one.
 ///
-/// **One line, not a card** (his call TE236, 2026-10-30, over a chip, a floating pill and a toolbar
-/// capsule): the card took two to six lines and pushed the list down. The line is about a third of
-/// that and never wraps; the full sentence is its tooltip and what VoiceOver reads.
+/// One line, not a card, so it doesn't push the list down: about a third of a card's height, and it
+/// never wraps. The full sentence is its tooltip and what VoiceOver reads.
 public struct CloudAppWarningBar: View {
     let problem: CloudAppProblem
-    /// The source's name, for the states that have no app to name — iCloud's.
+    /// The source's name, for the states with no app to name (iCloud's).
     let sourceName: String
     let canOpen: (CloudApp) -> Bool
     let onAction: (CloudAppNotice.Action) -> Void
@@ -27,8 +26,8 @@ public struct CloudAppWarningBar: View {
         self.onAction = onAction
     }
 
-    /// The full sentence — the tooltip and VoiceOver's reading: the part in bold, then the rest. A
-    /// value, so a test reads the words without a rendered bar.
+    /// The full sentence, for the tooltip and VoiceOver: the part in bold, then the rest. A value,
+    /// so a test reads the words without a rendered bar.
     static func sentence(for problem: CloudAppProblem, sourceName: String, now: Date) -> (lead: String, rest: String) {
         switch problem {
         case .notRunning(let app):
@@ -108,8 +107,8 @@ public struct CloudAppWarningBar: View {
     }
 }
 
-/// **The amber dot and its words** beside a source in the sidebar — "not running", "not
-/// responding". Drawn only when a problem is known; there is no green.
+/// The amber dot and its words beside a source in the sidebar: "not running", "not responding".
+/// Drawn only when a problem is known; there is no green.
 public struct CloudAppStatusDot: View {
     let problem: CloudAppProblem
 
@@ -118,8 +117,8 @@ public struct CloudAppStatusDot: View {
     }
 
     public var body: some View {
-        // The dot never shrinks; the words truncate first. A caller in a narrow row gives this a low
-        // layout priority, so the source's own name — which says which source is in trouble —
+        // The dot never shrinks; the words truncate first. A caller in a narrow row gives this a
+        // low layout priority, so the source's own name, which says which source is in trouble,
         // keeps its room.
         HStack(spacing: 4) {
             dot
@@ -140,7 +139,7 @@ public struct CloudAppStatusDot: View {
     }
 
     /// The dot for a menu item. A menu draws its images as templates unless told otherwise, which
-    /// would turn amber into the menu's ink — so it is an image that is not one.
+    /// would turn amber into the menu's ink, so this image is marked as not one.
     @MainActor public static let menuImage: NSImage = {
         let image = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in
             NSColor.systemOrange.setFill()
@@ -152,8 +151,8 @@ public struct CloudAppStatusDot: View {
     }()
 }
 
-/// **Activity ▸ Now's rows for cloud apps that aren't syncing** — information, with no
-/// notification. Dismiss hides a row until what it says changes.
+/// Activity ▸ Now's rows for cloud apps that aren't syncing: information, with no notification.
+/// Dismiss hides a row until what it says changes.
 struct CloudAppNoticeRows: View {
     @ObservedObject var monitor: CloudAppMonitor
 
@@ -190,8 +189,8 @@ struct CloudAppNoticeRows: View {
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                // In a row while they fit; three Open buttons and Dismiss do not fit the popover's
-                // width, so they stack there rather than truncate.
+                // In a row while they fit; three Open buttons and Dismiss don't fit the popover's
+                // width, so there they stack rather than truncate.
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) { buttons(notice) }
                     VStack(alignment: .leading, spacing: 4) { buttons(notice) }

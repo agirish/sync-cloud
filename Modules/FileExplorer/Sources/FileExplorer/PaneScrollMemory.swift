@@ -5,35 +5,20 @@ import Sync
 
 /// Where a pane's columns were scrolled, kept while the pane itself is rebuilt.
 ///
-/// A workspace switch rebuilds the pane. `ContentView` mounts it in a structurally different layout
-/// arm for each of Browse, Organize, Edit and Compare, so SwiftUI tears the old pane down and builds
-/// a new one. The folder survives — `browsePath` lives in `FileSyncManager` — but a scroll offset lived
-/// only in the scroll view that held it, so every switch came back with the column stack at its first
-/// column and every list at its top. This is the piece that outlives the pane: owned by the window's
-/// `ContentView`, handed to each pane through `paneScrollMemory`, read back when the pane is rebuilt.
+/// A workspace switch mounts the pane in a different layout arm, so SwiftUI rebuilds it and its
+/// scroll views. The folder survives in `FileSyncManager`; this keeps the offsets. Owned by the
+/// window's `ContentView`, handed to each pane through `paneScrollMemory`.
 ///
-/// Two answers, kept differently on purpose:
+/// - The stack's horizontal position is kept per surface (one workspace's pane), because the same
+///   stack is a different width in each. It goes back only onto the same tree root and stack; a
+///   stack that changed reveals its deepest column instead (`PaneColumnsView.revealDeepestColumn`).
+/// - Each column's vertical position is kept per folder, shared by every surface and side, since
+///   rows are one height everywhere. A column reopened later opens where it was left, as in Finder.
 ///
-/// - **The stack's horizontal position, per SURFACE** — one workspace's pane. The same stack is a
-///   different width in Browse than in Organize's rail, so one shared position would be wrong
-///   everywhere but where it was taken. It is kept with the tree root and column stack it was taken
-///   on, and put back only onto that same stack; a pane whose stack changed while it was away reveals
-///   its deepest column instead, the way a drill does (`PaneColumnsView.revealDeepestColumn`).
-/// - **Each column's vertical position, per FOLDER** — shared by every surface and both sides. Rows are
-///   one height everywhere, so a folder's position means the same thing wherever it is listed, and one
-///   folder opening at different places depending on which workspace last scrolled it would be a
-///   second thing to remember about it. That also means a column reopened later in the session — a
-///   sibling clicked and the folder clicked again — opens where it was left, as Finder's does.
-///
-/// **A position is kept as what it MEANS, not only as a number.** A stack mostly rests at its far end
-/// — every drill's reveal parks it there — and a list often rests at its bottom. Those are kept as "at
-/// the end" and put back at the end of whatever the stack or list is NOW. A preview that has opened
-/// since, a narrower window, a column resized in another workspace, a folder that lost files: each moves
-/// where the end is, and a raw offset would land short of it — the first column showing, the deepest
-/// one hidden behind the preview. Anything else is kept as the offset and put back clamped to what fits.
-///
-/// For the session only: the offsets belong to scroll views that do not outlive the launch. A plain
-/// class, so recording on every scroll frame invalidates no view.
+/// A position at the end of its range is kept as "at the end" and restored to the end of the range
+/// as it is now, so a preview that opened since or a narrower window can't leave the deepest column
+/// hidden. Anything else is restored as the offset, clamped. Session-only, and a plain class so
+/// recording on every scroll frame invalidates no view.
 @MainActor
 public final class PaneScrollMemory {
     /// `nonisolated` so `@State`'s initializer — which runs outside the actor — can build one.
@@ -44,17 +29,13 @@ public final class PaneScrollMemory {
         var offset: CGFloat
         var atEnd: Bool
 
-        /// The position of a scroll view resting at `offset` in `range`: clamped into it — an elastic
-        /// overscroll is not a place — and at its end when within a point of it.
+        /// The position of a scroll view resting at `offset` in `range`: clamped into it, since an
+        /// elastic overscroll is not a place, and at its end when within a point of it.
         ///
-        /// For a list, a range with no room to scroll has no end to stick to: content that fits
-        /// rests at its start, and is kept there, not "at its end" — or a short column that later
-        /// grew would restore to its bottom, and every column ever shown would be held clear on
-        /// each rebuild.
-        ///
-        /// `noRoomIsEnd` is the stack's answer: a row of columns that fits shows its deepest column,
-        /// and if the window is narrower when it is rebuilt, its end is still where that column is —
-        /// kept at its start, the deepest column would be off the right edge.
+        /// A list with no room to scroll is kept at its start, not its end, or a short column that
+        /// later grew would restore to its bottom. `noRoomIsEnd` is the stack's rule: a row of
+        /// columns that fits shows its deepest column, so in a narrower window its end is still
+        /// where that column is.
         static func resting(at offset: CGFloat, in range: ClosedRange<CGFloat>,
                             noRoomIsEnd: Bool = false) -> Position {
             let clamped = min(max(offset, range.lowerBound), range.upperBound)
@@ -68,8 +49,8 @@ public final class PaneScrollMemory {
             atEnd ? range.upperBound : min(max(offset, range.lowerBound), range.upperBound)
         }
 
-        /// Kept at the start of its range, where the scroll view rests anyway — restoring it moves
-        /// nothing, however much content arrives later, so there is nothing to hide.
+        /// Kept at the start of its range, where the scroll view rests anyway, so restoring it moves
+        /// nothing and there is nothing to hide.
         func isAtStart(of range: ClosedRange<CGFloat>) -> Bool {
             !atEnd && offset <= range.lowerBound + 0.5
         }
@@ -90,12 +71,10 @@ public final class PaneScrollMemory {
     /// session, oldest dropped first, so a long session cannot grow the table without bound.
     static let listCapacity = 500
 
-    /// A restore's FALLBACK: how many times it re-checks, `restoreStep` apart, before putting the
-    /// position back with whatever the scroll view holds. It is a backstop, not the mechanism — a
-    /// restore lands as soon as the columns or rows have laid out, which each probe is told directly
-    /// (see `PaneStackScrollMemoryProbe.isSettled` and `ColumnListProbe`). Counted rather than
-    /// clocked, for `revealHoldChecks`' reason: a starved main thread stretches the budget instead of
-    /// burning it — under a loaded full test suite, a mount measured 18–43 s instead of 3.
+    /// A restore's fallback: how many checks, `restoreStep` apart, before the position goes back
+    /// regardless. A restore normally lands as soon as the content lays out (see
+    /// `PaneStackScrollMemoryProbe.isSettled` and `ColumnListProbe`). Counted, not clocked, for
+    /// `revealHoldChecks`' reason: a starved main thread stretches the budget instead of burning it.
     static let restoreAttempts = 60
     static let restoreStep: TimeInterval = 0.05
 
@@ -123,31 +102,27 @@ public final class PaneScrollMemory {
         lists[PaneBrowsePath.normalized(directory)]
     }
 
-    /// Whether the event being handled is the user scrolling — what drops a kept position still
-    /// waiting to land: the user has put the view where they want it, and a restore landing after that
-    /// would yank it back.
+    /// Whether the event being handled is the user scrolling, which drops a position still waiting
+    /// to land: a restore after that would yank the view back.
     ///
-    /// A wheel or trackpad scroll only, and a fresh one. `NSApp.currentEvent` outlives its handling,
-    /// and the keystroke or click that switched workspaces is still "current" while the rebuilt pane
-    /// lays out — anything but a scroll read from it would drop every restore it was meant to make.
+    /// A fresh wheel or trackpad scroll only. `NSApp.currentEvent` outlives its handling, so the
+    /// keystroke or click that switched workspaces still reads as current while the rebuilt pane
+    /// lays out, and counting it would drop every restore.
     static func isUserScroll(_ event: NSEvent?) -> Bool {
         guard let event, event.type == .scrollWheel else { return false }
         return ProcessInfo.processInfo.systemUptime - event.timestamp < 0.25
     }
 }
 
-/// **A scroll view held clear while its kept position waits to land.**
+/// A scroll view held clear while its kept position waits to land.
 ///
-/// A restore lands on the turn AFTER the layout pass that finds the content settled — never from
-/// inside the pass (see the probes' `applyRestore`) — so the turn that first lays a rebuilt pane out
-/// would draw its stack at the first column and its lists at the top, and the next would jump them
-/// into place. A workspace switch's 0.2 s fade hid that frame while the fade stood; without it the
-/// jump showed on every switch back to a pane scrolled sideways. So the scroll view is drawn clear
-/// from the pass that reads the kept position until the position lands.
+/// A restore lands on the turn after the layout pass that finds the content settled, never inside
+/// the pass (see the probes' `applyRestore`), so a rebuilt pane's first frame would show the stack
+/// at its first column and the lists at the top, then jump. The scroll view is drawn clear from the
+/// pass that reads the kept position until the position lands.
 ///
-/// Lifted on every way out — landed, dropped, the pane leaving the window — and at the fallback's
-/// first check that still finds the content unsettled: past that a restore is the exception, and a
-/// late jump is better than a missing pane.
+/// Lifted on every way out (landed, dropped, the pane leaving the window) and at the fallback's
+/// first check that finds the content unsettled: a late jump is better than a missing pane.
 @MainActor
 struct PaneScrollVeil {
     private weak var covered: NSScrollView?
@@ -202,8 +177,8 @@ public struct PaneScrollMemorySlot: Equatable, Sendable {
 }
 
 private struct PaneScrollMemoryKey: EnvironmentKey {
-    /// No memory: a pane mounted without one scrolls exactly as it always did — every test harness,
-    /// and any host that has not opted in.
+    /// No memory: a pane mounted without one keeps no positions. Every test harness, and any host
+    /// that has not opted in.
     static let defaultValue: PaneScrollMemorySlot? = nil
 }
 
@@ -218,18 +193,14 @@ extension EnvironmentValues {
 
 // MARK: - The stack's probe
 
-/// Records the column STACK's horizontal position for this pane's surface, and puts it back when the
-/// pane is rebuilt over the same stack. (Each column's own list is kept by `ColumnListProbe`.)
+/// Records the column stack's horizontal position for this pane's surface, and puts it back when the
+/// pane is rebuilt over the same stack. (Each column's list is kept by `ColumnListProbe`.) Mounted
+/// inside the stack's `ScrollView`, beside `PaneColumnsOverscrollReturn`, so the same ancestor walk
+/// finds the stack's scroll view, not a column's list.
 ///
-/// Mounted inside the stack's `ScrollView`, beside `PaneColumnsOverscrollReturn`, so the same ancestor
-/// walk finds the stack's scroll view rather than a column's list.
-///
-/// **The restore lands as soon as the columns have laid out** — the stack's content reaching the width
-/// the pane computed for it (`contentWidth`) — at the kept position resolved against the stack as it
-/// is now. Until then there is nothing to measure the end against. It is dropped if the user scrolls
-/// first, or if the stack changes under it (a drill, a ‹) before it lands: it spoke for the stack that
-/// was. And it waits out an axis-lock hold rather than landing inside one, where `enforceHold` would
-/// revert it.
+/// The restore lands once the stack's content reaches `contentWidth`, resolved against the stack as
+/// it is then. It is dropped if the user scrolls first or the stack changes before it lands (a
+/// drill, a ‹), and it waits out an axis-lock hold, inside which `enforceHold` would revert it.
 struct PaneStackScrollMemoryProbe: NSViewRepresentable {
     let slot: PaneScrollMemorySlot
     let treeRoot: String
@@ -281,9 +252,9 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
         /// Test seam: the scroll view this probe found, so a mounted test can assert it is the STACK's.
         var resolvedScroller: NSScrollView? { scroller }
 
-        /// Test seam: how many fallback checks the last restore used before it landed. A restore that
-        /// landed on its content settling uses a few at most; one that ran them all out waited for a
-        /// room that was never coming, which is the three-second stall this probe was rebuilt to end.
+        /// Test seam: how many fallback checks the last restore used before it landed. One that landed
+        /// on its content settling uses a few at most; one that used them all waited for a layout
+        /// that never came, and stalled the restore for the whole fallback.
         private(set) var checksUsedByLastRestore: Int?
 
         func configure(slot: PaneScrollMemorySlot, treeRoot: String, components: [String],
@@ -340,17 +311,15 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
                     scheduleRestore()
                 }
             }
-            // This probe lives inside the stack's content, so it is laid out whenever the columns are
-            // — which is exactly when they may have settled. Never applied from here (this is a layout
-            // pass); only handed to the next turn.
+            // Laid out whenever the columns are, which is when they may have settled. Never applied
+            // from a layout pass; only handed to the next turn.
             if pending != nil, isSettled() { scheduleRestore(immediately: true) }
         }
 
-        /// Whether putting `position` back can move the stack, and so whether hiding it until then
-        /// hides anything. Not when it is kept at its left edge, as for a list; nor when it is kept at
-        /// the end of a row of columns that fits the viewport — the stack records a fitting row as
-        /// "at its end" (`noRoomIsEnd`), and the end of a range with no room is its start. Covering
-        /// those blanked the whole Columns pane, every list in it, for a frame on each switch back.
+        /// Whether putting `position` back can move the stack, and so whether hiding it hides
+        /// anything. Not when it is kept at its left edge, nor at the end of a row of columns that
+        /// fits the viewport (recorded as at its end by `noRoomIsEnd`, and that end is its start).
+        /// Covering those would blank the whole Columns pane for a frame on each switch back.
         private func restoreCanMove(_ position: PaneScrollMemory.Position, clip: NSClipView) -> Bool {
             if position.isAtStart(of: clip.restingRangeX) { return false }
             if position.atEnd, clip.bounds.width > 0, contentWidth <= clip.bounds.width + 1,
@@ -398,14 +367,13 @@ struct PaneStackScrollMemoryProbe: NSViewRepresentable {
             }
         }
 
-        /// Puts the stack back once its columns have laid out, and never from inside a layout pass or a
-        /// bounds notification — `PaneColumnsOverscrollReturn` records what calling `setBoundsOrigin`
-        /// from the notification did (it recursed until the app died).
+        /// Puts the stack back once its columns have laid out, never from inside a layout pass or a
+        /// bounds notification: `setBoundsOrigin` from the notification recurses until the app dies
+        /// (see `PaneColumnsOverscrollReturn`).
         ///
         /// Two callers: the layout pass that found the columns settled (`fromLayout`), and the counted
-        /// fallback, which re-arms itself until they settle and the stack is not held, or its checks
-        /// run out. Only the fallback waits — a layout pass that finds the stack held leaves it to the
-        /// one chain already counting, rather than starting a second.
+        /// fallback, which re-arms until they settle and the stack is not held, or its checks run out.
+        /// Only the fallback waits, so a held stack never starts a second chain.
         private func applyRestore(fromLayout: Bool) {
             guard let position = pending, let scroller, let slot else { return }
             if !isSettled() || holdGate?.isStackHeld == true {

@@ -5,18 +5,18 @@ import PDFKit
 import PDFToolkitCore
 import Sync
 
-/// **Combine several PDFs into one, or split one into several** — from a pane's menu (TE294,
-/// decision IC). One model for both, since each is one run of several steps with one sheet, one
-/// capsule entry and one ending, as a batch is.
+/// Combines several PDFs into one, or splits one into several, from a pane's menu. One model for
+/// both: each is one run of several steps with one sheet, one capsule entry and one ending, as a
+/// batch is.
 ///
-/// **Combine** reads each file in its own lane turn first — one locked to open stops the run with
-/// its name, since the merge cannot open it — then merges them in order in one turn (the toolkit's
-/// `mergeData`) and writes one new file into the first file's folder under the name typed, with
+/// Combine reads each file in its own lane turn first (one locked to open stops the run with its
+/// name, since the merge can't open it), then merges them in order in one turn (the toolkit's
+/// `mergeData`) and writes one new file into the first file's folder under the typed name, with
 /// the app's keep-both rule. The originals are only read.
 ///
-/// **Split** is Extract, once per part, through Edit's own ``EditorPDFTools``: each part is named
-/// and written exactly as an extract of those pages is, "Statement (pages 4–8).pdf". Stop ends the
-/// run after the part in hand; the parts written stay.
+/// Split is Extract, once per part, through Edit's own ``EditorPDFTools``: each part is named and
+/// written exactly as an extract of those pages is, "Statement (pages 4–8).pdf". Stop ends the run
+/// after the part in hand; the parts written stay.
 @MainActor
 public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
 
@@ -39,9 +39,9 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     /// Set by the window; a no-op otherwise.
     public var host = PanePDFToolHost()
 
-    /// Combine's files in the order they will go in — the sheet's ↑ and ↓ move them.
+    /// Combine's files in the order they will go in; the sheet's ↑ and ↓ move them.
     @Published public var order: [String] = []
-    /// Combine's new file's name, as typed — the first file's with "(combined)" to start with.
+    /// Combine's new file's name, as typed: the first file's with "(combined)" to start with.
     @Published public var name = ""
     /// Split's "Start new files at pages" field, as typed.
     @Published public var splitAt = ""
@@ -60,14 +60,14 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     @Published public var banner: EditorPDFToolBanner?
 
     var isCloudOnly: @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
-    /// For a run a request made (TE294): the ending is left off ``banner`` — the asker reads
-    /// ``lastReport`` and ``written`` — and no sheet is raised.
+    /// For a run a request made: the ending is left off ``banner`` (the asker reads ``lastReport``
+    /// and ``written``) and no sheet is raised.
     var quiet = false
     /// The stamp each file had when the asker read it, by path; a file that changed since is
     /// left alone. Empty for a menu, whose sheet read the file itself.
     var expected: [String: EditorFileStore.Stamp] = [:]
-    /// Where the new files go instead of beside the first file or the original — a request's
-    /// chosen folder, for one that can't be written to. `nil` for the menu.
+    /// Where the new files go instead of beside the first file or the original: a request's chosen
+    /// folder, for one that can't be written to. `nil` for the menu.
     var destinationFolder: String?
     private(set) var lastReport: EditorPDFToolBanner?
     /// Every file the last run wrote, with the stamp of the file the writer made.
@@ -79,7 +79,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     private var tools: EditorPDFTools?
     private var facts: (encryption: PDFEncryptionState, droppedParts: [PDFToolkit.DroppedCatalogPart],
                         stamp: EditorFileStore.Stamp?)?
-    /// The request's own work — kept so a test can await it.
+    /// The request's own work, kept so a test can await it.
     private(set) var work: Task<Void, Never>?
 
     public init(job: Job, writer: String) {
@@ -93,9 +93,9 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
 
     // MARK: Asking
 
-    /// **Readies the sheet.** Combine opens it at once; Split reads its file in the lane first —
-    /// its page count and protection — and says in the banner why it can't split, if it can't.
-    /// A request's run (``quiet``) reads the same and raises no sheet.
+    /// Readies the sheet. Combine opens it at once; Split first reads its file's page count and
+    /// protection in the lane, and says in the banner why it can't split, if it can't. A request's
+    /// run (``quiet``) reads the same and raises no sheet.
     func prepare() {
         switch job {
         case .combine:
@@ -132,8 +132,8 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         }
     }
 
-    /// Why Split can't be readied: on the pane's banner for the menu; for a request, only where
-    /// the asker reads it — the pane's layer takes anything set on ``banner``.
+    /// Why Split can't be readied: on the pane's banner for the menu; for a request, only where the
+    /// asker reads it, since the pane's layer takes anything set on ``banner``.
     private(set) var prepareRefusal: EditorPDFToolBanner?
 
     private func refuseToPrepare(_ said: EditorPDFToolBanner) {
@@ -152,7 +152,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
 
     // MARK: Combine's name
 
-    /// "Receipt (combined).pdf" — the first file's name, as every tool names its copy (decision ID).
+    /// "Receipt (combined).pdf": the first file's name, as every tool names its copy.
     public static func defaultName(_ first: String) -> String {
         (EditorPDFCopyName.firstChoice(for: first, suffix: "combined") as NSString).lastPathComponent
     }
@@ -196,9 +196,9 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
 
     // MARK: Split's parts
 
-    /// **The parts for "4, 9" on a 12-page file: pages 1–3, 4–8, 9–12** — zero-based, in order —
-    /// or why the typed starts can't be. Each start is a page a new file begins on, so 1 and
-    /// anything past the last page say nothing; they must go up; at most ``maxParts`` parts.
+    /// The parts for "4, 9" on a 12-page file: pages 1–3, 4–8, 9–12, zero-based and in order, or
+    /// why the typed starts can't be. Each start is the page a new file begins on, so 1 and anything
+    /// past the last page are refused; starts must go up; at most ``maxParts`` parts.
     static func parts(_ typed: String, pageCount: Int) -> Result<[[Int]], SplitProblem> {
         let tokens = typed.split(whereSeparator: { $0 == "," || $0 == " " || $0 == ";" }).map(String.init)
         guard !tokens.isEmpty else { return .failure(.empty) }

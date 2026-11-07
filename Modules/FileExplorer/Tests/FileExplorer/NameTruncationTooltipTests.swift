@@ -3,12 +3,10 @@ import SwiftUI
 import AppKit
 @testable import FileExplorer
 
-/// A file row shows its full name as a tooltip **only when the name is cut**, as Finder does.
-///
-/// Middle-truncated names in a narrow column could not be read by hovering: the row's only tooltip
-/// was Edit's refusal. A name tooltip on every row would be worse — tooltips show after 300 ms
-/// here, so one would pop up wherever the pointer rested — so the row measures whether its name is
-/// actually truncated, and only while the pointer is over it.
+/// A file row shows its full name as a tooltip only when the name is cut, as Finder does, so a
+/// middle-truncated name in a narrow column can be read by hovering. A name tooltip on every row
+/// would pop up wherever the pointer rested (tooltips show after 300 ms here), so the row measures
+/// whether its name is truncated, and only while the pointer is over it.
 @MainActor
 @Suite(.serialized) struct NameTruncationTooltipTests {
 
@@ -88,7 +86,7 @@ import AppKit
         #expect(answers.values == [false], "a 680pt label of the name reported \(answers.values)")
     }
 
-    /// **A row not under the pointer measures nothing**: no answer at all, even for a cut name.
+    /// A row not under the pointer measures nothing: no answer at all, even for a cut name.
     @Test func anUnarmedProbeMeasuresNothing() {
         let answers = Box()
         _ = reports(width: 90, measuring: false, into: answers)
@@ -131,9 +129,8 @@ import AppKit
     // MARK: The call site
 
     /// The row uses every part: the probe on its name, armed by the pointer, and the rule as its
-    /// tooltip. A source scan,
-    /// because a hosted SwiftUI tree exposes no tooltip under `swift test`
-    /// (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip` measured it). Sliced to `FileRowView`.
+    /// tooltip. A source scan, sliced to `FileRowView`, because a hosted SwiftUI tree exposes no
+    /// tooltip under `swift test` (see `EditorRefusalDimTests.theRefusalIsTheRowsTooltip`).
     @Test func theRowMeasuresItsNameAndUsesTheRule() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

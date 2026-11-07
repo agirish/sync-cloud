@@ -3,9 +3,9 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// Coverage for DifferenceRowMenu — the pure logic behind the differences list's
-/// right-click menu: which sides get Reveal/Quick Look/Copy Path items, and how the
-/// ignore toggle resolves against `FileSyncManager.ignoredPaths`.
+/// `DifferenceRowMenu`, the pure logic behind the differences list's right-click menu: which sides
+/// get Reveal, Quick Look, Copy Path and Open in Edit, which Copy to … directions a row offers, and
+/// how the ignore toggle resolves against `FileSyncManager.ignoredPaths`.
 @Suite struct DifferenceRowMenuTests {
 
     private let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
@@ -45,8 +45,8 @@ import Sync
     }
 
     @Test func testSameProviderOnBothSidesYieldsDistinctPaneNames() {
-        // The menu ForEach keys per-side items by paneName, so the two sides must never
-        // collide even when both panes show the same provider.
+        // The menu's ForEach keys per-side items by paneName, so the two sides must never
+        // collide, even when both panes show the same provider.
         let sameNames = PaneProviderNames(leftName: "iCloud", rightName: "iCloud")
         let sides = DifferenceRowMenu.existingSides(for: diff(.differentDates), paneNames: sameNames)
         #expect(sides.map(\.paneName) == ["iCloud (left)", "iCloud (right)"])
@@ -65,8 +65,7 @@ import Sync
         )
     }
 
-    /// A text file on both sides is offered on both, left first — the order every other per-side
-    /// group in the menu uses.
+    /// A text file on both sides is offered on both, left first, like every other per-side group.
     @Test func aTextFileOnBothSidesOffersTheEditorOnBothLeftFirst() {
         #expect(DifferenceRowMenu.editableSides(for: textRow(.differentDates), paneNames: names) == [
             .init(paneName: "iCloud", path: "/icloud/docs/notes.md"),
@@ -74,8 +73,8 @@ import Sync
         ])
     }
 
-    /// **A row missing on a side offers only the side that is there.** Handing the editor the
-    /// missing side's path would open a file that does not exist.
+    /// A row missing on a side offers only the side that is there; the missing side's path would
+    /// open a file that doesn't exist.
     @Test func aOneSidedTextRowOffersOnlyTheSideThatExists() {
         #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnRight), paneNames: names)
                 == [.init(paneName: "iCloud", path: "/icloud/docs/notes.md")])
@@ -83,9 +82,8 @@ import Sync
                 == [.init(paneName: "Dropbox", path: "/dropbox/docs/notes.md")])
     }
 
-    /// **A file Edit does not open, no editor**: the same predicate every other door asks refuses
-    /// a `.docx`, so this list must too. It was a PDF until Edit read PDFs (Phase 2) — flipped on
-    /// purpose, and a PDF has its own test below.
+    /// A file Edit doesn't open gets no editor: the predicate every other door asks refuses a
+    /// `.docx`, so this list must too. A PDF has its own test below.
     @Test func aRowEditCannotOpenOffersTheEditorOnNeitherSide() {
         #expect(!EditableText.opensInEdit(path: "/icloud/docs/report.docx"), "the premise: Edit refuses a .docx")
         for type in [FileDifference.DifferenceType.differentDates, .missingOnRight, .missingOnLeft] {
@@ -97,8 +95,8 @@ import Sync
         }
     }
 
-    /// **A PDF row offers Open in Edit on each side that exists** — Edit opens it read-only, and
-    /// the hand-off routes it there (`EditorOpenRoute`).
+    /// A PDF row offers Open in Edit on each side that exists: Edit opens it read-only, routed by
+    /// `EditorOpenRoute`.
     @Test func aPDFRowOffersTheEditorOnEachSideThatExists() {
         func sides(_ type: FileDifference.DifferenceType) -> [DifferenceRowMenu.Side] {
             DifferenceRowMenu.editableSides(for: diff(type, relativePath: "docs/report.pdf",
@@ -112,10 +110,9 @@ import Sync
         #expect(sides(.missingOnLeft) == [.init(paneName: "Dropbox", path: "/dropbox/docs/report.pdf")])
     }
 
-    /// **A folder is refused on the scan's folder fact, not on its name.** Named like a text file
-    /// on purpose: `EditableText.isText` answers true for a directory called `notes.md`, so a
-    /// fixture called `Notes` would be refused by the extension and never reach the folder rule —
-    /// the test would pass with the rule deleted.
+    /// A folder is refused on the scan's folder fact, not its name. Named like a text file on
+    /// purpose: `EditableText.isText` says yes to `notes.md`, so a fixture called `Notes` would be
+    /// refused by its extension and pass with the folder rule deleted.
     @Test func aFolderRowOffersTheEditorOnNeitherSideEvenWhenNamedLikeText() {
         #expect(EditableText.isText(path: "/icloud/docs/notes.md"),
                 "the premise: the fixture's name alone would be offered")
@@ -123,7 +120,7 @@ import Sync
                                                              leftIsDirectory: true),
                                                 paneNames: names).isEmpty,
                 "a folder row offers Open in Edit")
-        // An EMPTY folder carries no count — the case the count could not see.
+        // An empty folder carries no count, so the count alone can't tell it is a folder.
         #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnLeft, rightIsDirectory: true),
                                                 paneNames: names).isEmpty,
                 "an empty folder row offers Open in Edit")
@@ -133,9 +130,8 @@ import Sync
                 "a name-conflicted folder pair offers Open in Edit")
     }
 
-    /// **A folder against a file offers the FILE side, and only that side** — each side is asked
-    /// its own question. The row's count (set when the folder has contents) says nothing about
-    /// which side is the folder.
+    /// A folder against a file offers only the file side: each side is asked its own question. The
+    /// row's count, set when the folder has contents, says nothing about which side is the folder.
     @Test func aFolderAgainstAFileOffersOnlyTheFile() {
         #expect(DifferenceRowMenu.editableSides(for: textRow(.differentDates, enclosedItemCount: 2,
                                                              leftIsDirectory: true),
@@ -148,11 +144,8 @@ import Sync
 
     // MARK: Rows as the scan builds them
 
-    /// **The same four shapes, built by the real engine rather than by hand** — so the folder
-    /// facts the menu reads are the ones a comparison actually records. Each of these was wrong on
-    /// the count the menu used to ask (2026-09-25): the empty folder and the name-conflicted pair
-    /// carry no count and were offered; the non-empty folder against a file carries one and its
-    /// file side was withheld; the empty folder against a file offered the folder.
+    /// The same four shapes, built by the real engine, so the folder facts the menu reads are the
+    /// ones a comparison records. A rule asking the row's count would get each of these wrong.
     @Test func rowsTheEngineBuildsOfferOnlyTheirTextFiles() throws {
         let rows = EngineRows()
         #expect(DifferenceRowMenu.editableSides(for: try rows.emptyFolderMissingOnRight(), paneNames: names)
@@ -176,9 +169,8 @@ import Sync
                        description: "d", heldBack: reason)
     }
 
-    /// **A held row offers both directions where both files exist — the way against its guess
-    /// included, which nothing else in Compare reached.** Asked of a row whose guess points left
-    /// as well as one pointing right, so an answer keyed on `action` cannot pass.
+    /// A held row offers both directions where both files exist, including against its guess.
+    /// Asked with the guess pointing each way, so an answer keyed on `action` can't pass.
     @Test func aHeldPairOffersBothDirectionsWhicheverWayItsGuessPoints() {
         for action in [FileDifference.SyncAction.copyToRight, .copyToLeft] {
             #expect(DifferenceRowMenu.copyDirections(
@@ -186,7 +178,7 @@ import Sync
         }
     }
 
-    /// The engine's own folder-against-file row, held by FR40: both directions.
+    /// The engine's own folder-against-file row, which it holds back: both directions.
     @Test func aFolderAgainstAFileOffersBothDirections() throws {
         let row = try EngineRows().folderAgainstFile(folderHasContents: true)
         try #require(row.heldBack == .folderVersusFile, "the premise: the engine holds this row")
@@ -201,10 +193,9 @@ import Sync
             for: held(.missingOnLeft, .enclosesSymbolicLink(path: "docs/lib"), action: .copyToLeft)) == [.copyToLeft])
     }
 
-    /// **Every row offers its directions, not only a held one** (owner decision 2026-10-25): a pair
-    /// on both sides offers both, whichever way its suggestion points, and a row missing on one side
-    /// offers the side that exists. A row copying FROM a link still offers neither — the copy would
-    /// be a link too, whichever way.
+    /// Every row offers its directions, not only a held one: a pair offers both, whichever way its
+    /// suggestion points, and a one-sided row the side that exists. A row copying from a link
+    /// offers neither, since the copy would be a link too.
     @Test func everyRowOffersItsDirectionsAndALinkSourceRowNone() {
         for type in [FileDifference.DifferenceType.differentDates, .nameConflict] {
             for action in [FileDifference.SyncAction.copyToRight, .copyToLeft] {
@@ -217,13 +208,10 @@ import Sync
         #expect(DifferenceRowMenu.copyDirections(for: held(.differentDates, .sourceIsSymbolicLink)).isEmpty)
     }
 
-    /// **The side the user picks is checked for a link when the item fires.** The engine holds a
-    /// row only when the side its SUGGESTION copies from is a link; "Copy to iCloud" on a row whose
-    /// right file is a link would copy FROM it and write the link over the real left file. Real
-    /// disk, through `syncFile`, with the same `attributesOfItem` read the menu item makes: refused
-    /// with the link reason before its prompt is even asked. The prompt answers No, so a regression
-    /// writes nothing (and sends nothing to the real Trash); the control is the suggested
-    /// direction, which is not held.
+    /// The side the user picks is checked for a link when the item fires. The engine holds a row
+    /// only when its suggestion copies from a link, so "Copy to iCloud" from a linked right file
+    /// would write the link over the real left file. Real disk, through `syncFile`: refused before
+    /// the prompt. The prompt answers No, so a regression writes nothing and trashes nothing.
     @MainActor
     @Test func copyingFromALinkTheEngineDidNotHoldIsRefused() async throws {
         let fm = FileManager.default
@@ -264,9 +252,9 @@ import Sync
         #expect(with.action == .copyToRight)
     }
 
-    /// The rule is one revert from unused, so the menu's wiring is read at source level: the row
-    /// menu asks the rule, and the item it builds copies the LIVE row redirected the chosen way,
-    /// with the side it copies from read for a link.
+    /// The rule is one revert from unused, so the wiring is read at source level: the row menu asks
+    /// the rule, and its item copies the live row redirected the chosen way, its source side read
+    /// for a link.
     @Test func theRowMenuOffersAndSendsTheRowDirections() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -283,7 +271,7 @@ import Sync
             .map { String(source[$0.lowerBound...].prefix(800)) }, "copyRowFromMenu is gone")
         #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)"),
                 "the item no longer re-checks the live row when it fires")
-        // E10: a refusal is logged and said, not a silent return.
+        // A refusal is logged and said, not a silent return.
         #expect(fire.contains("Logger.shared.info(\"Row copy from its menu did nothing: \\(refusal)\")")
                 && fire.contains("syncManager.banner = .warning(refusal)"),
                 "a Copy to … item that finds nothing to do returns silently again")
@@ -294,17 +282,16 @@ import Sync
                 "the item no longer redirects the live row through the link check")
         #expect(send.contains("(try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink"),
                 "the item no longer reads the source side for a link")
-        // E4: the prompts hear when this copy overwrites the newer file.
+        // The prompts hear when this copy overwrites the newer file.
         #expect(send.contains("DifferenceRowMenu.newerDestinationNote(for: live, copiedTo: direction, paneNames: paneNames)")
                 && send.contains("Task { await syncManager.syncFile(row, newerDestinationNote: note) }"),
                 "the item no longer copies the checked row, with its newer-file note")
     }
 
-    /// **The Review table's menu has the Copy to … items its banner sends the user to** (review
-    /// E3). Review stays on held rows and says "right-click its row to choose which to keep"; the
-    /// Review table's menu had only the inspection items. Read at source level, as above: an
-    /// undecided row offers the rule's directions, and the item resolves the row when it fires,
-    /// sends it the way the Compare row's does, and marks it copied only when the copy lands.
+    /// The Review table's menu has the Copy to … items its banner sends the user to ("right-click
+    /// its row to choose which to keep"). At source level: an undecided row offers the rule's
+    /// directions, and the item resolves the row when it fires, sends it as the Compare row does,
+    /// and marks it copied only when the copy lands.
     @Test func theReviewTableMenuOffersAndSendsTheRowDirections() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -335,9 +322,9 @@ import Sync
                 "a menu copy no longer marks the row copied only when it lands")
     }
 
-    /// **Why a fired Copy to … item did nothing** (review E10): the row gone from the list, or no
-    /// longer offering that way (a rescan found a link on the side it copies from). Both returned
-    /// silently; each now has a sentence, and a row that can go has none.
+    /// A fired Copy to … item that does nothing says why: the row is gone from the list, or no
+    /// longer offers that way (a rescan found a link on its source side). A row that can go gets
+    /// no sentence.
     @Test func aCopyItemThatFindsNothingToDoSaysWhy() {
         #expect(DifferenceRowMenu.copyRefusal(for: nil, direction: .copyToRight)
                 == "Nothing was copied — that row is no longer in the list")
@@ -350,10 +337,9 @@ import Sync
         #expect(DifferenceRowMenu.copyRefusal(for: held(.missingOnRight, nil), direction: .copyToRight) == nil)
     }
 
-    /// **A copy against the suggestion says it overwrites the newer file** (review E4). An unheld
-    /// pair of two files suggests newer over older, so the other way replaces the newer one — and
-    /// its confirmation and collision prompt read like any replace. The note names the pane it
-    /// lands on; the suggested way, a held row and a folder side carry none.
+    /// A copy against the suggestion says it overwrites the newer file: an unheld pair suggests
+    /// newer over older, so the other way replaces the newer one. The note names the pane it lands
+    /// on; the suggested way, a held row and a folder side carry none.
     @Test func aCopyAgainstTheSuggestionCarriesTheNewerFileNote() {
         let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
         let toRight = held(.differentDates, nil, action: .copyToRight)
@@ -378,8 +364,8 @@ import Sync
         let d = diff(.differentDates)
         let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: [])
         #expect(updated == ["docs/report.txt"])
-        // The inserted target must satisfy the exact predicate applyFilters() uses to drop
-        // differences, so the row is guaranteed to leave the list.
+        // The inserted target must satisfy the predicate applyFilters() uses to drop differences,
+        // so the row leaves the list.
         #expect(FileSyncManager.isIgnoredPath(d.relativePath, ignored: updated))
     }
 
@@ -396,9 +382,9 @@ import Sync
     }
 
     @Test func testToggleOnAncestorCoveredRowUnignoresByRemovingAncestor() {
-        // The row is effectively ignored via the "docs" folder entry, so isIgnored (and the
-        // menu label) says "Include". The toggle must agree: remove the covering entry, not
-        // insert "docs/report.txt" — which would leave the row ignored with a dead menu item.
+        // The row is ignored via the "docs" entry, so isIgnored and the label say "Include". The
+        // toggle must remove the covering entry; inserting "docs/report.txt" would leave the row
+        // ignored with a dead menu item.
         let d = diff(.differentDates)
         let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: ["docs", "other"])
         #expect(updated == ["other"])
@@ -422,8 +408,8 @@ import Sync
     }
 
     @Test func testIsIgnoredMatchesAncestorDirectoryButNotSiblingPrefix() {
-        // Same prefix semantics as the differences filter: an ignored ancestor folder
-        // covers the row, but "docs/rep" must not cover "docs/report.txt".
+        // As in the differences filter: an ignored ancestor folder covers the row, but
+        // "docs/rep" must not cover "docs/report.txt".
         let d = diff(.differentDates)
         #expect(DifferenceRowMenu.isIgnored(d, ignoredPaths: ["docs"]))
         #expect(!DifferenceRowMenu.isIgnored(d, ignoredPaths: ["docs/rep"]))

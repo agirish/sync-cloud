@@ -2,21 +2,19 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **The toolbar item's content must have ONE root view across both states.**
+/// The toolbar item's content must have one root view across both states.
 ///
-/// This guards a defect that no green suite could see and that reported itself as the control
-/// simply not being there. `GoToFieldBar.body` returned the pill from one branch of a `switch` and
-/// the field from the other, with nothing above them — so the item's content type changed when the
-/// field closed, and SwiftUI tore the hosted view down without rebuilding it. Measured in the
-/// running app: after Escape, `NSToolbar.items[2].view` was **nil**, the item still counted as
-/// visible, the row drew nothing where the control had been, and a window resize did not bring it
-/// back. Wrapping the conditional in a container fixed it — same probe, `view` back at 137.5×34.
+/// If `GoToFieldBar.body` returned the pill from one branch of a `switch` and the field from the
+/// other, with nothing above them, the item's content type would change when the field closed and
+/// SwiftUI would tear the hosted view down without rebuilding it: after Escape
+/// `NSToolbar.items[2].view` goes nil, the item still counts as visible, the row draws nothing
+/// where the control was, and a window resize doesn't bring it back. A container around the
+/// conditional keeps the view alive.
 ///
-/// **This is a source scan, and it pins a spelling rather than the behaviour** — a `ToolbarItem`
-/// cannot be mounted from a test, and `NSToolbarItem.view` is only observable in a real window. It
-/// is here because the alternative is nothing at all standing in front of a regression that costs
-/// the user the control entirely. The message names the symptom so whoever trips it knows what they
-/// are looking at rather than just that a string moved.
+/// This is a source scan, and it pins a spelling rather than the behaviour: a `ToolbarItem` cannot
+/// be mounted from a test, and `NSToolbarItem.view` is only observable in a real window. The
+/// alternative is nothing standing in front of a regression that costs the user the control
+/// entirely. The message names the symptom so whoever trips it knows what they are looking at.
 @Suite struct GoToFieldBarShapeTests {
 
     private func source() throws -> String {
@@ -32,9 +30,9 @@ import Foundation
     @Test func theItemsContentHasOneRootViewInBothStates() throws {
         let text = try source()
         let body = try #require(text.range(of: "public var body: some View {"))
-        // Comments stripped first: the explanation of this very rule sits inside `body` and is
-        // long enough to push the code out of any fixed window — a scan that reads the comment and
-        // not the code is a scan that passes on a broken file.
+        // Comments stripped first: the explanation of this rule sits inside `body` and is long
+        // enough to push the code out of any fixed window, and a scan that reads the comment and
+        // not the code passes on a broken file.
         let head = text[body.upperBound...].prefix(2000)
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -47,16 +45,15 @@ import Foundation
                 "the state switch is the ROOT of the toolbar item's content again — closing the field will leave NSToolbarItem.view nil and the control will vanish from the toolbar")
     }
 
-    /// **The caret claim waits between attempts.** Same defect as the panel's anchor, on the other
-    /// half of the same open: a bare `DispatchQueue.main.async` retry is not a retry, because
-    /// blocks queued during a main-queue drain run in that drain — measured in the running app on
-    /// 2026-08-19, all three attempts were spent before the field was in a window and it logged
-    /// `claimFocus GAVE UP — never mounted`. ⌘K opened a field with no caret.
+    /// The caret claim waits between attempts. A bare `DispatchQueue.main.async` retry is not a
+    /// retry, because blocks queued during a main-queue drain run in that drain: every attempt is
+    /// spent before the field is in a window, it logs `claimFocus GAVE UP — never mounted`, and ⌘K
+    /// opens a field with no caret.
     ///
-    /// A source scan again, and for the same reason as above: `makeFirstResponder` on a toolbar-
-    /// hosted field cannot be reached from a test host. The panel's own pacing IS asserted
-    /// behaviourally — `theAnchorKeepsLookingAcrossRunloopTurnsRatherThanSpendingEveryRetryAtOnce`
-    /// in `CommandPalettePanelTests` — so the rule is pinned once for real and once by spelling.
+    /// A source scan again, for the same reason as above: `makeFirstResponder` on a toolbar-hosted
+    /// field cannot be reached from a test host. The panel's own pacing is asserted behaviourally
+    /// (`theAnchorKeepsLookingAcrossRunloopTurnsRatherThanSpendingEveryRetryAtOnce` in
+    /// `CommandPalettePanelTests`), so the rule is pinned once for real and once by spelling.
     @Test func theCaretClaimRetriesOnADelayRatherThanInTheSameRunloopTurn() throws {
         let text = try source()
         let claim = try #require(text.range(of: "private func claimFocus("))

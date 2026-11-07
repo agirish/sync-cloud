@@ -3,28 +3,13 @@ import SwiftUI
 
 /// Organize ▸ To File before its first run: what will happen and what it looks like.
 ///
-/// **This is ``LensSetupCard`` now, not a second card that resembles it.** It was written first
-/// and generalized second (v4.0 polish P12), and for one release the two existed side by side
-/// with byte-identical `body`, `header`, `trigger` and `sampleSection` implementations. Two
-/// copies of a layout whose entire job is that every lens opens *identically* is the one shape
-/// that cannot survive: the next padding change lands in one of them, and To File starts opening
-/// a few points off from the other five with nothing to point at. What is left here is what is
-/// genuinely To File's — its trigger, its sample rows, and the reason the third row exists.
+/// A ``LensSetupCard`` with To File's own parts (its trigger and sample rows), so every lens's
+/// fresh state shares one layout. The trigger shows no price: the scan is free
+/// (`FilingClassifierTier.free`), and the paid Refine pass's cost goes in the `footnote`.
 ///
-/// **The price is gone because the scan is free.** This card used to carry the last recorded
-/// cloud run's cost on the trigger, on the rule that a spending action wears its price. The scan
-/// classifies at `FilingClassifierTier.free` now — the paid pass is the Refine button on the
-/// results — so a price here would be quoting a cost for something that has none. What the last
-/// cloud pass *did* cost still has a place: the `footnote`, under the card rather than above it.
-///
-/// The sample rows are the part that is easy to dismiss and worth keeping: without them the first
-/// real run is also the first time anyone sees that layout, at the moment they are being asked to
-/// judge a list of proposed moves. They are deliberately inert and greyed — nothing here is a
-/// suggestion about a real file, and the third row exists so "no confident home" is a familiar
-/// outcome rather than a surprise.
-///
-/// The words come from ``LensIntros/organize(scanTargetName:)``, the same value the pre-scan empty
-/// state renders, so the card cannot drift from the explanation shown everywhere else.
+/// The sample rows show the layout before a real run asks the user to judge proposed moves. They
+/// are inert and greyed, and the third makes "no confident home" familiar rather than a surprise.
+/// The words come from ``LensIntros/organize(scanTargetName:)``, as the pre-scan empty state's do.
 struct FilingSetupCard: View {
     let intro: LensIntro
     let accent: Color
@@ -34,8 +19,7 @@ struct FilingSetupCard: View {
     let onStart: () -> Void
 
     var body: some View {
-        // The generalized card (LensSetupCard) grew out of this view; delegating back keeps one
-        // body for every lens's fresh state instead of a template and a drifting origin.
+        // One body for every lens's fresh state, so To File can't open a few points off the rest.
         LensSetupCard(
             intro: intro,
             accent: accent,
@@ -92,9 +76,8 @@ struct FilingSetupCard: View {
         let isConfident: Bool
     }
 
-    /// Invented filenames, deliberately ordinary. The third is the one that earns its place: a
-    /// scan that returns "no confident home" for some files is the normal case, not a failure,
-    /// and meeting that for the first time in a real result list makes it look like one.
+    /// Invented, ordinary filenames. The third shows that "no confident home" is a normal result,
+    /// not a failure.
     static let samples: [Sample] = [
         Sample(icon: "doc.text", name: "Bank statement Mar 2026.pdf",
                destination: "Finance/Statements", isConfident: true),

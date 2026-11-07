@@ -2,34 +2,25 @@ import Design
 import Sync
 import SwiftUI
 
-/// Organize ▸ the rename backlog, category-first (v4.0 polish P10).
+/// Organize ▸ the rename backlog, sectioned by operation, most consequential first
+/// (`RenameCategories`). Each section carries its own definition and bulk button, so accepting
+/// hundreds of mechanical pads never shares a click with a few judgment calls. Within a section,
+/// folders are cards in path order, each listing its renames in two aligned columns.
 ///
-/// The screen used to be one flat list: 132 near-identical folder rows whose only distinction —
-/// what the pass would *do* — hid in an 11pt caption, with one giant "Rename 641 files" and 132
-/// row links as the only granularities. It is now sectioned by operation, most consequential
-/// first (`RenameCategories`): naming is a judgment about intent, a reshuffle touches files that
-/// were already correct, a pad is mechanical — and each section carries its own definition and
-/// its own bulk button, so accepting 628 mechanical pads never shares a click with 7 judgment
-/// calls. Within a section, folders group under their immediate parent directory, the parent
-/// stated once and dimmed; every row proves its claim with one inline before → after sample.
-///
-/// One row per **folder** still, because that is the unit the planner decides and the unit the
-/// manager applies: a plan's steps are chosen against each other, so half of one is not a
-/// smaller version of the same change. A mixed folder lives in its most consequential section
-/// and its other steps ride along, exactly as they do through its own Rename button.
+/// One card per folder, the unit the planner decides and the manager applies. A mixed folder lives
+/// in its most consequential section and its other steps ride along, as through its own button.
 struct RenamePassLens: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var syncManager: FileSyncManager
     let plans: [RenamePlan]
-    /// The folded Names lens (P10): names that will not store cleanly — this provider's own rules,
-    /// plus the invisible hazards `NameNormalizer` flags on **every** provider — leading the list
-    /// as a "to fix" section, present only when it reports, like every category here. Error-tier
-    /// red, not caution: unlike the rest of the backlog, nothing here is housekeeping.
+    /// Names that will not store cleanly (this provider's rules, plus the invisible hazards
+    /// `NameNormalizer` flags on every provider), leading the list as a "to fix" section when there
+    /// are any. Error-tier red, not caution: unlike the rest of the backlog, none is housekeeping.
     var riskyNames: [RiskyName] = []
     let accent: Color
     let onApply: ([RenamePlan]) -> Void
     /// Applies the safe rename to the given risky rows as one undoable batch (the host wires
-    /// `normalizeNames`, exactly as the standalone lens did).
+    /// `normalizeNames`).
     var onFix: ([RiskyName]) -> Void = { _ in }
     let onReveal: (String) -> Void
 
@@ -37,32 +28,16 @@ struct RenamePassLens: View {
     /// card always shows its renames, and this only un-caps a long one.
     @State private var showingAll: Set<String> = []
 
-    /// The sectioning, remembered between renders.
-    ///
-    /// `RenameCategories.sections` buckets every plan and then **sorts each bucket by path** — up
-    /// to ~1,200 plans on the real backlog — and it ran in `body`, which this lens's host re-runs
-    /// on every publish its manager makes. The key is the plan list itself: Swift's `Array ==`
-    /// short-circuits on storage identity, so a publish that did not touch the backlog costs a
-    /// pointer comparison rather than a sort. `leftAlone` rides along because it walks the same
-    /// list. (`LensWorkspaceView.RenderMemo` is the shared one-slot box; it lives there because
-    /// that is where it was first needed.)
+    /// The sectioning, remembered between renders. `RenameCategories.sections` sorts up to ~1,200
+    /// plans, and `body` re-runs on every publish the manager makes. Keyed on the plan list, whose
+    /// `==` short-circuits on storage identity, so an unrelated publish costs a pointer comparison.
+    /// `leftAlone` rides along because it walks the same list.
     @State private var sectionMemo = LensWorkspaceView.RenderMemo<
         [RenamePlan], (sections: [RenameCategories.Section], leftAlone: [RenamePlan])>()
 
-    /// **Two collapsible layers came out of this screen, and nothing replaced them.**
-    ///
-    /// A card used to sit under a parent-directory row with its own chevron, under a category
-    /// header with another — so reading four file names meant two disclosures whose state was not
-    /// the reader's question, and the two header rows above the card said between them what the
-    /// card's own header and path caption already say. His report: "a little annoying and looks
-    /// messy".
-    ///
-    /// Losing the section chevron costs nothing measurable, which is why it went: sections run
-    /// most-consequential-first and `pad` — the bulk one, the reason a default collapse existed —
-    /// is last, so collapsing it only ever saved scrolling past the end of the list. What is
-    /// genuinely gone is the middle bulk button ("rename just this parent's folders"); the
-    /// section's own `Rename all` and each card's `Rename n` remain, and no folder needs a
-    /// chevron opened before it can be read.
+    /// No collapsible layers: no folder needs a chevron opened before it can be read. `pad`, the
+    /// bulk section, comes last, so collapsing it would only save scrolling past the end. Bulk
+    /// actions are each section's `Rename All` and each card's `Rename n`.
     var body: some View {
         let grouped = sectionMemo.value(for: plans) {
             (sections: RenameCategories.sections(plans),
@@ -101,18 +76,14 @@ struct RenamePassLens: View {
     /// row, so the list keeps its own scrolling and reuse rather than becoming one tall stack.
     @ViewBuilder
     private func cardRows(_ plans: [RenamePlan], columns: Int) -> some View {
-        // Identified by the row's first plan, not by its index — see ``LensCardGrid/IdentifiedRow``.
-        // This list is sectioned too, so index ids would collide across sections exactly as they
-        // did in Duplicates.
+        // Identified by the row's first plan, not its index (``LensCardGrid/IdentifiedRow``): the
+        // list is sectioned, so index ids would collide across sections.
         ForEach(LensCardGrid.identifiedRows(plans, columns: columns)) { gridRow in
             let row = gridRow.items
             HStack(alignment: .top, spacing: LensCardGrid.gutter) {
                 ForEach(row) { plan in
-                    // **One card per folder, its renames inside it.** These were bare `List`
-                    // rows: the folder line and its four steps were sibling rows with system
-                    // separators between them, so nothing on screen said which steps belonged
-                    // to which folder except indentation. Every other lens in Organize draws
-                    // its unit as a `lensCard`; this one did not.
+                    // One card per folder, its renames inside it, as every Organize lens draws
+                    // its unit.
                     planCard(plan)
                 }
                 // A short last row must not stretch its cards over the width the missing ones
@@ -132,32 +103,19 @@ struct RenamePassLens: View {
 
     // MARK: The to-fix section (the folded Names lens)
 
-    /// A risky name with its invisible characters made visible — an affix or exotic space as "␣",
-    /// a zero-width scalar as "◌", both in the error tier this section wears.
+    /// A risky name with its invisible characters made visible: an affix or exotic space as "␣",
+    /// a zero-width scalar as "◌", in the error tier this section wears. Without it,
+    /// "report.pdf → report.pdf" (differing by a character with no width) shows nothing.
     ///
-    /// **Restored here after the fold dropped it.** The retired standalone lens drew every risky
-    /// name through this rule; when the findings moved into this section (v4.0 polish P10) they
-    /// came as a plain `Text`, and a whole class of finding stopped being legible: `NameNormalizer`
-    /// flags a hidden zero-width scalar or a non-standard space on **every** provider, so
-    /// "report.pdf → report.pdf" — identical to the eye, differing by a character that has no
-    /// width — is the ordinary case here, not an edge one. The reason line still named the problem
-    /// in words; the name itself showed nothing.
-    ///
-    /// An `AttributedString` rather than the old per-character `HStack`, so the row keeps the
-    /// `lineLimit(1)` and middle truncation every other name in this lens has. The retired view
-    /// laid its cells out in an HStack and carried a `lineLimit` that could not truncate one, so a
-    /// long name pushed the row instead of eliding.
-    ///
-    /// The rule is ``InvisibleNameMarking`` (Sync), shared with the kept-names list in
-    /// Settings ▸ Organize so the two cannot disagree about how many trailing spaces a name has.
-    /// The tint is the caller's: that list wears caution (a name you chose to keep), this section
-    /// wears error (a name that is still broken).
+    /// An `AttributedString`, not a per-character `HStack`, so the row keeps `lineLimit(1)` and
+    /// middle truncation. The rule is ``InvisibleNameMarking`` (Sync), shared with the kept-names
+    /// list in Settings ▸ Organize; the tint is the caller's (that list wears caution).
     static func marked(_ name: String) -> AttributedString {
         var out = AttributedString()
         for cell in InvisibleNameMarking.cells(for: name) {
             var piece = AttributedString(cell.glyph)
             if cell.isMarker {
-                // The marker in the name's own ink; the error is the wash behind it (DS1).
+                // The marker in the name's own ink; the error is the wash behind it.
                 piece.backgroundColor = SemanticColor.error.opacity(PillVariant.fillOpacity)
             }
             out.append(piece)
@@ -223,13 +181,9 @@ struct RenamePassLens: View {
             HStack(spacing: 8) {
                 Pill(.mini, tint: SemanticColor.error,
                      count: riskyNames.count, label: "to fix")
-                // **Two classes, and the copy used to name one.** `NameNormalizer.risky` reports a
-                // name when its sanitized form differs, and sanitize's first layer runs "always,
-                // for every provider" — zero-width scalars dropped, exotic whitespace folded — so
-                // an iCloud or folder source, which has no naming rules of its own, still fills
-                // this section. "Names this provider will not accept" was false for exactly those
-                // sources, and "sync breaks until they change" overstated the invisible class,
-                // whose own reason line says it "can create invisible duplicates".
+                // Two classes: `NameNormalizer.risky` also reports hidden characters on every
+                // provider, so an iCloud or folder source with no naming rules still fills this
+                // section, and the copy names both.
                 Text("Names this provider rejects, plus hidden characters any cloud mangles.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -265,13 +219,8 @@ struct RenamePassLens: View {
         }
     }
 
-    /// The one structural layer left on this screen, so it is drawn as a heading rather than as
-    /// another dense row: the standard pill (the design system's own header stat, not the inline
-    /// mini this used to wear), its bulk button, and the definition on a line of its own.
-    ///
-    /// **It was three claims on one 11pt line, above two more header rows.** The definition had a
-    /// `lineLimit(1)` and truncated on any pane narrow enough to matter, which is the pane this
-    /// lens is usually read in.
+    /// The one structural layer on this screen, drawn as a heading: the standard pill, its bulk
+    /// button, and the definition on a line of its own, free to wrap on a narrow pane.
     private func categoryHeader(_ section: RenameCategories.Section) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -313,13 +262,7 @@ struct RenamePassLens: View {
     // MARK: Folder cards
 
     /// One folder's renames as a card: what is happening, said once, then every name in two
-    /// aligned columns.
-    ///
-    /// **This replaced a disclosure row.** The old shape put a sample rename on the folder line
-    /// and hid the rest behind a chevron — so the first rename appeared twice, 25pt apart, once
-    /// as the sample and again as the first hidden row, and reading four files meant opening a
-    /// third level of nesting to see something that fits on screen without it. The renames are
-    /// the content; they are not folded away.
+    /// aligned columns. The renames are the content, so they are not behind a disclosure.
     @ViewBuilder
     private func planCard(_ plan: RenamePlan) -> some View {
         let shown = showingAll.contains(plan.id) ? plan.steps
@@ -349,18 +292,14 @@ struct RenamePassLens: View {
         .lensCard()
     }
 
-    /// **Below this a renames card cannot hold its two name columns without truncating both**, so
-    /// a second column is worse than the empty margin it would fill. Measured against the widest
-    /// ordinary case: two 18-character monospaced names at 11pt (~120pt each), the grid gutter, the
-    /// card's own padding, and a header that has to fit "Rename 12" after the folder name.
-    ///
-    /// Deliberately larger than the duplicates lens's minimum — a collapsed duplicates tile carries
-    /// one name and a subtitle, this carries a table.
+    /// Below this a renames card cannot hold its two name columns without truncating both, so a
+    /// second grid column is worse than the margin it would fill. Sized for two 18-character
+    /// monospaced names at 11pt, the gutter, the padding, and "Rename 12" after the folder name.
+    /// Larger than the duplicates lens's minimum, because this card carries a table.
     static let minimumCardWidth: CGFloat = 340
 
-    /// How many renames a card shows before folding the rest. Ten is the point at which the
-    /// column stops being scannable in one look; below it the fold costs a click and saves
-    /// nothing.
+    /// How many renames a card shows before folding the rest: past ten the column stops being
+    /// scannable in one look.
     static let stepsBeforeFold = 10
 
     private func planCardHeader(_ plan: RenamePlan) -> some View {
@@ -394,8 +333,7 @@ struct RenamePassLens: View {
                     .help("Apply every rename in this folder, as one undoable change")
                 }
             }
-            // The path is context, so it is demoted rather than given a row of its own — it was
-            // a peer of the folder name before, which made one fact read as two.
+            // The path is context, so it is demoted under the folder name, not a peer of it.
             Text(plan.relativePath)
                 .scaledFont(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
@@ -404,9 +342,8 @@ struct RenamePassLens: View {
         }
     }
 
-    /// What every rename in this folder has in common — the pattern where there is one, and the
-    /// sentence the steps agree on. Absent when they do not agree, in which case the rows carry
-    /// their own reasons and nothing is invented here.
+    /// What every rename in this folder has in common: the pattern where there is one, and the
+    /// sentence the steps agree on. nil when there is neither; nothing is invented here.
     static func banner(for plan: RenamePlan) -> (pattern: (before: String, after: String)?,
                                                  reason: String)? {
         guard let sample = plan.steps.first else { return nil }
@@ -452,16 +389,10 @@ struct RenamePassLens: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Every rename, in two aligned columns.
-    ///
-    /// **Aligned is the point.** `old → new` per row leaves the new names starting at whatever x
-    /// the old name happened to end at, so the eye has to re-find the answer on every line. A
-    /// column is read once, downward.
     // MARK: Left alone
 
-    /// Plans the pass looked at and declined to touch — a quiet footnote, not peer rows: there
-    /// is nothing to do here, and the reasons are the payload. No pill and no button, so it reads
-    /// as the end of the list rather than as a fourth thing to act on.
+    /// Plans the pass looked at and declined to touch: a quiet footnote, with no pill and no
+    /// button, so it reads as the end of the list rather than a fourth thing to act on.
     private func leftAloneHeader(_ plans: [RenamePlan]) -> some View {
         Text("\(plans.count) folder\(plans.count == 1 ? "" : "s") left alone — every file kept its name, each for a stated reason")
             .scaledFont(.system(size: 11))
@@ -471,27 +402,21 @@ struct RenamePassLens: View {
             .padding(.bottom, 4)
     }
 
-    /// The one-line claim under a folder's name (used when a row has no sample to show).
-    ///
-    /// Pure and static so the wording is testable without mounting anything — and it says both
-    /// halves, because "8 renames" over a plan that also declined to touch two files reads as a
-    /// pass that saw eight files in a folder of ten.
-    ///
-    /// The sentence itself is ``RenameBacklogTally/claim``, which the header above this list also
-    /// draws over *every* plan at once.
+    /// One folder's one-line claim, which is ``RenameBacklogTally/claim``. It says both halves, so
+    /// "8 renames" over a plan that also skipped two files doesn't read as a folder of eight.
+    /// Static so the wording is testable without mounting anything.
     static func summary(_ plan: RenamePlan) -> String {
         RenameBacklogTally([plan]).claim
     }
 
-    /// A file the pass deliberately did not touch. Shown in the list rather than counted away —
-    /// "why is that one still called `9829custbill…`" is the first question this feature invites,
-    /// and the answer is already computed.
+    /// A file the pass deliberately did not touch, listed with its reason, because "why is that one
+    /// still called `9829custbill…`" is the first question this feature invites.
     @ViewBuilder
     private func skipRow(_ skip: RenameSkip) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "minus.circle")
                 .scaledFont(.caption2)
-                // A glyph, so the 3:1 treatment — see `RiskyNameBadge` for the same call.
+                // A glyph, so the 3:1 treatment, as in `RiskyNameBadge`.
                 .foregroundStyle(ChromeInk.semantic(colorScheme, SemanticColor.caution))
             VStack(alignment: .leading, spacing: 1) {
                 Text(skip.fileName)

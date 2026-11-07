@@ -1,32 +1,31 @@
 import Foundation
 
-/// **Markdown tables as text** (TE65, TE66): which table a position is in, and the edits the Table
-/// menu makes — insert one, make one from tab- or comma-separated lines, add and delete rows and
-/// columns, and tidy one so its pipes line up.
+/// Markdown tables as text: which table a position is in, and the edits the Table menu makes —
+/// insert one, make one from tab- or comma-separated lines, add and delete rows and columns, and
+/// tidy one so its pipes line up.
 ///
-/// **Pure functions over the buffer, like the rest of `MarkdownEdits`**, answering a ``MarkupEdit``
-/// (the new text and where the caret goes) or `nil` when the edit does not apply. The verbs reach
+/// Pure functions over the buffer, like the rest of `MarkdownEdits`, answering a ``MarkupEdit``
+/// (the new text and where the caret goes) or `nil` when the edit doesn't apply. The verbs reach
 /// them through ``MarkdownEdits/apply(_:to:selection:)`` and so through `PlainTextEditor.apply`,
-/// the one path every door into the Markup verbs shares — one edit, one ⌘Z.
+/// the one path every Markup verb shares: one edit, one ⌘Z.
 ///
-/// **Two ways in.** The menus and the format bar have a selection, and go through
-/// ``apply(_:to:selection:)``. Editable Preview (TE67) has a table and a cell instead — it knows
-/// both from its own projection — and calls ``edit(_:source:table:row:column:offsetInCell:)``,
-/// ``tidy(source:table:)`` and ``isAligned(source:table:)`` directly, with no selection at all.
+/// Two ways in. The menus and the format bar have a selection and go through
+/// ``apply(_:to:selection:)``. Editable Preview has a table and a cell instead, from its own
+/// projection, and calls ``edit(_:source:table:row:column:offsetInCell:)``, ``tidy(source:table:)``
+/// and ``isAligned(source:table:)`` directly.
 ///
-/// **What counts as a table is what cmark draws as one** — asked of the preview's own parser
+/// A table is what cmark draws as one, asked of the preview's own parser
 /// (``MarkdownSourceContext/tableLines(at:in:)``): a header row, a delimiter row of dashes (colons
 /// for alignment) with as many cells as the header, then body rows, to the first blank line or the
-/// first line that starts another block — a list item, a quote, a heading. A body row needs no
-/// pipe. Never in a code block, front matter or HTML. The cells are read here.
+/// first line that starts another block. A body row needs no pipe. Never in a code block, front
+/// matter or HTML. The cells are read here.
 ///
-/// **An edit keeps the table's style** (decided 2026-10-04). A table written the way Format Table
-/// writes it — pipes lined up, cells padded (``keepsLinedUp(source:table:)``) — is re-padded after
-/// a row or column changes, so it stays lined up, a compact delimiter row staying compact. Any other
-/// — ragged, compact `|a|b|`, pipe-less — gets only the row or column the edit is about: every
-/// other line is left byte for byte, so a synced file shows only that row, or that column's cells.
-/// Format Table (`.tidy`) lines a table up when asked, and never loses a cell: a row with more cells
-/// than the header widens the table rather than dropping the extra.
+/// An edit keeps the table's style. A table written the way Format Table writes it (pipes lined
+/// up, cells padded: ``keepsLinedUp(source:table:)``) is re-padded after a row or column changes,
+/// a compact delimiter row staying compact. Any other (ragged, compact `|a|b|`, pipe-less) gets
+/// only the row or column the edit is about, every other line left byte for byte, so a synced file
+/// shows only that change. Format Table lines a table up when asked and never loses a cell: a row
+/// with more cells than the header widens the table.
 enum MarkdownTables {
 
     enum Alignment: Equatable, Sendable { case none, left, center, right }
@@ -55,13 +54,13 @@ enum MarkdownTables {
         var alignments: [Alignment]
         /// `"\n"`, or `"\r\n"` when every line of the table ended with one.
         var lineBreak: String
-        /// The cells the header and the delimiter row hold — the columns the table HAS (TBL-1). A
-        /// body row may hold more, which cmark does not draw; ``columns`` counts those too, so that
-        /// no cell is lost, and so cannot say whether a column is the last one there is.
+        /// The cells the header and the delimiter row hold: the columns the table has. A body row
+        /// may hold more, which cmark doesn't draw; ``columns`` counts those too, so no cell is
+        /// lost, and so can't say whether a column is the last one there is.
         var headerColumns: Int
-        /// Whether the delimiter row is written without spaces — `|------|:----:|` — which a
-        /// re-padded table keeps (TBL-4): each run as wide as its column's padded cells, so the
-        /// pipes still line up.
+        /// Whether the delimiter row is written without spaces (`|------|:----:|`), which a
+        /// re-padded table keeps: each run as wide as its column's padded cells, so the pipes still
+        /// line up.
         var compactDelimiter = false
 
         var columns: Int { alignments.count }
@@ -69,22 +68,21 @@ enum MarkdownTables {
 
     // MARK: - Reading
 
-    /// What pads a cell: spaces and tabs, and nothing else — GFM trims no other space from one
-    /// (TBL-8). `.whitespaces` is every Unicode space, and Format Table deleted a no-break space or
-    /// an ideographic space at a cell's edge, which Preview draws.
+    /// What pads a cell: spaces and tabs, nothing else, since GFM trims no other space from one.
+    /// `.whitespaces` would strip a no-break or ideographic space at a cell's edge, which Preview
+    /// draws.
     static let padding = CharacterSet(charactersIn: " \t")
 
-    /// **What a row starts with before its cells**: its indent, and the `>` of any quote it is in,
-    /// with their spaces — `  `, `> `, `>> `, `> > ` (TBL-5). Read past, and written back on every
-    /// line an edit writes. A `>` read as the first cell's text hid every quoted table: no Table
-    /// capsule, no TE76 guard, and Insert Table split one in two.
+    /// What a row starts with before its cells: its indent, and the `>` of any quote it is in, with
+    /// their spaces (`  `, `> `, `>> `, `> > `). Read past, and written back on every line an edit
+    /// writes. A `>` read as the first cell's text would hide every quoted table.
     static func linePrefix<S: StringProtocol>(_ line: S) -> String {
         String(line.prefix { $0 == " " || $0 == "\t" || $0 == ">" })
     }
 
-    /// A line's quote markers — through its prefix's last `>`, then one space — or nothing outside
-    /// a quote: what Insert Table and Make Table from Selection put before a table they write, so
-    /// one made in a quote stays in it. Only the quote: a table written at a paragraph's indent, or
+    /// A line's quote markers, through its prefix's last `>` then one space, or nothing outside a
+    /// quote: what Insert Table and Make Table from Selection put before a table they write, so one
+    /// made in a quote stays in it. Only the quote: a table written at a paragraph's indent, or
     /// after all of a quoted line's spaces, could land in an indented code block.
     static func quotePrefix<S: StringProtocol>(_ line: S) -> String {
         let prefix = linePrefix(line)
@@ -110,11 +108,10 @@ enum MarkdownTables {
         return cells.map { $0.trimmingCharacters(in: padding) }
     }
 
-    /// **Which pipes are escaped is cmark's table scanner's rule** (TBL-15): a pipe right after a
-    /// backslash, every time — whatever stands before that backslash. `b\\|` ends in an escaped
-    /// pipe to cmark, which reads `|a|b\\|` as two cells, `a` and `b\\|`. The rule here took a
-    /// backslash to escape any character, so `\\` escaped itself, the pipe split a third cell off,
-    /// and the table cmark draws was not found.
+    /// Which pipes are escaped is cmark's table scanner's rule: a pipe right after a backslash,
+    /// every time, whatever stands before that backslash. So `|a|b\\|` is two cells to cmark, `a`
+    /// and `b\\|`. Treating `\\` as an escaped backslash would split off a third cell and miss the
+    /// table cmark draws.
     static func endsInUnescapedPipe<S: StringProtocol>(_ text: S) -> Bool {
         text.last == "|" && text.dropLast().last != "\\"
     }
@@ -156,8 +153,8 @@ enum MarkdownTables {
     static func table(in ns: NSString, range: NSRange) -> Table? {
         guard range.location >= 0, NSMaxRange(range) <= ns.length else { return nil }
         let (lines, lineBreak) = lines(of: ns, in: range)
-        // A body row needs no pipe (TBL-9): GFM carries a table on through any written line that
-        // starts no other block, and Preview draws it as a row. A blank line is never one.
+        // A body row needs no pipe: GFM carries a table on through any written line that starts
+        // no other block, and Preview draws it as a row. A blank line is never one.
         guard lines.count >= 2, let aligns = alignments(lines[1]),
               hasUnescapedPipe(lines[0]), cells(lines[0]).count == aligns.count,
               lines.dropFirst(2).allSatisfy({ !$0.trimmingCharacters(in: padding).isEmpty }) else { return nil }
@@ -180,11 +177,11 @@ enum MarkdownTables {
         return NSRange(location: full.location, length: end - full.location)
     }
 
-    /// **Whether a delimiter row stands at or above `location`'s line — or just under it, for a
-    /// header — in the run of written lines holding it**: the cheap question ``locate(in:at:)``
-    /// asks before the parser, on every caret move, so a caret in prose costs a walk up its
-    /// paragraph and no parse. A delimiter row is `|`, `-`, `:`, spaces and tabs, with a pipe and
-    /// a dash, after any indent and quote markers.
+    /// Whether a delimiter row stands at or above `location`'s line (or just under it, for a
+    /// header) in the run of written lines holding it: the cheap question ``locate(in:at:)`` asks
+    /// before the parser on every caret move, so a caret in prose costs a walk up its paragraph and
+    /// no parse. A delimiter row is `|`, `-`, `:`, spaces and tabs, with a pipe and a dash, after
+    /// any indent and quote markers.
     static func mayBeInTable(_ ns: NSString, at location: Int) -> Bool {
         func blank(_ line: MarkdownSourceLines.Line) -> Bool {
             (0..<line.content.length).allSatisfy {
@@ -219,15 +216,15 @@ enum MarkdownTables {
         return pipe && dash
     }
 
-    /// **The table `location` is in**, with its row and column — or `nil`.
+    /// The table `location` is in, with its row and column, or `nil`.
     static func locate(in ns: NSString, at location: Int) -> Location? {
         guard location >= 0, location <= ns.length, mayBeInTable(ns, at: location),
-              // **The table's lines are cmark's** (TBL-3, TBL-9): a run of lines holding pipes
-              // took in a list item, quote or heading written right under a table — Format Table
-              // made it a row — and left out a row with no pipe, which Preview draws in the table.
+              // The table's lines are cmark's: a run of lines holding pipes would take in a list
+              // item, quote or heading written right under a table, and leave out a row with no
+              // pipe, which Preview draws in the table.
               let lines = MarkdownSourceContext.tableLines(at: location, in: ns) else { return nil }
-        // cmark's table starts where the paragraph its header ended did — `Intro⏎| a | b |⏎…` is a
-        // table from `Intro` to cmark — so the header is found among its lines: the line before
+        // cmark's table starts where the paragraph its header ended did (`Intro⏎| a | b |⏎…` is a
+        // table from `Intro` to cmark), so the header is found among its lines: the line before
         // the first delimiter row that matches it.
         var header = lines.first
         var delimiter: MarkdownSourceLines.Line?
@@ -271,8 +268,8 @@ enum MarkdownTables {
         var index = 0
         let quote = UInt16(UInt8(ascii: ">"))
         while index < units.count, units[index] == space || units[index] == tab || units[index] == quote { index += 1 }
-        // `-1` whatever the indent: `index - 1` named the indent's last space, and Add Column Left
-        // then put the new cell after it — read as a leading border, which broke the table (TBL-2).
+        // `-1` whatever the indent: `index - 1` would name the indent's last space, and Add Column
+        // Left would put the new cell after it, read as a leading border that breaks the table.
         var opens: [Int] = index < units.count && units[index] == pipe ? [] : [-1]
         for i in index..<units.count where units[i] == pipe && (i == 0 || units[i - 1] != backslash) {
             opens.append(i)
@@ -287,13 +284,12 @@ enum MarkdownTables {
     // MARK: - Lined up or not
 
     /// How many columns of a monospaced font `text` is counted as: two for the wide East Asian
-    /// scripts and for emoji — those drawn as emoji by default, and those a variation selector
-    /// (U+FE0F) asks to be, like ⚠️ and ❤️ (TBL-12) — one for everything else.
+    /// scripts and for emoji (those drawn as emoji by default, and those a variation selector
+    /// U+FE0F asks to be, like ⚠️ and ❤️), one for everything else.
     ///
-    /// **A count, and only nearly what the editor draws.** SF Mono has no glyphs for either: 寿司
-    /// comes from a fallback font a little narrower than four columns, an emoji from one a little
-    /// wider than two (measured 2026-10-16 at 13pt: 寿司 6pt short, ✅ 3pt over). So a table holding
-    /// them lines up in its characters, and on screen to within a column — not exactly.
+    /// Only nearly what the editor draws: SF Mono has no glyphs for either, and the fallback fonts
+    /// run a little narrow (CJK) or wide (emoji). So such a table lines up in its characters, and
+    /// on screen to within a column.
     static func displayWidth(_ text: String) -> Int {
         text.reduce(0) { total, character in
             let scalars = character.unicodeScalars
@@ -327,8 +323,8 @@ enum MarkdownTables {
         return columns
     }
 
-    /// **Whether the table at `range` is lined up** — every row's pipes at the same columns. Not
-    /// on its own what decides whether an edit re-pads it: see ``keepsLinedUp(source:table:)``.
+    /// Whether the table at `range` is lined up: every row's pipes at the same columns. Not on its
+    /// own what decides whether an edit re-pads it; see ``keepsLinedUp(source:table:)``.
     static func isAligned(source: String, table range: NSRange) -> Bool {
         let ns = source as NSString
         guard table(in: ns, range: range) != nil else { return false }
@@ -336,12 +332,11 @@ enum MarkdownTables {
         return columns.dropFirst().allSatisfy { $0 == columns[0] }
     }
 
-    /// **Whether an edit re-pads the table at `range`** — the ONE rule the Table menu and typing
-    /// in editable Preview share (TBL-4; TE67's decision T asks it as
-    /// `PreviewEditTranslator.realignsAsYouType`): its pipes line up AND its header is written
-    /// padded, `| a`, the way Format Table writes it. A compact `|a|b|` or a pipe-less `a | b` can
-    /// line up too, but re-padding rewrote every line of it into Format Table's style; those keep
-    /// theirs, as a ragged table does, and change only in the row or column an edit is about.
+    /// Whether an edit re-pads the table at `range`: the one rule the Table menu and typing in
+    /// editable Preview share (`PreviewEditTranslator.realignsAsYouType` asks it). Its pipes line up
+    /// and its header is written padded, `| a`, the way Format Table writes it. A compact `|a|b|`
+    /// or pipe-less `a | b` can line up too, but keeps its style, as a ragged table does, and
+    /// changes only in the row or column an edit is about.
     static func keepsLinedUp(source: String, table range: NSRange) -> Bool {
         guard isAligned(source: source, table: range),
               let header = lines(of: source as NSString, in: range).lines.first else { return false }
@@ -350,9 +345,9 @@ enum MarkdownTables {
 
     // MARK: - Writing a whole table
 
-    /// **The table, tidied**: each column as wide as its widest cell (three at least), a space each
-    /// side of every cell, the delimiter row keeping its colons. And where each cell row's cells'
-    /// text starts, in UTF-16 from the table's start.
+    /// The table, tidied: each column as wide as its widest cell (three at least), a space each side
+    /// of every cell, the delimiter row keeping its colons. Also where each cell row's cells' text
+    /// starts, in UTF-16 from the table's start.
     static func render(_ table: Table) -> (text: String, cellStarts: [[Int]]) {
         let widths = (0..<table.columns).map { column in
             max(3, table.rows.map { displayWidth($0[column]) }.max() ?? 0)
@@ -469,8 +464,8 @@ enum MarkdownTables {
             let from = max(open, indent)
             result = ns.replacingCharacters(in: NSRange(location: from, length: ns.length - from), with: "")
         }
-        // A lone `|` is no row to cmark — the table ended there and every row below it fell out
-        // (TBL-1) — so a row the removal leaves without a cell keeps an empty one.
+        // A lone `|` is no row to cmark: the table would end there and every row below fall out.
+        // So a row the removal leaves without a cell keeps an empty one.
         if result.trimmingCharacters(in: padding) == "|" { return String(line.prefix(indent)) + "| |" }
         guard !hasUnescapedPipe(result) else { return result }
         let text = result.trimmingCharacters(in: padding)
@@ -496,9 +491,9 @@ enum MarkdownTables {
     private static func editKeepingStyle(_ op: TableVerb, _ table: Table, source: String, range: NSRange,
                                          row: Int, column: Int) -> MarkupEdit? {
         var (lines, lineBreak) = lines(of: source as NSString, in: range)
-        // **Each line keeps the break it had** (TBL-18): joined with one, the lines of a table whose
-        // breaks were mixed lost their `\r` though nothing else in them changed. A new line takes
-        // the table's own break; a removed one takes its break with it.
+        // Each line keeps the break it had, so a table with mixed breaks doesn't lose its `\r`s on
+        // untouched lines. A new line takes the table's own break; a removed one takes its break
+        // with it.
         var breaks = (source as NSString).substring(with: range).components(separatedBy: "\n").dropLast()
             .map { $0.hasSuffix("\r") ? "\r\n" : "\n" }
         func insert(_ line: String, at index: Int) {
@@ -530,8 +525,8 @@ enum MarkdownTables {
         case .addColumnLeft, .addColumnRight:
             let at = op == .addColumnLeft ? column : column + 1
             lines = lines.enumerated().map { index, line in
-                // The header and the delimiter row reach the new column first (TBL-10): from a cell
-                // past the header's last, the cell went into that row alone, which cmark ignores.
+                // The header and the delimiter row reach the new column first: a cell past the
+                // header's last, added to one row alone, is one cmark ignores.
                 var line = line
                 for _ in 0..<(index < 2 ? at : 0) where cells(line).count < at {
                     line = insertingCell(into: line, at: cells(line).count, delimiter: index == 1)
@@ -555,13 +550,13 @@ enum MarkdownTables {
 
     // MARK: - The edits, by table and cell
 
-    /// **One Table menu edit on the table at `range`, at cell (`row`, `column`)** — the entry point
-    /// that needs no selection (rows: 0 the header, 1… the body). A lined-up table comes back lined
-    /// up; a ragged one changes only in the row or column the edit is about (see the type's notes).
+    /// One Table menu edit on the table at `range`, at cell (`row`, `column`): the entry point that
+    /// needs no selection (rows: 0 the header, 1… the body). A lined-up table comes back lined up; a
+    /// ragged one changes only in the row or column the edit is about (see the type's notes).
     ///
-    /// `nil` where the edit does not apply: a row above the header, deleting the header or the only
-    /// column, a cell outside the table, a range that is not a table — and Insert and Make Table
-    /// from Selection, which are not edits OF a table.
+    /// `nil` where the edit doesn't apply: a row above the header, deleting the header or the only
+    /// column, a cell outside the table, a range that isn't a table, and Insert and Make Table from
+    /// Selection, which aren't edits of a table.
     static func edit(_ op: TableVerb, source: String, table range: NSRange,
                      row: Int, column: Int, offsetInCell: Int = 0) -> MarkupEdit? {
         guard var table = table(in: source as NSString, range: range),
@@ -597,16 +592,16 @@ enum MarkdownTables {
         }
     }
 
-    /// **Tidy on its own**: the table at `range` padded so its pipes line up, the caret at the start
-    /// of the header's first cell — or `nil` when `range` is not a table. For editable Preview,
-    /// which does not re-pad as you type (TE67, decision T) and offers this instead.
+    /// Tidy on its own: the table at `range` padded so its pipes line up, the caret at the start of
+    /// the header's first cell, or `nil` when `range` isn't a table. For editable Preview, which
+    /// doesn't re-pad as you type and offers this instead.
     static func tidy(source: String, table range: NSRange) -> MarkupEdit? {
         edit(.tidy, source: source, table: range, row: 0, column: 0)
     }
 
     // MARK: - The edits, by selection
 
-    /// **A Table menu item, applied to a selection** — what the menus and the format bar call.
+    /// A Table menu item applied to a selection: what the menus and the format bar call.
     static func apply(_ op: TableVerb, to text: String, selection: NSRange) -> MarkupEdit? {
         let ns = text as NSString
         guard selection.location != NSNotFound, selection.location >= 0,
@@ -621,12 +616,11 @@ enum MarkdownTables {
         }
     }
 
-    /// **Whether either end of the selection is inside a table** — what decides that a verb
-    /// rewriting whole lines would break one (``MarkdownEdits/breaksTable(_:in:selection:)``, TE76).
-    /// Either end, not both: a selection from a row down into the prose after it still rewrites
-    /// the row. **The end is the line the selection ends ON** (FMT-12, ``selectionEnd(_:_:)``): a
-    /// triple-clicked heading just above a table ends at the start of the table's first line, and
-    /// its Heading and list buttons greyed for a table they would not have touched.
+    /// Whether either end of the selection is inside a table: what decides that a verb rewriting
+    /// whole lines would break one (``MarkdownEdits/breaksTable(_:in:selection:)``). Either end,
+    /// not both: a selection from a row down into the prose after it still rewrites the row. The
+    /// end is the line the selection ends on (``selectionEnd(_:_:)``), so a triple-clicked heading
+    /// just above a table doesn't count as touching it.
     static func touches(_ ns: NSString, _ selection: NSRange) -> Bool {
         guard selection.location != NSNotFound, selection.location >= 0,
               NSMaxRange(selection) <= ns.length else { return false }
@@ -634,20 +628,18 @@ enum MarkdownTables {
             || locate(in: ns, at: selectionEnd(ns, selection)) != nil
     }
 
-    /// **Where a selection ends, for the line it ends on**: a selection ending just after a line
-    /// break — a triple-clicked line — ends on the line it selected, not at the start of the one
-    /// after it (TBL-11, FMT-17). Insert Table put its table after that NEXT line.
+    /// Where a selection ends, for the line it ends on: a selection ending just after a line break
+    /// (a triple-clicked line) ends on the line it selected, not at the start of the next one.
     static func selectionEnd(_ ns: NSString, _ selection: NSRange) -> Int {
         let end = NSMaxRange(selection)
         return selection.length > 0 && end > selection.location && ns.character(at: end - 1) == 0x0A ? end - 1 : end
     }
 
-    /// **Whether the paragraph the selection ends in runs straight into a table** (FMT-2): no blank
-    /// line between the selection's last line and a table's header below it. A list or quote verb
-    /// there would make the table's lines lazy continuation text of its item or quote, and cmark
-    /// would draw no table — so those verbs treat it as touched (``MarkupVerb/continuesLazily``).
-    /// Any written line between counts as the paragraph, a heading too: refusing a list on a line
-    /// whose table it would not have swallowed is the safe side.
+    /// Whether the paragraph the selection ends in runs straight into a table: no blank line between
+    /// the selection's last line and a table's header below it. A list or quote verb there would
+    /// make the table's lines lazy continuation text, and cmark would draw no table, so those verbs
+    /// treat it as touched (``MarkupVerb/continuesLazily``). Any written line between counts as the
+    /// paragraph, a heading too: refusing a list whose table it wouldn't swallow is the safe side.
     static func abuts(_ ns: NSString, _ selection: NSRange) -> Bool {
         guard selection.location != NSNotFound, selection.location >= 0,
               NSMaxRange(selection) <= ns.length else { return false }
@@ -669,23 +661,21 @@ enum MarkdownTables {
         return false
     }
 
-    /// Which Table menu items apply at `selection` — what the bar's Table button and Table capsule,
-    /// and the text's right-click menu, enable: exactly the ones ``apply(_:to:selection:)`` would
-    /// not refuse.
-    /// Inside a table: the row and column edits and Tidy, but no row above the header, no deleting
-    /// it, and no deleting the only column. Outside: Insert Table, and Make Table from Selection
-    /// over lines holding tabs or commas.
+    /// Which Table menu items apply at `selection`: what the bar's Table button and Table capsule,
+    /// and the text's right-click menu, enable. Exactly the ones ``apply(_:to:selection:)`` would
+    /// not refuse. Inside a table: the row and column edits and Tidy, but no row above the header,
+    /// no deleting it, and no deleting the only column. Outside: Insert Table, and Make Table from
+    /// Selection over lines holding tabs or commas.
     static func available(in ns: NSString, selection: NSRange) -> Set<TableVerb> {
         reading(ns, selection).available
     }
 
-    /// **What the format bar and the right-click menus ask of one selection, asked once** (TBL-19):
-    /// the Table items that apply, whether it touches a table, and whether its paragraph runs into
-    /// one. Each ``locate(in:at:)`` that finds a table parses the note down to it — the price of
-    /// knowing it is not in a code block — and asked one at a time, available, touches and abuts
-    /// parsed the same lines up to three times a caret move, on the main thread for a right-click.
-    /// Read together, an end on the start's line reuses its answer, and nothing in a table asks
-    /// whether a table is below.
+    /// What the format bar and the right-click menus ask of one selection, asked once: the Table
+    /// items that apply, whether it touches a table, and whether its paragraph runs into one. Each
+    /// ``locate(in:at:)`` that finds a table parses the note down to it, and asking these one at a
+    /// time would parse the same lines up to three times a caret move, on the main thread for a
+    /// right-click. Read together, an end on the start's line reuses its answer, and nothing in a
+    /// table asks whether a table is below.
     static func reading(_ ns: NSString, _ selection: NSRange) -> (available: Set<TableVerb>, touches: Bool, abuts: Bool) {
         guard selection.location != NSNotFound, selection.location >= 0,
               NSMaxRange(selection) <= ns.length else { return ([], false, false) }
@@ -707,10 +697,9 @@ enum MarkdownTables {
         return (verbs, endInTable, endInTable ? false : abuts(ns, selection))
     }
 
-    /// **Why a Table item had nothing to do here** — for the log, from the menu bar, which cannot
-    /// grey its items (TBL-13). ``TableVerb/refusal`` names the usual reason; Make Table from
-    /// Selection has four, and logged "no tabs or commas" for a caret on `a,b` with nothing
-    /// selected, and for a selection ending in a table.
+    /// Why a Table item had nothing to do here, for the log: the menu bar can't grey its items.
+    /// ``TableVerb/refusal`` names the usual reason; Make Table from Selection has four (nothing
+    /// selected, an end in a table, a table inside, no tabs or commas).
     static func refusal(_ op: TableVerb, in ns: NSString, selection: NSRange) -> String {
         guard op == .fromSelection, selection.location != NSNotFound,
               NSMaxRange(selection) <= ns.length else { return op.refusal }
@@ -733,9 +722,9 @@ enum MarkdownTables {
     /// Table, so typing replaces it.
     static let placeholderHeader = ["Column 1", "Column 2", "Column 3"]
 
-    /// **Insert Table**: three columns, the header and two empty rows, after the line the selection
-    /// ends on (``selectionEnd(_:_:)``) — or on that line, when it is blank — with a blank line either
-    /// side, so it is read as a table and not as part of a paragraph. Nothing selected is replaced.
+    /// Insert Table: three columns, the header and two empty rows, after the line the selection
+    /// ends on (``selectionEnd(_:_:)``), or on that line when it is blank, with a blank line either
+    /// side so it is read as a table and not part of a paragraph. Nothing selected is replaced.
     /// Refused in a table.
     static func insert(_ text: String, _ selection: NSRange) -> MarkupEdit? {
         let ns = text as NSString
@@ -743,7 +732,7 @@ enum MarkdownTables {
         guard locate(in: ns, at: selection.location) == nil, locate(in: ns, at: end) == nil else { return nil }
         let line = contentRange(of: ns, lineAt: end)
         let lineBreak = lineBreak(of: ns, after: line)
-        // In a quote, the table and the blank lines either side of it stay in the quote (TBL-5).
+        // In a quote, the table and the blank lines either side of it stay in the quote.
         let quote = quotePrefix(ns.substring(with: line))
         let gap = blankLine(in: quote)
         let table = Table(indent: quote, rows: [placeholderHeader, ["", "", ""], ["", "", ""]],
@@ -778,8 +767,8 @@ enum MarkdownTables {
         let last = contentRange(of: ns, lineAt: max(end, selection.location))
         let range = NSRange(location: first.location, length: max(NSMaxRange(last), NSMaxRange(first)) - first.location)
         guard locate(in: ns, at: range.location) == nil, locate(in: ns, at: NSMaxRange(range)) == nil else { return nil }
-        // Nor a table anywhere between (TBL-6): its rows were flattened into one escaped cell each
-        // and the blank lines around it dropped. A table holds a delimiter row, so only a line that
+        // Nor a table anywhere between: its rows would be flattened into one escaped cell each and
+        // the blank lines around it dropped. A table holds a delimiter row, so only a line that
         // looks like one is asked about.
         var line = MarkdownSourceLines.line(containing: range.location, in: ns)
         while line.content.location <= NSMaxRange(range) {
@@ -788,9 +777,9 @@ enum MarkdownTables {
             line = next
         }
         var lines = lines(of: ns, in: range).lines.filter { !isBlankText($0) }
-        // Lines in a quote lose their `>` to the table's indent, and keep it (TBL-5): read as text,
-        // the first cell of every row began `> `, and the table was written outside the quote.
-        // Only the markers and the one space after the last go: a tab after them is a cell's edge.
+        // Lines in a quote give their `>` to the table's indent, so the table stays in the quote
+        // and no row's first cell begins `> `. Only the markers and the one space after the last
+        // go: a tab after them is a cell's edge.
         let depth = { (line: String) in linePrefix(line).filter { $0 == ">" }.count }
         let opening = lines.first.map(quotePrefix) ?? ""
         let quote = !opening.isEmpty && lines.allSatisfy({ depth($0) == depth(opening) }) ? opening : ""
@@ -859,8 +848,8 @@ enum MarkdownTables {
         return result
     }
 
-    /// **Make Table from Selection**: the selected lines, whole, become a table — the first line its
-    /// header — lined up, with a blank line either side, and the caret after it.
+    /// Make Table from Selection: the selected lines, whole, become a table (the first line its
+    /// header), lined up, with a blank line either side and the caret after it.
     static func fromSelection(_ text: String, _ selection: NSRange) -> MarkupEdit? {
         let ns = text as NSString
         guard let (range, rows, quote) = convertibleRows(ns, selection) else { return nil }

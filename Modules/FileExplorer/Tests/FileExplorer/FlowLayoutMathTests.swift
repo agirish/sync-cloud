@@ -2,10 +2,10 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins ``FlowLayoutMath`` — the geometry behind the rule cards' condition-chip flow. The round-5
-/// finding: `placeSubviews` proposed each chip its IDEAL width, so one over-wide chip (e.g. a long
-/// `mentionsAll` phrase whose single token outgrows even the chip's own 320 pt cap) drew past the
-/// card border. Every width must be clamped to the container's before line-breaking or placing.
+/// Pins ``FlowLayoutMath``, the geometry behind the rule cards' condition-chip flow. Every width
+/// must be clamped to the container's before line-breaking or placing: a chip proposed its ideal
+/// width (say a long `mentionsAll` phrase whose single token outgrows even the chip's own 320 pt
+/// cap) would draw past the card border.
 @Suite struct FlowLayoutMathTests {
 
     private let spacing: CGFloat = 5
@@ -16,9 +16,9 @@ import Foundation
     }
 
     @Test func overWideChipIsClampedToTheContainer() {
-        // A rule card ~260 pt wide holding a chip for a long mentions phrase — the chip's ideal
-        // width (400 pt) exceeds the card. It must be placed at x = 0 with its width clamped to
-        // the container, never proposed its full 400 pt.
+        // A rule card ~260 pt wide holding a chip for a long mentions phrase, whose ideal width
+        // (400 pt) exceeds the card. It must be placed at x = 0 with its width clamped to the
+        // container, never proposed its full 400 pt.
         let chip = automationConditionChipText(.mentionsAll(["confidential-quarterly-earnings-restatement-memo"]))
         #expect(chip.count > 40, "the phrase must be long enough to overflow a card")
         let result = place([CGSize(width: 400, height: 20)], maxWidth: 260)
@@ -28,7 +28,7 @@ import Foundation
 
     @Test func everyPlacementStaysInsideTheContainer() {
         // Mixed row: normal chips around an over-wide one. No placement's trailing edge may pass
-        // maxWidth — the invariant that keeps a chip from drawing past the card border.
+        // maxWidth, the invariant that keeps a chip from drawing past the card border.
         let sizes = [CGSize(width: 60, height: 20), CGSize(width: 500, height: 20),
                      CGSize(width: 80, height: 20), CGSize(width: 200, height: 24)]
         let maxWidth: CGFloat = 220
@@ -40,8 +40,8 @@ import Foundation
     }
 
     @Test func inBoundsChipsWrapExactlyAsBefore() {
-        // Behavior preservation for the common case: chips that all fit keep the original
-        // greedy left-to-right wrap (same origins, ideal sizes untouched).
+        // The common case: chips that all fit keep the greedy left-to-right wrap (same origins,
+        // ideal sizes untouched).
         let sizes = [CGSize(width: 100, height: 20), CGSize(width: 100, height: 20),
                      CGSize(width: 100, height: 20)]
         let result = place(sizes, maxWidth: 220)

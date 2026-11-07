@@ -2,10 +2,10 @@ import SwiftUI
 import Design
 import Sync
 
-/// **Combine's and Split's one sheet** (TE294): Combine's files in order, each with ↑ and ↓ —
-/// buttons rather than a drag, which a SwiftUI list wedged on in the 11-01 spike — and the new
-/// file's name; Split's "Start new files at pages" and the parts it makes. The batch sheet's frame
-/// and buttons (``EditorPDFBatchSheet``).
+/// Combine's and Split's one sheet. Combine lists its files in order, each with ↑ and ↓ buttons
+/// rather than a drag, which a SwiftUI list wedges on, plus the new file's name; Split takes
+/// "Start new files at pages" and lists the parts it makes. Frame and buttons follow
+/// ``EditorPDFBatchSheet``.
 struct EditorPDFCombineSplitSheet: View {
     @ObservedObject var run: EditorPDFCombineSplit
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -150,7 +150,7 @@ struct EditorPDFCombineSplitSheet: View {
     private func caption(_ problem: String?, isError: Bool, otherwise: String) -> some View {
         Text(isError ? (problem ?? otherwise) : otherwise)
             .scaledFont(.system(size: 10))
-            // The readable red: bare `.red` falls short of 4.5:1 at this size (DS2).
+            // The readable red: bare `.red` falls short of 4.5:1 at this size.
             .foregroundStyle(isError ? AnyShapeStyle(ChromeInk.bodyText(colorScheme, SemanticColor.error))
                                      : AnyShapeStyle(.secondary))
             .fixedSize(horizontal: false, vertical: true)

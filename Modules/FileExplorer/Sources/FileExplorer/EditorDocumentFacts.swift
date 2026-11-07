@@ -1,39 +1,33 @@
 import Foundation
 
-/// How a file's lines are terminated — what the status line names.
+/// How a file's lines are terminated, as the status line names it.
 ///
-/// **A real question for a real folder.** These are cloud folders shared with other machines, and a
-/// file that arrived from Windows is CRLF. Edit writes LF only, converting such a file on its first
-/// edit and never on opening or reading it — the user's choice, 2026-10-05; see
-/// ``EditorLineEndings`` for the rule and why. This only *names* what is in the buffer: CRLF for a
-/// file opened and not yet edited, LF once it has been.
+/// Cloud folders hold files from Windows, which are CRLF. Edit writes LF only, converting a file on
+/// its first edit and never on opening it (``EditorLineEndings`` has the rule). This only names
+/// what is in the buffer: CRLF for a file opened and not yet edited, LF once it has been.
 enum EditorLineEnding: String, Equatable, Sendable, CaseIterable {
     case lf = "LF"
     case crlf = "CRLF"
     case cr = "CR"
-    /// More than one kind in the same file. Worth its own case rather than reporting the first or
-    /// the commonest: a file arrives mixed from elsewhere, and the status line should not smooth
-    /// over it — nor over one Edit made, which would be a bug in the LF-only rule.
+    /// More than one kind in the same file. Its own case, not the first or commonest kind, so the
+    /// status line never hides a mixed file, including one Edit made (a bug in the LF-only rule).
     case mixed = "Mixed"
 
-    /// The status line's word: the kind, or for a mixed file what is mixed — a bare "Mixed" at the
-    /// line's end, after the encoding, said nothing about what (ED12).
+    /// The status line's word: the kind, or "Mixed endings", since a bare "Mixed" after the
+    /// encoding doesn't say what is mixed.
     var statusCaption: String { self == .mixed ? "Mixed endings" : rawValue }
 
-    /// What terminates the lines in `text`, or `nil` when it has no line break at all.
-    ///
-    /// `nil` rather than a default, for the same reason ``MarkdownBlock/line`` is optional: a
-    /// single line with no terminator genuinely has no line ending, and answering "LF" would be a
-    /// claim about bytes that are not there. The status line omits the segment instead.
+    /// What terminates the lines in `text`, or `nil` when it has no line break at all: a single
+    /// line has no line ending, and "LF" would describe bytes that aren't there. The status line
+    /// omits the segment instead.
     static func detect(in text: String) -> EditorLineEnding? {
         var sawLF = false, sawCRLF = false, sawCR = false
         var previousWasCR = false
         for unit in text.unicodeScalars {
             switch unit {
             case "\r":
-                // Not counted yet: a lone CR and the CR of a CRLF are the same scalar, and which
-                // one it is depends on the NEXT one. Deciding here is the classic off-by-one that
-                // reports every CRLF file as mixed.
+                // Not counted yet: whether this is a lone CR or half a CRLF depends on the next
+                // scalar. Deciding here would report every CRLF file as mixed.
                 if previousWasCR { sawCR = true }
                 previousWasCR = true
             case "\n":
@@ -59,30 +53,26 @@ enum EditorLineEnding: String, Equatable, Sendable, CaseIterable {
 struct EditorCaret: Equatable, Sendable {
     /// 1-based, so it matches ``MarkdownBlock/line`` and every "go to line" a person has ever used.
     var line: Int
-    /// 1-based, counted in **characters** rather than UTF-16 units — an emoji is one column, not
-    /// two, because the column is a claim about where the caret looks like it is.
+    /// 1-based, counted in characters rather than UTF-16 units, so an emoji is one column: the
+    /// column says where the caret looks like it is.
     var column: Int
 
-    /// The caret's position, given an offset into `text`'s UTF-16 view.
-    ///
-    /// **UTF-16 in, characters out, and the asymmetry is the point.** `NSTextView` reports
-    /// selections as `NSRange`, which is UTF-16, so that is what the caller has; a person reads
-    /// columns in characters. Converting at this one seam is what stops a `column` that jumps by
-    /// two through an emoji or by four through a family sequence.
+    /// The caret's position, given an offset into `text`'s UTF-16 view. UTF-16 in, because
+    /// `NSTextView` reports `NSRange`; characters out, because that is how a person reads columns.
+    /// Converting here keeps the column from jumping by two through an emoji.
     static func at(utf16Offset offset: Int, in text: String) -> EditorCaret {
         var line = 1
         var column = 1
         var consumed = 0
         guard offset > 0 else { return EditorCaret(line: 1, column: 1) }
-        // **One pass over Characters, counting UTF-16 as it goes** — rather than converting the
-        // offset to a `String.Index` first, which has no answer at all when the offset lands inside
-        // a surrogate pair. Here such an offset simply consumes the whole character, which is the
-        // position the caret can actually occupy.
+        // One pass over Characters, counting UTF-16 as it goes. Converting the offset to a
+        // `String.Index` has no answer inside a surrogate pair; here such an offset consumes the
+        // whole character, which is where the caret can actually stand.
         for character in text {
             if consumed >= offset { break }
             consumed += character.utf16.count
-            // `"\r\n"` is ONE Character in Swift, which is what makes this three comparisons
-            // rather than a state machine: the pair cannot be split across two iterations.
+            // `"\r\n"` is one Character in Swift, so three comparisons suffice: the pair can't be
+            // split across two iterations.
             if character == "\n" || character == "\r\n" || character == "\r" {
                 line += 1
                 column = 1
@@ -95,13 +85,9 @@ struct EditorCaret: Equatable, Sendable {
 
     /// The UTF-16 offset where a 1-based line begins, or `nil` when the text has no such line.
     ///
-    /// **The inverse of ``at(utf16Offset:in:)``, and it has to be exact rather than close.** It is
-    /// what turns an outline row into a scroll and a "go to line" into a caret, and an offset one
-    /// character out puts the caret at the end of the line before — which reads as the feature
-    /// being off by one every time.
-    ///
-    /// `nil` rather than clamping to the end: a caller asking for line 900 of a 400-line file has
-    /// made a mistake worth reporting, and silently landing at the end would hide it.
+    /// The exact inverse of ``at(utf16Offset:in:)``: it turns an outline row into a scroll and
+    /// "go to line" into a caret, and one character out would land on the end of the line before.
+    /// `nil` rather than clamping, so asking for line 900 of a 400-line file isn't hidden.
     static func utf16Offset(ofLine target: Int, in text: String) -> Int? {
         guard target >= 1 else { return nil }
         guard target > 1 else { return 0 }
@@ -120,41 +106,28 @@ struct EditorCaret: Equatable, Sendable {
 
 /// Where every line of a buffer begins, in UTF-16 offsets.
 ///
-/// **Built once off the main actor; asked thousands of times on it.** ``EditorCaret/at(utf16Offset:in:)``
-/// and ``EditorCaret/utf16Offset(ofLine:in:)`` each walk the buffer from index 0, breaking graphemes
-/// as they go. That is the right shape for a one-off question and the wrong shape for the split's
-/// scroll sync, which asks "which line is at the top?" on every clip-view bounds notification — once
-/// per scrolled row, and once per keystroke at the end of a long file, because typing there
-/// autoscrolls. On a 4 MiB document that walk is the whole document, on the main thread, per frame.
+/// Built once off the main actor, in the task that counts the status line's facts, and answered by
+/// binary search. The split's scroll sync asks "which line is at the top?" on every bounds change,
+/// and a walk from index 0 each time would cost a whole 4 MiB document per frame on the main thread.
 ///
-/// So the walk happens once, in the task that already walks the buffer for the status line's counts,
-/// and the answers come out of a binary search.
-///
-/// **Slightly stale is fine for scroll sync and NOT fine for the caret**, which is why
-/// ``utf16Length`` is carried: the table is rebuilt on the same 150 ms debounce as the facts, so
-/// between a keystroke and that rebuild it describes the buffer as it was. A preview that follows
-/// the text by a line or two during a burst of typing is invisible; a caret sent to the wrong
-/// offset by an outline click is the feature being off by one. Callers that need exactness check
-/// the length first and fall back to the exact walk when it disagrees.
+/// It is rebuilt on the facts' 150 ms debounce, so it can trail the buffer. That is fine for scroll
+/// sync but not for the caret, which is why ``utf16Length`` is carried: callers that need exactness
+/// check it and fall back to the exact walk when it disagrees.
 struct EditorLineIndex: Equatable, Sendable {
 
     /// The UTF-16 offset each 1-based line begins at. Always starts with `0`, so an empty buffer
-    /// still has a line 1 that begins at 0 — which is what ``EditorCaret/utf16Offset(ofLine:in:)``
-    /// answers for the same input.
+    /// has a line 1 at 0, as ``EditorCaret/utf16Offset(ofLine:in:)`` answers.
     private(set) var lineStarts: [Int]
-    /// The UTF-16 offset each line **terminator** begins at, in order. One shorter than
+    /// The UTF-16 offset each line terminator begins at, in order. One shorter than
     /// ``lineStarts`` by construction.
     private(set) var terminatorStarts: [Int]
-    /// The length of the text this describes, in UTF-16 units — the staleness check.
+    /// The length of the text this describes, in UTF-16 units: the staleness check.
     private(set) var utf16Length: Int
 
     static let empty = EditorLineIndex(lineStarts: [0], terminatorStarts: [], utf16Length: 0)
 
-    /// Walks `text` once, applying exactly ``EditorCaret``'s rules.
-    ///
-    /// `"\r\n"` is ONE `Character` in Swift, which is what makes three comparisons enough rather
-    /// than a state machine — the same fact ``EditorCaret/at(utf16Offset:in:)`` relies on, and the
-    /// same fact that makes `hasSuffix("\n")` false for a CRLF file.
+    /// Walks `text` once, by exactly ``EditorCaret``'s rules. `"\r\n"` is one `Character` in
+    /// Swift, so three comparisons suffice.
     init(text: String) {
         var starts: [Int] = [0]
         var terminators: [Int] = []
@@ -178,12 +151,9 @@ struct EditorLineIndex: Equatable, Sendable {
         self.utf16Length = utf16Length
     }
 
-    /// The 1-based line an offset falls on — the answer ``EditorCaret/at(utf16Offset:in:)`` gives.
-    ///
-    /// **A terminator counts once the offset is past its FIRST unit**, which is what makes this
-    /// agree with the walk on an offset landing between the `\r` and the `\n` of a CRLF: the walk
-    /// consumes the whole two-unit character and lands on the next line, because that is the
-    /// position the caret can actually occupy.
+    /// The 1-based line an offset falls on, as ``EditorCaret/at(utf16Offset:in:)`` answers. A
+    /// terminator counts once the offset is past its first unit, so an offset between a CRLF's `\r`
+    /// and `\n` lands on the next line, as the walk does.
     func line(atUTF16Offset offset: Int) -> Int {
         guard offset > 0 else { return 1 }
         // Lower bound: the number of terminators that begin strictly before `offset`.
@@ -196,8 +166,8 @@ struct EditorLineIndex: Equatable, Sendable {
         return low + 1
     }
 
-    /// Where a 1-based line begins, or `nil` when the text has no such line — the answer
-    /// ``EditorCaret/utf16Offset(ofLine:in:)`` gives.
+    /// Where a 1-based line begins, or `nil` when the text has no such line, as
+    /// ``EditorCaret/utf16Offset(ofLine:in:)`` answers.
     func utf16Offset(ofLine target: Int) -> Int? {
         guard target >= 1, target <= lineStarts.count else { return nil }
         return lineStarts[target - 1]
@@ -217,23 +187,17 @@ struct EditorLineIndex: Equatable, Sendable {
 
 /// What the status line says about the open buffer.
 ///
-/// **Derived, never stored.** Every field here is a function of the text and the selection, so
-/// there is nothing to keep in step and nothing that can go stale — the cost is that computing it
-/// walks the buffer, which is why the host does it on a debounce off the main actor rather than in
-/// a body pass. See ``EditorWorkspaceView`` for that task.
+/// Derived from the text, never stored, so nothing can go stale. Computing it walks the buffer,
+/// so the host does it on a debounce off the main actor (``EditorWorkspaceView``), not in a body.
 struct EditorDocumentFacts: Equatable, Sendable {
 
-    /// Runs of non-whitespace.
-    ///
-    /// **Markup counts as words, and that is the honest simple answer.** A `##` at the head of a
-    /// line is a word by this count. Excluding it would mean deciding what markup *is* — which the
-    /// preview's parser knows and this does not — and would give two different numbers for the
-    /// same file depending on whether it happened to be Markdown. One rule, stated on the label.
+    /// Runs of non-whitespace. Markup counts: a `##` is a word. Excluding it would mean deciding
+    /// what markup is, which only the preview's parser knows, and would count the same text
+    /// differently depending on whether it is Markdown.
     var words: Int
     /// Characters as a person counts them: grapheme clusters, so an emoji is one.
     var characters: Int
-    /// Lines, counting a final line with no terminator. An empty buffer is 0 lines, not 1 — there
-    /// is nothing in it to be a line.
+    /// Lines, counting a final line with no terminator. An empty buffer is 0 lines, not 1.
     var lines: Int
     var lineEnding: EditorLineEnding?
     /// How the bytes were decoded, or `nil` for a document that was never decoded at all.
@@ -242,17 +206,13 @@ struct EditorDocumentFacts: Equatable, Sendable {
     static let empty = EditorDocumentFacts(words: 0, characters: 0, lines: 0,
                                            lineEnding: nil, encoding: nil)
 
-    /// `1 word` / `412 words`, grouped for reading.
-    ///
-    /// **Singular is not a nicety here.** The status line is beside a document somebody is typing
-    /// into, so it passes through 1 on the way to everything else, and "1 words" is the kind of
-    /// thing that is noticed once and remembered.
+    /// `1 word` / `412 words`, grouped for reading. The count passes through 1 as someone types,
+    /// so the singular matters.
     var wordsCaption: String { Self.count(words, "word") }
     var charactersCaption: String { Self.count(characters, "character") }
 
-    /// **Static, so a caller holding only the number can say it the same way.** The divergence
-    /// diff's left column is `In Edit · 1,204 words` and has no facts value to ask — a second
-    /// spelling of the same rule there is how "1 words" gets back in through a door nobody watches.
+    /// Static, so a caller holding only the number says it the same way: the divergence diff's
+    /// `In Edit · 1,204 words` has no facts value to ask.
     static func count(_ value: Int, _ noun: String) -> String {
         "\(value.formatted(.number)) \(noun)\(value == 1 ? "" : "s")"
     }
@@ -266,8 +226,8 @@ struct EditorDocumentFacts: Equatable, Sendable {
                                    encoding: encoding)
     }
 
-    /// The word and character counts — one walk, and the one spelling of the rule, which the
-    /// selection's count (``EditorSelectionFacts``) shares so the two numbers on the line agree.
+    /// The word and character counts in one walk. ``EditorSelectionFacts`` shares it, so the two
+    /// numbers on the line agree.
     static func wordsAndCharacters(in text: String) -> (words: Int, characters: Int) {
         var words = 0
         var inWord = false
@@ -284,9 +244,8 @@ struct EditorDocumentFacts: Equatable, Sendable {
         return (words, characters)
     }
 
-    /// **A trailing newline does not open a new line.** `"a\n"` is one line, not two — which is the
-    /// opposite of what splitting on the separator answers, and the reason this is a count rather
-    /// than a `components(separatedBy:).count`.
+    /// Lines in `text`. A trailing newline opens no new line: `"a\n"` is one line, which is why
+    /// this counts rather than using `components(separatedBy:).count`.
     static func lineCount(of text: String) -> Int {
         guard !text.isEmpty else { return 0 }
         var lines = 1
@@ -305,46 +264,33 @@ struct EditorDocumentFacts: Equatable, Sendable {
             }
         }
         if previousWasCR { lines += 1 }
-        // The count above counted the terminator; a text that ENDS with one has no line after it.
-        //
-        // **`text.last`, not `hasSuffix`.** `String` compares by grapheme cluster and `"\r\n"` is
-        // ONE of those, so `hasSuffix("\n")` is false for every CRLF file on earth — which made a
-        // Windows file report one line too many while the LF file beside it was right. The same
-        // fact makes the three comparisons below sufficient rather than a state machine.
+        // A text that ends with a terminator has no line after it. `text.last`, not `hasSuffix`:
+        // `"\r\n"` is one grapheme, so `hasSuffix("\n")` is false for a CRLF file and would count
+        // a line too many.
         if let last = text.last, last == "\n" || last == "\r\n" || last == "\r" { lines -= 1 }
         return max(lines, 1)
     }
 }
 
-/// What the status line says about the selected text (TE60): its words, characters and lines,
-/// counted by exactly ``EditorDocumentFacts``' rules over the selected range alone.
+/// What the status line says about the selected text: its words, characters and lines, by exactly
+/// ``EditorDocumentFacts``' rules, so "12 of 78 words" can never read 79 of 78 on a select-all.
 ///
-/// **The same rules, so the two numbers on one line agree.** "12 of 78 words" puts a selection's
-/// count beside the document's; a selection counted any other way could read 79 of 78 on a select-all.
-/// A word cut by the selection's edge counts as one — the part selected is a run of non-whitespace.
-///
-/// **Lines are the lines the selection TOUCHES, and a trailing line break opens none** — the
-/// document count's rule, which is what makes a triple-clicked line (its text and its newline) read as
-/// one line rather than two.
+/// A word cut by the selection's edge counts as one. Lines are the lines the selection touches,
+/// and a trailing line break opens none, so a triple-clicked line reads as one line.
 struct EditorSelectionFacts: Equatable, Sendable {
     var words: Int
     var characters: Int
     var lines: Int
 
-    /// The counts for `selection` (UTF-16, as `NSTextView` reports it) in `text`, or `nil` for a bare
-    /// caret — which is what puts the status line back to the document's own counts.
+    /// The counts for `selection` (UTF-16, as `NSTextView` reports it) in `text`, or `nil` for a
+    /// bare caret, which puts the status line back to the document's counts.
     ///
-    /// **Clamped to the text, never trapped on.** The selection is reported per event and the text is
-    /// read later, off the main actor, so the two can disagree by whatever was typed in between.
+    /// Clamped to the text, never trapped on: the text is read later, off the main actor, so the
+    /// two can disagree by whatever was typed in between.
     ///
-    /// **A selection of the whole text takes the document's own counts** when they describe this text —
-    /// `facts` is passed with the text version it was counted at, and `version` is this text's. ⌘A on
-    /// a 4 MiB file is the commonest big selection there is, and the answer is already on screen;
-    /// counting it again is a second walk of the whole buffer for a number that cannot differ.
-    ///
-    /// **The version, not the length** (review): a character typed over a one-character selection,
-    /// a same-length Replace All or a reload leaves counts of the same length that describe another
-    /// text — `"one twoxthree"`'s 2 words offered for `"one two three"`'s 3.
+    /// A whole-text selection (⌘A) reuses `facts` when its version matches `version`, saving a
+    /// second walk of the buffer. Matched by version, not length: a same-length edit or reload
+    /// leaves counts that describe another text.
     static func of(_ text: String, selection: NSRange,
                    facts: (facts: EditorDocumentFacts, version: Int)? = nil,
                    version: Int? = nil) -> EditorSelectionFacts? {
@@ -357,9 +303,8 @@ struct EditorSelectionFacts: Equatable, Sendable {
             return EditorSelectionFacts(words: facts.facts.words, characters: facts.facts.characters,
                                         lines: facts.facts.lines)
         }
-        // **Sliced as a Swift string, never through `NSString`.** `substring(with:)` hands back an
-        // NSString, and walking Characters through one is four times the cost of the native walk —
-        // measured on a 4 MiB selection, -O: 0.59 s against 0.14 s for the document's whole count.
+        // Sliced as a Swift string, never through `NSString`: walking Characters of the NSString
+        // that `substring(with:)` returns costs about four times the native walk.
         let from = utf16.index(utf16.startIndex, offsetBy: start)
         let selected = String(text[from..<utf16.index(from, offsetBy: end - start)])
         let counted = EditorDocumentFacts.wordsAndCharacters(in: selected)

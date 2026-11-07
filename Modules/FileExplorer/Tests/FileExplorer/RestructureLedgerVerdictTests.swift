@@ -4,16 +4,15 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// §5.7's Applied card gains the two facts it was missing: what step 4's verifier concluded, and
-/// why an older landing's undo is not on offer (proposal O11).
+/// The Applied card's two facts beyond the summary: what the landing's verifier concluded, and why
+/// an older landing's undo isn't on offer.
 @MainActor
 @Suite struct RestructureLedgerVerdictTests {
 
     // MARK: The verifier's verdict
 
-    /// **Absent is not a pass.** Every record written before the field existed decodes with it
-    /// nil, and a landing that refused before the verifier ran has nothing to report — both say
-    /// nothing rather than claiming the tree checked out.
+    /// Absent is not a pass. An older record decodes with no verdict, and a landing that refused
+    /// before the verifier ran has none; both say nothing rather than claim the tree checked out.
     @Test func aRecordWithNoVerdictSaysNothing() {
         #expect(RestructureLens.verifierLine(verifiedOK: nil, note: nil) == nil)
         #expect(RestructureLens.verifierLine(verifiedOK: nil, note: "ignored") == nil,
@@ -33,7 +32,7 @@ import Testing
         #expect(!bad.contains("Verified"))
     }
 
-    /// A verdict of false with no note still says something — the log has it.
+    /// A verdict of false with no note still says something: the log has it.
     @Test func aDisagreementWithNoNoteStillPointsSomewhere() throws {
         let line = try #require(RestructureLens.verifierLine(verifiedOK: false, note: nil))
         #expect(line.contains("log"))
@@ -41,8 +40,7 @@ import Testing
 
     // MARK: Why an older landing offers no undo
 
-    /// The ledger unwinds newest first. Saying so on the card is the difference between a row
-    /// with no button and a mystery.
+    /// The ledger unwinds newest first, and the card says so, or a row with no button is a mystery.
     @Test func anOlderLandingSaysWhyItsUndoIsNotOffered() {
         #expect(RestructureLens.blockedByNewerText.contains("newer"))
         #expect(RestructureLens.blockedByNewerText.contains("newest back"))
@@ -65,10 +63,8 @@ import Testing
         return r
     }
 
-    /// **Every clause of the card mapping, at the call site.** These all used to live in a
-    /// private `var` on the workspace, where each was unreachable: the verdict could be nulled,
-    /// the `undoneAt` half of the block reason dropped, and the scaffold filter inverted, with
-    /// the suite green throughout.
+    /// Every clause of the card mapping, at its call site: nulling the verdict, dropping the
+    /// `undoneAt` half of the block reason, or inverting the scaffold filter must each fail here.
     @Test func theRowsCarryEveryClauseOfTheMapping() throws {
         let rows = ReorganisationDisplay.rows(
             from: [Self.record("old", verifiedOK: false, verifierNote: "Forms/ is missing"),
@@ -91,9 +87,8 @@ import Testing
                 "the note travels, not just the verdict")
     }
 
-    /// The two halves of the block reason, each mutated on its own. An undone landing is not
-    /// "blocked by something newer" — it is finished — and with nothing undoable at all there is
-    /// no newer thing to name.
+    /// The two halves of the block reason, each on its own. An undone landing isn't "blocked by
+    /// something newer", it is finished; and with nothing undoable there is no newer thing to name.
     @Test func anUndoneOrUnblockedRecordCarriesNoReason() throws {
         let undone = ReorganisationDisplay.rows(
             from: [Self.record("old", undoneAt: "2026-08-28T10:00:00"), Self.record("new")],
@@ -109,8 +104,8 @@ import Testing
                 "with nothing undoable there is no newer landing to name")
     }
 
-    /// A landing whose Undo a walk back withheld (review R7) says why, on its own and when a
-    /// newer landing is undoable too — undoing that one would not bring this one back.
+    /// A landing whose Undo a walk back withheld says why, alone and when a newer landing is
+    /// undoable too: undoing that one wouldn't bring this one back.
     @Test func aWithheldUndoSaysWhy() throws {
         var withheld = Self.record("old")
         withheld.undoWithheldBy = "~/Documents/Tax"
@@ -125,8 +120,7 @@ import Testing
         #expect(underNewer.last?.blockedReason == reason)
         #expect(underNewer.first?.blockedReason == nil)
 
-        // Withheld because the other folder's history could not say (review C9): no
-        // reorganization is blamed.
+        // Withheld because the other folder's history couldn't say: no reorganization is blamed.
         withheld.undoWithheldUnsure = true
         let unsure = ReorganisationDisplay.rows(from: [withheld], undoableId: nil,
                                                 stillHasEmptiedFolders: { _ in true })
@@ -177,9 +171,8 @@ import Testing
             onUndoReorganisation: { _ in })
     }
 
-    /// **Both new lines are drawn, and each on its own.** The previous closer here was
-    /// `fittingSize.width > 0`, which passed with the verdict line and the blocked reason both
-    /// deleted — so the two are toggled one at a time and the pixels compared.
+    /// The verdict line and the blocked reason are each drawn, toggled one at a time and the
+    /// pixels compared, so deleting either fails.
     @Test func theCardRendersItsVerdictAndItsBlockedReason() throws {
         let bare = try #require(RestructureRender.raster(
             Self.ledgerLens(verifier: false, blocked: false), width: 640, height: 420))

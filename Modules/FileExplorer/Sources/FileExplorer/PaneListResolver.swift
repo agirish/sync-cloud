@@ -1,28 +1,15 @@
 import AppKit
 
-/// Finds the `NSTableView` backing one pane list, on behalf of the `.background` siblings that have
-/// to reach it — `PaneListSelectionStyler` and `PaneBackgroundDeselect`.
+/// Finds the `NSTableView` backing one pane list, for the `.background` siblings that reach it:
+/// `PaneListSelectionStyler` and `PaneBackgroundDeselect`.
 ///
-/// **Anchored on the frame, not on tree position.** The previous walk scanned each ancestor's
-/// subtree in turn and refused as soon as one held more than one table, on the reasoning that a
-/// lower level, closer to the list, would resolve to exactly one. In the tree presentation it does:
-/// the two panes are far apart. In Columns it does not — the columns are siblings in one `HStack`,
-/// so the first ancestor holding *any* table holds all of them, and the walk refused every time.
+/// Anchored on the frame, not tree position. Columns are siblings in one `HStack`, so the first
+/// ancestor holding any table holds them all, and a tree walk can't tell them apart. A `.background`
+/// is laid out to exactly the frame of the view it backs, so the anchor's window rect and its list's
+/// scroll-view rect are the same rectangle; that also separates the two panes, which never overlap.
 ///
-/// The cost of that was quiet and real. Mounting three columns and reading the tables back showed
-/// `selectionHighlightStyle` still at `.regular` on columns 1 and 2: only the first column, which
-/// resolved while it was briefly the pane's only list, ever got styled. Every column the user drills
-/// into was painting the OS selection highlight underneath the pane's own accent wash.
-///
-/// A `.background` is laid out to exactly the frame of the view it backs, so the anchor's window
-/// rect and its list's scroll view rect are the same rectangle — measured identical, to the point.
-/// That makes the frame a precise identifier where tree position is an ambiguous one, and it
-/// disambiguates the two panes for free: they are never in the same place.
-///
-/// `@MainActor` because every function here reads live AppKit view geometry — `subviews`,
-/// `bounds`, `convert(_:to:)`, `enclosingScrollView` — which is main-actor state. It was already
-/// only ever *called* from the main actor (the callers are `NSView` subclasses and a `@MainActor`
-/// suite); the annotation states the requirement the code already had rather than adding one.
+/// `@MainActor` because everything here reads live AppKit view geometry (`subviews`, `bounds`,
+/// `convert(_:to:)`, `enclosingScrollView`).
 @MainActor
 enum PaneListResolver {
 
@@ -32,11 +19,9 @@ enum PaneListResolver {
     /// rectangles are identical; this is slack for rounding, not for near misses.
     private static let matchFraction: CGFloat = 0.9
 
-    /// Tables in `view`'s subtree, split by column count: the pane lists are the single-column
-    /// tables SwiftUI backs a `List` with, and the differences list is the one multi-column
-    /// `Table`. The split is the disambiguator — the pane stylers must never touch the
-    /// differences table and vice versa, and column count is the one property that separates
-    /// them regardless of where SwiftUI mounts either.
+    /// Tables in `view`'s subtree, split by column count: pane lists are single-column `List`
+    /// tables, the differences list is the one multi-column `Table`. Column count separates them
+    /// wherever SwiftUI mounts either, so neither side's stylers touch the other's table.
     static func tables(in view: NSView, multiColumn: Bool) -> [NSTableView] {
         var result: [NSTableView] = []
         func walk(_ v: NSView) {
@@ -49,10 +34,8 @@ enum PaneListResolver {
     }
 
     /// The list occupying the same frame as `anchor`, or nil while nothing matches. `multiColumn`
-    /// selects which kind of list the caller is anchored to (see `tables(in:multiColumn:)`).
-    ///
-    /// Returns nil for an unlaid-out anchor rather than guessing, so a caller can retry once
-    /// SwiftUI has given it a size.
+    /// selects which kind of list the caller is anchored to (see `tables(in:multiColumn:)`). Nil
+    /// for an unlaid-out anchor, so the caller retries once SwiftUI has sized it.
     static func table(matching anchor: NSView, multiColumn: Bool = false) -> NSTableView? {
         let target = anchor.convert(anchor.bounds, to: nil)
         guard !target.isEmpty else { return nil }
@@ -66,10 +49,8 @@ enum PaneListResolver {
         return nil
     }
 
-    /// Whether `table`'s list still occupies `target`. Cheap enough to re-check on every layout
-    /// pass, which is what lets a cached answer survive a drill — the column stack is rebuilt
-    /// wholesale, and a cached table can end up belonging to a different column than the one the
-    /// anchor now sits over.
+    /// Whether `table`'s list still occupies `target`. Cheap enough for every layout pass, so a
+    /// cached answer can be checked after a drill rebuilds the column stack and moves tables.
     static func matches(_ table: NSTableView, target: CGRect) -> Bool {
         guard !target.isEmpty else { return false }
         return overlaps(frame(of: table), target)
@@ -90,9 +71,8 @@ enum PaneListResolver {
             && area >= matchFraction * candidate.width * candidate.height
     }
 
-    /// Refuses a tie rather than guessing, exactly as the old walk refused an ambiguous subtree —
-    /// two lists in the same place would mean the frame has stopped identifying anything, and
-    /// picking one at that point is a coin toss between panes.
+    /// Refuses a tie rather than guessing: two lists in the same place mean the frame no longer
+    /// identifies one, and picking would be a coin toss between panes.
     private static func bestMatch(_ tables: [NSTableView], target: CGRect) -> NSTableView? {
         let matching = tables.filter { overlaps(frame(of: $0), target) }
         return matching.count == 1 ? matching[0] : nil

@@ -5,19 +5,13 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// **Organize's overview is one card system, and these are the rules that make it one.**
+/// Organize's overview is one card system, and these are the rules that make it one: every card
+/// agrees with the others about surface, verb dress, verb position and height, and every lens gets
+/// a card.
 ///
-/// The complaint this suite was written against was a screenshot and a list: *everything is
-/// different and not consistent — Storage doesn't even have a card, Restructure has a colour card,
-/// the Refresh buttons don't line up, the buttons don't all have the blue background pill, the
-/// heights of the cards don't match.* Five observations, one cause: five card anatomies had grown
-/// on one screen, each locally reasonable, none of them agreeing with the others about surface,
-/// verb dress, verb position or height.
-///
-/// Every claim below is one of those five, stated so it can fail. The value-level ones are here
-/// rather than in pixels for the usual reason — a rule and the thing under test have to be one
-/// expression — and the one pixel test is the one claim that has no value to assert against: what
-/// a card is *made of*.
+/// The value-level claims are asserted on values, so the rule and the thing under test are one
+/// expression. Pixels are used only where there is no value to assert against: what a card is made
+/// of, and where its verbs land.
 @MainActor
 @Suite struct OverviewCardConsistencyTests {
 
@@ -41,12 +35,10 @@ import Design
 
     // MARK: The verbs agree about rank and about where they sit
 
-    /// **The primary is drawn last, so every card's main verb lands on one vertical line.**
-    ///
-    /// This is the "the Refresh buttons don't line up" complaint, reduced to the rule that fixes
-    /// it. The action row is flush to the card's trailing padding, so whichever verb is drawn last
-    /// is the one whose right edge is shared by every card on the page — and that has to be the
-    /// primary, or the alignment lands on whichever card happens to have the most verbs.
+    /// The primary is drawn last, so every card's main verb lands on one vertical line. The action
+    /// row is flush to the card's trailing padding, so the verb drawn last is the one whose right
+    /// edge every card shares; if that were not the primary, the alignment would follow whichever
+    /// card has the most verbs.
     @Test func thePrimaryIsDrawnLastAndTheOthersKeepTheirOrder() {
         let actions = [OverviewCardAction(title: "Stop", run: {}),
                        OverviewCardAction(title: "Pause", rank: .primary, run: {}),
@@ -62,12 +54,9 @@ import Design
         #expect(OverviewCardAction.drawingOrder(actions).map(\.title) == ["One", "Two"])
     }
 
-    /// **At most one blue pill per card, in every state any of them can be in.**
-    ///
-    /// The "buttons don't all have the blue background pill" complaint has two halves and this is
-    /// the second: not merely that every verb is a button, but that a card cannot grow two verbs
-    /// competing to be the important one. Enumerated over every card the overview can draw rather
-    /// than asserted per call site, so a new state that forgets the rule fails here.
+    /// At most one primary per card, in every state any card can be in, so no card grows two verbs
+    /// competing to be the important one. Enumerated over every card the overview can draw, so a
+    /// new state that forgets the rule fails here.
     @Test func noCardOffersTwoPrimaries() {
         for lens in OrganizeLens.allCases {
             for state in Self.everyState {
@@ -81,8 +70,8 @@ import Design
         }
     }
 
-    /// The document survey's five states obey the same rule, and it is the card that broke it
-    /// worst: its settled Refresh was a bare accent word with no button shape at all.
+    /// The document survey's states obey the same rule, including the settled Refresh, which must
+    /// be a shaped button like every other verb.
     @Test func theDocumentSurveyOffersOnePrimaryPerState() {
         let states: [DocumentSurveyCardState] = [
             .offered(documents: 11_019),
@@ -102,11 +91,10 @@ import Design
             #expect(primaries.count <= 1,
                     "\(DocumentSurveyCardText.title(for: state)) offers \(primaries.count) primaries")
         }
-        // **And Stop never takes the trailing slot.** `drawingOrder` puts a primary last, so a
-        // state that has one is safe by construction — but the auto-resume pause has none on
-        // purpose ("Resume now" is an impatience valve, not the way out), and listing Stop last
-        // there put the one destructive verb on this page in the position the layout reserves for
-        // a card's main verb.
+        // And Stop never takes the trailing slot. `drawingOrder` puts a primary last, so a state
+        // with one is safe, but the auto-resume pause has none on purpose ("Resume now" is an
+        // impatience valve, not the way out), and listing Stop last there would put the page's one
+        // destructive verb where the layout puts a card's main verb.
         for state in states {
             let card = DocumentSurveyCard(state: state, accent: .blue, onStart: {}, onResume: {},
                                           onPause: {}, onStop: {}, onOpenHelp: {}, onUpdate: {})
@@ -115,18 +103,15 @@ import Design
                     "\(DocumentSurveyCardText.title(for: state)) ends its row with \(drawn.last ?? "")")
         }
 
-        // And the settled receipt's one verb IS the primary — the specific control the complaint
-        // named, which used to be the only unshaped button on the screen.
+        // And the settled receipt's one verb is the primary.
         let settled = DocumentSurveyCard(state: .settled(folders: 2_309, lastRead: nil),
                                          accent: .blue, onUpdate: {})
         #expect(settled.verbs.map(\.rank) == [.primary])
     }
 
-    /// **A card's verbs are distinct, or `ForEach` silently draws one of them.**
-    ///
-    /// `OverviewCardAction` is `Identifiable` on its title, so two verbs sharing a title on one
-    /// card collapse to a single button with no error anywhere. Nothing does that today; this is
-    /// what makes it stay that way, and it costs one sweep over the states that already exist.
+    /// A card's verbs are distinct, or `ForEach` silently draws one of them: `OverviewCardAction`
+    /// is `Identifiable` on its title, so two verbs with one title collapse to a single button with
+    /// no error anywhere.
     @Test func noCardOffersTwoVerbsWithTheSameName() {
         for lens in OrganizeLens.allCases {
             for state in Self.everyState {
@@ -149,17 +134,10 @@ import Design
 
     // MARK: What a card withdraws while its work runs
 
-    /// **A scan in flight takes away the verb that starts it, and never the way in.**
-    ///
-    /// The first draft of the card system returned no verbs at all for a findings card while its
-    /// scan ran, which took `Open Duplicates` off the screen for the whole of a rehash — minutes,
-    /// on the one card whose answer somebody might well want to read while it is being recomputed.
-    /// The layout it replaced never did that: its Open was unconditional and only the rescan was
-    /// withdrawn.
-    ///
-    /// Nothing caught it. The two render tests that watch a scanning row are satisfied by any large
-    /// change to that row, and a row that loses two controls instead of one changes more, not less.
-    /// A claim about *which* control survives cannot be made in pixels at all.
+    /// A scan in flight takes away the verb that starts it, and never the way in. `Open Duplicates`
+    /// must stay on screen through a rehash that can take minutes, since someone may want to read
+    /// the answer while it is recomputed. Only an action list can say which control survives; the
+    /// render tests that watch a scanning row would pass a row that lost both.
     @Test func aScanInFlightWithdrawsTheRescanAndKeepsTheWayIn() {
         let finding = OrganizeOverviewState.findings(count: 722, headline: "722 groups",
                                                      examples: ["clip.mp4 — 2 copies"])
@@ -185,12 +163,10 @@ import Design
         #expect(page.actions(for: running).map(\.title) == ["Open Storage"])
     }
 
-    /// **And a card being worked on stays a card.**
-    ///
-    /// `strandedCards`/`strandedLines` first partitioned on "does this section have actions right
-    /// now", which is the moment rather than the standing fact — so pressing Analyze withdrew
-    /// Storage's verb, the partition read "nothing to offer", and the card you had just acted on
-    /// demoted itself to a line of grey footer text for the whole run.
+    /// And a card being worked on stays a card. `strandedCards`/`strandedLines` must partition on
+    /// the standing fact, not on "does this section have actions right now": pressing Analyze
+    /// withdraws Storage's verb, and the card just acted on must not demote itself to a grey footer
+    /// line for the whole run.
     @Test func aStrandedLensBeingScannedKeepsItsCard() {
         let running = Self.section(.storage, .notScanned, scanning: true)
         let page = Self.overview([running])
@@ -201,13 +177,11 @@ import Design
                 "the card still offers to start work that is already running")
     }
 
-    /// **The small print does not come and go with the scan.**
-    ///
-    /// It was keyed on `offersRescan`, which also asks whether a scan is in flight — so the card's
-    /// whole bottom rule and cost line vanished the moment you pressed Refresh and came back when
-    /// it finished. A card that changes height while you watch it work is the same defect
-    /// ``OrganizePass/answersOneLens`` exists to prevent one row up: the control must not move with
-    /// the data, and neither must its price tag.
+    /// The small print does not come and go with the scan. Keyed on `offersRescan`, which also asks
+    /// whether a scan is in flight, the bottom rule and cost line would vanish on Refresh and
+    /// return when it finished. A card that changes height while it works is what
+    /// ``OrganizePass/answersOneLens`` prevents one row up: the price tag must not move with the
+    /// data.
     @Test func theCostLineHoldsStillWhileTheScanRuns() {
         let finding = OrganizeOverviewState.findings(count: 1, headline: "1 finding", examples: [])
         let page = Self.overview([Self.section(.restructure, finding)])
@@ -221,13 +195,11 @@ import Design
         #expect(page.findingsNote(Self.section(.toFile, finding)) == nil)
     }
 
-    /// **A never-run lens's heading is about the lens, not about its pass.**
-    ///
-    /// Quoting `OrganizePass.offerTitle` read better and was wrong: a lens reaches this card only
-    /// when its pass has answered some of its *other* lenses and not this one, so "The file pass
-    /// hasn't run here" would contradict an answer sitting a card above it. Cold today — the one
-    /// multi-lens pass publishes both lenses from a single flag — and a sentence that is false the
-    /// moment its branch goes live is not made safe by the branch being cold.
+    /// A never-run lens's heading is about the lens, not its pass. A lens reaches this card only
+    /// when its pass has answered some of its other lenses and not this one, so quoting
+    /// `OrganizePass.offerTitle` ("The file pass hasn't run here") would contradict an answer a
+    /// card above it. The branch is cold today, since the one multi-lens pass publishes both lenses
+    /// from a single flag, but its sentence must still be true.
     @Test func aStrandedHeadingNamesTheLensAndNotThePass() {
         #expect(OrganizeOverview.strandedTitle(.storage) == "Storage hasn’t been analyzed here",
                 "Storage does not run — its heading has to use the verb its button uses")
@@ -255,39 +227,34 @@ import Design
                          onOpen: { _ in }, onRun: { _ in }, onBuildStorage: {})
     }
 
-    /// **A due nudge belongs to Restructure's card, because it names one of that card's findings.**
-    ///
-    /// `LensWorkspaceView.backlogNudge()` derives it from `scopedStructureFindings`; the overview's
-    /// Restructure arm counts the same `structureFindings` through the same `.inside` scope filter.
-    /// `RestructureNudge.due` is a subset of that list, so the folder in the sentence is one of the
-    /// findings the pill above it counts. Drawn as a card of its own it read as a second, headless
-    /// subject wedged between the ledger and the card it was talking about.
+    /// A due nudge belongs to Restructure's card, because it names one of that card's findings.
+    /// `LensWorkspaceView.backlogNudge()` derives it from `scopedStructureFindings`, and the
+    /// overview's Restructure arm counts the same `structureFindings` through the same `.inside`
+    /// scope filter, so the folder in the sentence is one the pill above it counts. As a card of
+    /// its own it would read as a second, headless subject.
     @Test func aDueNudgeAttachesToTheCardWhoseFindingItNames() {
         let reporting = Self.section(.restructure,
                                      .findings(count: 53, headline: "53 findings", examples: []))
         #expect(Self.page([reporting], nudge: Self.nudge()).nudgeHost?.lens == .restructure)
     }
 
-    /// And nothing attaches when nothing is due — the host is about the nudge, not about the card.
+    /// And nothing attaches when nothing is due: the host is about the nudge, not about the card.
     @Test func noNudgeMeansNoHost() {
         let reporting = Self.section(.restructure,
                                      .findings(count: 53, headline: "53 findings", examples: []))
         #expect(Self.page([reporting], nudge: nil).nudgeHost == nil)
     }
 
-    /// **A nudge with no host still draws**, on the rung it used to have all to itself.
-    ///
-    /// The two derivations are provably in step today, so this state is unreachable: a nudge is due
-    /// only when the findings it came from are on the card. The fallback exists because the failure
-    /// it guards is silent — a time-sensitive line vanishing is the exact thing §5.6 was written to
-    /// prevent — and an unreachable state with a defined answer costs one branch.
+    /// A nudge with no host still draws, on a rung of its own. The two derivations are in step
+    /// today, so this state is unreachable, but the failure it guards is silent (a time-sensitive
+    /// line vanishing), and a defined answer costs one branch.
     @Test func theNudgeSurvivesLosingItsHost() throws {
         let clean = Self.section(.restructure, .clean)
         let page = Self.page([clean], nudge: Self.nudge())
         #expect(page.nudgeHost == nil, "a clean Restructure is not a card to hang a nudge on")
 
-        // And it reaches the pixels rather than merely being modelled: the same page without a
-        // nudge draws measurably less.
+        // And it reaches the pixels rather than only the model: the same page without a nudge draws
+        // measurably less.
         let with = try #require(Self.render(page))
         let without = try #require(Self.render(Self.page([clean], nudge: nil)))
         var differing = 0
@@ -306,13 +273,10 @@ import Design
 
     // MARK: Storage has a card
 
-    /// **The complaint, as a test.** Storage before its first analysis is a lens with a verb and a
-    /// real answer to give, and it drew a line of tertiary grey text in the footer.
-    ///
-    /// It is still *stranded* — no ``OrganizePass`` produces it, and that is a fact about the
-    /// machinery, not about the design — so the assertion is on what a stranded lens draws, which
-    /// is the thing that changed. `strandedCards` and `strandedLines` partition
-    /// `strandedUnscanned`, so a lens cannot quietly fall out of both.
+    /// Storage before its first analysis is a lens with a verb and a real answer to give, so it
+    /// gets a card, not a line of grey footer text. It is still stranded (no ``OrganizePass``
+    /// produces it), so the assertion is on what a stranded lens draws. `strandedCards` and
+    /// `strandedLines` partition `strandedUnscanned`, so a lens can't fall out of both.
     @Test func aNeverAnalyzedStorageTakesACardAndNotAFootnote() {
         let page = Self.overview([Self.section(.storage, .notScanned)])
         #expect(page.strandedCards.contains { $0.lens == .storage },
@@ -320,17 +284,16 @@ import Design
         #expect(!page.strandedLines.contains { $0.lens == .storage })
     }
 
-    /// **And a host that cannot analyze still gets the line, not a dead card.** The rule the footer
-    /// existed for in the first place: a card offering a scan nothing can start is strictly worse
-    /// than a sentence saying it has not run.
+    /// And a host that can't analyze still gets the line, not a dead card: a card offering a scan
+    /// nothing can start is worse than a sentence saying it has not run.
     @Test func aStorageWithNoAnalyzerStaysAQuietLine() {
         let page = Self.overview([Self.section(.storage, .notScanned)], buildStorage: nil)
         #expect(page.strandedLines.contains { $0.lens == .storage })
         #expect(page.strandedCards.isEmpty)
     }
 
-    /// The partition holds for every stranded lens, not just Storage — a lens in neither list would
-    /// vanish from the screen entirely, which is the failure mode with no visible symptom.
+    /// The partition holds for every stranded lens: a lens in neither list would vanish from the
+    /// screen, a failure with no visible symptom.
     @Test func everyStrandedLensIsDrawnExactlyOnce() {
         let sections = OrganizeLens.allCases.map { Self.section($0, .notScanned) }
         let page = Self.overview(sections, runnable: [])
@@ -342,18 +305,11 @@ import Design
 
     // MARK: A card with nothing to show is not taller for it
 
-    /// **An empty content slot costs a card 7pt of dead air, and two of the four findings cards
-    /// are in that state.**
-    ///
-    /// `OverviewCard` separates its heading from its content by 7pt. An empty `VStack` is still a
-    /// view, so a slot built unconditionally and then filled with nothing takes that spacing and
-    /// pads the card's bottom with it — measured at 60pt against 53pt for the same card handed
-    /// `EmptyView`. Renames and Restructure both summarise in the blurb now and pass no rows at
-    /// all, so this was card heights disagreeing again for a reason invisible in the source: the
-    /// difference between `if x { VStack { … } }` and `VStack { if x { … } }`.
-    ///
-    /// Measured through the real cards rather than through `OverviewCard` directly, so the claim is
-    /// about what the overview builds and not about what the container can be made to do.
+    /// An empty content slot must not add 7pt of dead air to a card. `OverviewCard` separates
+    /// heading from content by 7pt, and an empty `VStack` is still a view, so a slot built
+    /// unconditionally takes that spacing: the difference between `if x { VStack { … } }` and
+    /// `VStack { if x { … } }`. Renames and Restructure pass no rows, so this keeps card heights in
+    /// step. Measured through the real cards, so the claim is about what the overview builds.
     @Test func aFindingsCardWithNoRowsIsNoTallerForIt() {
         let bare = Self.section(.renames, .findings(count: 126, headline: "126 to change",
                                                     examples: []))
@@ -361,10 +317,8 @@ import Design
                                                         examples: ["a.pdf → Finance"]))
         let bareHeight = Self.cardHeight(bare)
         let rowsHeight = Self.cardHeight(withRows)
-        // The two values this sits between are measured, not guessed: 53pt correct, 60pt with the
-        // slot built unconditionally — the outer stack's 7pt spacing, paid for nothing. 57 leaves
-        // four points of margin on each side, where the 60 this started at left none and would
-        // have flipped on a half-point of font metric.
+        // Measured: 53pt correct, 60pt with the slot built unconditionally. 57 leaves four points
+        // of margin either side, so a half-point of font metric can't flip it.
         #expect(bareHeight < 57,
                 "a findings card with no rows is \(Int(bareHeight))pt — it is paying for a content slot it does not fill")
         #expect(rowsHeight > bareHeight + 10,
@@ -396,17 +350,13 @@ import Design
 
     // MARK: The surface is one surface
 
-    /// **A finding and an offer are made of the same thing.**
+    /// A finding and an offer are drawn on the same surface. A tinted findings card would look like
+    /// it came from a different app, to carry a signal the accent glyph tile and count pill already
+    /// carry.
     ///
-    /// The "Restructure has a colour card" complaint. A findings card used to be a wash of
-    /// `accent.opacity(0.07)` with a 3pt accent bar down its leading edge while every card around
-    /// it was a grey well — one card in six looking like it came from a different app, to carry a
-    /// signal the accent glyph tile and the accent count pill already carry.
-    ///
-    /// Measured, not asserted: the same lens is rendered twice, once reporting and once not, and
-    /// the card's own fill is sampled at the leading edge where no content reaches. Finding the
-    /// card's top edge by scanning down rather than hardcoding a y keeps this from breaking on a
-    /// spacing change while still failing on a tint.
+    /// The same lens is rendered reporting and not, and the card's fill is sampled at the leading
+    /// edge where no content reaches. The card's top edge is found by scanning down, not hardcoded,
+    /// so a spacing change doesn't break it but a tint still fails it.
     @Test func aFindingAndAnOfferAreDrawnOnTheSameSurface() throws {
         let reporting = try #require(Self.cardFill(
             [Self.section(.duplicates,
@@ -420,8 +370,8 @@ import Design
                 "the reporting card's fill is \(reporting), the offer's \(offer) — one is tinted")
     }
 
-    /// The probe has to be able to fail, so: the *glyph tile* on the same two cards does differ,
-    /// which is where the accent went when it left the card.
+    /// The probe must be able to fail: the glyph tile on the same two cards does differ, which is
+    /// where the accent lives.
     @Test func theToneStillReachesTheGlyph() throws {
         let reporting = try #require(Self.glyphFill(
             [Self.section(.duplicates,
@@ -436,39 +386,25 @@ import Design
 
     // MARK: The verbs land on one line
 
-    /// **Every card's main verb ends at the same x — including the one card that can be
-    /// dismissed.** This is the reported complaint stated literally, and it is the one claim on
-    /// this screen that only pixels can make: "the primary is drawn last" is a fact about an array,
-    /// and an array says nothing about where a control lands once a × is drawn beside it.
-    ///
-    /// It caught exactly that. With the dismissal at the trailing edge — the banner convention —
-    /// the nudge's *Set up…* sat about 12pt inboard of every other primary, so the single card with
-    /// a way out was the single card whose verb missed the line.
+    /// Every card's main verb ends at the same x, including the one card that can be dismissed.
+    /// Only pixels can say this: "the primary is drawn last" is a fact about an array, and says
+    /// nothing about where a control lands once a × is drawn beside it. A trailing × would push the
+    /// nudge's "Set up…" inboard of every other primary.
     ///
     /// Measured per card, because two things sit further right than a button and neither is one:
-    /// the card's own hairline, and the button's rounded corners. The border is excluded by
-    /// starting the walk *inside* the card rather than at the canvas edge; the corners are handled
-    /// by taking each card's furthest reach rather than every row's, since a capsule's flat
-    /// trailing edge is by definition the furthest right it goes.
-    ///
-    /// A first version compared every row and failed at 14.5pt on a correct layout — it was
-    /// measuring the curve of the capsules and the corner of the cards, which is the shape of
-    /// probe that reports a defect wherever you point it.
+    /// the card's hairline, and the button's rounded corners. The walk starts inside the card to
+    /// skip the border, and takes each card's furthest reach rather than every row's, since a
+    /// capsule's flat trailing edge is the furthest right it goes; comparing every row would
+    /// measure the curves.
     @Test func everyCardsPrimaryEndsOnTheSameLine() throws {
         try Self.assertVerbsLineUp(width: Self.canvas.width, scale: 1)
     }
 
-    /// **And they still do at every text size, on a pane narrow enough to squeeze them.**
-    ///
-    /// The buttons are `.fixedSize()` and the titles wrap, so a card under pressure degrades by
-    /// growing taller — which is right, and which nothing here was checking. At 135% on a 420pt
-    /// pane the longest heading on the page ("The documents here haven't been read") shares its row
-    /// with the longest verb ("Read my documents"); if the trailing cluster were ever allowed to
-    /// compress instead, the verbs would stop agreeing about where they end and the page's one
-    /// organising line would go with them.
-    ///
-    /// The rail already tests itself this way (`OrganizeRailTests` runs its width model over
-    /// `FontSize.allCases`); this screen was mounted at 1× only.
+    /// And they still do at every text size, on a pane narrow enough to squeeze them. The buttons
+    /// are `.fixedSize()` and titles wrap, so a card under pressure grows taller. At 135% on a
+    /// 420pt pane the longest heading shares its row with the longest verb; if the trailing cluster
+    /// compressed instead, the verbs would stop agreeing about where they end. The rail tests
+    /// itself the same way (`OrganizeRailTests` runs its width model over `FontSize.allCases`).
     @Test(arguments: FontSize.allCases)
     func theVerbsLineUpAtEveryTextSize(size: FontSize) throws {
         try Self.assertVerbsLineUp(width: 420, scale: size.scale)
@@ -491,10 +427,9 @@ import Design
         let rep = try #require(render(page, width: width, fontScale: scale))
         let pixels = CGFloat(rep.pixelsWide) / width
         let ground = try #require(rep.colorAt(x: rep.pixelsWide - 3, y: rep.pixelsHigh - 3))
-        // The walk reads each pixel as one 32-bit word and asks `colorAt` once per distinct word —
-        // a render has under 150 colours. Calling `colorAt` per pixel, over every column, cost
-        // 2–2.8 million calls a render and 13 s for the five; in loaded full-package runs it held
-        // the main thread for 45 minutes and more, twice.
+        // Each pixel is read as one 32-bit word, and `colorAt` is asked once per distinct word (a
+        // render has under 150 colours). Calling `colorAt` per pixel costs millions of calls a
+        // render and can hold the main thread for minutes under load.
         let data = try #require(rep.bitmapData.map(UnsafeRawPointer.init))
         try #require(rep.bitsPerPixel == 32 && !rep.isPlanar,
                      "the render is not 32-bit interleaved, so a pixel cannot be read as one word")
@@ -502,21 +437,14 @@ import Design
         var verdicts: [UInt32: Bool] = [:]
         var last: (key: UInt32, verdict: Bool)?
 
-        /// Whether this pixel is **button fill** rather than text or a hairline.
+        /// Whether this pixel is button fill rather than text or a hairline. A button is a solid
+        /// capsule in a mid tone, light grey over the light ground, so the colour rules out text,
+        /// whose strokes are near-black, and the run length below rules out a card's one-pixel
+        /// hairline and a letter's antialiased edge. Keying on "differs from the ground at all"
+        /// would read wrapped headings as controls on a narrow pane.
         ///
-        /// Two properties separate them and the probe needs both. A button is a solid capsule in a
-        /// mid tone — light grey over the light ground, well short of glyph ink — so the *colour*
-        /// rules out text, whose strokes are near-black, and the *run length* below rules out both
-        /// a card's one-pixel hairline and the antialiased edge of a letter.
-        ///
-        /// The first version keyed on "differs from the ground at all" and read wrapped headings as
-        /// controls the moment the pane was narrow enough for a title to reach the gutter — it
-        /// reported a 110pt spread on a layout that was correct, at every text size, which is the
-        /// probe measuring the fixture instead of the claim.
-        ///
-        /// Light mode only, and that is what `render` pins: the band is stated against a light
-        /// ground and would have to be restated for a dark one. `lensCard()`'s own light/dark
-        /// behaviour is pinned in `DesignSnapshotTests`, not here.
+        /// Light mode only, which `render` pins: the band is stated against a light ground.
+        /// `lensCard()`'s own light/dark behaviour is pinned in `DesignSnapshotTests`.
         func isButtonFill(_ x: Int, _ y: Int) -> Bool {
             let key = data.loadUnaligned(fromByteOffset: y * bytesPerRow + x * 4, as: UInt32.self)
             if let last, last.key == key { return last.verdict }
@@ -533,11 +461,11 @@ import Design
         // A capsule is at least this wide even for the shortest verb on the page; no glyph is.
         let solid = Int(8 * pixels)
         // Start inside the card: the page insets every card by 14pt, so anything at or beyond that
-        // is the card's own edge and not a control on it.
+        // is the card's own edge, not a control on it.
         let from = Int((width - 18) * pixels)
-        // Rows whose rightmost button reaches the gutter — every card's action row, and nothing
-        // else, since this fixture draws no ledger strip (`Ledger()` is empty) and a count pill
-        // always sits left of the verbs it accompanies.
+        // Rows whose rightmost button reaches the gutter: every card's action row and nothing else,
+        // since this fixture draws no ledger strip (`Ledger()` is empty) and a count pill always
+        // sits left of its verbs.
         let gutter = width - 140
 
         /// The trailing edge of the rightmost button on this row, in points. The walk gives up once
@@ -568,8 +496,7 @@ import Design
                 bands.append([])
             }
         }
-        // Max per band, not per row: a capsule's rounded corners reach less far than its flat edge,
-        // and a card's furthest reach is by definition that edge.
+        // Max per band, not per row: a capsule's rounded corners reach less far than its flat edge.
         let reaches = bands.filter { $0.count > 4 }.compactMap { $0.max() }
         // Restructure, the duplicate pass, Storage, the nudge and the inbox all carry a verb.
         #expect(reaches.count >= 5,
@@ -582,7 +509,7 @@ import Design
     private static let canvas = CGSize(width: 560, height: 700)
 
     /// Renders an overview and returns the colour of the first card's own fill, sampled at the
-    /// leading edge inside it — left of the glyph tile, so no content can reach the probe.
+    /// leading edge inside it, left of the glyph tile, so no content can reach the probe.
     private static func cardFill(_ sections: [OrganizeOverviewSection]) -> NSColor? {
         sample(sections, x: 18)
     }
@@ -619,8 +546,8 @@ import Design
 
     private static func render(_ page: OrganizeOverview, width: CGFloat? = nil,
                                fontScale: CGFloat = 1) -> NSBitmapImageRep? {
-        // Tall enough that a 135% render still fits every card — a page that overflowed would clip
-        // the last card's verb and the probe would simply not see it.
+        // Tall enough that a 135% render still fits every card; a page that overflowed would clip
+        // the last card's verb and the probe would not see it.
         let size = CGSize(width: width ?? canvas.width, height: canvas.height * (1 + fontScale))
         let subject = page
             .environment(\.appFontScale, fontScale)

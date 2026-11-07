@@ -5,13 +5,12 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Where the deselect target actually lands once the pane is mounted, which is the half
-/// `PaneBackgroundDeselectTests` cannot see: that file pins the *decision*, this one pins the
-/// *wiring*.
+/// Where the deselect target lands once the pane is mounted: `PaneBackgroundDeselectTests` pins the
+/// decision, this pins the wiring.
 ///
-/// Neither can pin the click itself. A `swift test` process cannot make a window key, so a
-/// synthetic click never commits a selection — the end-to-end proof is a `[deselect]` line in a
-/// live session's log, not an assertion here.
+/// Neither can pin the click itself. A `swift test` process can't make a window key, so a synthetic
+/// click never commits a selection; the end-to-end proof is a `[deselect]` line in a live session's
+/// log.
 @MainActor
 @Suite struct PaneBackgroundDeselectMountedTests {
 
@@ -42,8 +41,8 @@ import Sync
 
     static let root = "/root"
 
-    /// Small folders on purpose: three rows per column leaves real empty area below them, which is
-    /// the area this whole feature is about.
+    /// Small folders on purpose: three rows per column leave real empty area below them, the area
+    /// this feature is about.
     private static func tree() -> PaneTree {
         let top = (0..<4).map { a -> FileNode in
             let dir = "\(root)/a\(a)"
@@ -76,18 +75,13 @@ import Sync
         }
     }
 
-    /// Polls for a condition rather than sleeping a fixed interval.
+    /// Polls for a condition instead of sleeping a fixed interval; a fixed settle holds the main
+    /// thread long enough to starve other mounted suites in the parallel run. Returns whether the
+    /// condition held, so a caller can assert on it.
     ///
-    /// The fixed 1.5s settle this started with held the main thread long enough, five tests over,
-    /// to starve two unrelated mounted suites into failing under the parallel run — they passed
-    /// alone and passed on `main`, which is what pointed at the harness rather than the change.
-    /// Returns whether the condition was met, so a caller can assert on it instead of assuming.
-    ///
-    /// The loop itself is `LayoutPumpWait.pump`. This suite carried a byte-identical private copy
-    /// of it, which is the same duplication that let one fix leave two bugs — see `pumpFloor` there
-    /// for why a wall-clock deadline alone is not a bound on a congested main actor. The one caller
-    /// that passes no condition is pumping for an ABSENCE; the floor only ever pumps it longer,
-    /// which is the safe direction for that assertion.
+    /// The loop is `LayoutPumpWait.pump`; see `pumpFloor` there for why a wall-clock deadline alone
+    /// doesn't bound a congested main actor. The one caller that passes no condition is waiting out
+    /// an absence, and the floor only pumps it longer, which is the safe direction.
     @discardableResult
     private func settle(_ window: NSWindow, timeout: Double = 5,
                         until condition: () -> Bool = { false }) async -> Bool {
@@ -131,25 +125,23 @@ import Sync
         return (window, stack, columns, box)
     }
 
-    /// Recognizers this feature installs, told apart from SwiftUI's own by their target — the
-    /// mounted tables carry four of AppKit's and SwiftUI's before this adds one.
+    /// Recognizers this feature installs, told apart from SwiftUI's by their delegate: the mounted
+    /// tables already carry four of AppKit's and SwiftUI's.
     private func deselectRecognizers(_ view: NSView) -> [NSGestureRecognizer] {
         view.gestureRecognizers.filter { $0.delegate is PaneBackgroundDeselect.CatcherView }
     }
 
-    /// Every column carries the target, on its own table.
-    ///
-    /// Mutation-tested: dropping the `.background(PaneBackgroundDeselect { … })` from `column`
-    /// fails this. It also failed for real before `PaneListResolver` was frame-anchored — only the
-    /// first column resolved, which is the defect that fix records.
+    /// Every column carries the target, on its own table. Fails if `column` drops its
+    /// `.background(PaneBackgroundDeselect { … })`, or if `PaneListResolver` resolves only the
+    /// first column.
     @Test func testEveryColumnCarriesTheDeselectTarget() async throws {
         let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }
 
         #expect(columns.count == 3, "fixture should open three columns, got \(columns.count)")
-        // Waiting for a recognizer to APPEAR cannot make this pass falsely — the assertion below
-        // still runs, and still fails, if the wait times out. It only stops a slow install from
-        // reading as a missing one.
+        // Waiting for a recognizer to appear can't make this pass falsely: the assertion below
+        // still runs, and fails, if the wait times out. It only stops a slow install reading as a
+        // missing one.
         let tables = columns.compactMap { $0.documentView as? NSTableView }
         await settle(window) { tables.allSatisfy { self.deselectRecognizers($0).count == 1 } }
         for (index, table) in tables.enumerated() {
@@ -158,13 +150,10 @@ import Sync
         }
     }
 
-    /// The premise for putting the recognizer on the table rather than the clip view, asserted
-    /// rather than assumed: SwiftUI stretches its table to fill the viewport, so the empty area
-    /// below the rows belongs to the table and a click there hit-tests straight to it.
-    ///
-    /// The fixture's columns hold three rows in a 520pt pane, so there is a great deal of empty
-    /// area — if a future SwiftUI stops stretching, this fails and the attachment point needs
-    /// revisiting.
+    /// The premise for putting the recognizer on the table, not the clip view: SwiftUI stretches
+    /// its table to fill the viewport, so the empty area below the rows belongs to the table and a
+    /// click there hit-tests straight to it. If a future SwiftUI stops stretching, this fails and
+    /// the attachment point needs revisiting.
     @Test func testTheColumnTablesFillTheirViewports() async throws {
         let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }
@@ -176,9 +165,9 @@ import Sync
                 "table \(table.bounds.height)pt vs viewport \(column.contentView.bounds.height)pt")
     }
 
-    /// A rebuilt list must not leave its old recognizer behind. Drilling replaces the column stack
-    /// wholesale, and one recognizer accumulated per drill would fire the deselect many times per
-    /// click — and worse, an orphaned recognizer's target is unowned.
+    /// A rebuilt list must not leave its old recognizer behind. Drilling replaces the column stack,
+    /// and a recognizer kept per drill would fire the deselect many times per click, with an
+    /// unowned target.
     @Test func testDrillingDoesNotAccumulateRecognizers() async throws {
         let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }
@@ -190,13 +179,9 @@ import Sync
         }
     }
 
-    /// The stack's content fills its viewport when the columns do not, which is the trailing filler
-    /// doing its job: two 210pt columns in a 900pt pane leave 468pt of dead space — the pane less
-    /// the columns and the gutter a stack keeps outside its viewport (`columnStackTrailingGutter`)
-    /// — and clicking it should deselect rather than do nothing.
-    ///
-    /// Mutation-tested: removing the filler from the `HStack` leaves the content at the columns'
-    /// own width and fails this.
+    /// The stack's content fills its viewport when the columns don't: the trailing filler takes the
+    /// slack beside two 210pt columns in a 900pt pane (less `columnStackTrailingGutter`), so a
+    /// click there deselects instead of doing nothing. Fails if the filler leaves the `HStack`.
     @Test func testTheTrailingFillerTakesTheSlackBesideTheColumns() async throws {
         let (window, stack, columns, _) = try await mount(paneWidth: 900, depth: ["a2"])
         defer { _ = window }
@@ -211,10 +196,10 @@ import Sync
                 "content \(content.bounds.width)pt should span the viewport, filler included")
     }
 
-    /// A click cannot be synthesized into this harness at all — neither the empty area nor a row
-    /// responds, because a `swift test` process cannot make its window key. Pinned so the next
-    /// person does not spend the afternoon rediscovering it: the end-to-end proof for this feature
-    /// is a `[deselect]` line in a live session's log.
+    /// A click can't be synthesized into this harness at all: neither the empty area nor a row
+    /// responds, because a `swift test` process can't make its window key. Pinned so nobody spends
+    /// an afternoon rediscovering it; the end-to-end proof is a `[deselect]` line in a live
+    /// session's log.
     @Test func testSyntheticClicksCannotDriveThisHarness() async throws {
         let (window, _, columns, box) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }
@@ -228,8 +213,8 @@ import Sync
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
             window.sendEvent(event)
         }
-        // No condition to wait on — this asserts an ABSENCE, so it waits a bounded interval and
-        // leans on the mounted-columns check above to keep it from passing vacuously.
+        // No condition to wait on: this asserts an absence, so it waits a bounded interval and
+        // relies on the mounted-columns check to keep it from passing vacuously.
         await settle(window, timeout: 0.3)
         #expect(columns.count == 3, "fixture must really be mounted, or the absence below is empty")
         #expect(box.deselects.isEmpty,

@@ -1,31 +1,28 @@
 import SwiftUI
 import Design
 
-/// **Every run the window shows progress for, in the toolbar's capsule** (TE205, TE207's run
-/// half): the long file operation on `FileSyncManager.activeProgress`, a PDF tool run from a pane's
-/// menu, and Save as PDF. Their *results* go to the pane (BY), and the capsule mirrors the words
-/// for as long as the pane shows them before carrying them into Activity (2026-10-29), so a run that
-/// ends in a fifth of a second no longer flashes here and vanishes.
+/// Every run the window shows progress for, in the toolbar's capsule: the long file operation on
+/// `FileSyncManager.activeProgress`, a PDF tool run from a pane's menu, and Save as PDF. Results
+/// go to the pane, and the capsule mirrors the words while the pane shows them before carrying
+/// them into Activity, so a run that ends in a fifth of a second doesn't just flash and vanish.
 ///
-/// **The capsule draws the newest run** (TE218, decision CI) — the one just asked for. With two or
-/// more, its ✕ gives way to a count (TE217, TE219). It used to draw the first of the three in a fixed
-/// order with the others a grey "+1": a Save as PDF behind a merge then had no Stop anywhere until
-/// the merge ended.
+/// The capsule draws the newest run, the one just asked for. With two or more, its ✕ gives way
+/// to a count, so every run keeps a reachable Stop.
 ///
-/// **A click on it opens Activity** (TE220, decision CK as CR left it): every run with its own Stop,
-/// and Recent, in a popover under the capsule. While that is open the capsule stays, reading
-/// "Nothing running" once the last run ends, so the popover is not taken away with it (TE231).
+/// A click opens Activity in a popover: every run with its own Stop, and Recent. While it is open
+/// the capsule stays, reading "Nothing running" once the last run ends, so the popover isn't
+/// taken away.
 ///
-/// A pane-launched batch is here too, once its sheet has asked its question (decision CH): it ran
-/// in a window-modal sheet that locked the window for the length of the batch.
+/// A pane-launched batch is here too once its sheet has asked its question, so the batch doesn't
+/// lock the window in a modal sheet.
 public struct RunCapsuleHost: View {
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
     @ObservedObject var center: ActivityCenter
     let runWriteLock: String?
-    /// The long scans, listed under the runs in the popover — never in the capsule (TE228).
+    /// The long scans, listed under the runs in the popover, never in the capsule.
     let scans: [ProgressCapsuleListedRun]
-    /// A run's ending bound for the capsule (CG), over whatever runs (CU).
+    /// A run's ending bound for the capsule, shown over whatever runs.
     let message: ProgressCapsuleMessage?
     let style: ProgressCapsuleStyle
     @Environment(\.openWindow) private var openWindow
@@ -53,8 +50,8 @@ public struct RunCapsuleHost: View {
         let open = { center.markSeen(); center.popoverIsOpen = true }
         Group {
             if let newest = entries.first {
-                // An `NSProgress` is not observable, so the snapshot is taken again ten times a
-                // second while a run is up — the dialog's own cadence — and not at all once it ends.
+                // An `NSProgress` is not observable, so the snapshot is retaken ten times a second
+                // while a run is up (the dialog's cadence) and not at all once it ends.
                 TimelineView(.periodic(from: .now, by: 0.1)) { _ in
                     ProgressCapsule(run: newest.snapshot(), style: style,
                                     othersRunning: entries.dropFirst().map { $0.snapshot().summary },
@@ -79,8 +76,8 @@ public struct RunCapsuleHost: View {
     }
 }
 
-/// **Every run going, newest first** — read off the file operation the window publishes and the
-/// pane PDF runs ``ActivityCenter`` owns, for the capsule and for Activity's Running rows alike.
+/// Every run going, newest first, read off the file operation the window publishes and the pane
+/// PDF runs ``ActivityCenter`` owns, for the capsule and Activity's Running rows alike.
 public struct ActivityRunsReader<Content: View>: View {
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
@@ -123,12 +120,12 @@ public struct ActivityRunsReader<Content: View>: View {
     }
 }
 
-/// Whether any pane-launched run is showing in the capsule, and whether Activity is open under it
-/// — what the toolbar needs to know to seat it, observed here so the window itself need not observe
-/// the PDF models (it does not; a run's progress would otherwise re-render the whole window).
+/// Whether any pane-launched run is showing in the capsule, and whether Activity is open under
+/// it: what the toolbar needs to seat it. Observed here so the window needn't observe the PDF
+/// models, whose progress would otherwise re-render the whole window.
 ///
-/// The popover is reported apart from the runs: it holds the row as it was when it opened (TE231),
-/// and is no run of its own.
+/// The popover is reported apart from the runs: it holds the capsule while open, and is no run of
+/// its own.
 public struct RunCapsulePresence: View {
     @ObservedObject var center: ActivityCenter
     @ObservedObject var pdfTools: PanePDFTools
@@ -193,15 +190,15 @@ public struct RunCapsuleEntry {
     let snapshot: () -> ProgressCapsuleRun
     private let currentCancel: () -> (() -> Void)?
 
-    /// The run's Stop as it stands NOW, or nil — re-read on every tick like the snapshot. A run
+    /// The run's Stop as it stands now, or nil, re-read on every tick like the snapshot. A run
     /// stops being cancellable when only its undo is left to arm (`markFinishing`), and its Stop
-    /// and ⌘. must go with it rather than stay as they were when the run appeared.
+    /// and ⌘. must go then.
     var cancel: (() -> Void)? { currentCancel() }
-    /// A PDF run waiting its turn in the app's one PDF lane (R17) — a clock, not its tool.
+    /// A PDF run waiting its turn in the app's one PDF lane, drawn as a clock, not its tool.
     let isWaiting: () -> Bool
 
-    /// `cancel` is an autoclosure, so whatever it reads — `progress.isCancellable` — is read each
-    /// time ``cancel`` is, not once here.
+    /// `cancel` is an autoclosure, so what it reads (`progress.isCancellable`) is read each time
+    /// ``cancel`` is, not once here.
     init(kind: Kind, startedAt: Date?, snapshot: @escaping () -> ProgressCapsuleRun,
          cancel: @autoclosure @escaping () -> (() -> Void)?, isWaiting: @escaping () -> Bool = { false }) {
         self.kind = kind
@@ -211,8 +208,8 @@ public struct RunCapsuleEntry {
         self.isWaiting = isWaiting
     }
 
-    /// Newest first (decision CI). A run with no start time sorts as the oldest; ties keep the
-    /// kinds' own order, so the answer never depends on the order they were handed in.
+    /// Newest first. A run with no start time sorts oldest; ties keep the kinds' order, so the
+    /// answer never depends on the input order.
     static func newestFirst(_ entries: [RunCapsuleEntry]) -> [RunCapsuleEntry] {
         entries.sorted { lhs, rhs in
             let left = lhs.startedAt ?? .distantPast, right = rhs.startedAt ?? .distantPast
@@ -231,7 +228,7 @@ public struct RunCapsuleEntry {
                         cancel: progress.isCancellable ? { progress.cancel() } : nil)
     }
 
-    /// A single PDF tool run from a pane, once its options sheet is closed — while the sheet is up
+    /// A single PDF tool run from a pane, once its options sheet is closed; while the sheet is up
     /// the run's progress is in it.
     @MainActor static func pdfTool(_ tools: EditorPDFTools) -> RunCapsuleEntry? {
         guard let requested = tools.running, tools.sheet == nil else { return nil }
@@ -245,9 +242,9 @@ public struct RunCapsuleEntry {
         }, cancel: { tools.cancelRun() }, isWaiting: { !(tools.running?.started ?? true) })
     }
 
-    /// **A pane's batch, once its sheet has asked its question** (Run Room CH) — in the one-file
-    /// run's slot, since the two share one PDF run (R2): "Compressing 4 PDFs", 2 of 4, the file in
-    /// hand and its page, and Stop.
+    /// A pane's batch, once its sheet has asked its question, in the one-file run's slot since
+    /// the two share one PDF run: "Compressing 4 PDFs", 2 of 4, the file in hand and its page,
+    /// and Stop.
     @MainActor static func batch(_ batch: EditorPDFBatch) -> RunCapsuleEntry? {
         guard batch.isRunning, !batch.showsSheet else { return nil }
         return RunCapsuleEntry(kind: .pdfTool, startedAt: batch.startedAt, snapshot: {
@@ -266,7 +263,7 @@ public struct RunCapsuleEntry {
 
     static let batchStopHelp = "Stop after this file — the copies already written stay"
 
-    /// **Combine or Split, once its sheet has gone** — in the PDF tools' slot, which they share:
+    /// Combine or Split, once its sheet has gone, in the PDF tools' slot, which they share:
     /// "Combining 3 PDFs", file 2 of 3 read, or "Splitting “Statement.pdf”", part 2 of 3.
     @MainActor static func combineSplit(_ run: EditorPDFCombineSplit) -> RunCapsuleEntry? {
         guard run.isRunning, !run.showsSheet else { return nil }

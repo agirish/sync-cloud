@@ -4,32 +4,20 @@ import Design
 
 /// Where the rail's outline should be scrolled to when it comes back.
 ///
-/// **The outline is rebuilt from nothing more often than it looks.** Switching to Text Files and
-/// back destroys the `ScrollView` along with its position, and so does opening another file:
-/// `EditorWorkspaceView` clears `outline` the instant the path changes and the parse refills it
-/// 150ms later, off the main actor. Without something to put it back, a thirty-heading document
-/// returns to the top every time anyone glances at the file list.
+/// Switching to Text Files and back destroys the `ScrollView` and its position, and so does opening
+/// another file: `EditorWorkspaceView` clears `outline` when the path changes and the parse refills
+/// it 150 ms later. Without this, a long document's outline returns to the top every time.
 ///
-/// **Two rules, both resolved in one pass, and that is a correctness property rather than tidiness.**
-/// The first draft asked the scroll view which rows were visible and revealed the caret's heading
-/// from that callback. It could not be verified: an offscreen `NSHostingView` performs the first
-/// update and then nothing — a scroll issued from a later turn, by binding or by
-/// `ScrollViewProxy`, never lands, so the mount test could not tell a working reveal from a dead
-/// one. Deciding both rules at restore time, before the list is on screen, puts the whole decision
-/// somewhere a test can watch it — and removes the one-shot flag the callback version needed to
-/// stop it dragging the list back to the caret every time the reader scrolled away.
+/// Both rules are decided at restore time, before the list is on screen, so a test can watch the
+/// decision: an offscreen `NSHostingView` never lands a scroll issued from a later turn. It also
+/// needs no one-shot flag to stop the list dragging back to the caret when the reader scrolls away.
 public enum EditorOutlineScroll {
 
     /// The row to restore for `remembered`, or `nil` to leave the list where it is.
     ///
-    /// **The remembered value is a source line, and source lines move.** `MarkdownOutlineEntry.id`
-    /// is the line the heading sits on, the outline is re-derived on every keystroke, and typing a
-    /// paragraph above a heading renumbers it — so the exact id is often gone by the time anyone
-    /// comes back, and a heading deleted while away is gone for good. The nearest surviving line is
-    /// what "roughly where I was" means in a list whose rows are positions in a document.
-    ///
-    /// Ties go to the earlier line: with an anchor equidistant between two headings, the one above
-    /// keeps the section the reader was looking at on screen rather than starting below it.
+    /// `MarkdownOutlineEntry.id` is the heading's source line, and typing above a heading
+    /// renumbers it, so the exact id is often gone. The nearest surviving line is "roughly where I
+    /// was". Ties go to the earlier line, which keeps the reader's section on screen.
     static func restoreTarget(remembered: Int?, outline: [MarkdownOutlineEntry]) -> Int? {
         guard let remembered, !outline.isEmpty else { return nil }
         if outline.contains(where: { $0.id == remembered }) { return remembered }
@@ -39,22 +27,17 @@ public enum EditorOutlineScroll {
         }
     }
 
-    /// The row the outline should actually open at: the remembered anchor, unless that would leave
-    /// the heading the caret is in off the bottom or off the top, in which case the caret's heading
-    /// wins.
-    ///
-    /// **A marked row nobody can see is the failure the mark exists to prevent.** The rail bolds the
-    /// heading the caret is inside; restoring an anchor from a different part of a long document
-    /// leaves that bold row somewhere past the fold, which is worse than not marking it at all.
+    /// The row the outline should open at: the remembered anchor, unless that would leave the
+    /// caret's heading off screen, in which case the caret's heading wins. The rail bolds that
+    /// heading, and a bold row past the fold is worse than none.
     ///
     /// - Parameters:
-    ///   - remembered: the anchor for this document, already resolved by ``restoreTarget(remembered:outline:)``.
-    ///     `nil` for a document nobody has scrolled — the list would start at the top, so the rule
-    ///     still applies and a caret past the fold still wins.
-    ///   - current: the row the caret is inside. `nil` above the first heading, which is a real
-    ///     answer and not a fallback (see ``MarkdownOutline/currentEntry(forLine:in:)``) and is not
-    ///     a reason to move anything.
-    ///   - rowsThatFit: how many rows the section shows at once — see ``rowsThatFit(height:scale:)``.
+    ///   - remembered: the anchor for this document, before ``restoreTarget(remembered:outline:)``
+    ///     resolves it. `nil` for a document nobody has scrolled: the list starts at the top, and
+    ///     a caret past the fold still wins.
+    ///   - current: the row the caret is inside. `nil` above the first heading, a real answer
+    ///     (``MarkdownOutline/currentEntry(forLine:in:)``) that moves nothing.
+    ///   - rowsThatFit: how many rows the section shows at once (``rowsThatFit(height:scale:)``).
     static func openingTarget(remembered: Int?, current: Int?,
                               outline: [MarkdownOutlineEntry], rowsThatFit: Int) -> Int? {
         let anchor = restoreTarget(remembered: remembered, outline: outline)
@@ -67,16 +50,15 @@ public enum EditorOutlineScroll {
         return wouldShow.contains(currentIndex) ? anchor : current
     }
 
-    /// **The row to bring into view as the reader moves, or `nil` to leave the list alone** (TE179).
+    /// The row to bring into view as the reader moves, or `nil` to leave the list alone.
     ///
-    /// Find, Go to Line, the arrows or a page turn can move the current row past the fold; the
-    /// mark then sat where no one could see it. The list follows only when that happens — a row
-    /// already on screen stays put, so a click in the list, or reading on within what it shows,
-    /// never moves it. As the Pages tab follows its page.
+    /// Find, Go to Line, the arrows or a page turn can move the current row past the fold. The list
+    /// follows only then: a row already on screen stays put, so a click in the list never moves
+    /// it. As the Pages tab follows its page.
     ///
     /// - Parameters:
     ///   - current: the row the reader is in, or `nil` above the first heading, which moves nothing.
-    ///   - top: the row the list reports at its top, or `nil` before it has reported — the top.
+    ///   - top: the row the list reports at its top, or `nil` before it has reported (the top).
     static func followTarget(current: Int?, top: Int?,
                              outline: [MarkdownOutlineEntry], rowsThatFit: Int) -> Int? {
         guard let current, let currentIndex = outline.firstIndex(where: { $0.id == current }) else {
@@ -87,38 +69,28 @@ public enum EditorOutlineScroll {
         return shown.contains(currentIndex) ? nil : current
     }
 
-    /// One outline row's height at the app's text size.
-    ///
-    /// The same arithmetic the section's old eight-row cap was built from — 11pt type on the type
-    /// ramp's own knee curve, its line box, and the row's 3pt of padding top and bottom.
-    /// `EditorLayoutTests` measures a rendered row against this, because an estimate that drifts
-    /// from the drawn row is an estimate that answers the wrong question about what fits.
+    /// One outline row's height at the app's text size: 11pt type on the type ramp's knee curve,
+    /// its line box, and 3pt of padding top and bottom. `EditorLayoutTests` measures a rendered row
+    /// against this, so the estimate can't drift from what is drawn.
     static func rowHeight(scale: CGFloat) -> CGFloat {
         FontSize.scaledPointSize(11, scale: scale) * 1.35 + 6
     }
 
-    /// How many rows a section `height` points tall shows at once.
-    ///
-    /// **Floored, and never below one.** A partly visible row at the bottom is not one the reader
-    /// can be said to be looking at, so rounding up would call a heading visible when half of it is
-    /// under the edge — and the whole point of the number is to decide exactly that.
+    /// How many rows a section `height` points tall shows at once. Floored, never below one: a
+    /// half-hidden row at the bottom doesn't count as visible.
     static func rowsThatFit(height: CGFloat, scale: CGFloat) -> Int {
         max(Int((height / rowHeight(scale: scale)).rounded(.down)), 1)
     }
 
-    /// **An outline's place follows its file when the file moves** — the host's rekey, for a note
-    /// the disk watch followed. One map holds every file's anchor, a PDF's beside a note's, so the
-    /// move touches only the key that moved.
+    /// Moves an outline's place with its file, when the disk watch follows a note. One map holds
+    /// every file's anchor, PDFs' and notes' alike, so only the moved key changes.
     public static func moveAnchor(in anchors: inout [String: Int], from old: String, to new: String) {
         if let anchor = anchors.removeValue(forKey: old) { anchors[new] = anchor }
     }
 
-    /// Whether a reported top row should be written down as this document's anchor.
-    ///
-    /// **The two reports that are not the reader's doing**, each of which wrote a wrong anchor
-    /// before it was excluded: there is no open document to key it by, or the outline is empty —
-    /// which is every moment between a file opening and its parse returning, when the scroll view
-    /// is reporting about rows that belong to nothing.
+    /// Whether a reported top row should be written down as this document's anchor. Not when there
+    /// is no open document to key it by, or the outline is empty (between a file opening and its
+    /// parse returning), since neither report is the reader's doing.
     static func recordsAnchor(path: String?, outlineIsEmpty: Bool, top: Int?) -> Bool {
         path != nil && !outlineIsEmpty && top != nil
     }

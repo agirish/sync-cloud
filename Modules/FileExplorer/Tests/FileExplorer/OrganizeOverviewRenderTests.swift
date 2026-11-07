@@ -5,34 +5,24 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// Organize's overview, in pixels.
-///
-/// **The defect this suite exists for was a screenshot, not a failing test.** The overview drew two
-/// findings and then stopped, roughly 200pt down a column of about a thousand, and what filled the
-/// rest was nothing. Every assertion about that screen was satisfied: the sections were right, the
-/// counts were scoped, the three states were kept apart. Emptiness is not a property any of them
-/// could see, and it is the property the user reported.
-///
-/// So these read the render back. Three claims: **the offer is a control** and not the tertiary
-/// grey text it replaced, **the findings carry real evidence** rather than a sample of size one,
-/// and **the pane is used**.
+/// Organize's overview, in pixels. Model assertions can be right while the screen is mostly empty,
+/// so these read the render back. Three claims: the offer is a control, not grey text; the findings
+/// carry real evidence, not a sample of one; and the pane is used.
 ///
 /// ## Why this mounts `OrganizeOverview` and not `LensWorkspaceView`
 ///
-/// Both were tried. Through `LensWorkspaceView` the first claim is untestable: a `.borderedProminent` button
-/// renders *unfilled* in an offscreen host — confirmed by writing the render out and looking at it,
-/// which is also how the cost line was caught rendering as illegible tertiary grey — so "is there a
-/// filled accent control" reads false with the control plainly on screen. Mounting the view
-/// directly gives the claim a seam it can use: ``OrganizeOverview/runnablePasses`` is exactly the
-/// difference between drawing that button and not, so the two renders differ in the one element
-/// under test and in nothing else.
+/// Through `LensWorkspaceView` the first claim is untestable: a `.borderedProminent` button renders
+/// unfilled in an offscreen host, so "is there a filled accent control" reads false with the
+/// control on screen. Mounted directly, ``OrganizeOverview/runnablePasses`` is exactly the
+/// difference between drawing that button and not, so two renders differ only in the element
+/// under test.
 ///
 /// `.machinePinned(.pixelSampling)`, like every suite here that samples a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct OrganizeOverviewRenderTests {
 
-    /// The Organize pane's real proportions — a tall column, which is the shape that made the old
-    /// screen's emptiness visible in the first place. A short canvas would hide it.
+    /// The Organize pane's real proportions: a tall column, where an empty lower half shows. A
+    /// short canvas would hide it.
     private static let canvas = CGSize(width: 560, height: 900)
 
     // MARK: Fixture
@@ -43,10 +33,8 @@ import Design
         OrganizeOverviewSection(lens: lens, blurb: blurb, state: state, isScanning: false)
     }
 
-    /// The state in the report: Duplicates answered, the file pass never run.
-    ///
-    /// `examples` is a parameter because one of the claims is about how many evidence lines a
-    /// finding draws, and that can only be measured by changing how many there are to draw.
+    /// Duplicates answered, the file pass never run. `examples` is a parameter because one claim is
+    /// about how many evidence lines a finding draws, measured by changing how many there are.
     private static func sections(examples: Int) -> [OrganizeOverviewSection] {
         [section(.toFile, .notScanned, blurb: "Loose files and where they belong."),
          section(.duplicates,
@@ -84,10 +72,9 @@ import Design
             .environment(\.colorScheme, .light)
         let host = NSHostingView(rootView: AnyView(subject))
         host.frame = CGRect(origin: .zero, size: Self.canvas)
-        // Without a window the content composites against the borderless window's own buffer and
-        // every comparison below reads as zero difference — "nothing painted", whatever the code
-        // did. `window.layoutIfNeeded()` is deliberately not used: it disarms AppKit's runaway
-        // guards, and a fixture that cannot fail is worse than no fixture.
+        // Without a window every comparison below reads as zero difference ("nothing painted"),
+        // whatever the code did. `window.layoutIfNeeded()` is deliberately not used: it disarms
+        // AppKit's runaway guards, and a fixture that cannot fail is worse than none.
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -108,10 +95,8 @@ import Design
 
     private static var fullBand: CGRect { CGRect(origin: .zero, size: canvas) }
 
-    /// Pixels that differ between two renders of the same band.
-    ///
-    /// **Differing pixels, not inked ones.** An ink tally cannot tell "the button is gone" from
-    /// "the button moved", and what is under test here is a single element appearing.
+    /// Pixels that differ between two renders of the same band. Differing, not inked: an ink tally
+    /// can't tell "the button is gone" from "the button moved".
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
         var n = 0
@@ -128,10 +113,8 @@ import Design
     }
 
     /// Rows carrying real ink, measured against a background sampled where content never reaches.
-    ///
-    /// Rows rather than a raw pixel tally: **an ink count cannot tell a tall card from a dense
-    /// one**, and the claims below are about how far down the column content reaches and how many
-    /// lines a card grew by.
+    /// Rows, not a pixel tally, because an ink count can't tell a tall card from a dense one, and
+    /// the claims below are about how far down content reaches and how many lines a card grew by.
     private func inkedRows(_ rep: NSBitmapImageRep, background: NSColor) -> [Int] {
         var rows: [Int] = []
         for y in 0..<rep.pixelsHigh {
@@ -150,18 +133,10 @@ import Design
 
     // MARK: The offer is a control, not a caption
 
-    /// **An unrun pass takes a card, where three tertiary footnotes used to sit.**
-    ///
-    /// Measured against the same screen with that pass answered, so what the diff contains is the
-    /// card itself rather than some property of the fixture.
-    ///
-    /// **This was once phrased as a claim about the button** — runnable versus not-runnable, on the
-    /// theory that `runnablePasses` moved only the control. Review made that false and better:
-    /// `pendingPasses` is now gated on runnability, so a non-runnable pass draws no card at all and
-    /// the old A/B silently began measuring the whole card while still being named for the button.
-    /// The button's presence needs no pixel test now — `noPassIsOfferedWithoutAWayToRunIt` pins
-    /// `pendingPasses ⊆ runnablePasses` directly, which makes a card without its button
-    /// unrepresentable rather than merely untested.
+    /// An unrun pass takes a card of its own. Measured against the same screen with that pass
+    /// answered, so the diff is the card itself. The button needs no pixel test:
+    /// `noPassIsOfferedWithoutAWayToRunIt` pins `pendingPasses ⊆ runnablePasses`, so a card without
+    /// its button can't be represented.
     @Test func anUnrunPassTakesACardOfItsOwn() throws {
         let band = Self.fullBand
         let pending = Self.sections(examples: 3)
@@ -183,51 +158,33 @@ import Design
                 "an unrun file pass added only \(Int(grew))pt of content — no card drawn")
     }
 
-    /// **How many rows the card actually drew** — counted off the screen, not asked of the model.
-    ///
-    /// The test above is necessary and was not sufficient, and the gap is worth stating because it
-    /// is the shape a fold defect comes in. It compares the screen with a Names section against the
-    /// screen without one, so it catches a card that draws the folded row *and takes its words from
-    /// the section*. The original defect drew the row and took its words from a **hard-coded
-    /// fallback inside the view** — identical on both sides of that comparison, so both renders
-    /// matched and the test passed. Reintroducing the real defect, both halves together, was green
-    /// on every model-level and diff-level assertion here.
-    ///
-    /// A model assertion cannot close it either: the pass's lens list can be perfectly right while
-    /// the view iterates something else beside it. So this counts the one mark a lens row cannot be
-    /// drawn without — the accent bracket on its leading edge — and requires one per lens.
-    /// It is **not** the only accent ink on the screen, which is what ``accentRowBrackets`` has to
-    /// work around; a row's bracket is identified by being one row tall, at 56 device pixels.
+    /// How many rows the card drew, counted off the screen, not asked of the model. A diff can't
+    /// see a row whose words come from a hard-coded fallback in the view (both renders match), and
+    /// the pass's lens list can be right while the view iterates something else. So this counts the
+    /// one mark a lens row can't be drawn without, the accent bracket on its leading edge, and
+    /// requires one per lens. Other accent ink is on the screen too, so ``accentRowBrackets`` keys
+    /// on a row's height (56 device pixels).
     @Test func theFileCardDrawsOneRowPerLens() throws {
         let mounted = mount(Self.sections(examples: 3))
         let rep = try #require(bitmap(mounted, Self.fullBand))
         let runs = Self.accentRowBrackets(rep)
         #expect(runs.count == OrganizePass.file.lenses.count,
                 "the file card drew \(runs.count) lens rows for \(OrganizePass.file.lenses.count) lenses — heights \(runs)")
-        // **What the first version of this test lacked.** A detector reading the wrong shape can
-        // land on the right count by luck — this one did, off a reporting section's bar — and a
-        // bare "did it find anything" cannot tell the two apart. One card draws its rows to one
-        // height, so runs that disagree about their height are not that card's brackets.
+        // A detector reading the wrong shape can land on the right count by luck, and a bare "did
+        // it find anything" can't tell. One card draws its rows to one height, so runs that
+        // disagree about their height are not that card's brackets.
         #expect(!runs.isEmpty, "found no row bracket at all — the detector is measuring nothing")
         #expect((runs.max() ?? 0) - (runs.min() ?? 0) <= 4,
                 "the runs counted as rows are \(runs) — differing heights mean this is not one card's brackets")
     }
 
-    /// Heights of the vertical accent runs that are **the height of a lens row**, in whichever
-    /// column carries the most of them. One per row.
+    /// Heights of the vertical accent runs that are the height of a lens row, in whichever column
+    /// carries the most of them. One per row.
     ///
-    /// **Not "the column with the most accent pixels", which is how the first version of this got
-    /// it wrong.** Calibrated against an all-unscanned fixture, where a lens row's bracket is the
-    /// only accent ink on the screen, it read the right column and the right count. Run against the
-    /// fixture this suite actually uses — two lenses *reporting* — a reporting section draws its
-    /// own accent bar, 6 device columns wide and 252 pixels tall, which outvoted the bracket's 168
-    /// and offered two long runs of its own. The count came out 2 whatever the card drew, so the
-    /// test passed against a card drawing three rows. A probe calibrated on one fixture and used on
-    /// another measures something adjacent to the claim.
-    ///
-    /// The row height is the discriminator, so it is what the filter keys on: a row's bracket is
-    /// 28pt (56 device pixels), a section's bar is several rows tall, and a tinted meter segment is
-    /// a few points. Accepting 30...120 keeps exactly the first.
+    /// Not "the column with the most accent pixels": a reporting section draws its own accent bar,
+    /// several rows tall, which outvotes the brackets. The row height is the discriminator: a row's
+    /// bracket is 28pt (56 device pixels), a section's bar is several rows tall, and a tinted meter
+    /// segment is a few points. Accepting 30...120 keeps exactly the first.
     private static func accentRowBrackets(_ rep: NSBitmapImageRep) -> [Int] {
         // A lens row is 28pt tall; the bounds are wide enough to survive a text-size change and
         // far from both other accent shapes on this screen.
@@ -240,7 +197,7 @@ import Design
             var runs: [Int] = []
             var start: Int?
             // One `colorAt` per pixel: this walks every pixel of the canvas once per column, and
-            // asking twice doubled a two-second test for nothing.
+            // asking twice would double the test's time.
             for y in 0..<rep.pixelsHigh {
                 let hit = isAccent(x, y)
                 if hit, start == nil { start = y }
@@ -252,13 +209,10 @@ import Design
         return (0..<rep.pixelsWide).map(rowRuns(inColumn:)).max { $0.count < $1.count } ?? []
     }
 
-    /// **A running pass shows its progress here, and stops offering to start.**
-    ///
-    /// Half the point of moving the scan onto this screen is that its progress lands here too — a
-    /// button that starts work and then hands you an unchanged screen is the same dead end as one
-    /// that navigates. The other half is that the offer must go while it runs: an unchanged
-    /// `Run the file pass` under a scan already in flight invites the second click that
-    /// `rescanFilingButton` disables itself to prevent.
+    /// A running pass shows its progress here, and stops offering to start. A button that starts
+    /// work and leaves the screen unchanged is a dead end, and an unchanged `Run the file pass`
+    /// under a scan in flight invites the second click that `rescanFilingButton` disables itself to
+    /// prevent.
     @Test func aRunningPassReplacesItsOfferWithProgress() throws {
         let band = Self.fullBand
         let idle = Self.sections(examples: 3)
@@ -274,24 +228,18 @@ import Design
                 "a scan in flight changed only \(Int(points))pt² — the card still reads idle")
     }
 
-    /// Every lens answered, so no pass card is on offer — the fixture that isolates the *rows*.
-    ///
-    /// Without this, `runnablePasses` moves two things at once (the pass cards and the row
-    /// controls), and a render diff could not say which of them it had measured.
+    /// Every lens answered, so no pass card is on offer: the fixture that isolates the rows.
+    /// Without it, `runnablePasses` moves both the pass cards and the row controls, and a render
+    /// diff couldn't say which it measured.
     private static func allAnswered() -> [OrganizeOverviewSection] {
         OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, .findings(count: 7, headline: "7 things", examples: ["evidence line"]))
         }
     }
 
-    /// **A lens that has already answered can re-run its own scan.**
-    ///
-    /// The gap this closes: the only scan control on the overview beside the pass cards was row 2's
-    /// Rescan, which runs the *file* pass alone — so Duplicates could be read from here but never
-    /// re-hashed, which is the pass whose answer ages fastest.
-    ///
-    /// Measured against a fixture where nothing is pending, so the pass cards are out of the
-    /// picture and `runnablePasses` moves only the row controls.
+    /// A lens that has already answered can re-run its own scan, so Duplicates, whose answer ages
+    /// fastest, can be re-hashed from here and not only the file pass. Measured on a fixture where
+    /// nothing is pending, so `runnablePasses` moves only the row controls.
     @Test func anAnsweredLensCanRerunItsOwnPass() throws {
         let band = Self.fullBand
         let a = try #require(bitmap(mount(Self.allAnswered()), band))
@@ -306,14 +254,9 @@ import Design
                 "no rescan control on an answered row (\(Int(points))pt² moved)")
     }
 
-    /// **A row says so while its scan runs** — the count gives way to a spinner rather than
-    /// redrawing a stale figure in confident bold.
-    ///
-    /// Named for what it actually measures. It was once called "withdraws its rescan control" and
-    /// **survived the mutation that removed the withdrawal**: the row changes so much when the
-    /// headline becomes a spinner that any threshold catching the button was already met without
-    /// it. The claim about the button needs a fixture where the spinner is not also moving, which
-    /// is the test below.
+    /// A row says so while its scan runs: the count gives way to a spinner rather than a stale
+    /// figure in bold. This can't also pin that the rescan control is withdrawn: the spinner
+    /// changes the row so much that any threshold catching the button is met without it.
     @Test func aRunningLensSaysSoInItsRow() throws {
         let band = Self.fullBand
         let idle = Self.allAnswered()
@@ -329,27 +272,14 @@ import Design
                 "a running Duplicates scan left its row unchanged (\(Int(points))pt² moved)")
     }
 
-    // **`aRunningLensWithdrawsItsRescanControl` lived here, and its claim moved rather than died.**
-    //
-    // It rendered every rescan-carrying row mid-scan, once with the passes runnable and once not,
-    // and required the two to be pixel-identical: if the withdrawal holds, neither draws a rescan.
-    // The isolation rested on `runnablePasses` moving *only* that button on an answered row, and
-    // that stopped being true when the findings card gained its cost line — the small print prices
-    // the rescan, so a host that cannot run the pass correctly shows neither. Both renders now
-    // differ by a line of text that has nothing to do with the claim.
-    //
-    // No A/B can isolate it again: runnability moves the note, and `isScanning` moves the count
-    // pill into a spinner, so every axis available here carries a second passenger. What replaced
-    // it is stronger than what it could have measured anyway —
-    // `OverviewCardConsistencyTests.aScanInFlightWithdrawsTheRescanAndKeepsTheWayIn` asserts on
-    // `OrganizeOverview.actions(for:)`, the one expression the card's `actions:` parameter is, and
-    // it names *which* control survives. That is the thing this test's own note said pixels could
-    // not do: "the spinner is in both, so it cannot stand in for the button". A list of titles has
-    // no such ambiguity, and it caught a regression this test could not see — a scanning row that
-    // withdrew its way in along with its rescan.
+    // No pixel test here pins that a scanning row withdraws its rescan: runnability also moves the
+    // cost line, and `isScanning` turns the count into a spinner, so every A/B axis carries a
+    // second change. `OverviewCardConsistencyTests.aScanInFlightWithdrawsTheRescanAndKeepsTheWayIn`
+    // pins it on `OrganizeOverview.actions(for:)`, the card's `actions:`, and names which control
+    // survives.
 
-    /// **Nothing on this screen says “Scan…” any more**, because nothing on it navigates instead of
-    /// scanning. A guard against the old control returning by the back door.
+    /// Nothing on this screen says “Scan…”, because nothing on it navigates instead of scanning. A
+    /// guard against a navigating scan link returning.
     @Test func theOverviewOffersNoNavigatingScanLink() throws {
         let code = try Self.overviewCode()
         #expect(!code.contains("\"Scan…\""),
@@ -363,13 +293,8 @@ import Design
                 "nothing records what this screen used to draw — the guard above proves nothing")
     }
 
-    /// The source with **comment lines removed**.
-    ///
-    /// Not fastidiousness: the first version of the guard above searched the raw file and failed on
-    /// this very file's prose, which quotes `"Scan…"` while explaining why the control went. A
-    /// source scan that cannot tell code from the comment describing it is the shape of check that
-    /// passes with the bug present — here it did the reverse, and either way it was not reading
-    /// what it claimed to.
+    /// The source with comment lines removed, because the file's comments quote `"Scan…"` and a
+    /// scan of the raw text would read prose as code.
     private static func overviewCode() throws -> String {
         try overviewSource()
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -388,12 +313,9 @@ import Design
 
     // MARK: The evidence is real
 
-    /// **A finding draws every example it is given, up to the limit.**
-    ///
-    /// Measured by changing how many there are: one line against three. Comparing two renders is
-    /// what makes this a test of the examples rather than of the card — a single fixture would be
-    /// satisfied by a view that drew one line and ignored the rest, which is exactly what the row
-    /// this replaces did, correctly, for its whole life.
+    /// A finding draws every example it is given, up to the limit. Measured by changing how many
+    /// there are, one against three: a single fixture would be satisfied by a view that drew one
+    /// line and ignored the rest.
     @Test func aFindingDrawsEveryExampleItIsGiven() throws {
         let band = Self.fullBand
         let one = try #require(bitmap(mount(Self.sections(examples: 1)), band))
@@ -420,10 +342,8 @@ import Design
 
     // MARK: The pane is used
 
-    /// **The content reaches down the column instead of stopping a fifth of the way.**
-    ///
-    /// The complaint, stated as a measurement. The floor is deliberately far below what the current
-    /// layout produces — this is a guard against a *collapse* back to a near-empty pane, not a
+    /// The content reaches down the column instead of stopping a fifth of the way. The floor is far
+    /// below what the layout produces: a guard against collapse to a near-empty pane, not a
     /// pixel-accurate lock on the design.
     @Test func theOverviewFillsMoreThanTheTopOfThePane() throws {
         let band = Self.fullBand
@@ -438,13 +358,9 @@ import Design
 
     // MARK: The backlog nudge (proposal O15)
 
-    /// **The sentence itself is drawn** — not merely a row of the right height.
-    ///
-    /// Comparing "no nudge" against "a nudge" only proves the layout got taller: the row is
-    /// inserted above every section, so any height change shifts the whole column and the diff
-    /// counts the shift. Replacing the row's body with a blank `Color.clear` of the same height
-    /// passed that test. Two nudges of the SAME height carrying DIFFERENT sentences cannot be
-    /// satisfied that way — a blank row renders identically for both.
+    /// The sentence itself is drawn, not merely a row of the right height. "No nudge" against "a
+    /// nudge" only proves the layout got taller, which a blank row would pass. Two nudges of the
+    /// same height with different sentences can't be passed that way.
     @Test func theNudgesOwnSentenceIsDrawn() throws {
         func mounted(_ sentence: String) -> Mounted {
             mount(Self.sections(examples: 1),
@@ -473,14 +389,10 @@ import Design
                 "the nudge line takes its own space on the surface")
     }
 
-    /// **And it stays out of the ledger** — checked where the ledger is actually computed, plus
-    /// the render.
-    ///
-    /// The render half alone would not prove it: `mount` passes a `Ledger` the test constructs,
-    /// so the production derivation is never called and a version that counted the nudge would
-    /// still draw identical tiles here. `Ledger.derived` takes only the sections and the runnable
-    /// passes — the nudge is not among its inputs, which is the structural reason it cannot
-    /// disturb the ratio, and the assertion below is on that signature's behaviour.
+    /// And it stays out of the ledger, checked where the ledger is computed as well as in the
+    /// render. The render alone proves nothing, since `mount` passes a `Ledger` the test builds.
+    /// `Ledger.derived` takes only the sections and the runnable passes, so the nudge can't reach
+    /// the ratio.
     @Test func theNudgeDoesNotTouchTheChecksLedger() throws {
         // The derivation the workspace uses, over the same sections, is the number that must not
         // move; nothing about a nudge can reach it.

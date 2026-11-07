@@ -1,10 +1,9 @@
 import Foundation
 
 /// Makes invisible name characters visible in UI labels. A folder named "Swimming " (trailing
-/// space) renders pixel-identical to its sibling "Swimming", so the panes can show two
-/// "identical" rows that are actually different items — the marked form ("Swimming␣")
-/// disambiguates them. Names without affix whitespace come through untouched, so ordinary
-/// rows render exactly as before.
+/// space) renders identical to its sibling "Swimming", so two rows that are different items look
+/// the same; the marked form ("Swimming␣") tells them apart. Names without leading or trailing
+/// whitespace come through untouched.
 public enum NameDisplay {
     /// U+2423 OPEN BOX — the standard visible-space glyph.
     private static let visibleSpace: Character = "␣"

@@ -4,14 +4,13 @@ import SwiftUI
 import PDFToolkitCore
 @testable import FileExplorer
 
-/// **What Edit's PDF reader says** — the PDF reader group of Edit's small fixes: the spinners'
-/// words (TE161, TE188), Clean Metadata's notes (TE162), a file only in the cloud (TE185) and the
-/// toolkit's refusals in Edit's words (TE186).
+/// What Edit's PDF reader says: the spinners' words, Clean Metadata's notes, a file only in the
+/// cloud, and the toolkit's refusals in Edit's words.
 @MainActor
 @Suite struct EditorPDFReaderWordsTests {
 
-    /// **A spinner says what it waits for** — the card while a PDF opens, Clean Metadata's sheet
-    /// while it reads — in the Pages and Outline tabs' words.
+    /// A spinner says what it waits for (the card while a PDF opens, Clean Metadata's sheet while it
+    /// reads), in the Pages and Outline tabs' words.
     @Test func theSpinnersSayReadingThePDF() throws {
         #expect(EditorPDFDocument.readingCaption == "Reading the PDF…")
         #expect(EditorPDFRailPages.caption(phase: .loading) == EditorPDFDocument.readingCaption)
@@ -25,9 +24,8 @@ import PDFToolkitCore
         #expect(ChromeGlassWiringTests.count("ProgressView().controlSize(.small)\n            }", in: sheets) == 0)
     }
 
-    /// **Clean Metadata says what the copy keeps** (TE162): a form PDF's copy holds the five fields
-    /// and nothing else, its XMP kept; any other loses its XMP and gets the system's Producer and
-    /// dates. Save stays (decision BO).
+    /// Clean Metadata says what the copy keeps: a form PDF's copy holds the five fields and nothing
+    /// else, its XMP kept; any other loses its XMP and gets the system's Producer and dates.
     @Test func cleanMetadataSaysWhatTheCopyKeeps() {
         var fields = PDFMetadataFields.cleared
         fields.producer = "Quartz PDFContext"
@@ -44,8 +42,8 @@ import PDFToolkitCore
             "replaced with the system’s own (removed, for a PDF with a fillable form)."))
     }
 
-    /// **A file only in the cloud now says to download it, and offers Download** (TE185) — the
-    /// sheet's Download for that failure alone, and for the open file.
+    /// A file only in the cloud says to download it and offers Download: the sheet's Download, for
+    /// that failure alone and for the open file.
     @Test func aCloudOnlyFileOffersDownload() {
         #expect(EditorPDFTools.cloudOnlyReason("Lease.pdf") == "“Lease.pdf” is only in the cloud now. Download it, then try again.")
         let tools = EditorPDFTools()
@@ -64,8 +62,8 @@ import PDFToolkitCore
         #expect(view?.contains("if let path = banner.download {") == true, "the banner draws no Download")
     }
 
-    /// **The toolkit's refusals in Edit's words** (TE186), naming the file the reader opened — a
-    /// link's, not its target's.
+    /// The toolkit's refusals in Edit's words, naming the file the reader opened: a link's, not its
+    /// target's.
     @Test func theToolkitsWordsAreEdits() {
         let target = URL(fileURLWithPath: "/Volumes/Archive/2019 statement.pdf")
         let compress = EditorPDFTool.compress(.quality(0.6))
@@ -83,8 +81,8 @@ import PDFToolkitCore
                 == "Couldn’t open “Statement.pdf” — it may be damaged.")
     }
 
-    /// **Clean Metadata's sheet says a file it can't read in the same words**, naming the link it
-    /// was opened by.
+    /// Clean Metadata's sheet reports a file it can't read in the same words, naming the link it was
+    /// opened by.
     @Test func cleanMetadataNamesTheFileItCantRead() async throws {
         let folder = NSTemporaryDirectory() + "pdf-reader-words-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)

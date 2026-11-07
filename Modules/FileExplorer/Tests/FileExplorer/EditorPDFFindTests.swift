@@ -7,7 +7,7 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// PDFs with chosen text, a line per string — so a phrase can be split across two lines the way a
+/// PDFs with chosen text, a line per string, so a phrase can be split across two lines the way a
 /// typeset page splits it.
 enum PDFTextFixtures {
     static func write(_ path: String, pages: [[String]]) {
@@ -28,14 +28,14 @@ enum PDFTextFixtures {
     }
 }
 
-/// **The matching rules, without a PDF.**
+/// The matching rules, without a PDF.
 @Suite struct EditorPDFTextMatchTests {
 
     private func matched(_ query: String, in text: String) -> [String] {
         EditorPDFTextMatch.ranges(of: query, in: text).map { (text as NSString).substring(with: $0) }
     }
 
-    /// **A phrase broken across a line still matches**, and the match covers the break — so its
+    /// A phrase broken across a line still matches, and the match covers the break, so its
     /// selection spans both lines on the page.
     @Test func aPhraseMatchesAcrossALineBreak() {
         #expect(matched("quarterly report", in: "See the quarterly\nreport below.") == ["quarterly\nreport"])
@@ -54,9 +54,9 @@ enum PDFTextFixtures {
         #expect(matched("final", in: "the \u{FB01}nal figure") == ["\u{FB01}nal"])
     }
 
-    /// **A hyphen that ends a line is optional** (TE163): the word broken there is found whole,
-    /// and so is a hyphenated compound — the match covers the hyphen and the break. A hyphen in
-    /// the middle of a line stays a hyphen.
+    /// A hyphen that ends a line is optional: the word broken there is found whole, and so is a
+    /// hyphenated compound, the match covering the hyphen and the break. A hyphen mid-line stays a
+    /// hyphen.
     @Test func aHyphenAtALineEndIsOptional() {
         #expect(matched("example", in: "an exam-\nple here") == ["exam-\nple"])
         #expect(matched("well-known", in: "a well-\r\n  known name") == ["well-\r\n  known"])
@@ -79,7 +79,7 @@ enum PDFTextFixtures {
         #expect(matched("x", in: "").isEmpty)
     }
 
-    /// **From the page on screen, wrapping** — the order turns are asked for.
+    /// The order page turns are asked for: from the page on screen, wrapping.
     @Test func pagesAreSearchedFromTheCurrentOneAndWrap() {
         #expect(EditorPDFFind.order(start: 3, count: 5) == [3, 4, 0, 1, 2])
         #expect(EditorPDFFind.order(start: 0, count: 3) == [0, 1, 2])
@@ -104,10 +104,10 @@ enum PDFTextFixtures {
     }
 }
 
-/// **Find inside an open PDF** — `EditorPDFFind`, searched a page per lane turn from a document of
-/// its own. Serialized for `EditorPDFDocumentTests`' reason; the turns that must be held are held
-/// on a lane of the test's own (`EditorPDFRailTests.HeldLane`), and the one test that holds the
-/// process's lane does it from a detached task.
+/// `EditorPDFFind`: find inside an open PDF, a page per lane turn, from a document of its own.
+/// Serialized for `EditorPDFDocumentTests`' reason. Turns that must be held are held on a lane of
+/// the test's own (`EditorPDFRailTests.HeldLane`); the one test that holds the process's lane does
+/// it from a detached task.
 @MainActor
 @Suite(.serialized) final class EditorPDFFindTests {
 
@@ -122,7 +122,7 @@ enum PDFTextFixtures {
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// Waits until `done` holds — bounded in turns, a labeled failure rather than a hang.
+    /// Waits until `done` holds; bounded in turns, so it fails with a label instead of hanging.
     @discardableResult
     private func wait(_ label: String, turns: Int = 4000, until done: () -> Bool) async -> Bool {
         for _ in 0..<turns {
@@ -157,7 +157,7 @@ enum PDFTextFixtures {
 
     // MARK: The search
 
-    /// **Turns start at the page on screen and wrap**, and the first match shown is that page's.
+    /// Turns start at the page on screen and wrap, and the first match shown is that page's.
     @Test func theSearchStartsAtTheCurrentPageAndWraps() async {
         let view = EditorPDFViewState()
         view.currentPage = 3
@@ -174,7 +174,7 @@ enum PDFTextFixtures {
         #expect(find.caption == "4 of 5")
     }
 
-    /// **⌘G and ⇧⌘G wrap**, and each step asks for its match's page.
+    /// ⌘G and ⇧⌘G wrap, and each step asks for its match's page.
     @Test func steppingWrapsBothWays() async {
         let view = EditorPDFViewState()
         let find = find(needles(), pages: 5, view: view)
@@ -192,7 +192,7 @@ enum PDFTextFixtures {
         #expect(view.pageRequest?.value == 1)
     }
 
-    /// **A phrase broken across two lines on a real page is found, as one match on two lines.**
+    /// A phrase broken across two lines on a real page is found, as one match on two lines.
     @Test func aPhraseBrokenAcrossLinesIsFoundOnThePage() async {
         let file = path("broken.pdf")
         PDFTextFixtures.write(file, pages: [["The annual", "statement is enclosed."]])
@@ -204,8 +204,8 @@ enum PDFTextFixtures {
         #expect(find.matches.first?.rects.count == 2, "the match is not drawn on both lines")
     }
 
-    /// **A changed query withdraws the turn already queued**: held behind the lane, the first
-    /// search's page turn comes up after the second has started, and must skip without reading.
+    /// A changed query withdraws the turn already queued: held behind the lane, the first search's
+    /// page turn comes up after the second has started, and must skip without reading.
     @Test func aChangedQueryWithdrawsItsQueuedPages() async {
         let lane = HeldLane()
         defer { lane.release() }
@@ -226,7 +226,7 @@ enum PDFTextFixtures {
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
     }
 
-    /// **Esc and Done clear what was drawn.**
+    /// Esc and Done clear what was drawn.
     @Test func hidingClearsTheHighlights() async {
         let find = find(needles(pages: 3), pages: 3)
         find.show()
@@ -243,8 +243,8 @@ enum PDFTextFixtures {
         #expect(find.matches.count == 3)
     }
 
-    /// **The card keeps its width while the count changes** — the capsule slides clear of the card,
-    /// so a card as wide as its count moved a capsule docked beside it at every step of a search.
+    /// The card keeps its width while the count changes. The capsule slides clear of the card, so a
+    /// card as wide as its count would move a capsule docked beside it at every step of a search.
     @Test func theFindCardKeepsItsWidthAsTheCountChanges() async {
         let find = find(needles(pages: 3), pages: 3)
         func width() -> CGFloat { NSHostingView(rootView: EditorPDFFindBar(find: find, accent: .blue)).fittingSize.width }
@@ -263,9 +263,8 @@ enum PDFTextFixtures {
         }
     }
 
-    /// **The highlights are the matches, by page, in their order** — kept as each page lands, from a
-    /// search that started mid-file and wrapped, and gone with a new query. They used to be rebuilt
-    /// from every match on every read of the reader's body.
+    /// The highlights are the matches, by page, in their order: kept as each page lands, from a
+    /// search that started mid-file and wrapped, and gone with a new query.
     @Test func theHighlightsAreTheMatchesByPage() async {
         let file = path("twice.pdf")
         PDFTextFixtures.write(file, pages: (0..<6).map { ["Page \($0 + 1): a needle,", "and a second needle."] })
@@ -289,7 +288,7 @@ enum PDFTextFixtures {
         #expect(Array(find.highlights.pages.keys) == [2], "pages lit from an earlier query: \(find.highlights.pages.keys.sorted())")
     }
 
-    /// **Hiding withdraws the turn already queued**, as a changed query does.
+    /// Hiding withdraws the turn already queued, as a changed query does.
     @Test func hidingWithdrawsItsQueuedPages() async {
         let lane = HeldLane()
         defer { lane.release() }
@@ -308,7 +307,7 @@ enum PDFTextFixtures {
         #expect(find.matches.isEmpty)
     }
 
-    /// **A turn that waits on the lane says so** — and stops saying it once it runs.
+    /// A turn that waits on the lane says so, and stops once it runs.
     @Test func aTurnThatWaitsSaysSo() async {
         let lane = HeldLane()
         defer { lane.release() }
@@ -326,7 +325,7 @@ enum PDFTextFixtures {
         #expect(!find.isWaiting)
     }
 
-    /// **⌘E takes the reader's selection; nothing selected changes nothing.**
+    /// ⌘E takes the reader's selection; nothing selected changes nothing.
     @Test func useSelectionTakesTheSelectionAsTheQuery() async {
         let find = find(needles(pages: 2), pages: 2)
         #expect(!find.useSelection(nil))
@@ -340,8 +339,8 @@ enum PDFTextFixtures {
 
     // MARK: The lane and the reader's document
 
-    /// **A page turn runs inside `PDFKitSerialAccess`**: with the process's lane held, nothing is
-    /// read; released, the page is.
+    /// A page turn runs inside `PDFKitSerialAccess`: with the process's lane held, nothing is read;
+    /// released, the page is.
     @Test func aFindPageRunsThroughTheLane() async throws {
         let file = needles("lane.pdf", pages: 1)
         let source = EditorPDFFind.Source(path: file)
@@ -362,8 +361,8 @@ enum PDFTextFixtures {
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
     }
 
-    /// **No text is ever read from the reader's document** — the search reads its own, and the
-    /// reader's is never handed to it, opened or unlocked.
+    /// No text is ever read from the reader's document: the search reads its own, and the reader's
+    /// is never handed to it, opened or unlocked.
     @Test func theReadersDocumentIsNeverSearched() async throws {
         let pdf = await opened(needles("reader.pdf", pages: 3))
         let reader = try #require(pdf.document)
@@ -393,7 +392,7 @@ enum PDFTextFixtures {
         #expect(!readUnlocked.contains(ObjectIdentifier(unlockedReader)))
     }
 
-    /// **An image-only PDF says so and never queues a page.**
+    /// An image-only PDF says so and never queues a page.
     @Test func anImageOnlyPDFHasNothingToSearch() async throws {
         let file = path("scan.pdf")
         PDFFixtures.write(file, pages: 4, text: false)
@@ -410,9 +409,8 @@ enum PDFTextFixtures {
         #expect(try #require(pdf.find.currentSource).readDocuments.withLock { $0 }.isEmpty)
     }
 
-    /// **A book whose first pages are scans is still searched** — a cover and plates in front of a
-    /// text body. The facts asked only the first five pages for text, called it image only, and
-    /// Find refused the whole book.
+    /// A book whose first pages are scans (a cover and plates before a text body) is still
+    /// searched, so the text probe must look past the first five pages.
     @Test func aPDFWhoseFrontPagesAreScansIsStillSearched() async throws {
         let scans = path("plates.pdf"), body = needles("body.pdf", pages: 3), book = path("book.pdf")
         PDFFixtures.write(scans, pages: 6, text: false)
@@ -431,9 +429,9 @@ enum PDFTextFixtures {
         #expect(pdf.find.matches.count == 3)
     }
 
-    /// **A PDF evicted while open is not downloaded by a search.** Esc lets the search's copy go and
-    /// the next search reopens it from the path — on a dataless file `PDFDocument(url:)` would fetch
-    /// it, in the lane. Its pages fail instead, and no document is opened.
+    /// A PDF evicted while open is not downloaded by a search. Esc lets the search's copy go and the
+    /// next search reopens it from the path, where `PDFDocument(url:)` would fetch a dataless file
+    /// in the lane. Its pages fail instead, and no document is opened.
     @Test func aSearchDoesNotDownloadAFileEvictedWhileOpen() async throws {
         let pdf = await opened(needles("evicted.pdf", pages: 6))
         pdf.find.isCloudOnly = { _ in true }
@@ -446,7 +444,7 @@ enum PDFTextFixtures {
         #expect(pdf.find.failedPages == 6 && pdf.find.matches.isEmpty)
     }
 
-    /// **Closing the PDF withdraws the search and lets its document go**; the query is kept.
+    /// Closing the PDF withdraws the search and lets its document go; the query is kept.
     @Test func closingWithdrawsTheSearchAndReleasesItsDocument() async throws {
         let pdf = await opened(needles("close.pdf", pages: 40))
         pdf.find.show()
@@ -462,7 +460,7 @@ enum PDFTextFixtures {
 
     // MARK: Drawing
 
-    /// **The highlights are drawn by an overlay on top of the pages, from geometry**: setting them
+    /// The highlights are drawn from geometry by an overlay on top of the pages: setting them
     /// installs it above PDFKit's own views and maps a page rect through `convert(_:from:)`.
     @Test func theOverlaySitsOnTopAndMapsPageRects() throws {
         let file = needles("overlay.pdf", pages: 2)
@@ -482,9 +480,9 @@ enum PDFTextFixtures {
         #expect(overlay.highlights.isEmpty)
     }
 
-    /// **Esc is wired to hide**, from the bar's own field — a key a hosted field cannot be sent —
-    /// and so is the card's × (Phase 6a: the card's close, where the bar had Done). The card is
-    /// mounted over the pages, in the canvas, and no longer under the header.
+    /// Esc in the bar's own field hides it, and so does the card's ×; read from the source, since a
+    /// hosted field can't be sent the key. The card is mounted over the pages in the canvas, not
+    /// under the header.
     @Test func escInTheFieldHidesTheBar() throws {
         let source = try ChromeGlassWiringTests.source("EditorPDFFindBar.swift")
         #expect(source.contains(".onExitCommand { find.hide() }"), "Esc in the PDF find field no longer hides the bar")
@@ -497,8 +495,8 @@ enum PDFTextFixtures {
 
     // MARK: Review fixes (2026-10-17)
 
-    /// **Typing back to the query searched drops the settle pending for what was typed between** —
-    /// it returned early and left that search to fire.
+    /// Typing back to the query already searched drops the settle pending for what was typed in
+    /// between, rather than returning early and letting that search fire.
     @Test func typingBackToTheQueryDropsTheStaleSettle() async {
         let find = find(needles(pages: 2), pages: 2)
         find.show()
@@ -512,8 +510,8 @@ enum PDFTextFixtures {
         #expect(find.searchesStarted == started, "typing back to the query searched again")
     }
 
-    /// **⌘E on a hidden bar searches once — for the selection**, and a selection made across lines
-    /// is put on one.
+    /// ⌘E on a hidden bar searches once, for the selection, and a selection across lines is put on
+    /// one.
     @Test func useSelectionSearchesOnceAndOnOneLine() async {
         let file = path("lines.pdf")
         PDFTextFixtures.write(file, pages: [["The annual", "statement is enclosed."]])
@@ -527,7 +525,7 @@ enum PDFTextFixtures {
         #expect(find.matches.count == 1)
     }
 
-    /// **A PDF whose text cannot be read says so**, rather than "Not found".
+    /// A PDF whose text can't be read says so, rather than "Not found".
     @Test func aPDFWhoseTextCannotBeReadSaysSo() async {
         let file = path("not-a-pdf.pdf")
         FileManager.default.createFile(atPath: file, contents: Data("not a pdf".utf8))
@@ -538,7 +536,7 @@ enum PDFTextFixtures {
         #expect(find.caption == EditorPDFFind.unreadableCaption)
     }
 
-    /// **Hiding lets the search's document go and gives the pages the keyboard back.**
+    /// Hiding lets the search's document go and gives the pages the keyboard back.
     @Test func hidingReleasesTheDocumentAndHandsBackTheKeyboard() async throws {
         let view = EditorPDFViewState()
         let find = find(needles(pages: 2), pages: 2, view: view)
@@ -554,7 +552,7 @@ enum PDFTextFixtures {
         #expect(view.focusRequest == focus + 1, "a second Esc asked again with nothing closed")
     }
 
-    /// **A finished search logs one line, without the query; a withdrawn one logs nothing.**
+    /// A finished search logs one line, without the query; a withdrawn one logs nothing.
     @Test func aFinishedSearchLogsOneLineWithoutTheQuery() async {
         // Named so the path holds neither query word: the check is on the line, not the file.
         let find = find(needles("plain.pdf", pages: 3), pages: 3)
@@ -574,7 +572,7 @@ enum PDFTextFixtures {
                 == "Editor searched /p.pdf (PDF, 1 page): 1 match in 1.5 s — 2 page turns waited on other PDF work — 1 page unreadable")
     }
 
-    /// **A reload under an open bar searches the new file again.**
+    /// A reload under an open bar searches the new file again.
     @Test func aReloadUnderTheBarSearchesAgain() async {
         let file = needles(pages: 3)
         let find = find(file, pages: 3)
@@ -587,8 +585,8 @@ enum PDFTextFixtures {
         #expect(find.matches.count == 3)
     }
 
-    /// **The tint leaves the text readable**: black text under the current match's tint against
-    /// the tinted page, at WCAG's 4.5:1 for body text.
+    /// The tint leaves the text readable: black text under a match's tint against the tinted page
+    /// reaches WCAG's 4.5:1 for body text.
     @Test func theHighlightLeavesTheTextReadable() throws {
         let tint = try #require(NSColor.findHighlightColor.usingColorSpace(.sRGB))
         func over(_ base: CGFloat, alpha: CGFloat) -> [CGFloat] {
@@ -605,7 +603,7 @@ enum PDFTextFixtures {
         }
     }
 
-    /// **Zooming redraws the highlights**, and a page turn does too — the clip's bounds need not move.
+    /// Zooming redraws the highlights, and so does a page turn; the clip's bounds need not move.
     @Test func zoomingRedrawsTheHighlights() throws {
         let file = needles("zoom.pdf", pages: 2)
         let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
@@ -626,8 +624,8 @@ enum PDFTextFixtures {
         #expect(overlay.needsDisplay, "a page turn left the highlights where the pages were")
     }
 
-    /// **A step to a match on its own page does not jump to the page's top first**, and a match
-    /// already in sight is not scrolled to.
+    /// A step to a match on its own page doesn't jump to the page's top first, and a match already
+    /// in sight is not scrolled to.
     @Test func showingAMatchDoesNotJumpThePage() throws {
         let reveal = EditorPDFReveal(pageIndex: 3, rect: .zero)
         #expect(!EditorPDFPageView.goesToPageTop(page: 3, reveal: reveal))
@@ -649,8 +647,8 @@ enum PDFTextFixtures {
         let first = try #require(document.page(at: 0)), last = try #require(document.page(at: 5))
         #expect(EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: first, in: reader))
         #expect(!EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: last, in: reader))
-        // **Under the find card is not in sight**, though the card keeps no band: a step there
-        // scrolls the match out. The card is in the canvas's top-left space, as SwiftUI places it.
+        // Under the find card is not in sight, though the card keeps no band: a step there scrolls
+        // the match out. The card is in the canvas's top-left space, as SwiftUI places it.
         let match = CGRect(x: 72, y: 650, width: 100, height: 20)
         let drawn = reader.convert(match, from: first)
         reader.coveredRects = [CGRect(x: drawn.minX - 4, y: reader.bounds.height - drawn.maxY - 4,
@@ -660,9 +658,9 @@ enum PDFTextFixtures {
         #expect(EditorPDFPageView.isInSight(match, on: first, in: reader), "a card clear of the match hid it")
     }
 
-    /// **A step to a match under a floating piece brings it out** — not only judges it covered.
-    /// PDFKit's `go(to:on:)` does nothing for a rect already on screen, so a match under Fill &
-    /// Sign's palette in the middle of the canvas stayed under it at every ⌘G.
+    /// A step to a match under a floating piece brings it out, not only judges it covered. PDFKit's
+    /// `go(to:on:)` does nothing for a rect already on screen, so relying on it would leave a match
+    /// under Fill & Sign's palette at every ⌘G.
     @Test func aMatchUnderThePaletteIsScrolledClearOfIt() throws {
         let file = needles("palette.pdf", pages: 6)
         let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
@@ -693,9 +691,8 @@ enum PDFTextFixtures {
         #expect(abs(moved.midY - drawn.midY) < 200, "the match moved \(moved.midY - drawn.midY)pt for a 240pt piece")
     }
 
-    /// **The find card and the pieces beside it slide as the card changes size** (TE159) — the
-    /// count coming and going and the waiting line, not each new count — and nothing slides for a
-    /// window resize alone.
+    /// The find card and the pieces beside it slide as the card changes shape (the count or the
+    /// waiting line coming and going, not each new count), and nothing slides for a window resize.
     @Test func theFindCardAndItsNeighboursSlide() throws {
         #expect(EditorPDFFindBar.shape(caption: "") == 0)
         #expect(EditorPDFFindBar.shape(caption: "1 of 12 so far") == EditorPDFFindBar.shape(caption: "3 of 9"))
@@ -708,8 +705,8 @@ enum PDFTextFixtures {
         #expect(!canvas.contains("value: canvas)"), "the pieces slide for a window resize")
     }
 
-    /// **A bookmark's place comes to the top of the view** (TE187), not its page's top — and out
-    /// from under a piece floating there.
+    /// A bookmark's place comes to the top of the view, not its page's top, and out from under a
+    /// piece floating there.
     @Test func aBookmarksPlaceComesToTheTop() throws {
         let file = needles("bookmark.pdf", pages: 6)
         let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
@@ -740,9 +737,9 @@ enum PDFTextFixtures {
         #expect(below > 60 && below < 160, "the heading is \(below)pt down, under the piece or far below it")
     }
 
-    /// **The pages' right-click menu keeps PDFKit's text items and drops its view controls** —
-    /// Automatically Resize, the zooms and the display modes changed the view behind the reader's
-    /// state, so a layout picked there snapped back while the capsule showed another.
+    /// The pages' right-click menu keeps PDFKit's text items and drops its view controls:
+    /// Automatically Resize, the zooms and the display modes change the view behind the reader's
+    /// state, so a layout picked there would snap back while the capsule showed another.
     @Test func theRightClickMenuHasNoViewControls() throws {
         let file = needles("menu.pdf", pages: 2)
         let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
@@ -754,7 +751,7 @@ enum PDFTextFixtures {
         let click = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 300, y: 400), modifierFlags: [],
                                                     timestamp: 0, windowNumber: window.windowNumber, context: nil,
                                                     eventNumber: 0, clickCount: 1, pressure: 1))
-        // Over a page with nothing selected PDFKit offers only its view controls — so no menu at all.
+        // Over a page with nothing selected PDFKit offers only its view controls, so no menu at all.
         #expect(reader.menu(for: click) == nil)
         // On selected text: Copy, and nothing that drives the view.
         let page = try #require(reader.document?.page(at: 0))
@@ -782,8 +779,8 @@ enum PDFTextFixtures {
         #expect(own.contains("zoomIn:") || own.contains("_setAutoSize:"), "PDFKit's menu has no view controls to remove: \(own)")
     }
 
-    /// **⌘A over the pages selects the page on screen** — the spread in a two-page layout — not the
-    /// whole PDF, whose every page PDFKit read on the main thread first (decided 2026-10-20).
+    /// ⌘A over the pages selects the page on screen (the spread in a two-page layout), not the
+    /// whole PDF, which would make PDFKit read every page on the main thread first.
     @Test func selectAllTakesThePageOnScreen() throws {
         let file = needles("select.pdf", pages: 6)
         let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
@@ -809,7 +806,7 @@ enum PDFTextFixtures {
         #expect(spread == [3, 4], "the cover-separately spread holding page 4 is 4–5: \(spread)")
     }
 
-    /// **The least vertical move that clears every piece**, inside the clear rect — or none.
+    /// The least vertical move that clears every piece, inside the clear rect, or none.
     @Test func theClearingShiftsAreTheLeastMovesOutFirst() {
         let clear = CGRect(x: 0, y: 0, width: 400, height: 600)
         let shown = CGRect(x: 20, y: 290, width: 100, height: 20)
@@ -826,7 +823,7 @@ enum PDFTextFixtures {
         #expect(EditorPDFPageView.clearingShifts(of: shown, clear: clear, covered: [clear]).isEmpty)
     }
 
-    /// **Esc in the pages closes the bar when it is up**, and goes on as before when it is not.
+    /// Esc in the pages closes the bar when it is up, and goes on as before when it is not.
     @Test func escInThePagesClosesTheBar() throws {
         let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
         var closes = 0
@@ -847,8 +844,8 @@ enum PDFTextFixtures {
         #expect(!source.contains(".disabled(!find.isSearchable)"), "the field is disabled, so Esc cannot reach it")
     }
 
-    /// **⌘E's selection is read from the page view mounted now** — one torn down after its
-    /// successor was built leaves the successor's in place.
+    /// ⌘E's selection is read from the page view mounted now: one torn down after its successor
+    /// was built leaves the successor's in place.
     @Test func anOldPageViewKeepsItsHandsOffTheNewOnesSelection() {
         let state = EditorPDFViewState()
         let old = ReaderPDFView(), new = ReaderPDFView()

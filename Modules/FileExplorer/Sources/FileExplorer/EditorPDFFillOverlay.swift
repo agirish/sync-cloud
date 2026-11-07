@@ -3,26 +3,26 @@ import Combine
 import PDFKit
 import PDFToolkitCore
 
-/// **Fill & Sign's items over the reader's pages** — drawn, placed, moved, resized and typed into.
+/// Fill & Sign's items over the reader's pages: drawn, placed, moved, resized and typed into.
 ///
-/// It sits on top of the page view, above the find's highlights, the size of the view. **It takes
-/// a click only when it has something to do with it** (``hitTest(_:)``): on an item, on a page while
-/// a tool is chosen, or anywhere while something is selected (that click lets it go). Everything
-/// else goes through to PDFKit, so the pages still scroll and their text still selects.
+/// It sits on top of the page view, above the find's highlights, the size of the view. It takes a
+/// click only when it has something to do with it (``hitTest(_:)``): on an item, on a page while a
+/// tool is chosen, or anywhere while something is selected (that click lets it go). Everything else
+/// goes through to PDFKit, so the pages still scroll and their text still selects.
 ///
-/// **It answers ⌘Z itself, with Fill & Sign's own stack.** `PDFView` validates menu items of its own
-/// (it responds to `validateMenuItem:`), so undo cannot be answered on the reader without guessing
+/// It answers ⌘Z itself, with Fill & Sign's own stack. `PDFView` validates menu items of its own
+/// (it responds to `validateMenuItem:`), so undo can't be answered on the reader without guessing
 /// what PDFKit says about every other item. While the palette is up this view takes the keyboard
-/// whenever the reader would — it is inside the reader, so the pages still "have focus" for ⌘+ and
-/// ⌘− — and keys it does not use go on up to the reader (⌥← and ⌥→).
+/// whenever the reader would (it is inside the reader, so the pages still "have focus" for ⌘+ and
+/// ⌘−), and keys it doesn't use go on up to the reader (⌥← and ⌥→).
 ///
 /// Drawing matches the copy: words in the toolkit's own face at the item's point size, a drawn
-/// signature as strokes of the toolkit's pen width — so what is on screen is what Save writes.
+/// signature as strokes of the toolkit's pen width, so what is on screen is what Save writes.
 ///
-/// **A PDF's own form fields are drawn here too, not by PDFKit** (Phase 5c, mockup 19): each widget
-/// tinted from the rects pdf-toolkit read, a changed one covered and drawn with its new value, and
-/// typed into through a field of this view's own. The reader's document never takes a value — its
-/// widgets are read-only (``EditorPDFForm/lockWidgets(in:)``) — so the copy rule holds.
+/// A PDF's own form fields are drawn here too, not by PDFKit: each widget tinted from the rects
+/// pdf-toolkit read, a changed one covered and drawn with its new value, and typed into through a
+/// field of this view's own. The reader's document never takes a value (its widgets are read-only,
+/// ``EditorPDFForm/lockWidgets(in:)``), so the copy rule holds.
 final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidation, NSViewToolTipOwner {
     weak var reader: ReaderPDFView?
     weak var fill: EditorPDFFillSign? {
@@ -40,36 +40,36 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// The typing field over a form field being filled, and the field it is for.
     private(set) var formEditor: NSTextField?
     private var formEditorField: String?
-    /// The focused field last scrolled into sight — Tab to one off screen brings it on.
+    /// The focused field last scrolled into sight, so Tab to one off screen brings it on.
     private var revealedField: String?
-    /// Puts up a choice field's menu — `popUp` in the app; a test records the menu instead, since
-    /// a real pop-up waits for a choice.
+    /// Puts up a choice field's menu: `popUp` in the app; a test records the menu instead, since a
+    /// real pop-up waits for a choice.
     var presentMenu: (NSMenu, NSRect, NSView) -> Void = { menu, rect, view in
         menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: view.isFlipped ? rect.maxY + 2 : rect.minY - 2), in: view)
     }
     private var drag: Drag?
     private var tracking: NSTrackingArea?
-    /// The app's accent, for the selection ring and the fields' wash and edge — the hue the user
-    /// picked, not the system's (TE101). Set by ``EditorPDFPageView`` from the workspace's raw accent: these
-    /// are rings and washes, with no label to carry, so they take the accent undeepened.
-    /// System blue, the stock accent, only until the host hands it the app's.
+    /// The app's accent, for the selection ring and the fields' wash and edge: the hue the user
+    /// picked, not the system's. Set by ``EditorPDFPageView`` from the workspace's raw accent; these
+    /// are rings and washes with no label to carry, so they take the accent undeepened. System blue
+    /// only until the host hands it the app's.
     var accent: NSColor = .systemBlue {
         didSet { if accent != oldValue { needsDisplay = true } }
     }
-    /// The app's text size, for the retype hint's words (PD4) — set by ``EditorPDFPageView`` from
-    /// its environment's `appFontScale`.
+    /// The app's text size, for the retype hint's words, set by ``EditorPDFPageView`` from its
+    /// environment's `appFontScale`.
     var textScale: CGFloat = 1 {
         didSet { if textScale != oldValue, field != nil { layoutField() } }
     }
-    /// VoiceOver's elements, by what each stands for — see ``EditorPDFFillAccessibilityElement``.
+    /// VoiceOver's elements, by what each stands for; see ``EditorPDFFillAccessibilityElement``.
     var accessibilityElements: [EditorPDFFillAccessibilityElement.Target: EditorPDFFillAccessibilityElement] = [:]
     /// What VoiceOver was last told is on screen, and where the keyboard is.
     var announcedTargets: [EditorPDFFillAccessibilityElement.Target] = []
     var announcedTarget: EditorPDFFillAccessibilityElement.Target?
-    /// **The words Replace would pick** — the line under the pointer, or the words dragged across —
-    /// outlined dashed (TE82). Display space, on `page`.
+    /// The words Replace would pick (the line under the pointer, or the words dragged across),
+    /// outlined dashed. Display space, on `page`.
     private(set) var replaceOutline: (page: Int, rect: CGRect)?
-    /// The line under the retype box: the font, and whether it is the original's (TE83).
+    /// The line under the retype box: the font, and whether it is the original's.
     private(set) var retypeHint: EditorPDFRetypeHint?
 
     private enum Drag {
@@ -113,7 +113,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         return box.displayPoint(page: reader.convert(convert(point, to: reader), to: page))
     }
 
-    /// The page under `point`, zero-based — only ON a page, not in the gap between two.
+    /// The page under `point`, zero-based: only on a page, not in the gap between two.
     func pageIndex(at point: CGPoint) -> Int? {
         guard let reader, let document = reader.document,
               let page = reader.page(for: convert(point, to: reader), nearest: false) else { return nil }
@@ -133,9 +133,9 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }
     }
 
-    /// **The selected item's resize handle, just OUTSIDE its bottom-right corner** (in display
-    /// space). On the corner itself, a check mark at 50% — 8pt square — was all handle, and every
-    /// drag of it resized instead of moving it.
+    /// The selected item's resize handle, just outside its bottom-right corner (in display space).
+    /// On the corner itself, a check mark at 50% (8pt square) would be all handle, and every drag of
+    /// it would resize instead of moving it.
     func handle(of item: EditorPDFFillItem) -> CGPoint? {
         // A correction keeps the old words' size until Text Size changes it, and stays over them.
         guard !item.isCorrection, let corner = viewPoint(display: CGPoint(x: item.rect.maxX, y: item.rect.minY), page: item.page),
@@ -147,7 +147,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         return CGPoint(x: corner.x + dx / length * out, y: corner.y + dy / length * out)
     }
 
-    /// The handle under `point` — never a point inside the item, which always moves it.
+    /// The handle under `point`; never a point inside the item, which always moves it.
     private func handleHit(_ point: CGPoint) -> EditorPDFFillItem? {
         guard let selected = fill?.selected, fill?.editing != selected.id, let handle = handle(of: selected),
               let rect = viewRect(selected), !rect.contains(point) else { return nil }
@@ -180,7 +180,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         guard let fill else { return }
         window?.makeFirstResponder(self)
         // ⌃-click is a right-click: this method never hands the event on, so the menu is put up
-        // here — and away from an item, where there is no menu, it still places nothing.
+        // here, and away from an item, where there is no menu, it still places nothing.
         if event.modifierFlags.contains(.control) {
             if let menu = menu(for: event) { NSMenu.popUpContextMenu(menu, with: event, for: self) }
             return
@@ -256,8 +256,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         return reader.convert(convert(point, to: reader), to: page)
     }
 
-    /// **The words a click or a drag with Replace picked, opened for retyping** — or, when Replace
-    /// says no, why, in the note card. A click picks the line under it; a drag, the words across.
+    /// The words a click or a drag with Replace picked, opened for retyping, or, when Replace says
+    /// no, why, in the note card. A click picks the line under it; a drag, the words across.
     func pick(_ dragged: PDFSelection?, at start: CGPoint, page index: Int) {
         guard let fill, let reader, let page = reader.document?.page(at: index), let box = fill.box(index) else { return }
         replaceOutline = nil
@@ -273,7 +273,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }
     }
 
-    /// The line Replace would pick under `point` — kept while the pointer stays on it, so a move
+    /// The line Replace would pick under `point`, kept while the pointer stays on it, so a move
     /// along a line reads the page once.
     private func updateReplaceOutline(at point: CGPoint) {
         guard let fill, fill.armed == .replace, fill.editing == nil, drag == nil, item(at: point) == nil,
@@ -285,7 +285,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         if let outline = replaceOutline, outline.page == index, outline.rect.insetBy(dx: -1, dy: -1).contains(box.displayPoint(page: at)) {
             return
         }
-        // Words under the pointer at all — one small selection — before the line is measured.
+        // Words under the pointer at all (one small selection) before the line is measured.
         let under = page.selection(for: CGRect(x: at.x - 6, y: at.y - 2, width: 12, height: 4))?.string ?? ""
         let rect = under.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? nil : EditorPDFReplace.line(at: at, on: page, box: box).map { box.displayRect(page: $0.bounds(for: page)) }
@@ -317,8 +317,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
 
     override func magnify(with event: NSEvent) { reader?.magnify(with: event) }
 
-    /// **An item's right-click menu** (TE92, TE140): it is selected, and the menu offers what the
-    /// palette's Style, Text Size and Ink tools would for it — then Delete.
+    /// An item's right-click menu: it is selected, and the menu offers what the palette's Style,
+    /// Text Size and Ink tools would for it, then Delete.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard isActive, let fill, let item = item(at: convert(event.locationInWindow, from: nil)) else { return nil }
         fill.endEditing()
@@ -331,8 +331,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if let fill, flags.subtracting(.shift).isEmpty {
-            // Tab and ⇧Tab walk the form's fields, then what is placed (decision BB); Space and
-            // Return act on the field the keyboard is on.
+            // Tab and ⇧Tab walk the form's fields, then what is placed; Space and Return act on
+            // the field the keyboard is on.
             if event.keyCode == Self.tabKeyCode, !fill.tabStops.isEmpty {
                 fill.focusNext(forward: !flags.contains(.shift))
                 revealSelection()
@@ -343,7 +343,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
                 if case .choice = field.kind {
                     openMenu(field)
                 } else if fill.signs(field), let widget = shownWidget(of: field) {
-                    // The field keeps the keyboard while its menu or the Add sheet is up (TE164).
+                    // The field keeps the keyboard while its menu or the Add sheet is up.
                     sign(FieldHit(field: field, widget: widget), keepsFocus: true)
                 } else {
                     fill.activateFocused()
@@ -360,7 +360,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             case 51, 117 where fill.selection != nil:
                 fill.deleteSelection()
                 return
-            // The reader's own Esc — the find card — goes before the palette does (TE98).
+            // The reader's own Esc (the find card) goes before the palette does.
             case ReaderPDFView.escapeKeyCode where fill.escape(first: { reader?.onEscape?() == true }):
                 return
             case 123 where fill.selection != nil: fill.nudge(dx: -step, dy: 0); revealSelection(); return
@@ -379,13 +379,12 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// The keypad's Enter.
     static let enterKeyCode: UInt16 = 76
 
-    /// **Return on the pages** (decision BA, 2026-10-20): a text box Tab or a click is on is typed
-    /// into, as a double-click does; otherwise the chosen tool's item goes in the middle of what can
-    /// be seen of the page — and the one just placed that way is not typed into but followed by
-    /// another, just below it.
+    /// Return on the pages: a text box Tab or a click is on is typed into, as a double-click does;
+    /// otherwise the chosen tool's item goes in the middle of what can be seen of the page, and the
+    /// one just placed that way is not typed into but followed by another, just below it.
     func returnPressed() -> Bool {
         guard let fill, fill.editing == nil else { return false }
-        // A text box, or a correction (TE83) — its words retyped in the box over them.
+        // A text box, or a correction: its words retyped in the box over them.
         if let item = fill.selected, item.words != nil, !item.isSignature, item.id != fill.lastPlaced {
             fill.beginEditing(item.id)
             return true
@@ -401,7 +400,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         return fill.placeFromKeyboard(around: spot.point, page: spot.page) != nil
     }
 
-    /// Said to VoiceOver — a seam, so a test can hear it.
+    /// Said to VoiceOver; a seam, so a test can hear it.
     var announce: (String) -> Void = { text in
         guard let app = NSApp else { return }
         NSAccessibility.post(element: app.mainWindow ?? app, notification: .announcementRequested,
@@ -409,8 +408,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
                                         .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
-    /// **Where Return places**: the middle of what can be seen of the page in the middle of the
-    /// view, clear of the floating bands — as the page and a point in its display space.
+    /// Where Return places: the middle of what can be seen of the page in the middle of the view,
+    /// clear of the floating bands, as the page and a point in its display space.
     func keyboardSpot() -> (page: Int, point: CGPoint)? {
         guard let reader, let document = reader.document else { return nil }
         let clear = EditorPDFPageView.clearRect(of: reader)
@@ -437,7 +436,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     func controlTextDidChange(_ note: Notification) {
         if let formEditor, note.object as? NSTextField === formEditor {
             guard let fill, fill.editingField == formEditorField else { return }
-            // What the field takes comes back — cut at its /MaxLen, on one line — and is shown.
+            // What the field takes comes back (cut at its /MaxLen, on one line) and is shown.
             let accepted = fill.typeField(formEditor.stringValue)
             if accepted != formEditor.stringValue { formEditor.stringValue = accepted }
             return
@@ -482,11 +481,11 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }
         switch selector {
         case #selector(NSResponder.cancelOperation(_:)):
-            // A correction's Esc leaves the page as it was (TE83); text's keeps what was typed.
+            // A correction's Esc leaves the page as it was; text's keeps what was typed.
             fill?.cancelEditing()
             return true
-        // **Tab in a text box goes on round the ring**, as in a form's field (decision BB): unanswered,
-        // it ended the typing and took the keyboard out of the pages to the window's next view.
+        // Tab in a text box goes on round the ring, as in a form's field. Unanswered, it would end
+        // the typing and take the keyboard out of the pages to the window's next view.
         case #selector(NSResponder.insertTab(_:)):
             fill?.focusNext(forward: true)
             revealSelection()
@@ -500,8 +499,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         }
     }
 
-    /// The typing field, over the item being typed into — its words at the page's scale, in the
-    /// item's ink — or gone when nothing is.
+    /// The typing field, over the item being typed into (its words at the page's scale, in the
+    /// item's ink), or gone when nothing is.
     private func layoutField() {
         guard let fill, let id = fill.editing, let item = fill.items.first(where: { $0.id == id }),
               let rect = viewRect(item), let reader else {
@@ -524,8 +523,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             made.cell?.isScrollable = true
             made.delegate = self
             made.placeholderString = "Type"
-            // **Light, like the paper under it** (TE189): in Dark Mode the placeholder was white at
-            // 55% on the white page.
+            // Light, like the paper under it: in Dark Mode the placeholder would be white at 55% on
+            // the white page.
             made.appearance = NSAppearance(named: .aqua)
             made.setAccessibilityLabel("Text")
             addSubview(made)
@@ -552,8 +551,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
     /// margin its placement keeps.
     static func retypeHintWidth(in bounds: CGRect) -> CGFloat { max(0, bounds.width - 8) }
 
-    /// **The line under the retype box** (TE83): which font the new words use, and whether it is
-    /// the original — or gone when no correction is being typed.
+    /// The line under the retype box: which font the new words use, and whether it is the
+    /// original; or gone when no correction is being typed.
     private func layoutRetypeHint(for item: EditorPDFFillItem?, under frame: CGRect) {
         guard let item, let correction = item.correction else {
             retypeHint?.removeFromSuperview()
@@ -571,7 +570,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         // Wrapped to the view, 4 points in from each side, so it never runs past the right edge.
         hint.maxWidth = Self.retypeHintWidth(in: bounds)
         let size = hint.fittingSize
-        // Below the box — above it when the box is near the bottom of the view.
+        // Below the box, or above it when the box is near the bottom of the view.
         let y = isFlipped ? frame.maxY + 4 : frame.minY - 4 - size.height
         let below = isFlipped ? y + size.height <= bounds.maxY : y >= bounds.minY
         let placed = below ? y : (isFlipped ? frame.minY - 4 - size.height : frame.maxY + 4)
@@ -594,8 +593,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
             needsDisplay = true
             return
         }
-        // **Turned on while the pages have the keyboard**: take it, or ⌘Z would reach the window's
-        // stack — the file operations' — until the first click on the pages.
+        // Turned on while the pages have the keyboard: take it, or ⌘Z would reach the window's
+        // stack (the file operations') until the first click on the pages.
         if let reader, let window, window.firstResponder === reader { window.makeFirstResponder(self) }
         revealFocusedField()
         layoutField()
@@ -605,8 +604,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         needsDisplay = true
     }
 
-    /// **The selected item scrolled into sight** — after Tab onto one off screen, or an arrow that
-    /// moves one out of sight. The keyboard's only: a click selects what is under the pointer, and a
+    /// The selected item scrolled into sight, after Tab onto one off screen or an arrow that moves
+    /// one out of sight. The keyboard's only: a click selects what is under the pointer, and a
     /// scroll then would move the page under a drag.
     func revealSelection() {
         guard let fill, let reader, let item = fill.selected,
@@ -624,7 +623,7 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         let shown = shownPages
         let scale = reader.scaleFactor
         drawFields(dirtyRect)
-        // Patches first, under every item on their page — as the copy draws them — and under the
+        // Patches first, under every item on their page, as the copy draws them, and under the
         // retype box too, so the old words are hidden while the new ones are typed.
         for item in fill.items where shown.contains(item.page) {
             guard let correction = item.correction, let cover = viewRect(display: correction.cover, page: item.page) else { continue }
@@ -701,8 +700,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         guard isActive, let fill else { return }
         let point = convert(event.locationInWindow, from: nil)
         if handleHit(point) != nil {
-            // A diagonal resize, as a window's corner shows (TE136) — the crosshair is the placing
-            // tools' "click to place".
+            // A diagonal resize, as a window's corner shows; the crosshair is the placing tools'
+            // "click to place".
             Self.resizeCursor.set()
         } else if let item = item(at: point) {
             (item.isCorrection ? NSCursor.arrow : NSCursor.openHand).set()
@@ -728,14 +727,14 @@ extension EditorPDFFillOverlay {
         var widget: FormField.Widget
     }
 
-    /// **Whether a click on a field fills it**: the Form Fields tool chosen, or no tool at all — a
-    /// click on a field with Text chosen places text there, as anywhere else on the page.
+    /// Whether a click on a field fills it: the Form Fields tool chosen, or no tool at all. A click
+    /// on a field with Text chosen places text there, as anywhere else on the page.
     var takesFieldClicks: Bool {
         guard isActive, let fill, fill.form.hasFields else { return false }
         return fill.armed == .formFields || fill.armed == nil
     }
 
-    /// A widget's rect in this view — `nil` when its page is not in the document.
+    /// A widget's rect in this view; `nil` when its page is not in the document.
     func widgetRect(_ widget: FormField.Widget) -> CGRect? {
         guard let reader, let page = reader.document?.page(at: widget.pageIndex) else { return nil }
         return convert(reader.convert(widget.rect, from: page), from: reader)
@@ -755,7 +754,7 @@ extension EditorPDFFillOverlay {
         shownWidgets.reversed().first { widgetRect($0.widget)?.contains(point) == true }
     }
 
-    /// What a click on a field does — by kind; a field that takes no value only lets the keyboard go.
+    /// What a click on a field does, by kind; a field that takes no value only lets the keyboard go.
     func click(_ hit: FieldHit) {
         guard let fill else { return }
         fill.endEditing()
@@ -778,9 +777,9 @@ extension EditorPDFFillOverlay {
         }
     }
 
-    /// **A signature field clicked: the Signature menu, at the field** (TE107) — choosing one places
-    /// it to fit the field; with none saved, the Add sheet, whose signature goes there. Space or
-    /// Return on the field Tab is on does the same, and `keepsFocus` leaves the keyboard there.
+    /// A signature field clicked: the Signature menu, at the field. Choosing one places it to fit
+    /// the field; with none saved, the Add sheet, whose signature goes there. Space or Return on the
+    /// field Tab is on does the same, and `keepsFocus` leaves the keyboard there.
     func sign(_ hit: FieldHit, keepsFocus: Bool = false) {
         guard let fill, let target = fill.signingTarget(for: hit.widget), let rect = widgetRect(hit.widget) else { return }
         fill.focusField(keepsFocus ? hit.field.name : nil)
@@ -788,8 +787,8 @@ extension EditorPDFFillOverlay {
         presentMenu(EditorPDFSignatureMenu.menu(for: fill, kind: .signature, signing: target), rect, self)
     }
 
-    /// **A choice field's menu**: its options, the one it has ticked — and for a combo that takes a
-    /// value of its own, a way to type one.
+    /// A choice field's menu: its options, the one it has ticked, and for a combo that takes a value
+    /// of its own, a way to type one.
     func choiceMenu(for field: FormField) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -816,13 +815,13 @@ extension EditorPDFFillOverlay {
         presentMenu(choiceMenu(for: field), rect, self)
     }
 
-    /// The field's first widget on a page on screen, else its first — where the keyboard's menu opens.
+    /// The field's first widget on a page on screen, else its first: where the keyboard's menu opens.
     func shownWidget(of field: FormField) -> FormField.Widget? {
         let shown = Set(shownWidgets.filter { $0.field.name == field.name }.map(\.widget))
         return field.widgets.first(where: shown.contains) ?? field.widgets.first
     }
 
-    /// Tab onto a field off screen scrolls it on — once per field the keyboard moves to.
+    /// Tab onto a field off screen scrolls it on, once per field the keyboard moves to.
     func revealFocusedField() {
         guard let fill, let reader, let name = fill.focusedField else { revealedField = nil; return }
         guard name != revealedField, let field = fill.form.field(named: name), let widget = field.widgets.first,
@@ -833,8 +832,8 @@ extension EditorPDFFillOverlay {
         }
     }
 
-    /// The typing field over the form field being filled — the field's words in a face sized to its
-    /// box — or gone when none is.
+    /// The typing field over the form field being filled (the field's words in a face sized to its
+    /// box), or gone when none is.
     func layoutFormEditor() {
         guard let fill, isActive, let name = fill.editingField, let field = fill.form.field(named: name),
               let widget = field.widgets.first(where: { shownPages.contains($0.pageIndex) }) ?? field.widgets.first,
@@ -878,15 +877,15 @@ extension EditorPDFFillOverlay {
     }
 
     /// A value's point size in a widget of `rect` (view points): the box's height less its margins,
-    /// at most 12pt on the page — what Acrobat's auto size comes to on a one-line field.
+    /// at most 12pt on the page, what Acrobat's auto size comes to on a one-line field.
     static func valueFontSize(for rect: CGRect, multiline: Bool, scale: CGFloat) -> CGFloat {
         let ceiling = 12 * scale
         if multiline { return max(4, min(10 * scale, ceiling)) }
         return max(4, min((rect.height - 3) * 0.72, ceiling))
     }
 
-    /// The hover reason on every field that takes no value — button, read-only — and the signing
-    /// hint on a signature field.
+    /// The hover reason on every field that takes no value (button, read-only), and the signing hint
+    /// on a signature field.
     func layoutToolTips() {
         removeAllToolTips()
         guard let fill, isActive else { return }
@@ -906,14 +905,14 @@ extension EditorPDFFillOverlay {
         return fill.fieldHint(hit.field)
     }
 
-    /// **Each widget tinted** — the accent where a value can go, grey where none can — a changed one
+    /// Each widget tinted (the accent where a value can go, grey where none can), a changed one
     /// covered and drawn with its new value, and the keyboard's field ringed.
     func drawFields(_ dirtyRect: NSRect) {
         guard let fill, fill.form.hasFields else { return }
         let scale = reader?.scaleFactor ?? 1
         for hit in shownWidgets {
             guard let rect = widgetRect(hit.widget), rect.intersects(dirtyRect.insetBy(dx: -4, dy: -4)) else { continue }
-            // A signature field a click signs is tinted as one that takes a value (TE107).
+            // A signature field a click signs is tinted as one that takes a value.
             let open = fill.fieldRefusal(hit.field) == nil
             let changed = fill.values[hit.field.name] != nil
             let box = NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
@@ -979,10 +978,10 @@ extension EditorPDFFillOverlay {
 
 // MARK: - VoiceOver
 
-/// **One field's widget or one placed item, as VoiceOver sees it** — the overlay draws both, so
-/// nothing else names them: PDFKit's own widgets are read-only on the reader
-/// (``EditorPDFForm/lockWidgets(in:)``) and Fill & Sign's items are not in the document at all.
-/// Kept per target across refreshes, so VoiceOver's cursor stays on the same element as values change.
+/// One field's widget or one placed item, as VoiceOver sees it. The overlay draws both, so nothing
+/// else names them: PDFKit's own widgets are read-only on the reader
+/// (``EditorPDFForm/lockWidgets(in:)``) and Fill & Sign's items are not in the document at all. Kept
+/// per target across refreshes, so VoiceOver's cursor stays on the same element as values change.
 final class EditorPDFFillAccessibilityElement: NSAccessibilityElement {
     enum Target: Hashable {
         /// A field's widget, by the field's name and the widget's place in its list.
@@ -1006,9 +1005,9 @@ final class EditorPDFFillAccessibilityElement: NSAccessibilityElement {
 }
 
 extension EditorPDFFillOverlay {
-    /// **The overlay is a group VoiceOver walks** while Fill & Sign is up — its fields' widgets on
-    /// the pages on screen, in the form's order, then the items placed there, in placing order. A
-    /// field being typed into is its typing field instead, and so is a text box.
+    /// The overlay is a group VoiceOver walks while Fill & Sign is up: its fields' widgets on the
+    /// pages on screen, in the form's order, then the items placed there, in placing order. A field
+    /// being typed into is its typing field instead, and so is a text box.
     override func isAccessibilityElement() -> Bool { isActive }
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
     override func accessibilityLabel() -> String? { "Fill & Sign" }
@@ -1017,7 +1016,7 @@ extension EditorPDFFillOverlay {
         guard isActive else { return [] }
         var typing: NSTextField? = formEditor
         return accessibilityTargets().map { (target: EditorPDFFillAccessibilityElement.Target) -> Any in
-            // A field shown twice — on two pages — is typed into once, at its first widget.
+            // A field shown twice (on two pages) is typed into once, at its first widget.
             if case .widget(let name, _) = target, name == fill?.editingField, let editor = typing {
                 typing = nil
                 return editor
@@ -1125,7 +1124,7 @@ extension EditorPDFFillOverlay {
                 fill.deleteSelection()
                 return true
             }]
-            // A text box, or a correction — retyped as Return and a double-click retype it. Named as
+            // A text box, or a correction, retyped as Return and a double-click retype it. Named as
             // the right-click menu names it: Retype for a correction, Edit Text for a text box.
             if item.words != nil, !item.isSignature {
                 let name = item.isCorrection ? EditorPDFFillFlyouts.retypeTitle : EditorPDFFillFlyouts.editTextTitle
@@ -1140,8 +1139,8 @@ extension EditorPDFFillOverlay {
         }
     }
 
-    /// **VoiceOver's press**: what a click does — a field fills as clicked, an item is selected
-    /// with the keyboard here, for the arrows and Delete.
+    /// VoiceOver's press does what a click does: a field fills as clicked; an item is selected, with
+    /// the keyboard here, for the arrows and Delete.
     func press(_ target: EditorPDFFillAccessibilityElement.Target) -> Bool {
         guard let fill, isActive else { return false }
         window?.makeFirstResponder(self)
@@ -1159,8 +1158,8 @@ extension EditorPDFFillOverlay {
         return true
     }
 
-    /// **Tells VoiceOver where the keyboard went** — Tab onto a field or an item, a placing, a
-    /// click — so its cursor follows; and that the elements changed when a value or an item did.
+    /// Tells VoiceOver where the keyboard went (Tab onto a field or an item, a placing, a click), so
+    /// its cursor follows, and that the elements changed when a value or an item did.
     func announceFocus() {
         let now = focusedTarget
         let targets = accessibilityTargets()

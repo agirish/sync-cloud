@@ -1,10 +1,10 @@
 import Foundation
 
-/// The editable preview's boundary and structure rules (TE67 §3.5): where a keystroke at an inline
-/// edge lands, and what a new line has to start with.
+/// The editable preview's boundary and structure rules: where a keystroke at an inline edge lands,
+/// and what a new line has to start with.
 ///
-/// **Pure, over a ``MarkdownProjection``.** Nothing here edits; ``PreviewEditTranslator`` asks
-/// these questions, builds the edit, and checks the result by re-rendering.
+/// Pure, over a ``MarkdownProjection``. Nothing here edits; ``PreviewEditTranslator`` asks these
+/// questions, builds the edit, and checks the result by re-rendering.
 enum PreviewEditRules {
 
     /// Where typing at a rendered caret lands in the source, and which inline spans it lands in.
@@ -17,11 +17,11 @@ enum PreviewEditRules {
 
     /// Where text typed at rendered `caret` goes.
     ///
-    /// **Typing inherits the style of the character before it**, the way Pages and Word do: at the
-    /// end of bold, italic or strikethrough it continues the span; at the start of a span it stays
-    /// outside; **at the end of a link or a code span it goes outside**, because nobody typing after
-    /// a link means to lengthen it. With nothing before the caret in its block — the block's start,
-    /// or just after a line break — it takes the style of what follows, minus the spans opening there.
+    /// Typing inherits the style of the character before it, as in Pages and Word: at the end of
+    /// bold, italic or strikethrough it continues the span; at the start of a span it stays outside;
+    /// at the end of a link or a code span it goes outside, since nobody typing after a link means to
+    /// lengthen it. With nothing before the caret in its block (the block's start, or just after a
+    /// line break) it takes the style of what follows, minus the spans opening there.
     ///
     /// `nil` when the caret is not somewhere text can go: inside an entity, in a read-only block, on
     /// a decoration, in an empty list item.
@@ -37,7 +37,7 @@ enum PreviewEditRules {
             else { return nil }
             return InsertionPoint(source: source, spans: segment.spans, block: segment.block)
         }
-        // An empty insertion point — an empty cell, an empty code block — is its own answer.
+        // An empty insertion point (an empty cell, an empty code block) is its own answer.
         if let anchor = segments.first(where: {
             $0.kind == .content && $0.rendered.length == 0 && $0.rendered.location == caret
         }), isEditable(anchor, in: p) {
@@ -72,10 +72,10 @@ enum PreviewEditRules {
                               block: segment.block)
     }
 
-    /// **Text beside a piece that is not text**, with no text on either side: an inline picture or
-    /// inline HTML at a line's end or start — `see ![i](a)` could take nothing at its end (review,
-    /// 2026-10-09). Typed just past its source, or just before it, in the spans it sits in. A
-    /// task's box is no such piece: an item with only a box is empty, and has its own anchor.
+    /// Text beside a piece that is not text, with no text on that side: an inline picture or inline
+    /// HTML at a line's end or start, as at the end of `see ![i](a)`. Typed just past its source, or
+    /// just before it, in the spans it sits in. A task's box is no such piece: an item with only a
+    /// box is empty, and has its own anchor.
     private static func beside(_ caret: Int, left: Int?, in p: MarkdownProjection) -> InsertionPoint? {
         let piece = { (segment: PreviewSegment) in
             p.blocks[segment.block].readOnly == nil && isInlinePiece(segment, in: p)
@@ -90,7 +90,7 @@ enum PreviewEditRules {
             found = nil
         }
         guard let found else { return nil }
-        // The spans holding the piece, outermost first — the order they were opened in.
+        // The spans holding the piece, outermost first: the order they were opened in.
         let spans = p.spans.indices.filter {
             p.spans[$0].source.location < found.segment.source.location
                 && NSMaxRange(found.segment.source) < NSMaxRange(p.spans[$0].source)
@@ -103,7 +103,7 @@ enum PreviewEditRules {
         switch segment.kind {
         case .readOnly: return true
         case .decoration:
-            // "!", a picture — in a line of text: a picture block takes Return, not typing; a
+            // "!", a picture in a line of text. A picture block takes Return, not typing, and a
             // task's box is the item's, not a piece of its words.
             if case .image = p.blocks[segment.block].kind { return false }
             return p.index.units[segment.source.location] == 0x21
@@ -123,7 +123,7 @@ enum PreviewEditRules {
         segment.kind == .content && p.blocks[segment.block].readOnly == nil
     }
 
-    /// The spans of content segment `index` that hold no later content — the ones closing after it.
+    /// The spans of content segment `index` that hold no later content: the ones closing after it.
     static func closingSpans(of index: Int, in p: MarkdownProjection) -> Set<Int> {
         let segment = p.segments[index]
         var open = Set(segment.spans)
@@ -133,7 +133,7 @@ enum PreviewEditRules {
         return open
     }
 
-    /// The spans of content segment `index` that hold no earlier content — the ones opening before it.
+    /// The spans of content segment `index` that hold no earlier content: the ones opening before it.
     static func openingSpans(of index: Int, in p: MarkdownProjection) -> Set<Int> {
         let segment = p.segments[index]
         var opening = Set(segment.spans)
@@ -147,14 +147,12 @@ enum PreviewEditRules {
 
     /// What deleting rendered `range` really takes, once Markdown's rule for spaces is applied.
     ///
-    /// **Spaces left at a line's edge go too, on whichever side touches it** — the text's start or
-    /// end, a block's, a soft or hard line break's, a table cell's or row's — because Markdown draws
-    /// them as nothing, so they could never be what the rendering shows. "hello w" ⌫ was refused for
-    /// the space it left last (review, 2026-10-05), "Hello world" ⌫ from after "Hello" for the one it
-    /// left first, and so was the first or last word beside any break (2026-10-09).
+    /// Spaces left at a line's edge go too, on whichever side touches it (the text's start or end, a
+    /// block's, a soft or hard break's, a table cell's or row's): Markdown draws them as nothing, so
+    /// leaving them would make the result disagree with the rendering, as in "hello w" ⌫.
     ///
-    /// **A line of a paragraph emptied takes one of its breaks with it**, or the two left side by
-    /// side would split the paragraph there. **Never in code**, whose spaces are its text.
+    /// A line of a paragraph emptied takes one of its breaks with it, or the two left side by side
+    /// would split the paragraph there. Never in code, whose spaces are its text.
     static func deletionRange(_ range: NSRange, in p: MarkdownProjection) -> NSRange {
         let length = (p.renderedString as NSString).length
         var start = range.location, end = NSMaxRange(range)
@@ -204,12 +202,10 @@ enum PreviewEditRules {
 
     /// The segment drawing rendered character `offset`.
     ///
-    /// **By halving** (round 2, 2026-10-10): the segments are the rendering's ordered, gap-free
-    /// cover, so the one drawing `offset` is the last to start at or before it. Where that is an
-    /// empty one, nothing draws `offset`: in a gap-free cover the segment before it ends where it
-    /// starts (stepping back past it changed nothing — measured on the property test's random
-    /// documents). A walk from the first was a keystroke's cost on a long note, for every question
-    /// about a line's edges.
+    /// By halving, not walking, since every question about a line's edges asks this: the segments
+    /// are the rendering's ordered, gap-free cover, so the one drawing `offset` is the last to start
+    /// at or before it. Where that one is empty, nothing draws `offset`, since in a gap-free cover
+    /// the segment before it ends where it starts.
     static func segment(containing offset: Int, in p: MarkdownProjection) -> PreviewSegment? {
         let segments = p.segments
         var low = 0, high = segments.count
@@ -224,18 +220,17 @@ enum PreviewEditRules {
 
     // MARK: Lines
 
-    /// The line ending Preview writes: LF, always — Edit writes LF only (``EditorLineEndings``,
-    /// §4 C31). A CRLF or CR file is converted before its first edit is measured, so the source a
-    /// translation sees holds no carriage return.
+    /// The line ending Preview writes: LF, always, as Edit writes LF only (``EditorLineEndings``). A
+    /// CRLF or CR file is converted before its first edit is measured, so the source a translation
+    /// sees holds no carriage return.
     static let lineEnding = "\n"
 
     /// What a new line inside block `block` starts with, so it stays in that block: a quote's `>`
-    /// markers kept, everything else before the block's first character turned to spaces — so a
+    /// markers kept, everything else before the block's first character turned to spaces, so a
     /// list item's continuation lines up under its words.
     ///
-    /// The words start where their first piece does — a box, a picture — and **before the markers of
-    /// any span opening there**: ⇧Return in `**Note** text` indented the new line by the width of
-    /// the `**` (found 2026-10-09).
+    /// The words start where their first piece does (a box, a picture), and before the markers of
+    /// any span opening there, or ⇧Return in `**Note** text` would indent by the width of the `**`.
     static func continuationPrefix(of block: Int, in p: MarkdownProjection) -> String {
         let first = p.segments.first { $0.block == block && !isBreak($0) }
         let start = first.map { segment in
@@ -245,7 +240,7 @@ enum PreviewEditRules {
     }
 
     /// What a new paragraph after block `block` starts with: the quote markers and indent before the
-    /// block itself — not before its words, which for a list item would be inside the item.
+    /// block itself, not before its words, which for a list item would be inside the item.
     static func paragraphPrefix(of block: Int, in p: MarkdownProjection) -> String {
         prefix(before: p.blocks[block].source.location, in: p)
     }
@@ -255,8 +250,8 @@ enum PreviewEditRules {
         String(prefix.reversed().drop { $0 == " " || $0 == "\t" }.reversed())
     }
 
-    /// Whether the line after the one source `offset` is on holds text — anything but spaces, tabs
-    /// and quote markers — so that a paragraph written in between would run on into it.
+    /// Whether the line after the one source `offset` is on holds text (anything but spaces, tabs
+    /// and quote markers), so that a paragraph written in between would run on into it.
     static func nextLineHoldsText(after offset: Int, in p: MarkdownProjection) -> Bool {
         let number = p.index.lineNumber(containing: offset)
         guard let next = p.index.line(number + 1) else { return false }
@@ -282,9 +277,9 @@ enum PreviewEditRules {
         p.blocks.firstIndex { $0.rendered.location <= caret && caret <= NSMaxRange($0.rendered) }
     }
 
-    /// The rendered offset a source offset maps to — where a caret placed in Source would sit in the
-    /// preview. In a content segment, the boundary at that source offset; in the syntax between
-    /// segments, the start of the next piece of text.
+    /// The rendered offset a source offset maps to: where a caret placed in Source would sit in the
+    /// preview. In a content segment, the boundary at that source offset; in syntax, where the
+    /// separator holding it is drawn, else the start of the next piece after it.
     static func renderedOffset(forSource offset: Int, in p: MarkdownProjection) -> Int {
         for segment in p.segments where segment.kind == .content {
             guard segment.source.location <= offset, offset <= NSMaxRange(segment.source) else { continue }
@@ -294,10 +289,10 @@ enum PreviewEditRules {
                 }
             }
         }
-        // In syntax: where the separator holding it is drawn, else the first piece after it. A break — between blocks, rows,
-        // cells or lines — is drawn exactly where the text before it ends, so a closing `*` at a
-        // paragraph's end keeps the caret on that paragraph, and a list item emptied of its words
-        // keeps it on that item.
+        // In syntax: where the separator holding it is drawn, else the first piece after it. A
+        // break (between blocks, rows, cells or lines) is drawn exactly where the text before it
+        // ends, so a closing `*` at a paragraph's end keeps the caret on that paragraph, and a list
+        // item emptied of its words keeps it on that item.
         if let holder = p.segments.first(where: {
             $0.kind != .content && $0.source.location <= offset && offset < NSMaxRange($0.source)
         }) {

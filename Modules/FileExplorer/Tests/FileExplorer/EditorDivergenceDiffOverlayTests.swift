@@ -11,9 +11,9 @@ import FileExplorerTestSupport
 
     // MARK: The left column
 
-    /// **TE97: Use Disk Version says ⌘Z brings the typing back only where it does** — while the
-    /// banner stands, where the host's take is one undoable step; elsewhere it reloads over the
-    /// buffer and the typing is gone.
+    /// Use Disk Version promises ⌘Z brings the typing back only where it does: while the banner
+    /// stands, the host's take is one undoable step; elsewhere it reloads over the buffer and the
+    /// typing is gone.
     @Test func useDiskVersionPromisesUndoOnlyWhereThereIsOne() {
         #expect(EditorDivergenceDiffOverlay.useDiskVersionHelp(undoable: true)
                 == "Take the version on the right — ⌘Z brings your version back.")
@@ -25,9 +25,8 @@ import FileExplorerTestSupport
         #expect(EditorDivergenceColumns.editor(words: 1_204) == "In Edit · 1,204 words")
     }
 
-    /// **Singular is not a nicety on this line.** It is the same rule the status line under the
-    /// document keeps, asked of the same function — a second spelling here is how "1 words" gets
-    /// back in through a door nobody watches.
+    /// Singular for one, by the same function the status line uses, so "1 words" can't slip in
+    /// through a second spelling.
     @Test func oneWordIsOneWord() {
         #expect(EditorDivergenceColumns.editor(words: 1) == "In Edit · 1 word")
         #expect(EditorDivergenceColumns.editor(words: 0) == "In Edit · 0 words")
@@ -35,11 +34,9 @@ import FileExplorerTestSupport
 
     // MARK: The right column
 
-    /// **What it says is when the bytes were written — never where they came from.**
-    ///
-    /// "changed on another machine" is the sentence this column is always tempted into, and from
-    /// here a sync client, another app, a script and another Mac are indistinguishable. The mtime
-    /// is a fact; the provenance is a guess the reader would act on.
+    /// The column says when the bytes were written, never where they came from: from here a sync
+    /// client, another app, a script and another Mac look the same. The mtime is a fact; the
+    /// provenance would be a guess the reader acts on.
     @Test func theDiskColumnDatesTheFileAndClaimsNothingElse() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let caption = EditorDivergenceColumns.disk(modified: now.addingTimeInterval(-120), now: now)
@@ -54,15 +51,10 @@ import FileExplorerTestSupport
         #expect(EditorDivergenceColumns.disk(modified: nil, now: Date()) == "On disk")
     }
 
-    /// **Clock skew is ordinary in exactly the shared folders this overlay is about.** A file
-    /// written by a machine whose clock runs ahead carries a future mtime, and "written -3s ago" is
-    /// worse than no age at all.
-    ///
-    /// The property comes from `ScanFreshness.spokenRelative`, whose first bucket is `..<30` and swallows
-    /// a negative interval into "just now" — stated here rather than clamped at the call site,
-    /// because a `max(0, …)` there was measured to change nothing for any input and a redundant
-    /// guard is a rule no test can hold. This is the assertion that the inherited behaviour is the
-    /// one this caption actually gets.
+    /// Clock skew is ordinary in shared folders: a machine whose clock runs ahead writes a future
+    /// mtime, and "written -3s ago" is worse than no age. `ScanFreshness.spokenRelative`'s first
+    /// bucket, `..<30`, swallows a negative interval into "just now"; this pins that the caption
+    /// inherits that, with no redundant clamp at the call site.
     @Test func aFutureModificationDateDoesNotProduceANegativeAge() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let caption = EditorDivergenceColumns.disk(modified: now.addingTimeInterval(600), now: now)
@@ -78,12 +70,9 @@ import FileExplorerTestSupport
     }
 }
 
-/// What the overlay does with a file `BoundedTextRead` will not read.
-///
-/// **The refusal has to name the reason, and the side.** The reader is being asked which of two
-/// versions of their work wins; "there is no diff" tells them nothing about whether the file on
-/// disk is a 90 MB log, a placeholder that has not come down from the cloud, or something that is
-/// not text at all — and those want three different next moves.
+/// What the overlay does with a file `BoundedTextRead` won't read. The refusal names the reason
+/// and the side: a huge log, a cloud placeholder not yet downloaded and a file that isn't text each
+/// want a different next move from someone choosing which version of their work wins.
 @Suite struct EditorDivergenceRefusalTests {
 
     private func scratch() throws -> URL {
@@ -131,9 +120,9 @@ import FileExplorerTestSupport
         #expect(!outcome.notes.contains { $0.hasPrefix("In Edit: ") })
     }
 
-    /// A file that has vanished between the stat and the read refuses rather than diffing against
-    /// nothing. (The alert does not offer the diff for a `.missing` divergence at all — this is the
-    /// race where it goes after the question was asked.)
+    /// A file that vanished between the stat and the read refuses rather than diffing against
+    /// nothing. The alert never offers the diff for a `.missing` divergence; this is the race where
+    /// the file goes after the question was asked.
     @Test func aFileThatIsGoneByTheTimeItIsReadRefuses() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -142,9 +131,9 @@ import FileExplorerTestSupport
         #expect(outcome.notes.first?.hasPrefix("On disk: ") == true, "got \(outcome.notes)")
     }
 
-    /// **An encoding that changed under the buffer is a real difference the rows cannot show.** The
-    /// buffer is handed to the pipeline carrying the encoding the document was opened in, so the
-    /// same note that reports this for two files reports it here.
+    /// An encoding changed under the buffer is a real difference the rows can't show. The buffer
+    /// goes to the pipeline with the encoding it was opened in, so the same note as for two files
+    /// reports it.
     @Test func aFileRewrittenInAnotherEncodingSaysSo() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -167,15 +156,11 @@ import FileExplorerTestSupport
     }
 }
 
-/// **Escape must be safe, and there is one way to check that from here.**
-///
-/// The keys are `.onKeyPress` handlers on a focusable card — deliberately, because a
-/// `.keyboardShortcut` on an in-window overlay registers a WINDOW-level equivalent and would eat
-/// bare esc and bare ⏎ typed into the editor behind the scrim (`BareKeyEquivalentScanTests` bans it
-/// repo-wide). That also puts them out of reach of a hosted test: `swift test` has no key window to
-/// type into, so a rendered assertion would pass whether the handler answered `cancel` or
-/// `saveAnyway`. The source is the only place the answer is legible, which is the argument
-/// `UnnamedControlScanTests` makes for the same shape.
+/// Escape must be safe, and the source is the one place to check it. The keys are `.onKeyPress`
+/// handlers on a focusable card, because a `.keyboardShortcut` on an in-window overlay registers a
+/// window-level equivalent that would eat bare esc and ⏎ typed into the editor behind the scrim
+/// (`BareKeyEquivalentScanTests` bans it). `swift test` has no key window to type into, so a
+/// rendered check would pass whatever the handler answered (as `UnnamedControlScanTests` argues).
 @Suite struct EditorDivergenceDismissalTests {
 
     static func source() throws -> String {
@@ -197,11 +182,9 @@ import FileExplorerTestSupport
         #expect(!source.contains("thisStringIsNotInTheFile"))
     }
 
-    /// **Every way OUT of the surface that is not one of the three buttons answers `cancel`.**
-    ///
-    /// Escape, ⏎, the keypad's Enter and a click on the scrim: four dismissals, one answer, and it
-    /// is the answer that changes nothing on disk. A keystroke is not how somebody says which
-    /// version of their work to throw away.
+    /// Every way out that isn't one of the three buttons (Escape, ⏎, keypad Enter, a click on the
+    /// scrim) answers `cancel`, which changes nothing on disk. A keystroke must never choose which
+    /// version of someone's work to throw away.
     @Test func escapeAndReturnAndTheScrimAllAnswerCancel() throws {
         let source = try Self.source()
         #expect(source.contains(".onTapGesture { onAnswer(.cancel) }"),
@@ -214,17 +197,16 @@ import FileExplorerTestSupport
                 "a dismissal key reaches a destructive answer")
     }
 
-    /// **Nothing on this surface writes**, and the check that comes closest to saying so at the
-    /// source level: the file never touches the store's write path, and the only answers it can
-    /// produce are the three the alert already offers.
+    /// Nothing on this surface writes: the file never touches the store's write path, and its only
+    /// answers are the three the alert already offers.
     @Test func theOverlayHasNoWritePathOfItsOwn() throws {
         let source = try Self.source()
         for writer in ["EditorFileStore.write", "markSaved", "EditorAutosave."] {
             #expect(!source.contains(writer),
                     "the overlay reaches \(writer) — Save Anyway is supposed to be the host's write, not a second one")
         }
-        // Exactly three answers leave here, and `.showWhatChanged` is not among them — a surface
-        // that could reopen itself would leave the question unanswerable.
+        // `.showWhatChanged` is not among the answers: a surface that could reopen itself would
+        // leave the question unanswerable.
         #expect(!source.contains("showWhatChanged"))
     }
 }
@@ -242,8 +224,8 @@ import FileExplorerTestSupport
 
     private func document(text: String = "hello") throws -> EditorDocument {
         let document = try TestTextFiles.document(named: "note.md", text: text)
-        // Dirty, because a stop is only ever interesting under an unsaved buffer — and `stopped`
-        // outranks dirtiness in `EditorSaveStatus.resolve`, so this is the state the header draws.
+        // Dirty, because a stop only matters under an unsaved buffer; `stopped` outranks dirtiness
+        // in `EditorSaveStatus.resolve`, so this is the state the header draws.
         document.text = text + "typed\n"
         return document
     }
@@ -253,30 +235,25 @@ import FileExplorerTestSupport
         .fixture(document: document, showsRail: true, stopped: stopped, onShowWhatChanged: door)
     }
 
-    /// **The header really branches on the door, at render time.**
-    ///
-    /// The two headers hold the identical words and differ only in whether one closure was handed
-    /// over — so any measured difference between them can only come from the button branch being
-    /// taken. Measured rather than read out of the source because the source scan beside this one
-    /// (`EditorDivergenceWiringTests`) proves the HOST withholds the closure, and proves nothing
-    /// about what the view does with it.
+    /// The header really branches on the door at render time. The two headers differ only in
+    /// whether a closure was passed, so any measured difference is the button branch. Measured,
+    /// because `EditorDivergenceWiringTests` proves only that the host withholds the closure, not
+    /// what the view does with it.
     @Test func thePillIsDrawnAsAControlOnlyWhenItIsOne() throws {
         let document = try document()
-        // Long enough that the META row is the header's wider row. The header's fitting width is
-        // the wider of its two rows, and the door's padding is on the second; with short words the
-        // first row — the name, Find, Expand — is wider, and the door could be
-        // drawn or not without the number below moving.
+        // Long enough that the meta row, which carries the door's padding, is the header's wider
+        // row; with short words the first row (name, Find, Expand) sets the width and hides it.
         let words = "not saving — the file changed on disk underneath the buffer, and the words are long"
         // No width frame: at a pinned width the row's `Spacer` absorbs the padding and both
-        // headers measure exactly the pin, which is a tautology rather than a measurement.
+        // headers measure exactly the pin.
         let plain = size(workspace(document, stopped: words, door: nil).headerContent, width: nil)
         let control = size(workspace(document, stopped: words, door: {}).headerContent, width: nil)
         #expect(control.width > plain.width,
                 "the same words measured \(control.width)pt with a door and \(plain.width)pt without — the button branch is not being taken")
     }
 
-    /// The control is the same HEIGHT, so a header that grows a door does not push the document
-    /// column below it down — the property the whole header is built around.
+    /// The control is the same height, so a header that grows a door doesn't push the document
+    /// column down, the property the whole header is built around.
     @Test func theDoorDoesNotChangeTheHeadersHeight() throws {
         let document = try document()
         let words = "not saving — changed on disk"
@@ -286,8 +263,8 @@ import FileExplorerTestSupport
                 "with a door the header is \(control.height)pt and without it \(plain.height)pt")
     }
 
-    /// **No stop, no door**, whatever the host hands over: there are no amber words to click, so a
-    /// closure passed here must draw nothing at all.
+    /// No stop, no door, whatever the host passes: with no amber words to click, a closure must
+    /// draw nothing.
     @Test func aDocumentThatIsSavingHasNoWordsToClick() throws {
         let document = try document()
         let a = size(workspace(document, stopped: nil, door: nil).headerContent, width: nil)

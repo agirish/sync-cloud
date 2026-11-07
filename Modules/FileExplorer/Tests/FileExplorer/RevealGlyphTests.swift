@@ -2,8 +2,8 @@ import Testing
 import AppKit
 import Design
 
-/// RevealGlyph lives in Design (both FileExplorer and Dashboard draw from it), but Design has
-/// no test target, so its pins live here next to TransferGlyphTests.
+/// Pins `RevealGlyph`, which lives in Design (both FileExplorer and Dashboard draw from it); its
+/// pins sit here next to TransferGlyphTests.
 @Suite struct RevealGlyphTests {
 
     @Test func testRevealIsTheOutwardBoxArrowNotTheMagnifier() {

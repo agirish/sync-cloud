@@ -3,33 +3,29 @@ import AppKit
 import SwiftUI
 @testable import FileExplorer
 
-/// What the document header's Find button actually puts on screen.
-///
-/// **Measured, because the action's NAME is not the evidence.** `showFindBar` shipped sending
-/// `NSTextFinder.Action.showFindInterface`, which reads like the right thing and is not: AppKit
-/// builds the Replace field either way and, under that action, leaves it `isHidden` and parked
-/// above the bar with no control to bring it back. The button's tooltip and its Help entry both
-/// promise replace, so the bar has to carry it — and the only way to know it does is to find the
-/// field and ask whether it is visible.
+/// What the document header's Find button actually puts on screen, measured rather than trusted to
+/// the action's name: under `NSTextFinder.Action.showFindInterface` AppKit builds the Replace field
+/// but leaves it hidden, with no control to bring it back. The button's tooltip and Help promise
+/// replace, so these find the field and ask whether it is visible.
 @MainActor
 @Suite(.serialized) struct EditorFindBarTests {
 
     /// A text view in a window, set up the way ``PlainTextEditor`` sets its own up. A window is
-    /// required: `performTextFinderAction` on a detached view does nothing at all, which would make
-    /// every assertion below vacuous.
+    /// required: `performTextFinderAction` on a detached view does nothing, which would make every
+    /// assertion below vacuous.
     ///
-    /// **A test that opens the bar retires it as it ends** (`PlainTextEditor.retireFindBar`). Opening
-    /// it starts a search for whatever the machine-wide Find pasteboard holds, and a match landing
-    /// as the rig is freed left AppKit's find indicator a redraw for a freed finder — signal 6 or 11
-    /// in some later test (`docs/flaky-tests.md`).
+    /// A test that opens the bar must retire it as it ends (`PlainTextEditor.retireFindBar`):
+    /// opening it searches for whatever the machine-wide Find pasteboard holds, and a match landing
+    /// as the rig is freed leaves AppKit's find indicator a redraw for a freed finder, crashing a
+    /// later test (`docs/flaky-tests.md`, "A find indicator's redraw outlives the text view it was
+    /// asked for").
     private func hosted() -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let scroll = NSTextView.scrollableTextView()
         scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        // Marked the way `PlainTextEditor.makeNSView` marks its own — and
-        // `theEditorReallyMarksItsScrollView` is what stops this line from being the only place the
-        // mark is ever applied.
+        // Marked the way `PlainTextEditor.makeNSView` marks its own;
+        // `theEditorReallyMarksItsScrollView` checks the real editor applies the mark too.
         scroll.identifier = EditorDocumentSurface.identifier
         window.contentView?.addSubview(scroll)
         let view = scroll.documentView as! NSTextView
@@ -39,11 +35,9 @@ import SwiftUI
         return (scroll, view, window)
     }
 
-    /// Every text field in the bar, and whether anything in its ancestry hides it.
-    ///
-    /// `NSSearchField` is an `NSTextField` subclass, so one walk finds both rows. The classes AppKit
-    /// actually uses — `NSFindPatternSearchField`, `NSFindPatternTextField` — are private, which is
-    /// why this asks about the visible shape rather than about types it may not name.
+    /// Every text field in the bar, and whether anything in its ancestry hides it. `NSSearchField`
+    /// is an `NSTextField` subclass, so one walk finds both rows; AppKit's own classes are private,
+    /// so this asks about the visible shape rather than types it can't name.
     private func fields(in view: NSView?) -> [(field: NSTextField, hidden: Bool)] {
         guard let view else { return [] }
         var found: [(NSTextField, Bool)] = []
@@ -63,8 +57,7 @@ import SwiftUI
         return found
     }
 
-    /// The defect this test exists for: the bar opened, and the half the button promises was
-    /// hidden inside it.
+    /// The bar opens with both rows showing, including the Replace half the button promises.
     @Test func theFindBarOpensWithItsReplaceRowShowing() {
         let (scroll, view, _) = hosted()
         defer { PlainTextEditor.retireFindBar(of: view) }
@@ -73,17 +66,15 @@ import SwiftUI
         #expect(scroll.isFindBarVisible, "the find bar did not open at all")
 
         let rows = fields(in: scroll.findBarView)
-        // **The positive control, and it comes first.** Without it a bar that rendered no fields
-        // whatsoever would satisfy "none of them is hidden" and pass.
+        // The positive control, first: a bar with no fields at all would satisfy "none is hidden".
         #expect(rows.count == 2,
                 "expected a Find row and a Replace row, found \(rows.count) text fields")
         #expect(rows.allSatisfy { !$0.hidden },
                 "a row is hidden: \(rows.map { "\(type(of: $0.field)) hidden=\($0.hidden)" })")
     }
 
-    /// The other half of the same claim, stated as the contrast that makes it a measurement: the
-    /// action this used to send really does hide the Replace row, so the test above is not passing
-    /// because both actions happen to behave the same.
+    /// The contrast that makes the test above a measurement: the find-only action really does hide
+    /// the Replace row, so the two actions don't behave the same.
     @Test func theFindOnlyActionIsWhatHidesTheReplaceRow() {
         let (scroll, view, _) = hosted()
         defer { PlainTextEditor.retireFindBar(of: view) }
@@ -128,10 +119,9 @@ import SwiftUI
         return nil
     }
 
-    /// **A text view built after a Find press does not replay it.** The counter is the workspace's
-    /// and outlives the text view — × and Close Document, a refused file and Preview each take the
-    /// view down — so Find once, close, open any file used to put the find bar up by itself: the new
-    /// coordinator started at 0 and read the standing count as a fresh press.
+    /// A text view built after a Find press doesn't replay it. The counter is the workspace's and
+    /// outlives the text view (× and Close Document, a refused file and Preview each take the view
+    /// down), so a new coordinator starting at 0 would read the standing count as a fresh press.
     @Test func aTextViewBuiltAfterAFindPressDoesNotOpenTheBar() {
         let defaults = ScratchDefaults("EditorFindBarTests")
         let (host, window) = mountedEditor(findRequest: 3, defaults: defaults)
@@ -143,8 +133,8 @@ import SwiftUI
         #expect(!scroll.isFindBarVisible,
                 "a text view mounted under a standing find request opened the find bar by itself")
 
-        // The positive control: the next press, made while this view is on screen, still opens it —
-        // so the assertion above is not passing because the bar cannot open here at all.
+        // The positive control: the next press, made while this view is on screen, still opens it,
+        // so the bar can open here at all.
         host.rootView = editor(findRequest: 4, defaults: defaults)
         host.layoutSubtreeIfNeeded()
         #expect(scroll.isFindBarVisible, "a press made while the text view was on screen was lost")
@@ -153,9 +143,8 @@ import SwiftUI
 
     // MARK: Whose caret is it
 
-    /// The distinction the whole routing rests on: a field editor is an `NSTextView`, and it is not
-    /// the document. `TextEditingChord`'s `responder is NSTextView` answers "yes" to both, which is
-    /// why ⌘F cannot be routed on it.
+    /// The routing rests on this: a field editor is an `NSTextView` but not the document.
+    /// `TextEditingChord`'s `responder is NSTextView` answers yes to both, so ⌘F can't route on it.
     @Test func aFieldEditorIsNotTheDocument() {
         let (scroll, view, window) = hosted()
         let field = NSTextField(string: "not the document")
@@ -167,8 +156,8 @@ import SwiftUI
                 "the document's own text view was not recognised")
 
         window.makeFirstResponder(field)
-        // The field hands its caret to the window's shared field editor — an NSTextView, and the
-        // exact responder that makes the naive test wrong.
+        // The field hands its caret to the window's shared field editor, an NSTextView: the
+        // responder that makes the naive test wrong.
         #expect(window.firstResponder is NSTextView,
                 "the field did not take the caret, so this case proves nothing")
         #expect(EditorDocumentSurface.focusedTextView(in: window) == nil,
@@ -176,9 +165,8 @@ import SwiftUI
         _ = scroll
     }
 
-    /// The find bar's own fields live inside the editor's scroll view, so typing in them is still
-    /// "in the document" as far as the chord is concerned — which is what stops a second ⌘F, made
-    /// while the caret sits in the Find field, falling through to the pane search.
+    /// The find bar's own fields live inside the editor's scroll view, so they count as "in the
+    /// document", which stops a second ⌘F from the Find field falling through to the pane search.
     @Test func theFindBarsOwnFieldsCountAsTheDocument() {
         let (scroll, view, window) = hosted()
         defer { PlainTextEditor.retireFindBar(of: view) }
@@ -193,8 +181,8 @@ import SwiftUI
                 "the find bar's own field was treated as being outside the editor")
     }
 
-    /// An unmarked text view — any other one the app might grow — is not the document either. The
-    /// mark is the whole qualification, so this is the positive control for it.
+    /// An unmarked text view, any other the app might grow, is not the document either: the mark
+    /// is the whole qualification.
     @Test func anUnmarkedTextViewIsNotTheDocument() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -211,9 +199,8 @@ import SwiftUI
         #expect(EditorDocumentSurface.showFindBar(in: nil) == false)
     }
 
-    /// **The mark is applied by the editor, not only by this file's fixture.** Every routing test
-    /// above sets the identifier by hand, so deleting the line from `makeNSView` would leave them
-    /// all green while ⌘F silently stopped finding the document. This mounts the real view.
+    /// The real editor applies the mark, not only this file's fixture. The tests above set it by
+    /// hand, so dropping it from `makeNSView` would leave them green while ⌘F lost the document.
     @Test func theEditorReallyMarksItsScrollView() {
         let editor = PlainTextEditor(source: EditorSourceStorage(text: "hello"), isEditable: true, fontScale: 1,
                                      documentID: "/a/b.md", undoManager: UndoManager())
@@ -236,11 +223,11 @@ import SwiftUI
 
     // MARK: Closing retires the bar
 
-    /// **Closing the document takes its find bar down with it, in both editors** — the visible half
-    /// of `PlainTextEditor.retireFindBar`, which each editor's `dismantleNSView` calls. Without it a
-    /// search still in flight lands after the document has closed and leaves AppKit's find
-    /// indicator a redraw for a finder about to be freed (`docs/flaky-tests.md`). The crash is too
-    /// rare to catch a dropped call, so the call is pinned here by what it does.
+    /// Closing the document takes its find bar down with it, in both editors: each editor's
+    /// `dismantleNSView` calls `PlainTextEditor.retireFindBar`. Without it a search in flight lands
+    /// after the close and leaves AppKit's find indicator a redraw for a freed finder
+    /// (`docs/flaky-tests.md`, "A find indicator's redraw outlives the text view it was asked
+    /// for"). The crash is too rare to catch a dropped call, so the call is pinned by what it does.
     @Test(arguments: ["Source", "Preview"]) func closingTheDocumentRetiresItsFindBar(_ editor: String) {
         let source = EditorSourceStorage(text: "one two three\n")
         let undo = UndoManager()

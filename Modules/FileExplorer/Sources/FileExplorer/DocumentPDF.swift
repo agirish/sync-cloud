@@ -2,35 +2,20 @@ import AppKit
 import SwiftUI
 import Design
 
-/// The open document as PDF pages — the one render behind both File ▸ Print… and
-/// File ▸ Export as PDF… (roadmap RD9).
+/// The open document as PDF pages: the one render behind both File ▸ Print… and
+/// File ▸ Export as PDF…, so Export writes exactly the bytes Print is handed and the two can't
+/// disagree.
 ///
-/// **One render, two destinations, and that is the design rather than an economy.** The menu says
-/// Print prints what Preview shows and Export writes the same thing to a file; two rendering paths
-/// would make that two claims that happen to agree today. Here the export writes exactly the bytes
-/// the print operation is handed, so the only way for them to disagree is for the file to be
-/// written wrong — which the atomic write path already checks.
-///
-/// **A Markdown document is drawn by ``MarkdownBlockView``**, the same arms the preview column
-/// draws, in `.page` medium — see that type for the two differences paper forces. **A plain-text
-/// document is drawn by CoreText**, not by this pipeline at all: it has no blocks to break between,
-/// and `CTFramesetter` breaks at line boundaries for free where a block paginator would have to be
-/// told what a line is. That is the roadmap's "a plain text file prints as text", and it is why the
-/// two paths look nothing alike.
-///
-/// **Vector text, not a picture of text.** `ImageRenderer.render` hands over a `CGContext` and
-/// draws into it, so the glyphs in the PDF are glyphs: the result is selectable, searchable, and
-/// sharp at any zoom. `DocumentPDFTests` pins that by extracting the text back out of the rendered
-/// bytes with PDFKit — a rasterising regression would return nothing and fail there rather than in
-/// somebody's printer tray.
+/// Markdown is drawn by ``MarkdownBlockView``, the preview's own arms, in `.page` medium. Plain
+/// text is drawn by CoreText instead: it has no blocks, and `CTFramesetter` breaks at lines for
+/// free. `ImageRenderer.render` draws into the PDF's `CGContext`, so the text stays vector,
+/// selectable and searchable; `DocumentPDFTests` checks that by reading the text back.
 @MainActor
 public enum DocumentPDF {
 
-    /// What to render: a document, and how the app is currently drawing it.
-    ///
-    /// **The text, not the ``EditorDocument``.** The renderer takes a snapshot so it can be built
-    /// on the main actor and reasoned about without the buffer moving underneath it — and so that
-    /// a test can render a document that was never opened.
+    /// What to render: a document, and how the app is currently drawing it. A snapshot of the
+    /// text, not the ``EditorDocument``, so the buffer can't move under the render and a test can
+    /// render a document that was never opened.
     public struct Job: Sendable {
         /// The file's name, used for the print job and the export's suggested filename.
         public var name: String
@@ -42,9 +27,8 @@ public enum DocumentPDF {
         public var folder: String?
         /// Settings ▸ Text size, so the page is set in the type the reader chose.
         public var fontScale: CGFloat
-        /// The window's accent, which is what a link and a quote bar are drawn in on screen. Paper
-        /// keeps it: the page is the preview, and a preview in one colour printed in another is a
-        /// different document.
+        /// The window's accent, which links and quote bars are drawn in. Paper keeps it, so the
+        /// page matches the preview.
         public var accent: Color
 
         public init(name: String, text: String, isMarkdown: Bool,
@@ -66,12 +50,9 @@ public enum DocumentPDF {
         }
     }
 
-    /// The paper, and the box on it that content may occupy.
-    ///
-    /// **Read off `NSPrintInfo`, so the reader's own default paper decides the shape.** A4 and US
-    /// Letter differ by enough that a page laid out for one and printed on the other loses a line
-    /// at the foot; taking the size from the print system means the common case — one default
-    /// printer, one paper — is right without anybody choosing anything.
+    /// The paper, and the box on it that content may occupy. Read off `NSPrintInfo`, so the
+    /// reader's default paper decides the shape: a page laid out for A4 and printed on Letter
+    /// loses a line at the foot.
     public struct PageGeometry: Equatable, Sendable {
         /// The whole sheet, in points.
         public var paper: CGSize
@@ -85,23 +66,20 @@ public enum DocumentPDF {
 
         /// The geometry a print operation would use, from the print system's own numbers.
         ///
-        /// `imageablePageBounds` rather than the four margins: it is the intersection of the
-        /// margins with what the *printer* can actually reach, which is the smaller of the two and
-        /// the one that decides whether a footer lands on the page or in the driver's clip.
+        /// `imageablePageBounds` rather than the margins: it is what the printer can reach within
+        /// them, so a footer lands on the page rather than in the driver's clip.
         public static func from(_ info: NSPrintInfo) -> PageGeometry {
             let paper = info.paperSize
             var box = info.imageablePageBounds
-            // A print system with no printers configured can report an empty imageable box. Half an
-            // inch all round is the fallback, so an export still produces a readable page on a Mac
-            // that has never been near a printer.
+            // With no printer configured the imageable box can be empty. Fall back to half an inch
+            // all round, so an export still makes a readable page.
             if box.width <= 0 || box.height <= 0 {
                 box = CGRect(x: 36, y: 36, width: paper.width - 72, height: paper.height - 72)
             }
             return PageGeometry(paper: paper, content: box)
         }
 
-        /// US Letter with half-inch margins — the shape used when no print system is involved,
-        /// which in practice means the tests.
+        /// US Letter with half-inch margins, for when no print system is involved (the tests).
         public static let letter = PageGeometry(
             paper: CGSize(width: 612, height: 792),
             content: CGRect(x: 36, y: 36, width: 540, height: 720))
@@ -119,24 +97,16 @@ public enum DocumentPDF {
         let width = geometry.content.width
         let images = preloadImages(in: blocks, folder: job.folder)
 
-        // Measured one block at a time, then each block PINNED to the height it measured.
-        //
-        // **The pin is what makes the pagination true rather than approximate.** The page breaks
-        // below are arithmetic over these numbers, and the stack that gets drawn has to agree with
-        // them exactly — a stack that laid each block out freely would drift from the model by a
-        // fraction of a point per block and, forty blocks in, break in the middle of a heading.
-        // Pinning cannot drift: the height in the model IS the height in the layout.
+        // Each block is measured, then pinned to that height, so the drawn stack matches the page
+        // breaks exactly. Laid out freely it would drift a fraction of a point per block and,
+        // forty blocks in, break inside a heading.
         let measured = blocks.map { measure($0, job: job, images: images, width: width) }
         let heights = measured.map(\.height)
         let total = heights.reduce(0, +)
         guard total > 0 else { return blankPage(geometry) }
 
-        // **Each page draws only the blocks that appear on it**, rather than the whole document
-        // clipped to a window onto it. Both are correct; only one is linear. The clipped-whole-
-        // document form re-ran the entire render once per page — measured on a 2,000-block
-        // document, 90 pages each drawing 2,000 blocks — which is quadratic in the document's
-        // length and, on a file near the editor's 4 MiB read cap, is the difference between a
-        // pause and a hang. The prefix sums below are what make a page's own blocks findable.
+        // Each page draws only its own blocks, found by these prefix sums. Drawing the whole
+        // document clipped per page is quadratic, and near the editor's 4 MiB read cap it hangs.
         var tops: [CGFloat] = []
         tops.reserveCapacity(heights.count)
         var running: CGFloat = 0
@@ -157,28 +127,24 @@ public enum DocumentPDF {
                         ForEach(shown, id: \.self) { index in measured[index].view }
                     }
                     .frame(width: width, alignment: .topLeading)
-                    // **Light, whatever the app is wearing.** Every semantic colour in these arms —
-                    // the secondary text of a quote, the fill behind a code fence — resolves against
-                    // the ambient scheme, and a document printed in dark mode would be
-                    // white-on-black: unreadable on paper and a cartridge's worth of ink.
+                    // Light, whatever the app wears: the arms' semantic colours follow the scheme,
+                    // and dark mode would print white on black.
                     .environment(\.colorScheme, .light)
                     .environment(\.appFontScale, job.fontScale)
 
                     let renderer = ImageRenderer(content: AnyView(slice))
                     renderer.proposedSize = ProposedViewSize(width: width, height: nil)
                     let sliceHeight = shown.reduce(CGFloat(0)) { $0 + heights[$1] }
-                    // How far into the first drawn block this page begins — non-zero only for a
-                    // block too tall to fit a page, which is the one case a block is cut.
+                    // How far into the first drawn block this page begins; non-zero only for a
+                    // block too tall for a page, the one case a block is cut.
                     let into = page.start - tops[first]
 
                     renderer.render { _, draw in
                         context.saveGState()
-                        // **Clipped to this page's SLICE, not to the content box.** A page that
-                        // breaks early — which is every page that moved a block down rather than
-                        // cutting it — is shorter than the box it is drawn in, and clipping to the
-                        // box let the next block's first line bleed into the space the break had
-                        // just made for it. It showed up as the same paragraph printed on two
-                        // consecutive pages, which is what `noBlockIsSplitAcrossAPageBreak` refuses.
+                        // Clipped to this page's slice, not the content box. A page that breaks
+                        // early is shorter than the box, and clipping to the box would let the next
+                        // block's first line bleed in and print on two pages
+                        // (`noBlockIsSplitAcrossAPageBreak`).
                         context.clip(to: CGRect(x: geometry.content.minX,
                                                 y: geometry.content.maxY - page.height,
                                                 width: geometry.content.width,
@@ -205,13 +171,9 @@ public enum DocumentPDF {
 
     /// Lays a block out at the page width and pins it to what it measured.
     ///
-    /// **A table is the one block that may be scaled**, and only when it is genuinely too wide.
-    /// Everything else on a page either wraps (prose, and on paper, code) or is already bounded by
-    /// the column (an image). A table can do neither — a `Grid` is as wide as its columns need —
-    /// and the alternatives to scaling are both losses: clipped columns disappear with nothing to
-    /// say they existed, and a wrapped cell turns a table into a paragraph. Measured against an
-    /// unbounded proposal, which for a table is its natural width and for anything else would be
-    /// the whole document on one line — which is why this asks only about tables.
+    /// A table too wide for the page is scaled down: it can't wrap like prose and code, and clipped
+    /// columns vanish silently. Only tables are measured unbounded, since that gives a table its
+    /// natural width but puts anything else on one line.
     private static func measure(_ block: MarkdownBlock, job: Job,
                                 images: [String: MarkdownImageView.Preloaded],
                                 width: CGFloat) -> Measured {
@@ -239,41 +201,29 @@ public enum DocumentPDF {
 
     /// What a view measures at a proposed width, or unbounded when `proposal` is `nil`.
     ///
-    /// **A fresh hosting view per block, which is measured rather than assumed.** Re-rooting one
-    /// long-lived `NSHostingView` and re-laying it out is the obvious economy and it is a loss:
-    /// measured on this branch, 500 blocks went from 345ms to 2,612ms and 2,000 from 1.5s to 4.2s,
-    /// because re-rooting invalidates more than building does. Left as it is, with the numbers, so
-    /// the economy is not attempted a second time.
-    ///
-    /// The appearance is forced to Aqua for the reason the render forces a light colour scheme: a
-    /// measurement taken in the app's dark appearance is not wrong, but it is a different one, and
-    /// the numbers the pagination trusts must be the numbers the light render produces.
+    /// A fresh hosting view per block: re-rooting one long-lived `NSHostingView` is several times
+    /// slower (500 blocks: 345 ms vs 2,612 ms), because re-rooting invalidates more than building.
+    /// Forced to Aqua so the numbers match the light render the pagination trusts.
     private static func fittingSize(_ view: some View, proposal: CGFloat?) -> CGSize {
-        // **The width is applied to the VIEW, not to the hosting view's frame**, and that
-        // distinction is the whole measurement. `fittingSize` reports the content's *ideal* size,
-        // which a frame on the host does not constrain — so a paragraph measured that way came back
-        // one line tall, was pinned to one line, and printed as a sentence ending in an ellipsis.
-        // Every prose block in a real document was truncated, and the page-break tests could not
-        // see it: the words they look for are all on the first line.
+        // The width goes on the view, not the hosting view's frame: `fittingSize` reports the
+        // ideal size, which a host frame doesn't constrain, so a paragraph would measure one line
+        // tall and print truncated with an ellipsis.
         let root = proposal.map { AnyView(view.frame(width: $0, alignment: .topLeading)) }
             ?? AnyView(view)
         let hosting = NSHostingView(rootView: root)
         hosting.appearance = NSAppearance(named: .aqua)
         let size = hosting.fittingSize
-        // A block that measures nothing still occupies its own row in the model, and a zero-height
-        // entry would let the page break land on top of the next block's first line.
+        // At least 1pt: a zero-height entry would let a page break land on the next block's first
+        // line.
         return CGSize(width: size.width, height: max(size.height, 1))
     }
 
     /// Resolves and decodes every image the document names, before anything is drawn.
+    /// ``MarkdownImageView`` loads in a `.task`, which never runs in an offscreen render, so
+    /// otherwise every image would print as "Loading…". Same calls, in the same order, as that
+    /// view, so a picture the preview refuses is refused on paper with the same row.
     ///
-    /// **Because a page has no second frame.** ``MarkdownImageView`` loads in a `.task`, and tasks
-    /// do not run inside an offscreen render — left to itself every image in the PDF would be the
-    /// "Loading…" placeholder. The resolve and the decode here are the same two calls that view
-    /// makes, in the same order, so a picture the preview refuses to draw (remote, cloud-only, too
-    /// large) is refused on paper for the same reason and prints the same explanatory row.
-    ///
-    /// Keyed by the raw source text, which is what the block carries and what the view looks up.
+    /// Keyed by the raw source text, which is what the block carries and the view looks up.
     private static func preloadImages(in blocks: [MarkdownBlock],
                                       folder: String?) -> [String: MarkdownImageView.Preloaded] {
         var loaded: [String: MarkdownImageView.Preloaded] = [:]
@@ -297,16 +247,13 @@ public enum DocumentPDF {
 
     /// A plain-text document, set in the editor's own monospaced face.
     ///
-    /// **`CTFramesetter` rather than the block pipeline**, for the reason the type's doc gives: it
-    /// fills a page with as many whole lines as fit and reports where it stopped, so a page break
-    /// can never land inside a line. Measuring a hundred thousand lines through SwiftUI to reach
-    /// the same guarantee would take longer than the print.
+    /// `CTFramesetter` fills a page with whole lines and reports where it stopped, so a break never
+    /// lands inside a line, far faster than measuring every line through SwiftUI.
     private static func plainText(_ job: Job, _ geometry: PageGeometry) -> Data? {
         guard !job.text.isEmpty else { return blankPage(geometry) }
 
         let paragraph = NSMutableParagraphStyle()
-        // Wrapped, always — the Source pane's own wrap switch is about a column that can scroll
-        // sideways, and paper cannot. An unwrapped page would clip every long line at the margin.
+        // Always wrapped, whatever the Source pane's switch says: paper can't scroll sideways.
         paragraph.lineBreakMode = .byWordWrapping
         let attributed = NSAttributedString(string: job.text, attributes: [
             .font: PlainTextEditor.font(scale: job.fontScale),
@@ -320,9 +267,8 @@ public enum DocumentPDF {
 
         return pdf(geometry: geometry) { context in
             var start = 0
-            // A page that consumes nothing would spin forever — a line taller than the whole
-            // content box does exactly that. One page, then move on; the guard is the loop's, not
-            // the format's.
+            // A page that consumes nothing (a line taller than the content box) would spin
+            // forever, so it gets one page and the loop moves on.
             repeat {
                 context.beginPDFPage(nil)
                 paintPaper(context, geometry)
@@ -349,9 +295,8 @@ public enum DocumentPDF {
         return data.isEmpty ? nil : data as Data
     }
 
-    /// **White paper, drawn rather than assumed.** A PDF page has no background: left unpainted it
-    /// is transparent, which every viewer shows as white and some compositors show as black — and
-    /// printing it onto anything but white paper reads as a bug.
+    /// Paints the page white. An unpainted PDF page is transparent, which some compositors show
+    /// as black.
     private static func paintPaper(_ context: CGContext, _ geometry: PageGeometry) {
         context.setFillColor(NSColor.white.cgColor)
         context.fill(CGRect(origin: .zero, size: geometry.paper))

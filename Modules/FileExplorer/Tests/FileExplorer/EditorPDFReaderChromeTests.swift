@@ -7,8 +7,8 @@ import Design
 import FileExplorerTestSupport
 import Sync
 
-/// **Phase 6a: the PDF reader's chrome** — the two-row header at a text file's height, row 2's
-/// facts, no status line, the floating page and zoom capsule and the find card over the canvas.
+/// The PDF reader's chrome: the two-row header at a text file's height, row 2's facts, no status
+/// line, and the floating page and zoom capsule and find card over the canvas.
 ///
 /// Serialized: the mounted tests lay out a `PDFView` on the main thread.
 @MainActor
@@ -72,8 +72,8 @@ import Sync
 
     // MARK: The header
 
-    /// **The PDF header is a text file's height, at every text size** — so switching between a PDF
-    /// and a Markdown file in one column moves nothing (decided 2026-10-19, mockup 4's parity).
+    /// The PDF header is a text file's height at every text size, so switching between a PDF and a
+    /// Markdown file in one column moves nothing.
     @Test func thePDFHeaderIsTheTextHeadersHeight() async throws {
         let pdf = try await open(pages: 4)
         let markdown = try TestTextFiles.document(named: "Run of show.md")
@@ -88,8 +88,8 @@ import Sync
         }
     }
 
-    /// **Two rows, the name's and the facts'** — and row 2 starts with "PDF", as a text file's
-    /// starts with "Markdown".
+    /// Two rows, the name's and the facts', and row 2 starts with "PDF", as a text file's starts
+    /// with "Markdown".
     @Test func theHeaderHasTwoRowsAndRowTwoStartsWithPDF() throws {
         let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         let header = try #require(card.range(of: "struct EditorPDFHeader<Trailing: View>: View {"))
@@ -104,8 +104,8 @@ import Sync
         #expect(!card.contains("Read only\""), "the Read only tag is back")
     }
 
-    /// **Row 2 sheds whole segments** — "Text selectable" first, then the inches, then the paper's
-    /// name, then the size — and never cuts one: each is laid out at its own width.
+    /// Row 2 sheds whole segments ("Text selectable" first, then the inches, then the paper's name,
+    /// then the size) and never cuts one: each is laid out at its own width.
     @Test func rowTwoShedsWholeSegmentsInOrder() throws {
         let letter = EditorPDFFacts(pageCount: 2, pageSizes: [PDFFixtures.letter, PDFFixtures.letter],
                                     majorVersion: 1, minorVersion: 4, fileSize: "42 KB", hasText: true)
@@ -116,7 +116,7 @@ import Sync
             ["42 KB"],
             [],
         ])
-        // A scan keeps the status line's own words; a paper with no name has no shorter reading.
+        // A scan says "Image only"; a paper with no name has no shorter reading.
         let odd = EditorPDFFacts(pageCount: 1, pageSizes: [CGSize(width: 288, height: 432)],
                                  majorVersion: 1, minorVersion: 7, fileSize: "9 KB", hasText: false)
         #expect(EditorPDFFactsRow.rungs(odd, page: 0) == [
@@ -130,8 +130,8 @@ import Sync
         #expect(String(card[row.upperBound...].prefix(400)).contains(".fixedSize()"), "a segment can be cut mid-word")
     }
 
-    /// **Row 2 says nothing of Fill & Sign** (Phase 6b): the unsaved count is the save pill's, so
-    /// row 2 reads the same with an item placed as without.
+    /// Row 2 says nothing of Fill & Sign: the unsaved count is the save pill's, so row 2 reads the
+    /// same with an item placed as without.
     @Test func rowTwoReadsTheSameWithAnItemPlaced() async throws {
         let pdf = try await open(pages: 2)
         // At row 2's own size: the header sets it, not the row.
@@ -149,7 +149,7 @@ import Sync
         #expect(!card.contains("unsavedCaption"), "the header counts Fill & Sign's items again")
     }
 
-    /// **No status line under a PDF; a text file keeps its own.**
+    /// No status line under a PDF; a text file keeps its own.
     @Test func aPDFHasNoStatusLineAndATextFileKeepsOne() throws {
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(!workspace.contains("EditorPDFStatusLine"), "the PDF's status line is mounted again")
@@ -161,8 +161,8 @@ import Sync
 
     // MARK: The capsule: where it is
 
-    /// **Mounted over the canvas, not inside the `PDFView`** — its grip lies within the pages'
-    /// frame and is none of PDFKit's views.
+    /// The capsule is mounted over the canvas, not inside the `PDFView`: its grip lies within the
+    /// pages' frame and is none of PDFKit's views.
     @Test func theCapsuleIsMountedOverTheCanvas() async throws {
         let pdf = try await open(pages: 3)
         let window = host(reader(pdf), size: CGSize(width: 700, height: 600))
@@ -178,7 +178,7 @@ import Sync
         #expect(inWindow(pages).contains(inWindow(grip)), "the capsule is not over the pages")
     }
 
-    /// **Each place sits 14pt in from the edges it is named for**, centred on the others.
+    /// Each place sits 14pt in from the edges it is named for, centred on the others.
     @Test func eachPlaceSitsInsetFromItsEdges() {
         let canvas = CGSize(width: 800, height: 600), row = CGSize(width: 300, height: 30)
         let inset = EditorPDFFloating.inset
@@ -197,9 +197,8 @@ import Sync
         #expect(EditorPDFCapsulePlace.allCases.count == 8)
     }
 
-    /// **A drop snaps to the nearest of the eight places** — and a capsule let go where it already
-    /// is stays there, even on a canvas so narrow that a corner and the middle of its edge nearly
-    /// meet.
+    /// A drop snaps to the nearest of the eight places, and a capsule let go where it already is
+    /// stays there, even on a canvas so narrow that a corner and the middle of its edge nearly meet.
     @Test func aDropSnapsToTheNearestPlace() {
         let row = CGSize(width: 300, height: 30), upright = CGSize(width: 40, height: 200)
         for canvas in [CGSize(width: 900, height: 700), CGSize(width: 366, height: 520), CGSize(width: 1400, height: 420)] {
@@ -219,8 +218,8 @@ import Sync
                 == .top)
     }
 
-    /// **The place is remembered as a place, under the named key**, and read back by the next view
-    /// state — the next launch's. A close keeps it; an unknown stored value falls back.
+    /// The place is remembered as a place, under the named key, and read back by the next view state
+    /// (the next launch's). A close keeps it; an unknown stored value falls back.
     @Test func thePlaceIsStoredByNameAndSurvivesARemount() {
         let first = EditorPDFViewState(defaults: defaults)
         #expect(first.capsulePlace == .bottom)
@@ -235,9 +234,9 @@ import Sync
         #expect(EditorPDFViewState(defaults: defaults).capsulePlace == .bottom)
     }
 
-    /// **Settings ▸ Reset All Settings reaches an open reader** — the layout, Cover Page
-    /// Separately and both places go back to their defaults on screen as they do on disk, not at
-    /// the next launch; and taking them writes nothing back into the emptied domain.
+    /// Settings ▸ Reset All Settings reaches an open reader: the layout, Cover Page Separately and
+    /// both places go back to their defaults on screen as on disk, not at the next launch, and
+    /// taking them writes nothing back into the emptied domain.
     @Test func aResetReachesTheOpenReader() {
         let reset = ScratchDefaults("EditorPDFReaderReset")
         let state = EditorPDFViewState(defaults: reset)
@@ -256,11 +255,10 @@ import Sync
         #expect(reset.string(forKey: EditorPDFSettings.capsulePlaceKey) == "top")
     }
 
-    /// **A write to the reader's domain from another thread never waits for the main thread**, and
-    /// the reader still takes it. Observed with `queue: .main`, the writer waited until main ran the
-    /// reread: every scratch-suite wipe in a test run waits on main that way, and with main busy
-    /// they held the whole cooperative pool (2026-10-20). Here main is held while another thread
-    /// writes; the hold gives up after five seconds and says so.
+    /// A write to the reader's domain from another thread never waits for the main thread, and the
+    /// reader still takes it. Observing with `queue: .main` makes the writer wait for main to run the
+    /// reread, and with main busy, scratch-suite wipes can hold the whole cooperative pool. Here
+    /// main is held while another thread writes; the hold gives up after five seconds and says so.
     @Test func aWriteOffTheMainThreadNeverWaitsForTheReader() async {
         let defaults = ScratchDefaults("EditorPDFReaderOffMain")
         let state = EditorPDFViewState(defaults: defaults)
@@ -280,15 +278,14 @@ import Sync
                 "a write from another thread never reached the open reader")
     }
 
-    /// Blocks the main thread — this test runs on it — until `done` is signalled or five seconds
+    /// Blocks the main thread, which this test runs on, until `done` is signalled or five seconds
     /// pass. Synchronous, because a wait in an async test would hand the main thread back.
     private func holdingTheMainThread(until done: DispatchSemaphore) -> DispatchTimeoutResult {
         done.wait(timeout: .now() + 5)
     }
 
-    /// **The place holds across a resize** — bottom right is still bottom right, 14pt in, in a
-    /// wider and taller window: the capsule moves with the corner rather than staying at the points
-    /// it was drawn at.
+    /// The place holds across a resize: bottom right is still bottom right, 14pt in, in a wider and
+    /// taller window, so the capsule moves with the corner rather than staying where it was drawn.
     @Test func thePlaceHoldsAcrossAResize() async throws {
         let pdf = try await open(pages: 3)
         pdf.view.capsulePlace = .bottomTrailing
@@ -309,10 +306,10 @@ import Sync
         #expect(abs(after.minY - before.minY) < 2, "the grip left the bottom edge: \(before.minY) → \(after.minY)")
     }
 
-    /// **A click anywhere on the canvas but the floating pieces reaches the pages** — selecting
-    /// text and Fill & Sign's placing must work right up to the capsule and the card. The pieces
-    /// fill the canvas to align themselves, so this is what proves those frames are not hit. And
-    /// the grip, the one AppKit view in the capsule, gets its own clicks.
+    /// A click anywhere on the canvas but the floating pieces reaches the pages, so selecting text
+    /// and Fill & Sign's placing work right up to the capsule and the card. The pieces fill the
+    /// canvas to align themselves, so this proves those frames aren't hit. The grip, the one AppKit
+    /// view in the capsule, gets its own clicks.
     @Test func clicksOffTheFloatingPiecesReachThePages() async throws {
         let pdf = try await open(pages: 3)
         pdf.find.show()
@@ -352,8 +349,8 @@ import Sync
                                         context: nil, eventNumber: 0, clickCount: clicks, pressure: 1))
     }
 
-    /// **A drag by the grip reports the move, turned into SwiftUI's down-is-positive space, and a
-    /// press that never moves past the threshold is only a click.**
+    /// A drag by the grip reports the move in SwiftUI's down-is-positive space, and a press that
+    /// never moves past the threshold is only a click.
     @Test func theGripDragsAndAClickIsOnlyAClick() throws {
         let grip = EditorPDFGripView()
         var dragged: [CGSize] = [], dropped: [CGSize] = []
@@ -370,9 +367,9 @@ import Sync
         #expect(dropped == [CGSize(width: 200, height: 60)])
     }
 
-    /// **A grip taken out of its window mid-drag lets the drag go** — the palette went while its
-    /// grip was held. The rest of the drag still reaches the view that took the press; it used to
-    /// restart the drag and drop the piece by a frame that was gone.
+    /// A grip taken out of its window mid-drag (the palette going while its grip is held) lets the
+    /// drag go. The rest of the drag still reaches the view that took the press, and must not
+    /// restart the drag or drop the piece by a frame that is gone.
     @Test func aGripLeavingItsWindowMidDragLetsTheDragGo() throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -392,8 +389,8 @@ import Sync
         #expect(dropped.isEmpty, "a mouse-up after the grip left dropped the piece")
     }
 
-    /// **Double-click and Reset Position put it back at bottom centre; Move To moves it** — and the
-    /// menu ticks where it is.
+    /// Double-click and Reset Position put the capsule back at bottom centre; Move To moves it, and
+    /// the menu ticks where it is.
     @Test func theGripResetsAndItsMenuMovesIt() throws {
         let state = EditorPDFViewState(defaults: defaults)
         let grip = EditorPDFGripView()
@@ -418,8 +415,8 @@ import Sync
         #expect(atRest.items.last?.isEnabled == false, "Reset Position is live with the capsule already at the bottom")
     }
 
-    /// **Move To's places and Reset Position are the grip's accessibility actions**, so moving the
-    /// capsule never needs a drag — and the grip says what it is and where the capsule is.
+    /// Move To's places and Reset Position are the grip's accessibility actions, so moving the
+    /// capsule never needs a drag, and the grip says what it is and where the capsule is.
     @Test func theMoveToActionsAreExposedToAccessibility() throws {
         let state = EditorPDFViewState(defaults: defaults)
         let grip = EditorPDFGripView()
@@ -444,7 +441,7 @@ import Sync
         size(EditorPDFCapsule(state: state, pageCount: pages, accent: .blue, forcedRung: rung), scale: scale)
     }
 
-    /// **Upright only in the middle of a side**: there it is taller than wide, with ˄ ˅ and the
+    /// Upright only in the middle of a side: there it is taller than wide, with ˄ ˅ and the
     /// percentage; everywhere else a row.
     @Test func theCapsuleStandsUprightOnlyAtTheMiddlePlaces() throws {
         #expect(EditorPDFCapsulePlace.allCases.filter(\.isVertical) == [.leading, .trailing])
@@ -469,9 +466,9 @@ import Sync
         #expect(EditorPDFViewMenu.menu(for: state).items.filter { $0.state == .on }.map(\.title) == ["Fit Page"])
     }
 
-    /// **Upright, the capsule is one width at every zoom** — its width is the side band a fit is
-    /// measured inside, so a width that followed the percentage's digits looped Fit Width between
-    /// 99% and 100% at a column width in between, the page flickering for as long as it was left.
+    /// Upright, the capsule is one width at every zoom. Its width is the side band a fit is
+    /// measured inside, so a width that followed the percentage's digits could loop Fit Width
+    /// between 99% and 100%, the page flickering for as long as it was left.
     @Test func theUprightCapsuleIsOneWidthAtEveryZoom() {
         let state = EditorPDFViewState(defaults: defaults)
         state.pageCount = 64
@@ -485,8 +482,8 @@ import Sync
         }
     }
 
-    /// **A narrow canvas takes − and + first, then ‹ and ›** — each rung narrower, at every text size
-    /// — **and never "N of M" or the zoom label**: the narrowest still grows with the page count's
+    /// A narrow canvas takes − and + first, then ‹ and ›, each rung narrower at every text size,
+    /// but never "N of M" or the zoom label: the narrowest still grows with the page count's
     /// digits and with the zoom's words.
     @Test func theCapsuleCompactsInOrderAndKeepsThePageAndTheZoom() throws {
         #expect(EditorPDFCapsule.Rung.allCases == [.full, .noZoomSteps, .pageAndZoomOnly])
@@ -499,8 +496,8 @@ import Sync
             #expect(zip(widths, widths.dropFirst()).allSatisfy { $0 > $1 + 10 }, "at \(scale) the rungs measure \(widths)")
         }
         // "of M" is drawn: from 9 pages to 99,999 the narrowest capsule grows by the field's own
-        // growth AND the count's. The field alone widens with the digits too, so growing at all
-        // is not enough — that passed with "of M" deleted.
+        // growth and the count's. The field alone widens with the digits too, so growing at all
+        // would pass with "of M" deleted.
         let few = capsule(state, pages: 9, rung: .pageAndZoomOnly).width
         let many = capsule(state, pages: 99_999, rung: .pageAndZoomOnly).width
         let fieldGrowth = EditorPDFCapsule.fieldWidth(pageCount: 99_999) - EditorPDFCapsule.fieldWidth(pageCount: 9)
@@ -521,7 +518,7 @@ import Sync
         #expect(fitted != percent && wider != percent, "the narrowest capsule does not draw the zoom label")
     }
 
-    /// **The page bands**: 28pt above the first page, and the capsule's own band on its edge.
+    /// The page bands: 28pt above the first page, and the capsule's own band on its edge.
     @Test func theCanvasKeepsBandsForThePagesToClear() {
         let row = CGSize(width: 300, height: 30), upright = CGSize(width: 40, height: 200)
         let bottom = EditorPDFFloating.canvasInsets(place: .bottom, capsule: row)
@@ -537,8 +534,8 @@ import Sync
         #expect(EditorPDFFloating.canvasInsets(place: .bottom, capsule: .zero).bottom == 0)
     }
 
-    /// **The end of the last page scrolls fully clear of the capsule's band**, and the first page
-    /// starts below the top band — on a mounted page view with the bands set.
+    /// The end of the last page scrolls fully clear of the capsule's band, and the first page
+    /// starts below the top band, on a mounted page view with the bands set.
     @Test func theLastPageScrollsClearOfTheCapsule() async throws {
         let pdf = try await open(pages: 3)
         let insets = EditorPDFFloating.canvasInsets(place: .bottom, capsule: CGSize(width: 300, height: 30))
@@ -560,8 +557,8 @@ import Sync
         // As it opens, at Fit Page.
         let opened = try gaps(0)
         #expect(opened.top >= insets.top - 1, "the first page opens \(opened.top)pt down, inside the top band")
-        // Fit Width, scrolled to each end. (A fit change zooms about the middle, as PDFKit always
-        // has, so the top is scrolled back to rather than assumed.)
+        // Fit Width, scrolled to each end. A fit change zooms about the middle, as PDFKit does, so
+        // the top is scrolled back to rather than assumed.
         pdf.view.fit = .width
         view.fit = .width
         view.layoutSubtreeIfNeeded()
@@ -585,8 +582,8 @@ import Sync
 
     // MARK: Floating pieces never overlap
 
-    /// **The capsule slides along its edge until it clears the find card, and goes back when the
-    /// card closes** — the one rule every floating piece keeps.
+    /// The capsule slides along its edge until it clears the find card, and goes back when the card
+    /// closes: the one rule every floating piece keeps.
     @Test func theCapsuleSlidesClearOfTheFindCardAndBack() {
         let canvas = CGSize(width: 800, height: 600)
         let card = EditorPDFCapsulePlace.topTrailing.frame(size: CGSize(width: 330, height: 32), in: canvas)
@@ -619,7 +616,7 @@ import Sync
         #expect(canvas.contains("canvasInsets: EditorPDFFloating.canvasInsets(place: state.capsulePlace, capsule: capsule.now),"),
                 "the bands are not the capsule's alone")
         // What floats over the pages is what "a match in sight" keeps clear of: the card, the pill,
-        // the palette, and the capsule once it has slid off its band — not the capsule at its place.
+        // the palette, and the capsule once it has slid off its band, not the capsule at its place.
         #expect(canvas.contains("coveredRects: frames.covered, accent: accent)"), "the page view is not told what floats over it")
         let canvasSize = CGSize(width: 700, height: 800)
         let card = CGSize(width: 330, height: 30), pill = CGSize(width: 200, height: 28)
@@ -639,7 +636,7 @@ import Sync
 
     // MARK: Glass
 
-    /// **At Clear the floating pieces wear Frosted's glass** — they sit over page text, not the
+    /// At Clear the floating pieces wear Frosted's glass, since they sit over page text, not the
     /// desktop. Solid and Frosted are left as they are.
     @Test func floatingPiecesWearFrostedAtClear() {
         let clear = SelectionLensAppearance(level: .clear, hue: .blue, tint: 0.5)
@@ -651,9 +648,8 @@ import Sync
         }
     }
 
-    /// **In dark mode the glass stands on a dark veil**; light mode, Solid and the probe draw none.
-    /// Decided 2026-10-18 over Solid's ground at every level: Frosted in dark let the page's type
-    /// show through behind light labels.
+    /// In dark mode the glass stands on a dark veil; light mode, Solid and the probe draw none.
+    /// Without it, Frosted in dark lets the page's type show through behind light labels.
     @Test func floatingGlassStandsOnADarkVeilInDarkModeOnly() throws {
         for material in [SelectionLensMaterial.frosted, .clear] {
             #expect(EditorPDFFloating.veil(material: material, colorScheme: .dark) == EditorPDFFloating.darkVeil)
@@ -675,7 +671,7 @@ import Sync
 
     // MARK: Keyboard and VoiceOver
 
-    /// **⌃⌘L reaches the capsule's field**, and the header has no page field left to compete.
+    /// ⌃⌘L reaches the capsule's field, and the header has no page field to compete.
     @Test func goToPageFocusesTheCapsulesField() throws {
         let capsule = try ChromeGlassWiringTests.source("EditorPDFCapsule.swift")
         #expect(capsule.contains(".onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }"))
@@ -683,9 +679,9 @@ import Sync
         #expect(!card.contains("pageFieldRequest"), "the header still answers Go to Page…")
     }
 
-    /// **After the header in the tab order, and every control named.** The canvas is under the
-    /// header in the document column, the pages before the capsule and the capsule before the find
-    /// card; each of the capsule's buttons and the field has a label VoiceOver reads.
+    /// After the header in the tab order, and every control named. The canvas is under the header
+    /// in the document column, the pages before the capsule and the capsule before the find card;
+    /// each of the capsule's buttons and the field has a label VoiceOver reads.
     @Test func theCapsuleFollowsTheHeaderAndNamesItsControls() throws {
         let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
         let pages = try #require(canvas.range(of: "EditorPDFPageView(document: document"))
@@ -704,8 +700,8 @@ import Sync
 
     // MARK: Find
 
-    /// **⌘F opens the card and the page does not move** — the reader's frame and the first page's
-    /// place in the window, before and after, in the whole workspace as the column draws it.
+    /// ⌘F opens the card and the page doesn't move: the reader's frame and the first page's place
+    /// in the window match before and after, in the whole workspace as the column draws it.
     @Test func theFindCardLeavesThePageWhereItWas() async throws {
         let pdf = try await open(pages: 3)
         let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)

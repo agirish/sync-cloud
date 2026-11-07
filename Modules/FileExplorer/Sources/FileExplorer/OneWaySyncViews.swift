@@ -26,14 +26,14 @@ enum OneWaySyncPalette {
 
 // MARK: - The status pill (ED, TE250)
 
-/// **One-way sync's pill in Compare's differences bar**, beside the count (decision ED): "One-Way
-/// Sync: Off · Set Up…" before setup, then the first rung of the ladder that applies. A click opens
-/// setup, or the sync's overview.
+/// One-way sync's pill in Compare's differences bar, beside the count: "One-Way Sync: Off ·
+/// Set Up…" before setup, then the first rung of the ladder that applies. A click opens setup, or
+/// the sync's overview.
 public struct OneWaySyncStatusPill: View {
     @ObservedObject var controller: OneWaySyncController
     @ObservedObject var center: ActivityCenter
     let onSetUp: () -> Void
-    /// The app's accent, for FV's suggestion to sync.
+    /// The app's accent, for the pill's suggestion to sync after changes.
     @AppStorage(LiquidGlass.hueKey) private var hueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// The widest the pill draws at the app's own text size; longer words truncate, whole in the
@@ -54,7 +54,7 @@ public struct OneWaySyncStatusPill: View {
     /// What the differences bar reserves for the pill at `scale`: its words as they are now, the
     /// dot and the capsule, up to `maxWidth`; nothing when it draws nothing (a copy that may not
     /// sync, never set up). Priced from the words so a short "3 need you" doesn't take a stop
-    /// reason's room from Verify and Review (v6.2's bar had no pill at all).
+    /// reason's room from Verify and Review.
     @MainActor public static func width(controller: OneWaySyncController = .shared, scale: CGFloat) -> CGFloat {
         guard controller.refusal == nil || controller.isSetUp else { return 0 }
         let words = LabelMetrics.width(of: title(controller.ladder), font: font, scale: scale)
@@ -63,8 +63,8 @@ public struct OneWaySyncStatusPill: View {
 
     /// Whether Compare's bar carries the pill: always once the sync is set up (or another Mac
     /// syncs, or it stopped), and before that only for a comparison of an iCloud Drive pane with
-    /// a Dropbox one, where setting it up is the next thing (decided 31 Oct). Never for a copy
-    /// that may not sync and was never set up.
+    /// a Dropbox one, where setting it up is the next thing. Never for a copy that may not sync and
+    /// was never set up.
     @MainActor public static func isShown(controller: OneWaySyncController = .shared, paneTypes: [CloudProvider.ProviderType?]) -> Bool {
         guard controller.refusal == nil || controller.isSetUp else { return false }
         if controller.isSetUp || controller.otherMac != nil || controller.stop != nil { return true }
@@ -82,7 +82,7 @@ public struct OneWaySyncStatusPill: View {
         case .upToDate(let asOf, let skipped):
             let when = Calendar.current.isDateInToday(asOf) ? "at " + day(asOf) : day(asOf)
             return "Synced \(when)" + (skipped > 0 ? " · \(skipped) skipped" : "") + " · Sync Now"
-        // FV: the watcher suggests a sync; only the button runs one.
+        // The watcher suggests a sync; only the button runs one.
         case .changes(let count, let since):
             return (count == 1 ? "1 change" : "\(count.formatted()) changes") + " since \(day(since)) · Sync Now"
         case .changesMayBeWaiting: return "Changes may be waiting · Sync Now"
@@ -133,8 +133,8 @@ public struct OneWaySyncStatusPill: View {
 
 // MARK: - The Syncs section of Compare's sidebar (ED, TE251)
 
-/// **Compare's sidebar lists the sync** (decision ED): the pair and its state, a click away from
-/// its overview, or *Add a Sync…* before there is one.
+/// Compare's sidebar entry for the sync: the pair and its state, a click away from its overview,
+/// or *Add a Sync…* before there is one.
 public struct OneWaySyncSidebarSection: View {
     @ObservedObject var controller: OneWaySyncController
     @ObservedObject var center: ActivityCenter
@@ -169,14 +169,14 @@ public struct OneWaySyncSidebarSection: View {
                                     .truncationMode(.head)
                             }
                             Spacer(minLength: 4)
-                            // The mockup's count of what needs you; a dot for any other state.
+                            // The count of what needs you; a dot for any other state.
                             if case .needsYou(let count)? = controller.ladder {
                                 Text(count.formatted())
                                     .scaledFont(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(OneWaySyncPalette.hold)
                                     .monospacedDigit()
                             } else if case .changes(let count, _)? = controller.ladder {
-                                // FV: what changed since the last sync, in the accent: a suggestion, not a problem.
+                                // What changed since the last sync, in the accent: a suggestion, not a problem.
                                 Text(count.formatted())
                                     .scaledFont(.system(size: 11, weight: .semibold))
                                     .foregroundStyle((LiquidGlassHue(rawValue: hueRaw) ?? .blue).accentColor)
@@ -208,8 +208,8 @@ public struct OneWaySyncSidebarSection: View {
 
 // MARK: - The panes' role chips
 
-/// **A pane's role in the sync**, in plain words (decision EF): *Changes made here* on iCloud's
-/// side, *Kept as a copy* on Dropbox's.
+/// A pane's role in the sync, in plain words: *Changes made here* on iCloud's side, *Kept as a
+/// copy* on Dropbox's.
 public struct OneWaySyncRoleChip: View {
     let role: OneWaySyncPaneRole
 
@@ -227,7 +227,7 @@ public struct OneWaySyncRoleChip: View {
                 .lineLimit(1)
         }
         .scaledFont(.system(size: 10, weight: .semibold))
-        // The words in ink, the colour in the wash and the glyph (DS1).
+        // The words in ink, the colour in the wash and the glyph.
         .foregroundStyle(.primary)
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
@@ -242,8 +242,8 @@ public struct OneWaySyncRoleChip: View {
 
 // MARK: - Activity ▸ Now
 
-/// **Activity ▸ Now's one-way sync rows**: *Needs you*, then *For your information* (DC). A row
-/// under *Needs you* stays until answered or its cause clears; an information row has Dismiss.
+/// Activity ▸ Now's one-way sync rows: *Needs you*, then *For your information*. A row under
+/// *Needs you* stays until answered or its cause clears; an information row has Dismiss.
 public struct OneWaySyncNowRows: View {
     @ObservedObject var center: ActivityCenter
     @ObservedObject var controller: OneWaySyncController
@@ -348,8 +348,8 @@ public struct OneWaySyncNowRows: View {
 
 // MARK: - Activity ▸ History
 
-/// **One-way sync's History entries** (DE): each sync that changed or held something, newest
-/// first, with *Reverse in iCloud…* while it can be.
+/// One-way sync's History entries: each sync that changed or held something, newest first, with
+/// *Reverse in iCloud…* while it can be.
 public struct OneWaySyncHistoryRows: View {
     @ObservedObject var controller: OneWaySyncController
     @State private var entries: [OneWaySyncHistoryEntry] = []
@@ -463,7 +463,7 @@ public struct OneWaySyncHistoryRows: View {
 
 /// How History and the sheets put a step into words.
 enum OneWaySyncWords {
-    /// A step: a copy of a file moved in from a folder that isn't synced reads as the move (EU).
+    /// A step: a copy of a file moved in from a folder that isn't synced reads as the move.
     static func kind(_ step: OneWaySyncStep) -> String {
         if step.movedInFrom != nil, case .copy = step.action { return "Moved in" }
         return kind(step.action)
@@ -483,8 +483,8 @@ enum OneWaySyncWords {
         }
     }
 
-    /// What a step did, as History's right-hand column says it (the mockup's "Renamed in
-    /// Dropbox", "Folder moved · nothing uploaded"), or how far it got when it didn't finish.
+    /// What a step did, as History's right-hand column says it ("Renamed in Dropbox", "Folder
+    /// moved · nothing uploaded"), or how far it got when it didn't finish.
     static func outcome(_ step: OneWaySyncHistoryStep) -> String {
         guard step.status == .confirmed else { return status(step.status) }
         switch step.step.action {
@@ -583,8 +583,8 @@ enum OneWaySyncWords {
 
 // MARK: - The pane's role line
 
-/// **The line under a pane's header saying which side of one-way sync it shows** — with the role
-/// chip, the way the cloud-app line sits there (TE236).
+/// The line under a pane's header saying which side of one-way sync it shows, with the role chip,
+/// the way the cloud-app line sits there.
 public struct OneWaySyncRoleLine: View {
     let role: OneWaySyncPaneRole
 

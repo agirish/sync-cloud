@@ -7,28 +7,16 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// The Columns display-cycle runaway, measured on the driver that can actually see it.
-///
-/// See `docs/columns-layout-loop.md`. Every earlier fixture drove the window with
-/// `window.layoutIfNeeded()` and reported "settles in 2 rounds"; that verdict is vacuous, because
-/// AppKit's runaway guards are not armed on the manual path at all. Measured directly, on a
-/// deliberate never-settling sibling ping-pong:
-///
-/// | driver | guard armed | outcome |
-/// |---|---|---|
-/// | `layoutIfNeeded()` x400 | yes | survives — 469,000 `updateConstraints` calls, never raises |
-/// | one second of the runloop | yes | raises on the first cycle |
-///
-/// So the metric here is taken across RUNLOOP turns, and it is continuous — update-constraints
-/// passes per display cycle — rather than the binary survived/crashed the standing record warns
-/// has almost no power.
+/// The Columns display-cycle runaway, measured on the driver that can see it (see
+/// `docs/columns-layout-loop.md`). AppKit's runaway guard never fires on a window driven by
+/// `layoutIfNeeded()`: a deliberately never-settling layout survives hundreds of manual passes but
+/// raises within a second of the run loop. So these drive the run loop, and measure a continuous
+/// number, update-constraints passes per display cycle, rather than survived or crashed.
 @MainActor
 @Suite struct ColumnsDisplayCycleTests {
 
-    /// Counts AppKit's update-constraints passes. `updateConstraintsIfNeeded` is public API and is
-    /// called once per pass on BOTH drivers (verified: 4,690 calls across 400 manual
-    /// `layoutIfNeeded`s, 853 across a second of runloop), so the count needs no private API and no
-    /// swizzling.
+    /// Counts AppKit's update-constraints passes. `updateConstraintsIfNeeded` is public API, called
+    /// once per pass on both drivers, so the count needs no private API or swizzling.
     final class PassCountingWindow: NSWindow {
         private(set) var passes = 0
         override func updateConstraintsIfNeeded() {
@@ -39,13 +27,11 @@ import Sync
     }
 
     private struct StubDelegate: FileActionDelegate {
-        /// Whether every row carries a risky-name badge. Off by default, which is what the
-        /// PROTOCOL EXTENSION default already gave every fixture here — `riskyNameReason` returning
-        /// nil means no row ever badges, so the badge was untested by all of them.
+        /// Whether every row carries a risky-name badge. Off by default, matching the protocol
+        /// extension's nil `riskyNameReason`, under which no row badges.
         var badgesEveryName = false
-        /// Counts the badges actually handed to rows. Without this the badged arm is vacuous: a
-        /// stub that silently answered nil would measure the pane WITHOUT the feature and report
-        /// "the badge changes nothing", which is the same sentence a real null result produces.
+        /// Counts the badges handed to rows, so the badged arm can't silently measure the pane
+        /// without the badge and report "the badge changes nothing".
         var badgesHandedOut: Counter? = nil
         func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
             guard badgesEveryName else { return nil }
@@ -74,8 +60,8 @@ import Sync
     /// copies them into the view tree.
     final class Counter: @unchecked Sendable { var count = 0 }
 
-    /// The user's stored values, verbatim, from `com.abhishekgirish.SyncCloud` — the configuration
-    /// every crash was taken under.
+    /// The column width from the app's real defaults (`com.abhishekgirish.SyncCloud`), the
+    /// configuration the crashes were taken under.
     private static let realColumnWidth: CGFloat = 210
 
     final class Box: ObservableObject {
@@ -141,19 +127,13 @@ import Sync
         return window
     }
 
-    /// Spins the runloop — and NOTHING else — until the window has spent `quietTurns` consecutive
-    /// turns without a single update-constraints pass. Returns the passes seen on each turn.
+    /// Spins the run loop, and nothing else, until the window has spent `quietTurns` consecutive
+    /// turns without an update-constraints pass. Returns the passes seen on each turn.
     ///
-    /// **No `layoutIfNeeded`: that is the whole point.** `LayoutPumpWait` cannot be reused here for
-    /// exactly that reason — it pumps by hand, which is the driver AppKit's guards are disarmed on,
-    /// and it would also perturb the very count being taken.
-    ///
-    /// **Bounded by TURNS, not by seconds**, per `docs/flaky-tests.md` mechanism 2 and for the
-    /// reason `LayoutPumpWait.pumpFloor` spells out: what a congested machine is short of is
-    /// main-actor turns, not wall clock, so a seconds budget buys fewer turns exactly when more are
-    /// needed. A fixed turn count would have the same defect from the other side — quiescence would
-    /// be assumed rather than observed. Expiry is a FAILURE naming the call site, never a silent
-    /// short read: a window still churning when the bound runs out is the finding, not the setup.
+    /// No `layoutIfNeeded`, so not `LayoutPumpWait`: manual layout disarms AppKit's guard and would
+    /// perturb the count. Bounded by turns, not seconds (`docs/flaky-tests.md`, "Fixed pumps and
+    /// fixed sleeps"), and quiescence is observed, not assumed. Expiry is a failure naming the call
+    /// site: a window still churning is the finding.
     @discardableResult
     private func pumpUntilQuiet(_ window: PassCountingWindow,
                                 quietTurns: Int = 8,
@@ -175,21 +155,16 @@ import Sync
         return perTurn
     }
 
-    /// Spins the runloop until `condition` holds. Same discipline as `pumpUntilQuiet` — bounded by
-    /// TURNS, failure on expiry, call site named — and needed because quiescence is not arrival:
-    /// what resolves behind an async step is not there yet when "layout stopped moving" returns.
-    /// **Each turn sleeps for real, and that is the point.** `CFRunLoopRunInMode` returns the
-    /// instant the loop has nothing to do, so a turn-counted spin can burn its whole budget in
-    /// microseconds, and no number of instant turns advances a clock a TIMED settle waits on. `LayoutPumpWait` sleeps 8ms
-    /// a pass for the same reason. Turns still bound it, so a congested machine gets more wall clock
-    /// rather than less (see `LayoutPumpWait.pumpFloor`), and expiry is still a failure.
-    /// One runloop turn. A separate non-async function because `CFRunLoopRunInMode` is unavailable
-    /// from async contexts — briefly blocking the cooperative thread is what the attribute guards
-    /// against, and 5ms of it is exactly what driving a display cycle requires.
+    /// One run-loop turn, in a non-async function because `CFRunLoopRunInMode` is unavailable from
+    /// async contexts; 5ms of blocking is what driving a display cycle needs.
     private func spinRunloopOnce() {
         _ = CFRunLoopRunInMode(.defaultMode, 0.005, false)
     }
 
+    /// Spins the run loop until `condition` holds, bounded by turns, failing on expiry with the call
+    /// site named. Needed because quiescence isn't arrival: an async step's result isn't there yet
+    /// when layout stops moving. Each turn sleeps for real, since `CFRunLoopRunInMode` returns at
+    /// once when idle and instant turns advance no clock a timed settle waits on.
     private func pumpUntil(_ window: PassCountingWindow,
                            maxTurns: Int = 400,
                            _ what: String,
@@ -217,11 +192,9 @@ import Sync
         return counts
     }
 
-    /// The crash's own sequence, in the crash's own configuration, on the runloop driver.
-    ///
-    /// The budget is AppKit's own: it raises once a window's passes exceed its view count. This
-    /// asserts an order of magnitude inside that, because the interesting number is not "did it
-    /// survive" but "how close did it come".
+    /// The crash's own sequence and configuration, on the run-loop driver. AppKit raises once a
+    /// window's passes exceed its view count; this asserts well inside that, because the number
+    /// that matters is how close it came, not whether it survived.
     @Test func testProviderSwitchRepublishStaysWellInsideTheDisplayCycleBudget() {
         let fixture = Fixture(files: 40)
         let box = Box(tree: fixture.tree(files: 40, version: 1))
@@ -240,8 +213,8 @@ import Sync
         let views = viewCount(window.contentView!)
         let worst = perTurn.max() ?? 0
         let total = perTurn.reduce(0, +)
-        // Printed unconditionally: a green assertion over an instrument that never fired reports a
-        // healthy pane, which is precisely the failure mode this file exists to avoid.
+        // Printed unconditionally: a green check over an instrument that never fired would look
+        // like a healthy pane.
         print("[cycle] views=\(views) worst=\(worst) total=\(total) turns=\(perTurn.count)")
         let detail = "worst display cycle spent \(worst) update-constraints passes against "
             + "\(views) views (total \(total) to quiescence); AppKit raises once passes exceed views"
@@ -251,8 +224,7 @@ import Sync
     // MARK: - The whole window, as the app builds it
 
     /// Two panes, both in Columns, drilled, with a live selection and the action bar's placement
-    /// wired — the shape `ContentView.treeView` actually mounts, which the single-pane fixture above
-    /// omits almost all of. The crash has only ever been taken here.
+    /// wired: the shape `ContentView.treeView` mounts, and the only one the crash was seen in.
     final class PaneBox: ObservableObject {
         @Published var tree: PaneTree
         @Published var browsePath = PaneBrowsePath()
@@ -356,20 +328,18 @@ import Sync
         return window
     }
 
-    /// SwiftUI's `AppKitPlatformViewHost.enqueueLayoutInvalidation` — the frame that schedules the
-    /// extra pass in every crash report — is driven off the display. An offscreen window may never
-    /// run it, which would make any headless fixture structurally blind. Opt in with
-    /// `COLUMNS_CYCLE_ONSCREEN=1` to measure that arm rather than assume it.
+    /// SwiftUI's `AppKitPlatformViewHost.enqueueLayoutInvalidation`, the frame that schedules the
+    /// extra pass in the crash reports, is driven off the display, and an offscreen window may never
+    /// run it. Set `COLUMNS_CYCLE_ONSCREEN=1` to measure on screen rather than assume.
     static func showIfAsked(_ window: NSWindow) {
         guard ProcessInfo.processInfo.environment["COLUMNS_CYCLE_ONSCREEN"] == "1" else { return }
         _ = NSApplication.shared
         window.orderFront(nil)
     }
 
-    /// The real thing: both panes in Columns, drilled one level, a file selected — then the right
-    /// pane's provider switch, which is `retargetPane(isLeft: false)`:
-    /// drop THAT pane's tree, clear its browse path, paint the new root. The left pane is not
-    /// touched, which is why only `right` is mutated below.
+    /// Both panes in Columns, drilled one level, a file selected, then the right pane's provider
+    /// switch (`retargetPane(isLeft: false)`): drop that pane's tree, clear its browse path, paint
+    /// the new root. The left pane isn't touched.
     @Test func testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget() async {
         let (worst, views) = await twoPaneProviderSwitch(badges: false)
         let detail = "worst display cycle spent \(worst) update-constraints passes against "
@@ -377,17 +347,10 @@ import Sync
         #expect(worst < views / 4, "\(detail)")
     }
 
-    /// The same switch with the **risky-name badge on every row** — the one thing in this pane that
-    /// `main` has and `v2.x` does not (`RiskyNameBadge`, `RiskyNameBadgeCache`), and therefore the
-    /// standing record's strongest lead, since no display-cycle crash has ever been recorded on a
-    /// 2.x build.
-    ///
-    /// It also closes a hole in every fixture here: `FileActionDelegate.riskyNameReason` has a
-    /// protocol-extension default of nil, so a stub that does not override it renders NO badge at
-    /// all, and each arm above was measuring the pane without the feature under suspicion.
-    ///
-    /// The badge takes width beside a name whose `Text` carries no `lineLimit`, which is the shape
-    /// a height oscillation would need. Measured, it does not produce one.
+    /// The same switch with the risky-name badge (`RiskyNameBadge`) on every row, a suspect in
+    /// `docs/columns-layout-loop.md`: it takes width beside a name whose `Text` has no `lineLimit`,
+    /// the shape a height oscillation would need. `riskyNameReason` defaults to nil, so the stub
+    /// must opt in, and the arm checks badges were really handed out.
     @Test func testTheRiskyNameBadgeDoesNotMoveTheDisplayCycleBudget() async {
         let (worst, views) = await twoPaneProviderSwitch(badges: true)
         let detail = "with badges: worst cycle spent \(worst) passes against \(views) views"
@@ -409,9 +372,8 @@ import Sync
                                    badgeCounter: badgeCounter)
         pumpUntilQuiet(window)
 
-        // Drill both panes one level and select a file, so each pane is a two-column stack with a
-        // live selection. Every crash report was taken with the pane's own preview column up too;
-        // that column is the Info inspector's now (TE317 C), so the app's panes have none.
+        // Drill both panes one level and select a file, so each is a two-column stack with a live
+        // selection. (The preview is the Info inspector's, so panes have no preview column.)
         for box in [left, right] {
             box.browsePath = PaneBrowsePath(components: [DeepFixture.folder(0)])
             box.selection = ["\(box.root)/\(DeepFixture.folder(0))/\(Fixture.name(0))"]
@@ -421,18 +383,15 @@ import Sync
         }
         pumpUntilQuiet(window)
 
-        // **The arm is in the configuration it claims to be in.** Passing `placement`, a selection
-        // and a browse path is not the same as a pane that drilled, and a
-        // fixture that quietly rendered neither would report the same 7 passes while measuring a
-        // plainer pane. This is the lesson `b4550396` had to land separately: `onBarEdgeFlip` is
-        // wired here exactly as `ContentView` wires it and fires ZERO times, so "the edge flip is
-        // ruled out" was silence written down as a negative. Everything else this arm claims to
-        // exercise is therefore checked against what AppKit actually laid out.
+        // The arm must really be in its claimed configuration: passing a browse path isn't a pane
+        // that drilled, and a plainer pane would report similar numbers. (`onBarEdgeFlip` is wired
+        // as in `ContentView` but never fires here, so it is not ruled out.) Checked against what
+        // AppKit laid out.
         let tables = tableRowCounts(window.contentView!)
         #expect(tables.count >= 4,
                 "both panes were meant to be drilled to a two-column stack; tables: \(tables)")
 
-        // The provider switch: `retargetPane(isLeft: false)` — the right pane only.
+        // The provider switch: `retargetPane(isLeft: false)`, the right pane only.
         right.tree = PaneTree(side: .right, version: 2, nodes: [])
         right.browsePath = PaneBrowsePath()
         right.selection = []

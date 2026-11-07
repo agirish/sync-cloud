@@ -4,8 +4,8 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// In SyncCloud's own Dropbox pane, renaming or deleting a synced file isn't offered (RD67): the
-/// row menu's Rename and Move to Trash are off for it, and on for a Dropbox-only file. Read off the
+/// In SyncCloud's own Dropbox pane, renaming or deleting a synced file isn't offered: the row
+/// menu's Rename and Move to Trash are off for it, and on for a Dropbox-only file. Read off the
 /// real row menu through `NSHostingMenu`.
 @MainActor
 @Suite(.serialized) struct OneWaySyncPaneMenuTests {

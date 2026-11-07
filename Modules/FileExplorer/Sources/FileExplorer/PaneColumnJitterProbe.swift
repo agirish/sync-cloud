@@ -3,21 +3,15 @@ import Events
 import SwiftUI
 
 /// The opt-in switch for the pane's frame-rate diagnostics: the column travel trace, and the
-/// per-click `[tap]`/`[sel]`/`[render]` stamps left over from the dead-click investigation.
+/// per-click `[tap]`/`[sel]`/`[render]` stamps.
 ///
-/// **Off by default, and that is the load-bearing part.** These lines are emitted per frame of
-/// scrolling and per click, not per thing the user did: the travel trace alone is one coalesced
-/// line per column per 250ms of movement, so with three columns open in each pane a few seconds of
-/// scrolling writes a few hundred lines describing nothing. That volume does not merely sit in the
-/// file — `LogFileWriter` caps the log at 5 MB and trims it from the TAIL, so scroll noise evicts
-/// the sync runs, errors and scan results the log exists to preserve. A user who scrolls for a
-/// minute before hitting a real bug has thrown away the evidence of it.
+/// Off by default, which matters: these lines come per frame of scrolling and per click, a
+/// few hundred lines for a few seconds of scrolling. `LogFileWriter` caps the log at 5 MB and keeps
+/// only its newest part, so scroll noise would evict the sync runs, errors and scan results the log
+/// exists to preserve.
 ///
-/// What stays ungated is everything that describes a decision rather than a frame: `[click]`,
-/// `[columns]`, `[crumb]`, `[deselect]`, and both watchdogs' `pull` lines. Those are rare,
-/// actionable, and precisely what the next report will need — the travel trace earned its keep by
-/// catching the park-and-snap `PaneColumnJitterProbe` now fixes, and it stays available for the
-/// next one rather than being deleted.
+/// What stays ungated describes a decision rather than a frame: `[click]`, `[columns]`, `[crumb]`,
+/// `[deselect]`. They are rare, actionable, and what the next report will need.
 @MainActor
 enum PaneScrollTrace {
     /// `defaults write com.abhishekgirish.SyncCloud paneScrollTraceEnabled -bool YES` to turn the
@@ -32,24 +26,18 @@ enum PaneScrollTrace {
 /// Watches one column's list: logs its vertical travel, and pulls it home when it parks
 /// stretched in overscroll.
 ///
-/// This began as pure instrumentation for the jitter report ("the first column moves up and
-/// down"), and what it recorded closed the case: `[col] right col0 y 0.0 → -17.5` followed
-/// six hundred milliseconds later by `-17.5 → 0.0`. The list itself was PARKING in vertical
-/// overscroll and snapping back on some later event — the same lost-gesture-phase disease
-/// `PaneColumnsOverscrollReturn` treats on the stack's horizontal axis, on the lists' vertical
-/// one. A gesture that starts diagonal is claimed by one scroll view of the nested pair and its
-/// deltas reach the other without phase, so the rubber band stretches and never hears the
-/// release. Parked stretch, late snap: the reported jitter, and — parked low — the original
-/// "scroll brings down content lower".
+/// **A list can park in vertical overscroll**: a gesture that starts diagonal is claimed by one
+/// scroll view of the nested pair, its deltas reach the other without phase, and the rubber band
+/// stretches and never hears the release, then snaps back late. The same lost-phase problem
+/// `PaneColumnsOverscrollReturn` treats on the stack's horizontal axis.
 ///
-/// So the same treatment applies, with the same constants: any bounds movement re-arms the
-/// quiescence timer; a list found RESTING out of its legal range past the tolerance is animated
-/// home. A healthy native bounce keeps its bounds moving until it settles in range, so the
-/// watchdog never interferes with it, and the tolerance keeps sub-point pixel parking sacred —
-/// the lesson of the stack watchdog's 18,000-pull night.
+/// The same treatment, with the same constants: any bounds movement re-arms the quiescence timer,
+/// and a list found resting out of its legal range past the tolerance is animated home. A healthy
+/// native bounce keeps moving until it settles in range, so it is never touched, and the tolerance
+/// leaves sub-point parking alone so the watchdog can't pull in a loop.
 ///
-/// The travel log stays: it is one coalesced line per column per 250ms of actual movement, it is
-/// what caught this, and the pulls log too — so the next report reads straight off the file.
+/// The travel log (one coalesced line per column per 250ms of movement) and the pulls log behind
+/// `PaneScrollTrace`, so the next report can be read straight off the file.
 struct PaneColumnJitterProbe: NSViewRepresentable {
     /// Column position in the stack, for the log line.
     let depth: Int
@@ -75,42 +63,34 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         private(set) var linesLogged = 0
         var resolvedClip: NSClipView? { observedClip }
 
-        /// How long the pull home takes. Injectable for the reason `docs/flaky-tests.md`
-        /// mechanism 1 gives, and for the reason the stack watchdog's identical seam gives: the
-        /// pull is an implicit CoreAnimation animation, and the tests mount an offscreen,
-        /// never-key window. When CoreAnimation is starved — display asleep, Low Power Mode, or
-        /// simply a full parallel test run — that animation never advances, so
-        /// `clip.bounds.origin` never reaches home and a test waiting on it burns its whole
-        /// timeout and reports the START state. That is exactly what took
-        /// `PaneColumnsOverscrollReturnCycleTests` red three times in one afternoon (22.8 s to
-        /// give up against 1.4 s isolated, twice locally and once in CI) before
-        /// `PaneColumnsOverscrollReturn.WatchdogView.pullDuration` was added; this file carried
-        /// the same hardcoded 0.25 with no seam, so `PaneColumnListWatchdogTests` was the second,
-        /// unmitigated copy of the hazard.
+        /// How long the pull home takes. Injectable for the reason `docs/flaky-tests.md` gives in
+        /// "The machine decides the verdict — throttled CoreAnimation", as the stack watchdog's
+        /// `PaneColumnsOverscrollReturn.WatchdogView.pullDuration` is: the pull is an implicit
+        /// CoreAnimation animation in an offscreen, never-key test window, and when CoreAnimation
+        /// is starved (display asleep, Low Power Mode, a full parallel run) it never advances, so a
+        /// test waiting for home times out and reports the start state.
         ///
-        /// Zero means "no animation at all", not "a very fast one" — a zero-duration group still
-        /// defers through CoreAnimation and can be starved exactly the same way.
+        /// Zero means no animation at all, not a very fast one: a zero-duration group still defers
+        /// through CoreAnimation and can be starved the same way.
         ///
-        /// **The default is pinned by a test** (`theListPullHomeShipsAnimated`), because once
-        /// every mount in the suite injects zero, nothing reads the value the app actually ships
-        /// and a default that drifted to zero would delete the bounce for real users in silence.
+        /// The default is pinned by `theListPullHomeShipsAnimated`: with every test mount injecting
+        /// zero, nothing else reads the shipped value, and a drift to zero would silently delete
+        /// the bounce.
         var pullDuration: TimeInterval = ProbeView.defaultPullDuration
 
         /// What the app ships: long enough to read as a bounce, short enough not to feel like a
-        /// correction. The same number the stack watchdog ships, for the same reason.
+        /// correction. The same number the stack watchdog ships.
         static let defaultPullDuration: TimeInterval = 0.25
 
         /// The window's travel so far. Extremes, not endpoints: a quick bob down and back inside
-        /// one window has identical endpoints, and the bob is precisely what's being hunted.
+        /// one window has identical endpoints, and the bob is what's being hunted.
         private var windowMin: CGFloat?
         private var windowMax: CGFloat?
         private var windowStart: CGFloat?
         private var pendingFlush: DispatchWorkItem?
-        /// Coalesces the quiescence re-arm — one timer per rest window instead of a fresh
-        /// `DispatchWorkItem` per bounds-change notification. There is one of these probes per open
-        /// column, so the old cost was multiplied by the whole stack. See `QuiescenceTimer`.
-        /// `Self.quiescence` is the shared constant on `BoundedResolveView` — the same interval
-        /// the stack's watchdog feeds its own timer.
+        /// Coalesces the quiescence re-arm: one timer per rest window, not a `DispatchWorkItem` per
+        /// bounds change, which matters with one probe per open column. See `QuiescenceTimer`.
+        /// `Self.quiescence` is `BoundedResolveView`'s, the interval the stack's watchdog uses too.
         private lazy var pullCheck = QuiescenceTimer(quiescence: Self.quiescence)
         private static let coalesce: TimeInterval = 0.25
 
@@ -127,12 +107,9 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             guard window != nil else { return }
             if let observedClip, observedClip.window === window, observer != nil { return }
             guard spendSearchBudget() else { return }
-            // A List's `.background` sits BESIDE the list's scroll view, not inside it, so an
-            // ancestor walk never enters it. `PaneListResolver` does this resolution for every
-            // background sibling that needs it — by frame, because in a column stack the lists are
-            // siblings and tree position cannot tell them apart. This probe was resolving only the
-            // first column before that changed, which is worth knowing when reading any jitter
-            // sample taken before it.
+            // A List's `.background` sits beside the list's scroll view, not inside it, so an
+            // ancestor walk never enters it. `PaneListResolver` resolves by frame, because in a
+            // column stack the lists are siblings and tree position can't tell them apart.
             guard let table = PaneListResolver.table(matching: self),
                   let scroller = table.enclosingScrollView else { return }
             if let observer { NotificationCenter.default.removeObserver(observer) }
@@ -165,9 +142,8 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             scheduleReturn()
         }
 
-        /// Re-arms the quiescence timer, exactly as the stack's watchdog does: while the list is
-        /// genuinely moving — a drag, momentum, a native spring that works — the check never
-        /// runs. It fires only once the list has come to rest.
+        /// Re-arms the quiescence timer, as the stack's watchdog does: while the list is moving (a
+        /// drag, momentum, a working native spring) the check never runs; it fires only at rest.
         private func scheduleReturn() {
             pullCheck.noteActivity { [weak self] in self?.returnHomeIfParked() }
         }
@@ -175,15 +151,13 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         private func returnHomeIfParked() {
             guard let clip = observedClip else { return }
             let origin = clip.bounds.origin
-            // `legalOrigin` and `tolerance` are `BoundedResolveView`'s, alongside `quiescence`:
-            // this probe used to reach across into `PaneColumnsOverscrollReturn.WatchdogView` for
-            // all three, which is the coupling the shared base exists to remove.
+            // `legalOrigin` and `tolerance` are `BoundedResolveView`'s, alongside `quiescence`,
+            // shared with the stack's watchdog through the base.
             let home = Self.legalOrigin(for: origin, clip: clip)
             guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= Self.tolerance else { return }
-            // Gated like the travel log below and the other scroll probes: a pull is rare in a
-            // healthy session, but under a correction-loop regression it fires per frame, and an
-            // ungated per-frame line evicts the 1000-entry buffer's real context. The night this
-            // regresses, `paneScrollTraceEnabled` is the switch that shows it.
+            // Gated like the travel log: a pull is rare when healthy, but in a correction loop it
+            // fires per frame and would evict the 1000-entry buffer's real context.
+            // `paneScrollTraceEnabled` is the switch that shows it.
             if PaneScrollTrace.isEnabled {
                 Logger.shared.debug(String(
                     format: "[col] %@ pull (%.2f, %.2f) → (%.2f, %.2f)",
@@ -212,12 +186,12 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             guard let clip = observedClip, let start = windowStart,
                   let low = windowMin, let high = windowMax else { return }
             let now = clip.bounds.origin.y
-            // Only genuine travel is worth a line — and a window that ended where it began but
-            // visited somewhere else in between is the bob being hunted, so range decides.
+            // Only genuine travel is worth a line, and a window that ended where it began but moved
+            // in between is the bob being hunted, so range decides.
             guard max(high, start, now) - min(low, start, now) >= 0.5 else { return }
-            // Checked AFTER the window has been measured and BEFORE anything is written, so the
-            // sampling (and the `defer` above that rolls the window forward) behaves identically
-            // whether or not anyone is listening. See `PaneScrollTrace`.
+            // Checked after the window is measured and before anything is written, so the sampling
+            // (and the `defer` that rolls the window forward) is the same whether or not the trace
+            // is on.
             guard PaneScrollTrace.isEnabled else { return }
             linesLogged += 1
             Logger.shared.debug(String(

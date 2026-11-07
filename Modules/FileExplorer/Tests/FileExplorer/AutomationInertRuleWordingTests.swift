@@ -5,12 +5,11 @@ import Sync
 
 /// Pins how the Automations lens explains a rule that will not run.
 ///
-/// There are two ways of not running and they need different words. "Incomplete" is advice — finish
-/// the rule and it works. A rule written by a **newer build** of the app already has its condition
-/// and its destination; this build simply cannot read part of it, keeps it as-is, and declines to
-/// act on it. Telling that user to "give the rule a condition and destination" sends them looking
-/// for something that is not missing, and an edit is the one thing that WILL discard what the newer
-/// build wrote — so the tooltip says so.
+/// Two ways of not running need different words. "Incomplete" is advice: finish the rule and it
+/// works. A rule from a newer build already has its condition and destination; this build can't
+/// read part of it, keeps it as-is, and won't act on it. "Give the rule a condition" would send
+/// the user looking for nothing, and an edit is what would discard the newer build's data, so the
+/// tooltip warns about that.
 @Suite struct AutomationInertRuleWordingTests {
 
     /// The only way to build a rule carrying a value this build cannot read: decode one.
@@ -22,8 +21,8 @@ import Sync
         """
         let rules = try JSONDecoder().decode([AutomationRule].self, from: Data(json.utf8))
         let rule = try #require(rules.first)
-        // The premise this whole suite rests on. If a future change made the rule readable, these
-        // assertions would pass vacuously against the "incomplete" wording instead.
+        // The suite's premise: were the rule readable, these assertions would pass vacuously
+        // against the "incomplete" wording.
         try #require(rule.hasUnreadableValues)
         try #require(!rule.isRunnable)
         return rule
@@ -57,9 +56,8 @@ import Sync
         #expect(!future.contains("condition and destination"))
     }
 
-    /// **The call-site half.** A rule extracted for testability is one revert away from being
-    /// unused: the view could go back to spelling `!rule.isRunnable ? "incomplete" : nil` inline
-    /// and every assertion above would still pass while the app showed the old wording.
+    /// The call-site half: the view could go back to spelling `!rule.isRunnable ? "incomplete" :
+    /// nil` inline and every assertion above would still pass while the app showed that wording.
     @Test func theLensAsksTheseRulesRatherThanSpellingThemInline() throws {
         let source = try Self.lensSource()
         #expect(source.contains("AutomationsLens.inertPillLabel(for: rule)"),

@@ -3,8 +3,8 @@ import AppKit
 import Sync
 @testable import FileExplorer
 
-/// Coverage for the Filing lens's pure helpers: confidence grouping (the High/Medium/Low sections
-/// the results list is split into) and the Filing-specific glyph vocabulary.
+/// The Filing lens's pure helpers: confidence grouping (the High/Medium/Low sections the results
+/// list is split into) and the Filing-specific glyph vocabulary.
 @Suite struct FilingLensTests {
 
     private func suggestion(_ name: String, _ confidence: FilingConfidence?) -> FilingSuggestion {
@@ -19,7 +19,7 @@ import Sync
         #expect(FilingConfidenceTier.of(suggestion("a", .high)) == .high)
         #expect(FilingConfidenceTier.of(suggestion("b", .medium)) == .medium)
         #expect(FilingConfidenceTier.of(suggestion("c", .low)) == .low)
-        // No candidate ("Pick a home" on the card) is a decision the user still owes → low tier.
+        // No candidate ("Pick a home" on the card) is a decision the user still owes, so low tier.
         #expect(FilingConfidenceTier.of(suggestion("d", nil)) == .low)
     }
 
@@ -55,7 +55,7 @@ import Sync
         #expect(FilingConfidenceTier.high.filledBars == 3)
         #expect(FilingConfidenceTier.medium.filledBars == 2)
         #expect(FilingConfidenceTier.low.filledBars == 1)
-        // Never an empty meter — even the weakest tier lights one bar.
+        // Never an empty meter: even the weakest tier lights one bar.
         #expect(FilingConfidenceTier.allCases.allSatisfy { (1...3).contains($0.filledBars) })
         // Strictly increasing, so "more bars" always reads as "surer".
         #expect(FilingConfidenceTier.high.filledBars > FilingConfidenceTier.medium.filledBars)
@@ -66,7 +66,7 @@ import Sync
         #expect(FilingConfidenceTier.of(FilingConfidence.high) == .high)
         #expect(FilingConfidenceTier.of(FilingConfidence.medium) == .medium)
         #expect(FilingConfidenceTier.of(FilingConfidence.low) == .low)
-        // No candidate ("Pick a home") is the low tier — same default as the card's chip.
+        // No candidate ("Pick a home") is the low tier, the same default as the card's chip.
         #expect(FilingConfidenceTier.of(nil as FilingConfidence?) == .low)
         // The confidence overload and the suggestion overload must never disagree (chip == meter).
         #expect(FilingConfidenceTier.of(suggestion("a", .high)) == FilingConfidenceTier.of(FilingConfidence.high))
@@ -85,7 +85,7 @@ import Sync
 
     @Test func overrideIsTrueOnlyWhenChosenDiffersFromSuggestedHome() {
         let s = suggestion("invoice", .high)   // best candidate path == "/root/Home"
-        // Accepting the suggested home is not an override — nothing new to learn.
+        // Accepting the suggested home is not an override: nothing new to learn.
         #expect(FilingOverride.isOverride(s, chosenPath: "/root/Home") == false)
         // Path-normalized: a trailing slash or a dot segment is still the same home.
         #expect(FilingOverride.isOverride(s, chosenPath: "/root/Home/") == false)
@@ -95,7 +95,7 @@ import Sync
     }
 
     @Test func pickingIsAlwaysAnOverrideWhenThereWasNoSuggestion() {
-        // No candidate — the user always had to pick, so any choice teaches where these files go.
+        // No candidate: the user always had to pick, so any choice teaches where these files go.
         let s = suggestion("mystery", nil)
         #expect(FilingOverride.isOverride(s, chosenPath: "/root/Anywhere") == true)
     }
@@ -108,7 +108,8 @@ import Sync
             #expect(!duplicateGlyphs.contains(glyph), "\(glyph) collides with the duplicate finder's glyphs")
         }
         #expect(Set(filingGlyphs).count == filingGlyphs.count, "Filing glyphs should be distinct from each other")
-        // A typo'd symbol renders blank at runtime; pin that every name (plus the section dot) resolves.
+        // A mistyped symbol renders blank at runtime; pin that every name (plus the section dot)
+        // resolves.
         for glyph in filingGlyphs + ["circle.fill"] {
             #expect(NSImage(systemSymbolName: glyph, accessibilityDescription: nil) != nil, "missing SF Symbol \(glyph)")
         }

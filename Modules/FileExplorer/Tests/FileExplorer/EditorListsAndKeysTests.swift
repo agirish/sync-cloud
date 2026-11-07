@@ -2,13 +2,11 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// The lists and keys group of the 2026-10-21 small fixes: Esc back to the document (TE154), Space
-/// for Quick Look (TE155), the list's fold words (TE156), the header name's tooltip (TE157), the
-/// outline following the reader (TE179), the status line's Show Outline (TE180), the Split
-/// divider's double-click (TE181), the image import's notice (TE182) and the folder menu's Show
-/// All (TE183). The keys are read from the source, for the reason
-/// `EditorRailListPolishTests.bothListsTakeTheKeys` gives: a SwiftUI list's focus and keys cannot
-/// be driven from `swift test`.
+/// Edit's lists and keys: Esc back to the document, Space for Quick Look, the list's fold words,
+/// the header name's tooltip, the outline following the reader, Show Outline, the Split divider's
+/// double-click, the image import's notice and the folder menu's Show All. Keys are read from the
+/// source because a SwiftUI list's focus and keys can't be driven from `swift test` (see
+/// `EditorRailListPolishTests.bothListsTakeTheKeys`).
 @MainActor
 @Suite struct EditorListsAndKeysTests {
 
@@ -16,9 +14,8 @@ import Foundation
 
     // MARK: TE154 — Esc back to the document
 
-    /// **Each list hands Esc on**: the Files list and the outline to the rail's door, a PDF's
-    /// bookmarks and its Pages grid straight to the pages. Mutation: drop any one handler and its
-    /// line fails.
+    /// Each list hands Esc on: the Files list and the outline to the rail's door, a PDF's bookmarks
+    /// and its Pages grid straight to the pages. Dropping any one handler fails its line.
     @Test func escInEachListGoesBackToTheDocument() throws {
         let files = try Self.source("EditorFileRailView.swift")
         #expect(Self.escape(in: files).contains("onReturnKeys()"), "Esc in the Files list does not hand the keys back")
@@ -39,8 +36,8 @@ import Foundation
         return source[handler.upperBound...].prefix(160)
     }
 
-    /// **The workspace's door**: the PDF's pages, else the text view the caret was last in, else
-    /// the window — where the undo anchor takes the keys, in read-only Preview. Offered only with a
+    /// The workspace's door: the PDF's pages, else the text view the caret was last in, else the
+    /// window, where the undo anchor takes the keys in read-only Preview. Offered only with a
     /// document open; on the empty page Esc is left alone.
     @Test func theWorkspaceGivesTheKeysToWhatIsOpen() throws {
         let workspace = try Self.source("EditorWorkspaceView.swift")
@@ -55,8 +52,8 @@ import Foundation
 
     // MARK: TE155 — Space for Quick Look
 
-    /// **Space previews the cursor's row through the row menu's own Quick Look** — the host's one
-    /// panel, which closes when asked for the file it shows. A chord is left alone.
+    /// Space previews the cursor's row through the row menu's own Quick Look, the host's one panel,
+    /// which closes when asked for the file it shows. A chord is left alone.
     @Test func spaceQuickLooksTheCursorsRow() throws {
         let files = try Self.source("EditorFileRailView.swift")
         let space = try #require(files.range(of: ".onKeyPress(keys: [.space], phases: .down) { press in"),
@@ -68,7 +65,7 @@ import Foundation
 
     // MARK: TE156 — the fold words
 
-    /// **One phrase for what hides the whole list**, on the chevron as on the strip's lit button.
+    /// One phrase for what hides the whole list, on the chevron as on the strip's lit button.
     @Test func theFoldChevronSaysItHidesTheList() {
         #expect(EditorFileRailView.foldTitle == "Hide the file list")
         #expect(EditorFileRailView.foldTitle == EditorRailTab.hideListTitle)
@@ -95,8 +92,8 @@ import Foundation
         (1...count).map { MarkdownOutlineEntry(line: $0 * 2, level: 2, depth: 1, title: "Heading \($0)") }
     }
 
-    /// **Only a row past the fold is brought into view**; one on screen leaves the list alone, and
-    /// so does no current row. Mutation: always answer `current` and the first line fails.
+    /// Only a row out of view is scrolled to; one on screen, or no current row, leaves the list
+    /// alone. Always answering `current` fails the first line.
     @Test func theOutlineFollowsOnlyARowOutOfView() {
         let rows = Self.outline(30)
         // Top at row 0, ten rows showing: rows 0–9 are in view.
@@ -140,8 +137,8 @@ import Foundation
 
     // MARK: TE182 — what an image import saved
 
-    /// **The words for each case**: one file by name, several by count, a folder made said so — and
-    /// an image only linked, or nothing written, says nothing.
+    /// The words for each case: one file by name, several by count, a folder made said so; an image
+    /// only linked, or nothing written, says nothing.
     @Test func theImportNoticeSaysWhatWasSavedWhere() {
         let folder = "/n/Images"
         #expect(EditorImageImport.notice(for: .wrote(files: ["\(folder)/Plan-1.png"], madeFolder: nil,
@@ -162,8 +159,8 @@ import Foundation
                 == "Saved “x.png” in images")
     }
 
-    /// **Said in the status line's one notice slot**, through the disk watch, so a newer notice —
-    /// the disk's or the import's — replaces the older rather than two competing.
+    /// Said in the status line's one notice slot, through the disk watch, so a newer notice (the
+    /// disk's or the import's) replaces the older rather than two competing.
     @Test func theImportNoticeTakesTheStatusLinesSlot() async throws {
         let watch = EditorDiskWatch(noticeDuration: .seconds(30))
         var heard: [String] = []

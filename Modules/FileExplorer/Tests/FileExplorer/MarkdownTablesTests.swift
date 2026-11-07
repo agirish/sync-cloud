@@ -3,16 +3,16 @@ import AppKit
 @testable import FileExplorer
 import EventsTestSupport
 
-/// The Table menu's edits (TE65, TE66): which table the caret is in, inserting and converting,
-/// rows and columns — keeping a table's style — and Tidy.
+/// The Table menu's edits: which table the caret is in, inserting and converting, rows and columns
+/// (keeping a table's style), and Tidy.
 @MainActor
 @Suite(.serialized) struct MarkdownTablesTests {
 
-    /// **cmark's reading, through the preview's own projection** (TBL-16): each table Preview draws,
-    /// with its columns and its lines. Structure is graded with this, not only with
-    /// `MarkdownTables.table(in:)` — the reader under test grading its own writing passed a row cmark
-    /// does not read as one. (cmark's lines for a table whose header ended a paragraph begin at that
-    /// paragraph's first line.)
+    /// cmark's reading, through the preview's own projection: each table Preview draws, with its
+    /// columns and its lines. Structure is graded with this, not only with
+    /// `MarkdownTables.table(in:)`, because the reader under test grading its own writing can pass
+    /// a row cmark doesn't read as one. (cmark's lines for a table whose header ended a paragraph
+    /// begin at that paragraph's first line.)
     static func cmarkTables(_ text: String) -> [(columns: Int, lines: [String])] {
         MarkdownProjection.project(text).blocks.compactMap { block in
             guard case .table(let columns) = block.kind else { return nil }
@@ -71,10 +71,10 @@ import EventsTestSupport
         #expect(MarkdownTables.cells("| a \\| b | c |") == ["a \\| b", "c"])
     }
 
-    /// **A table's lines are the ones cmark draws** (TBL-3, TBL-9). A line right under a table that
-    /// starts another block — a list item, a quote, a heading, a rule — ends it, pipes or not, and
-    /// Format Table had turned one into a row. A written line that starts none is a row, pipe or
-    /// not, and the Table menu had said a caret there was not in a table.
+    /// A table's lines are the ones cmark draws. A line right under a table that starts another
+    /// block (a list item, a quote, a heading, a rule) ends it, pipes or not, so Format Table must
+    /// not make it a row. A written line that starts none is a row, pipe or not, and a caret there
+    /// is in the table.
     @Test func aTableEndsWhereCmarkEndsIt() throws {
         for tail in ["- x | y", "> q | r", "# h | i", "1. n | m", "***"] {
             let text = "| a | b |\n|---|---|\n| 1 | 2 |\n" + tail
@@ -100,10 +100,10 @@ import EventsTestSupport
         #expect(Self.cmarkTables(tidy.text).first?.lines.count == 4)
     }
 
-    /// **A table in a block quote is a table** (TBL-5): its rows are read past their `>` and
-    /// written back with it, and it is guarded like any other. The `>` was read as a first cell,
-    /// which hid the table — no capsule, Bulleted List took a row out of it, Insert Table split it
-    /// in two — and a table made in a quote was written outside it.
+    /// A table in a block quote is a table: its rows are read past their `>` and written back with
+    /// it, and it is guarded like any other. Read as a first cell, the `>` would hide the table (no
+    /// capsule, Bulleted List taking a row out, Insert Table splitting it), and a table made in a
+    /// quote would be written outside it.
     @Test func aTableInABlockQuoteIsOne() throws {
         let text = "> | a | bb |\n> | - | - |\n> | 1 | 2 |\n> | 3 | 4 |"
         let ns = text as NSString
@@ -133,10 +133,9 @@ import EventsTestSupport
         #expect(made.text == "> | a   | b   |\n> | --- | --- |\n> | c   | d   |", "“\(made.text)”")
     }
 
-    /// **A triple-clicked line just above a table does not touch it** (FMT-12): its selection ends at
-    /// the start of the table's header line, but the line it selected is the one above, and that is
-    /// all a line verb rewrites. Heading greyed there, and was refused from the menu bar, for a table
-    /// it leaves alone.
+    /// A triple-clicked line just above a table does not touch it: its selection ends at the start
+    /// of the table's header line, but the line it selected is the one above, and that is all a
+    /// line verb rewrites. So Heading stays offered there.
     @Test func aTripleClickedLineAboveATableDoesNotTouchIt() throws {
         let text = "Title\n| a | b |\n| - | - |\n| 1 | 2 |"
         let title = NSRange(location: 0, length: 6)
@@ -149,10 +148,10 @@ import EventsTestSupport
         #expect(MarkdownTables.touches(text as NSString, NSRange(location: 0, length: 7)))
     }
 
-    /// **A list or quote on the paragraph line right above a table would swallow it** (FMT-2): with
-    /// no blank line between, the table's lines become lazy text of the new item or quote, and cmark
-    /// draws no table. Those verbs are refused there, and greyed on the bar and in the right-click
-    /// menu. Heading is not — a heading ends at its own line — and a blank line between frees them.
+    /// A list or quote on the paragraph line right above a table would swallow it: with no blank
+    /// line between, the table's lines become lazy text of the new item or quote, and cmark draws
+    /// no table. Those verbs are refused there, and greyed on the bar and in the right-click menu.
+    /// Heading is not (a heading ends at its own line), and a blank line between frees them.
     @Test func aListOrQuoteRightAboveATableWouldSwallowIt() throws {
         let text = "Intro\n| a | b |\n| - | - |\n| 1 | 2 |"
         let intro = NSRange(location: 2, length: 0)
@@ -174,10 +173,10 @@ import EventsTestSupport
         #expect(MarkdownEdits.apply(.bulletList, to: apart, selection: intro) != nil, "a blank line between and the list is still refused")
     }
 
-    /// **Code that looks like a table is code** (TBL-7): where cmark draws a code block, front
-    /// matter or HTML, no table is found and Format Table rewrites nothing. A walk for open fences
-    /// took a ```` ```js ```` line inside a fence for its close, skipped a fence indented in a
-    /// list item, and never saw an indented code block, front matter or an HTML block at all.
+    /// Code that looks like a table is code: where cmark draws a code block, front matter or HTML,
+    /// no table is found and Format Table rewrites nothing. The cases are the ones a simple walk
+    /// for open fences gets wrong: a ```` ```js ```` line inside a fence, a fence indented in a
+    /// list item, an indented code block, front matter, an HTML block.
     @Test func codeThatLooksLikeATableIsNotOne() {
         let cases = [
             "an info string inside a fence": "```\n```js\n| a | b |\n| - | - |\n| 1 | 2 |\n```",
@@ -227,10 +226,9 @@ import EventsTestSupport
         #expect(MarkdownTables.table(in: ns, range: table.table)?.columns == 3)
     }
 
-    /// **Insert Table after a triple-clicked line goes after THAT line** (TBL-11, FMT-17). Such a
-    /// selection ends just past the line break, at the start of the next line, and the table went
-    /// after the next line instead. The same end made a triple-clicked line just above a table
-    /// count as in the table, and Insert was refused there.
+    /// Insert Table after a triple-clicked line goes after that line. Such a selection ends just
+    /// past the line break, at the start of the next line, which must not count: it would put the
+    /// table after the next line, and make a line just above a table count as in it.
     @Test func insertTableAfterAWholeLineSelectionGoesAfterThatLine() throws {
         let text = "one\ntwo\nthree"
         let edit = try #require(MarkdownTables.apply(.insert, to: text, selection: NSRange(location: 0, length: 4)))
@@ -275,9 +273,9 @@ import EventsTestSupport
         #expect(MarkdownTables.available(in: tsv as NSString, selection: NSRange(location: 0, length: 5)).contains(.fromSelection))
     }
 
-    /// **Make Table from Selection leaves a table inside the selection alone** (TBL-6) — it is
-    /// refused, and not offered. Only the selection's two ends were asked about, so a table between
-    /// them was flattened, each row one escaped cell, and the blank lines around it were dropped.
+    /// Make Table from Selection leaves a table inside the selection alone: refused, and not
+    /// offered. Asking only about the selection's two ends would flatten a table between them, each
+    /// row one escaped cell, and drop the blank lines around it.
     @Test func makeTableFromSelectionRefusesATableInsideIt() {
         let text = "x,y\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nz,w"
         let all = Self.whole(text)
@@ -296,7 +294,7 @@ import EventsTestSupport
         | 1   | 2   |
         """
 
-    /// **A lined-up table comes back lined up** — every edit re-pads it.
+    /// A lined-up table comes back lined up: every edit re-pads it.
     @Test func anAlignedTableStaysAligned() throws {
         #expect(MarkdownTables.isAligned(source: Self.aligned, table: NSRange(location: 0, length: (Self.aligned as NSString).length)))
         let one = (Self.aligned as NSString).range(of: "1").location
@@ -314,13 +312,12 @@ import EventsTestSupport
 
     static let ragged = "|a|bb|\n|-|-|\n|1|2|\n|3|4|"
 
-    /// **A ragged table changes only where the edit is** — every other line byte for byte.
+    /// A ragged table changes only where the edit is: every other line stays byte for byte.
     @Test func aRaggedTableChangesOnlyTheRowOrColumnTouched() throws {
         let ns = Self.ragged as NSString
         #expect(!MarkdownTables.isAligned(source: Self.ragged, table: NSRange(location: 0, length: ns.length)))
-        // One-letter cells put every pipe in the same column: that table IS lined up — but it is
-        // compact, not written as Format Table writes, so it keeps its style like a ragged one.
-        // (TBL-4: this line pinned that it was re-padded, every line of it rewritten.)
+        // One-letter cells put every pipe in the same column: that table is lined up, but compact,
+        // not written as Format Table writes, so it keeps its style like a ragged one.
         let compact = "|a|b|\n|-|-|\n|1|2|"
         #expect(MarkdownTables.isAligned(source: compact, table: NSRange(location: 0, length: 17)))
         #expect(!MarkdownTables.keepsLinedUp(source: compact, table: NSRange(location: 0, length: 17)))
@@ -349,10 +346,9 @@ import EventsTestSupport
                 == [["", "a", "b"], ["", "1", "2"]], "“\(leftmost.text)”")
     }
 
-    /// **Only a table written the way Format Table writes it is re-padded** (TBL-4). Pipe-less and
-    /// compact tables that happen to line up kept no line of their own on Add Row Below — each was
-    /// rewritten padded, with outer pipes — and a padded one lost its compact delimiter row. Now
-    /// every original line survives, and the menu asks the same question typing in Preview asks.
+    /// Only a table written the way Format Table writes it is re-padded. Pipe-less and compact
+    /// tables that happen to line up keep every original line on Add Row Below, and a padded one
+    /// keeps its compact delimiter row. The menu asks the same question typing in Preview asks.
     @Test func anEditKeepsTheStyleOfATableNotWrittenPadded() throws {
         let tables = ["|a|b|\n|-|-|\n|1|2|", "a  | b\n-- | --\n1  | 2", "Name | Age\n---- | ---\nBob  | 30",
                       "| Name | Age |\n|------|-----|\n| Bob  | 30  |", "| Name | Age |\n|:-----|----:|\n| Bob  | 30  |",
@@ -374,9 +370,9 @@ import EventsTestSupport
         #expect(wider.text == "| Name |     | Age |\n|------|-----|-----|\n| Bob  |     | 30  |", "“\(wider.text)”")
     }
 
-    /// **A new first column in an indented table without outer pipes** (TBL-2): the row takes a
-    /// leading pipe at its indent. Put after the indent's last space instead, the new cell read as
-    /// a border, the delimiter row had a cell more than the header, and there was no table left.
+    /// A new first column in an indented table without outer pipes: the row takes a leading pipe at
+    /// its indent. Put after the indent's last space, the new cell would read as a border, the
+    /// delimiter row would have a cell more than the header, and there would be no table left.
     @Test func anIndentedTableWithoutOuterPipesTakesANewFirstColumn() throws {
         let text = "  a | b\n  --- | ---\n  1 | 2"
         let edit = try #require(MarkdownTables.apply(.addColumnLeft, to: text, selection: NSRange(location: 2, length: 0)))
@@ -388,10 +384,9 @@ import EventsTestSupport
         #expect(MarkdownTables.cellStarts("  a | b").first?.pipe == -1, "a first cell with no pipe is opened by -1, indent or not")
     }
 
-    /// **Delete Column leaves every row a row** (TBL-1): a short row whose only cell goes keeps an
-    /// empty one — a lone `|` is no row to cmark, so the table ended there and the rows under it
-    /// fell out — and a table whose HEADER has one cell cannot lose it, even when a body row holds
-    /// a second (it was offered, and left `|`, `|`, `| 2 |`: no table at all).
+    /// Delete Column leaves every row a row. A short row whose only cell goes keeps an empty one: a
+    /// lone `|` is no row to cmark, so the table would end there. And a table whose header has one
+    /// cell cannot lose it, even when a body row holds a second; that would leave no table at all.
     @Test func deleteColumnLeavesEveryRowARow() throws {
         let short = "| a | b |\n| - | - |\n| x |\n| 1 | 2 |"
         let edit = try #require(MarkdownTables.apply(.deleteColumn, to: short, selection: NSRange(location: 2, length: 0)))
@@ -408,9 +403,9 @@ import EventsTestSupport
                 "the cell past the header's last took the header's only column with it")
     }
 
-    /// **Add Column from a cell past the header's last** (TBL-10): the header and the delimiter row
-    /// are widened out to it, so the new column is one cmark draws. It went into that row alone,
-    /// which cmark ignores — the press did nothing anybody could see.
+    /// Add Column from a cell past the header's last widens the header and the delimiter row out to
+    /// it, so the new column is one cmark draws. Added to that row alone, cmark would ignore it and
+    /// the press would do nothing visible.
     @Test func addColumnPastTheHeadersLastCellWidensTheHeader() throws {
         let text = "|a|b|\n|-|-|\n|1|2|3|"
         let three = NSRange(location: (text as NSString).range(of: "3").location, length: 0)
@@ -420,10 +415,9 @@ import EventsTestSupport
         #expect(Self.cmarkTables(edit.text).first?.columns == 4, "cmark reads “\(edit.text)” as \(Self.cmarkTables(edit.text))")
     }
 
-    /// **A pipe right after a backslash is escaped, as cmark's table scanner reads it** (TBL-15) —
-    /// whatever stands before the backslash: `|a|b\\|` is two cells to cmark, `a` and `b\\|`. A
-    /// backslash was taken to escape any character, so `\\` escaped itself, the last pipe split a
-    /// third cell off, and the table cmark draws was not found.
+    /// A pipe right after a backslash is escaped, as cmark's table scanner reads it, whatever
+    /// stands before the backslash: `|a|b\\|` is two cells to cmark, `a` and `b\\|`. Treating `\\`
+    /// as an escaped backslash would split a third cell off and miss the table cmark draws.
     @Test func aPipeAfterABackslashIsEscapedAsCmarkReadsIt() throws {
         let text = "|a|b\\\\|\n|-|-|\n|1|2|"
         #expect(Self.cmarkTables(text).first?.columns == 2, "the case is wrong: cmark does not draw two columns")
@@ -439,8 +433,8 @@ import EventsTestSupport
         #expect(Self.cmarkTables(tidy.text).first?.columns == 2, "Format Table split the cell: “\(tidy.text)”")
     }
 
-    /// **Only spaces and tabs pad a cell** (TBL-8) — GFM trims nothing else. A no-break space or an
-    /// ideographic space at a cell's edge is text Preview draws, and Format Table deleted it.
+    /// Only spaces and tabs pad a cell; GFM trims nothing else. A no-break space or an ideographic
+    /// space at a cell's edge is text Preview draws, so Format Table must keep it.
     @Test func formatTableKeepsOtherSpacesAtACellsEdge() throws {
         let text = "| \u{00A0}x | b\u{3000} |\n|---|---|\n| 1 | 2 |"
         let tidy = try #require(MarkdownTables.tidy(source: text, table: Self.whole(text)))
@@ -450,10 +444,9 @@ import EventsTestSupport
                 "Format Table changed what Preview draws")
     }
 
-    /// **A ragged table's untouched lines keep their own line breaks** (TBL-18). Joined with one
-    /// break, a table whose breaks were mixed lost the `\r` of every line the edit never touched.
-    /// Not reachable from Source or Preview today — both convert a file to LF before a verb reads
-    /// it — but `edit` is a door of its own.
+    /// A ragged table's untouched lines keep their own line breaks; joined with one break, a table
+    /// with mixed breaks would lose the `\r` of every untouched line. Source and Preview both
+    /// convert a file to LF before a verb reads it, but `edit` is a door of its own.
     @Test func untouchedLinesKeepTheirOwnLineBreaks() throws {
         let text = "| a | bb |\r\n|-|-|\n|1|2|\r\n|3|4|"
         let below = try #require(MarkdownTables.edit(.addRowBelow, source: text, table: Self.whole(text), row: 2, column: 0))
@@ -470,10 +463,9 @@ import EventsTestSupport
     /// fewer, as it said — and lands the caret in it; and the ones refused are exactly those
     /// ``MarkdownTables/available(in:selection:)`` leaves out.
     ///
-    /// **Graded by cmark too** (TBL-16): the table cmark draws after each edit ends where the one
-    /// the Table menu reads ends, with the columns its header has. Graded only by
-    /// `MarkdownTables.table(in:)` — the reader under test — a lone `|` row passed (TBL-1), and the
-    /// corpus held none of the shapes the review broke: an indented table without outer pipes, a
+    /// Graded by cmark too: the table cmark draws after each edit ends where the one the Table menu
+    /// reads ends, with its header's columns, since the reader under test grading itself can pass a
+    /// lone `|` row. The corpus covers the hard shapes: an indented table without outer pipes, a
     /// short row, a row wider than the header, a quote, a row with no pipe, a list item right under
     /// a table, a compact delimiter row, an escaped pipe, a header ending a paragraph.
     @Test func everyEditLeavesATableAndAvailabilityMatchesWhatApplies() throws {
@@ -579,17 +571,17 @@ import EventsTestSupport
         #expect(kept.text == "  | a   | b   |\n  |-----|-----|\n  | 1   | 2   |", "“\(kept.text)”")
     }
 
-    /// **An emoji a variation selector asks for counts two columns** (TBL-12) — ⚠️, ❤️, ✔️ are
-    /// text-style symbols with U+FE0F after them, drawn as emoji, and were counted one, so Format
-    /// Table's pipes after one sat 11pt from the rows below in the editor's font.
+    /// An emoji a variation selector asks for counts two columns: ⚠️, ❤️, ✔️ are text-style symbols
+    /// with U+FE0F after them, drawn as emoji. Counted as one, Format Table's pipes after one would
+    /// sit visibly off the rows below in the editor's font.
     @Test func aVariationSelectorEmojiCountsTwoColumns() {
         #expect(["⚠️", "❤️", "✔️", "1️⃣", "✅", "寿"].map(MarkdownTables.displayWidth) == [2, 2, 2, 2, 2, 2])
         #expect(MarkdownTables.displayWidth("⚠") == 1, "without the selector it is a text symbol")
     }
 
-    /// **Measured in the editor's font, a tidied table holding emoji or CJK lines up to within one
-    /// column** (TBL-12) — what the doc comment and Help now say, rather than "lines up": SF Mono's
-    /// fallbacks for them are not exactly two columns wide. Pinned: it measures laid-out text.
+    /// Measured in the editor's font, a tidied table holding emoji or CJK lines up to within one
+    /// column, as the doc comment and Help say: SF Mono's fallbacks for them are not exactly two
+    /// columns wide. Machine-pinned because it measures laid-out text.
     @Test(.machinePinned(.layoutMetrics)) func formatTableLinesUpEmojiAndCJKToWithinAColumnOnScreen() throws {
         let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         let column = NSAttributedString(string: "a", attributes: [.font: font]).size().width
@@ -610,11 +602,9 @@ import EventsTestSupport
         }
     }
 
-    /// **Help says what a table edit changes, as the code does it** (TBL-14, TBL-12). It promised a
-    /// hand-typed table "changes only in the row or column you asked for, so a synced file shows
-    /// just that line" — a column edit changes a cell on every row, and a hand-typed table that
-    /// lined up was rewritten whole — and that Format Table's pipes "line up", which emoji and CJK
-    /// do only nearly. Read from source: `MacApp/` is in no package, so nothing else reads it here.
+    /// Help says what a table edit changes, as the code does it: a column edit changes a cell on
+    /// every row, not one line, and emoji and CJK line up only nearly. Read from source because
+    /// `MacApp/` is in no package, so nothing else reads it here.
     @Test func helpSaysWhatATableEditChanges() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -661,9 +651,8 @@ import EventsTestSupport
         #expect(!MarkupFormatState.of("plain", selection: NSRange(location: 1, length: 0)).isInTable)
     }
 
-    /// **Make Table from Selection says WHY it did nothing** (TBL-13). It logged "no tabs or commas"
-    /// for every refusal — a caret on `a,b` with nothing selected, and a selection ending in a
-    /// table, read as if the lines held neither.
+    /// Make Table from Selection says why it did nothing, so a caret with nothing selected or a
+    /// selection ending in a table isn't reported as "no tabs or commas".
     @Test func makeTableFromSelectionSaysWhyItDidNothing() async {
         let csv = "a,b\nc,d" as NSString
         let into = "x,y\n| a | b |\n| - | - |\n| 1 | 2 |" as NSString
@@ -698,10 +687,9 @@ import EventsTestSupport
                 "the log did not say nothing was selected")
     }
 
-    /// **One selection's table questions are read together** (TBL-19), and answer as each asked
-    /// apart would: the items that apply, whether the selection touches a table, and whether its
-    /// paragraph runs into one (outside a table — inside, every verb that would swallow one is
-    /// refused already).
+    /// One selection's table questions are read together, and answer as each asked apart would: the
+    /// items that apply, whether the selection touches a table, and whether its paragraph runs into
+    /// one (outside a table; inside, every verb that would swallow one is refused already).
     @Test func readingASelectionOnceAnswersAsTheQuestionsAskedApart() {
         let texts = [Self.simple, Self.ragged, "Intro\n| a | b |\n| - | - |\n| 1 | 2 |",
                      "x,y\n\n| a | b |\n| - | - |\n| 1 | 2 |\nnext\n\nz,w", "> | a | bb |\n> | - | - |\n> | 1 | 2 |"]
@@ -719,10 +707,9 @@ import EventsTestSupport
         }
     }
 
-    /// **…and cost one parse where they cost two or three** (TBL-19). Each answer that finds a table
-    /// parses the note down to it; asked apart, the format bar's state and a right-click at the end
-    /// of a long note paid that once per question. Counted, not timed: a timing ratio passed and
-    /// failed the same mutation on a loaded machine.
+    /// …and cost one parse, not one per question. Each answer that finds a table parses the note
+    /// down to it, which at the end of a long note is costly for the format bar's state and a
+    /// right-click. Counted, not timed: a timing ratio is unreliable on a loaded machine.
     @Test func readingASelectionParsesTheNoteOnce() {
         let text = "Prose.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n\nMore prose."
         let ns = text as NSString
@@ -743,7 +730,7 @@ import EventsTestSupport
         #expect(parses { _ = MarkupFormatState.of(text, selection: caret) } == 1, "the format bar's state reads it apart")
     }
 
-    /// **One ⌘Z takes a table edit back**, and a Table item with nothing to do says why.
+    /// One ⌘Z takes a table edit back, and a Table item with nothing to do says why.
     @Test func aTableEditIsOneUndoAndANoOpSaysWhy() async {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -771,8 +758,8 @@ import EventsTestSupport
         #expect(await log.holds(containing: "Markup ▸ Delete Row did nothing: the caret is not in a table's body"),
                 "a Table item with nothing to do said nothing")
 
-        // TE76: a verb that would take the table's lines out of it, chosen from the menu bar —
-        // which cannot grey it — leaves the table alone and says why.
+        // A verb that would take the table's lines out of it, chosen from the menu bar (which
+        // cannot grey it), leaves the table alone and says why.
         view.string = Self.ragged
         view.setSelectedRange(NSRange(location: (Self.ragged as NSString).range(of: "3").location, length: 0))
         #expect(EditorDocumentSurface.applyMarkup(.bulletList, in: window))

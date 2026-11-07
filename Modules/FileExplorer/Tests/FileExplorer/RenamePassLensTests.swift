@@ -3,12 +3,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The rename backlog row's one-line claim.
-///
-/// Pure and static so it can be pinned without mounting anything — and it needs pinning, because a
-/// reshuffle is the only thing this feature does that MOVES a file that was already correct. A
-/// summary that folded it in with the padding would let a folder be reordered by someone who read
-/// the row and thought they were approving a widening.
+/// The rename backlog row's one-line claim, pure and static so it can be pinned unmounted. A
+/// reshuffle is the only change that moves a file already correct; a summary folding it in with
+/// the padding would let someone reorder a folder while thinking they approved a widening.
 @Suite struct RenamePassLensTests {
 
     private func plan(placed: Int, renumbered: Int, tidied: Int, skips: Int) -> RenamePlan {
@@ -29,8 +26,8 @@ import Testing
     func reshuffleIsNamedSeparately() {
         #expect(RenamePassLens.summary(plan(placed: 1, renumbered: 3, tidied: 0, skips: 0))
                 == "1 to name · 3 to reshuffle")
-        // The backlog's ordinary shape — padding only — must NOT mention a reshuffle, or the word
-        // stops meaning anything on the 129 folders where nothing moves.
+        // The ordinary shape, padding only, must not mention a reshuffle, or the word stops
+        // meaning anything on the folders where nothing moves.
         #expect(RenamePassLens.summary(plan(placed: 0, renumbered: 0, tidied: 7, skips: 0))
                 == "7 to pad")
     }

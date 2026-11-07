@@ -3,21 +3,18 @@ import AppKit
 @testable import FileExplorer
 import EventsTestSupport
 
-/// **The second review of Edit in Preview's fixes** (TE67, round 2, 2026-10-10): what the first
-/// round's fixes broke, what fell between its batches, and what they logged too often. The edits a
-/// person must be able to make are in ``PreviewEditMustAcceptTests`` (`R…` cases); here are the
-/// ones that must be REFUSED, and the log.
+/// Edit in Preview: edits that must be refused, how often refusals are logged, and the speed-ups
+/// that must give the same answers. The edits a person must be able to make are in
+/// ``PreviewEditMustAcceptTests`` (`R…` cases), numbered as the MARK labels here are.
 @MainActor
 @Suite(.serialized) struct PreviewEditReviewRound2Tests {
 
     // MARK: R3 — a pasted line separator is a line break, not a held ⇧Return
 
-    /// **A paste that starts with U+2028 is a paste of two lines** — Pages and Word put one on the
-    /// clipboard for a soft return. The translator took any text starting with it for the line
-    /// break the session holds, and wrote a hard break into the paragraph. It comes in as LF now,
-    /// as Source takes it in, and several lines pasted into a paragraph are refused.
-    ///
-    /// Mutation: sniff the text for U+2028 again — the paste writes `one  \nx two`.
+    /// A paste that starts with U+2028 is a paste of two lines (Pages and Word put one on the
+    /// clipboard for a soft return), not the line break the session holds. It comes in as LF, as
+    /// Source takes it, and several lines pasted into a paragraph are refused. Mutation: sniff the
+    /// text for U+2028; the paste writes `one  \nx two`.
     @Test func aPasteStartingWithALineSeparatorIsTwoLines() throws {
         let r = PreviewEditRig("one two")
         try r.run(.caretAfter("one"))
@@ -26,11 +23,10 @@ import EventsTestSupport
         #expect(r.refusals == [.notSupported])
     }
 
-    /// **What follows a held line break may not hold another** — it was written raw, a U+2028 in
-    /// the file that the preview draws as a line and every other tool reads as none. Pasted, it
-    /// comes in as LF and is several lines; typed — the Character Viewer — it is refused the same.
-    ///
-    /// Mutation: drop the newline check on the text after the break — the U+2028 is written.
+    /// What follows a held line break may not hold another: written raw, a U+2028 in the file is a
+    /// line in the preview and none in every other tool. Pasted, it comes in as LF and is several
+    /// lines; typed (the Character Viewer), it is refused the same. Mutation: drop the newline
+    /// check on the text after the break; the U+2028 is written.
     @Test(arguments: [true, false])
     func textWithALineSeparatorAfterAHeldBreakIsRefused(pasted: Bool) throws {
         let r = PreviewEditRig("one")
@@ -45,11 +41,10 @@ import EventsTestSupport
 
     // MARK: R4 — ⇧Return on an opened paragraph
 
-    /// **⇧Return on the empty paragraph Return opened writes nothing and keeps it open** — it
-    /// closed the paragraph and held a line break at the end of the one above, so the next letter
-    /// went into THAT paragraph, after a hard break (`Para  \nx`).
-    ///
-    /// Mutation: let ⇧Return close the opened paragraph as any other key does.
+    /// ⇧Return on the empty paragraph Return opened writes nothing and keeps it open. Closing it
+    /// and holding a break at the end of the paragraph above would send the next letter there,
+    /// after a hard break (`Para \nx`). Mutation: let ⇧Return close the opened paragraph as other
+    /// keys do.
     @Test func shiftReturnOnAnOpenedParagraphKeepsItOpen() throws {
         let r = PreviewEditRig("Para")
         try r.run(.caretAfter("Para"))
@@ -65,12 +60,10 @@ import EventsTestSupport
 
     // MARK: R7 — a line verb on an opened paragraph is checked
 
-    /// **A line verb on the paragraph opened after an HTML block that runs on is refused.** An
-    /// HTML block opened with `<pre>` runs until `</pre>`, so the heading the verb wrote after it
-    /// was taken into the HTML and drawn as `# ` — written all the same, because the line verbs on
-    /// an opened paragraph were not checked against anything. Typing there was already refused.
-    ///
-    /// Mutation: skip the check — the file gains `\n\n# ` inside the HTML.
+    /// A line verb on the paragraph opened after an HTML block that runs on is refused. A block
+    /// opened with `<pre>` runs until `</pre>`, so a heading written after it is taken into the
+    /// HTML and drawn as `# `; line verbs on an opened paragraph are checked as typing is.
+    /// Mutation: skip the check; the file gains `\n\n# ` inside the HTML.
     @Test func aLineVerbAfterAnHTMLBlockThatRunsOnIsRefused() throws {
         let r = PreviewEditRig("<pre>\nx")
         try r.run(.caretAfter("x"))
@@ -83,11 +76,9 @@ import EventsTestSupport
 
     // MARK: R8 — the log, once per run
 
-    /// **A key held down in text Preview cannot edit logs its first refusal at INFO and the
-    /// auto-repeats at debug** — one INFO line per repeat filled the log. Each one still raises
-    /// the hint, and after an edit is made the next refusal is news again.
-    ///
-    /// Mutation: log every refusal at INFO — four lines, not two.
+    /// A key held down in text Preview can't edit logs its first refusal at INFO and the
+    /// auto-repeats at debug, so repeats don't fill the log. Each still raises the hint, and after
+    /// an edit the next refusal is news again. Mutation: log every refusal at INFO (four lines).
     @Test func aHeldKeyInReadOnlyTextLogsItsFirstRefusalAtInfo() async throws {
         // A paragraph of 1,234 characters first, so the offsets in the lines are this case's own.
         let r = PreviewEditRig(String(repeating: "w", count: 1_234) + "\n\n<div>\nhi\n</div>")
@@ -103,10 +94,8 @@ import EventsTestSupport
         #expect(lines.map(\.level) == [.info, .debug, .debug, .info], "\(lines.map { "\($0.level) \($0.message)" })")
     }
 
-    /// **A refused Markup verb writes one INFO line**, not the session's and then the view's: the
-    /// session's names the verb as the menu does, with the site.
-    ///
-    /// Mutation: put the view's own line back — two INFO lines.
+    /// A refused Markup verb writes one INFO line, the session's, which names the verb as the menu
+    /// does, with the site; not the view's as well. Mutation: add a line from the view.
     @Test func aRefusedMarkupVerbWritesOneInfoLine() async throws {
         let r = PreviewEditRig("one\n\ntwo")
         let log = LogCapture()
@@ -119,10 +108,8 @@ import EventsTestSupport
                 "\(lines.map(\.message))")
     }
 
-    /// **A stream of style changes from AppKit — the Colors panel dragged across the text — logs
-    /// its first at INFO, the rest at debug**, until something is typed.
-    ///
-    /// Mutation: log each at INFO — three lines.
+    /// A stream of style changes from AppKit (the Colors panel dragged across the text) logs its
+    /// first at INFO and the rest at debug, until something is typed. Mutation: log each at INFO.
     @Test func aStreamOfStyleChangesLogsItsFirstAtInfo() async throws {
         let r = PreviewEditRig("one two")
         let log = LogCapture()
@@ -141,10 +128,9 @@ import EventsTestSupport
 
     // MARK: R11 — the [edit] line is the keystroke's own
 
-    /// **The `[edit]` line says what THIS keystroke redrew** — a text-size change set the count and
-    /// left it, so the next keystroke, refused and redrawing nothing, reported the restyle's.
-    ///
-    /// Mutation: stop clearing the count at the start of an edit.
+    /// The `[edit]` line says what this keystroke redrew: a refused keystroke after a text-size
+    /// change must not report the restyle's count. Mutation: stop clearing the count at the start
+    /// of an edit.
     @Test func theEditLineDoesNotCarryARestylesRedraw() async throws {
         // 2,478 characters, for a line this case alone writes.
         let r = PreviewEditRig(String(repeating: "w", count: 2_461) + "\n\n<div>\nhi\n</div>")
@@ -157,9 +143,9 @@ import EventsTestSupport
         #expect(line.hasSuffix("nothing redrawn"), "\(line)")
     }
 
-    /// **Held text and an opened paragraph are never on screen together** — so what the display
-    /// holds of its own is one range, which every mapping uses. Holding a space ends the opened
-    /// paragraph, and opening a paragraph drops held spaces.
+    /// Held text and an opened paragraph are never on screen together, so what the display holds of
+    /// its own is one range, which every mapping uses. Holding a space ends the opened paragraph,
+    /// and opening a paragraph drops held spaces.
     @Test func heldTextAndAnOpenedParagraphNeverStandTogether() throws {
         let r = PreviewEditRig("one\n\ntwo")
         try r.run(.caretAfter("one"))
@@ -173,10 +159,9 @@ import EventsTestSupport
     }
     // MARK: R6 — speed, kept equal
 
-    /// **Halving finds the segment a walk found**, at every offset of notes with empty anchors —
-    /// an empty item, an empty cell, an empty heading — pictures, tables, breaks and quotes.
-    ///
-    /// Mutation: halve on `<` — an offset at a segment's start finds the segment before it.
+    /// Halving finds the segment a walk finds, at every offset of notes with empty anchors (an
+    /// empty item, cell or heading), pictures, tables, breaks and quotes. Mutation: halve on `<`;
+    /// an offset at a segment's start finds the segment before it.
     @Test func theSegmentAtAnOffsetIsFoundByHalvingAsByWalking() {
         let notes = [PreviewEditSpeedTests.note(bytes: 4_000), PreviewEditSpeedTests.list(bytes: 2_000),
                      "- \n- [ ] \n- x\n\n## \n\n| a |  |\n|---|---|\n|  | b |\n\n> q  \n> r\n\n![i](a) t\n\n```\n\n```",
@@ -196,10 +181,9 @@ import EventsTestSupport
         }
     }
 
-    /// **A whole re-read made only to check an edit does not keep the lists** — the session keeps
-    /// them, for the projection it keeps (`typingInALongListInANoteReReadWholeReplacesOnlyThatItem`).
-    ///
-    /// Mutation: keep the lists in `project(_:style:after:)` again.
+    /// A whole re-read made only to check an edit doesn't keep the lists; the session keeps them,
+    /// for the projection it keeps (`typingInALongListInANoteReReadWholeReplacesOnlyThatItem`).
+    /// Mutation: keep the lists in `project(_:style:after:)`.
     @Test func aWholeReReadLeavesTheListsToTheSession() {
         let before = MarkdownProjection.project("- a\n- b\n\n[r]: /u")
         let after = MarkdownProjection.project("- ax\n- b\n\n[r]: /u", after: before)
@@ -208,9 +192,8 @@ import EventsTestSupport
         #expect(after.keepingLists(of: before).reuse == .whole("definition"), "keeping the lists forgot how it was read")
     }
 
-    /// **The same picture set again keeps the copy it has** — a copy per keystroke for the picture
-    /// below a paragraph being typed in — and a new alt makes a new one, which says it.
-    ///
+    /// The same picture set again keeps the copy it has, rather than a copy per keystroke for the
+    /// picture below a paragraph being typed in; a new alt makes a new copy, which says it.
     /// Mutation: copy whatever is set.
     @Test func thePictureSetAgainIsNotCopiedAgain() throws {
         let attachment = PreviewImageAttachment()
@@ -229,8 +212,8 @@ import EventsTestSupport
         #expect(attachment.image?.size == other.size)
     }
 
-    /// **The read-only pieces of the projection a translation starts from are worked out once**,
-    /// however many checks the keystroke makes — and still compared by what they say.
+    /// The read-only pieces of the projection a translation starts from are worked out once,
+    /// however many checks the keystroke makes, and still compared by what they say.
     @Test func theReadOnlyPiecesAreWorkedOutOnce() {
         let p = MarkdownProjection.project("x <b> y <i>")
         #expect(p.memo.readOnlyPieces == nil)

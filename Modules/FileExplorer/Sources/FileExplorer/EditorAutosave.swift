@@ -3,41 +3,33 @@ import Events
 
 /// Writing the open document without being asked to.
 ///
-/// **The decision, separated from the timer and the alerts.** The host owns when to attempt a save
-/// (a debounce on the buffer's version counter, plus a flush at every point the document is about
-/// to leave the screen) and owns the modal; what belongs here is the part with rules in it — when
-/// a write is allowed at all, and what stops one. That half is pure over a document and a real
-/// directory, so every branch below is reachable from a test without a view or a timer.
+/// The decision, separate from the timer and the alerts. The host owns when to attempt a save (a
+/// debounce on the buffer's version counter, plus a flush whenever the document is about to leave
+/// the screen) and owns the modal; this holds the rules: when a write is allowed, and what stops
+/// one. It is pure over a document and a real directory, so every branch is reachable from a test.
 public enum EditorAutosave {
 
     /// How long the typing has to settle before a write is attempted.
     ///
-    /// **Two seconds, and the number is a compromise rather than a default.** Shorter turns an
-    /// ordinary paragraph into a dozen writes, and these are real cloud folders — every write is an
-    /// upload, a version in somebody's history, and a chance for a sync client to produce a conflict
-    /// copy. Longer is more work at risk when something goes wrong. Two seconds is about the length
-    /// of a pause for thought, which is the moment a save is least likely to be noticed.
-    ///
-    /// The debounce is not the only thing that writes: every route out of the document flushes
-    /// synchronously, so the window this number leaves open is only ever "typing, then a crash".
+    /// Two seconds, as a compromise: shorter turns a paragraph into a dozen writes, and in a cloud
+    /// folder every write is an upload, a version in someone's history and a chance for a conflict
+    /// copy; longer leaves more work at risk. Every route out of the document flushes
+    /// synchronously, so the window this leaves open is only "typing, then a crash".
     public static let quietInterval = Duration.milliseconds(2000)
 
     /// What the debounce is keyed on.
     ///
-    /// **The path is in here as well as the version, and that is not belt-and-braces.** Two
-    /// documents can sit at the same version — a file opened at version 0 moments after another was
-    /// closed at version 0 — and `.task(id:)` only restarts when the id CHANGES, so a key that
-    /// could not tell them apart would leave a pending write aimed at a file that is no longer
-    /// open. Keyed on the counter rather than on the text for the reason
-    /// ``EditorDocument/textVersion`` exists at all.
+    /// The path as well as the version, because two documents can sit at the same version (one
+    /// opened at 0 just after another closed at 0), and `.task(id:)` restarts only when the id
+    /// changes, so a pending write could aim at a file no longer open. The counter, not the text,
+    /// for the reason ``EditorDocument/textVersion`` exists.
     ///
-    /// **And the stamp, so a write that commits re-arms the wait** (FR51). The host writes one
-    /// snapshot at a time and turns the debounce away while one is out; typing that paused while a
-    /// slow write was still out — an iCloud volume, an external disk — had its debounce fire into
-    /// that refusal, and with the version and the path unchanged nothing restarted it: the rest sat
-    /// unsaved, the dot lit, until the next keystroke or a flush. Every commit moves the stamp, so
-    /// the wait starts again; a document the commit left clean schedules nothing, and one still
-    /// dirty is written a quiet interval later.
+    /// And the stamp, so a write that commits re-arms the wait. The host writes one snapshot at a
+    /// time and turns the debounce away while one is out; without the stamp, typing that paused
+    /// during a slow write (an iCloud volume, an external disk) would have its debounce fire into
+    /// that refusal and never restart, leaving the rest unsaved until the next keystroke or flush.
+    /// A document the commit left clean schedules nothing; one still dirty is written a quiet
+    /// interval later.
     public struct Key: Equatable, Sendable {
         public var version: Int
         public var path: String?
@@ -51,28 +43,28 @@ public enum EditorAutosave {
 
     /// What an attempt did, in terms the host can log and act on.
     public enum Outcome: Equatable, Sendable {
-        /// Nothing to write — no document, nothing changed, or a document that cannot be saved.
+        /// Nothing to write: no document, nothing changed, or a document that can't be saved.
         case nothingToDo
         /// Written, and the document's stamp has moved with it.
         case wrote
-        /// **Refused, because the file moved under the buffer.** Autosave stops here rather than
-        /// resolving it: overwriting would discard whatever arrived from another device, and for a
-        /// file an Organize run has moved it would recreate it at the old path — two copies, which
-        /// is the failure ``EditorFileStore/Divergence/missing`` exists to prevent.
+        /// Refused, because the file moved under the buffer. Autosave stops rather than resolve it:
+        /// overwriting would discard what arrived from another device, and for a file Organize
+        /// moved it would recreate it at the old path, two copies, which
+        /// ``EditorFileStore/Divergence/missing`` exists to prevent.
         case blocked(EditorFileStore.Divergence)
         /// The write itself failed; the message is already reader-facing.
         case failed(String)
-        /// **The bytes are on disk, and the look afterwards failed** (TE114) — the stat that stamps
-        /// the write read nothing, or read another file. The clause follows "Saved “name”, but …".
-        /// Not marked saved: there is no stamp to hold, so the host stops autosave rather than write
-        /// again blind.
+        /// The bytes are on disk, but the stat that stamps the write read nothing, or another file.
+        /// The clause follows "Saved “name”, but …". Not marked saved: with no stamp to hold, the
+        /// host stops autosave rather than write again blind.
         case savedUnchecked(String)
-        /// **Written and checked, and a different version the save displaced was kept beside it**
-        /// (FR48) — a save, so the document is marked saved and nothing stops. The clause follows
-        /// "Saved “name”, but …" and says where the other version went.
+        /// Written and checked, and a different version the save displaced was kept beside it. A
+        /// save, so the document is marked saved and nothing stops. The clause follows "Saved
+        /// “name”, but …" and says where the other version went.
         case wroteKeepingAside(String)
 
-        /// What a write that threw comes to — a landed write's own outcome where the store says so.
+        /// What a write that threw comes to, or a landed write's own outcome where the store says
+        /// so.
         static func of(_ error: Error) -> Outcome {
             if let failure = error as? EditorFileStore.Failure, let clause = failure.savedBut {
                 return failure.landed != nil ? .wroteKeepingAside(clause) : .savedUnchecked(clause)
@@ -81,25 +73,25 @@ public enum EditorAutosave {
         }
     }
 
-    /// Attempts one write, **synchronously and on the main actor**.
+    /// Attempts one write, synchronously and on the main actor.
     ///
-    /// **Never resolves a divergence, and never asks.** A background write that could answer "the
-    /// file changed underneath you" by picking a side would be the one place in this app that makes
-    /// that choice for somebody. It reports, and the host decides what to put on screen.
+    /// **Never** resolves a divergence or asks: a background write that picked a side when the file
+    /// changed underneath would make that choice for somebody. It reports; the host decides.
     ///
-    /// **This is the path for the moments a document is LEAVING** — ⌘S, the flush before another
-    /// file is opened, the flush at ⌘Q — where the write has to have finished before the next line
-    /// of code runs, and where blocking the main actor for a few milliseconds is the correct trade.
-    /// The debounce uses ``write(_:into:)`` instead; see ``Snapshot`` for why.
+    /// The path for moments a document is leaving (⌘S, the flush before another file opens, the
+    /// flush at ⌘Q), where the write must finish before the next line runs and blocking the main
+    /// actor for a few milliseconds is the right trade. The debounce uses ``write(_:into:)``; see
+    /// ``Snapshot``.
     @MainActor
     public static func attempt(_ document: EditorDocument) -> Outcome {
         guard document.canSave, let path = document.path, let stamp = document.stamp else {
             return .nothingToDo
         }
         if let divergence = EditorFileStore.divergence(atPath: path, from: stamp) {
-            // **The file may be newer only because autosave's own write is out** (FR50) — see
+            // The file may be newer only because autosave's own write is out; see
             // ``settleLandedWrite(into:waitingUpTo:)``. Settled, it is compared again against the
-            // stamp that write left; whatever was typed since the snapshot is written by this attempt.
+            // stamp that write left, and whatever was typed since the snapshot is written by this
+            // attempt.
             guard settleLandedWrite(into: document), let settled = document.stamp else {
                 return .blocked(divergence)
             }
@@ -118,27 +110,25 @@ public enum EditorAutosave {
 
     // MARK: - The debounce's write, which does not run on the main actor
 
-    /// Everything a write needs, taken from the document at the moment the write is dispatched.
+    /// Everything a write needs, taken from the document when the write is dispatched.
     ///
-    /// **A snapshot, because the buffer does not hold still while the disk is being written to.**
-    /// The write is a divergence `stat` (with a symlink resolve), an `attributesOfItem`, an O(n)
-    /// encode, a `Data.write`, an `F_FULLFSYNC` — tens of milliseconds on an internal SSD and
-    /// considerably more on an external or iCloud volume — a `replaceItem`, a `removeItem` and a
-    /// re-`stat`. All of it used to happen on the main actor, two seconds after the typing paused,
-    /// which is very often the moment the typing resumes.
+    /// A snapshot, because the buffer doesn't hold still while the disk is written. The write is a
+    /// divergence `stat` (with a symlink resolve), an `attributesOfItem`, an O(n) encode, a
+    /// `Data.write`, an `F_FULLFSYNC` (tens of milliseconds on an internal SSD, far more on an
+    /// external or iCloud volume), a `replaceItem`, a `removeItem` and a re-`stat`: too much for
+    /// the main actor two seconds after typing paused, often the moment it resumes.
     ///
-    /// Carrying the text rather than the document is what makes the move safe. A keystroke landing
-    /// while those bytes are in flight is *not* what went to disk, so the document is marked saved
-    /// against ``text`` — see ``EditorDocument/markSaved(text:stamp:)`` — and correctly stays dirty
-    /// for the rest.
+    /// Carrying the text, not the document, makes that safe: a keystroke landing while the bytes
+    /// are in flight isn't what went to disk, so the document is marked saved against ``text`` (see
+    /// ``EditorDocument/markSaved(text:stamp:)``) and stays dirty for the rest.
     public struct Snapshot: Sendable {
         public var text: String
-        /// The buffer's version when the snapshot was taken. Kept for the log and for tests: the
-        /// commit is decided by the path and the stamp, which is what can actually change.
+        /// The buffer's version when the snapshot was taken, for the log and tests; the commit is
+        /// decided by the path and the stamp.
         public var version: Int
         public var path: String
         public var stamp: EditorFileStore.Stamp
-        /// The store's ordering ticket — see `EditorFileStore.issueWriteTicket()`.
+        /// The store's ordering ticket; see `EditorFileStore.issueWriteTicket()`.
         var ticket: UInt64
         var encoding: BoundedTextRead.TextEncoding
     }
@@ -146,9 +136,8 @@ public enum EditorAutosave {
     /// What the document must be for a background write to be worth dispatching, or `nil` when
     /// there is nothing to do.
     ///
-    /// Asks exactly the questions ``attempt(_:)`` asks before it writes; the divergence check is
-    /// not among them, because that is a `stat` and stat'ing an iCloud path is one of the things
-    /// being moved off the main actor.
+    /// Asks exactly what ``attempt(_:)`` asks before it writes, except the divergence check: that
+    /// is a `stat`, and stat'ing an iCloud path is part of what is moved off the main actor.
     @MainActor
     public static func snapshot(of document: EditorDocument) -> Snapshot? {
         guard document.canSave, let path = document.path, let stamp = document.stamp,
@@ -160,19 +149,17 @@ public enum EditorAutosave {
 
     /// Writes a snapshot off the main actor and commits the result back onto it.
     ///
-    /// **The commit is guarded on the document still being the one that was snapshotted.** While
-    /// the bytes were in flight the user can have opened another file, and a ⌘S or a quit flush can
-    /// have written the newer buffer already — in which case this result describes a file that has
-    /// since moved on, and acting on it would either mark the wrong text saved or raise a
-    /// divergence alert about a change this app made itself a moment ago. Both are answered the
-    /// same way: the result is dropped, and the document is left exactly as the newer write left
-    /// it. `EditorFileStore`'s write order guarantees the older bytes were never written in that
-    /// case, so there is nothing to undo.
+    /// The commit is guarded on the document still being the one snapshotted. While the bytes were
+    /// in flight the user may have opened another file, or a ⌘S or quit flush may have written the
+    /// newer buffer; acting on this result would then mark the wrong text saved or raise a
+    /// divergence alert about the app's own change. Either way the result is dropped and the
+    /// document left as the newer write left it. `EditorFileStore`'s write order guarantees the
+    /// older bytes were never written then, so there is nothing to undo.
     ///
-    /// **Counted on the document while it is out** (``EditorDocument/backgroundWrites``), so the disk
-    /// watch does not read the file this write installed — newer than the document's stamp until
-    /// the commit below — as a change made elsewhere (TE59). Begun before the bytes leave, ended
-    /// after the commit, both on the main actor where the watch runs.
+    /// Counted on the document while out (``EditorDocument/backgroundWrites``), so the disk watch
+    /// doesn't take the file this write installed, newer than the document's stamp until the
+    /// commit, for a change made elsewhere. Begun before the bytes leave and ended after the
+    /// commit, both on the main actor where the watch runs.
     @MainActor
     public static func write(_ snapshot: Snapshot, into document: EditorDocument) async -> Outcome {
         document.beginBackgroundWrite()
@@ -198,7 +185,7 @@ public enum EditorAutosave {
                                  text: snapshot.text, stamp: stamp)
                 return .wrote(stamp)
             } catch let failure as EditorFileStore.Failure where failure.landed != nil {
-                // Landed and checked, another version kept beside it (FR48): a write to commit.
+                // Landed and checked, another version kept beside it: a write to commit.
                 landed = Landing(ticket: snapshot.ticket, path: snapshot.path, from: snapshot.stamp,
                                  text: snapshot.text, stamp: failure.landed!)
                 return .keptAside(failure.landed!, failure.savedBut ?? "")
@@ -206,12 +193,12 @@ public enum EditorAutosave {
                 return .ended(.of(error))
             }
         }.value
-        // The commit is this write's word on it from here — unless a settle took it first, in which
-        // case the stamp has moved and the guard below drops the result.
+        // From here the commit owns the landing, unless a settle took it first; then the stamp has
+        // moved and the guard below drops the result.
         _ = landings.take(ticket: snapshot.ticket)
 
-        // The document moved on while the write was out: whatever this says is about a state that
-        // is no longer the one on screen.
+        // The document moved on while the write was out, so the result describes a state no longer
+        // on screen.
         guard document.path == snapshot.path, document.stamp == snapshot.stamp else {
             return .nothingToDo
         }
@@ -227,21 +214,21 @@ public enum EditorAutosave {
         case .blocked(let divergence):
             return .blocked(divergence)
         case .ended(let outcome):
-            // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).
+            // Landed, unchecked: remembered, so the disk can be compared with it later.
             if case .savedUnchecked = outcome { document.noteUncheckedWrite(snapshot.text) }
             return outcome
         }
     }
 
-    /// What the detached half answers, including the one case ``Outcome`` has no word for: a write
-    /// that was overtaken by a newer one and therefore never happened.
+    /// What the detached half answers, including the case ``Outcome`` has no word for: a write
+    /// overtaken by a newer one, which therefore never happened.
     private enum Result: Sendable {
         case wrote(EditorFileStore.Stamp)
-        /// Written and checked, with a displaced version kept beside it — the clause says where.
+        /// Written and checked, with a displaced version kept beside it; the clause says where.
         case keptAside(EditorFileStore.Stamp, String)
         case overtaken
         case blocked(EditorFileStore.Divergence)
-        /// A write that threw — failed, or landed and could not be checked.
+        /// A write that threw: failed, or landed and couldn't be checked.
         case ended(Outcome)
     }
 
@@ -251,21 +238,21 @@ public enum EditorAutosave {
     struct Landing: Sendable {
         var ticket: UInt64
         var path: String
-        /// The document's stamp the write was made against — what the commit guards on.
+        /// The document's stamp the write was made against, which the commit guards on.
         var from: EditorFileStore.Stamp
         var text: String
         var stamp: EditorFileStore.Stamp
     }
 
-    /// **Where a background write leaves word of what it installed, the moment it has** — kept on
-    /// the document (``EditorDocument/landings``) and locked, because it is written off the main
-    /// actor while the main actor may be waiting on it. See ``settleLandedWrite(into:waitingUpTo:)``.
+    /// Where a background write records what it installed, the moment it has. Kept on the document
+    /// (``EditorDocument/landings``) and locked, because it is written off the main actor while the
+    /// main actor may be waiting on it. See ``settleLandedWrite(into:waitingUpTo:)``.
     final class Landings: @unchecked Sendable {
         private let condition = NSCondition()
         private var outstanding = 0
         private var landed: Landing?
 
-        /// A write is leaving — told on the main actor, before the bytes go.
+        /// A write is leaving: told on the main actor, before the bytes go.
         func dispatched() {
             condition.lock(); defer { condition.unlock() }
             outstanding += 1
@@ -290,7 +277,7 @@ public enum EditorAutosave {
             return true
         }
 
-        /// Takes the word of the last write that landed — only `ticket`'s, when one is named.
+        /// Takes the record of the last write that landed; only `ticket`'s, when one is named.
         func take(ticket: UInt64? = nil) -> Landing? {
             condition.lock(); defer { condition.unlock() }
             guard let landed, ticket == nil || landed.ticket == ticket else { return nil }
@@ -299,27 +286,26 @@ public enum EditorAutosave {
         }
     }
 
-    /// **Commits a background write that has landed but whose commit has not reached the main actor
-    /// yet** — now, on the main actor, exactly as that commit would (FR50).
+    /// Commits a background write that has landed but whose commit hasn't reached the main actor
+    /// yet, now, on the main actor, exactly as that commit would.
     ///
     /// Between the swap that installs autosave's bytes and the hop back that marks them saved, the
-    /// file on disk is newer than the document's stamp — and it is the editor's own. The disk watch
-    /// already waits out that window (``EditorDocument/backgroundWrites``); a synchronous save did
-    /// not. ⌘S, the flush before another file opens and the flush at ⌘Q compared the disk with the
-    /// old stamp, found "changed on disk", and asked — and Use Disk Version or Don't Save then threw
-    /// away what was typed after the snapshot, and its undo history with it, over a change the app
-    /// had made itself a moment before.
+    /// file on disk is newer than the document's stamp, and it is the editor's own. The disk watch
+    /// waits out that window (``EditorDocument/backgroundWrites``). A synchronous save (⌘S, the
+    /// flush before another file opens, the flush at ⌘Q) would otherwise see "changed on disk" and
+    /// ask, and Use Disk Version or Don't Save would throw away what was typed after the snapshot,
+    /// and its undo history, over the app's own change.
     ///
-    /// So a synchronous save that finds the file diverged while a write is out **waits for that
-    /// write to be done with the disk** — the swap has usually happened already, so what is left is
-    /// a stat and a delete — and takes what it installed as saved, against the snapshot's text. The
-    /// buffer is then compared with the stamp that write left, and anything typed since is still
-    /// dirty for the caller to write. The commit, when it arrives, finds the stamp moved and drops
-    /// its result, as it does after any newer save. A write that found a real change, failed, or was
-    /// overtaken leaves no word, and the caller asks about the divergence as before.
+    /// So a synchronous save that finds the file diverged while a write is out waits for that write
+    /// to finish with the disk (usually just a stat and a delete are left) and takes what it
+    /// installed as saved, against the snapshot's text. The buffer is then compared with that
+    /// write's stamp, and anything typed since stays dirty for the caller to write. The commit,
+    /// when it arrives, finds the stamp moved and drops its result. A write that found a real
+    /// change, failed, or was overtaken leaves no record, and the caller asks about the divergence
+    /// as usual.
     ///
-    /// - Parameter limit: how long the main actor may wait — a ceiling for a volume that has stopped
-    ///   answering, after which the divergence is asked about as it always was.
+    /// - Parameter limit: how long the main actor may wait, a ceiling for a volume that has stopped
+    ///   answering; after it the divergence is asked about as usual.
     /// - Returns: whether a landed write was committed.
     @MainActor
     @discardableResult

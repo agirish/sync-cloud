@@ -4,8 +4,8 @@ import Foundation
 import PDFKit
 import SwiftUI
 
-/// **The font a correction's words are drawn in** (TE83, TE86): the original's own face when this
-/// Mac has it — "Same font" — else the nearest of the Aa tool's fonts — "Stand-in".
+/// The font a correction's words are drawn in: the original's own face when this Mac has it
+/// ("Same font"), else the nearest of the Aa tool's fonts ("Stand-in").
 enum EditorPDFFontMatch {
     /// "ABCDEF+ArialMT" → "ArialMT": a subset's six-capital tag and its plus go.
     static func dropSubsetTag(_ name: String) -> String {
@@ -14,10 +14,9 @@ enum EditorPDFFontMatch {
         return String(chars[7...])
     }
 
-    /// **The PostScript name this Mac draws `name` in, or `nil` when it hasn't the face** — the
-    /// name itself when a face of exactly that name opens (Times and Courier do, though no font list
-    /// shows them), else the family a TrueType-style name gives — "Arial", "Times New Roman",
-    /// "Courier New,Bold" — in its style.
+    /// The PostScript name this Mac draws `name` in, or `nil` without the face: the name itself
+    /// when a face of exactly that name opens (Times and Courier do, though no font list shows
+    /// them), else the family a TrueType-style name gives ("Courier New,Bold") in its style.
     static func installed(_ name: String) -> String? {
         guard !name.isEmpty else { return nil }
         if let face = NSFont(name: name, size: 12), face.fontName == name { return name }
@@ -38,8 +37,8 @@ enum EditorPDFFontMatch {
     /// "Times New Roman" and "TimesNewRoman" as one key.
     private static func squashed(_ family: String) -> String { family.replacingOccurrences(of: " ", with: "").lowercased() }
 
-    /// **The Aa font nearest a face this Mac lacks**: its descriptor's flags first — fixed pitch,
-    /// script, serif — then its name, for a font whose flags say nothing.
+    /// The Aa font nearest a face this Mac lacks: by its descriptor's flags (fixed pitch, script,
+    /// serif) first, then by its name when the flags say nothing.
     static func standIn(for name: String, flags: Int) -> EditorPDFTextFont {
         if flags & EditorPDFTextRun.fixedPitchFlag != 0 { return .mono }
         if flags & EditorPDFTextRun.scriptFlag != 0 { return .handwritten }
@@ -52,8 +51,8 @@ enum EditorPDFFontMatch {
         return .sans
     }
 
-    /// The family a reader knows the face by — "Adelle", "Times New Roman" — for the line under
-    /// the retype box. The PostScript name's style goes: "TimesNewRomanPS-BoldMT" → "TimesNewRomanPS".
+    /// The family a reader knows the face by ("Times New Roman"), for the line under the retype
+    /// box. Without the face, the style goes: "TimesNewRomanPS-BoldMT" → "TimesNewRomanPS".
     static func shownName(_ postScriptName: String) -> String {
         if let font = NSFont(name: postScriptName, size: 12), let family = font.familyName { return family }
         let base = postScriptName.split(whereSeparator: { $0 == "-" || $0 == "," }).first.map(String.init) ?? postScriptName
@@ -61,8 +60,8 @@ enum EditorPDFFontMatch {
     }
 }
 
-/// **What a click with Replace picked** (TE83): the words, where they are, and how to redraw them.
-/// Every rect and point is in the page's DISPLAY space, as Fill & Sign's items are.
+/// What a click with Replace picked: the words, where they are, and how to redraw them. Every rect
+/// and point is in the page's display space, as Fill & Sign's items are.
 public struct EditorPDFReplacePick: Equatable, Sendable {
     public var page: Int
     /// The words as the page's text layer has them.
@@ -75,24 +74,23 @@ public struct EditorPDFReplacePick: Equatable, Sendable {
     public var baseline: CGFloat
     public var left: CGFloat
     public var fontSize: CGFloat
-    /// The original font's name, its subset tag dropped — `nil` when no run on the page was found
-    /// under the words.
+    /// The original font's name, its subset tag dropped; `nil` when no run was found under the
+    /// words.
     public var fontName: String?
     /// The PostScript name to draw in when this Mac has the original's face, else `nil`.
     public var installedFont: String?
-    /// The Aa font nearest the original, for when it isn't installed — or when it is changed.
+    /// The Aa font nearest the original, for when it isn't installed or is changed.
     public var standIn: EditorPDFTextFont
     public var ink: EditorPDFRGB
     public var patch: EditorPDFRGB
-    /// Whether the ground around the words is one flat colour — the patch shows on any other.
+    /// Whether the ground around the words is one flat colour; the patch shows on any other.
     public var plainBackground: Bool
-    /// Whether a link's hotspot reaches under the patch — see ``EditorPDFCorrection/overLink``.
+    /// Whether a link's hotspot reaches under the patch; see ``EditorPDFCorrection/overLink``.
     public var overLink = false
 }
 
-/// **Why Replace says no** (TE87), each in words the reader is told — the tool's tooltip, the
-/// right-click item's tooltip, the note card after a click. The right-click item's own line is
-/// ``menuReason``.
+/// Why Replace says no, in the words the reader is told: the tool's tooltip, the right-click item's
+/// tooltip, the note card after a click. The right-click item's own line is ``menuReason``.
 public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable, CaseIterable {
     case noText
     case severalLines
@@ -111,9 +109,8 @@ public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable, CaseIterable {
         }
     }
 
-    /// **The same, as the right-click menu's line** (PD14) — one clause, no full stop: a menu row
-    /// does not wrap, and the long ones ran as wide rows. The note card and the tooltip keep
-    /// ``reason``.
+    /// The same as the right-click menu's line: one clause, no full stop, because a menu row
+    /// doesn't wrap. The note card and the tooltip keep ``reason``.
     public var menuReason: String {
         switch self {
         case .noText: return "No text on this page"
@@ -125,16 +122,16 @@ public enum EditorPDFReplaceRefusal: Error, Equatable, Sendable, CaseIterable {
     }
 }
 
-/// **Finding and measuring the words Replace picks** — on the reader's own document, on the main
-/// thread, as PDFView itself reads it for a text selection.
+/// Finding and measuring the words Replace picks, on the reader's own document on the main thread,
+/// as PDFView itself reads it for a text selection.
 @MainActor
 enum EditorPDFReplace {
     /// A gap between two glyphs wider than this many times the font size splits a line into two
-    /// runs of words — the columns of a table, a label and its value.
+    /// runs of words: a table's columns, a label and its value.
     static let columnGap: CGFloat = 1.2
 
     /// The patch reaches this far past the glyphs' box, as a share of the font size, and never
-    /// less than `minimumMargin` — antialiased edges and an accent's top otherwise peep out.
+    /// less than `minimumMargin`, or antialiased edges and an accent's top peep out.
     static let marginShare: CGFloat = 0.08
     static let minimumMargin: CGFloat = 0.6
 
@@ -157,9 +154,8 @@ enum EditorPDFReplace {
                 let c = string.character(at: i)
                 let space = c == 32 || c == 9 || c == 10 || c == 13 || c == 0xA0
                 // A one-character selection's box, not `characterBounds(at:)`: on some files that
-                // runs two characters behind the page's string — measured 2026-10-20, "Account
-                // Number: 311311897" put its last "9" on another line — and it is drawn tight to
-                // the ink, where a selection's box spans the font's height.
+                // runs characters behind the page's string, and it is tight to the ink, where a
+                // selection's box spans the font's height.
                 let bounds = page.selection(for: NSRange(location: i, length: 1))?.bounds(for: page) ?? .zero
                 out.append(Glyph(index: i, bounds: bounds, isSpace: space))
             }
@@ -167,13 +163,13 @@ enum EditorPDFReplace {
         return out.sorted { $0.index < $1.index }
     }
 
-    /// **The words on the line under `point`** (page space): the glyphs in a thin strip across the
-    /// page at the pointer, kept to the line of the one under it, cut at a gap as wide as a table's
-    /// column, to the piece under the pointer. `nil` off any text.
+    /// The words on the line under `point` (page space): the glyphs in a thin strip across the page
+    /// at the pointer, kept to the line of the one under it and cut at column-wide gaps to the
+    /// piece under the pointer. `nil` off any text.
     ///
-    /// Found by where glyphs are, not by PDFKit's `selectionForLine(at:)`, which follows the page's
-    /// string — and on a flattened form (his Form G-28) that string runs in another order than the
-    /// print, so the line it gave was one across the page from the pointer.
+    /// Found by where glyphs are, not by `selectionForLine(at:)`, which follows the page's string;
+    /// on a flattened form that string runs in another order than the print, giving a line far
+    /// from the pointer.
     static func line(at point: CGPoint, on page: PDFPage, box: EditorPDFPageBox) -> PDFSelection? {
         let shownPoint = box.displayPoint(page: point)
         let across = CGRect(x: 0, y: shownPoint.y - 0.5, width: box.displaySize.width, height: 1)
@@ -235,20 +231,21 @@ enum EditorPDFReplace {
         return values.sorted()[values.count / 2]
     }
 
-    /// PDFKit's point size for the selection's first glyph. Its face can be a stand-in; its size,
-    /// measured with the content stream's, agrees in 77% of lines — the run's is used when found.
+    /// PDFKit's point size for the selection's first glyph. Its face can be a stand-in, and its
+    /// size agrees with the content stream's in only about three lines in four, so the run's is
+    /// used when found.
     static func fontSize(of selection: PDFSelection) -> CGFloat? {
         guard let attributed = selection.attributedString, attributed.length > 0,
               let font = attributed.attribute(.font, at: 0, effectiveRange: nil) as? NSFont else { return nil }
         return font.pointSize
     }
 
-    /// Whether the page has any text at all — a scan has none.
+    /// Whether the page has any text at all; a scan has none.
     static func hasText(_ page: PDFPage) -> Bool {
         !(page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// The page's form-field widgets, page space — words inside one are the field's to change.
+    /// The page's form-field widgets, page space. Words inside one are the field's to change.
     static func widgets(on page: PDFPage) -> [CGRect] {
         page.annotations.filter { $0.type == "Widget" }.map(\.bounds)
     }
@@ -263,8 +260,8 @@ enum EditorPDFReplace {
     /// More characters than a line across the widest page holds at a size anyone reads.
     static let maxLineCharacters = 400
 
-    /// **The pick for `selection` on `page`**, or why Replace refuses it — every check made here
-    /// rather than after the reader has typed.
+    /// The pick for `selection` on `page`, or why Replace refuses it: every check is made here,
+    /// before the reader types.
     static func pick(_ selection: PDFSelection, page: PDFPage, index: Int, box: EditorPDFPageBox,
                      widgets: [CGRect] = []) -> Result<EditorPDFReplacePick, EditorPDFReplaceRefusal> {
         guard let text = page.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -273,14 +270,14 @@ enum EditorPDFReplace {
         let raw = (selection.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return .failure(.noText) }
         guard selection.pages.count == 1 else { return .failure(.severalLines) }
-        // **More than any one printed line holds, refused before a glyph is read**: below, every
-        // character is a `PDFSelection` of its own, on main for the right-click menu — thousands of
-        // them after ⌘A, only to grey Replace Text….
+        // More than a printed line holds is refused before a glyph is read: below, every character
+        // is a `PDFSelection` of its own on main, which after ⌘A would be thousands just to grey
+        // Replace Text….
         guard raw.count <= maxLineCharacters else { return .failure(.severalLines) }
         let marks = glyphs(of: selection, on: page).filter { !$0.isSpace && !$0.bounds.isEmpty }
         guard let first = marks.first, let last = marks.last else { return .failure(.noText) }
-        // One line as printed: every glyph shares half its height with the first. PDFKit's own
-        // lines can't say — it splits one printed line into two where its runs were written apart.
+        // One line as printed: every glyph shares half its height with the first. PDFKit's lines
+        // can't say, since it splits a printed line where its runs were written apart.
         let firstShown = box.displayRect(page: first.bounds)
         if marks.contains(where: { glyph in
             let shown = box.displayRect(page: glyph.bounds)
@@ -288,16 +285,14 @@ enum EditorPDFReplace {
         }) {
             return .failure(.severalLines)
         }
-        // The text layer's breaks inside one printed line are spaces. Its spaces stay as they are: a
-        // double space taken down to one moved every word after it (measured 2026-10-20, "Plan Year:
-        // 01/01/2018" retyped as it was came out a space short).
+        // The text layer's breaks inside one printed line become spaces. Its spaces stay as they
+        // are: collapsing a double space would shift every word after it.
         let words = String(raw.map { $0.isNewline || $0 == "\t" ? " " : $0 })
         let pageRect = marks.dropFirst().reduce(first.bounds) { $0.union($1.bounds) }
         let reported = fontSize(of: selection) ?? pageRect.height
 
-        // **The layer check, by its box** (Form G-28): the words' box as PDFKit reports it against
-        // their glyphs' own. On a healthy page the two agree; on a broken one a word claims most of
-        // the page.
+        // The layer check by its box: the words' box as PDFKit reports it against their glyphs'
+        // own. On a healthy page the two agree; on a broken one a word claims most of the page.
         let claimed = selection.bounds(for: page)
         let slack = max(4, reported)
         if claimed.width > pageRect.width + 2 * slack || claimed.height > pageRect.height + 2 * slack
@@ -319,8 +314,8 @@ enum EditorPDFReplace {
         let margin = max(minimumMargin, marginShare * size)
         let cover = shown.insetBy(dx: -margin, dy: -margin)
         let ground = background(around: cover, page: page, box: box, ink: run?.color)
-        // **The layer check, by the print**: the words' glyphs are drawn inside their box. Where the
-        // page's text says words are and nothing is printed, the patch would cover the wrong place.
+        // The layer check by the print: where the page's text says words are and nothing is
+        // printed, the patch would cover the wrong place.
         if ground.inkShare < minimumInk { return .failure(.brokenTextLayer) }
         let ink = run?.color ?? attributedInk(of: selection) ?? .black
         return .success(EditorPDFReplacePick(
@@ -330,9 +325,9 @@ enum EditorPDFReplace {
             overLink: links(on: page).contains { box.displayRect(page: $0).intersects(cover) }))
     }
 
-    /// **The run that draws the glyph at `glyph`** (display space): of the upright runs whose line
-    /// the glyph sits on, the last to start at or before it. Their ends come from widths a font may
-    /// carry wrong; their starts are where the content stream put them.
+    /// The run that draws the glyph at `glyph` (display space): of the upright runs whose line the
+    /// glyph sits on, the last to start at or before it. Starts, not ends, because ends come from
+    /// widths a font may carry wrong.
     static func run(under glyph: CGRect, in runs: [EditorPDFTextRun], box: EditorPDFPageBox) -> EditorPDFTextRun? {
         let shown = runs.filter { !$0.isInvisible }.map { run -> (run: EditorPDFTextRun, start: CGPoint, end: CGPoint) in
             (run, box.displayPoint(page: run.start), box.displayPoint(page: run.end))
@@ -349,8 +344,8 @@ enum EditorPDFReplace {
         }?.run
     }
 
-    /// PDFKit's colour for the first glyph — second to the content stream's, which matched the
-    /// pixels better in 172 of the 197 lines where the two disagreed (2026-10-20).
+    /// PDFKit's colour for the first glyph, a fallback for the content stream's, which matches the
+    /// pixels far more often where the two disagree.
     static func attributedInk(of selection: PDFSelection) -> EditorPDFRGB? {
         guard let attributed = selection.attributedString, attributed.length > 0,
               let color = (attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB)
@@ -371,12 +366,11 @@ enum EditorPDFReplace {
     static let inkDistance: CGFloat = 0.25
     static let minimumInk: CGFloat = 0.02
 
-    /// **The colour the page has under the words, whether it is one flat colour, and how much of
-    /// the cover is ink** (display space). The page is drawn into an sRGB bitmap as the copy flattens
-    /// it. The ground is the commonest colour INSIDE the cover — the space between the glyphs —
-    /// not around it: white words on a coloured band took the white of the page past the band
-    /// (his property tax bill, 2026-10-20). Plain means every pixel in the cover and in a thin ring
-    /// round it is the ground, the ink, or a blend of the two — anything else is a pattern, or an
+    /// The page's colour under the words, whether it is one flat colour, and how much of the cover
+    /// is ink (display space), from an sRGB bitmap drawn as the copy flattens the page. The ground is
+    /// the commonest colour inside the cover, between the glyphs, not around it, or words on a
+    /// coloured band would take the page's colour past the band. Plain means every pixel in the
+    /// cover and a thin ring round it is ground, ink or a blend; anything else is a pattern or an
     /// edge the patch would show against.
     static func background(around cover: CGRect, page: PDFPage, box: EditorPDFPageBox, ink: EditorPDFRGB?)
         -> (color: EditorPDFRGB, isPlain: Bool, inkShare: CGFloat) {
@@ -399,8 +393,8 @@ enum EditorPDFReplace {
         let inkShare = CGFloat(inside.filter { $0.distance(to: ground) > inkDistance }.count) / CGFloat(inside.count)
         // The ink: the run's, else the cover's pixel farthest from the ground.
         let ink = ink ?? inside.max { $0.distance(to: ground) < $1.distance(to: ground) } ?? ground
-        // Inside, glyph edges blend ground into ink: only what is off that blend is a pattern. In the
-        // ring, past the glyphs, a faint shade of the ground is one too — a texture, a gradient.
+        // Inside, glyph edges blend ground into ink, so only what is off that blend is a pattern. In
+        // the ring, past the glyphs, a faint shade of the ground is one too: a texture, a gradient.
         let offInside = inside.filter { offBlend($0, ground, ink) > plainTolerance }.count
         let offRing = outside.filter { c in
             let d = c.distance(to: ground)
@@ -412,8 +406,8 @@ enum EditorPDFReplace {
         return (ground, plain, inkShare)
     }
 
-    /// How far `c` lies from every blend of `a` and `b` — 0 for either, or anything an antialiased
-    /// edge between them draws.
+    /// How far `c` lies from every blend of `a` and `b`: 0 for either, or for anything an
+    /// antialiased edge between them draws.
     static func offBlend(_ c: EditorPDFRGB, _ a: EditorPDFRGB, _ b: EditorPDFRGB) -> CGFloat {
         let d = (b.red - a.red, b.green - a.green, b.blue - a.blue)
         let length = d.0 * d.0 + d.1 * d.1 + d.2 * d.2
@@ -440,7 +434,7 @@ enum EditorPDFReplace {
         var bytesPerRow: Int
         var data: [UInt8]
 
-        /// Row 0 is the BOTTOM of the area, as display space runs.
+        /// Row 0 is the bottom of the area, as display space runs.
         func color(x: Int, y: Int) -> EditorPDFRGB {
             let o = (height - 1 - y) * bytesPerRow + x * 4
             let a = CGFloat(data[o + 3]) / 255
@@ -483,15 +477,13 @@ enum EditorPDFReplace {
     }
 }
 
-/// **A correction placed with Replace** (TE83): the new words over a patch that hides the old ones.
-/// Every rect and point is in its page's DISPLAY space, as the item's own rect is.
-///
-/// The patch stays where the old words are: a correction is not dragged, and its words keep the
-/// old ones' baseline and left edge whatever their size — so the item's rect follows them.
+/// A correction placed with Replace: the new words over a patch that hides the old ones. Every rect
+/// and point is in its page's display space, as the item's own rect is. A correction isn't dragged:
+/// its words keep the old ones' baseline and left edge at any size, and the item's rect follows.
 public struct EditorPDFCorrection: Equatable, Sendable {
     /// The words covered, as the page's text layer has them.
     public var covered: String
-    /// The new words — the covered ones until they are retyped.
+    /// The new words: the covered ones until they are retyped.
     public var words: String
     /// What the patch covers.
     public var cover: CGRect
@@ -499,19 +491,18 @@ public struct EditorPDFCorrection: Equatable, Sendable {
     public var left: CGFloat
     public var patch: EditorPDFRGB
     public var plainBackground: Bool
-    /// **Whether a link's hotspot reaches under the patch (FR56).** The copy keeps every link the
-    /// page had — the toolkit puts them back on each page it redraws — so a correction typed over
-    /// a web address or an email still opens the OLD one. The note card says so
+    /// Whether a link's hotspot reaches under the patch. The copy keeps every link the page had, so
+    /// a correction typed over a web address still opens the old one. The note card says so
     /// (``EditorPDFFillSign/correctionNotes``) and offers to leave such links out
-    /// (``EditorPDFFillSign/unlinksCorrections``) — off by default, since removing one rewrites the
-    /// copy with PDFKit, which on macOS 26 drops the page labels and attached files the toolkit
-    /// carries. A page made a picture loses its links, so its note does not say it.
+    /// (``EditorPDFFillSign/unlinksCorrections``), off by default because that rewrites the copy
+    /// with PDFKit, which on macOS 26 drops page labels and attached files. A page made a picture
+    /// loses its links, so its note doesn't say it.
     public var overLink: Bool
-    /// The original font's name, for the line under the retype box — `nil` when none was found.
+    /// The original font's name, for the line under the retype box; `nil` when none was found.
     public var fontName: String?
     /// The PostScript name of the original's face on this Mac, or `nil` when it hasn't it.
     public var installedFont: String?
-    /// Drawn in the original's face rather than the item's Aa font — while it is installed and no
+    /// Drawn in the original's face rather than the item's Aa font, while it is installed and no
     /// other font has been chosen.
     public var keepsOriginalFont: Bool
     /// The original's ink, and whether it is still the one drawn rather than the palette's.
@@ -538,8 +529,8 @@ public struct EditorPDFCorrection: Equatable, Sendable {
     public var isSameFont: Bool { keepsOriginalFont && installedFont != nil }
 }
 
-/// **A page's corrections, as the note card says them** (TE85): the covered words are still in the
-/// copy, and the page can be made a picture to take them out (decision AK, 2026-10-20).
+/// A page's corrections, as the note card says them: the covered words are still in the copy, and
+/// the page can be made a picture to take them out.
 public struct EditorPDFCorrectionNote: Equatable, Sendable, Identifiable {
     public var page: Int
     public var line: String
@@ -551,7 +542,7 @@ public struct EditorPDFCorrectionNote: Equatable, Sendable, Identifiable {
 }
 
 extension EditorPDFRGB {
-    /// A plain word for the colour, for the line under the retype box — "black", "dark red".
+    /// A plain word for the colour, for the line under the retype box: "black", "dark red".
     var name: String {
         let hi = max(red, green, blue), lo = min(red, green, blue)
         if hi - lo < 0.1 {
@@ -577,9 +568,9 @@ extension EditorPDFRGB {
     }
 }
 
-/// **The line under a correction's retype box** (TE83, mockup step 2): the font the new words use
-/// — and whether it is the original, or a stand-in for one this Mac hasn't — their size and ink,
-/// and the two keys. Drawn as a small popover would be, in the menu's own colours.
+/// The line under a correction's retype box: the font the new words use (the original, or a
+/// stand-in for one this Mac lacks), their size and ink, and the two keys. Drawn as a small popover
+/// would be, in the menu's own colours.
 final class EditorPDFRetypeHint: NSView {
     struct Lines: Equatable {
         var font: String
@@ -592,15 +583,15 @@ final class EditorPDFRetypeHint: NSView {
         didSet { if lines != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
 
-    /// **The app's text size** (PD4) — View ▸ Text Size, as every other line in Edit follows it,
-    /// handed down from ``EditorPDFPageView``'s environment through the overlay. 1 until it is.
+    /// The app's text size (View ▸ Text Size), as every line in Edit follows it, handed down from
+    /// ``EditorPDFPageView``'s environment through the overlay. 1 until set.
     var scale: CGFloat = 1 {
         didSet { if scale != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
 
-    /// **The widest the card may be** — the reader's width less its margins, set by the overlay. The
-    /// font line and the keys wrap inside it: pinned at the box's left and never wrapped, the card
-    /// ran past the reader's right edge at a large text size or a long font name.
+    /// The widest the card may be: the reader's width less its margins, set by the overlay. The
+    /// font line and the keys wrap inside it, or a large text size or long font name would run the
+    /// card past the reader's right edge.
     var maxWidth: CGFloat = .greatestFiniteMagnitude {
         didSet { if maxWidth != oldValue { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
@@ -630,7 +621,7 @@ final class EditorPDFRetypeHint: NSView {
     private static let gap: CGFloat = 4
 
     /// The three lines' fonts at the app's text size, resolved as the rest of Edit's AppKit text is
-    /// (`ScaledFont.nsFont(scale:)`) — fixed 10 and 11 points ignored View ▸ Text Size (PD4).
+    /// (`ScaledFont.nsFont(scale:)`), so they follow View ▸ Text Size.
     static func fonts(scale: CGFloat) -> (font: NSFont, chip: NSFont, keys: NSFont) {
         (ScaledFont.system(size: 11).nsFont(scale: scale),
          ScaledFont.system(size: 10, weight: .semibold).nsFont(scale: scale),
@@ -644,18 +635,16 @@ final class EditorPDFRetypeHint: NSView {
     /// How strongly the hue washes the chip.
     static let chipWashAlpha: CGFloat = 0.16
 
-    /// **The chip's words, in the label's ink** (PD4, DS13; RD46 — no new colours): the hue stays in
-    /// the wash. Measured on the light window ground (white) and a 0.96 sheet, green then orange:
-    /// the bare hue on its own wash read 1.95:1 and 2.02:1 on white, 1.80:1 and 1.87:1 on 0.96; the
-    /// hue made readable (`ChromeInk.bodyText`) 4.85:1 and 4.84:1 on white but 4.49:1 and 4.47:1 on
-    /// 0.96. The label's ink reads above 12:1 on both, and above 9:1 on the dark window ground.
+    /// The chip's words, in the label's ink; the hue stays in the wash, and no new colours. On a
+    /// light ground the bare hue reads about 2:1 and even `ChromeInk.bodyText` falls under 4.5:1 on
+    /// a 0.96 sheet; the label's ink reads above 12:1 there and above 9:1 on the dark ground.
     static let chipInk: NSColor = .labelColor
 
     private var fontLine: NSAttributedString {
         NSAttributedString(string: lines.font, attributes: [.font: Self.fonts(scale: scale).font, .foregroundColor: NSColor.labelColor])
     }
 
-    /// The chip's words as drawn — internal so a test reads the ink the draw uses.
+    /// The chip's words as drawn; internal so a test reads the ink the draw uses.
     var chipLine: NSAttributedString {
         NSAttributedString(string: lines.chip, attributes: [
             .font: Self.fonts(scale: scale).chip,
@@ -667,8 +656,8 @@ final class EditorPDFRetypeHint: NSView {
         NSAttributedString(string: lines.keys, attributes: [.font: Self.fonts(scale: scale).keys, .foregroundColor: NSColor.secondaryLabelColor])
     }
 
-    /// **Where each part of the card goes**, y up as the view draws: the font line, wrapped to the
-    /// room ``maxWidth`` leaves beside the chip; the chip, level with its first line; the keys under
+    /// Where each part of the card goes, y up as the view draws: the font line, wrapped to the room
+    /// ``maxWidth`` leaves beside the chip; the chip, level with its first line; the keys under
     /// them, wrapped to the card. `wrap` is the width each wrapped line was measured in.
     struct Layout {
         var size: NSSize
@@ -690,7 +679,7 @@ final class EditorPDFRetypeHint: NSView {
         let fontRoom = room - 6 - chipBox.width
         let font = Self.measure(fontLine, width: fontRoom), keys = Self.measure(keysLine, width: room)
         let firstLine = max(oneLine, chipBox.height)
-        // The font line's first line is centred on the chip, as it was on one line.
+        // The font line's first line is centred on the chip.
         let inset = (firstLine - oneLine) / 2
         let row = max(firstLine, inset + font.height)
         let size = NSSize(width: ceil(max(font.width + 6 + chipBox.width, keys.width) + 2 * pad.width),

@@ -60,7 +60,7 @@ import Sync
     }
 
     /// Setup opens on Compare's folders when one pane is in iCloud Drive and the other in Dropbox,
-    /// whichever side each is on, and not otherwise (RD67 EE).
+    /// whichever side each is on, and not otherwise.
     @Test func setupOpensOnThePanesWhenTheyAreAnICloudAndADropboxFolder() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let iCloud = home + "/Library/Mobile Documents/com~apple~CloudDocs/Documents/SyncCloud Test"
@@ -73,7 +73,7 @@ import Sync
     }
 
     /// Setup ticks nothing for you: opened on your whole Documents, every folder offered stays
-    /// unticked until you tick it (31 Oct: it ticked them all).
+    /// unticked until you tick it.
     @Test func setupNeverTicksTheFoldersItOffers() {
         let offered: Set<String> = ["Family", "Finance", "Legal"]
         #expect(OneWaySyncSetupSheet.ticks(offered: offered, synced: nil, startsFromSynced: false, current: []).isEmpty)
@@ -83,8 +83,8 @@ import Sync
         #expect(OneWaySyncSetupSheet.ticks(offered: offered, synced: ["Legal", "Old"], startsFromSynced: true, current: []) == ["Legal"])
     }
 
-    /// DL in Choose Folders: a folder ticked now that doesn't sync yet needs "not shared on
-    /// Dropbox" before Save; unticking one, or keeping what syncs, doesn't.
+    /// In Choose Folders, a folder ticked now that doesn't sync yet needs "not shared on Dropbox"
+    /// before Save; unticking one, or keeping what syncs, doesn't.
     @Test func chooseFoldersAsksAboutSharingForFoldersTickedNow() {
         let added = OneWaySyncSetupSheet.added(ticked: ["legal", "Work"], synced: ["Legal", "Old"])
         #expect(added == ["Work"])
@@ -154,7 +154,7 @@ import Sync
         #expect(controller.syncNowRefusal == "Only SyncCloud in Applications syncs")
     }
 
-    /// ES: a file Dropbox refused is counted as skipped from the record, before any pass looks.
+    /// A file Dropbox refused is counted as skipped from the record, before any pass looks.
     @Test func theRungCountsWhatDropboxRefusedAsSkipped() throws {
         let scratch = try Scratch()
         var record = scratch.record
@@ -250,7 +250,7 @@ import Sync
         #expect(try String(contentsOf: store.exclusionsURL, encoding: .utf8) == "not a list")
     }
 
-    /// EU: History says a copy of a file moved in was a move in, from where.
+    /// History says a copy of a file moved in was a move in, and from where.
     @Test func historyNamesAMoveInAndWhereFrom() {
         let movedIn = OneWaySyncStep(action: .copy(from: "Finance/Invoice.pdf", to: "Finance/Invoice.pdf", needsDownload: false),
                                      movedInFrom: "Work/Invoice.pdf")

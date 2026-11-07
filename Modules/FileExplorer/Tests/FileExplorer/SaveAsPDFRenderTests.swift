@@ -4,13 +4,10 @@ import PDFKit
 @testable import FileExplorer
 import EventsTestSupport
 
-/// **Save as PDF's engines, read back with PDFKit** — `DocumentPDFTests`' check: the words are on
-/// the pages as text, on the page they belong on, the right number of times.
-///
-/// **The Office fixtures pin Quick Look's output on this Mac** (R1). `qlmanage` is Apple's tool, not
-/// an API; a macOS that changes what it writes turns these red rather than shipping blank PDFs. The
-/// fixtures and how each was made: `Fixtures/SaveAsPDF/README.md`.
-///
+/// Save as PDF's engines, read back with PDFKit as `DocumentPDFTests` does: the words are on the
+/// pages as text, on the right page, the right number of times. The Office fixtures pin Quick
+/// Look's output on this Mac: `qlmanage` is Apple's tool, not an API, so a macOS that changes what
+/// it writes turns these red rather than shipping blank PDFs (`Fixtures/SaveAsPDF/README.md`).
 /// Serialized: WebKit's print runs one operation at a time per process.
 @MainActor
 @Suite(.serialized) struct SaveAsPDFRenderTests {
@@ -41,8 +38,7 @@ import EventsTestSupport
 
     // MARK: Text and Markdown — Edit's Print render
 
-    /// **A Markdown file saves as the pages Edit's Print makes of it** — the same bytes, since it is
-    /// the same render handed the same text.
+    /// A Markdown file saves as the pages Edit's Print makes of it: the same render, the same text.
     @Test func markdownIsEditsPrintRender() async throws {
         let file = NSTemporaryDirectory() + "save-as-pdf-\(UUID().uuidString).md"
         let source = "# Trip notes\n\nPack the **SAVEASPDF-MD-MARKER** charger.\n"
@@ -92,10 +88,10 @@ import EventsTestSupport
         #expect(text.contains("SAVEASPDF-WORD-MARKER"))
     }
 
-    /// **Margins the printer cannot reach still make one page.** The print system moves them out to
-    /// what it reaches, so the page is shorter than the one asked for; a view laid out a page tall
-    /// spilled onto a second, empty page. Paper with no margins at all is out of reach of every
-    /// printer, and of the box a Mac with none reports (GitHub's hosted VM: the bottom 40 points).
+    /// Margins the printer can't reach still make one page. The print system moves them out to what
+    /// it reaches, so a view laid out a full page tall would spill onto an empty second page. No
+    /// margins at all is beyond every printer, including the box a Mac with none reports (GitHub's
+    /// hosted VM loses the bottom 40 points).
     @Test func richTextBeyondThePrintersReachIsOnePage() async throws {
         let paper = CGSize(width: 612, height: 792)
         let reach = SaveAsPDFRender.printInfo(paper: paper, margins: NSEdgeInsets()).imageablePageBounds
@@ -119,8 +115,8 @@ import EventsTestSupport
 
     // MARK: Word — Quick Look's page, printed
 
-    /// **Quick Look still writes HTML for each Office fixture** — the premise every route below
-    /// stands on, pinned on its own so a macOS that changes it names the cause.
+    /// Quick Look still writes HTML for each Office fixture: the premise of every route below,
+    /// pinned on its own so a macOS that changes it names the cause.
     @Test(arguments: ["Memo.docx", "Memo.doc", "Long.docx", "Budget.xlsx", "Wide.xlsx", "Deck.pptx", "Pictures.pptx",
                      "Mixed.pptx", "FourPictures.docx", "FourPictures.xlsx"])
     func quickLookStillWritesHTML(_ name: String) async throws {
@@ -135,8 +131,8 @@ import EventsTestSupport
     @Test func aOnePageMemoIsOnePageOfText() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Memo.docx"))
         let document = try read(output)
-        // Quick Look pads its page by the file's top and bottom margins; printed as padding, a
-        // short memo ran to two.
+        // Quick Look pads its page by the file's top and bottom margins; printed as padding, they
+        // would push a short memo onto two.
         #expect(output.pageCount == 1)
         #expect(pageText(document, 0).contains("Lease Renewal Heading"))
         #expect(pageText(document, 0).contains("SAVEASPDF-WORD-MARKER"))
@@ -149,8 +145,8 @@ import EventsTestSupport
         #expect(allText(try read(output)).contains("SAVEASPDF-WORD-MARKER"))
     }
 
-    /// **A long document runs onto more pages, and every paragraph is printed exactly once** — a
-    /// page break that duplicated or dropped a line would show here.
+    /// A long document runs onto more pages with every paragraph printed exactly once, so a page
+    /// break that duplicates or drops a line shows here.
     @Test func aLongMemoPaginatesWithEveryParagraphOnce() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Long.docx"))
         let document = try read(output)
@@ -177,7 +173,7 @@ import EventsTestSupport
         #expect(WordPaper.size(forWidth: 1000, fallback: CGSize(width: 500, height: 1000)) == CGSize(width: 1000, height: 2000))
     }
 
-    /// **Word's second route**: with no Quick Look page, the text system reads the file itself.
+    /// Word's second route: with no Quick Look page, the text system reads the file itself.
     @Test func wordFallsBackToTheTextSystem() async throws {
         let data = try await SaveAsPDFRender.officePDF(try Self.fixture("Memo.docx"), kind: .word,
                                                        settings: .init(), preview: { _, _ in nil })
@@ -195,9 +191,9 @@ import EventsTestSupport
 
     // MARK: Excel — every sheet, cut between rows
 
-    /// **Both sheets, in tab order, every row once.** Spring's 121 rows run past a page; Autumn
-    /// follows on its own page — and nothing after it: a sheet measured by the view it was laid out
-    /// in ran on to blank pages.
+    /// Both sheets, in tab order, every row once. Spring's 121 rows run past a page; Autumn follows
+    /// on its own page, with nothing after it: a sheet measured by the view it is laid out in runs
+    /// on to blank pages.
     @Test func everySheetInTabOrderWithEveryRowOnce() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Budget.xlsx"))
         let document = try read(output)
@@ -216,8 +212,8 @@ import EventsTestSupport
         #expect(!last.contains("SPRING-ROW"), "Autumn shares a page with Spring")
     }
 
-    /// **A sheet wider than the page turns to landscape and shrinks to fit** — its last column is
-    /// on the page, not clipped at the margin as WebKit's print clips it.
+    /// A sheet wider than the page turns to landscape and shrinks to fit, so its last column is on
+    /// the page, not clipped at the margin as WebKit's print clips it.
     @Test func aWideSheetKeepsItsLastColumn() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Wide.xlsx"))
         let document = try read(output)
@@ -246,11 +242,10 @@ import EventsTestSupport
 
     // MARK: Pictures — drawn, not blank
 
-    /// **Every picture lower down a Word document or a sheet is drawn, and drawn whole.** The four
-    /// are the same size, each its own hue, so their areas summed over every page match however the
-    /// pages fall. Before the sheet waited for its pictures to decode it drew one to three of them,
-    /// changing run to run. Word's print drew all four on every run measured here, but on CI twice
-    /// drew its first picture blank (2026-10-20), so it waits for them too.
+    /// Every picture lower down a Word document or a sheet is drawn, and drawn whole. The four are
+    /// the same size, each its own hue, so their areas summed over every page match however the
+    /// pages fall. Both routes must wait for their pictures to decode, or some draw blank, varying
+    /// run to run.
     @Test(arguments: ["FourPictures.docx", "FourPictures.xlsx"])
     func everyPictureIsDrawnWhole(_ name: String) async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture(name))
@@ -280,8 +275,8 @@ import EventsTestSupport
 
     // MARK: PowerPoint — one page per slide
 
-    /// **Three slides, three pages, in order, each the slide's own size, with real text** — the
-    /// route measured on real decks here, which keeps a slide's words as words.
+    /// Three slides, three pages, in order, each the slide's own size, with real text: the route
+    /// that keeps a slide's words as words.
     @Test func aDeckIsOnePagePerSlideInOrder() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Deck.pptx"))
         let document = try read(output)
@@ -295,7 +290,7 @@ import EventsTestSupport
         }
     }
 
-    /// **A deck whose slides are pictures with no words says so** — the banner's note rests on this
+    /// A deck whose slides are pictures with no words says so: the banner's note rests on this
     /// answer, and Vision, finding nothing, adds nothing.
     @Test func aDeckOfPicturesIsCalledPictures() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("Pictures.pptx"))
@@ -308,8 +303,8 @@ import EventsTestSupport
         #expect(text.allSatisfy { $0.isWhitespace }, "the PDF reads: \(text)")
     }
 
-    /// **A deck of pictures of words comes out searchable** — each slide's words on its own page,
-    /// found by PDFKit's search where the picture shows them (R2, ``PictureText``).
+    /// A deck of pictures of words comes out searchable: each slide's words on its own page, found
+    /// by PDFKit's search where the picture shows them (``PictureText``).
     @Test(.machinePinned(.textRecognition)) func aDeckOfPicturesOfWordsIsSearchable() async throws {
         let output = try await SaveAsPDFRender.render(try Self.fixture("PictureWords.pptx"))
         let document = try read(output)
@@ -336,9 +331,9 @@ import EventsTestSupport
         #expect(line.midY > size.height * 0.25 && line.midY < size.height * 0.4, "the line is at \(line) on \(size)")
     }
 
-    /// **Every picture is `decoding = 'sync'` once the page has loaded**, before anything has asked
-    /// it to decode — ``WebPDFView/syncPictures``, run as the parser adds each one, so no paint of
-    /// the load's queues a background decode for `createPDF` or the print to draw blank.
+    /// Every picture is `decoding = 'sync'` once the page has loaded, before anything asks it to
+    /// decode. ``WebPDFView/syncPictures`` runs as the parser adds each one, so no paint during the
+    /// load queues a background decode that `createPDF` or the print would draw blank.
     @Test func everyPictureIsSyncOnceLoaded() async throws {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -352,14 +347,12 @@ import EventsTestSupport
         #expect(modes == ["sync", "sync"])
     }
 
-    /// **A picture slide drawn seconds after its picture decoded is still drawn.** WebKit lets go of
-    /// a decoded picture soon after it last drew it, and the hidden view's next paint asks for it
-    /// again in the background; a `createPDF` while that is under way draws the picture blank
-    /// (2026-10-20, `docs/flaky-tests.md`, "A wedge guard that counts time spent waiting for the main
-    /// thread"). A loaded machine waits that long now and then; the pause waits it every time.
-    ///
-    /// **Five renders, because each has one chance.** Only a view's first drawing after the decode
-    /// can come out blank. Without `decoding = 'sync'`, 19 of 20 renders did (2026-10-20).
+    /// A picture slide drawn seconds after its picture decoded is still drawn. WebKit lets go of a
+    /// decoded picture soon after it last drew it, and the hidden view's next paint asks for it
+    /// again in the background; a `createPDF` meanwhile draws it blank (`docs/flaky-tests.md`, "A
+    /// wedge guard that counts time spent waiting for the main thread"). A loaded machine waits
+    /// that long now and then; the pause waits it every time. Five renders, because only a view's
+    /// first drawing after the decode can come out blank.
     @Test(.machinePinned(.textRecognition)) func aPictureSlideDrawnLateIsStillDrawn() async throws {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ql-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -376,9 +369,8 @@ import EventsTestSupport
         }
     }
 
-    /// **A deck mixing a text slide with a picture of words reads the picture only** — the picture's
-    /// page gets its words, and the text slide's page reads exactly as the file's text made it,
-    /// with nothing recognised laid over it.
+    /// A deck mixing a text slide with a picture of words reads the picture only: the picture's
+    /// page gets its words, and the text slide's page reads exactly as the file's text made it.
     @Test(.machinePinned(.textRecognition)) func aMixedDeckReadsOnlyItsPictureSlides() async throws {
         let path = try Self.fixture("Mixed.pptx")
         let output = try await SaveAsPDFRender.render(path)
@@ -398,7 +390,7 @@ import EventsTestSupport
         #expect(pageText(document, 0) == before, "the text slide changed: \(pageText(document, 0))")
     }
 
-    /// **The words are invisible** — each page draws pixel for pixel as it did without them.
+    /// The recognised words are invisible: each page draws pixel for pixel as it did without them.
     @Test(.machinePinned(.textRecognition)) func recognisedTextDrawsNothing() async throws {
         let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
                                                         settings: SaveAsPDFRender.Settings())
@@ -416,10 +408,10 @@ import EventsTestSupport
         }
     }
 
-    /// **A picture Vision refuses to read is read again on the CPU**, so a Neural Engine that turns
-    /// every request away while macOS recompiles its models does not leave the deck unsearchable
+    /// A picture Vision refuses to read is read again on the CPU, so a Neural Engine that turns
+    /// every request away while macOS recompiles its models doesn't leave the deck unsearchable
     /// (`docs/flaky-tests.md`, "Vision's Neural Engine refuses text requests for hours"). The
-    /// refusal is made here; the CPU read is Vision's own.
+    /// refusal is faked here; the CPU read is Vision's own.
     @Test(.machinePinned(.textRecognition)) func aRefusedRecognitionIsReadAgainOnTheCPU() async throws {
         let plain = try await SaveAsPDFRender.officePDF(try Self.fixture("PictureWords.pptx"), kind: .presentation,
                                                         settings: SaveAsPDFRender.Settings())
@@ -454,10 +446,10 @@ import EventsTestSupport
         return (html, folder)
     }
 
-    /// **A page reaches nothing by URL** — a picture and a stylesheet it names by `http:` never
-    /// connect. The listener never answers, so a request that got out holds the load open to its
-    /// guard; the connection waits in the listener's queue either way, made before the load ended.
-    /// A rule list WebKit cannot compile blocks nothing, which a `|` in a pattern did.
+    /// A page reaches nothing by URL: a picture and a stylesheet it names by `http:` never connect.
+    /// The listener never answers, so a request that got out holds the load open to its guard and
+    /// waits in the listener's queue either way. A rule list WebKit can't compile blocks nothing
+    /// (a `|` in a pattern is enough), so the compile is checked too.
     @Test func aPageReachesNothingByURL() async throws {
         let listener = try #require(LoopbackListener())
         defer { listener.close() }
@@ -516,19 +508,19 @@ import EventsTestSupport
 
     @MainActor private final class Backstop { var fired = false }
 
-    /// Lets go of whatever WebKit has left waiting to open the pipe, and removes the folder. Opening
-    /// the far end without blocking fails when nobody is waiting: then there is nothing to let go.
+    /// Lets go of whatever WebKit has left waiting to open the pipe, and removes the folder.
+    /// Opening the far end without blocking fails when nobody is waiting: then there is nothing to
+    /// let go.
     private static func release(_ folder: URL) {
         let end = open(folder.appendingPathComponent("pipe.png").path, O_WRONLY | O_NONBLOCK)
         if end >= 0 { Darwin.close(end) }
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// **A load that cannot finish gives up at its guard, and says so once** — the page's picture
-    /// never arrives, so only the timer ends the wait. A second deadline closes the view, ending the
-    /// wait, so a guard that never ends it fails rather than hangs — at the production guard's
-    /// 120 s, far enough past the timer's that a main thread a minute behind still runs the test's
-    /// resumption before it.
+    /// A load that can't finish gives up at its guard, and says so once: the page's picture never
+    /// arrives, so only the timer ends the wait. A backstop closes the view at the production
+    /// guard's 120 s, so a guard that never fires fails rather than hangs; that is far enough past
+    /// the timer that a main thread a minute behind still resumes the test first.
     @Test func aLoadThatCannotFinishGivesUpAtItsGuard() async throws {
         let (html, folder) = try Self.page(stuck: true)
         defer { Self.release(folder) }
@@ -545,10 +537,9 @@ import EventsTestSupport
         #expect(lines.count == 1, "\(lines.map(\.message))")
     }
 
-    /// **A load that finished says nothing after its guard's budget has passed.** Ending the load
-    /// stops the guard. `didFinish` is queued ahead of the guard's first tick, so the load has ended
-    /// first even on a machine whose main thread is far behind — WebKit's own may come first
-    /// instead, and either ends it. The wait after is past the budget.
+    /// A load that finished says nothing after its guard's budget has passed: ending the load stops
+    /// the guard. `didFinish` is queued ahead of the guard's first tick, so the load ends first
+    /// even with the main thread far behind (WebKit's own may come first; either ends it).
     @Test func aLoadThatFinishedSaysNothingWhenItsGuardFires() async throws {
         let (html, folder) = try Self.page(stuck: false)
         defer { Self.release(folder) }
@@ -563,9 +554,9 @@ import EventsTestSupport
         #expect(await !log.holds(containing: "load in 2 s; giving up"))
     }
 
-    /// **A web process that quit fails the load at once, and every draw after it refuses** rather
-    /// than drawing a dead view blank. No public API ends a web process, so WebKit's report is made
-    /// here directly, queued ahead of anything the load can report.
+    /// A web process that quit fails the load at once, and every draw after it refuses rather than
+    /// drawing a dead view blank. No public API ends a web process, so WebKit's report is made here
+    /// directly, queued ahead of anything the load can report.
     @Test func aWebProcessThatQuitFailsTheLoadAndEveryDraw() async throws {
         let (html, folder) = try Self.page(stuck: false)
         defer { Self.release(folder) }
@@ -582,10 +573,10 @@ import EventsTestSupport
         await #expect(throws: SaveAsPDFFailure.quickLookGaveNothing) { try await web.print(info) }
     }
 
-    /// **A web process that is alive but never answers fails each call in words** rather than
-    /// waiting for ever. Stopping the process is that wedge on purpose: WebKit reports nothing, and
-    /// `createPDF` answers only once the process runs again (`docs/flaky-tests.md`, "A hidden web
-    /// view's process drops to the background band, so load starves its draws").
+    /// A web process that is alive but never answers fails each call in words rather than waiting
+    /// for ever. `SIGSTOP` makes that wedge on purpose: WebKit reports nothing, and `createPDF`
+    /// answers only once the process runs again (`docs/flaky-tests.md`, "A hidden web view's
+    /// process drops to the background band, so load starves its draws").
     @Test func aWebProcessThatNeverAnswersFailsEachCallInWords() async throws {
         let (html, folder) = try Self.page(stuck: false)
         defer { Self.release(folder) }
@@ -619,10 +610,10 @@ import EventsTestSupport
                           "Save as PDF: WebKit didn’t finish printing in 1 s; giving up on it"])
     }
 
-    /// **A view's web process keeps a foreground priority after its load**, so a draw sent later
-    /// is not starved by a busy machine. Without the hold, WebKit gives a hidden view's process the
+    /// A view's web process keeps a foreground priority after its load, so a later draw isn't
+    /// starved by a busy machine. Without the hold, WebKit gives a hidden view's process the
     /// background role about a second after the load's last script call answers, and its task
-    /// priority falls from 31 to 20 (measured 2026-10-21, no load) — under load, to 4.
+    /// priority falls from 31 to 20, or to 4 under load.
     @Test func aViewsWebProcessKeepsAForegroundPriorityAfterItsLoad() async throws {
         let (html, folder) = try Self.page(stuck: false)
         defer { Self.release(folder) }
@@ -643,10 +634,10 @@ import EventsTestSupport
         return proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size ? info.pti_priority : nil
     }
 
-    /// **A wedge guard does not count time the main thread was held elsewhere** — WebKit's answer
-    /// would have been queued behind it. Held for 6 s on a 2 s budget, a wall-clock guard has run
-    /// out by the time the main thread is free; this one has counted a second, and runs out a
-    /// second of free main thread later.
+    /// A wedge guard doesn't count time the main thread was held elsewhere, since WebKit's answer
+    /// would be queued behind it. Held for 6 s on a 2 s budget, a wall-clock guard has run out by
+    /// the time the main thread is free; this one has counted a second, and runs out a second
+    /// later.
     @Test func aWedgeGuardDoesNotCountTimeTheMainThreadWasHeld() async throws {
         let ran = Backstop()
         var ranAt = 0.0

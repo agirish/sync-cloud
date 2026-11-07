@@ -3,32 +3,26 @@ import SwiftUI
 @testable import Sync
 @testable import FileExplorer
 
-/// What `LensWorkspaceView` actually hands the overview.
-///
-/// **The gap this fills is the reason two of the five `isScanning` arms were wrong.** The render
-/// suite mounts ``OrganizeOverview`` directly and supplies its own sections, so it can assert what
-/// the *view* does with a scanning flag and never whether the flag it is given is true. `LensWorkspaceView`
-/// built those flags, nothing read them for the whole life of the field — `isScanning` existed on
-/// the section before the overview was rebuilt and the old view never referenced it — and the
-/// moment they became load-bearing, two arms were quietly reporting the wrong thing.
+/// What `LensWorkspaceView` actually hands the overview. The render suite mounts
+/// ``OrganizeOverview`` with its own sections, so it can assert what the view does with a scanning
+/// flag but never whether the flag it is given is true; this suite checks the flags and states
+/// `LensWorkspaceView` builds.
 ///
 /// Pure: a manager with flags set, no window, no render.
 @MainActor
 @Suite struct OrganizeOverviewWiringTests {
 
-    /// **These read the developer's live defaults, and that is safe only because of what they
-    /// assert.** `overviewModel` reaches `scope`, which is `@AppStorage`-backed, and a property read
-    /// off the struct rather than through a mounted hierarchy takes `UserDefaults.standard` — no
-    /// `.defaultAppStorage` can intercept it. Writing a scratch scope to pin it would mean writing
-    /// this machine's own domain, which is off limits.
+    /// These read the developer's live defaults, and are safe only because of the fixture.
+    /// `overviewModel` reaches `scope`, which is `@AppStorage`-backed, and a property read off the
+    /// struct takes `UserDefaults.standard`, which no `.defaultAppStorage` can intercept. Writing a
+    /// scratch scope would write this machine's own domain, which is off limits.
     ///
-    /// It held originally because every assertion was about `isScanning`, which is computed from
-    /// the manager's lifecycle flags alone and cannot vary with a scope. The coverage tests below
-    /// *do* assert states that a scope would change, and they are safe for a second, narrower
-    /// reason: **this fixture's provider root is `/root`**, a real persisted scope points under the
-    /// user's home, and ``OrganizeScope/init(path:providerRoot:)`` refuses a path outside its root —
-    /// so `scope` resolves to nil here whatever the machine has stored, and the subject is `/root`.
-    /// A test added here whose fixture uses a provider root under the home would lose that.
+    /// `isScanning` comes from the manager's lifecycle flags alone and can't vary with a scope. The
+    /// coverage tests below can, and are safe because this fixture's provider root is `/root`: a
+    /// real persisted scope points under the user's home, and
+    /// ``OrganizeScope/init(path:providerRoot:)`` refuses a path outside its root, so `scope` is
+    /// nil here and the subject is `/root`. **Never** give a fixture here a provider root under the
+    /// home.
     private func subject(_ manager: FileSyncManager) -> LensWorkspaceView {
         LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                  scanTargetFolder: "/root", onFindDuplicates: {}, onFindFilingSuggestions: {},
@@ -41,10 +35,8 @@ import SwiftUI
 
     // MARK: - What a zero means, and what it must never suppress
 
-    /// **These three are safe to assert against live defaults even though `overviewModel` reads the
-    /// `@AppStorage` scope**, because the fixture's provider root is `/root`: a real persisted scope
-    /// points somewhere under the user's home, `OrganizeScope(path:providerRoot:)` refuses a path
-    /// outside its root, and `scope` is therefore reliably nil here. The subject is then `/root`.
+    /// Safe against live defaults for the reason `subject(_:)` gives: with a provider root of
+    /// `/root`, `scope` is nil and the subject is `/root`.
     private func duplicatesState(_ manager: FileSyncManager) -> OrganizeOverviewState? {
         subject(manager).overviewModel.sections.first { $0.lens == .duplicates }?.state
     }
@@ -82,10 +74,9 @@ import SwiftUI
         #expect(duplicatesState(m) == .clean)
     }
 
-    /// **Coverage decides what a ZERO means — it must never suppress findings the scan really
-    /// made.** Groups found under `/root/Photos` are real wherever the subject is pointed, and an
-    /// uncovered-therefore-notScanned arm would bury them. This is the same error as gating Names
-    /// on the filing folder, and it was live in the first draft of the subject fix.
+    /// Coverage decides what a zero means; it must never suppress findings the scan really made.
+    /// Groups found under `/root/Photos` are real wherever the subject points, and an
+    /// uncovered-therefore-notScanned arm would bury them.
     @Test func anUncoveredScanStillShowsTheFindingsItDidMake() {
         let m = FileSyncManager()
         m.duplicateScanRoot = "/root/Photos"
@@ -98,10 +89,9 @@ import SwiftUI
         #expect(count == 1)
     }
 
-    /// **The rail must answer the coverage question the overview answers**, or the two surfaces
-    /// disagree about the same lens on the same screen — the rail drawing its quiet "checked,
-    /// nothing here" badge beside an overview row saying the lens never ran. The rail's `scanned`
-    /// set read `hasFoundDuplicates` alone, which stays true forever once any scan has run.
+    /// The rail must answer the coverage question the overview answers, or the rail's "checked,
+    /// nothing here" sits beside an overview row saying the lens never ran. `hasFoundDuplicates`
+    /// alone can't answer it: it stays true forever once any scan has run.
     @Test func theRailDoesNotCallALensCleanForASubtreeItsScanNeverCovered() {
         let m = FileSyncManager()
         m.duplicateScanRoot = "/root/Photos"
@@ -123,9 +113,9 @@ import SwiftUI
         #expect(duplicatesState(m) == .clean)
     }
 
-    /// **To File takes the one-level rule, and this is the only behavioural test of it.** Its pass
-    /// enumerates the direct files of one folder, so a scan of the provider root cannot answer for
-    /// anything below it — where Duplicates, being recursive, could.
+    /// To File takes the one-level rule, and this is the only behavioural test of it. Its pass
+    /// enumerates the direct files of one folder, so a scan of a folder can't answer for another,
+    /// where Duplicates, being recursive, can answer for anything below its root.
     @Test func toFileNeedsTheExactFolderWhileDuplicatesAcceptsAnAncestor() {
         let m = FileSyncManager()
         m.filingScanFolder = "/root/TODO"
@@ -143,8 +133,8 @@ import SwiftUI
         #expect(subject(m).railCounts.state(.toFile) == .clean)
     }
 
-    /// Names and Renames ride the provider-wide taxonomy walk, so they are covered wherever the
-    /// subject points — gating them would hide findings the scan genuinely made.
+    /// Renames (its plans and the risky names) rides the provider-wide taxonomy walk, so it is
+    /// covered wherever the subject points; gating it would hide findings the scan really made.
     @Test func namesAndRenamesAreNeverGatedByTheFilingFolder() {
         let m = FileSyncManager()
         m.filingScanFolder = "/root/TODO"
@@ -157,12 +147,10 @@ import SwiftUI
         subject(manager).overviewModel.sections.first { $0.lens == .renames }?.state
     }
 
-    /// **The folded Renames item is clean only when BOTH of its halves ran** — the rename plans
-    /// (filing walk) and the risky names (`detectRiskyNames`, run on that walk only when a name
-    /// ruleset is supplied). A filing scan without the names half computed half the card's list;
-    /// "nothing here" would vouch for a list nothing looked at, so the honest answer underclaims.
-    /// Asserted on the rail AND the overview, because the agreement is the point — this is the
-    /// state where the two used to split, the rail saying clean beside a card that never said it.
+    /// Renames is clean only when both of its halves ran: the rename plans (filing walk) and the
+    /// risky names (`detectRiskyNames`, run on that walk only when a name ruleset is supplied).
+    /// Otherwise "nothing here" would vouch for a list nothing looked at. Asserted on the rail and
+    /// the overview, because they must agree.
     @Test func aFilingScanWithoutTheNamesHalfDoesNotCallRenamesClean() {
         let m = FileSyncManager()
         m.filingScanFolder = "/root"
@@ -181,36 +169,29 @@ import SwiftUI
         #expect(renamesState(m) == .notScanned)
     }
 
-    /// **The filing walk marks every lens it answers.**
-    ///
-    /// The risky-name half rode `isScanningNames` alone, which is never true on this path: the
-    /// filing scan reaches names through `detectRiskyNames`, and that function calls `completeScan`
-    /// without ever calling `beginScan` — the name lifecycle is begun only by `scanNames`, which
-    /// has no caller in the app at all. So during one walk To File said "rescanning" and the
-    /// backlog beside it showed a stale count in confident bold, from the same republish.
+    /// The filing walk marks every lens it answers. `isScanningNames` alone is never true on this
+    /// path: the filing scan reaches names through `detectRiskyNames`, which calls `completeScan`
+    /// without `beginScan` (only `scanNames`, which has no caller in the app, begins the name
+    /// lifecycle). Read alone, Renames would show a stale count while To File says "rescanning".
     @Test func theFilingWalkMarksEveryLensItAnswers() {
         let m = FileSyncManager()
         m.isSuggestingFiles = true
         #expect(scanning(m) == Set(OrganizePass.file.lenses))
     }
 
-    /// The name lifecycle still counts when it is the thing running — the fix widened the condition
-    /// rather than swapping one flag for another.
+    /// The name lifecycle still counts when it is the thing running: the condition covers both
+    /// flags, not one in place of the other.
     @Test func aStandaloneNameScanStillMarksNames() {
         let m = FileSyncManager()
         m.isScanningNames = true
-        // Post-fold the Renames card hosts the names findings, so it is the card a standalone
-        // name scan must mark — the claim the old Names card carried, on its new home.
+        // The Renames card hosts the names findings, so it is the card a standalone name scan
+        // must mark.
         #expect(scanning(m).contains(.renames))
         #expect(!scanning(m).contains(.toFile), "a name scan is not the whole filing walk")
     }
 
-    /// **Restructure follows the folder survey**, which is its pass.
-    ///
-    /// It was hard-coded `false` — defensible while nothing read it, since Restructure runs no walk
-    /// of its own — and wrong the moment the row grew a Refresh button: the button
-    /// stayed live and the count stayed bold for the whole survey it had just started, while the
-    /// menu item running the identical action is `.disabled` for exactly that period.
+    /// Restructure follows the folder survey, which is its pass, so its Refresh button and count go
+    /// quiet for the survey it started, as the menu item running the same action is `.disabled`.
     @Test func restructureFollowsTheFolderSurvey() {
         let m = FileSyncManager()
         #expect(!scanning(m).contains(.restructure))
@@ -231,11 +212,9 @@ import SwiftUI
         #expect(scanning(FileSyncManager()).isEmpty)
     }
 
-    /// Every lens's scanning flag belongs to **its own pass**, checked one pass at a time.
-    ///
-    /// The generalisation of the two defects above: each was a lens reporting from a lifecycle that
-    /// was not the one behind it. Driving each pass in isolation and asserting exactly its lenses
-    /// light up is the shape that catches the next one.
+    /// Every lens's scanning flag belongs to its own pass, checked one pass at a time: driving each
+    /// pass alone and asserting exactly its lenses light catches a lens reading another's
+    /// lifecycle.
     @Test func eachPassMarksExactlyItsOwnLenses() {
         for pass in OrganizePass.allCases {
             let m = FileSyncManager()
@@ -250,34 +229,26 @@ import SwiftUI
         }
     }
 
-    /// Rules takes no section at all, so it can never be reported as scanning or as unscanned.
-    /// **The ledger counts exactly the lenses the host hands it sections for.**
+    /// The ledger counts exactly the lenses the host hands it countable sections for. Two
+    /// independent expressions decide that: `overviewModel` emits no section for Rules, while
+    /// ``OrganizeOverview/Ledger/countedLenses(runnablePasses:)`` filters on `carriesBadge` and a
+    /// runnable pass. Either direction of drift is a defect:
     ///
-    /// Two independent expressions decide that today and nothing tied them together: this switch
-    /// returns `nil` for Rules and for the folded Names lens, while
-    /// ``OrganizeOverview/Ledger/countedLenses(runnablePasses:)`` filters on `carriesBadge` and
-    /// `isFoldedIntoRenames`. They agree by coincidence of authorship, and either direction of
-    /// drift is a defect this screen has already shipped once in another form:
+    /// - Counted with no section: `checksRun` can never reach `checksTotal`, so the ratio stands
+    ///   open forever ("4 of 5" permanently).
+    /// - A section not counted: the rows describe a check the ledger refuses to count, so one
+    ///   screen gives two answers to "how many came back clean".
     ///
-    /// - **Counted with no section** — `checksRun` can never reach `checksTotal`, so the ratio
-    ///   stands open forever. That is exactly the "4 of 5 permanently" defect the runnable-pass
-    ///   narrowing was added to fix, arriving through a different door.
-    /// - **A section that is not counted** — the rows and the footer describe a check the ledger
-    ///   refuses to count, so one screen gives two answers to "how many came back clean". Rendered
-    ///   during review, from a fixture that supplied the folded lens by hand.
-    ///
-    /// Asserted at the full runnable set, because that is the only configuration in which the two
-    /// are meant to be equal; narrowing is the ledger's own business and is covered separately.
+    /// Asserted at the full runnable set, the only configuration in which the two are meant to
+    /// match; narrowing is the ledger's own business and is covered separately.
     @Test func theLedgerCountsExactlyTheLensesThatTakeCountableSections() {
         let emitted = Set(subject(FileSyncManager()).overviewModel.sections.map(\.lens))
         let counted = OrganizeOverview.Ledger
             .countedLenses(runnablePasses: Set(OrganizePass.allCases))
-        // **The two sets are no longer equal, and the difference is named rather than tolerated.**
-        // This asserted plain equality while every section was a check the ledger counted. Storage
-        // emits a section that is deliberately NOT a check — a receipt has no clean/reporting
-        // answer to contribute, and counting it would make the meter read "4 of 5" forever from
-        // the first analysis onward. So the invariant becomes: every section is either counted, or
-        // it is one of the known uncounted kinds, and nothing is counted without a section.
+        // The two sets differ by name, not by tolerance: Storage emits a section that is
+        // deliberately not a check (a receipt has no clean/reporting answer, and counting it would
+        // make the meter read "4 of 5" forever). Every section is counted or a known uncounted
+        // kind, and nothing is counted without a section.
         #expect(emitted.subtracting(counted) == [.storage],
                 "a lens takes a section the ledger does not count, and it is not Storage — either it belongs in the meter or its exemption needs stating here")
         #expect(counted.subtracting(emitted).isEmpty,
@@ -299,18 +270,12 @@ import SwiftUI
                    skips: [])
     }
 
-    /// **The rail badge and the overview card must not describe the same cell differently** — and
-    /// for this one cell they did.
-    ///
-    /// `findFilingSuggestions` publishes the rename plans and the risky names partway through its
-    /// walk and sets `hasSuggestedFiling` only at the very end. So there is a real, reachable
-    /// state — every mid-scan moment, and permanently for anyone who hits Cancel there — with
-    /// plans on the manager, the names half finished, and the filing flag still false. The rail
-    /// answers findings-first and badged them; the overview asked the completion flags first and
-    /// called the lens never-scanned over the top of work it was already showing a number for.
-    ///
-    /// Both surfaces are asked here, from ONE manager, because the defect was disagreement: a
-    /// pin on either alone would have stayed green through it.
+    /// The rail badge and the overview card must describe a half-finished Renames scan the same
+    /// way. `findFilingSuggestions` publishes the rename plans and the risky names partway through
+    /// its walk and sets `hasSuggestedFiling` only at the end, so every mid-scan moment (and a
+    /// Cancel there, permanently) has plans published while the filing flag is false. Findings come
+    /// first on both surfaces. Asked of one manager, because a pin on either alone can't see
+    /// disagreement.
     @Test func aHalfFinishedScanIsReportedTheSameWayByTheRailAndTheOverview() throws {
         let m = FileSyncManager()
         // Mid-scan exactly: the names half completed and both lists published, the filing half
@@ -334,15 +299,14 @@ import SwiftUI
             Issue.record("the overview said \(section.state) about findings the badge is showing")
         }
 
-        // The gate still decides what a ZERO means — the direction that must NOT be lost. Same
-        // manager, same half-finished flags, nothing found: now both surfaces say "not scanned",
-        // which is a different answer from `.clean` and the one a half-run pass has earned.
+        // The gate still decides what a zero means. Same half-finished flags, nothing found: both
+        // surfaces say "not scanned", not `.clean`, which a half-run pass hasn't earned.
         m.renamePlans = []
         let empty = subject(m)
         #expect(empty.railCounts.state(.renames) == .notScanned)
         #expect(empty.overviewModel.sections.first { $0.lens == .renames }?.state == .notScanned)
 
-        // And with both halves done and nothing found, both say clean — so the assertion above
+        // And with both halves done and nothing found, both say clean, so the assertion above
         // discriminates the gate rather than agreeing with every state.
         m.hasSuggestedFiling = true
         let done = subject(m)
@@ -350,13 +314,13 @@ import SwiftUI
         #expect(done.overviewModel.sections.first { $0.lens == .renames }?.state == .clean)
     }
 
+    /// Rules takes no section at all, so it can never be reported as scanning or as unscanned.
     @Test func rulesTakesNoSection() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         #expect(!sections.contains { $0.lens == .rules })
-        // **Badge-carriers PLUS Storage**, and the addition is deliberate rather than a widening
-        // of the old rule. Rules takes no section because there is nothing about a standing
-        // configuration for a landing page to report. Storage has something to report — it just
-        // is not work — so it takes a section and that section is a `.receipt`.
+        // Badge-carriers plus Storage. Rules takes no section: a standing configuration has nothing
+        // for a landing page to report. Storage has something to report that isn't work, so it
+        // takes a `.receipt` section.
         #expect(sections.count == OrganizeLens.railItems.filter(\.carriesBadge).count + 1)
         #expect(sections.contains { $0.lens == .storage })
     }
@@ -382,12 +346,10 @@ import SwiftUI
                                  reclaimableBytes: reclaim * 2_000_000)
     }
 
-    /// **Never `.findings`, and that is the whole reason `.receipt` exists.**
-    ///
-    /// `.findings` renders count-forward — a pill, examples, and a way in captioned with the count
-    /// — which on a lens with no verb that touches a file reads as a to-do nobody can discharge.
-    /// That is the exact misread `carriesBadge` refuses on the rail; a `.findings` state here would
-    /// let it back in through the landing page.
+    /// Never `.findings`, which is why `.receipt` exists. `.findings` renders count-forward (a
+    /// pill, examples, a way in captioned with the count), which on a lens with no verb that
+    /// touches a file reads as a to-do nobody can discharge: the misread `carriesBadge` refuses on
+    /// the rail.
     @Test func storageReportsAReceiptRatherThanFindings() {
         let m = FileSyncManager()
         m.storageLensReport = Self.report()
@@ -402,16 +364,15 @@ import SwiftUI
         #expect(headline.contains("total"))
         #expect(headline.contains("62 files"))
         #expect(headline.contains("318 untouched"))
-        // Provenance: which tree, so a RESTORED report can never be read under the wrong root.
+        // Provenance: which tree, so a restored report can never be read under the wrong root.
         #expect(detail.contains("Documents"),
                 "the receipt does not name the root it describes — a restored report would be read under whatever scope happens to be set")
         #expect(detail.hasPrefix("Analyzed"))
     }
 
-    /// **The headline reads the tree's totals, not the lists' lengths (LN6).** The lists are capped
-    /// at 20 rows, so a headline counting them said "20 large · 20 untouched" on nearly every tree,
-    /// and "reclaimable" added up only the first 20 candidates. The fixture's lists are exactly
-    /// the cap while every total is something else, so a headline reading the lists cannot pass.
+    /// The headline reads the tree's totals, not the lists' lengths: the lists are capped at 20
+    /// rows, so counting them would say "20 large · 20 untouched" on nearly every tree. The
+    /// fixture's lists are exactly the cap while every total differs, so reading the lists fails.
     @Test func storagesHeadlineCountsTheTreeNotTheCappedLists() {
         func entry(_ n: String, _ b: Int) -> StorageEntry {
             StorageEntry(path: "/root/\(n)", name: n, bytes: b, modified: Date(timeIntervalSince1970: 0))
@@ -435,9 +396,9 @@ import SwiftUI
         #expect(headline == LensWorkspaceView.storageReceiptHeadline(m.storageLensReport!))
     }
 
-    /// **A report saved before 6.1 read "20 files · 20 untouched" again**: decoding filled the
-    /// missing totals in from the capped lists. It now has none, and the headline gives the size
-    /// it knows and asks for a rescan.
+    /// A report saved without the totals decodes with none, not totals filled in from the capped
+    /// lists ("20 files · 20 untouched"), and the headline gives the size it knows and asks for a
+    /// rescan.
     @Test func aStorageReportFromBeforeTheTotalsAsksForARescan() throws {
         let entry = "{\"path\":\"/r/a\",\"name\":\"a\",\"bytes\":300}"
         let twenty = Array(repeating: entry, count: 20).joined(separator: ",")
@@ -454,13 +415,10 @@ import SwiftUI
         #expect(storageState(FileSyncManager()) == .notScanned)
     }
 
-    /// **The ledger's denominator does not move**, in either state — which is the claim SL4 rests
-    /// on and the reason no ledger code was written for it.
-    ///
-    /// `countedLenses` gates on `carriesBadge`, so a badgeless Storage never enters `checksTotal`;
-    /// a receipt is likewise not a "check that reported". Asserted in BOTH states because the
-    /// failure would be asymmetric — a section that counted only once it had something to say would
-    /// leave the meter reading "4 of 5" from the moment the first analysis finished.
+    /// The ledger's denominator does not move for Storage, in either state. `countedLenses` gates
+    /// on `carriesBadge`, so a badgeless Storage never enters `checksTotal`, and a receipt is not a
+    /// "check that reported". Both states, because a section counted only once it had something to
+    /// say would leave the meter at "4 of 5" from the first analysis on.
     @Test func theLedgerIgnoresStorageInEveryState() {
         let counted = OrganizeOverview.Ledger.countedLenses(runnablePasses: Set(OrganizePass.allCases))
         #expect(!counted.contains(.storage))
@@ -481,22 +439,13 @@ import SwiftUI
                 "analyzing storage moved the checks-run count — the report is being counted as a check that reported")
     }
 
-    /// **A never-analyzed Storage is stranded, and stranded is where it would have had no verb.**
-    ///
-    /// Every other unscanned lens reaches a scan from the landing page: it is either covered by a
-    /// pass card (`pendingPasses`) or gets a run button beside its footer line. Storage is in no
-    /// `OrganizePass`, so `OrganizePass(producing: .storage)` is nil and BOTH routes answer nothing
-    /// — the line read "Storage — not scanned" with nothing to click, the only dead end on the
-    /// screen, on the one lens whose entire state is "you have not looked yet".
-    ///
-    /// Pinned here rather than in pixels because the shape is what matters: if Storage ever stops
-    /// being stranded (someone gives it a pass), its card stops being minted from
-    /// `strandedActions` and this fails rather than leaving a second button somewhere nobody looks.
-    ///
-    /// **Stranded no longer means "a footnote".** A stranded lens with a verb takes a card like any
-    /// other unrun check — `OverviewCardConsistencyTests.aNeverAnalyzedStorageTakesACardAndNotAFootnote`
-    /// is the claim about what it draws. What is asserted here is only that Storage arrives at the
-    /// stranded route at all, which is the fact about the machinery the card is built on.
+    /// A never-analyzed Storage reaches the stranded route. Every other unscanned lens reaches a
+    /// scan through a pass card (`pendingPasses`) or a run button beside its footer line, but
+    /// Storage is in no `OrganizePass`, so both answer nothing and its Analyze verb comes from
+    /// `strandedActions`. If Storage ever gains a pass, this fails rather than leaving a second
+    /// button somewhere.
+    /// `OverviewCardConsistencyTests.aNeverAnalyzedStorageTakesACardAndNotAFootnote` pins what it
+    /// draws.
     @Test func aNeverAnalyzedStorageIsStrandedWithNoPassToOfferIt() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         let overview = OrganizeOverview(
@@ -514,44 +463,32 @@ import SwiftUI
                 "Storage gained a pass; `offersPassRun` will now mint a run button beside the storage-specific one")
     }
 
-    /// **Restructure's card no longer samples its own backlog.**
-    ///
-    /// Pinned at the call site rather than through `overviewModel`, because `structureReport` is a
-    /// pure function of `filingFolderProfile` and seeding one that produces findings of several
-    /// kinds is a heavier fixture than the claim is worth. `StructureBacklogTallyTests` pins what
-    /// the line says; this pins that the arm composes it, and that the thing it replaced is gone.
-    ///
-    /// What it replaced: `scoped.prefix(3).map(\.headline)` — three findings off the front of an
-    /// unsorted list, which on the reference tree drew one `node_modules` subtree three times over.
+    /// Restructure's card summarises its backlog rather than sampling it: three findings off the
+    /// front of an unsorted list (`scoped.prefix(3).map(\.headline)`) can draw one subtree three
+    /// times over. Pinned at the call site, because seeding a `filingFolderProfile` with findings
+    /// of several kinds is a heavier fixture than the claim is worth. `StructureBacklogTallyTests`
+    /// pins what the line says.
     @Test func restructureSummarisesItsBacklogRatherThanSamplingIt() throws {
         let model = try Self.overviewModelCode()
         #expect(model.contains("StructureBacklogTally(scoped).breakdown"),
                 "the Restructure arm does not build a breakdown — its card has nothing to summarise")
         // `\\.headline` appears nowhere else in this declaration, and `body(of:)` strips comments,
-        // so this needle is exactly the old expression and nothing else. A multi-line needle with
-        // baked-in indentation was tried first and would have gone vacuous on the next reformat —
-        // a guard that cannot match is a guard that always passes.
+        // so this needle is exactly the sampling expression. A needle with baked-in indentation
+        // would go vacuous on the next reformat.
         #expect(!model.contains("\\.headline"),
                 "the three-of-fifty-three sample is back")
         Self.expectTheRowDrawingArmsStillDraw(model)
     }
 
-    /// **The `examples` slot holds identifiers, and the two lenses with none pass none.**
-    ///
-    /// It renders monospaced, which is right for `Invoice.pdf → Finance` and `clip.mp4 — 2 copies`
-    /// and wrong for a run of prose. Renames put its rename tally there and Restructure put three
-    /// deep paths; both are summaries of a whole list rather than rows out of it, and both belong
-    /// in the blurb — the channel To File has used for "31 ready, 11 unsure" all along.
-    ///
-    /// Pinned at the call site for the reason the sibling above gives: `structureReport` and the
-    /// rename backlog are both functions of a `FolderProfile`, and seeding one that produces
-    /// findings of several kinds is a heavier fixture than the claim is worth. What each summary
-    /// *says* is pinned by `StructureBacklogTallyTests` and `RenameBacklogTallyTests`.
+    /// The `examples` slot holds identifiers, and the two lenses with none pass none. It renders
+    /// monospaced, right for `Invoice.pdf → Finance` and wrong for prose, so Renames' and
+    /// Restructure's summaries of a whole list go in the blurb, as To File's "31 ready, 11 unsure"
+    /// does. Pinned at the call site for the sibling's reason; what each summary says is pinned by
+    /// `StructureBacklogTallyTests` and `RenameBacklogTallyTests`.
     @Test func noLensPutsProseInTheExampleSlot() throws {
         let model = try Self.overviewModelCode()
-        // Keyed on the composition, not on the sentence: `renameParts.joined` is what puts the
-        // breakdown in the blurb, and the words around it are copy somebody may well reword.
-        // A needle made of the sentence would fail a rewrite that changed nothing about the rule.
+        // Keyed on the composition, not the sentence: `renameParts.joined` puts the breakdown in
+        // the blurb, and the words around it are copy that may be reworded.
         #expect(model.contains("renameParts.joined"),
                 "the Renames arm no longer composes its breakdown into the blurb")
         // The tally's own words, wherever they are built, must not reach the detail slot. Both
@@ -563,9 +500,8 @@ import SwiftUI
         Self.expectTheRowDrawingArmsStillDraw(model)
     }
 
-    /// **The Overview's Duplicates examples count folders as folders (LN9).** They said
-    /// "\(n) copies" for every group, while the card they open keeps "copies" for files. One rule,
-    /// read by both: the rule's values, and the Overview reading it.
+    /// The Overview's Duplicates examples count folders as folders, and versions as versions, as
+    /// the card they open does. One rule, read by both: the rule's values, and both readers.
     @Test func theOverviewCountsAFolderGroupInFolders() throws {
         #expect(DuplicateGroupCard.memberCount(2, isDirectory: true) == "2 folders")
         #expect(DuplicateGroupCard.memberCount(1, isDirectory: true) == "1 folder")
@@ -592,9 +528,8 @@ import SwiftUI
             in: try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift"))
     }
 
-    /// Non-vacuity for both guards above: the arms that SHOULD still draw rows do, so neither is
-    /// passing because the haystack came back empty or the declaration was renamed out from under
-    /// it. Without this a `body(of:)` that silently returned "" would satisfy every `!contains`.
+    /// Non-vacuity for both guards above: the arms that should still draw rows do, so a `body(of:)`
+    /// that silently returned "" (or a renamed declaration) can't satisfy every `!contains`.
     private static func expectTheRowDrawingArmsStillDraw(_ model: String) {
         #expect(model.contains("copies"), "Duplicates stopped drawing its rows too")
         #expect(model.contains("s.fileName"), "To File stopped drawing its rows too")

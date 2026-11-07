@@ -2,34 +2,18 @@ import Foundation
 
 /// A line-by-line diff of two text files, aligned into rows a side-by-side pane can draw.
 ///
-/// **The Myers walk is here rather than delegated to `CollectionDifference`, and that is a
-/// correction.** `difference(from:)` is Myers too, and it was the right first answer — no
-/// dependency, and correct. What it cannot do is stop: it takes no budget and observes no
-/// cancellation, so the only bound available was an ESTIMATE taken before it started, and the
-/// estimate is a lower bound (see ``estimatedCost(left:right:)``). Two files holding the same lines
-/// in a different order — an export sorted differently, a log interleaved by two writers, a CSV
-/// re-sorted in a spreadsheet — estimate ZERO and then run for as long as they run. Measured on
-/// this machine with that shape: 5,000 lines a side, 0.96s; 10,000, 3.86s; 20,000, 16.5s; time is
-/// quadratic in the edit distance, so a 100k-line log is minutes of a pinned core under a spinner,
-/// with closing the surface no help at all.
+/// The Myers walk is written out rather than delegated to `CollectionDifference`, which can't be
+/// stopped: it takes no budget and ignores cancellation, and the only bound before it starts is
+/// an estimate that prices reordered lines at zero, though their cost is quadratic in the edit
+/// distance (minutes for a shuffled 100k-line log). The walk here compares interned integers
+/// (``interned(_:_:)``), counts its work against a ceiling, and checks `Task.isCancelled` on every
+/// step of the outer loop.
 ///
-/// So the walk is written out, and what it buys is the three things a delegated call could not
-/// have: it compares INTEGERS rather than Strings (each distinct line is interned once — see
-/// ``interned(_:_:)`` — so a comparison is one machine word and hash collisions cannot exist), it
-/// counts its own work against a ceiling and refuses the moment it is passed, and it asks
-/// `Task.isCancelled` on every step of the outer loop.
+/// Linear space, which lets the ceiling be generous: Myers' middle-snake refinement keeps two
+/// O(N+M) frontiers instead of the O(D²) traceback, in the same O((N+M)·D) time.
 ///
-/// **Linear space, which is why the ceiling can be generous.** The textbook O(ND) walk keeps every
-/// step's frontier to trace the path back, which is O(D²) memory — 400 MB at the distance an
-/// ordinary 5,000-line rewrite reaches. This is Myers' own refinement: find the MIDDLE snake of the
-/// optimal path with a forward and a reverse frontier, then split the problem around it. Two
-/// frontiers, O(N+M) of them, and the same O((N+M)·D) time.
-///
-/// What this type adds on top of the edit script is the *alignment* a side-by-side pane needs: a
-/// removal and an insertion at the same place are one CHANGED row with both texts on it, not a
-/// deleted row above an added one. That distinction is the whole readability of the pane — a
-/// one-word edit shows as one row with the word picked out, rather than as two rows the reader has
-/// to line up by eye.
+/// On top of the edit script, a removal facing an insertion becomes one changed row with both
+/// texts, so a one-word edit reads as one row with the word marked, not two rows to line up.
 struct TextPairDiff: Equatable {
 
     enum RowKind: Equatable {
@@ -74,22 +58,15 @@ struct TextPairDiff: Equatable {
         let right = rows.last { $0.rightNumber != nil }?.rightNumber ?? 0
         return max(left, right)
     }
-    /// Contiguous runs of non-`same` rows, as ranges into `rows` — what ↑/↓ step between. A reader
-    /// stepping through a diff means "the next thing that changed", which is a region, not a line:
-    /// a twelve-line replacement is one thing that happened, and twelve stops for it is twelve
-    /// presses to get past one edit.
+    /// Contiguous runs of non-`same` rows, as ranges into `rows`: what ↑/↓ step between, so a
+    /// twelve-line replacement is one stop, not twelve.
     let regions: [Range<Int>]
-    /// Changed rows whose intra-line pass was skipped to stay inside ``maxIntraLineWork`` — their
-    /// text is marked whole instead of word by word.
-    /// Reported rather than silent: a row with no word runs looks exactly like a row where every
-    /// word changed, and the reader would have no way to tell the two apart.
+    /// Changed rows whose intra-line pass was skipped to stay inside ``maxIntraLineWork``, so
+    /// their text is marked whole. Reported, because such a row looks like one where every word
+    /// changed.
     let coarseRows: Int
-    /// How many rows are not `.same`.
-    ///
-    /// **Counted once, in ``make(left:right:)``, rather than on every read.** It was a filter over
-    /// every row, and `summary` is read on each render of the pane's header — on a 100,000-row diff
-    /// that is a walk of the whole diff per frame, for a number that cannot change: the rows are
-    /// `let`.
+    /// How many rows are not `.same`. Counted once when the rows are assembled, because `summary`
+    /// reads it on every render of the pane's header.
     let changedLineCount: Int
 
     var isIdentical: Bool { regions.isEmpty }
@@ -105,16 +82,9 @@ struct TextPairDiff: Equatable {
 
     // MARK: Stepping
 
-    /// Where a ↑/↓ press lands, given where the reader is now.
-    ///
-    /// **From nowhere, a step goes to an END rather than past one.** `nil` means nothing has been
-    /// stepped to yet — the pane is showing the top of the file, not a change — so ↓ lands on the
-    /// FIRST change and ↑ on the last. It used to start at region 0 and add one, which skipped the
-    /// first change on the way in: with the pane freshly opened, the first ↓ scrolled to the
-    /// second change, and the first was reachable only by wrapping the whole way round or by ↑.
-    ///
-    /// A value, and shared by the key handler and the on-screen stepper, so the two cannot come to
-    /// disagree about where "next" is.
+    /// Where a ↑/↓ press lands, given where the reader is now. From `nil` (nothing stepped to
+    /// yet), ↓ lands on the first change and ↑ on the last, so the first change is never skipped.
+    /// Shared by the key handler and the on-screen stepper, so they agree on "next".
     static func steppedRegion(from current: Int?, direction: Int, count: Int) -> Int? {
         guard count > 0 else { return nil }
         guard let current else { return direction > 0 ? 0 : count - 1 }
@@ -123,11 +93,9 @@ struct TextPairDiff: Equatable {
 
     // MARK: What a bounded diff can answer
 
-    /// What asking for a diff produced.
-    ///
-    /// **Three outcomes, because "we stopped" and "we refused" are different things to tell a
-    /// reader.** A refusal is a finding about the two files and belongs on screen beside the size
-    /// and encoding notes; a cancellation is the surface going away, and must land nowhere at all.
+    /// What asking for a diff produced. A refusal is a finding about the files and goes on screen
+    /// beside the size and encoding notes; a cancellation is the surface going away and must land
+    /// nowhere.
     enum Attempt: Equatable {
         case diffed(TextPairDiff)
         /// The walk passed ``maxDiffWork`` before it finished — see ``refusalCaption``.
@@ -138,48 +106,23 @@ struct TextPairDiff: Equatable {
 
     // MARK: Cost
 
-    /// The most work one line diff may do, in the units ``LineDiffWalker`` counts — one step of one
-    /// diagonal of the edit graph.
+    /// The most work one line diff may do, in ``LineDiffWalker``'s units: one step of one diagonal
+    /// of the edit graph. A ceiling counted inside the walk, so it holds for any shape of input,
+    /// including the shuffled files ``estimatedCost(left:right:)`` prices at zero.
     ///
-    /// **A CEILING, not an estimate, and that is the whole change.** The walk counts as it goes and
-    /// stops the moment it passes this, so the bound holds whatever shape the two files are in —
-    /// including the shuffled ones ``estimatedCost(left:right:)`` prices at zero.
-    ///
-    /// **Calibrated to about two seconds of walk: 450,000,000 steps at a measured 230,000,000
-    /// steps a second, on an Apple M4 (Mac16,13), Release build.** The number is stated in steps
-    /// rather than seconds because that is what can be counted inside the loop — but a step bound
-    /// is only worth having if steps and seconds are related, and here they are: the measured rate
-    /// held between 222 and 238 million steps a second across every shape tried — 5,000 to 30,000
-    /// lines a side, files with nothing in common, files shuffled end to end, and files half
-    /// shared and reordered. A 7% spread over a 37× range of work is what makes "450 million steps"
-    /// mean "about two seconds" rather than meaning nothing.
-    ///
-    /// What that budget buys, measured on the same machine: 15,000 shuffled lines a side diff in
-    /// 1.87s, 20,000 lines with nothing in common in 1.72s, 10,000 shuffled in 0.83s. What it
-    /// refuses: 20,000 shuffled (3.35s), 30,000 shuffled (7.37s), and everything above.
-    ///
-    /// **The cost of a ceiling this high is that a refusal takes it to reach.** A pair that is
-    /// going to be refused spends the full ~2s finding that out, where a lower ceiling would have
-    /// said so sooner. That is the right way round: the pair being refused is the rare one, and it
-    /// is only refused after two seconds of genuine work on a background task the reader can close
-    /// out from under. A ceiling low enough to refuse quickly refuses diffs worth having.
+    /// About two seconds of walk: steps ran at a steady ~230 million a second (M4, Release) across
+    /// every shape measured. That admits 15,000 shuffled lines a side and refuses 20,000. A refused
+    /// pair spends the full ~2s finding out, on a background task the reader can close; a ceiling
+    /// low enough to refuse fast would refuse diffs worth having.
     static let maxDiffWork = 450_000_000
 
-    /// A cheap estimate of what the Myers pass will cost on these two line arrays.
+    /// A cheap estimate of what the Myers pass will cost on these two line arrays. Myers runs in
+    /// O((N+M)·D), so cost turns on how different the files are, not how big.
     ///
-    /// Myers runs in O((N+M)·D), where D is the edit distance — so the cost turns on how DIFFERENT
-    /// the files are, not how big they are. Two 100k-line files with fifty changed lines diff
-    /// instantly; two 100k-line files with nothing in common do not. A cap on size alone would
-    /// refuse the first and admit the second, which is backwards.
-    ///
-    /// D is estimated from the multiset difference — lines that appear on one side more often than
-    /// on the other must each be edited — in one O(N+M) pass over two dictionaries.
-    ///
-    /// **A lower bound on D, so this is an ESTIMATE and not a bound on the cost** — a file with its
-    /// paragraphs shuffled estimates 0 and is not free. It is kept as a PRE-FILTER only: the real
-    /// bound is ``maxDiffWork``, counted inside the walk. What this still earns is refusing the
-    /// enormous, entirely-different pair in one linear pass, before anything is interned or
-    /// allocated — and it names the same finding, in the same words, that the ceiling does.
+    /// D is estimated from the multiset difference (lines one side has more often than the other),
+    /// in one O(N+M) pass. That is a lower bound, so shuffled files estimate 0: this is only a
+    /// pre-filter that refuses the huge, entirely different pair before anything is interned. The
+    /// real bound is ``maxDiffWork``.
     static func estimatedCost(left: [String], right: [String]) -> Int {
         var counts: [String: Int] = [:]
         counts.reserveCapacity(left.count + right.count)
@@ -190,33 +133,18 @@ struct TextPairDiff: Equatable {
         return (left.count + right.count) * distance
     }
 
-    /// The most estimated work the pre-filter will wave through — see ``estimatedCost(left:right:)``
-    /// and ``maxDiffWork``, which is the bound this only approximates.
-    ///
-    /// **Four times the real ceiling, and the factor is measured rather than chosen.** The two
-    /// numbers count different things — this one is (N+M) times a lower bound on the edit distance,
-    /// the other is steps actually taken — so a shared threshold would have one bound refusing what
-    /// the other would happily finish. For the family this pre-filter exists to catch, files with
-    /// little in common, the ratio is not approximate: at 5,000, 7,000, 10,000 and 20,000 lines a
-    /// side of entirely different text, the estimate came to exactly 4.0× the steps the walk then
-    /// took. So scaling by four is what makes the pre-filter refuse only pairs the walk would also
-    /// refuse, instead of pre-empting it.
-    ///
-    /// It went unnoticed that this was the binding limit of the two: before the ceiling existed,
-    /// this refused two 7,100-line files with nothing in common — 0.2s of work under the walk this
-    /// now fronts.
+    /// The most estimated work the pre-filter lets through (``estimatedCost(left:right:)``).
+    /// Four times ``maxDiffWork`` because the two count different things: for files with nothing
+    /// in common the estimate is exactly 4× the steps the walk takes, so the pre-filter refuses
+    /// only pairs the walk would refuse too.
     static let maxEstimatedCost = 4 * maxDiffWork
 
-    /// Why these two files will not be diffed, or nil when the ESTIMATE has no objection.
+    /// Why these two files won't be diffed, or nil when the estimate has no objection. A refusal
+    /// here is final; nil is no promise, since the walk may still refuse (``maxDiffWork``), in the
+    /// same words.
     ///
-    /// **A pre-filter, and a refusal here is final; a nil here is not a promise.** The walk itself
-    /// may still refuse — see ``maxDiffWork`` — and says so in these same words, because it is the
-    /// same finding: too different to be worth the wait.
-    ///
-    /// In the reader's words and in `BoundedTextRead.Outcome.caption`'s voice — it joins the same
-    /// notes list, so a refusal here reads like the size and encoding refusals it sits beside.
-    /// It names what it did instead of the number it exceeded: "too different" is the finding, and
-    /// a reader given "estimated cost 4.1e10" learns nothing they can act on.
+    /// Worded like `BoundedTextRead.Outcome.caption`, since it joins the same notes list, and it
+    /// names the finding, not the number exceeded.
     static func refusalNote(left: [String], right: [String]) -> String? {
         guard estimatedCost(left: left, right: right) > maxEstimatedCost else { return nil }
         return refusalCaption
@@ -227,33 +155,21 @@ struct TextPairDiff: Equatable {
         "These two files are too large and too different to diff line by line — "
         + "the comparison would take minutes. The other modes still work."
 
-    /// The budget for the INTRA-LINE passes, spent across the whole diff, in ``maxDiffWork``'s
-    /// units.
+    /// The budget for the intra-line passes, spent across the whole diff, in ``maxDiffWork``'s
+    /// units. Needed because the line ceiling doesn't reach them: a 4 MiB file with no newlines
+    /// (minified JavaScript, one-line JSON) is one changed row of ~800,000 words a side.
     ///
-    /// **The line ceiling above does not reach this one, and a single line is enough to prove it.**
-    /// A 4 MiB file with no newlines in it — minified JavaScript, JSON saved in one line, a log
-    /// whose writer never flushed one — is ONE line, so the line walk finishes in nothing flat and
-    /// the row is then a changed row whose WORDS go through the same Myers: measured, that file
-    /// holds ~800,000 words a side, where 8,000 already costs a second.
-    ///
-    /// Spent per row rather than capped per row, because both shapes run away: one enormous line,
-    /// and thousands of ordinary changed lines each paying a little. Rows are served in order and
-    /// what is left renders whole, so the budget lands where the reader is looking — the top of the
-    /// pane — rather than being spread thin across a diff nobody scrolls to the end of.
+    /// Spent across rows rather than capped per row, so neither one huge line nor thousands of
+    /// small ones can run away. Rows are served in order and the rest render whole, so the budget
+    /// lands at the top of the pane, where the reader is looking.
     static let maxIntraLineWork = 100_000_000
 
-    /// The most words a row may hold and still be offered a word pass.
+    /// The most words a row may hold and still get a word pass. A gate on tokenising, which the
+    /// diff's budget can't be: `words(_:)` allocates a String per word (~158ms a side on a 4 MiB
+    /// line) before anything could decline the row. So ``wordCount(_:)`` prices it first.
     ///
-    /// **A gate on the TOKENISING, not on the diff — and the diff's own budget cannot be it.**
-    /// `words(_:)` allocates one String per word and is O(characters); on a 4 MiB single line that
-    /// is ~800,000 allocations a side and ~158ms each way, spent BEFORE anything could look at the
-    /// arrays and decline them. So the row is priced first, by counting whitespace runs over the
-    /// UTF-8 without allocating anything (``wordCount(_:)``), and a line past this never becomes
-    /// two String arrays at all.
-    ///
-    /// 10,000 words is a ~60 KB line — far past any line a person reads, and its worst case
-    /// (everything changed) is exactly ``maxIntraLineWork``, so one pathological row can spend the
-    /// whole budget but can never exceed it.
+    /// 10,000 words is a ~60 KB line, and its worst case is exactly ``maxIntraLineWork``, so one
+    /// pathological row can spend the whole budget but never exceed it.
     static let maxWordsForIntraLine = 10_000
 
     // MARK: Building
@@ -261,10 +177,10 @@ struct TextPairDiff: Equatable {
     /// The diff of two line arrays, bounded and cancellable — what the surface calls.
     ///
     /// - Parameters:
-    ///   - maxWork: the ceiling, in the walker's units. Passing `.max` asks for an unbounded walk,
-    ///     which only a caller that has already bounded its input should do.
-    ///   - isCancelled: asked once per step of the outer loop. `Task.isCancelled` at the call site,
-    ///     so closing the surface stops the walk rather than merely discarding what it produces.
+    ///   - maxWork: the ceiling, in the walker's units. `.max` is unbounded, only for a caller
+    ///     that has bounded its input.
+    ///   - isCancelled: asked once per step of the outer loop. Pass `Task.isCancelled`, so closing
+    ///     the surface stops the walk rather than discarding its result.
     static func bounded(left: [String], right: [String],
                         maxWork: Int = maxDiffWork,
                         isCancelled: @escaping () -> Bool = { false }) -> Attempt {
@@ -280,15 +196,12 @@ struct TextPairDiff: Equatable {
                                 removed: walker.removed, inserted: walker.inserted))
     }
 
-    /// The unbounded diff — for callers whose input is already small, and for tests.
-    ///
-    /// **Not what the surface calls.** With no ceiling this is the runaway H6 is about; every
-    /// production path goes through ``bounded(left:right:maxWork:isCancelled:)``.
+    /// The unbounded diff, for callers whose input is already small, and for tests. With no
+    /// ceiling it can run away; production paths use ``bounded(left:right:maxWork:isCancelled:)``.
     static func make(left: [String], right: [String]) -> TextPairDiff {
         guard case .diffed(let diff) = bounded(left: left, right: right, maxWork: .max) else {
-            // Unreachable: with no ceiling and no cancellation the walk has no other exit. An empty
-            // diff rather than a trap, because a pane drawing nothing is survivable and a crash on
-            // the user's own files is not.
+            // Unreachable with no ceiling and no cancellation. An empty diff, not a trap: a blank
+            // pane is survivable, a crash on the user's files is not.
             return TextPairDiff(rows: [], regions: [], coarseRows: 0, changedLineCount: 0)
         }
         return diff
@@ -307,8 +220,7 @@ struct TextPairDiff: Equatable {
             let leftIsRemoved = l < left.count && removed[l]
             let rightIsInserted = r < right.count && inserted[r]
             if leftIsRemoved && rightIsInserted {
-                // **The alignment an edit script does not give.** A removal facing an insertion is
-                // one edited line, not a delete above an add.
+                // A removal facing an insertion is one edited line, not a delete above an add.
                 let (ls, rs) = segmentsWithinBudget(left[l], right[r],
                                                     budget: &intraLineBudget, coarse: &coarse)
                 rows.append(Row(id: rows.count, kind: .changed, leftNumber: l + 1,
@@ -334,10 +246,8 @@ struct TextPairDiff: Equatable {
                                 leftSegments: nil, rightSegments: nil))
                 l += 1; r += 1
             } else if l < left.count {
-                // Reachable only if the script and the arrays disagree, which they cannot for a
-                // script computed from these very arrays. Emitting the line rather than trapping:
-                // a pane that showed one line fewer than the file has would be worse than one that
-                // showed a line as unchanged.
+                // Reachable only if the script and the arrays disagree, which can't happen for a
+                // script computed from them. Emits the line rather than trapping or dropping it.
                 rows.append(Row(id: rows.count, kind: .removed, leftNumber: l + 1,
                                 rightNumber: nil, left: left[l], right: nil,
                                 leftSegments: nil, rightSegments: nil))
@@ -367,15 +277,9 @@ struct TextPairDiff: Equatable {
                             changedLineCount: changed)
     }
 
-    /// Numbers two arrays of strings so the walk can compare machine words.
-    ///
-    /// **Interning rather than hashing, and that is what makes collisions unwriteable.** A 64-bit
-    /// hash of each line would be the obvious speed-up and would need every match re-checked
-    /// against the strings themselves, because two different lines that hash alike would be
-    /// reported as one. A dictionary already resolves collisions correctly — it compares the keys —
-    /// so equal ids mean equal strings by construction, and the walk never touches a String again.
-    ///
-    /// One pass over each side, which is the same shape ``estimatedCost(left:right:)`` already pays.
+    /// Numbers two arrays of strings so the walk can compare machine words. Interned, not hashed:
+    /// the dictionary compares keys, so equal ids mean equal strings and no collision can report
+    /// two different lines as one. One pass over each side.
     static func interned(_ left: [String], _ right: [String]) -> (left: [Int], right: [Int]) {
         var table: [String: Int] = [:]
         table.reserveCapacity(left.count + right.count)
@@ -396,19 +300,17 @@ struct TextPairDiff: Equatable {
         return (number(left), number(right))
     }
 
-    /// The intra-line pass, if the budget can still pay for it — otherwise `(nil, nil)`, which
-    /// renders the row as changed with no word runs.
-    ///
-    /// **Priced before it is tokenised**, for the reason ``maxWordsForIntraLine`` gives, and then
-    /// bounded by the same ceiling the line walk uses, so what is subtracted from the budget is the
-    /// work actually done rather than an estimate of it.
+    /// The intra-line pass, if the budget can still pay for it; otherwise `(nil, nil)`, which
+    /// renders the row changed with no word runs. Priced before tokenising
+    /// (``maxWordsForIntraLine``), then bounded by the walk's own ceiling, so the budget is charged
+    /// the work actually done.
     private static func segmentsWithinBudget(_ left: String, _ right: String,
                                              budget: inout Int, coarse: inout Int)
         -> ([Segment]?, [Segment]?) {
         let leftCount = wordCount(left), rightCount = wordCount(right)
         let words = leftCount + rightCount
-        // The floor on any walk is one step per element, so a row this long cannot be afforded at
-        // any edit distance — and it is refused without either line being split.
+        // Any walk costs at least one step per element, so a row this long can't be afforded and
+        // is refused before either line is split.
         guard words <= maxWordsForIntraLine, words <= budget else {
             coarse += 1
             return (nil, nil)
@@ -435,19 +337,15 @@ struct TextPairDiff: Equatable {
             : "\(rows) lines were too long to compare word by word — they are marked whole."
     }
 
-    /// The intra-line pass: which WORDS of a changed line changed.
-    ///
-    /// Word-level rather than character-level, deliberately. A character diff of a reflowed
-    /// sentence marks nearly every character, which is visually the same as marking none; word
-    /// runs are what a reader's eye follows, and they are what makes a one-word edit in a long
-    /// line findable at all. Whitespace is carried inside the runs so the two sides still line up
-    /// when rendered.
+    /// The intra-line pass: which words of a changed line changed. Words, not characters: a
+    /// character diff of a reflowed sentence marks nearly everything. Whitespace rides inside the
+    /// runs so the two sides still line up.
     static func segments(_ left: String, _ right: String) -> ([Segment], [Segment]) {
         segments(leftWords: words(left), rightWords: words(right))
     }
 
-    /// The same pass over lines already tokenised — unbounded, so only for callers that have
-    /// bounded the input themselves.
+    /// The same pass over lines already tokenised. Unbounded, so only for callers that have
+    /// bounded the input.
     static func segments(leftWords lw: [String], rightWords rw: [String])
         -> ([Segment], [Segment]) {
         let ids = interned(lw, rw)
@@ -458,8 +356,7 @@ struct TextPairDiff: Equatable {
     }
 
     /// Splits into words plus the whitespace that follows each, so joining the runs reproduces the
-    /// line exactly — a pane that rendered its own reconstruction of a line would be showing the
-    /// reader something the file does not contain.
+    /// line exactly.
     static func words(_ line: String) -> [String] {
         var out: [String] = []
         var current = ""
@@ -477,21 +374,15 @@ struct TextPairDiff: Equatable {
         return out
     }
 
-    /// How many runs ``words(_:)`` would produce, without producing any of them.
+    /// How many runs ``words(_:)`` would produce, counted over the UTF-8 without allocating, so a
+    /// huge line can be priced cheaply.
     ///
-    /// **The point is the allocations it does not make.** `words` builds one String per word;
-    /// counting is what prices a row, and pricing a 4 MiB line by tokenising it costs ~158ms a side
-    /// before anything can decline the row. This walks the UTF-8 and allocates nothing.
-    ///
-    /// **ASCII whitespace, where `words` asks `Character.isWhitespace`** — so a line whose only
-    /// separators are exotic (NBSP, U+2028) is counted as fewer runs than it has. That is a
-    /// deliberate approximation and it is safe in both directions: this number only chooses between
-    /// a word pass and a whole-line mark, and the walk it gates carries its own ceiling. Splitting
-    /// graphemes to count them would be the cost this exists to avoid.
+    /// ASCII whitespace only, where `words` uses `Character.isWhitespace`, so exotic separators
+    /// (NBSP, U+2028) undercount. Safe: this only picks a word pass or a whole-line mark, and the
+    /// walk it gates has its own ceiling.
     static func wordCount(_ line: String) -> Int {
-        // `words` starts a run at the first character and opens a new one at every non-space that
-        // follows a space — so a leading indent is a run of its own, and a line of nothing but
-        // spaces is one run. Counting split points reproduces that exactly.
+        // `words` starts a run at the first character and at every non-space after a space, so a
+        // leading indent is its own run and an all-space line is one run.
         var count = 0
         var previousWasSpace = false
         for byte in line.utf8 {
@@ -525,24 +416,16 @@ struct TextPairDiff: Equatable {
 // MARK: - The walk
 
 /// Myers' O(ND) difference algorithm over two arrays of interned ids, in linear space, with a work
-/// ceiling and a cancellation check.
+/// ceiling and a cancellation check. ``TextPairDiff`` says why it is written out.
 ///
-/// **Why it is written out here** is in ``TextPairDiff``'s own doc: `CollectionDifference` cannot
-/// be stopped, and an estimate taken before it starts is a lower bound on a quantity that decides
-/// minutes.
+/// The divide-and-conquer refinement from §4b of Myers' paper: forward and reverse frontiers
+/// advance together until they overlap on a snake of the optimal path, and the problem splits
+/// around it. Two O(N+M) frontiers are the whole memory, where a textbook traceback needs O(D²).
 ///
-/// **The shape is the divide-and-conquer refinement from §4b of Myers' paper.** A forward frontier
-/// from (0,0) and a reverse frontier from (N,M) are advanced together; the first time they overlap
-/// they have found a snake that the optimal path passes through, and the problem splits around it.
-/// Each half is solved the same way. Two frontiers of O(N+M) each is the whole memory, against the
-/// O(D²) a traceback of the textbook version needs — 400 MB at the distance an ordinary 5,000-line
-/// rewrite reaches, which is why the ceiling could not otherwise be set anywhere useful.
+/// An explicit stack, not recursion: the split can nest as deep as the edit distance, and this
+/// runs on a task's stack, which is smaller than the main thread's.
 ///
-/// **An explicit stack rather than recursion.** The split can nest as deep as the edit distance,
-/// and this runs on a task's stack, which is not the main thread's.
-///
-/// The output is two flag arrays — which offsets of `a` are removed, which offsets of `b` are
-/// inserted — the same script `CollectionDifference` reports, in the form the row builder reads.
+/// The output is two flag arrays, removed offsets of `a` and inserted offsets of `b`.
 struct LineDiffWalker {
 
     enum Outcome: Equatable {
@@ -602,10 +485,8 @@ struct LineDiffWalker {
             var pending: [(Int, Int, Int, Int)] = [(0, a.count, 0, b.count)]
             while let region = pending.popLast() {
                 var (aLo, aHi, bLo, bHi) = region
-                // **The prefix and suffix come off first, at every level.** Most real pairs are
-                // mostly the same file, and what is left after this is the small middle the walk
-                // actually has to think about. It is also what makes the ceiling generous enough to
-                // be worth having: the work counted is the work on the middle.
+                // Trim the shared prefix and suffix at every level: most real pairs are mostly
+                // the same, so the walk and its counted work cover only the middle.
                 while aLo < aHi, bLo < bHi, a[aLo] == b[bLo] { aLo += 1; bLo += 1 }
                 while aLo < aHi, bLo < bHi, a[aHi - 1] == b[bHi - 1] { aHi -= 1; bHi -= 1 }
                 if aLo == aHi {
@@ -621,10 +502,8 @@ struct LineDiffWalker {
                     pending.append((aLo + snake.x1, aHi, bLo + snake.y1, bHi))
                     pending.append((aLo, aLo + snake.x0, bLo, bLo + snake.y0))
                 } else {
-                    // Exactly one edit, and the ends have already been trimmed, so the sides differ
-                    // in length by one and the shorter is the longer with one element taken out.
-                    // Splitting around the snake would work too; naming the edit is cheaper and
-                    // ends the recursion where it would otherwise be deepest.
+                    // Exactly one edit with the ends trimmed: the sides differ by one element.
+                    // Naming it directly is cheaper than splitting around the snake.
                     let n = aHi - aLo, m = bHi - bLo
                     if n > m {
                         var i = 0
@@ -662,10 +541,9 @@ struct LineDiffWalker {
         while d <= maxDistance {
             if isCancelled() { throw Halt.cancelled }
 
-            // The band a frontier can reach: diagonals outside [-M, N] leave the grid. Clamping it
-            // is what keeps the walk O((N+M)·D) rather than O(D²), and the entries just outside are
-            // poisoned so the "which neighbour did this path come from" rule cannot read a value
-            // from an earlier region.
+            // The band a frontier can reach: diagonals outside [-M, N] leave the grid. Clamping
+            // keeps the walk O((N+M)·D), and the entries just outside are poisoned so the
+            // neighbour rule can't read a value left by an earlier region.
             var kLow = max(-d, -m), kHigh = min(d, n)
             if (kLow + d) % 2 != 0 { kLow += 1 }
             if (kHigh + d) % 2 != 0 { kHigh -= 1 }
@@ -722,9 +600,8 @@ struct LineDiffWalker {
             }
             d += 1
         }
-        // Unreachable: the two frontiers must meet by `maxDistance`, which is why the loop is
-        // bounded by it. Refusing rather than trapping is the safe direction — the reader is told
-        // the pair could not be diffed, which is true, instead of losing the app.
+        // Unreachable: the frontiers must meet by `maxDistance`. Refusing rather than trapping
+        // tells the reader the pair wasn't diffed instead of crashing the app.
         throw Halt.refused
     }
 

@@ -1,15 +1,14 @@
 import Foundation
 import Sync
 
-/// Which placeholder a pane with no rows should show. A genuinely empty folder is fine;
-/// a missing root or disabled provider is a problem the user must fix in Settings, so the
-/// two must never share the old ambiguous "empty or invalid" message.
+/// Which placeholder a pane with no rows should show. An empty folder is fine; a missing root or
+/// disabled provider is a problem to fix in Settings, so the two never share a message.
 public enum PaneEmptyState: Equatable, Sendable {
     /// The tree has rows; no placeholder.
     case none
-    /// The tree is empty because a scan is still in flight. Draws nothing in the centre: the
-    /// pane's one busy indicator is its corner chip (`PaneBusyIndicator`). The case still matters,
-    /// because it keeps "Folder is empty" off a pane that has not been read yet.
+    /// The tree is empty because a scan is in flight. Draws nothing in the centre (the busy
+    /// indicator is the corner chip, `PaneBusyIndicator`), but keeps "Folder is empty" off a pane
+    /// not yet read.
     case loading
     /// The pane's provider is disabled in Settings (transient: pane selection re-resolves
     /// away from disabled providers, but the tree can render before that lands).
@@ -19,7 +18,7 @@ public enum PaneEmptyState: Equatable, Sendable {
     /// The directory exists but has no visible entries. `hasOnlyHiddenEntries` is true when
     /// entries exist but the hidden-files filter removed all of them.
     case emptyFolder(hasOnlyHiddenEntries: Bool)
-    /// The folder has visible entries, but the pane's type filter shows none of them (RD70 TE274).
+    /// The folder has visible entries, but the pane's type filter shows none of them.
     case filteredOut(PaneTypeFilter)
 
     /// "No PDFs in Downloads" for one whole kind, "No matching files in Downloads" for anything
@@ -32,12 +31,10 @@ public enum PaneEmptyState: Equatable, Sendable {
         return "No matching files in \(folder)"
     }
 
-    /// Classifies the pane's placeholder from cheaply available state — no disk I/O.
-    /// `rootIsValid` is SettingsManager's last validity check of the provider ROOT; a
-    /// focused subfolder that vanished still classifies as an empty folder.
-    /// Order matters: loading always wins (nothing may call a pane empty while it is being read),
-    /// and a disabled provider outranks its (possibly also invalid) root path because
-    /// re-enabling is the actionable fix.
+    /// Classifies the placeholder from cheap state, no disk I/O. `rootIsValid` is SettingsManager's
+    /// last check of the provider root, so a vanished focused subfolder still reads as empty.
+    /// Order matters: loading wins (no pane is called empty while it's read), and a disabled
+    /// provider outranks an invalid root because re-enabling is the actionable fix.
     public static func classify(
         treeIsEmpty: Bool,
         isLoading: Bool,

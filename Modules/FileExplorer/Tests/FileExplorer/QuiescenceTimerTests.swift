@@ -2,18 +2,15 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins `QuiescenceTimer`, which is what the two pane scroll watchdogs re-arm on every bounds
-/// change — i.e. at frame cadence, per open column, for the whole length of a scroll.
+/// Pins `QuiescenceTimer`, which the two pane scroll watchdogs re-arm on every bounds change: at
+/// frame cadence, per open column, for the whole scroll.
 ///
-/// It has to satisfy two claims at once, and only one of them is the optimization. It must arm far
-/// fewer timers than it receives reports (that is why it exists), and it must still run the action
-/// exactly `quiescence` after the LAST report — because running early is what the watchdogs'
-/// cancel-and-reallocate design existed to prevent, and a correction that lands mid-gesture fights
-/// the platform on the paths the platform handles.
+/// It must arm far fewer timers than it receives reports (why it exists), and still run the action
+/// exactly `quiescence` after the last report: a correction that lands mid-gesture fights the
+/// platform on the paths the platform handles.
 ///
-/// Both the clock and the scheduler are injected, so nothing here waits on real time. A test that
-/// slept through a 0.14s window to prove a timer coalesced would be racing that window, which is
-/// the shape of flakiness this codebase has already paid for more than once.
+/// The clock and the scheduler are injected, so nothing here waits on real time; a test that slept
+/// through the 0.14 s window would be racing it.
 @MainActor
 @Suite struct QuiescenceTimerTests {
 
@@ -45,8 +42,8 @@ import Foundation
 
     // MARK: The optimization
 
-    /// The headline. A scroll delivers bounds changes at frame cadence; the old code allocated and
-    /// scheduled a work item for every one of them.
+    /// A scroll delivers bounds changes at frame cadence; arming a work item for each is the cost
+    /// this type exists to avoid.
     @Test("A burst of activity arms exactly one timer")
     func burstArmsOneTimer() {
         let (timer, harness) = make()
@@ -59,8 +56,8 @@ import Foundation
         #expect(ran == 0)
     }
 
-    /// The mutation check for the one above: a timer that armed per report would still pass
-    /// "the action eventually runs", so the count is what makes that test mean anything.
+    /// A timer that armed per report would still pass "the action eventually runs", so this count
+    /// is what gives the test above its meaning.
     @Test("Reports arriving while a timer is in flight cost no new timer")
     func reportsDuringFlightDoNotArm() {
         let (timer, harness) = make()
@@ -85,9 +82,8 @@ import Foundation
         #expect(!timer.isPending)
     }
 
-    /// The correctness half. The timer was armed at the first report, but activity continued after
-    /// it — so when it fires the stream has NOT been idle long enough, and it must wait out the
-    /// remainder rather than correcting mid-gesture.
+    /// The timer was armed at the first report but activity continued, so when it fires the stream
+    /// has not been idle long enough: it must wait out the remainder, not correct mid-gesture.
     @Test("A timer that fires while activity is still recent re-arms instead of running early")
     func lateActivityDefersTheRun() {
         let (timer, harness) = make(quiescence: 0.14)
@@ -105,9 +101,8 @@ import Foundation
         #expect(ran == 1)
     }
 
-    /// The deferred re-arm waits the REMAINDER, not a fresh full window — otherwise a steady stream
-    /// of activity would push the correction further out on every cycle instead of landing one
-    /// quiescence after the last report.
+    /// The re-arm waits the remainder, not a fresh full window, or a steady stream would push the
+    /// correction further out each cycle instead of one quiescence after the last report.
     @Test("The re-arm waits only the remaining time")
     func reArmWaitsTheRemainder() throws {
         let (timer, harness) = make(quiescence: 0.14)
@@ -115,8 +110,8 @@ import Foundation
         harness.now += 0.10
         timer.noteActivity {}
         harness.fireNext(advancingBy: 0.04)      // idle 0.04, so 0.10 remains
-        // Approximately: the remainder is a difference of real-clock doubles, and pinning it to
-        // the bit would be asserting on floating-point arithmetic rather than on the rule.
+        // Approximately: the remainder is a difference of doubles, and pinning it to the bit would
+        // test floating-point arithmetic, not the rule.
         let remaining = try #require(harness.scheduled.first?.delay)
         #expect(abs(remaining - 0.10) < 0.001)
     }
@@ -150,9 +145,9 @@ import Foundation
         #expect(ranNew)
     }
 
-    /// A view leaving its window cancels. The scheduled block still fires — nothing can un-schedule
-    /// it — so what matters is that it finds no action and does nothing, and that the pending flag
-    /// clears so a later re-attach can arm again.
+    /// A view leaving its window cancels. The scheduled block still fires (nothing can un-schedule
+    /// it), so it must find no action and do nothing, and clear the pending flag so a later
+    /// re-attach can arm again.
     @Test("Cancelling stops the run without stranding the timer")
     func cancelStopsTheRun() {
         let (timer, harness) = make(quiescence: 0.14)
