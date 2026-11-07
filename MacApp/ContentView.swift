@@ -650,10 +650,16 @@ struct ContentView: View {
     @AppStorage("askClaudePanelPinned") var askClaudePinned: Bool = false
     @AppStorage("askClaudePinnedWidth") var askClaudePinnedWidth: Double = 372
     @State var askClaudePinnedDragWidth: Double?
+    /// The width the workspace and the pinned column share, measured, and whether the column
+    /// fits in it (`PaneLogic.pinRoom`). Floating until the first measure.
+    @State var askClaudeRowWidth: CGFloat = 0
+    @State var askClaudePinState = PaneLogic.PinVerdict.floating
+    /// The window's own edge is being dragged: the panel does not switch until it is let go.
+    @State var askClaudeWindowResizing = false
     /// The Info inspector's persisted width, resizable by dragging its leading edge. 360pt until
     /// dragged, wide enough for the preview to read a page. Clamped to
     /// `PaneLogic.inspector{Min,Max}Width` whenever it's written.
-    @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 360
+    @AppStorage("compareInspectorWidth") var inspectorWidth: Double = 360
     /// The inspector preview's downloads, owned here so a "Downloading…" outlives the preview,
     /// which is taken down whenever the inspector shows a folder or folds the picture away.
     /// `@State` on a class, for `lensSession`'s reason: owned, not observed.
@@ -665,7 +671,7 @@ struct ContentView: View {
     /// The live width during a resize drag; `nil` when idle. Mirrors the pane splits' pattern —
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
-    @State private var inspectorDragWidth: Double? = nil
+    @State var inspectorDragWidth: Double? = nil
     /// The preview's share of the Info inspector's height: set by dragging the bar under it, kept
     /// across launches, and most of the panel until the user says otherwise.
     @AppStorage("infoInspectorPreviewFraction") private var inspectorPreviewFraction: Double =
@@ -4055,6 +4061,7 @@ struct ContentView: View {
                 // Claude, pinned: the last column, after Info. Empty unless it is open and pinned.
                 askClaudeColumn
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { askClaudeRowWidth = $0 }
             // Unified is one box: the only outline under the toolbar, round every workspace's
             // content and the inspector beside it, which meet inside at hairlines. A no-op in
             // Cards, where each area is its own card. See `windowRegionFrame`.

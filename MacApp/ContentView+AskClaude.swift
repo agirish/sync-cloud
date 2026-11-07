@@ -13,9 +13,69 @@ extension ContentView {
 
     var askClaudeChat: AskClaudeChat { askClaudeHolder.chat }
 
-    /// Whether the panel is the window's column rather than a floating window. The pin alone for
-    /// now; the room rules decide it next.
-    var askClaudePinnedShown: Bool { askClaudePinned }
+    /// Whether the panel is the window's column rather than a floating window: the pin is on,
+    /// Info is closed (the two take turns on the right edge), and the window has the room.
+    var askClaudePinnedShown: Bool { askClaudePinned && !showInspector && askClaudePinState.fits }
+
+    /// Why a panel that is pinned is floating, if it is: Info is open, or the window is too narrow.
+    var askClaudePinWaiting: AskClaudePanel.Waiting? {
+        guard askClaudePinned, !askClaudePinnedShown else { return nil }
+        return askClaudePinState.fits ? .info : .narrow
+    }
+
+    /// The workspace, as the room rule knows it.
+    private var askClaudePinWorkspace: PaneLogic.PinWorkspace {
+        switch selectedWorkspace {
+        case .browse: .browse
+        case .compare: .compare
+        case .filing: .organize
+        case .editor: .edit
+        }
+    }
+
+    /// Everything the room rule reads, so a change in any of it runs the rule once.
+    var askClaudePinInput: PaneLogic.PinRoomInput {
+        let dragging = folderSidebarDragOrigin != nil || editorColumnDragOrigin != nil || paneDragFraction != nil
+            || verticalDragFraction != nil || railDragFraction != nil || inspectorDragWidth != nil
+            || askClaudePinnedDragWidth != nil || askClaudeWindowResizing
+        return PaneLogic.PinRoomInput(
+            workspace: askClaudePinWorkspace,
+            rowWidth: askClaudeRowWidth,
+            columnWidth: (askClaudePinnedDragWidth ?? askClaudePinnedWidth) + PaneLogic.sidebarSeamWidth,
+            gutter: LiquidGlass.gutter(surfaceStyle),
+            sidebarShown: folderSidebarPreference(for: selectedWorkspace) && selectedWorkspace.supportsFolderSidebar,
+            sidebarStored: CGFloat(browseSidebarWidthRaw),
+            foldedByHand: selectedWorkspace == .editor ? editorRailFolded : panesHiddenForCurrentTab,
+            editColumn: CGFloat(editorColumnWidthRaw),
+            dragging: dragging,
+            // The pin cannot fold a pane yet: Organize and Edit float it where they have no room.
+            canFold: false)
+    }
+
+    /// Runs the room rule. Called as its input changes.
+    func askClaudePinInputChanged(_ input: PaneLogic.PinRoomInput) {
+        let verdict = PaneLogic.pinRoom(input, previous: askClaudePinState)
+        if verdict != askClaudePinState {
+            withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { askClaudePinState = verdict }
+        }
+    }
+
+    /// The 📌: pins the panel to the window's right edge, or lets it go. Pinning closes Info, which
+    /// would otherwise take the edge, but only when the window has the room for the column.
+    func toggleAskClaudePin() {
+        let turningOn = !askClaudePinned
+        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+            askClaudePinned = turningOn
+            if turningOn, askClaudePinState.fits { showInspector = false }
+        }
+        askClaudeHolder.visibility.focusRequests += 1
+    }
+
+    /// How far in from the window's right edge a floating panel stays, so it never covers Info: Info's
+    /// width while Info is why the pin is floating. The saved place does not change.
+    var askClaudeInfoInset: CGFloat {
+        askClaudePinned && showInspector ? CGFloat(inspectorDragWidth ?? inspectorWidth) + PaneLogic.sidebarSeamWidth : 0
+    }
 
     /// The pinned column, after the Info inspector. Its own view observes whether the panel is open.
     var askClaudeColumn: some View {
@@ -33,6 +93,9 @@ extension ContentView {
     func toggleAskClaude() {
         // Pinned, it slides like Info does; floating, as it always has.
         withDesignAnimation(askClaudePinnedShown ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.12), reduceMotion: reduceMotion) {
+            // Opening with the pin on is pinning: Info, which would take the edge, closes if the
+            // window has the room for the column.
+            if !askClaudeHolder.visibility.isOpen, askClaudePinned, showInspector, askClaudePinState.fits { showInspector = false }
             askClaudeHolder.visibility.isOpen.toggle()
         }
     }
@@ -67,9 +130,12 @@ extension ContentView {
                               onAsk: { askClaudeSend($0) },
                               onClose: { toggleAskClaude() },
                               onOpenSettings: { openSettings(on: SettingsPlace($0)) },
-                              container: container,
+                              container: CGSize(width: max(0, container.width - askClaudeInfoInset), height: container.height),
                               pinned: askClaudePinnedShown,
                               surface: surfaceStyle,
+                              pinOn: askClaudePinned,
+                              waiting: askClaudePinWaiting,
+                              onTogglePin: { toggleAskClaudePin() },
                               focusToken: askClaudeHolder.visibility.focusRequests,
                               onTalkingChange: { askClaudeHolder.visibility.isTalking = $0 },
                               onSetAccess: { askClaudeSetCurrentFolderAccess($0) },
@@ -103,7 +169,10 @@ extension ContentView {
     /// edge of what the type checker solves in time, and a generic closure there tipped it over.
     var askClaudeHost: AskClaudeHost {
         AskClaudeHost(visibility: askClaudeHolder.visibility, controller: askClaudeHolder.windowController,
-                      isPinned: askClaudePinnedShown, isBusy: askClaudeStateBusy != nil,
+                      isPinned: askClaudePinnedShown, pinInput: askClaudePinInput,
+                      onPinInput: { askClaudePinInputChanged($0) }, onLiveResize: { askClaudeWindowResizing = $0 },
+                      pinToggle: askClaudePinBinding,
+                      isBusy: askClaudeStateBusy != nil,
                       panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding,
                       onPrivacyChange: { askClaudePrivacyChanges += 1 })
     }
@@ -127,6 +196,11 @@ extension ContentView {
             }
             visibility.isOpen = wanted
         })
+    }
+
+    /// View ▸ Pin Ask Claude's binding: the pin, through the same action as the 📌.
+    var askClaudePinBinding: Binding<Bool> {
+        Binding(get: { askClaudePinned }, set: { _ in toggleAskClaudePin() })
     }
 
     func askClaudeTools() -> AskClaudeBrowseTools {
@@ -1490,6 +1564,12 @@ struct AskClaudeHost: ViewModifier {
     let controller: AskClaudeWindowController
     /// Pinned: the panel is the window's column rather than a floating window.
     let isPinned: Bool
+    /// What the room rule reads, and what to do when it changes.
+    let pinInput: PaneLogic.PinRoomInput
+    let onPinInput: (PaneLogic.PinRoomInput) -> Void
+    let onLiveResize: (Bool) -> Void
+    /// View ▸ Pin Ask Claude.
+    let pinToggle: Binding<Bool>
     /// Settings, Help, setup, a destination pick or a question is up: the panel steps aside.
     let isBusy: Bool
     let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
@@ -1502,6 +1582,12 @@ struct AskClaudeHost: ViewModifier {
             .overlay(alignment: .topTrailing) { AskClaudeOverlay(visibility: visibility, controller: controller, isPinned: isPinned, isBusy: isBusy, panel: panel) }
             .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in onPrivacyChange() }
             .focusedSceneValue(\.askClaude, toggle)
+            .focusedSceneValue(\.askClaudePin, pinToggle)
+            .onChange(of: pinInput, initial: true) { _, input in onPinInput(input) }
+            // The window's own edge: nothing switches while it is dragged, and what it left is
+            // decided the moment it is let go.
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willStartLiveResizeNotification)) { _ in onLiveResize(true) }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification)) { _ in onLiveResize(false) }
             // The View menu's tick reads this, so it follows the panel without the window redrawing.
             .focusedSceneObject(visibility)
     }

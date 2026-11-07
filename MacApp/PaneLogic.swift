@@ -764,6 +764,121 @@ enum PaneLogic {
     /// The lens panel's hard minimum, for the same reason.
     static let minLensWorkspaceWidth: CGFloat = 340
 
+    // MARK: - Where Ask Claude may be pinned
+
+    /// The workspaces the pinned column has to fit beside.
+    enum PinWorkspace: Equatable {
+        case browse, compare, organize, edit
+    }
+
+    /// Whether the pinned column fits, and whether it folds a pane to make it fit.
+    struct PinVerdict: Equatable {
+        /// The window has room for the column beside the workspace. When it doesn't, the panel
+        /// floats instead and says why.
+        var fits: Bool
+        /// Organize's folder pane (and its sidebar with it) or Edit's file list is folded for the
+        /// column. Only when `fits`.
+        var folds: Bool
+
+        static let floating = PinVerdict(fits: false, folds: false)
+    }
+
+    /// What the room rule reads. A value, so the rule is a pure function a test can walk.
+    struct PinRoomInput: Equatable {
+        var workspace: PinWorkspace
+        /// The width the workspace and the column share: the window's row, measured.
+        var rowWidth: CGFloat
+        /// The column, its seam included.
+        var columnWidth: CGFloat
+        /// The surface style's gap between cards.
+        var gutter: CGFloat
+        /// The sidebar the workspace would draw by preference, and the width stored for it.
+        var sidebarShown: Bool
+        var sidebarStored: CGFloat
+        /// The sidebar was brought back alone while the pin holds Organize's fold (LJ).
+        var sidebarReopenedByHand = false
+        /// Organize's rail fraction.
+        var railFraction: Double = 0.28
+        /// The folder pane (Organize) or file list (Edit) is already folded, by hand.
+        var foldedByHand = false
+        /// Edit's list column as drawn, where it is drawn.
+        var editColumn: CGFloat = 232
+        /// A splitter is being dragged (the window's, a sidebar's, a pane's, Info's, the column's):
+        /// nothing switches until it ends.
+        var dragging = false
+        /// Whether the window can fold a pane for the column. Until it can, Organize and Edit need
+        /// their panes open, and the panel floats in a window too narrow for that.
+        var canFold = true
+    }
+
+    /// The sidebar's floor, which it squeezes to before anything floats.
+    static let minSidebarWidth: CGFloat = 150
+    /// Browse's one pane at its narrowest: the pane header's own ladder is designed for 250, the
+    /// same as Compare's pane.
+    static let minBrowsePaneWidth: CGFloat = minComparePaneWidth
+    /// Edit's document at its narrowest, and the room it wants before the list folds.
+    static let minEditDocumentWidth: CGFloat = 260
+    /// To File below this loses its card buttons to the ⋯ menu; the pin folds the folder pane
+    /// before it gets there, and unfolds it again 40 pt past it.
+    static let comfortableLensWidth: CGFloat = 640
+    static let comfortableEditDocumentWidth: CGFloat = 600
+    /// How far past a line a switch back must be, so a window sitting on the line stays put.
+    static let pinHysteresis: CGFloat = 40
+
+    /// Whether the pinned column fits beside `workspace`, and whether a pane folds for it.
+    ///
+    /// The workspace gets what the column leaves. Each needs its own minimum, the sidebar giving
+    /// way to its floor first. Organize folds its folder pane, and its sidebar with it, when To File
+    /// would otherwise be under `comfortableLensWidth`, and Edit folds its list when the document
+    /// would be under `comfortableEditDocumentWidth`; Browse and Compare fold nothing. Both lines
+    /// move 40 pt the other way once crossed, so a window on the line does not flip. During a drag
+    /// nothing changes.
+    static func pinRoom(_ input: PinRoomInput, previous: PinVerdict?) -> PinVerdict {
+        if input.dragging, let previous { return previous }
+        let width = input.rowWidth - input.columnWidth
+        let overhead = sidebarOverhead(gutter: input.gutter)
+        let sidebarFloor = input.sidebarShown ? minSidebarWidth + overhead : 0
+        let sidebarSlot = input.sidebarShown ? input.sidebarStored + overhead : 0
+        let spine = railSpineWidth + input.gutter
+
+        // What each layout needs, and where its comfort line is, as widths.
+        var unfoldedNeed: CGFloat
+        var foldedNeed: CGFloat?
+        var comfort: (width: CGFloat, line: CGFloat)?
+        switch input.workspace {
+        case .browse:
+            unfoldedNeed = sidebarFloor + minBrowsePaneWidth
+        case .compare:
+            unfoldedNeed = sidebarFloor + 2 * minComparePaneWidth
+        case .organize:
+            unfoldedNeed = sidebarFloor + minRailWidth + minLensWorkspaceWidth
+            // Folded, the sidebar goes with the pane unless it was brought back by hand.
+            foldedNeed = spine + minLensWorkspaceWidth + (input.sidebarReopenedByHand ? sidebarFloor : 0)
+            if input.foldedByHand { unfoldedNeed = foldedNeed ?? unfoldedNeed }
+            let lens = (width - sidebarSlot) * (1 - CGFloat(input.railFraction))
+            comfort = (lens, comfortableLensWidth)
+        case .edit:
+            unfoldedNeed = sidebarFloor + spine + input.editColumn + minEditDocumentWidth
+            foldedNeed = sidebarFloor + spine + minEditDocumentWidth
+            if input.foldedByHand { unfoldedNeed = foldedNeed ?? unfoldedNeed }
+            comfort = (width - sidebarSlot - spine - input.editColumn, comfortableEditDocumentWidth)
+        }
+
+        // Fold when the comfortable width is gone, and stay folded until it is 40 pt past it. A
+        // pane the person folded is left as it is: nothing for the pin to fold.
+        if !input.canFold { foldedNeed = nil; comfort = nil }
+        var folds = false
+        if let comfort, !input.foldedByHand {
+            let line = previous?.folds == true ? comfort.line + pinHysteresis : comfort.line
+            folds = comfort.width < line
+        }
+        let needed = folds ? (foldedNeed ?? unfoldedNeed) : unfoldedNeed
+        // Floating, it pins again only once the window is 40 pt past what it needs.
+        let margin: CGFloat = previous.map { $0.fits ? 0 : pinHysteresis } ?? 0
+        guard width >= needed + margin else { return .floating }
+        return PinVerdict(fits: true, folds: folds)
+    }
+
     /// Whether a ⌘K "organize <folder>" aimed at the right pane can only be honoured by swapping
     /// the panes first.
     ///

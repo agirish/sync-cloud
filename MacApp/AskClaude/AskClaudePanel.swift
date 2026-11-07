@@ -32,6 +32,12 @@ struct AskClaudePanel: View {
     /// Cards, one flush area under a hairline in Unified.
     var pinned = false
     var surface: SurfaceStyle = .unified
+    /// The pin is on (the choice), whether or not the window has the room for it now, and why the
+    /// panel is floating if it is: Info is open, or the window is too narrow.
+    var pinOn = false
+    var waiting: Waiting?
+    var onTogglePin: () -> Void = {}
+    enum Waiting { case info, narrow }
     /// Bumped to bring the text box the keyboard: opening the panel, pinning it, ⌘J, Ask Claude
     /// About This. Only these move the keyboard into a pinned column.
     var focusToken = 0
@@ -437,7 +443,7 @@ struct AskClaudePanel: View {
                     // The title, and under it what the next question will describe.
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Claude").scaledFont(.headline)
-                        Text(place.subtitle)
+                        Text(place.subtitle + waitingNote)
                             .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -465,6 +471,7 @@ struct AskClaudePanel: View {
                                        onEditHiddenList: { showsPlace = false; onOpenSettings(.privacy) })
                         .presentedNativeControlAccent()
                 }
+            pinButton
             AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat() }
                 .disabled(chat.items.isEmpty && !chat.isRunning)
             AskClaudeHeaderButton(symbol: "xmark", help: ShortcutHint.tooltip("Close", AppChord.askClaude.display), label: "Close", action: onClose)
@@ -478,6 +485,33 @@ struct AskClaudePanel: View {
         .padding(.bottom, 4)
         .contentShape(Rectangle())
         .gesture(moveGesture, including: pinned ? .subviews : .all)
+    }
+
+    /// What the place line adds while a pinned panel floats, so the reason is on the panel.
+    private var waitingNote: String {
+        switch waiting {
+        case .info: " · pins again when Info closes"
+        case .narrow: " · widen the window to pin"
+        case nil: ""
+        }
+    }
+
+    /// The pin: lit when it is on, ringed while the panel is floating until the window allows it.
+    private var pinButton: some View {
+        let help = switch waiting {
+        case .info: "Pins again when Info closes. Click to turn pinning off."
+        case .narrow: "Pins when the window is wider. Click to turn pinning off."
+        case nil: pinOn ? "Let it float" : "Pin to the right of the window"
+        }
+        return AskClaudeHeaderButton(symbol: pinOn ? "pin.fill" : "pin", help: help,
+                                     label: pinOn ? "Unpin Ask Claude" : "Pin Ask Claude", isOn: pinOn, action: onTogglePin)
+            .overlay {
+                if waiting != nil {
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                        .strokeBorder(accent, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                }
+            }
+            .accessibilityValue(waitingNote.isEmpty ? "" : String(waitingNote.dropFirst(3)))
     }
 
     private var thread: some View {
