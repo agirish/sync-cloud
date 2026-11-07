@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Sync
 import Design
+import DesignTestSupport
 @testable import FileExplorer
 
 /// The magnitude bar, the share figure, and the rule that hides the row's two glyphs. The rules
@@ -102,19 +103,7 @@ import Design
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return ProbeRig(AnyView(subject), size: Self.canvas).capture()
     }
 
     /// The rightmost chromatic pixel on each scanline: the bar's edge. Chroma, not "is it blue":

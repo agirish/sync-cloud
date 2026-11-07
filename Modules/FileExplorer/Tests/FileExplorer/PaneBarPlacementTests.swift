@@ -16,7 +16,9 @@ import CoreGraphics
     @Test func testGlobalOffsetDoesNotShiftTheThreshold() {
         // Rows report in global (window) coordinates, so a list sitting 210pt below the window top
         // must not flip 210pt early. The 5th row of an 11-row list (visual bottom ≈ 190 in a 430pt
-        // viewport) stays at the bottom; a row visually inside the covered zone still flips.
+        // viewport) stays at the bottom; a row visually inside the covered zone still flips. So the
+        // global-origin subtraction happens before the on-screen clamp: an offset list must not
+        // make every one of its rows look past the fold.
         let p = makePlacement(viewport: 430)
         p.viewportGlobalMinY = 210
         p.rowBottoms = ["/5": 210 + 190]
@@ -40,15 +42,9 @@ import CoreGraphics
         #expect(p.resolveAtTop(selection: ["/a"]) == false)
     }
 
-    @Test func testRowUnderTheBarFlipsToTop() {
-        let p = makePlacement()
-        p.rowBottoms = ["/a": 560]
-        #expect(p.resolveAtTop(selection: ["/a"]) == true)
-    }
-
     @Test func testExitNeedsClearanceBeyondTheCoverageZone() {
-        // Flip to top, then move the row just above the coverage line — inside the exit
-        // hysteresis, so the bar must STAY at the top rather than bounce straight back.
+        // A row under the bar flips it to the top. Then move the row just above the coverage line,
+        // inside the exit hysteresis, so the bar must STAY at the top rather than bounce back.
         let p = makePlacement()
         p.rowBottoms = ["/a": 560]
         #expect(p.resolveAtTop(selection: ["/a"]) == true)
@@ -131,14 +127,5 @@ import CoreGraphics
         let p = makePlacement(viewport: 50, coverage: 64)
         p.rowBottoms = ["/a": 10]
         #expect(p.resolveAtTop(selection: ["/a"]) == false)
-    }
-
-    /// The global-origin subtraction has to happen before the on-screen clamp: a list offset down
-    /// the window must not make every one of its rows look past the fold.
-    @Test func testOnScreenClampIsAppliedInViewportSpace() {
-        let p = makePlacement(viewport: 430)
-        p.viewportGlobalMinY = 210
-        p.rowBottoms = ["/low": 210 + 400]   // visual 400 of 430: on screen, and under the bar
-        #expect(p.resolveAtTop(selection: ["/low"]) == true)
     }
 }

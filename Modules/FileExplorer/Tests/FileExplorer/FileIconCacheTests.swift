@@ -7,48 +7,30 @@ import UniformTypeIdentifiers
 /// thousands of nodes never grows the cache past a handful of images.
 @Suite struct FileIconCacheTests {
 
-    @Test func plainDirectoriesShareTheGenericKey() {
-        #expect(FileIconCache.cacheKey(name: "Photos", isDirectory: true) == FileIconCache.directoryKey)
-        #expect(FileIconCache.cacheKey(name: "Documents", isDirectory: true) == FileIconCache.directoryKey)
-    }
-
-    @Test func extensionedDirectoriesKeyByLowercasedExtension() {
-        // Bundle-style folders get their own entry so .app/.photoslibrary render as such.
-        #expect(FileIconCache.cacheKey(name: "My App.app", isDirectory: true) == "/app")
-        #expect(FileIconCache.cacheKey(name: "Pictures.photoslibrary", isDirectory: true) == "/photoslibrary")
-        #expect(FileIconCache.cacheKey(name: "backup.OLD", isDirectory: true) == "/old")
-        // Distinct from the file namespace: a directory and a file with the same extension
-        // must not share an entry.
-        #expect(FileIconCache.cacheKey(name: "a.app", isDirectory: true)
-            != FileIconCache.cacheKey(name: "a.app", isDirectory: false))
-    }
-
-    @Test func fileKeyIsLowercasedExtension() {
-        #expect(FileIconCache.cacheKey(name: "Report.PDF", isDirectory: false) == "pdf")
-        #expect(FileIconCache.cacheKey(name: "photo.jpeg", isDirectory: false) == "jpeg")
-        #expect(FileIconCache.cacheKey(name: "Notes.TxT", isDirectory: false) == "txt")
-    }
-
-    @Test func sameExtensionCollapsesToOneKey() {
-        let a = FileIconCache.cacheKey(name: "a.swift", isDirectory: false)
-        let b = FileIconCache.cacheKey(name: "CompletelyDifferentName.SWIFT", isDirectory: false)
-        #expect(a == b)
-    }
-
-    @Test func onlyLastExtensionComponentCounts() {
-        #expect(FileIconCache.cacheKey(name: "backup.tar.gz", isDirectory: false) == "gz")
-    }
-
-    @Test func extensionlessFilesAndDotfilesShareTheGenericKey() {
-        #expect(FileIconCache.cacheKey(name: "Makefile", isDirectory: false) == "")
-        #expect(FileIconCache.cacheKey(name: ".gitignore", isDirectory: false) == "")
-        #expect(FileIconCache.cacheKey(name: "LICENSE", isDirectory: false) == "")
+    /// Directories key by `/` plus their lowercased extension, so bundle-style folders (.app,
+    /// .photoslibrary) get their own entry and plain ones share `/`. Files key by their last
+    /// extension, lowercased, so every name with one extension collapses to one entry; no
+    /// extension, or a dotfile, is the generic `""`.
+    @Test(arguments: [
+        ("Photos", true, "/"), ("Documents", true, "/"),
+        ("My App.app", true, "/app"), ("Pictures.photoslibrary", true, "/photoslibrary"),
+        ("backup.OLD", true, "/old"),
+        ("Report.PDF", false, "pdf"), ("photo.jpeg", false, "jpeg"), ("Notes.TxT", false, "txt"),
+        ("a.swift", false, "swift"), ("CompletelyDifferentName.SWIFT", false, "swift"),
+        ("backup.tar.gz", false, "gz"),
+        ("Makefile", false, ""), (".gitignore", false, ""), ("LICENSE", false, ""),
+    ])
+    func theKeyIsTheLowercasedExtension(name: String, isDirectory: Bool, key: String) {
+        #expect(FileIconCache.cacheKey(name: name, isDirectory: isDirectory) == key)
     }
 
     @Test func directoryKeysCannotCollideWithAnyFileKey() {
         // "/" is the path separator, so no file name can ever produce a "/"-prefixed extension.
         #expect(FileIconCache.directoryKey == "/")
         #expect(FileIconCache.cacheKey(name: "trailing.dot.", isDirectory: false) != FileIconCache.directoryKey)
+        // A directory and a file with the same extension must not share an entry.
+        #expect(FileIconCache.cacheKey(name: "a.app", isDirectory: true)
+            != FileIconCache.cacheKey(name: "a.app", isDirectory: false))
     }
 
     @Test func directoryIconTypeResolvesOnlyDeclaredDirectoryTypes() {

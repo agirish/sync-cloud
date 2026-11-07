@@ -17,9 +17,9 @@ import Design
 /// `firstInkRow` measures paint, not frames: a header laid out at y=30 and drawn nowhere reads as
 /// no ink at all.
 ///
-/// `.machinePinned(.pixelSampling)`: it reads pixels out of a live renderer.
+/// The rendering tests are `.machinePinned(.pixelSampling)`: they read pixels out of a live renderer.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct LensSetupCardAlignmentTests {
+@Suite(.serialized) struct LensSetupCardAlignmentTests {
 
     static let canvas = CGSize(width: 900, height: 620)
     /// The pane backdrop, a flat colour rather than a material: what is measured is where ink
@@ -215,7 +215,7 @@ import Design
     /// that lens's trigger a full line below the rest, and prose is edited by people not looking at
     /// five screens side by side, so the check lives here. Rules is included though it has no scan:
     /// its trigger writes the first rule, and it sits in the same rail.
-    @Test func everyLensTriggerLandsAtTheSameHeight() {
+    @Test(.machinePinned(.pixelSampling)) func everyLensTriggerLandsAtTheSameHeight() {
         let panes: [(String, Int?)] = [
             ("To File", Self.firstAccentRow(Self.render(Self.toFilePane(.underTheSetupCard)))),
             ("Duplicates", Self.firstAccentRow(Self.render(Self.duplicatesPane()))),
@@ -244,7 +244,7 @@ import Design
         }
     }
 
-    @Test func everyLensOpensAtTheSameHeight() {
+    @Test(.machinePinned(.pixelSampling)) func everyLensOpensAtTheSameHeight() {
         let panes: [(String, Int?)] = [
             ("To File", Self.firstInkRow(Self.render(Self.toFilePane(.underTheSetupCard)))),
             ("Duplicates", Self.firstInkRow(Self.render(Self.duplicatesPane()))),
@@ -271,7 +271,7 @@ import Design
     /// align. Without this, a `firstInkRow` that returned the same number for every input would
     /// satisfy `everyLensOpensAtTheSameHeight`. Renders To File with the spend row above the card
     /// and requires the gap to be real and large.
-    @Test func theSpendRowAboveTheCardIsWhatMisalignedIt() {
+    @Test(.machinePinned(.pixelSampling)) func theSpendRowAboveTheCardIsWhatMisalignedIt() {
         guard let broken = Self.firstInkRow(Self.render(Self.toFilePane(.aboveTheList))),
               let fixed = Self.firstInkRow(Self.render(Self.toFilePane(.underTheSetupCard))),
               let reference = Self.firstInkRow(Self.render(Self.duplicatesPane())) else {
@@ -289,7 +289,7 @@ import Design
     /// Moving the footnote under the card keeps it drawn. Ink counts, because "is the spend row on
     /// screen" is a paint question: an `AnyView?` left nil, or a footnote laid out past the scroll
     /// content, leaves a card that measures correct and says nothing about what the last scan cost.
-    @Test func theSpendFootnoteStillDrawsUnderTheCard() {
+    @Test(.machinePinned(.pixelSampling)) func theSpendFootnoteStillDrawsUnderTheCard() {
         let with = Self.render(Self.toFilePane(.underTheSetupCard))
         let without = Self.render(
             FilingSetupCard(intro: LensIntros.organize(scanTargetName: "Naming Ceremony"),
@@ -318,16 +318,7 @@ import Design
 
     static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var differing = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let pa = a.colorAt(x: x, y: y), let pb = b.colorAt(x: x, y: y) else { continue }
-                if abs(pa.redComponent - pb.redComponent) > 0.01
-                    || abs(pa.greenComponent - pb.greenComponent) > 0.01
-                    || abs(pa.blueComponent - pb.blueComponent) > 0.01 { differing += 1 }
-            }
-        }
-        return differing
+        return PixelDiff.differingPixels(a, b, tolerance: 0.01)
     }
 
     /// The no-survey card draws no trigger, and still draws everything else.
@@ -336,7 +327,7 @@ import Design
     /// would land the user somewhere that can't help. But "no button" must not become "no card":
     /// the pitch, samples and note remain, and a state collapsed to a bare header would satisfy a
     /// test that only checked the button was gone.
-    @Test func restructureDrawsItsCardWithoutATrigger() {
+    @Test(.machinePinned(.pixelSampling)) func restructureDrawsItsCardWithoutATrigger() {
         let noSurvey = Self.render(Self.restructurePane())
         #expect(Self.firstInkRow(noSurvey) != nil, "the no-survey card drew nothing at all")
         // No accent band: `firstAccentRow` only reports a run wide enough to be a filled control,

@@ -62,25 +62,6 @@ import Sync
 @MainActor
 @Suite struct FileTreeViewEmptyStateTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private func treeView(
         tree: [FileNode] = [],
         isLoading: Bool = false,
@@ -94,7 +75,7 @@ import Sync
             otherTree: PaneTree(side: .right, version: 0, nodes: []),
             isLoading: isLoading, currentPath: "/root/focused",
             selection: .constant([]), otherSelection: [],
-            isLeft: true, delegate: StubDelegate(),
+            isLeft: true, delegate: NoOpFileActionDelegate(),
             rootPathIsValid: rootPathIsValid, providerIsEnabled: providerIsEnabled,
             hasOnlyHiddenEntries: hasOnlyHiddenEntries, rootPath: rootPath
         )

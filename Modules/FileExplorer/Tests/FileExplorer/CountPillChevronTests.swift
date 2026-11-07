@@ -16,12 +16,8 @@ import AppKit
         // chevron points the way the next click moves them.
         #expect(CountPillChevron.symbol(hasScanned: true, expanded: false) == "chevron.right")
         #expect(CountPillChevron.symbol(hasScanned: true, expanded: true) == "chevron.left")
-    }
-
-    @Test func testChevronSymbolsExistInSFSymbols() throws {
         // A typo'd symbol name renders as a blank icon at runtime; pin that every name resolves.
-        for expanded in [false, true] {
-            let symbol = try #require(CountPillChevron.symbol(hasScanned: true, expanded: expanded))
+        for symbol in ["chevron.right", "chevron.left"] {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                     "missing SF Symbol \(symbol)")
         }

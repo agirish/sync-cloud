@@ -15,6 +15,11 @@ import Sync
         return url
     }
 
+    /// The two sides' folders under `scratch`, not created.
+    private func sides(in scratch: URL) -> (left: URL, right: URL) {
+        (scratch.appendingPathComponent("left"), scratch.appendingPathComponent("right"))
+    }
+
     private func difference(
         left: URL, right: URL, name: String,
         type: FileDifference.DifferenceType, action: FileDifference.SyncAction = .copyToRight
@@ -32,8 +37,7 @@ import Sync
     @Test func statsBothSidesDatesForAReplace() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
-        let left = scratch.appendingPathComponent("left")
-        let right = scratch.appendingPathComponent("right")
+        let (left, right) = sides(in: scratch)
         try FileManager.default.createDirectory(at: left, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         try Data("new".utf8).write(to: left.appendingPathComponent("a.txt"))
@@ -56,8 +60,7 @@ import Sync
     @Test func countsAReplacedFoldersContentsRecursively() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
-        let left = scratch.appendingPathComponent("left")
-        let right = scratch.appendingPathComponent("right")
+        let (left, right) = sides(in: scratch)
         try FileManager.default.createDirectory(at: left.appendingPathComponent("Docs"), withIntermediateDirectories: true)
         // Destination folder: two files at the top and one nested; the enumerator counts all
         // four entries (the subfolder itself plus its file).
@@ -106,8 +109,7 @@ import Sync
     @Test func anUnreadableDestinationFolderIsNotAnnouncedAsZeroItems() async throws {
         guard !skippedBecauseRoot("anUnreadableDestinationFolderIsNotAnnouncedAsZeroItems") else { return }
         let scratch = try makeScratch()
-        let left = scratch.appendingPathComponent("left")
-        let right = scratch.appendingPathComponent("right")
+        let (left, right) = sides(in: scratch)
         try FileManager.default.createDirectory(at: left.appendingPathComponent("Docs"), withIntermediateDirectories: true)
         let destinationDocs = right.appendingPathComponent("Docs")
         try FileManager.default.createDirectory(at: destinationDocs, withIntermediateDirectories: true)
@@ -173,8 +175,7 @@ import Sync
     @Test func aPartlyUnreadableDestinationFolderCountsAsAFloor() async throws {
         guard !skippedBecauseRoot("aPartlyUnreadableDestinationFolderCountsAsAFloor") else { return }
         let scratch = try makeScratch()
-        let left = scratch.appendingPathComponent("left")
-        let right = scratch.appendingPathComponent("right")
+        let (left, right) = sides(in: scratch)
         try FileManager.default.createDirectory(at: left.appendingPathComponent("Docs"), withIntermediateDirectories: true)
         let destinationDocs = right.appendingPathComponent("Docs")
         // Two readable files plus a locked subdirectory holding four more. The enumerator yields
@@ -211,8 +212,7 @@ import Sync
     @Test func aGenuinelyEmptyDestinationFolderStillReadsAsZero() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
-        let left = scratch.appendingPathComponent("left")
-        let right = scratch.appendingPathComponent("right")
+        let (left, right) = sides(in: scratch)
         try FileManager.default.createDirectory(at: left.appendingPathComponent("Docs"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: right.appendingPathComponent("Docs"), withIntermediateDirectories: true)
 
@@ -231,8 +231,7 @@ import Sync
     @Test func missingSideItemsSkipTheDestinationStat() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
-        let left = scratch.appendingPathComponent("left")
-        let right = scratch.appendingPathComponent("right")
+        let (left, right) = sides(in: scratch)
         try FileManager.default.createDirectory(at: left, withIntermediateDirectories: true)
         try Data("new".utf8).write(to: left.appendingPathComponent("a.txt"))
 

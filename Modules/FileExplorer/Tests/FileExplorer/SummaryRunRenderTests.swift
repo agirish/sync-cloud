@@ -2,6 +2,7 @@ import Testing
 import SwiftUI
 import AppKit
 import Design
+import DesignTestSupport
 @testable import FileExplorer
 
 /// `SummaryRun`'s one rule, in pixels: the colour is on the glyph and never on the words. Yellow
@@ -22,23 +23,11 @@ import Design
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
         // A real window, as `OrganizeOverviewRenderTests` explains: without one the content
         // composites against the borderless window's own buffer and every comparison below reads
         // zero difference, whatever the code did. No `layoutIfNeeded()`: it disarms AppKit's
         // runaway guards.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return ProbeRig(AnyView(subject), size: size).capture()
     }
 
     /// The x coordinates, in points, at which two renders of the same subject differ.

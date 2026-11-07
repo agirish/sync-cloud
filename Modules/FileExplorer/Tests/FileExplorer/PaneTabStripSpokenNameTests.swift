@@ -38,10 +38,7 @@ import Testing
     /// read instead of a render. Both chips that draw a title, the full chip and the overflow
     /// rung's menu chip, must label it with `spokenName`.
     @Test func bothChipTitlesAreLabelledWithTheSpokenName() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/PaneTabStrip.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceText.fileExplorer("PaneTabStrip.swift")
         for subject in ["item", "active"] {
             let title = try #require(source.range(of: "Text(\(subject).title)"),
                                      "no Text(\(subject).title) in the strip")

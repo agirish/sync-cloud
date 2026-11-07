@@ -15,20 +15,10 @@ import Foundation
     // MARK: Source readers
 
     private static func sourcesDirectory() -> URL {
-        URL(fileURLWithPath: #filePath)          // …/Tests/FileExplorer/FileActionDelegateWiringTests.swift
-            .deletingLastPathComponent()         // …/Tests/FileExplorer
-            .deletingLastPathComponent()         // …/Tests
-            .deletingLastPathComponent()         // package root
-            .appendingPathComponent("Sources/FileExplorer")
+        SourceText.modules.appendingPathComponent("FileExplorer/Sources/FileExplorer")
     }
 
-    private static func source(_ name: String) throws -> String {
-        let text = try #require(
-            try? String(contentsOf: sourcesDirectory().appendingPathComponent(name), encoding: .utf8),
-            "cannot read Sources/FileExplorer/\(name) — every scan here would be vacuous")
-        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return text
-    }
+    private static func source(_ name: String) throws -> String { try SourceText.fileExplorer(name) }
 
     /// Whole-line comments stripped, so prose that spells `delegate.someMember` (the protocol file
     /// has some) cannot satisfy either walk.

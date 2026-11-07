@@ -74,16 +74,8 @@ import Sync
     /// `facts`. Scoped to the `facts` member, because a character window around a call breaks when
     /// an unrelated line moves near it.
     @Test func theFactsStripIsBuiltWithThePageCounts() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/CompareCopiesSheet.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read CompareCopiesSheet.swift — this check is vacuous")
-
-        let start = try #require(source.range(of: "    private var facts: ComparePairFacts {"),
-                                 "`facts` is gone or renamed — re-aim this scan")
-        let end = try #require(source.range(of: "\n    }\n", range: start.upperBound..<source.endIndex))
-        let body = String(source[start.upperBound..<end.lowerBound])
+        let source = try SourceText.fileExplorer("CompareCopiesSheet.swift")
+        let body = try SourceText.body(of: "    private var facts: ComparePairFacts {", in: source)
 
         #expect(body.contains("pages: pageFacts"), """
                 the facts strip is built without `pages:` again (\(body.trimmingCharacters(in: .whitespacesAndNewlines))) \

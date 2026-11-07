@@ -504,7 +504,7 @@ private func matchingBracket(_ open: Int, in b: [UInt8], roles: [SwiftLexeme]) -
 /// answered by the member's own prose. Returns everything after `declaration` up to the closing
 /// brace, less that brace's own line.
 ///
-/// Keep one reader here rather than per-suite copies, which drift. `OrganizeScopeCallSiteTests`
+/// Keep one reader here rather than per-suite copies, which drift. FileExplorer's `SourceText`
 /// keeps its own because the FileExplorer module cannot see this one.
 func declarationBody(of declaration: String, in source: String,
                      sourceLocation: SourceLocation = #_sourceLocation) throws -> String {

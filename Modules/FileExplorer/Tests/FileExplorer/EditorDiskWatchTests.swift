@@ -588,10 +588,15 @@ import EventsTestSupport
         #expect(rig.watch.reconcile() == .asked(.deleted))
         #expect(rig.text == "one\ntwo\nthree\n")
         #expect(rig.path.hasSuffix("note.md"))
-        // Save Again is the host's write at the old path; then the disk agrees.
+        // Deleted outright, it may be the only copy at once.
+        #expect(rig.watch.trashedPath == nil)
+        #expect(rig.watch.mayBeTheOnlyCopy)
+        // Save Again is the host's write at the old path; then the disk agrees, and a file written
+        // back is not the only copy.
         rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
         #expect(rig.watch.reconcile() == .settled)
         #expect(try rig.onDisk() == "one\ntwo\nthree\n")
+        #expect(!rig.watch.isGone && !rig.watch.mayBeTheOnlyCopy)
     }
 
     /// The folder deleted and made again (another device, a restore) is heard. With the folder gone
@@ -699,15 +704,6 @@ import EventsTestSupport
         #expect(await log.holds(.info, containing: "\(rig.path) kept changing while it was read"))
     }
 
-    @Test func aFileMovedToTheTrashIsDeletedNotFollowed() throws {
-        let rig = try Rig()
-        let trash = rig.folder.appendingPathComponent(".Trash")
-        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
-        #expect(rename(rig.path, trash.appendingPathComponent("note.md").path) == 0)
-        #expect(rig.watch.reconcile() == .asked(.deleted))
-        #expect(rig.moves.isEmpty)
-    }
-
     /// A file in the Trash, still there, is not the only copy. Where it went is noted at the first
     /// look that finds it gone, since the re-arm then watches the folder and no later look can say;
     /// it is checked again on leaving: emptied from the Trash, the text on screen is the only copy.
@@ -719,6 +715,7 @@ import EventsTestSupport
         let trashed = trash.appendingPathComponent("note.md").path
         #expect(rename(rig.path, trashed) == 0)
         #expect(rig.watch.reconcile() == .asked(.deleted))
+        #expect(rig.moves.isEmpty, "a file moved to the Trash was followed rather than called deleted")
         #expect(rig.watch.trashedPath.map(EditorFileStore.resolved) == EditorFileStore.resolved(trashed))
         // A second look, re-armed on the folder, has no descriptor to ask, and still remembers.
         #expect(rig.watch.reconcile() == .asked(.deleted))
@@ -726,19 +723,6 @@ import EventsTestSupport
         #expect(!rig.watch.mayBeTheOnlyCopy, "a file still in the Trash was called the only copy")
         try FileManager.default.removeItem(atPath: trashed)
         #expect(rig.watch.mayBeTheOnlyCopy, "the Trash was emptied, and the text on screen is the only copy")
-    }
-
-    /// A file deleted outright, or gone with its disk, may be the only copy at once; one written
-    /// back is not, and the Trash note goes with it.
-    @Test func aDeletedFileMayBeTheOnlyCopyUntilItIsBack() throws {
-        let rig = try Rig()
-        try FileManager.default.removeItem(atPath: rig.path)
-        #expect(rig.watch.reconcile() == .asked(.deleted))
-        #expect(rig.watch.trashedPath == nil)
-        #expect(rig.watch.mayBeTheOnlyCopy)
-        rig.document.markSaved(stamp: try EditorFileStore.write(rig.document))
-        #expect(rig.watch.reconcile() == .settled)
-        #expect(!rig.watch.isGone && !rig.watch.mayBeTheOnlyCopy)
     }
 
     // MARK: A save that couldn't be checked (TE147)
@@ -792,11 +776,11 @@ import EventsTestSupport
     /// Both writes that can land unchecked remember what they wrote: the synchronous one (⌘S, a
     /// flush) and autosave's background one.
     @Test func bothWritePathsRememberAnUncheckedWrite() throws {
-        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer")
-        let store = try String(contentsOf: sources.appendingPathComponent("EditorFileStore.swift"), encoding: .utf8)
-        #expect(store.contains("catch let failure as Failure where failure.savedBut != nil {\n            // Landed, unchecked: remembered, so the disk can be compared with it later (TE147).\n            document.noteUncheckedWrite(text)"))
-        let autosave = try String(contentsOf: sources.appendingPathComponent("EditorAutosave.swift"), encoding: .utf8)
+        // Comments stripped and whitespace folded, so a comment rewrite can't break it; the call
+        // must come first in the catch, unconditionally, before the throw.
+        let store = EditorAcrossPolishTests.squashed(try EditorAcrossPolishTests.source("EditorFileStore.swift"))
+        #expect(store.contains("catch let failure as Failure where failure.savedBut != nil { document.noteUncheckedWrite(text) throw failure }"))
+        let autosave = try SourceText.fileExplorer("EditorAutosave.swift")
         #expect(autosave.contains("if case .savedUnchecked = outcome { document.noteUncheckedWrite(snapshot.text) }"))
     }
 
@@ -1045,9 +1029,7 @@ import EventsTestSupport
     /// about, so the host lists it even if the transfer is declined. Read from the source: the
     /// picker is a view no test can press.
     @Test func thePickerTellsTheHostAboutANewFolderBeforeTheTransfer() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/DestinationPicker.swift")
-        let code = try String(contentsOf: url, encoding: .utf8)
+        let code = try SourceText.fileExplorer("DestinationPicker.swift")
         // Both ways a folder is made (New Folder, and a suggested folder not made yet) go through
         // `makeFolder`, which tells the host before it returns; each commits only after it returns.
         let maker = code[try #require(code.range(of: "private func makeFolder(named name: String, in parent: String) -> String? {")).upperBound...]

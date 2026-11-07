@@ -153,11 +153,7 @@ import Testing
     /// derived manifest is the same with a filter active; a filter that changed what Apply does
     /// would be the worst defect this feature could have.
     @Test func theFilterCannotReachTheDerivedManifest() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructurePlanSheet.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructurePlanSheet.swift")
         // The derivation reads `rows` whole...
         #expect(text.contains("mapping: RestructureMapping(rows: rows)"))
         // ...and the filter is applied only where rows are rendered.
@@ -165,10 +161,7 @@ import Testing
                 "the filter is applied at the row, in the list")
         // The derivation's own body, sliced and read directly, rather than comparing file
         // offsets, which the render use sitting earlier in the file would satisfy.
-        let derived = try #require(text.range(of: "private var derived:"))
-        let afterDerived = text[derived.upperBound...]
-        let bodyEnd = try #require(afterDerived.range(of: "\n    }\n"))
-        let body = afterDerived[..<bodyEnd.lowerBound]
+        let body = try SourceText.body(of: "private var derived:", in: text)
         #expect(body.contains("rows"), "a positive control: the slice really is the derivation")
         #expect(!body.contains("filterText"),
                 "the derivation must not consult the filter — Apply does not narrow with the view")

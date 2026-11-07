@@ -39,7 +39,7 @@ import FileExplorerTestSupport
     // MARK: Fixture
 
     /// Three folders of four rows. Clears `isWorthGrouping` (sections must average >= 3 rows), so
-    /// the grouped mount really is sectioned; `theFixtureReallyIsSectioned` checks that first,
+    /// the grouped mount really is sectioned; `theToggleSitsBetweenTheCountPillAndTheFilter` checks that,
     /// because a fixture that silently failed the gate would make every "absent when there is
     /// nothing to fold" case vacuously true.
     private static let folders = ["Documents", "Photos", "Projects"]
@@ -168,33 +168,20 @@ import FileExplorerTestSupport
 
     // MARK: Tests
 
-    /// The fixture check the rest of the suite leans on, and the harness check that keeps a broken
-    /// measurement from reading as a missing button.
-    @Test func theFixtureReallyIsSectionedAndTheHeaderIsReadable() async {
-        let flat = await headerControls(grouped: false)
-        let grouped = await headerControls(grouped: true)
-        #expect(flat.count >= 4, "harness: the header should always draw several controls, saw \(flat)")
-        #expect(grouped.count == flat.count + 1,
-                "grouping should add exactly one control — flat \(flat), grouped \(grouped)")
-    }
-
     /// The placement, stated as one comparison: grouping inserts the toggle into the header
     /// immediately after the count pill and immediately before the filter, changing nothing else. A
-    /// toggle placed elsewhere (say trailing, beside the pane's show/hide chevron) fails here.
-    @Test func theToggleSitsBetweenTheCountPillAndTheFilter() async {
+    /// toggle placed elsewhere (say trailing, beside the pane's show/hide chevron) fails here. The
+    /// flat header is also the ungrouped case: with no sections there is nothing to fold, and the
+    /// same emptiness covers "isWorthGrouping declined it".
+    @Test func theToggleSitsBetweenTheCountPillAndTheFilter() async throws {
         let flat = await headerControls(grouped: false)
         let grouped = await headerControls(grouped: true)
+        // The harness check that keeps a broken measurement from reading as a missing button.
+        try #require(flat.count >= 4, "harness: the header should always draw several controls, saw \(flat)")
+        #expect(!flat.contains(Self.toggleSize), "no 24×24 toggle should be in \(flat)")
         let expected = [flat[0], Self.toggleSize] + flat.dropFirst()
         #expect(grouped == expected,
                 "expected \(expected), got \(grouped)")
-    }
-
-    /// Withheld when there is nothing to fold. Ungrouped means no sections, and the same emptiness
-    /// covers "isWorthGrouping declined it".
-    @Test func anUngroupedHeaderOffersNoToggle() async {
-        let flat = await headerControls(grouped: false)
-        #expect(!flat.isEmpty, "harness: the flat header should still draw controls")
-        #expect(!flat.contains(Self.toggleSize), "no 24×24 toggle should be in \(flat)")
     }
 
     /// It yields when the row runs out of width. Measured at a width narrow enough to force the

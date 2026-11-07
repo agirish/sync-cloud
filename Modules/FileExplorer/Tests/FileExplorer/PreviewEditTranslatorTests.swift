@@ -53,6 +53,10 @@ import Foundation
         let result = applied(type("*", at: after("y", in: p), in: source))
         #expect(result?.source == "x *y\\*")
         #expect(result?.projection.renderedString == "x *y*")
+        // The caret comes back after the typed text: rendered "x *y*" with the caret after the
+        // typed "*"; in the source, after "\\*".
+        #expect(result?.renderedSelection == NSRange(location: 5, length: 0))
+        #expect(result?.sourceSelection == NSRange(location: 6, length: 0))
     }
 
     /// No escape table is guessed: a `*` the parser leaves alone goes in bare.
@@ -117,15 +121,6 @@ import Foundation
         let p = project(source)
         let result = applied(type("x", at: at("two", in: p), in: source))
         #expect(result?.source == "> one\n>    xtwo")
-    }
-
-    @Test func theCaretComesBackAfterTheTypedText() {
-        let source = "x *y"
-        let p = project(source)
-        let result = applied(type("*", at: after("y", in: p), in: source))
-        // Rendered "x *y*" with the caret after the typed "*"; in the source, after "\\*".
-        #expect(result?.renderedSelection == NSRange(location: 5, length: 0))
-        #expect(result?.sourceSelection == NSRange(location: 6, length: 0))
     }
 
     // MARK: Deleting (A2)
@@ -378,6 +373,9 @@ import Foundation
         #expect(MarkdownListEdits.returnEdit(in: source, selection: NSRange(location: 6, length: 0)) == nil)
         #expect(refusal(edit(NSRange(location: after("item", in: p), length: 0), .returnKey, in: source))
                 == .notSupported)
+        // …and at the end of an item with no sub-list, the list carries on as ever.
+        #expect(applied(edit(NSRange(location: after("sub", in: p), length: 0), .returnKey, in: source))?.source
+                == "- item\n  - sub\n  - ")
 
         let tasks = "- item\n  - [x] sub"
         let result = applied(edit(NSRange(location: after("item", in: project(tasks)), length: 0), .returnKey, in: tasks))
@@ -768,18 +766,6 @@ import Foundation
         let p = project(source)
         let result = applied(edit(NSRange(location: after("one", in: p), length: 0), .paste, " more\n", in: source))
         #expect(result?.source == "one more two")
-    }
-
-    /// Return at the end of an item with a sub-list under it is refused, not written: an opening
-    /// there would sit straight under the item's words, where `  - ` is a setext underline that
-    /// makes the words a heading. Source's list rule declines it, so nothing is offered to verify.
-    @Test func returnThatWouldMakeAnItemAHeadingIsRefused() {
-        let source = "- item\n  - sub"
-        let p = project(source)
-        #expect(refusal(edit(NSRange(location: after("item", in: p), length: 0), .returnKey, in: source)) == .notSupported)
-        // …and at the end of an item with no sub-list, the list carries on as ever.
-        #expect(applied(edit(NSRange(location: after("sub", in: p), length: 0), .returnKey, in: source))?.source
-                == "- item\n  - sub\n  - ")
     }
 
     /// Return right after bold mid-paragraph splits after the `**`, not between the asterisks.

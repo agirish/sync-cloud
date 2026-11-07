@@ -62,12 +62,7 @@ import Testing
 
     // MARK: The refusals
 
-    @Test mutating func testAClickOnARowIsRefused() {
-        let table = table(rows: 5)
-        #expect(accepts(CGPoint(x: 100, y: table.rect(ofRow: 2).midY), table) == false)
-    }
-
-    /// Every row and both its edges, not just a midpoint: an off-by-one at a row boundary would
+    /// A click on a row is refused: every row and both its edges, not just a midpoint: an off-by-one at a row boundary would
     /// leave a sliver of a row deselecting instead of selecting, an intermittent dead click.
     @Test mutating func testNoPointOverAnyRowIsAccepted() {
         let table = table(rows: 5)

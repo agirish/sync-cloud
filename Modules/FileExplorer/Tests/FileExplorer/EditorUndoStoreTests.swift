@@ -29,17 +29,22 @@ import Foundation
         return path
     }
 
-    @Test func aDocumentGetsItsOwnStackAndKeepsIt() {
+    /// Per document, not per text: two files holding the same bytes get different stacks too.
+    /// `NSTextView` registers undo by character range, so a shared stack replays one file's edits
+    /// into another, splicing or throwing `NSRangeException`. Identical contents are the case a
+    /// buffer comparison misses (the shipped `removeAllActions()` under `if view.string != text`).
+    @Test(arguments: [("one", "two"), ("identical", "identical")])
+    func aDocumentGetsItsOwnStackAndKeepsIt(a: String, b: String) {
         let subject = store()
-        subject.activate(path: "/n/a.md", text: "one")
+        subject.activate(path: "/n/a.md", text: a)
         let first = subject.current
 
-        edit(subject); subject.remember(text: "one")
-        subject.activate(path: "/n/b.md", text: "two")
+        edit(subject); subject.remember(text: a)
+        subject.activate(path: "/n/b.md", text: b)
         #expect(subject.current !== first, "two documents shared one stack")
 
-        edit(subject); subject.remember(text: "two")
-        subject.activate(path: "/n/a.md", text: "one")
+        edit(subject); subject.remember(text: b)
+        subject.activate(path: "/n/a.md", text: a)
         #expect(subject.current === first, "the first document's history was not handed back")
     }
 

@@ -14,18 +14,7 @@ let package = Package(
         .package(path: "../Sync"),
         .package(path: "../Events"),
         .package(path: "../Design"),
-        // Test-only: the visual snapshot net, linked by the test target alone. All four pinned
-        // `exact:`; the three transitives are named only so they are pinned too, since only a
-        // root requirement constrains a transitive. Left floating, two of them can both vend an
-        // `IssueReporting` product, a duplicate PIF GUID that kills the build before any test
-        // runs (docs/flaky-tests.md, "The build failed before any test ran"). Bump the four
-        // together.
-        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", exact: "1.19.4"),
-        .package(url: "https://github.com/pointfreeco/swift-custom-dump", exact: "1.6.1"),
-        .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", exact: "1.11.0"),
-        .package(url: "https://github.com/swiftlang/swift-syntax", exact: "603.0.2"),
-
-        // Shipped, unlike everything above: Edit's Markdown preview parses real GFM (tables and
+        // Shipped: Edit's Markdown preview parses real GFM (tables and
         // task lists included), which a hand-rolled parser would keep getting wrong.
         //
         // Four pins for one dependency: `swift-markdown` names `swift-cmark` and
@@ -74,7 +63,6 @@ let package = Package(
                 .product(name: "TestProcessRendering", package: "Design"),
                 .product(name: "DesignTestSupport", package: "Design"),
                 .product(name: "TestProcessFindPasteboard", package: "Design"),
-                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
                 .product(name: "PDFToolkitCore", package: "pdf-toolkit")
             ],
             path: "Tests/FileExplorer",

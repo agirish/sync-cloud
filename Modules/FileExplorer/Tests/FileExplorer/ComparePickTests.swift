@@ -18,44 +18,30 @@ import Sync
 
     // MARK: The three outcomes
 
-    /// A file in the other pane completes the pick.
-    @Test func aFileInTheOtherPaneCompletesThePair() throws {
-        let outcome = pick().outcome(clicking: node("/right/lease-final-scan.pdf"), inLeftPane: false,
-                                     leftPaneName: "iCloud", rightPaneName: "Dropbox")
-        guard case .paired(let pair) = outcome else {
-            Issue.record("expected a pair, got \(outcome)")
-            return
-        }
-        // Ordered by PANE SIDE, so the viewer's columns match its subtitle.
-        #expect(pair.leftPath == "/left/Lease — Signed.pdf")
-        #expect(pair.rightPath == "/right/lease-final-scan.pdf")
-    }
-
-    /// Armed in the right pane, clicked in the left: the armed file lands in the right column. A
-    /// "clicked always leads" ordering gets this backwards.
-    @Test func theArmedFileFollowsItsOwnPaneNotTheClickOrder() throws {
-        let outcome = pick("/right/scan.pdf", isLeft: false)
-            .outcome(clicking: node("/left/original.pdf"), inLeftPane: true,
+    /// A click that completes the pick, ordered by PANE SIDE so the viewer's columns match its
+    /// subtitle: a file in the other pane; the armed file in the right pane and the click in the left,
+    /// which a "clicked always leads" ordering gets backwards; and a same-pane pick, which leads with
+    /// the armed file, the one chosen first and named by the strip.
+    @Test(arguments: [
+        (armed: "/left/Lease — Signed.pdf", armedIsLeft: true, clicked: "/right/lease-final-scan.pdf",
+         clickedIsLeft: false, left: "/left/Lease — Signed.pdf", right: "/right/lease-final-scan.pdf"),
+        (armed: "/right/scan.pdf", armedIsLeft: false, clicked: "/left/original.pdf",
+         clickedIsLeft: true, left: "/left/original.pdf", right: "/right/scan.pdf"),
+        (armed: "/left/Lease — Signed.pdf", armedIsLeft: true, clicked: "/left/Addendum.pdf",
+         clickedIsLeft: true, left: "/left/Lease — Signed.pdf", right: "/left/Addendum.pdf"),
+    ])
+    func aClickCompletesThePairInPaneOrder(
+        _ c: (armed: String, armedIsLeft: Bool, clicked: String, clickedIsLeft: Bool, left: String, right: String)
+    ) throws {
+        let outcome = pick(c.armed, isLeft: c.armedIsLeft)
+            .outcome(clicking: node(c.clicked), inLeftPane: c.clickedIsLeft,
                      leftPaneName: "iCloud", rightPaneName: "Dropbox")
         guard case .paired(let pair) = outcome else {
             Issue.record("expected a pair, got \(outcome)")
             return
         }
-        #expect(pair.leftPath == "/left/original.pdf")
-        #expect(pair.rightPath == "/right/scan.pdf",
-                "the armed file was ordered by click order, so the columns contradict the subtitle")
-    }
-
-    /// A same-pane pick leads with the armed file, the one chosen first and named by the strip.
-    @Test func aSamePanePairLeadsWithTheArmedFile() throws {
-        let outcome = pick().outcome(clicking: node("/left/Addendum.pdf"), inLeftPane: true,
-                                     leftPaneName: "iCloud", rightPaneName: "Dropbox")
-        guard case .paired(let pair) = outcome else {
-            Issue.record("expected a pair, got \(outcome)")
-            return
-        }
-        #expect(pair.leftPath == "/left/Lease — Signed.pdf")
-        #expect(pair.rightPath == "/left/Addendum.pdf")
+        #expect(pair.leftPath == c.left)
+        #expect(pair.rightPath == c.right, "the columns contradict the subtitle")
     }
 
     /// Clicking the armed row again cancels: the marker is the off switch, the only undo a mode

@@ -40,12 +40,7 @@ extension PDFFixtures {
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
     private func open(_ file: String) async throws -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
-        return pdf
+        try await PDFFixtures.opened(file, defaults: defaults)
     }
 
     private func letter(_ name: String = "Lease.pdf", pages: Int = 2) async throws -> (EditorPDFDocument, String) {
@@ -223,14 +218,20 @@ extension PDFFixtures {
         }
     }
 
-    /// A removal from the domain takes the saved signatures for good: a store already up must not
-    /// write the removed signatures back on its next add or delete.
+    /// A removal from the domain takes the saved signatures for good: off the open app's menu at
+    /// once, not only from disk, and a store already up must not write the removed signatures back
+    /// on its next add or delete.
     @Test func savedSignaturesDoNotComeBackAfterAReset() throws {
         let scratch = ScratchDefaults("EditorPDFSignatureReset")
         let store = EditorPDFSignatureStore(defaults: scratch)
         let old = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
         store.add(old)
+        store.add(EditorPDFSignature(kind: .initials, look: .typed("AM")))
+        try #require(store.saved.count == 2)
         scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
+        #expect(store.saved.isEmpty, "a reset left \(store.saved.count) saved signatures on offer")
+        #expect(store.saved(.signature).isEmpty && store.saved(.initials).isEmpty)
+        #expect(scratch.data(forKey: EditorPDFSignatureStore.key) == nil, "taking the reset wrote the list back")
         let new = EditorPDFSignature(kind: .signature, look: .typed("Sam Reed"))
         store.add(new)
         let stored = try JSONDecoder().decode([EditorPDFSignature].self,
@@ -243,20 +244,6 @@ extension PDFFixtures {
         let afterDelete = try JSONDecoder().decode([EditorPDFSignature].self,
                                                    from: try #require(scratch.data(forKey: EditorPDFSignatureStore.key)))
         #expect(afterDelete.isEmpty, "the delete wrote back signatures the reset removed: \(afterDelete)")
-    }
-
-    /// A removal takes them from the open app at once, not only from disk, so the Signature flyout
-    /// never offers a removed signature until a relaunch or the next add.
-    @Test func aResetTakesSavedSignaturesOffTheMenuAtOnce() throws {
-        let scratch = ScratchDefaults("EditorPDFSignatureResetLive")
-        let store = EditorPDFSignatureStore(defaults: scratch)
-        store.add(EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan")))
-        store.add(EditorPDFSignature(kind: .initials, look: .typed("AM")))
-        try #require(store.saved.count == 2)
-        scratch.removePersistentDomain(forName: scratch.scratchSuiteName)
-        #expect(store.saved.isEmpty, "a reset left \(store.saved.count) saved signatures on offer")
-        #expect(store.saved(.signature).isEmpty && store.saved(.initials).isEmpty)
-        #expect(scratch.data(forKey: EditorPDFSignatureStore.key) == nil, "taking the reset wrote the list back")
     }
 
     /// A write to the signatures' domain from another thread never waits for the main thread, and
@@ -1093,17 +1080,8 @@ extension PDFFixtures {
     /// whose menu item PDFKit validates its own way.
     @Test(.machinePinned(.layoutMetrics)) func theOverlayPlacesAtThePointerAndOnlyTakesTheClicksItUses() async throws {
         let (pdf, _) = try await letter(pages: 1)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
-        window.contentView = reader
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = pdf.document
-        reader.scaleFactor = 0.5
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
+        let (window, reader) = EditorTestRigs.readerWindow(pdf.document, fill: pdf.fill,
+                                                           size: CGSize(width: 500, height: 700), scale: 0.5)
         let overlay = reader.fillOverlay
         #expect(overlay.superview === reader)
         let page = try #require(pdf.document?.page(at: 0))

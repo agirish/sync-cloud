@@ -30,20 +30,10 @@ import AppKit
     /// 400 numbered lines in the editor's own text view, in a buried window `height` tall.
     private func hosted(height: CGFloat = 400, text: String? = nil, on: Bool)
         -> (window: NSWindow, scroll: EditorDocumentScrollView, view: EditorTextView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: height),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        window.buryUnderEverything()
-        let scroll = EditorTextView.scrollableTextView() as! EditorDocumentScrollView
-        scroll.hasVerticalScroller = true
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: height)
-        scroll.autoresizingMask = [.width, .height]
-        window.contentView = scroll
-        let view = scroll.documentView as! EditorTextView
-        view.font = PlainTextEditor.font(scale: 1)
-        view.drawsBackground = false
-        view.textContainerInset = EditorReadableColumn.baseInset
-        view.string = text ?? (1...400).map { "line \($0)" }.joined(separator: "\n")
-        PlainTextEditor.applyWrapping(true, to: view, in: scroll)
+        let (window, plain, view) = EditorTestRigs.editorTextView(
+            width: 600, height: height, text: text ?? (1...400).map { "line \($0)" }.joined(separator: "\n"),
+            bury: true) { $0.hasVerticalScroller = true }
+        let scroll = plain as! EditorDocumentScrollView
         // The caret at the top, as a fresh editor's is after `restoreCaret`, so turning the switch
         // on below centres nothing and the on and off rigs start alike.
         view.setSelectedRange(NSRange(location: 0, length: 0))
@@ -63,10 +53,7 @@ import AppKit
 
     /// The UTF-16 offset of the start of 1-based `line` in the hosted text.
     private func offset(ofLine line: Int, in view: NSTextView) -> Int {
-        let text = view.string as NSString
-        var location = 0
-        for _ in 1..<line { location = NSMaxRange(text.lineRange(for: NSRange(location: location, length: 0))) }
-        return location
+        EditorCaret.utf16Offset(ofLine: line, in: view.string)!
     }
 
     /// Where the caret's line sits on screen: its centre's distance from the top of the clip, as a
@@ -449,15 +436,7 @@ import AppKit
         window.buryUnderEverything()
         window.contentView = host
         settle(window)
-        var found: EditorTextView?
-        func walk(_ v: NSView) {
-            if let scroll = v as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier {
-                found = scroll.documentView as? EditorTextView
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return (window, host, found!, storage)
+        return (window, host, EditorTestRigs.markedScroll(in: host)?.documentView as! EditorTextView, storage)
     }
 
     /// The call site: the editor reads the switch and hands it to the text view, and a flip under a

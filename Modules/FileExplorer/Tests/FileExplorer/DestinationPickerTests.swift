@@ -15,9 +15,12 @@ import Sync
         #expect(path.components == ["Health", "Medical"])
     }
 
-    /// The root itself rests at one column.
-    @Test func testTheRootRestsAtASingleColumn() {
-        #expect(DestinationPicker.browsePath(for: "/p", under: "/p").isEmpty)
+    /// The root itself rests at one column. A folder outside the root can't be drawn as a stack
+    /// under it, so it rests at the root too (a recent that survives a provider change reaches
+    /// this), and so does a sibling sharing the root's prefix: "/p" must not claim "/pictures".
+    @Test(arguments: [("/p", "/p"), ("/elsewhere/Deep", "/p"), ("/pictures/Deep", "/p")])
+    func testTheRootAndWhatIsOutsideItRestAtASingleColumn(folder: String, root: String) {
+        #expect(DestinationPicker.browsePath(for: folder, under: root).isEmpty)
     }
 
     /// Trailing slashes on either side must not produce an empty leading component, which would
@@ -25,17 +28,6 @@ import Sync
     @Test func testTrailingSlashesAreNormalised() {
         let path = DestinationPicker.browsePath(for: "/p/Health/", under: "/p/")
         #expect(path.components == ["Health"])
-    }
-
-    /// A folder outside the root can't be drawn as a stack under it, so it rests at the root. A
-    /// recent that survives a provider change reaches this.
-    @Test func testAFolderOutsideTheRootRestsAtTheRoot() {
-        #expect(DestinationPicker.browsePath(for: "/elsewhere/Deep", under: "/p").isEmpty)
-    }
-
-    /// Prefix aliasing: "/p" must not claim "/pictures/Deep" and render it as a stack.
-    @Test func testASiblingSharingAPrefixIsNotUnderTheRoot() {
-        #expect(DestinationPicker.browsePath(for: "/pictures/Deep", under: "/p").isEmpty)
     }
 
     /// An iCloud item lives at `~/Documents/…`, which iCloud Drive reaches through its hidden
@@ -79,8 +71,8 @@ import Sync
 
     /// The rail draws the rule's answer under every recent, and its full path as the tooltip.
     @Test func theRailDrawsTheParentAndTheFullPath() throws {
-        let picker = try OrganizeScopeCallSiteTests.source("DestinationPicker.swift")
-        let rail = try OrganizeScopeCallSiteTests.body(of: "private var shortcutsRail: some View {", in: picker)
+        let picker = try SourceText.fileExplorer("DestinationPicker.swift")
+        let rail = try SourceText.body(of: "private var shortcutsRail: some View {", in: picker)
         #expect(rail.contains("detail: Self.recentDetail(for: path, among: moves, under: requestRoot,"),
                 "the rail's recents no longer carry their parent")
         #expect(picker.contains(".help((path as NSString).abbreviatingWithTildeInPath)"),

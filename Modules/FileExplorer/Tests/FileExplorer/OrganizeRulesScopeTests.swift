@@ -83,22 +83,8 @@ import Design
                                scanTargetFolder: Self.root, onFindDuplicates: {},
                                providerRoot: Self.root)
             .defaultAppStorage(defaults)
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        // Twice: `.onGeometryChange` writes `railStyle` after a pass, so one layout renders the
-        // initial `.full` and never the width-dependent answer.
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        return host
+        // Twice: `.onGeometryChange` writes `railStyle` after a pass.
+        return ReviewLensHost.mount(subject, size: Self.canvas, passes: 2).host
     }
 
     private func strip(_ host: NSHostingView<AnyView>, _ band: CGRect) -> NSBitmapImageRep {
@@ -115,18 +101,7 @@ import Design
     /// sameness demand exactly zero.
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var differing = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let pa = a.colorAt(x: x, y: y), let pb = b.colorAt(x: x, y: y) else { continue }
-                if abs(pa.redComponent - pb.redComponent) > 0.01
-                    || abs(pa.greenComponent - pb.greenComponent) > 0.01
-                    || abs(pa.blueComponent - pb.blueComponent) > 0.01 {
-                    differing += 1
-                }
-            }
-        }
-        return differing
+        return PixelDiff.differingPixels(a, b, tolerance: 0.01)
     }
 
     /// Pixels in a band that differ from its background corner: the "did anything render" check

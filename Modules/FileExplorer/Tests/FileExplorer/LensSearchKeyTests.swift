@@ -15,13 +15,13 @@ import Foundation
 /// in ``OrganizeScopeCallSiteTests``, which names its file and fails when it can't read it.
 @Suite struct LensSearchKeyTests {
 
-    static func workspaceSource() throws -> String { try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift") }
+    static func workspaceSource() throws -> String { try SourceText.fileExplorer("LensWorkspaceView.swift") }
 
     /// The general rule: a search slot is addressed by `effectiveLens` or by a lens named outright
     /// (`.duplicates` for the reveal's own query, `.storage` when a build starts), never by the
     /// bare `lens` variable, which silently means some other lens's slot.
     @Test func noSearchSlotIsAddressedByTheWorkspacesLens() throws {
-        let source = OrganizeScopeCallSiteTests.codeOnly(try Self.workspaceSource())
+        let source = SourceText.codeOnly(try Self.workspaceSource())
         // `[lens,` covers the `[_, default: ""]` subscript form the file uses elsewhere
         // (`searchQueries[.duplicates, default: ""]`), the likeliest way a bare `lens` comes back.
         for spelling in ["searchQueries[lens]",
@@ -34,18 +34,9 @@ import Foundation
         }
     }
 
-    /// The positive half of the same claim, so the test above cannot pass by the search state
-    /// having been renamed out from under it.
-    @Test func theSearchSlotIsAddressedByTheResolvedLens() throws {
-        let source = try Self.workspaceSource()
-        #expect(source.contains("searchQueries[effectiveLens]"),
-                "no query slot is keyed on the resolved lens — has the search state been renamed?")
-        #expect(source.contains("searchExpandedLenses.remove(effectiveLens)"))
-    }
-
     /// The chip's ✕ edits the query the chip came from.
     @Test func removingAChipEditsTheLensTheChipWasOfferedFor() throws {
-        let body = try OrganizeScopeCallSiteTests.body(of: "private func removeSearchChip(_ word: String) {",
+        let body = try SourceText.body(of: "private func removeSearchChip(_ word: String) {",
                                                        in: try Self.workspaceSource())
         #expect(body.contains("searchQueries[effectiveLens]"),
                 "the ✕ writes back to a different lens's query than the one it read the chips from")
@@ -53,9 +44,10 @@ import Foundation
 
     /// The dead-end's button clears the query hiding the rows, collapses that lens's field, and on
     /// Duplicates resets the type filter, the other thing that can hide them. All three keyed the
-    /// same way, or the button half-works.
+    /// same way, or the button half-works. Also the positive half of the ban above, so the ban
+    /// cannot pass by the search state having been renamed out from under it.
     @Test func theEmptyStateButtonClearsTheLensItIsShownFor() throws {
-        let body = try OrganizeScopeCallSiteTests.body(
+        let body = try SourceText.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
             in: try Self.workspaceSource())
         #expect(body.contains("searchQueries[effectiveLens] = \"\""),
@@ -69,7 +61,7 @@ import Foundation
     /// than blaming a search that isn't running, and its control names what it will actually do.
     @Test func aFilterOnlyEmptyStateSaysSoRatherThanBlamingASearch() throws {
         let view = try Self.workspaceSource()
-        let body = try OrganizeScopeCallSiteTests.body(
+        let body = try SourceText.body(
             of: "private func searchHidesAllState(total: Int, noun: String) -> some View {",
             in: view)
         // The cause, not the spelling: the branch is decided by "no query and the type filter is
@@ -96,7 +88,7 @@ import Foundation
         // predicate.
         #expect(body.contains("total == 1 ? \"\" : \"s\""),
                 "the empty state no longer counts what it claims to be hiding")
-        #expect(try OrganizeScopeCallSiteTests.body(of: "private var isFiltered: Bool {", in: view)
+        #expect(try SourceText.body(of: "private var isFiltered: Bool {", in: view)
                     .contains("filterIsNarrowing"),
                 "`isFiltered` restates the filter rule instead of sharing it")
     }

@@ -123,25 +123,6 @@ import Foundation
 
     // MARK: A failed save says why, not where (TE175)
 
-    /// A save the folder refuses names the reason, never the hidden staging file: Foundation's
-    /// sentence names `.tmp_<UUID>`, which the reader can't find.
-    @Test func aRefusedSaveSaysWhyAndNotTheStagingFile() throws {
-        let folder = try scratch()
-        defer {
-            chmod(folder.path, 0o755)
-            try? FileManager.default.removeItem(at: folder)
-        }
-        let path = try write(Data("hello\n".utf8), named: "note.md", in: folder)
-        chmod(folder.path, 0o555)
-        do {
-            _ = try EditorFileStore.write("changed\n", toPath: path)
-            Issue.record("wrote into a folder that cannot be written to")
-        } catch let failure as EditorFileStore.Failure {
-            #expect(!failure.message.contains(".tmp_"), "\(failure.message)")
-            #expect(failure.message == "Permission denied", "\(failure.message)")
-        }
-    }
-
     /// A full disk, as Foundation reports it (a Cocoa error over the POSIX one), reads as the POSIX
     /// reason alone.
     @Test func aFullDiskReadsAsItsPlainReason() {
@@ -353,8 +334,14 @@ import Foundation
         let path = try write(Data("original\n".utf8), named: "a.md", in: folder)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
 
-        #expect(throws: (any Error).self) {
-            try EditorFileStore.write("replacement\n", toPath: path)
+        do {
+            _ = try EditorFileStore.write("replacement\n", toPath: path)
+            Issue.record("wrote into a folder that cannot be written to")
+        } catch let failure as EditorFileStore.Failure {
+            // It says why, never the hidden staging file (TE175): Foundation's sentence names
+            // `.tmp_<UUID>`, which the reader can't find.
+            #expect(!failure.message.contains(".tmp_"), "\(failure.message)")
+            #expect(failure.message == "Permission denied", "\(failure.message)")
         }
         #expect(try String(contentsOfFile: path, encoding: .utf8) == "original\n",
                 "a failed save rewrote the file it could not stage a replacement for")
@@ -466,8 +453,12 @@ import Foundation
         #expect(text == body, "the text itself did not survive the read")
         #expect(encoding == encodingCase,
                 "written as \(encodingCase.rawValue) and read back as \(encoding.rawValue)")
-        // Saved untouched, the bytes come back exactly, BOM included.
-        try EditorFileStore.write(text, toPath: path, encoding: encoding)
+        // Saved untouched, the bytes come back exactly, BOM included. `write` re-stats what it
+        // installed against the length it handed over, so a check that forgot the BOM would refuse
+        // every UTF-16 save.
+        let stamp = try EditorFileStore.write(text, toPath: path, encoding: encoding)
+        #expect(stamp.size == encoded.count,
+                "\(encodingCase.rawValue): the stamp reports \(stamp.size)B for \(encoded.count)B written")
         #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == encoded,
                 "\(name) was rewritten in a different encoding")
 

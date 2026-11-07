@@ -17,9 +17,9 @@ import Design
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct CommandPaletteBarTests {
 
-    static func render(_ style: CommandPaletteBarStyle, scheme: ColorScheme,
+    static func render(_ style: CommandPaletteBarStyle, scheme: ColorScheme, chord: String = "⌘K",
                        width: CGFloat = 320, height: CGFloat = 40) -> NSBitmapImageRep {
-        let subject = CommandPaletteBar(style: style, chord: "⌘K", action: {})
+        let subject = CommandPaletteBar(style: style, chord: chord, action: {})
             .frame(width: width, height: height, alignment: .leading)
             // RGB, never `Color(white:)`: a greyscale backdrop makes the whole cached bitmap
             // greyscale and every colour reading comes back as zero.
@@ -99,28 +99,8 @@ import Design
     /// itself and passes anything weaker.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func theKeyShowsTheChordItWasGiven(scheme: ColorScheme) {
-        func render(_ chord: String) -> NSBitmapImageRep {
-            let subject = CommandPaletteBar(style: .compact, chord: chord, action: {})
-                .frame(width: 320, height: 40, alignment: .leading)
-                .background(scheme == .dark ? Color(red: 0.11, green: 0.12, blue: 0.13)
-                                            : Color(red: 0.95, green: 0.95, blue: 0.96))
-                .environment(\.colorScheme, scheme)
-                .environment(\.controlActiveState, .active)
-            let host = NSHostingView(rootView: AnyView(subject))
-            host.frame = CGRect(x: 0, y: 0, width: 320, height: 40)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-            window.colorSpace = .sRGB
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            host.layoutSubtreeIfNeeded()
-            let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-            host.cacheDisplay(in: host.bounds, to: rep)
-            return rep
-        }
-        #expect(!Self.pixelsEqual(render("⌘K"), render("⇧⌘P")),
+        #expect(!Self.pixelsEqual(Self.render(.compact, scheme: scheme, chord: "⌘K"),
+                                  Self.render(.compact, scheme: scheme, chord: "⇧⌘P")),
                 "two different chords rendered identically in \(scheme) — the key is a fixed glyph")
     }
 

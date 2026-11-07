@@ -256,19 +256,13 @@ import Sync
     /// the rule, and its item copies the live row redirected the chosen way, its source side read
     /// for a link.
     @Test func theRowMenuOffersAndSendsTheRowDirections() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — every check below would be vacuous")
-        let menu = try #require(source.range(of: "private func singleRowMenu(")
-            .map { String(source[$0.lowerBound...].prefix(1_200)) }, "singleRowMenu is gone — this scan measures nothing")
+        let source = try SourceText.fileExplorer("DifferencesView.swift")
+        let menu = try SourceText.block(opening: "private func singleRowMenu(", in: source)
         #expect(menu.contains("DifferenceRowMenu.copyDirections(for: difference)"),
                 "the row menu no longer asks which directions a row offers")
         #expect(menu.contains("rowCopyButton(id: id, direction: .copyToRight)")
                 && menu.contains("rowCopyButton(id: id, direction: .copyToLeft)"))
-        let fire = try #require(source.range(of: "private func copyRowFromMenu(")
-            .map { String(source[$0.lowerBound...].prefix(800)) }, "copyRowFromMenu is gone")
+        let fire = try SourceText.block(opening: "private func copyRowFromMenu(", in: source)
         #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)"),
                 "the item no longer re-checks the live row when it fires")
         // A refusal is logged and said, not a silent return.
@@ -276,8 +270,7 @@ import Sync
                 && fire.contains("syncManager.banner = .warning(refusal)"),
                 "a Copy to … item that finds nothing to do returns silently again")
         #expect(fire.contains("sendRowCopy(live, direction: direction)"), "the item no longer sends the checked row")
-        let send = try #require(source.range(of: "private func sendRowCopy(")
-            .map { String(source[$0.lowerBound...].prefix(900)) }, "sendRowCopy is gone")
+        let send = try SourceText.block(opening: "private func sendRowCopy(", in: source)
         #expect(send.contains("DifferenceRowMenu.row(live, copiedTo: direction)"),
                 "the item no longer redirects the live row through the link check")
         #expect(send.contains("(try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType == .typeSymbolicLink"),
@@ -293,13 +286,8 @@ import Sync
     /// directions, and the item resolves the row when it fires, sends it as the Compare row does,
     /// and marks it copied only when the copy lands.
     @Test func theReviewTableMenuOffersAndSendsTheRowDirections() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — every check below would be vacuous")
-        let table = try #require(source.range(of: "private func reviewTable(")
-            .map { String(source[$0.lowerBound...].prefix(2_800)) }, "reviewTable is gone — this scan measures nothing")
+        let source = try SourceText.fileExplorer("DifferencesView.swift")
+        let table = try SourceText.block(opening: "private func reviewTable(", in: source)
         let menu = try #require(table.range(of: ".contextMenu(forSelectionType: FileDifference.ID.self)")
             .map { String(table[$0.lowerBound...]) }, "the Review table has no row menu")
         #expect(menu.contains("session.outcome(for: id) == nil"), "a decided row offers Copy again")
@@ -307,11 +295,9 @@ import Sync
         #expect(menu.contains("rowCopyButton(id: id, direction: .copyToRight, inReview: true)")
                 && menu.contains("rowCopyButton(id: id, direction: .copyToLeft, inReview: true)"),
                 "the Review table's menu has no Copy to … items")
-        let button = try #require(source.range(of: "private func rowCopyButton(")
-            .map { String(source[$0.lowerBound...].prefix(500)) })
+        let button = try SourceText.block(opening: "private func rowCopyButton(", in: source)
         #expect(button.contains("copyReviewRowFromMenu(id: id, direction: direction)"))
-        let fire = try #require(source.range(of: "private func copyReviewRowFromMenu(")
-            .map { String(source[$0.lowerBound...].prefix(1_100)) }, "copyReviewRowFromMenu is gone")
+        let fire = try SourceText.block(opening: "private func copyReviewRowFromMenu(", in: source)
         #expect(fire.contains("let found = session.pending.first { $0.id == id }"))
         #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)")
                 && fire.contains("syncManager.banner = .warning(refusal)"))

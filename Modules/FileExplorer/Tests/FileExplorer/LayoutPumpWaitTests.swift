@@ -24,13 +24,6 @@ import Testing
     /// saturated CI main actor. A literal, like ``passesDemanded``, so it can't move with the floor.
     private static let testFloor = 5
 
-    /// The demand must be reachable within the floor, or the tests below would measure the deadline
-    /// instead.
-    @Test func theDemandUsedByTheseTestsSitsBelowTheFloor() {
-        #expect(Self.passesDemanded < Self.testFloor,
-                "\(Self.passesDemanded) passes is not reachable within a floor of \(Self.testFloor) — the floor tests below would be measuring the deadline")
-    }
-
     /// Pins the production floor at fifty, the value every real wait uses. The other tests run
     /// against ``testFloor`` and can't see it. Fifty is the figure measured in `docs/flaky-tests.md`
     /// ("Fixed pumps and fixed sleeps"); changing it is a flake-protection decision.
@@ -42,8 +35,11 @@ import Testing
     }
 
     /// With the deadline already spent, a condition that needs turns still gets them, which is what
-    /// a congested run lacks.
-    @Test func theFloorOutlivesAnExpiredDeadline() async {
+    /// a congested run lacks. The demand must be reachable within the floor, or this would measure
+    /// the deadline instead.
+    @Test func theFloorOutlivesAnExpiredDeadline() async throws {
+        try #require(Self.passesDemanded < Self.testFloor,
+                     "\(Self.passesDemanded) passes is not reachable within a floor of \(Self.testFloor) — this would be measuring the deadline")
         var passes = 0
         let needed = Self.passesDemanded
         let outcome = await LayoutPumpWait.pump(host(), upTo: 0, floor: Self.testFloor) {

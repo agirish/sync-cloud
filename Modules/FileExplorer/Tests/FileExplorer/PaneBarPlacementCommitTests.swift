@@ -23,25 +23,6 @@ import Sync
 @MainActor
 @Suite struct PaneBarPlacementCommitTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Counter {
         var flips = 0
     }
@@ -89,7 +70,7 @@ import Sync
                 selection: $box.selection,
                 otherSelection: [],
                 isLeft: true,
-                delegate: StubDelegate(),
+                delegate: NoOpFileActionDelegate(),
                 placement: placement,
                 onBarEdgeFlip: {
                     counter.flips += 1
@@ -188,13 +169,7 @@ import Sync
     /// callback is dispatched, so the two tests below can't use `pump(_:seconds:)`.
     @discardableResult
     private func waitUntil(_ window: NSWindow, _ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition() { return true }
-            window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return condition()
+        await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
     }
 
     private func columnList(_ window: NSWindow) -> NSScrollView? {

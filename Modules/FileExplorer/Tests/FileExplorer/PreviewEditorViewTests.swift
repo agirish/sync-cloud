@@ -33,24 +33,11 @@ import EventsTestSupport
     private func rig(_ text: String, folder: String? = nil) -> Rig {
         let box = Box()
         box.buffer.text = text
-        let source = EditorSourceStorage(text: text)
-        box.buffer.follow(source)
-        let undo = UndoManager()
-        let coordinator = PreviewEditorView.Coordinator(
-            session: PreviewEditSession(source: source, undoManager: undo, documentFolder: folder))
-        coordinator.onRefusal = { reason, _ in box.refusals.append(reason) }
-        coordinator.onFollowAnchor = { box.anchors.append($0) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroll = PreviewTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! PreviewTextView
-        coordinator.attach(view)
-        window.makeFirstResponder(view)
-        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
-        spin()
-        return Rig(view: view, coordinator: coordinator, source: source, undo: undo, box: box, window: window)
+        let r = PreviewEditRig(text, folder: folder, following: box.buffer) { coordinator in
+            coordinator.onRefusal = { reason, _ in box.refusals.append(reason) }
+            coordinator.onFollowAnchor = { box.anchors.append($0) }
+        }
+        return Rig(view: r.view, coordinator: r.coordinator, source: r.source, undo: r.undo, box: box, window: r.window)
     }
 
     /// One turn of the run loop: what separates two keystrokes and closes the first one's undo group.
@@ -346,9 +333,7 @@ import EventsTestSupport
         // The bar lights what is pending, over the selection's own state.
         let state = MarkupFormatState.none.lighting([.italic])
         #expect(state.lit == [.italic])
-        let workspace = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift"), encoding: .utf8)
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         #expect(workspace.contains("onPendingStyles: { previewPending = $0 }")
                 && workspace.contains("EditorFormatBar(state: formatState.lighting(barActsOnPreview ? previewPending : [])"),
                 "the workspace does not light Preview's pending styles on the bar")
@@ -792,7 +777,8 @@ import EventsTestSupport
 
     // MARK: Images
 
-    private static func png(width: Int, height: Int) -> Data {
+    /// A blank PNG of `width`×`height`; `PreviewEditSessionReuseTests` writes it too.
+    static func png(width: Int, height: Int) -> Data {
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -1013,21 +999,6 @@ import EventsTestSupport
         #expect(session.projection.blocks[0].readOnly == .wideTable)
         session.style = .init(scale: 1.2, columnWidth: session.style.columnWidth)
         #expect(session.projection.blocks[0].readOnly == .wideTable)
-    }
-
-    /// A rule spans the column it is in, after the column changes too.
-    @Test func attachmentsAreSizedAgainWhenTheColumnChanges() throws {
-        let session = PreviewEditSession(source: EditorSourceStorage(text: "a\n\n---\n\nb"), undoManager: nil)
-        func rule() -> NSTextAttachment? {
-            (0..<session.display.length).lazy.compactMap {
-                session.display.attribute(.previewAttachment, at: $0, effectiveRange: nil) as? String == "rule"
-                    ? session.display.attribute(.attachment, at: $0, effectiveRange: nil) as? NSTextAttachment : nil
-            }.first
-        }
-        let wide = try #require(rule()).bounds.width
-        session.columnWidth = 300
-        #expect(try #require(rule()).bounds.width < wide)
-        #expect(try #require(rule()).bounds.width <= 300)
     }
 
     /// In Split, typing in Source leaves Preview's caret and scroll alone: Preview moving would

@@ -94,7 +94,7 @@ public struct EditorDocumentLocation: Equatable, Sendable {
 
     /// The pieces of one rung of the location, left to right. Pure and non-private so which word
     /// opens which door is testable without a click, which a `swift test` host can't synthesize
-    /// (`PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
+    /// (`docs/flaky-tests.md`, "When you fix one").
     ///
     /// - Parameter rung: the segment indexes to draw, `nil` for the folded middle: one of
     ///   ``rungs(segmentCount:)``. Ignored by `.folderName`, which has one reading only.

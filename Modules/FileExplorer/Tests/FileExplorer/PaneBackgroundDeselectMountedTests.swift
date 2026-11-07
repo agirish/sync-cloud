@@ -14,25 +14,6 @@ import Sync
 @MainActor
 @Suite struct PaneBackgroundDeselectMountedTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -67,7 +48,7 @@ import Sync
                 childrenIndex: index, treeRoot: PaneBackgroundDeselectMountedTests.root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
                 onBackgroundDeselect: { box.deselects.append($0) }
@@ -80,22 +61,11 @@ import Sync
     /// condition held, so a caller can assert on it.
     ///
     /// The loop is `LayoutPumpWait.pump`; see `pumpFloor` there for why a wall-clock deadline alone
-    /// doesn't bound a congested main actor. The one caller that passes no condition is waiting out
-    /// an absence, and the floor only pumps it longer, which is the safe direction.
+    /// doesn't bound a congested main actor.
     @discardableResult
     private func settle(_ window: NSWindow, timeout: Double = 5,
-                        until condition: () -> Bool = { false }) async -> Bool {
+                        until condition: () -> Bool) async -> Bool {
         await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
-    }
-
-    private func scrollViews(_ view: NSView) -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        func walk(_ v: NSView) {
-            if let s = v as? NSScrollView { found.append(s) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return found
     }
 
     private func mount(paneWidth: CGFloat, depth: [String]) async throws
@@ -116,10 +86,10 @@ import Sync
         let expected = depth.count + 1
         await settle(window) { [weak window] in
             guard let root = window?.contentView else { return false }
-            return scrollViews(root).filter { $0.documentView is NSTableView }.count == expected
+            return PaneRowRevealTests.scrollViews(root).filter { $0.documentView is NSTableView }.count == expected
         }
 
-        let all = scrollViews(window.contentView!)
+        let all = PaneRowRevealTests.scrollViews(window.contentView!)
         let stack = try #require(all.first { !($0.documentView is NSTableView) }, "no stack scroll view")
         let columns = all.filter { $0.documentView is NSTableView }
         return (window, stack, columns, box)
@@ -131,9 +101,10 @@ import Sync
         view.gestureRecognizers.filter { $0.delegate is PaneBackgroundDeselect.CatcherView }
     }
 
-    /// Every column carries the target, on its own table. Fails if `column` drops its
-    /// `.background(PaneBackgroundDeselect { … })`, or if `PaneListResolver` resolves only the
-    /// first column.
+    /// Every column carries the target, on its own table, exactly once. Fails if `column` drops its
+    /// `.background(PaneBackgroundDeselect { … })`, if `PaneListResolver` resolves only the first
+    /// column, or if a rebuilt list keeps its old recognizer: drilling replaces the column stack,
+    /// and a recognizer kept per drill would fire the deselect many times per click.
     @Test func testEveryColumnCarriesTheDeselectTarget() async throws {
         let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }
@@ -165,20 +136,6 @@ import Sync
                 "table \(table.bounds.height)pt vs viewport \(column.contentView.bounds.height)pt")
     }
 
-    /// A rebuilt list must not leave its old recognizer behind. Drilling replaces the column stack,
-    /// and a recognizer kept per drill would fire the deselect many times per click, with an
-    /// unowned target.
-    @Test func testDrillingDoesNotAccumulateRecognizers() async throws {
-        let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
-        defer { _ = window }
-
-        let tables = columns.compactMap { $0.documentView as? NSTableView }
-        await settle(window) { tables.allSatisfy { !self.deselectRecognizers($0).isEmpty } }
-        for table in tables {
-            #expect(deselectRecognizers(table).count <= 1)
-        }
-    }
-
     /// The stack's content fills its viewport when the columns don't: the trailing filler takes the
     /// slack beside two 210pt columns in a 900pt pane (less `columnStackTrailingGutter`), so a
     /// click there deselects instead of doing nothing. Fails if the filler leaves the `HStack`.
@@ -194,30 +151,5 @@ import Sync
         #expect(columnsWidth < viewport, "columns \(columnsWidth)pt should not fill a \(viewport)pt viewport")
         #expect(content.bounds.width == viewport,
                 "content \(content.bounds.width)pt should span the viewport, filler included")
-    }
-
-    /// A click can't be synthesized into this harness at all: neither the empty area nor a row
-    /// responds, because a `swift test` process can't make its window key. Pinned so nobody spends
-    /// an afternoon rediscovering it; the end-to-end proof is a `[deselect]` line in a live
-    /// session's log.
-    @Test func testSyntheticClicksCannotDriveThisHarness() async throws {
-        let (window, _, columns, box) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
-        defer { _ = window }
-
-        let column = columns[1]
-        let frame = column.convert(column.bounds, to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard let event = NSEvent.mouseEvent(
-                with: type, location: CGPoint(x: frame.midX, y: frame.minY + 40), modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-            window.sendEvent(event)
-        }
-        // No condition to wait on: this asserts an absence, so it waits a bounded interval and
-        // relies on the mounted-columns check to keep it from passing vacuously.
-        await settle(window, timeout: 0.3)
-        #expect(columns.count == 3, "fixture must really be mounted, or the absence below is empty")
-        #expect(box.deselects.isEmpty,
-                "if this ever fires, the harness gained real clicks — write the end-to-end test it was blocking")
     }
 }

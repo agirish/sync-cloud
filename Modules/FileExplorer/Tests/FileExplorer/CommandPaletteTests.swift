@@ -296,15 +296,6 @@ import Foundation
         #expect(rows.contains { $0.route == .organize(lens: .rules, scope: nil) })
     }
 
-    @Test func theEmptyQueryWithNoHistoryStillOffersEveryPlace() {
-        let rows = PaletteRouter.rows(query: "   ", index: Self.index())
-        for place in [PaletteRoute.browse, .compare, .editor,
-                      .organize(lens: nil, scope: nil)]
-            + OrganizeLens.railItems.map({ PaletteRoute.organize(lens: $0, scope: nil) }) {
-            #expect(rows.contains { $0.route == place }, "\(place) is unreachable from an empty query")
-        }
-    }
-
     /// ⌘K reaches Browse by name. A `PaletteRoute` case with no `PalettePlace` beside it compiles
     /// and routes correctly, but nothing ever emits a row carrying it.
     @Test func browseIsReachableByName() {

@@ -146,28 +146,24 @@ import Sync
                     == "Differs by location, size and date.")
     }
 
-    @Test func theSummarySaysSoWhenNothingDiffers() {
-        #expect(ComparePairFacts.summary(differing: []) == "Every fact the scan recorded matches.")
-    }
-
     // MARK: The confirmation's wording
+
+    private static func prompt(_ kind: DuplicateMatchType.Kind) -> String {
+        DuplicateComparePrompt.informativeText(
+            kind: kind, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
+            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs", reclaimText: "2.1 MB")
+    }
 
     /// A same-text pair has not been proved redundant, and the last sentence before a delete must
     /// not say it has.
     @Test func aSameTextPairIsNeverCalledRedundant() {
-        let text = DuplicateComparePrompt.informativeText(
-            kind: .sameText, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
-            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
-            reclaimText: "2.1 MB")
+        let text = Self.prompt(.sameText)
         #expect(!text.lowercased().contains("redundant"))
         #expect(text.contains("bytes differ"))
     }
 
     @Test func anIdenticalPairGetsNoWeakeningClause() {
-        let text = DuplicateComparePrompt.informativeText(
-            kind: .identical, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
-            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
-            reclaimText: "2.1 MB")
+        let text = Self.prompt(.identical)
         #expect(!text.contains("bytes differ"))
         #expect(text.contains("Reclaims 2.1 MB"))
         #expect(text.contains("⌘Z"))
@@ -176,10 +172,7 @@ import Sync
     /// Trashing a version discards different content; saying so is the difference between a dedup
     /// and a deletion.
     @Test func aVersionsPairSaysTheOtherCopyIsNotACopy() {
-        let text = DuplicateComparePrompt.informativeText(
-            kind: .versions, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
-            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
-            reclaimText: "2.1 MB")
+        let text = Self.prompt(.versions)
         #expect(text.contains("not copies"))
     }
 
@@ -278,23 +271,13 @@ import Sync
 
     /// The label follows the keeper, not the kind. A versions pair opens keeping the newer
     /// revision, but the reader can flip it, and then the same button trashes the newer copy.
-    @Test func aVersionsTitleFollowsWhichCopyIsActuallyDoomed() {
+    /// Driven the way the surface drives it too: the copies stay put, the keeper moves, and the
+    /// title follows. The sheet asks with the two copies, as the second half does.
+    @Test func flippingTheKeeperRenamesWhatTheButtonDestroys() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: true)
                 == "Trash the Older Copy")
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: false)
                 == "Trash the Newer Copy")
-    }
-
-    /// Two copies the dates cannot order — one undated, or both stamped the same second — get the
-    /// claim that is true of every pair rather than a guess at which is older.
-    @Test func anUnorderablePairIsJustTheOtherCopy() {
-        #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: nil)
-                == "Trash the Other Copy")
-    }
-
-    /// The flip, driven the way the surface drives it: the copies stay put, the keeper moves, and
-    /// the title follows. The sheet asks with the two copies, as this does.
-    @Test func flippingTheKeeperRenamesWhatTheButtonDestroys() {
         let older = copy("/x/Notes v1.md", modified: Self.noon)
         let newer = copy("/x/Notes v2.md", modified: Self.noon.addingTimeInterval(86_400))
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, keeper: newer, target: older)

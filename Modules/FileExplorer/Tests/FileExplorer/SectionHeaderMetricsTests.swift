@@ -26,24 +26,22 @@ import Testing
     }
 
     /// The tappable region must be taller than the text's ~16pt, or the band above the words looks
-    /// like header and does nothing. The 18pt floor sits close to that, so `SectionRowHeightTests`,
-    /// which measures the 28pt the header reaches in a real table, is the stronger guard. This
-    /// can't catch the padding moving outside `contentShape`: `fittingSize` is the same either way,
-    /// and `NSHostingView.hitTest` can't see SwiftUI's content shape. Keep those two modifiers
+    /// like header and does nothing: an 18pt floor, and the gap relative to the text, so it keeps
+    /// its meaning when Text Size scales the label (at a large size a bare row grows past any fixed
+    /// floor, which would pass with the padding gone). The gap is a literal, 4 (2 above, 2 below):
+    /// reading `verticalPadding` would put the constant on both sides, so setting it to 0 could
+    /// never fail. Change the padding, change this with it. `SectionRowHeightTests`, which measures
+    /// the 28pt the header reaches in a real table, is the stronger guard.
+    ///
+    /// This does NOT catch padding moving outside `contentShape`: `fittingSize` is the same either
+    /// way, and `NSHostingView.hitTest` can't see SwiftUI's content shape. Keep those two modifiers
     /// adjacent in the view and read the comment there.
-    @Test func sectionHeaderIsAComfortableClickTarget() {
-        #expect(laidOutHeight(header()) >= 18)
-    }
-
-    /// The same guard relative to the text, so it keeps its meaning when Text Size scales the
-    /// label: at a large size a bare row grows past any fixed floor, and the floor above would pass
-    /// with the padding gone. The gap is a literal, 4 (2 above, 2 below): reading `verticalPadding`
-    /// would put the constant on both sides, so setting it to 0 could never fail. Change the
-    /// padding, change this with it.
     @Test func theHeaderClearsItsOwnTextByBothPaddings() {
         let bare = laidOutHeight(
             Text("Immigration").scaledFont(.system(size: 12, weight: .semibold)))
-        #expect(laidOutHeight(header()) >= bare + 4)
+        let height = laidOutHeight(header())
+        #expect(height >= 18)
+        #expect(height >= bare + 4)
     }
 
     /// Every state has to be equally hittable. A collapsed header gains a direction summary and a

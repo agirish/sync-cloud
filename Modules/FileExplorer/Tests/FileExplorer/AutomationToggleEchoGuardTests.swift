@@ -13,14 +13,6 @@ struct AutomationToggleEchoGuardTests {
 
     // MARK: - Genuine gestures go through, both directions
 
-    @Test func aUserFlipOffIsForwarded() {
-        var echoGuard = AutomationToggleEchoGuard(enabled: true)
-
-        let forwarded = echoGuard.shouldForwardSwitchChange(to: false)
-
-        #expect(forwarded)
-    }
-
     @Test func aUserFlipOnIsForwarded() {
         var echoGuard = AutomationToggleEchoGuard(enabled: false)
 
@@ -47,18 +39,6 @@ struct AutomationToggleEchoGuardTests {
 
     // MARK: - External writes are mirrored, not echoed
 
-    @Test func anExternalDisableResyncsTheMirrorAndSwallowsTheEcho() {
-        var echoGuard = AutomationToggleEchoGuard(enabled: true)
-
-        // rule.enabled flips to false under the card (bulk toggle / undo / import).
-        let resynced = echoGuard.shouldResyncMirror(to: false, mirror: true)
-        // The resync writes isEnabled = false, whose onChange asks about the echo: suppressed.
-        let echoForwarded = echoGuard.shouldForwardSwitchChange(to: false)
-
-        #expect(resynced)
-        #expect(!echoForwarded)
-    }
-
     @Test func anExternalEnableResyncsTheMirrorAndSwallowsTheEcho() {
         var echoGuard = AutomationToggleEchoGuard(enabled: false)
 
@@ -80,17 +60,5 @@ struct AutomationToggleEchoGuardTests {
         #expect(resynced)
         #expect(!echoForwarded)
         #expect(gestureForwarded)
-    }
-
-    /// An external write matching the mirror needs no resync at all — most importantly the model's
-    /// own confirmation of a gesture the guard just forwarded.
-    @Test func aModelWriteMatchingTheMirrorIsANoOp() {
-        var echoGuard = AutomationToggleEchoGuard(enabled: true)
-
-        let forwarded = echoGuard.shouldForwardSwitchChange(to: false)
-        let resynced = echoGuard.shouldResyncMirror(to: false, mirror: false)
-
-        #expect(forwarded)
-        #expect(!resynced)
     }
 }

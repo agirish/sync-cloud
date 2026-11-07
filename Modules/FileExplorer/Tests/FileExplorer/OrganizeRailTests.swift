@@ -206,24 +206,8 @@ import Design
                                providerRoot: providerRoot)
             .defaultAppStorage(defaults)
             .environment(\.appFontScale, scale)
-            .frame(width: canvas.width, height: canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: canvas)
-        // Without a window the content composites against the borderless window's own buffer and
-        // every comparison reads as zero difference.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        // Twice: `.onGeometryChange` writes `railStyle` after a pass, so a single
-        // `layoutSubtreeIfNeeded` renders the initial `.full` and never the width-dependent answer.
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        return host
+        // Twice: `.onGeometryChange` writes `railStyle` after a pass.
+        return ReviewLensHost.mount(subject, size: canvas, passes: 2).host
     }
 
     private func strip(_ host: NSHostingView<AnyView>, _ band: CGRect) -> NSBitmapImageRep? {
@@ -235,6 +219,13 @@ import Design
 
     /// Pixels split by how far they are from the band's own background corner.
     ///
+    /// The largest per-channel departure of `c` from `background`.
+    private static func delta(_ c: NSColor, _ background: NSColor) -> CGFloat {
+        max(abs(c.redComponent - background.redComponent),
+            max(abs(c.greenComponent - background.greenComponent),
+                abs(c.blueComponent - background.blueComponent)))
+    }
+
     /// `wash` separates a capsule from a run of text: a tinted capsule covers its whole area in a
     /// low-opacity fill, a large soft departure from the background, while text is a small area of
     /// near-black `ink` with a thin antialiased fringe. A row of capsules reads dense in `wash`;
@@ -248,9 +239,7 @@ import Design
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
+                let delta = Self.delta(c, background)
                 if delta > 0.35 { ink += 1 } else if delta > 0.03 { wash += 1 }
             }
         }
@@ -274,9 +263,7 @@ import Design
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
+                let delta = Self.delta(c, background)
                 if delta > 0.02 && (c.blueComponent - c.redComponent) > 0.05 { n += 1 }
             }
         }
@@ -296,9 +283,7 @@ import Design
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
+                let delta = Self.delta(c, background)
                 if delta > 0.30 && (c.blueComponent - c.redComponent) > 0.18 { n += 1 }
             }
         }
@@ -324,9 +309,7 @@ import Design
             var n = 0
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
+                let delta = Self.delta(c, background)
                 if delta > 0.03 { n += 1 }
             }
             inked.append(n >= 2)
@@ -367,9 +350,7 @@ import Design
             var n = 0
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
+                let delta = Self.delta(c, background)
                 if delta > 0.10 { n += 1 }
             }
             inked.append(n >= 2)
@@ -577,15 +558,6 @@ import Design
 
     // MARK: Shedding — the rail yields width to the controls
 
-    @Test("The rail spells its items out when the header is wide enough", .machinePinned(.pixelSampling))
-    func theRailKeepsItsLabelsWhenThereIsRoom() throws {
-        let wide = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                      Self.railZone))
-        // Labels plus glyphs. The glyph-only rail inks far less, which the narrow-canvas comparison
-        // below turns into an assertion.
-        #expect(counts(wide).ink > 600, "the rail is not drawing its labels at 1400pt")
-    }
-
     @Test("At 900pt the rail spells itself out, and the controls are on row 2", .machinePinned(.pixelSampling))
     func theRailKeepsItsNamesAtNineHundred() throws {
         // With the controls on row 2, row 1 reserves only the search toggle, so 900 is comfortably
@@ -694,13 +666,7 @@ import Design
         // returns an empty `AXGroup`), so an assertion against it would pass with the modifier
         // deleted. A scan pins a spelling, not a behaviour, but it fails on the one edit that
         // matters.
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()                   // …/Tests/FileExplorer
-            .deletingLastPathComponent()                   // …/Tests
-            .deletingLastPathComponent()                   // …/FileExplorer (package)
-            .appendingPathComponent("Sources/FileExplorer/OrganizeOverview.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        try #require(source.count > 5000, "OrganizeOverview.swift could not be read — the scan below would be vacuous")
+        let source = try SourceText.fileExplorer("OrganizeOverview.swift", atLeast: 5000)
 
         // Fed by the function, not restated: an inlined "\(title), \(count)" would satisfy a bare
         // "is there a label" scan while free to drift from what the tests above pin.
@@ -754,8 +720,16 @@ import Design
         let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: twoBadges)
         #expect(shed <= 600 - OrganizeRailMetrics.searchToggleWidth)
         // Badges widen the rail, so the day every finding reports is the tightest; a rule measured
-        // without them would shed too late.
+        // without them would shed too late. Every lens badged sheds soonest, and answers the same
+        // way at the same widths.
         #expect(lead(twoBadges) > lead(Self.states([:])))
+        let everyBadge: (OrganizeLens) -> RailItemState = { $0.carriesBadge ? .reporting(7) : .configuration }
+        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(everyBadge)) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(everyBadge)) == .full)
+        #expect(OrganizeRailMetrics.style(contentWidth: 600, leadingWidth: lead(everyBadge)) == .iconOnly)
+        // Row 1 reserves only the rail and the search toggle; the scope chip lives on row 2,
+        // outside this budget (`OrganizeScopeCallSiteTests` pins its draw site).
+        #expect(OrganizeRailMetrics.searchToggleWidth == 36)
     }
 
     /// The width the rail gets is the column's, not the window's.
@@ -989,7 +963,6 @@ import Design
         // untruncated. A threshold band where the model says the labels fit and the row disagrees
         // would draw `Apply 410 recomme…` while the arithmetic tests pass.
         let manager = Self.duplicatesManager(groups: 410, names: 17)
-        let badge = Self.states([.toFile: 24, .duplicates: 410, .renames: 17])
         // Swept from 900, not from the rail's own flip point: row 1 spells the rail out from
         // ~633pt, while row 2 needs ~800 for this lens, so sweeping from the rail's threshold would
         // assert something row 2 can't deliver. 900 is the narrowest card an ordinary window
@@ -1029,7 +1002,6 @@ import Design
         // (measured 435.5 to 441.5pt across the four sizes), but nothing enforces that; give one
         // `scaledFont` and the row would start truncating at 1.3 alone, the scale this sweep adds.
         let manager = Self.manager(queue: 24, names: 17, refine: true)
-        _ = Self.states([.toFile: 24, .renames: 17])
         // From 900 for the reason the test above gives: rows 1 and 2 shed at different widths, and
         // 900 is where real windows start.
         let threshold: CGFloat = 900
@@ -1104,9 +1076,7 @@ import Design
             var on = false
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
+                let delta = Self.delta(c, background)
                 if delta > 0.03 { on = true; break }
             }
             if on { lastInk = x; gapRun = 0 } else if lastInk >= 0 {
@@ -1371,20 +1341,10 @@ import Design
 
     // MARK: The control — Rescan outlives the queue
 
-    @Test("Rescan is there once a scan has run, even with nothing left to file", .machinePinned(.pixelSampling))
-    func rescanSurvivesAnEmptyQueue() throws {
-        // The reported state: everything filed, findings still standing. Rescan must not sit inside
-        // the gate that draws "File all", or the trailing half is empty here.
-        let filed = try #require(strip(mount(Self.manager(queue: 0, names: 17), lens: .toFile),
-                                       Self.actionsZone))
-        #expect(counts(filed).ink > 100,
-                "the action band painted nothing with an empty queue beside 17 risky names — Rescan is gated on the queue again")
-    }
-
     @Test("…and is absent before the first scan, where there is nothing to re-scan", .machinePinned(.pixelSampling))
     func rescanIsAbsentBeforeAnyScan() throws {
-        // The other direction, which stops the test above being satisfied by a button that is
-        // always drawn. The pane is on its subject (`scanFolder` and `scanTarget` are the same
+        // The other direction, which stops Rescan's check in `theActionsBandIsWhereTheActionsAre`
+        // being satisfied by a button that is always drawn. The pane is on its subject (`scanFolder` and `scanTarget` are the same
         // folder), so this measures Rescan rather than the moved branch.
         //
         // On Renames, not To File: To File also withholds this control before its first scan
@@ -1490,5 +1450,9 @@ import Design
                                             Self.actionsZone))
         #expect(counts(full).ink > counts(rescanOnly).ink + 200,
                 "three controls and one control inked this band almost identically — it is not over the actions")
+        // Rescan outlives the queue: everything filed, findings still standing, and Rescan must not
+        // sit inside the gate that draws "File all".
+        #expect(counts(rescanOnly).ink > 100,
+                "the action band painted nothing with an empty queue beside 17 risky names — Rescan is gated on the queue again")
     }
 }

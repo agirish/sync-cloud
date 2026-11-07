@@ -21,20 +21,8 @@ import Testing
         #expect(reclaim.totalBytes == 0)
     }
 
-    @Test func resettingAnAlreadyCleanSessionIsANoOp() {
-        var filter: DuplicateMatchFilter = .all
-        var query = ""
-        var reclaim = ReclaimTally()
-
-        DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
-
-        #expect(filter == .all)
-        #expect(query.isEmpty)
-        #expect(reclaim.totalBytes == 0)
-    }
-
     /// The reset holds for every filter kind: each hides most groups, so any one surviving a rescan
-    /// is the same defect.
+    /// is the same defect. The `.all` pass is a clean session, which the reset leaves clean.
     @Test func everyFilterKindIsRetiredByAScan() {
         for stale: DuplicateMatchFilter in DuplicateMatchFilter.allCases {
             var filter = stale
@@ -42,6 +30,7 @@ import Testing
             var reclaim = ReclaimTally()
             DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
             #expect(filter == .all, "\(stale) survived a fresh scan")
+            #expect(query.isEmpty && reclaim.totalBytes == 0)
         }
     }
 }

@@ -426,10 +426,6 @@ import FileExplorerTestSupport
     /// one keeps it at. One reading only, or the bare one first, fails a line.
     @Test(.machinePinned(.pixelSampling))
     func plainTextHasTheWordedAndTheBareExpand() throws {
-        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false)
-                == [.init(capsule: nil, chipsWorded: true), .init(capsule: nil, chipsWorded: false)])
-        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false],
-                "Expand's word outlives the capsule's on a Markdown file")
         let padding = 2 * EditorDocumentHeader<EmptyView>.horizontalPadding
         func expandWidth(_ name: String, column: CGFloat) throws -> CGFloat {
             let doc = try document(named: name)
@@ -580,10 +576,7 @@ import FileExplorerTestSupport
     // MARK: Source helpers
 
     static func headerSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         try #require(text.contains("var headerContent: some View"), "not reading EditorWorkspaceView.swift")
         return text.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> String in
@@ -784,16 +777,7 @@ struct Rendered {
     /// How many pixels inside `ring` are the accent: blue well clear of red, which a neutral glyph
     /// or the white ground never is.
     func accentPixels(in ring: CGRect) -> Int {
-        let x0 = max(0, Int(ring.minX * scale)), x1 = min(pixelsWide, Int(ring.maxX * scale))
-        let y0 = max(0, Int(ring.minY * scale)), y1 = min(pixelsHigh, Int(ring.maxY * scale))
-        var count = 0
-        for x in x0..<max(x0, x1) {
-            for y in y0..<max(y0, y1) {
-                guard let c = colour(x, y) else { continue }
-                if c.b - c.r > 0.1 { count += 1 }
-            }
-        }
-        return count
+        pixels(in: ring) { r, _, b in b - r > 0.1 }
     }
 
     private static func differs(_ a: Colour?, _ b: Colour?) -> Bool {

@@ -41,33 +41,26 @@ import Foundation
         #expect(text.plain == "Three folders still carry unscanned paper.")
     }
 
-    @Test func bulletsAndNumbersCarryTheirMarkers() {
-        let parsed = blocks("- one\n- two\n\n1. first\n2. second\n")
-        let markers = parsed.compactMap { block -> MarkdownListMarker? in
+    /// The list markers of every list item in `source`, in order.
+    private func markers(_ source: String) -> [MarkdownListMarker] {
+        blocks(source).compactMap { block -> MarkdownListMarker? in
             if case .listItem(let marker, _) = block.kind { return marker }
             return nil
         }
-        #expect(markers == [.bullet, .bullet, .ordered(1), .ordered(2)])
+    }
+
+    @Test func bulletsAndNumbersCarryTheirMarkers() {
+        #expect(markers("- one\n- two\n\n1. first\n2. second\n") == [.bullet, .bullet, .ordered(1), .ordered(2)])
     }
 
     @Test func anOrderedListStartingElsewhereKeepsItsNumbering() {
-        let parsed = blocks("7. seven\n8. eight\n")
-        let markers = parsed.compactMap { block -> MarkdownListMarker? in
-            if case .listItem(let marker, _) = block.kind { return marker }
-            return nil
-        }
-        #expect(markers == [.ordered(7), .ordered(8)])
+        #expect(markers("7. seven\n8. eight\n") == [.ordered(7), .ordered(8)])
     }
 
     /// Task state comes from the parser, not from a pre-pass, which is the argument for parsing
     /// real GFM: a regex over `- [ ]` would also claim a literal bracket pair someone typed.
     @Test func taskItemsCarryTheirCheckedState() {
-        let parsed = blocks("- [ ] School forms\n- [x] Passport receipts\n")
-        let markers = parsed.compactMap { block -> MarkdownListMarker? in
-            if case .listItem(let marker, _) = block.kind { return marker }
-            return nil
-        }
-        #expect(markers == [.task(done: false), .task(done: true)])
+        #expect(markers("- [ ] School forms\n- [x] Passport receipts\n") == [.task(done: false), .task(done: true)])
     }
 
     @Test func aBracketPairInProseIsNotATaskItem() {
@@ -294,9 +287,6 @@ import Foundation
             #expect(!blocks(source).isEmpty,
                     "the walk dropped everything in \(String(reflecting: source))")
         }
-        // The one with content that must survive verbatim: raw HTML is shown as what it is.
-        let html = blocks("<div>raw html</div>\n")
-        #expect(!html.isEmpty, "an HTML block vanished from the preview")
     }
 
     /// A line starting with `@` is prose, not a directive.

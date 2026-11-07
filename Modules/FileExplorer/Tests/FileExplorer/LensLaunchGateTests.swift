@@ -109,8 +109,8 @@ import Design
     /// mounting `LensWorkspaceView` with a live manager and reading pixels back, a lot of machinery
     /// for a question the call site states outright.
     @Test func lensWorkspaceViewFeedsTheGateToTheLens() throws {
-        let view = try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift")
-        let content = try OrganizeScopeCallSiteTests.body(
+        let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
+        let content = try SourceText.body(
             of: "private func restructureContent(rows: FilteredRows,", in: view)
         #expect(content.contains("hasReviewed: syncManager.hasReviewedStructure"), """
                 restructureContent no longer feeds the launch flag to RestructureLens — the gate \
@@ -120,7 +120,7 @@ import Design
         // The overview's exception, by decision: arriving from a reporting card's "Open
         // Restructure" skips the card, because the pill beside that button already stated the
         // count. Fails here if it stops being deliberate.
-        let overview = try OrganizeScopeCallSiteTests.body(
+        let overview = try SourceText.body(
             of: "private func organizeOverview(rows: FilteredRows,", in: view)
         #expect(overview.contains("if item == .restructure { syncManager.hasReviewedStructure = true }"),
                 "the overview's Open-Restructure link no longer skips the reveal card")

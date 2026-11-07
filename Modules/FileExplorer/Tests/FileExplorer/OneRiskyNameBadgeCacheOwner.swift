@@ -19,38 +19,16 @@ import Testing
 ///
 /// Applied as a trait so a new suite that touches the memo only has to add it to its declaration.
 /// Every current one does: `RiskyNameBadgePredicateTests`, `DifferencesRiskyNameRulesTests`,
-/// `RiskyNameBadgeMemoTests`, and `RiskyNameBadgeCostBenchmark`.
+/// `RiskyNameBadgeMemoTests` and `RiskyNameBadgeColumnsMemoTests`.
 struct OneRiskyNameBadgeCacheOwner: SuiteTrait, TestTrait, TestScoping {
 
-    /// A cooperative gate, for the same reason `OneMountedDifferencesTable`'s is: waiting yields
-    /// rather than blocks, so a `@MainActor` waiter cannot deadlock the actor that the holder
-    /// needs in order to finish and release.
-    private actor Gate {
-        static let shared = Gate()
-        private var isHeld = false
-
-        func acquire() async {
-            // No suspension point between the check and the set, so two waiters woken together
-            // cannot both come through.
-            while isHeld { try? await Task.sleep(nanoseconds: 5_000_000) }
-            isHeld = true
-        }
-
-        func release() { isHeld = false }
-    }
+    /// `OneMountedDifferencesTable`'s cooperative gate, a separate instance: the two locks guard
+    /// different things.
+    private static let gate = OneMountedDifferencesTable.Gate()
 
     func provideScope(for test: Test, testCase: Test.Case?,
                       performing function: @Sendable () async throws -> Void) async throws {
-        await Gate.shared.acquire()
-        do {
-            try await function()
-        } catch {
-            // Released on the failure path too: a throwing case must not strand every other suite
-            // behind it, turning one failure into a whole-run timeout.
-            await Gate.shared.release()
-            throw error
-        }
-        await Gate.shared.release()
+        try await Self.gate.holding(function)
     }
 }
 

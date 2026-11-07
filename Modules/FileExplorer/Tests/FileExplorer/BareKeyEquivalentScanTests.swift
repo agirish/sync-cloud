@@ -23,11 +23,7 @@ import Testing
 @Suite struct BareKeyEquivalentScanTests {
 
     /// The repo's `Modules/` directory, derived from this file's own path.
-    private static let modulesDir = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests/FileExplorer
-        .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests
-        .deletingLastPathComponent()   // …/Modules/FileExplorer
-        .deletingLastPathComponent()   // …/Modules
+    private static let modulesDir = SourceText.modules
 
     /// Every Swift file under every module's `Sources/`, plus `MacApp/`, which is in no SPM
     /// package, so only this sweep can read it. Tests are exempt: a test may host the banned shape

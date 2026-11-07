@@ -202,12 +202,6 @@ import Sync
         return host.fittingSize.height
     }
 
-    private static func laidOutWidth(_ view: some View) -> CGFloat {
-        let host = NSHostingView(rootView: view)
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.width
-    }
-
     /// The emphasis is drawn on the marked form (“Swimming ” → “Swimming␣”), so the offsets must
     /// survive that substitution: `NameDisplay.visibleName` replaces one character with one. A fold
     /// that changed the length would silently bold the wrong run.

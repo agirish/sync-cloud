@@ -153,12 +153,6 @@ import Design
 
     // MARK: A mounted text view
 
-    private func textView(in view: NSView) -> NSTextView? {
-        if let found = view as? NSTextView { return found }
-        for sub in view.subviews { if let found = textView(in: sub) { return found } }
-        return nil
-    }
-
     private func spin(_ window: NSWindow) {
         for _ in 0..<10 {
             _ = CFRunLoopRunInMode(.defaultMode, 0.02, true)
@@ -185,7 +179,7 @@ import Design
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         spin(window)
-        let view = try #require(textView(in: host), "no text view mounted — this test sees nothing")
+        let view = try #require(EditorTestRigs.textView(in: host), "no text view mounted — this test sees nothing")
         // The premise: the first line really is wrapped into several rows here.
         try #require(view.textContainer?.widthTracksTextView == true, "wrapping is off, so this proves nothing")
         let rowHeight = try #require(view.font).boundingRectForFont.height

@@ -88,12 +88,7 @@ import Design
 
     private static func luminance(_ color: NSColor) -> CGFloat {
         guard let s = color.usingColorSpace(.sRGB) else { return 0 }
-        func linear(_ c: CGFloat) -> CGFloat {
-            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * linear(s.redComponent)
-            + 0.7152 * linear(s.greenComponent)
-            + 0.0722 * linear(s.blueComponent)
+        return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
     }
 
     static func contrast(_ ink: NSColor, on surface: NSColor) -> CGFloat {

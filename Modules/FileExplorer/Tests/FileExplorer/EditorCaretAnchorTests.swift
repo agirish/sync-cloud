@@ -80,17 +80,7 @@ import Testing
         let host = NSHostingView(rootView: editor.editorTestDefaults("EditorCaretAnchorTests"))
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.layoutSubtreeIfNeeded()
-        var found: NSTextView?
-        func walk(_ v: NSView) {
-            if let scroll = v as? NSScrollView,
-               scroll.identifier == EditorDocumentSurface.identifier,
-               let text = scroll.documentView as? NSTextView {
-                found = text
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return found
+        return EditorTestRigs.markedScroll(in: host)?.documentView as? NSTextView
     }
 
     private static func editor(text: String, initialSelection: Int,
@@ -162,28 +152,12 @@ import Testing
 
     // MARK: The wiring
 
-    private static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/\(file)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(file) — every scan here would be vacuous")
-        try #require(text.count > 500, "\(file) read as \(text.count) characters — truncated?")
-        return text
-    }
-
-    private static func codeOnly(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     /// Both halves of the wiring, scanned rather than rendered. The tests above show the text view
     /// honors an anchor it's handed, not that the workspace hands one over or records where the
     /// caret went. Mounting `EditorWorkspaceView` would mean a document, an autosave policy, a
     /// rail and twenty closures to observe one assignment.
     @Test func theWorkspaceRecordsTheCaretAndHandsTheAnchorBack() throws {
-        let workspace = Self.codeOnly(try Self.source("EditorWorkspaceView.swift"))
+        let workspace = SourceText.codeOnly(try SourceText.fileExplorer("EditorWorkspaceView.swift"))
         #expect(workspace.contains("document.caretAnchors.remember($0.location, for: document.path)"),
                 "the workspace no longer records where the caret went — every anchor stays 0")
         #expect(workspace.contains("initialSelection: document.caretAnchors.offset(for: document.path) ?? 0"),
@@ -199,7 +173,7 @@ import Testing
     /// `@Published` here would re-render the document's observers at typing speed, the cost
     /// `EditorBuffer` exists to keep off `EditorDocument`.
     @Test func theAnchorStoreAnnouncesNothing() throws {
-        let store = Self.codeOnly(try Self.source("EditorCaretAnchors.swift"))
+        let store = SourceText.codeOnly(try SourceText.fileExplorer("EditorCaretAnchors.swift"))
         #expect(!store.contains("@Published"),
                 "the caret store publishes — typing now re-renders every observer of the document")
         #expect(!store.contains("ObservableObject"),

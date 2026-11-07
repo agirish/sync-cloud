@@ -164,15 +164,7 @@ import FileExplorerTestSupport
 @Suite struct EditorDivergenceDismissalTests {
 
     static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()                   // …/Tests/FileExplorer
-            .deletingLastPathComponent()                   // …/Tests
-            .deletingLastPathComponent()                   // …/FileExplorer (package)
-            .appendingPathComponent("Sources/FileExplorer/EditorDivergenceDiffOverlay.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read the overlay — every check below would be vacuous")
-        try #require(text.count > 2000, "the overlay source is implausibly short")
-        return text
+        try SourceText.fileExplorer("EditorDivergenceDiffOverlay.swift", atLeast: 2000)
     }
 
     /// The positive control: this scan is reading the file it names.

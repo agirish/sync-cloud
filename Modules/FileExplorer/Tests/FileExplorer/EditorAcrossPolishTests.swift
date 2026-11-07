@@ -242,9 +242,7 @@ import Testing
 
     /// Both ＋s say the header's sentence, and only the ＋ shows it, not the list's whole folder row.
     @Test func bothPlusButtonsShareOneTooltip() throws {
-        #expect(EditorWorkspaceView.newTextFileTitle(folderName: "Downloads") == "New text file in Downloads")
         let rail = try Self.source("EditorFileRailView.swift")
-        #expect(rail.contains("EditorWorkspaceView.newTextFileTitle(folderName: newFileFolderName ?? folderName)"))
         #expect(rail.contains(".help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))"))
         #expect(!rail.contains("New files are created in"))
         // No row-wide tooltip: `.help(contextHelp)` sits once, on the other tabs' name.
@@ -329,12 +327,12 @@ import Testing
     @Test func theTextHeadersButtonsShareOneRung() throws {
         #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false])
         #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.capsule) == [.labelled, .labelled, .glyphOnly])
-        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false).map(\.chipsWorded) == [true, false])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false)
+                == [.init(capsule: nil, chipsWorded: true), .init(capsule: nil, chipsWorded: false)])
         let header = Self.squashed(try Self.source("EditorWorkspaceView.swift"))
         for wiring in ["newTextFileButton(worded: reading.chipsWorded)",
                        "EditorHeaderChipLabel(symbol: \"magnifyingglass\", word: reading.chipsWorded ? Self.findWord : nil)",
                        "expandButton(worded: reading.chipsWorded)",
-                       "EditorCloseChip(name: document.name, worded: reading.chipsWorded,",
                        "newTextFileButton(worded: chipsWorded)", "expandButton(worded: chipsWorded)"] {
             #expect(header.contains(wiring), "not on the row's rung: \(wiring)")
         }

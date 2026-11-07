@@ -202,13 +202,8 @@ import Sync
         #expect(CopyRemainingRoute.route([held]) == .bulk, "a lone held row was copied unasked")
         #expect(CopyRemainingRoute.route([plain, held]) == .bulk)
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — the check below would be vacuous")
-        let body = try #require(source.range(of: "private func copyRemaining(")
-            .map { String(source[$0.lowerBound...].prefix(3_000)) }, "copyRemaining was renamed")
+        let body = try SourceText.body(of: "private func copyRemaining(",
+                                       in: try SourceText.fileExplorer("DifferencesView.swift"))
         #expect(body.contains("if case .single(let single) = CopyRemainingRoute.route(remaining) {"),
                 "Copy Remaining no longer asks the route")
         #expect(!body.contains("if remaining.count == 1"), "Copy Remaining picks its single path by count again")
@@ -226,11 +221,7 @@ import Sync
         #expect(CopyRemainingRoute.copyableCount([held, plain]) == 1)
         #expect(CopyRemainingRoute.copyableCount([held, held]) == 0)
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — the check below would be vacuous")
+        let source = try SourceText.fileExplorer("DifferencesView.swift")
         let button = try #require(source.range(of: "let copyable = CopyRemainingRoute.copyableCount(session.pending)")
             .map { String(source[$0.lowerBound...].prefix(2_200)) }, "the button no longer counts what it copies")
         #expect(button.contains("Remaining \\(copyable)\""), "the label counts the held rows again")
@@ -243,13 +234,8 @@ import Sync
     /// this pins the call site: a remainder holding a held row goes there and marks the rows it
     /// resolved, before the line that tears the session down.
     @Test func copyRemainingWithHeldRowsKeepsTheSessionOnThem() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — the check below would be vacuous")
-        let body = try #require(source.range(of: "private func copyRemaining(")
-            .map { String(source[$0.lowerBound...].prefix(3_000)) }, "copyRemaining was renamed")
+        let body = try SourceText.body(of: "private func copyRemaining(",
+                                       in: try SourceText.fileExplorer("DifferencesView.swift"))
         let held = try #require(body.range(of: "if remaining.contains(where: { $0.heldBack != nil }) {"),
                                 "Copy Remaining no longer branches on held rows")
         let call = try #require(body.range(of: "await syncManager.copyRemaining(remaining, isMove: isMove)"),

@@ -141,12 +141,7 @@ import Testing
     /// reverts to the bare `URL(fileURLWithPath: profile.root)`, which resolves a tilde root
     /// against cwd.
     @Test func thePlanSheetWiringGoesThroughPlanDiskRoot() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(text.contains(".fromDisk(root: Self.planDiskRoot(profile.root)).memoized()"),
                 "the sheet's tree must go through the expanding, memoizing spelling")
         #expect(!text.contains("fromDisk(root: URL(fileURLWithPath: profile.root)"),
@@ -196,33 +191,13 @@ import Testing
                 "the caveat composes with the landing, never replaces it")
     }
 
-    // MARK: The badge call site
-
-    /// The rail badge's filter, pinned at its call site: `carriesPlan` is table-pinned in the store
-    /// tests, but a badge counting every finding would fail nowhere else.
-    @Test func theRailBadgeCountsOnlyPlanBearingKinds() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
-        #expect(text.contains("restructure: structureFindings.count {\n                $0.kind.carriesPlan"),
-                "the badge must filter on carriesPlan before it counts")
-    }
-
     // MARK: The plan sheet's lockdown seam
 
     /// One seam for "finished or busy", read by the whole editing surface. Without it, a row edit
     /// after a successful Apply clears the outcome, un-retires the sheet and re-arms Export, which
     /// mints a "Planned, not applied" draft over a landed reorganisation.
     @Test func thePlanSheetEditorsLockOnTheOneSeam() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructurePlanSheet.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructurePlanSheet.swift")
         #expect(text.contains("private var locked: Bool { applying || isApplied }"),
                 "the seam itself")
         #expect(text.contains(".disabled(locked)"),

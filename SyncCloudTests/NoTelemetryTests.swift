@@ -150,8 +150,8 @@ import Testing
     }
 
     /// The shipped app links no third-party code. `project.yml` is the app target's only package
-    /// list, and every entry is a `path:` to a module here. The repo's remote packages are
-    /// snapshot-testing dependencies used only by module test targets. A `url:` here would give the
+    /// list, and every entry is a `path:` to a module here. The repo's remote packages are pinned in
+    /// those modules' own manifests. A `url:` here would give the
     /// app a dependency nobody in this repository reviews.
     @Test func theAppTargetLinksOnlyLocalPackages() throws {
         let yaml = try #require(

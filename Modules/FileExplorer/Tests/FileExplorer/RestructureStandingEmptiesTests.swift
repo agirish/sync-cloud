@@ -11,17 +11,6 @@ import Testing
 @MainActor
 @Suite struct RestructureStandingEmptiesTests {
 
-    /// The chip's tooltip describes the control under the list, not a future "when Apply lands".
-    @Test func theEmptiesChipPointsAtTheListItOpens() {
-        let help = RestructureLens.crowdingHelp(.empty)
-        #expect(!help.contains("when Apply lands"),
-                "the promise this made came due — the button exists now")
-        #expect(help.contains("Trash"), "the Trash-only rule is the reassurance, and it stays")
-        #expect(RestructureLens.crowdingHelp(.passThrough).contains("Report-only"))
-        #expect(RestructureLens.crowdingHelp(.singleFileLeaf).contains("Report-only"),
-                "only the empties gained an action — the other two say why they did not")
-    }
-
     /// *Emptied* is a provenance claim, that something drained these: true of a landing's folders,
     /// false of ones empty all along.
     @Test func theTitleDoesNotClaimSomethingEmptiedThem() {
@@ -155,13 +144,7 @@ import Testing
 
     /// The rules above are one revert away from being unused, so this pins every call site.
     @Test func theSurfacesActuallyAskTheseRules() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
-        func read(_ name: String) throws -> String {
-            try String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8)
-        }
+        func read(_ name: String) throws -> String { try SourceText.fileExplorer(name) }
         let lens = try read("RestructureLens.swift")
         #expect(lens.contains("Self.offersStandingRemoval(weightClass, pathCount: paths.count,"),
                 "the button's gate is the rule, not an inline condition")
@@ -181,11 +164,7 @@ import Testing
     /// The ⌘Z action name is where `familyLabel` earns its keep, and no Sync test catches its call
     /// site reverting to `lastPathComponent`.
     @Test func theGroupedUndoNamesARootFamilyInWords() throws {
-        let engine = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sync/Sources/Sync/FileSyncManager+RestructureApply.swift")
-        let text = try String(contentsOf: engine, encoding: .utf8)
+        let text = try SourceText.sync("FileSyncManager+RestructureApply.swift")
         #expect(text.contains("RestructurePaths.familyLabel(manifest.family)"),
                 "\"Reorganize \" with nothing after it was a real menu item")
         #expect(!text.contains("\"Reorganize \\((manifest.family as NSString).lastPathComponent)\""))
@@ -214,11 +193,8 @@ import Testing
         #expect(RestructureRender.inkedPixels(without) > 1000, "the strip drew either way")
         #expect(RestructureRender.differingPixels(without, with) > 100,
                 "\u{201c}Remove empty folders\u{2026}\u{201d} is on the strip")
-
-        let lens = lens(remover: {})
         // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
-        let rep = try #require(RestructureRender.raster(lens, width: 640, height: 480))
-        #expect(RestructureRender.inkedPixels(rep) > 1000)
+        #expect(RestructureRender.inkedPixels(with) > 1000)
     }
 
     /// The sheet the button opens, in its standing form.

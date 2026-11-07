@@ -39,19 +39,6 @@ import FileExplorerTestSupport
 
     private func stamp(_ file: String) -> EditorFileStore.Stamp? { EditorFileStore.stamp(ofPath: file) }
 
-    /// The original's bytes, and its date set into the past so a write this second can't hide.
-    private func pin(_ file: String) throws -> (Data, Date) {
-        let past = Date(timeIntervalSince1970: 1_600_000_000)
-        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file)
-        return (try Data(contentsOf: URL(fileURLWithPath: file)), past)
-    }
-
-    private func expectUntouched(_ file: String, _ original: (Data, Date), _ label: String) throws {
-        #expect(try Data(contentsOf: URL(fileURLWithPath: file)) == original.0, "\(label): the original's bytes changed")
-        let modified = try FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date
-        #expect(modified == original.1, "\(label): the original's date moved")
-    }
-
     /// Runs one tool from a request and hands back its ending, the model, and how often it asked.
     private func run(_ tool: EditorPDFTool, on file: String, folder: String? = nil,
                      expecting: EditorFileStore.Stamp?? = nil, allow: Bool = true,
@@ -103,7 +90,7 @@ import FileExplorerTestSupport
         case .removePassword: PDFFixtures.writeLocked(file, password: "pw", pages: 3)
         default: PDFFixtures.write(file, pages: 3)
         }
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         var reread: [String] = []
         let model = PanePDFTools()
         model.host = PanePDFToolHost(didWrite: { reread.append($0) })
@@ -121,7 +108,7 @@ import FileExplorerTestSupport
         #expect(tools.sheet == nil, "\(whole): a sheet was raised")
         #expect(tools.banner == nil, "\(whole): the ending is on the banner the pane posts")
         #expect(reread == [copy], "\(whole): the panes were not told about the copy")
-        try expectUntouched(file, original, "\(whole)")
+        try original.expectUntouched(file, "\(whole)")
     }
 
     /// A file that changed since it was chosen is left alone, in words that promise no reload,
@@ -129,7 +116,7 @@ import FileExplorerTestSupport
     @Test func aFileChangedSinceItWasChosenIsLeftAlone() async throws {
         let file = path("Changed.pdf")
         PDFFixtures.write(file, pages: 2)
-        _ = try pin(file)
+        _ = try RestPinnedOriginal(file)
         let chosen = stamp(file)
         try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file)
         let (result, _, _) = await run(.rotate(pages: [0, 1], quarterTurns: 1), on: file, expecting: chosen)
@@ -211,7 +198,7 @@ import FileExplorerTestSupport
     @Test func aBatchFromARequestKeepsEachStampAndSkipsAChangedFile() async throws {
         let paths = ["Jan.pdf", "Feb.pdf", "Mar.pdf"].map { path($0) }
         for file in paths { PDFFixtures.write(file, pages: 2) }
-        for file in paths { _ = try pin(file) }
+        for file in paths { _ = try RestPinnedOriginal(file) }
         var expected: [String: EditorFileStore.Stamp] = [:]
         for file in paths { expected[file] = stamp(file) }
         try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: paths[1])

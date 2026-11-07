@@ -45,7 +45,7 @@ import FileExplorerTestSupport
     /// the source, because a SwiftUI list's focus and keys can't be driven from `swift test`.
     @Test func bothListsTakeTheKeys() throws {
         for file in ["EditorFileRailView.swift", "EditorRailOutlineList.swift"] {
-            let source = try EditorRailRowMenuTests.source(file)
+            let source = try SourceText.fileExplorer(file)
             #expect(source.contains(".focusable()") && source.contains(".focusEffectDisabled()"),
                     "\(file): the list cannot take focus, or draws the system's ring")
             #expect(source.contains(".onKeyPress(keys: EditorRailKeyboard.arrows, phases: [.down, .repeat])")
@@ -54,7 +54,7 @@ import FileExplorerTestSupport
             #expect(source.contains("guard press.isPlainKeystroke"), "\(file): a chord moves the cursor")
             #expect(source.contains("EditorRailFocusRing(isOn:"), "\(file): no focus ring in the hue")
         }
-        let files = try EditorRailRowMenuTests.source("EditorFileRailView.swift")
+        let files = try SourceText.fileExplorer("EditorFileRailView.swift")
         // Both fields' ↩: the name filter's alone, and the one with the Names | Contents switch,
         // whose Names side hands it back here.
         #expect(files.contains(".onSubmit(openFirstMatch)") && files.contains("onSubmitNames: openFirstMatch")
@@ -94,6 +94,7 @@ import FileExplorerTestSupport
                 "a remembered Outline drew an empty tab on a .txt")
         #expect(EditorRailTab.resolved(.outline, pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true) == .outline,
                 "the tab did not come back with a Markdown note")
+        #expect(EditorRailTab.files.title == "Files")
     }
 
     /// The workspace says which, from the document: a note that was read, not a `.txt`, a refused
@@ -103,7 +104,7 @@ import FileExplorerTestSupport
         #expect(EditorWorkspaceView.markdownIsOpen(try TestTextFiles.document(named: "plan.md")))
         #expect(!EditorWorkspaceView.markdownIsOpen(try TestTextFiles.document(named: "notes.txt")))
         #expect(!EditorWorkspaceView.markdownIsOpen(EditorDocument()))
-        let workspace = try EditorRailRowMenuTests.source("EditorWorkspaceView.swift")
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         #expect(workspace.contains("markdownIsOpen: Self.markdownIsOpen(document),"),
                 "the rail is not told whether a note is open")
         #expect(workspace.contains("document.isMarkdown && document.refusal == nil"))
@@ -156,14 +157,14 @@ import FileExplorerTestSupport
     /// the PDF card in place of a sentence sending the reader to a pane. Read from the source, since
     /// a button in a hosted card can't be pressed from `swift test`.
     @Test func bothCardsDrawTheDownload() throws {
-        let workspace = try EditorRailRowMenuTests.source("EditorWorkspaceView.swift")
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         // The text card's buttons under a refusal: Download first for a cloud refusal.
         #expect(EditorWorkspaceView.refusalButtons(for: try #require(BoundedTextRead.Outcome.cloudOnly.caption),
                                                    canTryAgain: false).first == .download)
         #expect(workspace.contains("caption(refused, refusalButtons: Self.refusalButtons(for: refused, canTryAgain: onTryAgain != nil),")
                     && workspace.contains("Self.downloadButton(accent: accent, action: { railRowActions.download(path) })"),
                 "the text card's cloud refusal has no Download, or it downloads something else")
-        let pdf = try EditorRailRowMenuTests.source("EditorPDFCard.swift")
+        let pdf = try SourceText.fileExplorer("EditorPDFCard.swift")
         #expect(pdf.contains("} else if reason == EditorPDFDocument.notDownloadedReason, let path = pdf.path {")
                     && pdf.contains("EditorWorkspaceView.downloadButton(accent: accent) { download(path) }"),
                 "the PDF card's cloud refusal has no Download")

@@ -25,6 +25,18 @@ import AppKit
     /// A text view set up as ``PlainTextEditor/makeNSView(context:)`` sets one up, around a storage
     /// the buffer follows, with the coordinator as its delegate, in a window: `insertText` on a
     /// detached view is not a reliable stand-in for typing.
+    /// A plain, editable, undoable text view in a 400×300 scroll view added to `window`.
+    private func textView(in window: NSWindow) -> NSTextView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        window.contentView?.addSubview(scroll)
+        let view = scroll.documentView as! NSTextView
+        view.isRichText = false
+        view.allowsUndo = true
+        view.isEditable = true
+        return view
+    }
+
     private func hosted(_ initial: String) -> Hosted {
         let buffer = EditorBuffer()
         buffer.text = initial
@@ -36,13 +48,7 @@ import AppKit
                                                       onSelectionChange: { _ in })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.isRichText = false
-        view.allowsUndo = true
-        view.isEditable = true
+        let view = textView(in: window)
         view.font = PlainTextEditor.font(scale: 1)
         PlainTextEditor.show(source, in: view)
         coordinator.textView = view
@@ -281,13 +287,7 @@ import AppKit
         spin()
 
         // The mode switch: a second view over the same storage, on screen and composing.
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        rig.window.contentView?.addSubview(scroll)
-        let live = scroll.documentView as! NSTextView
-        live.isRichText = false
-        live.allowsUndo = true
-        live.isEditable = true
+        let live = textView(in: rig.window)
         PlainTextEditor.show(rig.source, in: live)
         live.delegate = rig.coordinator
         rig.view.enclosingScrollView?.removeFromSuperview()

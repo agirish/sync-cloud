@@ -40,26 +40,12 @@ import Sync
                                scanTargetFolder: "/root/Documents", onFindDuplicates: {},
                                onBuildStorage: {})
             .defaultAppStorage(defaults)
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            // Behind the lens, not over it: anything the placeholder fills hides this.
-            .background(Color(red: 1, green: 0, blue: 1))
-            .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        // Without a real window the content composites against the borderless window's own
-        // buffer and every comparison reads as zero difference.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
+        // Behind the lens, not over it: anything the placeholder fills hides the magenta.
+        let (host, window) = ReviewLensHost.mount(subject, size: Self.canvas, appearance: appearance,
+                                                  background: Color(red: 1, green: 0, blue: 1), passes: 2)
 
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: Self.contentBand))
-        host.cacheDisplay(in: Self.contentBand, to: rep)
+        withExtendedLifetime(window) { host.cacheDisplay(in: Self.contentBand, to: rep) }
 
         var painted = 0
         for y in 0..<rep.pixelsHigh {
@@ -72,21 +58,14 @@ import Sync
         return painted
     }
 
-    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
-    func theDuplicateScanScreenPaintsNoCardOfItsOwn(appearance: NSAppearance.Name) throws {
-        let painted = try paintedInBand(lens: .duplicates, chip: .duplicates, appearance: appearance) {
-            $0.isFindingDuplicates = true
-        }
-        #expect(painted > 2_000, "\(appearance.rawValue): duplicate scan screen painted almost nothing (\(painted) px)")
-        #expect(painted < 40_000, "\(appearance.rawValue): duplicate scan screen is painting a fill (\(painted) px)")
-    }
+    enum Scan: Sendable { case duplicates, files }
 
-    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
-    func theFileScanScreenPaintsNoCardOfItsOwn(appearance: NSAppearance.Name) throws {
-        let painted = try paintedInBand(lens: .filing, chip: .toFile, appearance: appearance) {
-            $0.isSuggestingFiles = true
-        }
-        #expect(painted > 2_000, "\(appearance.rawValue): file scan screen painted almost nothing (\(painted) px)")
-        #expect(painted < 40_000, "\(appearance.rawValue): file scan screen is painting a fill (\(painted) px)")
+    @Test(arguments: [Scan.duplicates, .files], [NSAppearance.Name.aqua, .darkAqua])
+    func theScanScreenPaintsNoCardOfItsOwn(_ scan: Scan, appearance: NSAppearance.Name) throws {
+        let painted = try scan == .duplicates
+            ? paintedInBand(lens: .duplicates, chip: .duplicates, appearance: appearance) { $0.isFindingDuplicates = true }
+            : paintedInBand(lens: .filing, chip: .toFile, appearance: appearance) { $0.isSuggestingFiles = true }
+        #expect(painted > 2_000, "\(appearance.rawValue): \(scan) scan screen painted almost nothing (\(painted) px)")
+        #expect(painted < 40_000, "\(appearance.rawValue): \(scan) scan screen is painting a fill (\(painted) px)")
     }
 }

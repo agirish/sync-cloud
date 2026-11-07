@@ -10,14 +10,7 @@ import Foundation
 /// dialog is wired to it, not that macOS presents the dialog, which would pin SwiftUI instead.
 @Suite struct AutomationRuleDeleteConfirmTests {
 
-    private static func lensSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // …/Tests/FileExplorer
-            .deletingLastPathComponent()      // …/Tests
-            .deletingLastPathComponent()      // …/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/AutomationsLens.swift")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
+    private static func lensSource() throws -> String { try SourceText.fileExplorer("AutomationsLens.swift") }
 
     /// The card's Delete must ask, not remove. Both halves are asserted, because either alone
     /// passes on a rename.
@@ -32,13 +25,11 @@ import Foundation
     /// And exactly one call site actually removes, reached from the dialog's destructive button.
     @Test func theOnlyRemovalIsTheConfirmedOne() throws {
         let source = try Self.lensSource()
-        let calls = source.components(separatedBy: "syncManager.removeAutomationRule").count - 1
+        let calls = SourceText.codeOnly(source).components(separatedBy: "syncManager.removeAutomationRule").count - 1
         #expect(calls == 1, "expected one removal call site, found \(calls)")
 
-        let dialog = try #require(source.range(of: "confirmationDialog("),
-                                  "no confirmation dialog is wired in this lens")
-        let after = source[dialog.upperBound...]
-        let block = String(after.prefix(1200))
+        // From the dialog to the end of the member that attaches it, not a fixed window.
+        let block = try SourceText.body(of: "confirmationDialog(", in: source)
         #expect(block.contains("rulePendingDeletion"), "the dialog is not bound to the pending rule")
         #expect(block.contains("role: .destructive"),
                 "the confirm button is not marked destructive, so it does not read as one")

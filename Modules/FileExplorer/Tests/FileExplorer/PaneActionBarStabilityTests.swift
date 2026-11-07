@@ -12,7 +12,7 @@ import Design
 /// frame, and only a real render shows the twin and the visible text agree. A width constant would
 /// just re-assert itself.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneActionBarStabilityTests {
+@Suite(.serialized) struct PaneActionBarStabilityTests {
 
     private static let width: CGFloat = 900
     private static let height: CGFloat = 60
@@ -43,24 +43,8 @@ import Design
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-
-        // A real (never ordered-in) window, not a bare hosting view. Without one the layer gets no
-        // backing store and `cacheDisplay` returns a blank rep, so every comparison matches and the
-        // suite passes vacuously (`testTheComparisonCanActuallyFail` catches that).
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-
-        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        // A blank rep would make every comparison match (`testTheComparisonCanActuallyFail`).
+        return PixelDiff.render(subject, size: size)!
     }
 
     /// True when two renders are identical over a horizontal slice, given as fractions of the width.
@@ -79,7 +63,7 @@ import Design
     /// The widest summary swing the bar can realistically show must leave every button where it
     /// was. The compared slice starts past the reserved summary zone, so the differing text can't
     /// mask a difference or manufacture one.
-    @Test func testButtonsHoldStillAcrossTheFullSummarySwing() {
+    @Test(.machinePinned(.pixelSampling)) func testButtonsHoldStillAcrossTheFullSummarySwing() {
         let summaries = [
             "1 selected",                 // no size at all — the shortest the bar ever shows
             "1 selected · 10.7 MB",       // a typical size
@@ -96,7 +80,7 @@ import Design
 
     /// Guards the guard: if the compared slice were blank or the renders degenerate, the test above
     /// would pass no matter what. Two genuinely different bars must not match over the same slice.
-    @Test func testTheComparisonCanActuallyFail() {
+    @Test(.machinePinned(.pixelSampling)) func testTheComparisonCanActuallyFail() {
         let withCompare = render(bar(summary: "1 selected · 10.7 MB", showsCompare: true))
         let without = render(bar(summary: "1 selected · 10.7 MB", showsCompare: false))
         #expect(regionMatches(withCompare, without, from: 0.35, to: 1.0) == false,

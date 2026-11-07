@@ -51,16 +51,7 @@ import Sync
     private func open(pages: Int) async throws -> EditorPDFDocument {
         let file = (folder as NSString).appendingPathComponent("Lease \(UUID().uuidString).pdf")
         PDFFixtures.write(file, pages: pages)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        var phases: [EditorPDFDocument.Phase] = []
-        pdf.onLoaded = { phases.append($0) }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where phases.isEmpty {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(phases.first == .open)
-        return pdf
+        return try await PDFFixtures.openedWhenLoaded(file, defaults: defaults)
     }
 
     private func size<V: View>(_ view: V, scale: CGFloat = 1) -> CGSize {
@@ -266,23 +257,33 @@ import Sync
                                             capsule: CGSize(width: 253, height: 28), capsulePlace: .topLeading)
         #expect(!narrow.capsule.insetBy(dx: 0.5, dy: 0.5).intersects(narrow.saveStack), "\(narrow.capsule) over the pill")
         #expect(!narrow.capsule.insetBy(dx: 0.5, dy: 0.5).intersects(narrow.palette), "\(narrow.capsule) over the palette")
-        let capsule = (row: CGSize(width: 253, height: 28), upright: CGSize(width: 44, height: 181))
-        for canvas in [CGSize(width: 368, height: 420), CGSize(width: 368, height: 520),
-                       CGSize(width: 700, height: 460), CGSize(width: 1000, height: 400)] {
-            for find in [CGSize.zero, CGSize(width: 250, height: 28)] {
-                for pill in [CGSize.zero, CGSize(width: 281, height: 30)] {
+        expectNoOverlap(canvases: [CGSize(width: 368, height: 420), CGSize(width: 368, height: 520),
+                                   CGSize(width: 700, height: 460), CGSize(width: 1000, height: 400)],
+                        find: CGSize(width: 250, height: 28), pill: CGSize(width: 281, height: 30),
+                        palette: (row: CGSize(width: 308, height: 36), column: CGSize(width: 36, height: 308)),
+                        capsule: (row: CGSize(width: 253, height: 28), upright: CGSize(width: 44, height: 181)))
+    }
+
+    /// Every place of the palette and the capsule on each canvas, with and without the find card
+    /// and the pill: no two pieces shown overlap.
+    private func expectNoOverlap(canvases: [CGSize], find card: CGSize, pill stack: CGSize,
+                                 palette: (row: CGSize, column: CGSize), capsule: (row: CGSize, upright: CGSize),
+                                 sourceLocation: SourceLocation = #_sourceLocation) {
+        for canvas in canvases {
+            for find in [CGSize.zero, card] {
+                for pill in [CGSize.zero, stack] {
                     for palettePlace in EditorPDFCapsulePlace.allCases {
                         for capsulePlace in EditorPDFCapsulePlace.allCases {
                             let frames = EditorPDFReader.layout(
                                 canvas: canvas, findCard: find, saveStack: pill,
-                                palette: palettePlace.isVertical ? CGSize(width: 36, height: 308) : CGSize(width: 308, height: 36),
-                                palettePlace: palettePlace,
+                                palette: palettePlace.isVertical ? palette.column : palette.row, palettePlace: palettePlace,
                                 capsule: capsulePlace.isVertical ? capsule.upright : capsule.row, capsulePlace: capsulePlace)
                             let shown = [frames.findCard, frames.saveStack, frames.palette, frames.capsule].filter { !$0.isEmpty }
                             for (i, a) in shown.enumerated() {
                                 for b in shown.dropFirst(i + 1) {
                                     #expect(!a.insetBy(dx: 0.5, dy: 0.5).intersects(b),
-                                            "\(canvas) palette \(palettePlace), capsule \(capsulePlace), find \(find != .zero), pill \(pill != .zero): \(a) overlaps \(b)")
+                                            "\(canvas) palette \(palettePlace), capsule \(capsulePlace), find \(find != .zero), pill \(pill != .zero): \(a) overlaps \(b)",
+                                            sourceLocation: sourceLocation)
                                 }
                             }
                         }
@@ -297,28 +298,9 @@ import Sync
     /// pill clears the find card, the palette both, the capsule all.
     @Test func noTwoFloatingPiecesOverlapAtAnyPlaces() {
         let capsule = CGSize(width: 300, height: 30), palette = (row: CGSize(width: 330, height: 38), column: CGSize(width: 38, height: 330))
-        for canvas in [CGSize(width: 1000, height: 760), CGSize(width: 900, height: 520)] {
-            for find in [CGSize.zero, CGSize(width: 330, height: 32)] {
-                for pill in [CGSize.zero, CGSize(width: 300, height: 30)] {
-                    for palettePlace in EditorPDFCapsulePlace.allCases {
-                        for capsulePlace in EditorPDFCapsulePlace.allCases {
-                            let frames = EditorPDFReader.layout(
-                                canvas: canvas, findCard: find, saveStack: pill,
-                                palette: palettePlace.isVertical ? palette.column : palette.row, palettePlace: palettePlace,
-                                capsule: capsulePlace.isVertical ? CGSize(width: capsule.height, height: capsule.width) : capsule,
-                                capsulePlace: capsulePlace)
-                            let shown = [frames.findCard, frames.saveStack, frames.palette, frames.capsule].filter { !$0.isEmpty }
-                            for (i, a) in shown.enumerated() {
-                                for b in shown.dropFirst(i + 1) {
-                                    #expect(!a.insetBy(dx: 0.5, dy: 0.5).intersects(b),
-                                            "\(canvas) palette \(palettePlace), capsule \(capsulePlace), find \(find != .zero), pill \(pill != .zero): \(a) overlaps \(b)")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        expectNoOverlap(canvases: [CGSize(width: 1000, height: 760), CGSize(width: 900, height: 520)],
+                        find: CGSize(width: 330, height: 32), pill: CGSize(width: 300, height: 30), palette: palette,
+                        capsule: (row: capsule, upright: CGSize(width: capsule.height, height: capsule.width)))
         // The capsule is the one that gives way: at the left with the palette, the palette stays.
         let canvas = CGSize(width: 1000, height: 760)
         let shared = EditorPDFReader.layout(canvas: canvas, findCard: .zero, saveStack: .zero,
@@ -390,15 +372,7 @@ import Sync
     @Test func theNoteCardShowsWithOrWithoutThePill() async throws {
         let file = folder + "/1040.pdf"
         try PDFFixtures.writeXFAForm(file)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        var phases: [EditorPDFDocument.Phase] = []
-        pdf.onLoaded = { phases.append($0) }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where phases.isEmpty {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(phases.first == .open)
+        let pdf = try await PDFFixtures.openedWhenLoaded(file, defaults: defaults)
         func stack() -> CGSize { size(EditorPDFFillSaveStack(fill: pdf.fill, tools: pdf.tools)) }
         #expect(stack() == .zero, "the card is up with Fill & Sign off")
         pdf.fill.toggle()

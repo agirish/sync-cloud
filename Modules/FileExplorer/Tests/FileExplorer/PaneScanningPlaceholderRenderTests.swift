@@ -14,32 +14,13 @@ import Sync
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct PaneScanningPlaceholderRenderTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private var scanningPane: FileTreeView {
         FileTreeView(
             tree: PaneTree(side: .left, version: 0, nodes: []),
             otherTree: PaneTree(side: .right, version: 0, nodes: []),
             isLoading: true, currentPath: "/root",
             selection: .constant([]), otherSelection: [],
-            isLeft: true, delegate: StubDelegate(),
+            isLeft: true, delegate: NoOpFileActionDelegate(),
             rootPathIsValid: true, providerIsEnabled: true,
             hasOnlyHiddenEntries: false, rootPath: "/root"
         )
@@ -59,19 +40,7 @@ import Sync
             // Behind the pane, not in front: anything the placeholder fills covers this.
             .background(Color(red: 1, green: 0, blue: 1))
             .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(
-            contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try #require(PixelDiff.render(subject, size: size, appearance: appearance))
 
         var painted = 0
         for y in 0..<rep.pixelsHigh {

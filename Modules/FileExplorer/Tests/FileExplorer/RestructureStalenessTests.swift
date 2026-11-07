@@ -61,29 +61,20 @@ import Testing
     /// trap this rule exists for. Pinned at the call site, because the rule can't say where its
     /// answer is used.
     @Test func onlyTheGlyphTakesTheCaution() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
-        let note = try #require(text.range(of: "private var surveyNote: some View {"))
-        let body = String(text[note.lowerBound...].prefix(1800))
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
+        let body = try SourceText.block(opening: "private var surveyNote: some View {", in: text)
         let image = try #require(body.range(of: "Image(systemName: stale"))
         let orange = try #require(body.range(of: "AnyShapeStyle(.orange)"))
         let sentence = try #require(body.range(of: "Text(Self.surveyNoteText("))
         #expect(orange.lowerBound > image.lowerBound && orange.lowerBound < sentence.lowerBound,
                 "the tint belongs to the glyph, above the sentence")
-        #expect(!body[sentence.lowerBound...].prefix(300).contains(".orange"),
+        #expect(!SourceText.normalized(String(body[sentence.lowerBound...].prefix(300))).contains(".orange"),
                 "the sentence keeps its ordinary colour")
     }
 
     /// A caution with nothing to do about it is one people learn to scroll past.
     @Test func theRemedySitsBesideTheWarning() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
         #expect(text.contains("if stale, let onUpdateSurvey {"),
                 "the Rescan link appears with the caution and not otherwise")
     }

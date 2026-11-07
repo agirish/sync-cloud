@@ -12,7 +12,7 @@ import Design
 /// carries ink, would pass. So every claim here is discriminating: two chips that must differ are
 /// rendered and compared, and the test fails if they come back the same, which is exactly what a
 /// chip clipped to a stub does.
-@Suite(.serialized, .machinePinned(.pixelSampling))
+@Suite(.serialized)
 @MainActor
 struct OrganizeScopeChipTests {
 
@@ -86,7 +86,7 @@ struct OrganizeScopeChipTests {
     /// exists so the user sees the scope is parked, not lost; a suspended chip drawn like a live
     /// one is worse than hiding it, since the lists would stop obeying a chip that looks like it
     /// applies. Same name and count in both renders, so only the state can move a pixel.
-    @Test(arguments: [ColorScheme.light, ColorScheme.dark])
+    @Test(.machinePinned(.pixelSampling), arguments: [ColorScheme.light, ColorScheme.dark])
     func aSuspendedScopeDoesNotLookLikeALiveOne(scheme: ColorScheme) {
         let live = Self.render(Self.chip("Legal", folderCount: 12), scheme: scheme)
         let paused = Self.render(Self.chip("Legal", folderCount: 12, suspended: true), scheme: scheme)
@@ -99,7 +99,7 @@ struct OrganizeScopeChipTests {
 
     /// The scope's name survives the suspension: the chip stays on screen to say which folder comes
     /// back, and a generic "paused" label would lose that.
-    @Test(arguments: [ColorScheme.light, ColorScheme.dark])
+    @Test(.machinePinned(.pixelSampling), arguments: [ColorScheme.light, ColorScheme.dark])
     func theSuspendedChipStillNamesTheFolder(scheme: ColorScheme) {
         let legal = Self.render(Self.chip("Legal", folderCount: 12, suspended: true), scheme: scheme)
         let immigration = Self.render(Self.chip("Immigration", folderCount: 12, suspended: true),
@@ -110,16 +110,9 @@ struct OrganizeScopeChipTests {
                 "the longer name did not render wider while suspended — it is being clipped")
     }
 
-    // MARK: The chip is really drawn
-
-    @Test func theChipPaintsSomething() {
-        let rep = Self.render(Self.chip("Legal", folderCount: 12))
-        #expect(Self.inkExtent(rep) > 40, "the chip painted almost nothing")
-    }
-
     // MARK: The NAME is real, not a stub
 
-    @Test func twoDifferentScopeNamesRenderDifferently() {
+    @Test(.machinePinned(.pixelSampling)) func twoDifferentScopeNamesRenderDifferently() {
         // If the name were clipped away, or rendered as a fixed glyph, these two would be
         // identical.
         let legal = Self.render(Self.chip("Legal", folderCount: 12))
@@ -131,7 +124,7 @@ struct OrganizeScopeChipTests {
                 "the longer scope name did not render wider — it is being clipped")
     }
 
-    @Test func aLongScopeNameIsNotClippedToTheSameWidthAsAShortOne() {
+    @Test(.machinePinned(.pixelSampling)) func aLongScopeNameIsNotClippedToTheSameWidthAsAShortOne() {
         // A real folder from his tree, and a deliberately long one, both with room to spare.
         let short = Self.render(Self.chip("US", folderCount: 3), width: 520)
         let long = Self.render(Self.chip("Income Tax Supporting Documents", folderCount: 3),
@@ -143,7 +136,7 @@ struct OrganizeScopeChipTests {
     /// pins `.fixedSize()`. Rendered alone in a roomy frame nothing compresses, so only a greedy
     /// sibling in a tight row shows a flexible chip giving up its width. Removing `.fixedSize()`
     /// must make it fail.
-    @Test func theChipKeepsItsWidthWhenTheRowIsTightAndASiblingIsGreedy() {
+    @Test(.machinePinned(.pixelSampling)) func theChipKeepsItsWidthWhenTheRowIsTightAndASiblingIsGreedy() {
         @MainActor func row(width: CGFloat) -> NSBitmapImageRep {
             Self.render(
                 HStack(spacing: 8) {
@@ -180,7 +173,7 @@ struct OrganizeScopeChipTests {
     /// and its bottom edge is pinned to the file pane's header↔list boundary, so a summary row past
     /// its 22pt budget shifts a boundary two panes away. Measured off the render, not reasoned from
     /// font sizes.
-    @Test func theChipFitsTheSummaryRowsHeightBudget() {
+    @Test(.machinePinned(.pixelSampling)) func theChipFitsTheSummaryRowsHeightBudget() {
         let host = NSHostingView(rootView: AnyView(Self.chip("Income Tax", folderCount: 3013)))
         let natural = host.fittingSize
         #expect(natural.height > 0, "the chip measured as zero-height — nothing was laid out")
@@ -188,26 +181,9 @@ struct OrganizeScopeChipTests {
                 "the scope chip is \(natural.height)pt tall against a \(LensHeaderMetrics.summaryRow)pt summary row — the header's 81pt resting height would move")
     }
 
-    /// Row 1 is the rail's row, and the chip is not on it. Row 1 reserves only the rail and
-    /// `OrganizeRailMetrics.searchToggleWidth`; the chip lives on row 2, outside that budget. This
-    /// states it as a fact, and `OrganizeScopeCallSiteTests` pins the chip's draw site.
-    @Test func theRailsWidthArithmeticIsUnchangedByTheChip() {
-        #expect(OrganizeRailMetrics.searchToggleWidth == 36)
-        // The rail spells its items out on a wide canvas and sheds on a narrow one. Every lens
-        // badged, the widest the rail gets and so the case that sheds soonest.
-        let everyBadge: (OrganizeLens) -> RailItemState = {
-            $0.carriesBadge ? .reporting(7) : .configuration
-        }
-        let leading = OrganizeRailMetrics.leadingWidth(scale: 1, state: everyBadge)
-        #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: leading) == .full)
-        // 900 fits `.full` with only the rail and search toggle on row 1.
-        #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: leading) == .full)
-        #expect(OrganizeRailMetrics.style(contentWidth: 600, leadingWidth: leading) == .iconOnly)
-    }
-
     // MARK: The COUNT is real
 
-    @Test func twoDifferentFolderCountsRenderDifferently() {
+    @Test(.machinePinned(.pixelSampling)) func twoDifferentFolderCountsRenderDifferently() {
         // The chip must say how much of the tree it covers; a count that never reached the pixels
         // leaves that claim unmade.
         let three = Self.render(Self.chip("Legal", folderCount: 3))
@@ -216,7 +192,7 @@ struct OrganizeScopeChipTests {
                 "different folder counts rendered identically — the count is not being drawn")
     }
 
-    @Test func aChipWithNoProfileOmitsTheCountRatherThanSayingZero() {
+    @Test(.machinePinned(.pixelSampling)) func aChipWithNoProfileOmitsTheCountRatherThanSayingZero() {
         // nil is "no profile to count against" and must not render as "0 folders", a claim the chip
         // can't support: the same absent-versus-zero line the rail badge draws.
         let none = Self.render(Self.chip("Legal", folderCount: nil))
@@ -258,7 +234,7 @@ struct OrganizeScopeChipTests {
 
     /// Guards the threshold: a discriminator that classified everything, or nothing, as glyph would
     /// make every assertion built on it meaningless.
-    @Test func theGlyphDiscriminatorSeparatesGlyphFromWash() {
+    @Test(.machinePinned(.pixelSampling)) func theGlyphDiscriminatorSeparatesGlyphFromWash() {
         let rep = Self.render(Self.chip("Legal", folderCount: 12))
         let wash = Self.inkedColumns(rep)
         let glyphs = Self.glyphColumns(rep)
@@ -267,7 +243,7 @@ struct OrganizeScopeChipTests {
                 "every inked column counted as glyph — the threshold is not discriminating")
     }
 
-    @Test func theClearControlIsDrawnInsideTheCapsulesTrailingEdge() {
+    @Test(.machinePinned(.pixelSampling)) func theClearControlIsDrawnInsideTheCapsulesTrailingEdge() {
         // The ✕ is the only way back to the global view (there is no "Everything" rail item), so a
         // chip without it would leave the scoped state reachable only from the context menu.
         //

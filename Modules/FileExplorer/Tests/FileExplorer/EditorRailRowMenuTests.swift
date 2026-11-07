@@ -173,21 +173,21 @@ import FileExplorerTestSupport
     /// menu is this menu. Read from their source rather than re-typed here, so a rename on either
     /// side fails.
     @Test func theWordsMatchThePaneRowMenuAndTheHeader() throws {
-        let pane = try Self.source("FileTreeView.swift")
+        let pane = try SourceText.fileExplorer("FileTreeView.swift")
         // Download's word is the offer's title for one file; its glyph is the row's item.
         #expect(pane.contains(#"Label(offer.title, systemImage: "icloud.and.arrow.down")"#))
-        #expect(try Self.source("CloudDownloadOffer.swift").contains(#"case .file: return "Download""#))
+        #expect(try SourceText.fileExplorer("CloudDownloadOffer.swift").contains(#"case .file: return "Download""#))
         #expect(pane.contains(#"Label("Get Info", systemImage: "info.circle")"#))
         #expect(pane.contains(#"Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)"#))
         #expect(pane.contains(#"Label("Quick Look", systemImage: "doc.viewfinder")"#))
         #expect(pane.contains(#"Label("Rename", systemImage: "pencil")"#))
         #expect(pane.contains(#"Label(count > 1 ? "Move \(count) Items to Trash…" : "Move to Trash…", systemImage: "trash")"#))
         // Both headers draw this menu, through their own Reveal in Browse door.
-        let workspace = try Self.source("EditorWorkspaceView.swift")
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         #expect(workspace.contains("EditorRailRowMenu(path: path, isCloudOnly: Self.isNotDownloaded(document.refusal),")
                 && workspace.contains("actions: railRowActions.revealing(through: onRevealInBrowse))"),
                 "the text header's file name no longer offers the row's menu")
-        let pdf = try Self.source("EditorPDFCard.swift")
+        let pdf = try SourceText.fileExplorer("EditorPDFCard.swift")
         #expect(pdf.contains("actions: rowActions.revealing(through: onRevealInBrowse))"),
                 "the PDF header's file name no longer offers the row's menu")
         // …and the rail is handed the workspace's actions, not a set of its own.
@@ -224,7 +224,7 @@ import FileExplorerTestSupport
     /// Reveal in Finder's default is Finder, not nothing. It is the one act the host doesn't supply,
     /// so a default of `{ _ in }` would draw the item and do nothing at every real site.
     @Test func revealInFinderDefaultsToFinder() throws {
-        let source = try Self.source("EditorRailRowMenu.swift")
+        let source = try SourceText.fileExplorer("EditorRailRowMenu.swift")
         #expect(source.contains("revealInFinder: @escaping (String) -> Void = EditorRailRowActions.revealInFinder)"),
                 "Reveal in Finder no longer defaults to the Finder reveal")
         #expect(source.contains("NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])"),
@@ -298,18 +298,5 @@ import FileExplorerTestSupport
         host.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
         host.layoutSubtreeIfNeeded()
         return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }.map(\.width)
-    }
-
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // package root
-            .appendingPathComponent("Sources/FileExplorer")
-            .appendingPathComponent(name)
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — this scan would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scan would be near-vacuous")
-        return text
     }
 }

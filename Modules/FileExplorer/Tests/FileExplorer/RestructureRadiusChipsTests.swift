@@ -18,26 +18,21 @@ import Testing
     /// Derived, never pasted: the host builds the info from the manifest rather than the card
     /// estimating from the finding.
     @Test func theCountsComeFromTheManifest() {
-        let info = LensWorkspaceView.plannedInfo(of: Self.manifest([
+        let m = Self.manifest([
             .init(action: .renameDir, src: "F/2013/Federal", dst: "F/2013/Forms",
                   filesCarried: 12),
             .init(action: .moveFile, src: "F/2013/State/a.pdf", dst: "F/2013/Forms/a.pdf"),
             .init(action: .moveFile, src: "F/2013/State/b.pdf", dst: "F/2013/Forms/b.pdf"),
             .init(action: .keep, src: "F/2013/Transcripts"),
-        ]))
+        ])
+        let info = LensWorkspaceView.plannedInfo(of: m)
         // Three, not four: `keep` rows are the manifest's signature block, and counting them
         // would overstate "Review N operations".
         #expect(info.operations == 3)
         #expect(info.renames == 1)
         #expect(info.merges == 1, "one source folder is drained")
         #expect(info.filesMove == 2)
-        #expect(info.summary == RestructureLedger(of: Self.manifest([
-            .init(action: .renameDir, src: "F/2013/Federal", dst: "F/2013/Forms",
-                  filesCarried: 12),
-            .init(action: .moveFile, src: "F/2013/State/a.pdf", dst: "F/2013/Forms/a.pdf"),
-            .init(action: .moveFile, src: "F/2013/State/b.pdf", dst: "F/2013/Forms/b.pdf"),
-            .init(action: .keep, src: "F/2013/Transcripts"),
-        ])).summary, "the sentence and the chips read one ledger")
+        #expect(info.summary == RestructureLedger(of: m).summary, "the sentence and the chips read one ledger")
     }
 
     /// A whole-folder carry is its own word, in the chips and the sentence alike: the ledger
@@ -104,12 +99,7 @@ import Testing
     /// Pins the host's wiring: the derivation is a static function and the render test builds its
     /// own value, so unwiring the host would pass every test above.
     @Test func theHostBuildsEveryCardsInfoFromTheSharedDerivation() throws {
-        let host = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift"),
-            encoding: .utf8)
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("(key.findingId, Self.plannedInfo(of: draft.manifest))"),
                 "every drafted card's chips come from the one derivation")
         // Exactly one construction of the value in the host, the shared derivation; a second
@@ -121,11 +111,7 @@ import Testing
     /// The chips replace the sentence rather than join it: two statements of one cost, one vaguer,
     /// would come to disagree.
     @Test func theCardShowsChipsOrTheSentenceNeverBoth() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
         #expect(text.contains("if let chips = plannedPlans[finding.id]?.radiusChips, !chips.isEmpty"))
         #expect(text.contains("} else if let radius = Self.blastRadius(for: finding) {"),
                 "the sentence is the fallback branch, not a sibling")

@@ -55,14 +55,11 @@ import Testing
     /// The cards never move for it: nothing in the To File list inserts the offer, and it is drawn
     /// only in the panel the message's button opens.
     @Test func theCardsNoLongerHaveTheOfferInsertedAboveThem() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
-        let lens = try String(contentsOf: sources.appendingPathComponent("LensWorkspaceView.swift"), encoding: .utf8)
+        let lens = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(lens.contains("private func filingContent("), "the scan cannot find To File's content — vacuous")
         #expect(!lens.contains("RuleOfferPromptView("), "the offer is drawn in the lens again, above the cards")
         #expect(!lens.contains("RememberOverridePromptView("))
-        let panel = try String(contentsOf: sources.appendingPathComponent("RuleOfferPrompt.swift"), encoding: .utf8)
+        let panel = try SourceText.fileExplorer("RuleOfferPrompt.swift")
         #expect(panel.contains("public struct FilingRuleOfferPanel: View"))
         // The button observes the session itself: the offer arrives after the message, and the
         // window that draws the message owns the session without observing it.
@@ -71,6 +68,5 @@ import Testing
                 "the button no longer observes the session — it would never see the offer arrive")
         // And the offer is tied to the move's message when it is made.
         #expect(lens.contains("RuleOffer(fileName: fileName, proposal: proposal, ridesOn: syncManager.banner?.id)"))
-        #expect(lens.contains("ridesOn: syncManager.banner?.id)"))
     }
 }

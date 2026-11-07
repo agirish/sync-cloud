@@ -148,9 +148,7 @@ import Testing
         #expect(source.components(separatedBy: attach).count - 1 == 2,
                 "copyRow's two branches no longer both attach the gated menu")
         // The only `.contextMenu` in the file's CODE is RowMenu's own (comments may name it).
-        let code = source.split(separator: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let code = SourceText.codeOnly(source)
         #expect(code.components(separatedBy: ".contextMenu").count - 1 == 1,
                 "a .contextMenu is attached outside RowMenu — an ungated menu is back")
     }
@@ -186,14 +184,6 @@ import Testing
     }
 
     private static func cardSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // package root
-            .appendingPathComponent("Sources/FileExplorer/DuplicateGroupCard.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read DuplicateGroupCard.swift — the scan would be vacuous")
-        try #require(text.count > 5_000, "DuplicateGroupCard.swift is implausibly short")
-        return text
+        try SourceText.fileExplorer("DuplicateGroupCard.swift", atLeast: 5_000)
     }
 }

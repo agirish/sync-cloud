@@ -19,7 +19,12 @@ import Sync
     /// `view` at `size` on white, pinned to the light scheme, an active window, and the appearance
     /// given, held in a `ProbeRig` so a test that waits can read the same view again.
     static func rig<V: View>(_ view: V, size: CGSize, appearance: SelectionLensAppearance = probe) -> ProbeRig<AnyView> {
-        ProbeRig(AnyView(view
+        ProbeRig(wrapped(view, size: size, appearance: appearance), size: size)
+    }
+
+    /// `view` framed at `size` on white, in the environment every render here pins.
+    static func wrapped<V: View>(_ view: V, size: CGSize, appearance: SelectionLensAppearance = probe) -> AnyView {
+        AnyView(view
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .background(Color.white)
             .environment(\.selectionLensAppearance, appearance)
@@ -28,7 +33,7 @@ import Sync
             // Pinned, so the machine's own settings cannot decide these tests.
             .environment(\._accessibilityReduceTransparency, false)
             .environment(\._colorSchemeContrast, .standard)
-            .environment(\._accessibilityReduceMotion, false)), size: size)
+            .environment(\._accessibilityReduceMotion, false))
     }
 
     /// Renders `view` at `size` with the probe on, and returns the probe's bounding box in points.
@@ -111,15 +116,7 @@ import Sync
         let size = CGSize(width: 200, height: PaneTabStripLadder.stripHeight)
         let rig = Self.rig(strip(stable(active: 1)), size: size)
         let before = try #require(rig.box(Pixel.lensProbe), "no lens on the chip")
-        rig.host.rootView = AnyView(strip(stable(active: 2))
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-            .background(Color.white)
-            .environment(\.selectionLensAppearance, Self.probe)
-            .environment(\.colorScheme, .light)
-            .environment(\.controlActiveState, .active)
-            .environment(\._accessibilityReduceTransparency, false)
-            .environment(\._colorSchemeContrast, .standard)
-            .environment(\._accessibilityReduceMotion, false))
+        rig.host.rootView = Self.wrapped(strip(stable(active: 2)), size: size)
         let after = rig.box(Pixel.lensProbe)
         #expect(after.map { abs($0.minX - before.minX) <= 1.01 && abs($0.height - before.height) <= 1.01 } == true,
                 "the lens left the chip when another tab was chosen: \(before) → \(String(describing: after))")

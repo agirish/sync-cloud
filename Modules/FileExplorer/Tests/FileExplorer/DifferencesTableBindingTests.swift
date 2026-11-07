@@ -16,8 +16,8 @@ import Sync
 /// shapes. It is a canary for a silent failure: a context menu that never opens and a shortcut that
 /// never fires look exactly like a table nobody right-clicked.
 ///
-/// Each assertion has a control that must come out the other way (no menu attached, no key
-/// handler), so a probe that reported "bound" for everything can't pass.
+/// The menu assertion has a control that must come out the other way (no menu attached), so a
+/// probe that reported "bound" for everything can't pass.
 @MainActor
 @Suite(.serialized) struct DifferencesTableBindingTests {
 
@@ -95,20 +95,8 @@ import Sync
     /// Hosts `view` in a real (never ordered-in) window and lays it out. Borderless and offscreen:
     /// nothing may appear on the machine running the suite.
     private func host(_ view: some View) -> (NSWindow, NSHostingView<AnyView>) {
-        let size = CGSize(width: 700, height: 420)
-        let hostView = NSHostingView(rootView: AnyView(view.frame(width: size.width, height: size.height)))
-        hostView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = hostView
-        hostView.layoutSubtreeIfNeeded()
-        // NSTableView fills its rows off a display pass, not off layout alone.
-        if let rep = hostView.bitmapImageRepForCachingDisplay(in: hostView.bounds) {
-            hostView.cacheDisplay(in: hostView.bounds, to: rep)
-        }
-        hostView.layoutSubtreeIfNeeded()
-        return (window, hostView)
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 700, height: 420), display: true)
+        return (window, host)
     }
 
     private func firstTableView(in view: NSView) -> NSTableView? {
@@ -205,24 +193,6 @@ import Sync
             #expect(recorder.keyModifiers.first?.contains(.command) == true, "grouped=\(grouped)")
             #expect(recorder.keyModifiers.dropFirst().first?.contains(.shift) == true, "grouped=\(grouped)")
             #expect(recorder.keyModifiers.last?.isEmpty == true, "grouped=\(grouped)")
-        }
-    }
-
-    /// The matching control: no `.onKeyPress`, no presses recorded.
-    @Test func aTableWithNoKeyHandlerRecordsNothing() {
-        for grouped in [true, false] {
-            let recorder = Recorder()
-            let (window, hostView) = host(Group { table(grouped: grouped, selection: .constant([])) })
-            guard let table = firstTableView(in: hostView) else {
-                Issue.record("no table for grouped=\(grouped)"); continue
-            }
-            _ = window.makeFirstResponder(table)
-            window.sendEvent(NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
-                windowNumber: window.windowNumber, context: nil,
-                characters: "\u{F703}", charactersIgnoringModifiers: "\u{F703}",
-                isARepeat: false, keyCode: 124)!)
-            #expect(recorder.keyModifiers.isEmpty, "grouped=\(grouped)")
         }
     }
 }

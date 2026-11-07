@@ -985,20 +985,29 @@ enum ReplaceFixtures {
         #expect(fill.unlinkLossNote == EditorPDFFillSign.unlinkLossLine)
         fill.osMajor = 27
         #expect(fill.unlinkLossNote == nil, "said on macOS 27, which keeps them")
-        func drawn() throws -> [NSColor?] {
-            let stack = EditorPDFFillSaveStack(fill: fill, tools: pdf.tools)
-            let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
-            let host = NSHostingView(rootView: stack)
-            host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
-            host.layoutSubtreeIfNeeded()
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
-            return (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
-        }
+        func drawn() throws -> [NSColor?] { Self.everyPixel(try stackPixels(fill, pdf.tools).rep) }
         let on27 = try drawn()
         fill.osMajor = 26
         let on26 = try drawn()
         #expect(on26.count > on27.count, "the card is no taller with the macOS 26 line — the view does not draw it")
+    }
+
+    /// The save stack drawn whole, in a fresh host each time, at the size SwiftUI asks for: a host's
+    /// `fittingSize` comes up short of the card's wrapped lines and clips its last row. With the
+    /// pixels per point.
+    private func stackPixels(_ fill: EditorPDFFillSign, _ tools: EditorPDFTools) throws -> (rep: NSBitmapImageRep, px: CGFloat) {
+        let stack = EditorPDFFillSaveStack(fill: fill, tools: tools)
+        let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
+        let host = NSHostingView(rootView: stack)
+        host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return (rep, CGFloat(rep.pixelsWide) / host.bounds.width)
+    }
+
+    private static func everyPixel(_ rep: NSBitmapImageRep) -> [NSColor?] {
+        (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
     }
 
     /// "Keep comments as comments" is in the note card, bound to the choice, and greyed while a page
@@ -1023,22 +1032,8 @@ enum ReplaceFixtures {
         fill.endEditing()
         try #require(fill.offersKeepingComments, "not offered — this tests nothing")
         #expect(fill.keepCommentsRefusal == nil)
-        // The stack drawn whole, in a fresh host each time, at the size SwiftUI asks for: a host's
-        // `fittingSize` comes up short of the card's wrapped lines and clips its last row.
-        func render() throws -> (NSBitmapImageRep, CGFloat) {
-            let stack = EditorPDFFillSaveStack(fill: fill, tools: pdf.tools)
-            let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
-            let host = NSHostingView(rootView: stack)
-            host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
-            host.layoutSubtreeIfNeeded()
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
-            return (rep, CGFloat(rep.pixelsWide) / host.bounds.width)
-        }
-        func drawn() throws -> [NSColor?] {
-            let (rep, _) = try render()
-            return (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
-        }
+        func render() throws -> (NSBitmapImageRep, CGFloat) { try stackPixels(fill, pdf.tools) }
+        func drawn() throws -> [NSColor?] { Self.everyPixel(try render().0) }
         // The checkbox is the card's last row, bound to the choice: ticked, the card's last 22pt
         // draw differently, under the correction's button, which doesn't change. Measured from the
         // bottom, since the comments' line at the top changes too.
@@ -1121,16 +1116,7 @@ enum ReplaceFixtures {
         #expect(!fill.keepsCommentsOnSave, "kept with a link under a patch to take out")
         #expect(fill.formNotes.contains(EditorPDFComments.commentsFlattenedNote), "the card says they stay comments: \(fill.formNotes)")
         // Greyed and unticked on screen: the reader's tick draws nothing, as the picture case's.
-        func drawn() throws -> [NSColor?] {
-            let stack = EditorPDFFillSaveStack(fill: fill, tools: pdf.tools)
-            let size = NSHostingController(rootView: stack).sizeThatFits(in: CGSize(width: 2000, height: 4000))
-            let host = NSHostingView(rootView: stack)
-            host.frame = CGRect(origin: .zero, size: CGSize(width: size.width.rounded(.up), height: size.height.rounded(.up)))
-            host.layoutSubtreeIfNeeded()
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
-            return (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
-        }
+        func drawn() throws -> [NSColor?] { Self.everyPixel(try stackPixels(fill, pdf.tools).rep) }
         let ticked = try drawn()
         fill.keepsComments = false
         #expect(ticked == (try drawn()), "the greyed checkbox shows the reader's tick, which the save won't follow")
@@ -1287,18 +1273,7 @@ enum ReplaceFixtures {
     // MARK: The pages (TE82)
 
     private func reader(_ pdf: EditorPDFDocument) -> (NSWindow, ReaderPDFView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 700, height: 900))
-        window.contentView = reader
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = pdf.document
-        reader.scaleFactor = 1
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
-        return (window, reader)
+        EditorTestRigs.readerWindow(pdf.document, fill: pdf.fill, size: CGSize(width: 700, height: 900), scale: 1)
     }
 
     /// A click with Replace on the page opens the box over the words under it; a click on a page

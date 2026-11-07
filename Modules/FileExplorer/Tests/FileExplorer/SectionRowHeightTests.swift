@@ -97,18 +97,8 @@ import Testing
                                    "table never produced rows after \(measured.pumps) passes")
         #expect(heights.header == Self.headerRowHeight)
         #expect(heights.data == 20)
-    }
-
-    /// The claim the padding constant's doc rests on: the densities differ in their data rows and
-    /// agree on their header.
-    @Test func theTwoDensitiesAgreeOnTheHeaderAndDisagreeOnTheRow() async throws {
-        let comfortableMeasured = await rowHeights(.comfortable, expectingData: 24)
-        let compactMeasured = await rowHeights(.compact, expectingData: 20)
-        let comfortable = try #require(comfortableMeasured.heights,
-                                       "comfortable never produced rows after \(comfortableMeasured.pumps) passes")
-        let compact = try #require(compactMeasured.heights,
-                                   "compact never produced rows after \(compactMeasured.pumps) passes")
-        #expect(comfortable.header == compact.header)
-        #expect(comfortable.data > compact.data)
+        // The rule the padding constant's doc rests on: the densities agree on their header (both
+        // pinned to `headerRowHeight`) and differ in their data rows, compact below comfortable's 24.
+        #expect(heights.data < 24)
     }
 }

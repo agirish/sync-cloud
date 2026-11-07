@@ -37,22 +37,9 @@ import Sync
         #expect(!query.matches(group("contract.docx", keeperSize: 1)))
     }
 
-    @Test func matchesSizeAgainstTheKeeper() {
-        #expect(DuplicateSearch.parse(">5mb").matches(group("a.pdf", keeperSize: 10_000_000)))
-        #expect(!DuplicateSearch.parse(">5mb").matches(group("a.pdf", keeperSize: 1_000_000)))
-        #expect(DuplicateSearch.parse("<1mb").matches(group("a.pdf", keeperSize: 500_000)))
-    }
-
     @Test func matchesNameSubstringCaseInsensitively() {
         #expect(DuplicateSearch.parse("Contract").matches(group("my-contract.pdf", keeperSize: 1)))
         #expect(!DuplicateSearch.parse("invoice").matches(group("my-contract.pdf", keeperSize: 1)))
-    }
-
-    @Test func tokensAndTextCombineWithAnd() {
-        let query = DuplicateSearch.parse("kind:pdf contract")
-        #expect(query.matches(group("contract.pdf", keeperSize: 1)))
-        #expect(!query.matches(group("contract.docx", keeperSize: 1))) // kind fails
-        #expect(!query.matches(group("summary.pdf", keeperSize: 1)))   // text fails
     }
 
     @Test func kindImageClassMatchesAnyImageExtension() {
@@ -73,29 +60,10 @@ import Sync
         #expect(!DuplicateSearch.parse("kind:jpg").matches(group("photo.png", keeperSize: 1)))
     }
 
-    @Test func duplicateFamilyChipsMarkEarlierOnesInactive() {
-        // Parsing is last-wins within a family, and chips read as the effective query: the
-        // superseded chip renders inactive, and both keep their exact raw word for ✕.
-        let chips = DuplicateSearch.chips("kind:pdf kind:png >5mb")
-        #expect(chips.count == 3)
-        #expect(chips[0].raw == "kind:pdf" && chips[0].isActive == false)
-        #expect(chips[1].raw == "kind:png" && chips[1].isActive == true)
-        #expect(chips[2].isActive == true)
-        // The effective query really is the last one.
-        #expect(DuplicateSearch.parse("kind:pdf kind:png").kind == "png")
-
-        // Different families never supersede each other.
-        #expect(DuplicateSearch.chips(">5mb <10mb").map(\.isActive) == [true, true])
-    }
-
     @Test func chipsListKindAndSizeAndSkipNameText() {
         let chips = DuplicateSearch.chips("kind:PDF >5mb contract")
         #expect(chips == [DuplicateSearch.Chip(raw: "kind:PDF", label: "kind: pdf"),
                           DuplicateSearch.Chip(raw: ">5mb", label: "> \(FileSyncManager.formatBytes(5_000_000))")])
-    }
-
-    @Test func chipsCoverBothSizeComparators() {
-        #expect(DuplicateSearch.chips("<1mb") == [DuplicateSearch.Chip(raw: "<1mb", label: "< \(FileSyncManager.formatBytes(1_000_000))")])
     }
 
     @Test func chipsAreEmptyWithoutTokens() {

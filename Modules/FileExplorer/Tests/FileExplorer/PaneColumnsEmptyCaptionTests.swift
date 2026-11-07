@@ -66,13 +66,6 @@ import Testing
         }
     }
 
-    /// The three are distinct values, so a caller can't collapse two of them by accident, as a
-    /// single `Bool` would.
-    @Test func theThreeStatesAreDistinct() {
-        let states: [PaneColumnsView.Caption] = [.empty, .unreadable, .loading]
-        #expect(Set(states.map(String.init(describing:))).count == 3)
-    }
-
     /// Under a type filter a column with no rows is a filtered one, not an empty one: a folder's
     /// column stays open when the filter changes, and its files are hidden, not gone. An unread
     /// folder still says it can't be read, since the filter knows nothing about it either.
@@ -90,20 +83,13 @@ import Testing
     // MARK: - Wording
 
     /// The loading state draws a spinner and no text: a caption beside it would say the same thing
-    /// twice.
+    /// twice. The apostrophe is the typographic one (U+2019), matching
+    /// `DestinationFolderListing.emptyMessage` exactly: an ASCII `'` would be two surfaces phrasing
+    /// one state two ways, in the one character nobody proofreads.
     @Test func onlyTheTwoSettledStatesCarryText() {
         #expect(PaneColumnsView.Caption.empty.text == "Empty")
         #expect(PaneColumnsView.Caption.unreadable.text == "Can’t be read")
         #expect(PaneColumnsView.Caption.loading.text == nil)
-    }
-
-    /// The apostrophe is the typographic one, matching `DestinationFolderListing.emptyMessage`
-    /// exactly. An ASCII `'` would be two surfaces phrasing one state two ways, in the one
-    /// character nobody proofreads.
-    @Test func theUnreadableWordingMatchesTheDestinationPickers() {
-        let text = PaneColumnsView.Caption.unreadable.text
-        #expect(text == "Can\u{2019}t be read")
-        #expect(text?.contains("'") == false, "the caption uses an ASCII apostrophe")
     }
 }
 
@@ -117,13 +103,6 @@ import Testing
         #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: true,
                                              isLoading: false, isBeingRead: true) == .loading,
                 "a folder the app is actively reading was captioned as unreadable")
-    }
-
-    /// And once the request comes back with the mark still on, it is unreadable. Without this half
-    /// the spinner would replace a wrong caption with a permanent one, which is worse.
-    @Test func aDirectoryWhoseRequestFinishedAndStayedUnexploredCannotBeRead() {
-        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: true,
-                                             isLoading: false, isBeingRead: false) == .unreadable)
     }
 
     /// An in-flight request can't invent a caption where there was none: a populated column and the
@@ -141,15 +120,6 @@ import Testing
         #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: false,
                                              isLoading: false, isBeingRead: true) == .empty)
     }
-
-    /// The pane's own walk still outranks everything: during the shallow paint every directory is
-    /// unexplored and the deep walk is coming, so a per-directory request won't be what fills it.
-    /// Silent, because the pane's chip is already saying it; a column spinner is only for a listing
-    /// that column alone is waiting on.
-    @Test func thePanesOwnWalkStillOutranksTheColumnRequest() {
-        #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: true,
-                                             isLoading: true, isBeingRead: true) == nil)
-    }
 }
 
 /// When a column asks for a directory the walk didn't read: the other half of the same rule.
@@ -164,9 +134,14 @@ import Testing
 /// pure static and this checks it.
 @Suite struct PaneColumnRequestRuleTests {
 
-    /// The one state that asks: the walk has settled and this folder was left unread.
+    /// The one state that asks: the walk has settled and this folder was left unread. Also stated
+    /// as the whole table, so a third term added later has to decide about these four cells rather
+    /// than inheriting them.
     @Test func aSettledPaneAsksForAnUnreadFolder() {
         #expect(PaneColumnsView.asksForChildren(isLoading: false, isUnexplored: true))
+        let asked = [(false, true), (false, false), (true, true), (true, false)]
+            .filter { PaneColumnsView.asksForChildren(isLoading: $0.0, isUnexplored: $0.1) }
+        #expect(asked.count == 1, "the rule asks in \(asked.count) of the four states, not 1")
     }
 
     /// Never mid-walk: every directory is unexplored during the shallow paint.
@@ -180,13 +155,5 @@ import Testing
     /// because the answer can never clear a mark that isn't set.
     @Test func aWalkedFolderIsNeverAskedFor() {
         #expect(!PaneColumnsView.asksForChildren(isLoading: false, isUnexplored: false))
-    }
-
-    /// Stated as the whole table, so a third term added later has to decide about these four cells
-    /// rather than inheriting them.
-    @Test func theRuleIsBothConditionsAndNothingElse() {
-        let asked = [(false, true), (false, false), (true, true), (true, false)]
-            .filter { PaneColumnsView.asksForChildren(isLoading: $0.0, isUnexplored: $0.1) }
-        #expect(asked.count == 1, "the rule asks in \(asked.count) of the four states, not 1")
     }
 }

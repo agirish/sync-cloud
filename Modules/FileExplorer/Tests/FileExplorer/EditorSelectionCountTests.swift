@@ -205,13 +205,7 @@ import Design
     }
 
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        var count = 0
-        for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
-            for x in 0..<min(a.pixelsWide, b.pixelsWide) where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) {
-                count += 1
-            }
-        }
-        return count
+        PixelDiff.differingPixels(a, b, tolerance: 0)
     }
 
     /// Short of room for "118 lines", the line count goes and both counts stay. Laid out by width

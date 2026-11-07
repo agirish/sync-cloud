@@ -119,15 +119,9 @@ import Testing
     // MARK: The parent word
 
     /// Typing `settings` lists every tab, the same shape as `organize`, where the overview and
-    /// every lens answer the parent word.
-    @Test func typingTheParentListsEveryTab() {
-        let rows = settingsRows("settings")
-        #expect(rows.count == Self.tabs.count)
-    }
-
-    /// …in the rail's order, not alphabetically. Without the per-position decrement every row
-    /// scores the same and `sorted` falls back to the title, reordering a list the user knows by
-    /// sight.
+    /// every lens answer the parent word, in the rail's order, not alphabetically. Without the
+    /// per-position decrement every row scores the same and `sorted` falls back to the title,
+    /// reordering a list the user knows by sight.
     @Test func theParentWordKeepsTheRailsOrder() {
         #expect(settingsRows("settings").map(\.id)
                 == Self.tabs.map { "settings.\($0.id)" })

@@ -10,15 +10,6 @@ import Testing
 /// four sites ask it the right question. A real `DragGesture` would pin SwiftUI's gesture instead.
 @Suite struct PaneTabStripDragEaseTests {
 
-    private static func stripSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // …/Tests/FileExplorer
-            .deletingLastPathComponent()      // …/Tests
-            .deletingLastPathComponent()      // …/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/PaneTabStrip.swift")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
-
     /// Held: no ease. Not held (a neighbour, or any chip once the drop clears the drag): the ease.
     @Test func theHeldChipIsNotEasedAndEverythingElseIs() {
         #expect(PaneTabStrip.dragEase(holding: true) == nil, "the held chip is eased, so it trails the pointer")
@@ -31,7 +22,7 @@ import Testing
     /// chip while another is dragged past it and the active one eases aside.
     @Test func allFourSitesAskTheRuleTheRightQuestion() throws {
         // Whitespace collapsed, so a modifier spread over two lines reads as one.
-        let code = try Self.stripSource().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let code = try SourceText.fileExplorer("PaneTabStrip.swift").split(whereSeparator: \.isWhitespace).joined(separator: " ")
             .replacingOccurrences(of: "( ", with: "(").replacingOccurrences(of: " )", with: ")")
         for (site, line) in [
             ("a chip's offset", ".designAnimation(Self.dragEase(holding: draggingTab == item.id), value: dragOffset)"),

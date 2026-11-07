@@ -11,25 +11,6 @@ import Sync
 @MainActor
 @Suite struct PaneTreeCarryBackWiringTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     static let root = "/carry-back"
 
     private func tree() -> PaneTree {
@@ -71,7 +52,7 @@ import Sync
             selection: Binding(get: { selection }, set: { selection = $0 }),
             otherSelection: [],
             isLeft: true,
-            delegate: StubDelegate(),
+            delegate: NoOpFileActionDelegate(),
             isSingleSource: true,
             search: search,
             isActivePane: true,
@@ -124,7 +105,7 @@ import Sync
                                    set: { selected = $0 }),
                 otherSelection: [],
                 isLeft: true,
-                delegate: StubDelegate(),
+                delegate: NoOpFileActionDelegate(),
                 isSingleSource: true,
                 search: search,
                 isActivePane: true,
@@ -195,7 +176,7 @@ import Sync
                 selection: .constant(["\(root)/Claude"]),
                 otherSelection: [],
                 isLeft: true,
-                delegate: StubDelegate(),
+                delegate: NoOpFileActionDelegate(),
                 isSingleSource: true,
                 isActivePane: true,
                 viewMode: .columns,

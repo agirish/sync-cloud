@@ -359,9 +359,14 @@ final class PreviewEditRig {
     var display: String { view.string }
     var session: PreviewEditSession { coordinator.session }
 
-    init(_ text: String) {
+    /// `buffer`, when given, follows the source as the document's does. `wire` runs before the
+    /// view is attached; a caller that keeps the view past this rig replaces `onRefusal` there.
+    init(_ text: String, folder: String? = nil, following buffer: EditorBuffer? = nil,
+         wire: ((PreviewEditorView.Coordinator) -> Void)? = nil) {
         source = EditorSourceStorage(text: text)
-        coordinator = PreviewEditorView.Coordinator(session: PreviewEditSession(source: source, undoManager: undo))
+        buffer?.follow(source)
+        coordinator = PreviewEditorView.Coordinator(
+            session: PreviewEditSession(source: source, undoManager: undo, documentFolder: folder))
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
                           styleMask: [.titled], backing: .buffered, defer: false)
         let scroll = PreviewTextView.scrollableTextView()
@@ -369,6 +374,7 @@ final class PreviewEditRig {
         window.contentView?.addSubview(scroll)
         view = scroll.documentView as! PreviewTextView
         coordinator.onRefusal = { [unowned self] reason, _ in self.refusals.append(reason) }
+        wire?(coordinator)
         coordinator.attach(view)
         window.makeFirstResponder(view)
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))

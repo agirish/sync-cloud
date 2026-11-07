@@ -100,25 +100,6 @@ import Sync
 
     // MARK: - A rebuilt pane
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath: PaneBrowsePath
         @Published var selection: Set<String> = []
@@ -156,7 +137,7 @@ import Sync
                 treeRoot: PaneScrollMemoryTests.root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .comfortable, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in },
                 searchRevealTarget: searchRevealTarget
@@ -184,12 +165,7 @@ import Sync
     /// when they are slow (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return condition()
+        await LayoutPumpWait.poll(upTo: timeout, until: condition).held
     }
 
     /// Mounts a pane already standing on `components`: a rebuild, not a drill, so no `browsePath`
@@ -220,23 +196,13 @@ import Sync
         return (clip.documentView?.frame.width ?? 0) - clip.bounds.width
     }
 
-    private func scrollViews(_ view: NSView) -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        func walk(_ v: NSView) {
-            if let s = v as? NSScrollView { found.append(s) }
-            v.subviews.forEach(walk)
-        }
-        walk(view)
-        return found
-    }
-
     private func stack(_ window: NSWindow) throws -> NSScrollView {
-        try #require(scrollViews(window.contentView!).first { !($0.documentView is NSTableView) },
+        try #require(PaneRowRevealTests.scrollViews(window.contentView!).first { !($0.documentView is NSTableView) },
                      "no stack scroll view")
     }
 
     private func lists(_ window: NSWindow) -> [NSScrollView] {
-        scrollViews(window.contentView!)
+        PaneRowRevealTests.scrollViews(window.contentView!)
             .filter { $0.documentView is NSTableView }
             .sorted { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
     }

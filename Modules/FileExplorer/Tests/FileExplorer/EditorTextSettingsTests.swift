@@ -29,10 +29,13 @@ import EventsTestSupport
         #expect(scroll.hasHorizontalScroller)
     }
 
+    /// Three round trips, because a wrap toggle is pressed twice more often than once.
     @Test func turningItBackOnWrapsAtTheVisibleWidth() {
         let (scroll, view) = hosted()
-        PlainTextEditor.applyWrapping(false, to: view, in: scroll)
-        PlainTextEditor.applyWrapping(true, to: view, in: scroll)
+        for _ in 0..<3 {
+            PlainTextEditor.applyWrapping(false, to: view, in: scroll)
+            PlainTextEditor.applyWrapping(true, to: view, in: scroll)
+        }
 
         #expect(view.textContainer?.widthTracksTextView == true)
         #expect(!view.isHorizontallyResizable)
@@ -42,17 +45,6 @@ import EventsTestSupport
         // the setting not having worked.
         #expect(abs(view.frame.width - scroll.contentSize.width) < 0.51,
                 "the view stayed \(view.frame.width)pt wide against a \(scroll.contentSize.width)pt column")
-    }
-
-    /// The round trip, because a wrap toggle is pressed twice more often than once.
-    @Test func theSwitchSurvivesBeingFlippedRepeatedly() {
-        let (scroll, view) = hosted()
-        for _ in 0..<3 {
-            PlainTextEditor.applyWrapping(false, to: view, in: scroll)
-            PlainTextEditor.applyWrapping(true, to: view, in: scroll)
-        }
-        #expect(view.textContainer?.widthTracksTextView == true)
-        #expect(!scroll.hasHorizontalScroller)
     }
 
     // MARK: The two switches on the menu
@@ -66,19 +58,6 @@ import EventsTestSupport
                                                   documentID: nil, onSelectionChange: { _ in })
         subject.defaults = defaults
         return subject
-    }
-
-    /// Offered on a read-only document too, unlike the markup verbs. Neither switch changes
-    /// anything on disk, so a file you can only read should not also be harder to read.
-    @Test func bothSwitchesAreOfferedEvenWithNoMarkupVerbs() {
-        let menu = NSMenu()
-        let subject = coordinator()
-        subject.offersMarkup = false
-        subject.insertTextSettings(into: menu, at: 0)
-
-        let titles = menu.items.map(\.title)
-        #expect(titles.contains("Wrap Lines"), "the menu read \(titles)")
-        #expect(titles.contains("Check Spelling While Typing"), "the menu read \(titles)")
     }
 
     /// The tick describes the stored setting rather than a fixed default, or the menu says "off"

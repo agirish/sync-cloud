@@ -146,13 +146,7 @@ import Testing
             availableSize: CGSize(width: 1200, height: 800),
             onClose: {},
             verdict: { _ in Text("Done") })
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.host(view, size: CGSize(width: 1200, height: 800))
         func previews() -> [QLPreviewView] {
             func walk(_ v: NSView) -> [NSView] { v.subviews.flatMap { [$0] + walk($0) } }
             return walk(host).compactMap { $0 as? QLPreviewView }
@@ -208,13 +202,7 @@ import Testing
             onClose: {},
             probe: { _ in .missing }, hash: { _ in .hashed("a") },
             verdict: { _ in Text("Done") })
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 900, height: 600)))
-        host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 900, height: 600))
         let (focused, pumps) = await LayoutPumpWait.pump(window, upTo: 3) {
             window.firstResponder !== window && !(window.firstResponder is NSText)
         }
@@ -291,16 +279,7 @@ import Testing
     }
 
     private func host(_ view: some View) -> NSWindow {
-        let size = CGSize(width: 1200, height: 800)
-        let hostView = NSHostingView(rootView: AnyView(view.frame(width: size.width,
-                                                                  height: size.height)))
-        hostView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = hostView
-        hostView.layoutSubtreeIfNeeded()
-        return window
+        HostedView.framed(view, size: CGSize(width: 1200, height: 800)).window
     }
 
     private func sendEscape(_ window: NSWindow) {
@@ -328,23 +307,19 @@ import Testing
             })
     }
 
-    @Test func escClosesTheOverlayWhileTheStatIsStillOutstanding() async {
-        let recorder = Recorder()
-        let window = host(blockedOverlay(recorder))
-        let (focused, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
-            window.firstResponder !== window
-        }
-        #expect(focused, "the placeholder never claimed focus (\(pumps) pumps)")
-        sendEscape(window)
-        #expect(recorder.closes == 1)
-    }
-
-    /// The control for the test above: a modified esc is refused by `isPlainKeystroke` (the guard
-    /// every handler on the pair view carries), while a plain one on the same view still closes.
+    /// esc closes while the surface is still only a spinner. The pair view, which owns the keys,
+    /// mounts only after both sides are statted, and a dead SMB or unmounted cloud volume can block
+    /// that stat forever, so a focusable placeholder carries its own esc handler. A modified esc is
+    /// refused by `isPlainKeystroke` (the guard every handler on the pair view carries), while a
+    /// plain one on the same view still closes.
     @Test func aModifiedEscIsIgnored() async {
         let recorder = Recorder()
         let window = host(blockedOverlay(recorder))
-        _ = await LayoutPumpWait.pump(window, upTo: 10) { window.firstResponder !== window }
+        // Focused, and not by a text field: the placeholder itself takes the keys.
+        let (focused, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
+            window.firstResponder !== window && !(window.firstResponder is NSText)
+        }
+        #expect(focused, "the placeholder never claimed focus (\(pumps) pumps)")
         window.sendEvent(NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
             windowNumber: window.windowNumber, context: nil,
@@ -354,6 +329,6 @@ import Testing
         // The plain key still works, so the refusal above is the modifier being read, not the
         // handler being absent.
         sendEscape(window)
-        #expect(recorder.closes == 1)
+        #expect(recorder.closes == 1, "esc did nothing while the surface waited on its stat")
     }
 }

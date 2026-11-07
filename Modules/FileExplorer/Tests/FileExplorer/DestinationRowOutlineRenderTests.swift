@@ -45,12 +45,21 @@ import Sync
                                         onPathAt: nil,
                                         accent: Self.accent,
                                         onOpen: { _ in })
-            .frame(width: Self.columnWidth, height: Self.columnHeight)
+        guard let rep = bitmap(of: subject, size: CGSize(width: Self.columnWidth, height: Self.columnHeight)) else {
+            fatalError("no bitmap rep")
+        }
+        return rep
+    }
+
+    /// `view` on white, light and active, laid out in a borderless sRGB window and cached.
+    private func bitmap(of view: some View, size: CGSize) -> NSBitmapImageRep? {
+        let subject = view
+            .frame(width: size.width, height: size.height)
             .background(Color.white)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
         let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: Self.columnWidth, height: Self.columnHeight)
+        host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -59,9 +68,7 @@ import Sync
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)
         return rep
     }
@@ -114,25 +121,8 @@ import Sync
     /// rendered references, not a written number. A continuous rounded rect's corner doesn't run
     /// for exactly its radius and the top scanline is antialiased; measuring alike cancels both.
     func referenceCorner(_ shape: HoverAffordanceShape, size: CGSize) -> CGFloat? {
-        let subject = shape.outline
-            .fill(Self.accent.opacity(PaneSelectionWash.active))
-            .frame(width: size.width, height: size.height)
-            .background(Color.white)
-            .environment(\.colorScheme, .light)
-            .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return groundGeometry(rep)?.corner
+        let outline = shape.outline.fill(Self.accent.opacity(PaneSelectionWash.active))
+        return bitmap(of: outline, size: size).flatMap { groundGeometry($0)?.corner }
     }
 
     // MARK: - The row's ground is the shape the style is handed
@@ -227,10 +217,7 @@ import Sync
     /// `.segment` sites in each file it names; a new site fails here. It knows only these two
     /// files: the rule for any other control is prose, on `HoverAffordanceShape.default(for:)`.
     @Test func theStyleIsHandedTheSameOutlineTheGroundIsDrawnFrom() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
+        let repo = AppCopyScan.repoRoot
 
         // `expected` is the exact expression each `.segment` call site in that file must hand
         // `shape:`; `declaration` is the positive control that the constant is still there to hand.

@@ -82,11 +82,7 @@ import Sync
 
     private func sendDelete(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
                             isARepeat: Bool = false) {
-        window.sendEvent(NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
-            windowNumber: window.windowNumber, context: nil,
-            characters: "\u{08}", charactersIgnoringModifiers: "\u{08}",
-            isARepeat: isARepeat, keyCode: 51)!)
+        send(window, keyCode: 51, characters: "\u{08}", modifiers: modifiers, isARepeat: isARepeat)
     }
 
     private func send(_ window: NSWindow, keyCode: UInt16, characters: String,
@@ -386,17 +382,9 @@ import Sync
     /// Byte-moving keys only. esc is ungated on both cards (cancelling from a focused button is
     /// what esc means there anyway), and ␣ (Quick Look) moves nothing.
     @Test func bothDecisionCardsGuardTheirByteMovingKeysOnFocus() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // …/Tests/FileExplorer
-            .deletingLastPathComponent()   // …/Tests
-            .deletingLastPathComponent()   // …/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer")
-
         /// The `guard` line that opens the handler introduced by `marker`.
         func guardLine(_ file: String, after marker: String) throws -> String {
-            let text = try #require(
-                try? String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8),
-                "cannot read \(file) — this check would be vacuous")
+            let text = try SourceText.fileExplorer(file)
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
             let start = try #require(lines.firstIndex { $0.contains(marker) }, """
                         \(file) no longer contains `\(marker)` — the handler was renamed, \
@@ -479,11 +467,7 @@ import Sync
     /// Anchored on the two buttons by name rather than a count of `reclaimFocus` calls: a count
     /// passes when a new focus-taking button is added without one.
     @Test func theCardsOwnAffordancesAllPutKeyFocusBack() throws {
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/ReviewCardView.swift"),
-                                encoding: .utf8)
+        let source = try SourceText.fileExplorer("ReviewCardView.swift")
         // The card body: a click anywhere on it is the route a user tries first, and it needs the
         // filled hit area to be clickable at all — an unfilled shape is hit-tested only where
         // painted.

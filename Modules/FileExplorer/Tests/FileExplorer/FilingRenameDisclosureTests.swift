@@ -79,15 +79,8 @@ import Testing
         #expect(disclosed > silent, "the rename must reach the screen, not just the model")
         // A whole line of text, not a stray pixel of relayout.
         #expect(disclosed - silent > 150, "gained only \(disclosed - silent) inked pixels")
-    }
-
-    @MainActor
-    @Test("A card that renames nothing says nothing")
-    func noRenameNoRow() {
-        // The other direction, and what makes the test above mean something: two mounts of the
-        // no-rename card must be pixel-identical, so the difference measured there is the row.
-        let a = ink(mount(Self.suggestion(renamedTo: nil)))
-        let b = ink(mount(Self.suggestion(renamedTo: nil)))
-        #expect(a == b)
+        // And a card that renames nothing says nothing: two mounts of it are pixel-identical, so
+        // the difference measured above is the row.
+        #expect(ink(mount(Self.suggestion(renamedTo: nil))) == silent)
     }
 }

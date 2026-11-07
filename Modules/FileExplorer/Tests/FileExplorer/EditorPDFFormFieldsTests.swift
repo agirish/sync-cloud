@@ -88,17 +88,13 @@ extension PDFFixtures {
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
     private func open(_ file: String) async throws -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
+        let pdf = try await PDFFixtures.opened(file, defaults: defaults)
         // A form is filled in place, so nothing here should ask "this will flatten the form". If
         // asked, answer no and record why; a real alert would wait forever.
         pdf.tools.confirm = { warning, _ in
             Issue.record("a form fill asked “\(warning.confirmationTitle)” — it took the flattening path")
             return false
         }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
         return pdf
     }
 
@@ -118,9 +114,7 @@ extension PDFFixtures {
     /// viewer settings, language and attached files), and every tracked `Package.resolved` that
     /// resolves it names that tag's commit, as a resolve writes it, not a hand-edited version.
     @Test func theEngineIsPinnedAt061Everywhere() throws {
-        let modules = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()   // FileExplorer
-            .deletingLastPathComponent()                                                           // Modules
+        let modules = SourceText.modules
         let manifest = try String(contentsOf: modules.appendingPathComponent("FileExplorer/Package.swift"), encoding: .utf8)
         #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.6.1")"#))
         for package in ["FileExplorer", "Dashboard"] {
@@ -254,21 +248,34 @@ extension PDFFixtures {
 
     // MARK: Editing
 
-    /// A reload whose pages changed drops the filled fields with the items, and the banner and log
-    /// name both, since `clear()` takes the fields too.
-    @Test func aPageChangeThatDropsTheItemsNamesTheFieldsItClearsToo() async throws {
+    static let letterPage = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
+
+    /// A one-field form: a single-line text field `name`, its widget on `page`.
+    static func nameForm(_ page: Int) -> EditorPDFForm {
+        EditorPDFForm(fields: [FormField(name: "name", kind: .text(multiline: false), value: nil,
+                                         widgets: [FormField.Widget(pageIndex: page, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])])
+    }
+
+    /// Fill & Sign with its tools over `nameForm(widgetPage)` on `pages` letter pages at `path`,
+    /// switched on, with "Ada" typed into the field.
+    private func fieldFilled(path: String, pages: Int, widgetPage: Int = 0) -> (EditorPDFFillSign, EditorPDFTools) {
         let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         let tools = EditorPDFTools()
         fill.tools = tools
-        let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
-                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])
-        let form = EditorPDFForm(fields: [field])
-        let page = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
-        fill.attach(path: "/tmp/reload.pdf", boxes: [page], encryption: .none, allowsFilling: true, form: form)
+        fill.attach(path: path, boxes: Array(repeating: Self.letterPage, count: pages), encryption: .none,
+                    allowsFilling: true, form: Self.nameForm(widgetPage))
         fill.toggle()
         fill.beginFieldEditing("name")
         fill.typeField("Ada")
         fill.endFieldEditing()
+        return (fill, tools)
+    }
+
+    /// A reload whose pages changed drops the filled fields with the items, and the banner and log
+    /// name both, since `clear()` takes the fields too.
+    @Test func aPageChangeThatDropsTheItemsNamesTheFieldsItClearsToo() async throws {
+        let (fill, tools) = fieldFilled(path: "/tmp/reload.pdf", pages: 1)
+        let form = Self.nameForm(0), page = Self.letterPage
         fill.armed = .mark(.check)
         try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
         try #require(fill.values.count == 1 && fill.items.count == 1)
@@ -285,18 +292,8 @@ extension PDFFixtures {
     /// form didn't, so the fields' own banner doesn't run; `clear()` still takes the values, so the
     /// items' banner must name them rather than say nothing or log "0 items placed".
     @Test func aPageChangeThatClearsOnlyFieldsSaysSo() async throws {
-        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
-        let tools = EditorPDFTools()
-        fill.tools = tools
-        let field = FormField(name: "name", kind: .text(multiline: false), value: nil,
-                              widgets: [FormField.Widget(pageIndex: 0, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])
-        let form = EditorPDFForm(fields: [field])
-        let page = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
-        fill.attach(path: "/tmp/fields-only.pdf", boxes: [page, page], encryption: .none, allowsFilling: true, form: form)
-        fill.toggle()
-        fill.beginFieldEditing("name")
-        fill.typeField("Ada")
-        fill.endFieldEditing()
+        let (fill, tools) = fieldFilled(path: "/tmp/fields-only.pdf", pages: 2)
+        let form = Self.nameForm(0), page = Self.letterPage
         fill.armed = .text
         try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
         try #require(fill.values.count == 1 && fill.unsaved.isEmpty && !fill.items.isEmpty)
@@ -311,19 +308,8 @@ extension PDFFixtures {
     /// A reload that changed both the form and the pages names both in one banner, rather than the
     /// items' banner replacing the fields'. A text box opened and left empty is no work to report.
     @Test func aReloadThatChangesTheFormAndThePagesNamesBoth() throws {
-        let fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
-        let tools = EditorPDFTools()
-        fill.tools = tools
-        func form(_ page: Int) -> EditorPDFForm {
-            EditorPDFForm(fields: [FormField(name: "name", kind: .text(multiline: false), value: nil,
-                                             widgets: [FormField.Widget(pageIndex: page, rect: CGRect(x: 10, y: 10, width: 100, height: 20))])])
-        }
-        let page = EditorPDFPageBox(cropBox: CGRect(x: 0, y: 0, width: 612, height: 792), rotation: 0)
-        fill.attach(path: "/tmp/both.pdf", boxes: [page, page], encryption: .none, allowsFilling: true, form: form(1))
-        fill.toggle()
-        fill.beginFieldEditing("name")
-        fill.typeField("Ada")
-        fill.endFieldEditing()
+        let (fill, tools) = fieldFilled(path: "/tmp/both.pdf", pages: 2, widgetPage: 1)
+        let form = Self.nameForm, page = Self.letterPage
         fill.armed = .mark(.check)
         try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0) != nil)
         // Page 1 removed elsewhere: the field's widget moves to page 0, and the pages change.
@@ -833,9 +819,7 @@ extension PDFFixtures {
         try #require(!turned.fill.canSave, "the turned page's text was not refused, so this proves nothing")
         #expect(turned.fill.saveHelp == turned.fill.formNotes.first, "the tooltip is not the refusal: \(turned.fill.saveHelp)")
         // And the pill uses it, in the app's accent, deepened for Save's white label.
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorPDFFillPalette.swift"), encoding: .utf8)
+        let source = try SourceText.fileExplorer("EditorPDFFillPalette.swift")
         #expect(source.contains(".help(fill.saveHelp)") && source.contains(".accentedProminent()"))
     }
 
@@ -852,16 +836,7 @@ extension PDFFixtures {
         let box = try #require(page.annotations.first { $0.fieldName == "subscribe" })
         #expect(name.isReadOnly && box.isReadOnly)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 700, height: 900))
-        window.contentView = reader
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = document
-        reader.scaleFactor = 1
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
+        let (window, reader) = EditorTestRigs.readerWindow(document, fill: nil, size: CGSize(width: 700, height: 900), scale: 1)
         reader.go(to: name.bounds, on: page)
 
         func click(_ annotation: PDFAnnotation) {
@@ -923,17 +898,7 @@ extension PDFFixtures {
     @Test func theOverlayFillsFieldsAndSaysWhyNot() async throws {
         let (pdf, _) = try await form()
         let document = try #require(pdf.document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 700, height: 900))
-        window.contentView = reader
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = document
-        reader.scaleFactor = 1
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
+        let (window, reader) = EditorTestRigs.readerWindow(document, fill: pdf.fill, size: CGSize(width: 700, height: 900), scale: 1)
         let overlay = reader.fillOverlay
         let fill = pdf.fill
 

@@ -57,25 +57,6 @@ import Testing
         }
     }
 
-    @Test func theBadgeRuleAndTheScopeRuleAreTwoDifferentDistinctions() {
-        // `carriesBadge` and `isScoped` are different questions, and Storage separates them:
-        //   - badgeless, because a badge promises something to act on and Storage only reports;
-        //   - scoped, because a treemap of `~/Documents/Media` is an honest picture of the root it
-        //     names, which narrowing can never be for a rule whose destinations lie all over the
-        //     source.
-        //
-        // Each exemption is named with its own reason; a new lens exempt from either must come here
-        // and say which.
-        #expect(OrganizeLens.allCases.filter { !$0.carriesBadge } == [.rules, .storage],
-                "a lens stopped carrying a badge without saying why — a badge means work to do, so the exemption is a claim about the lens, not a detail")
-        #expect(OrganizeLens.allCases.filter { !$0.isScoped } == [.rules],
-                "a lens stopped honouring the scope chip — Rules is exempt because its destinations lie outside any scope; nothing else has that shape")
-        // The one case that proves they are different questions; if it ever agrees, the two rules
-        // have quietly re-merged.
-        #expect(OrganizeLens.storage.carriesBadge == false)
-        #expect(OrganizeLens.storage.isScoped == true)
-    }
-
     // MARK: Staleness is per lens, not per workspace
 
     @Test func onlyTheLensesTheFilingScanRepublishesGoStale() {

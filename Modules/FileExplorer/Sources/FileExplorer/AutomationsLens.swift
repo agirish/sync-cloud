@@ -577,8 +577,7 @@ struct FilingWalkthroughCard: View {
     /// nudge, then runs: getting ⏎/→/esc back after clicking into the search field must not cost an
     /// irreversible File/Skip. `nil` in, `nil` out, so "no closure hides the affordance" survives.
     /// Static and internal so tests can prove the order and the reclaim, since the buttons can't be
-    /// clicked under `swift test`
-    /// (`PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
+    /// clicked under `swift test` (`docs/flaky-tests.md`, "When you fix one").
     static func recoveringFocus(via bumpNudge: @escaping () -> Void,
                                 _ inner: ((String) -> Void)?) -> ((String) -> Void)? {
         guard let inner else { return nil }

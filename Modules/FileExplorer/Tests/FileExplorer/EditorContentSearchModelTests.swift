@@ -256,17 +256,7 @@ import Sync
     // MARK: Opening a text result: Find holds the word
 
     private func hosted(_ text: String) -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.usesFindBar = true
-        view.isIncrementalSearchingEnabled = true
-        view.string = text
-        return (scroll, view, window)
+        EditorTestRigs.markedTextView(text: text, allowsUndo: false)
     }
 
     /// The match stays selected, the bar shows it, and ⌘G goes on to the next match, in a different
@@ -321,7 +311,7 @@ import Sync
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        let scroll = try #require(Self.markedScroll(in: host), "no text view mounted — this test sees nothing")
+        let scroll = try #require(EditorTestRigs.markedScroll(in: host), "no text view mounted — this test sees nothing")
         let view = try #require(scroll.documentView as? NSTextView)
         defer { PlainTextEditor.retireFindBar(of: view) }
 
@@ -335,11 +325,5 @@ import Sync
         #expect(view.selectedRange() == NSRange(location: 0, length: 3))
         #expect(scroll.isFindBarVisible, "the request did not seed Find")
         #expect(Self.fields(in: scroll.findBarView).first?.stringValue == "one")
-    }
-
-    private static func markedScroll(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier { return scroll }
-        for sub in view.subviews { if let found = markedScroll(in: sub) { return found } }
-        return nil
     }
 }

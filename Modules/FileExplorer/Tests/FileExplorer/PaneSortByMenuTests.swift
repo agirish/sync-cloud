@@ -34,16 +34,16 @@ import Testing
     /// Both menus draw it, from the pane's own order. A picker nobody calls ticks nothing, and a
     /// pane that forgot to pass the order would tick Name forever.
     @Test func theTreeAndColumnsMenusBothDrawIt() throws {
-        let tree = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
-        let treeMenu = try OrganizeScopeCallSiteTests.body(of: "private var emptyAreaContextMenu: some View {",
+        let tree = try SourceText.fileExplorer("FileTreeView.swift")
+        let treeMenu = try SourceText.body(of: "private var emptyAreaContextMenu: some View {",
                                                            in: tree)
         #expect(treeMenu.contains("SharedFileMenuItems.sortBy(sortOption) { delegate.handleSort($0) }"),
                 "the tree's background menu no longer draws the shared Sort By")
         #expect(!treeMenu.contains("Button(\"Name\")"), "the tree's untick-able buttons are back")
         #expect(tree.contains("sortOption: sortOption,"), "the tree does not hand its order to Columns")
 
-        let columns = try OrganizeScopeCallSiteTests.source("PaneColumnsView.swift")
-        let columnsMenu = try OrganizeScopeCallSiteTests.body(
+        let columns = try SourceText.fileExplorer("PaneColumnsView.swift")
+        let columnsMenu = try SourceText.body(
             of: "private func emptyAreaMenu(directory: String) -> some View {",
             in: columns)
         #expect(columnsMenu.contains("SharedFileMenuItems.sortBy(sortOption) { delegate.handleSort($0) }"),

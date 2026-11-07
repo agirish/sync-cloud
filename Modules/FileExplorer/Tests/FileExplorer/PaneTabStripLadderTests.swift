@@ -33,11 +33,10 @@ import Design
     /// The roadmap's rung table, with the tab count stated: its widths are where a four- or
     /// five-tab strip meets each rung, not thresholds the code compares against. Three tabs at
     /// 340pt still get `full` (a test below). The "520+" row is a four-tab strip; five tabs need
-    /// 526 (5 × 96 + four gaps + the trailing ＋), pinned separately below.
+    /// 526 (5 × 96 + four gaps + the trailing ＋), pinned separately below. The 340pt and 220pt
+    /// rows, five tabs each, are the compact and chip tests below.
     @Test func theTableInTheRoadmapIsReproduced() {
         #expect(PaneTabStripLadder.layout(available: 520, titles: four, scale: 1).rung == .full)
-        #expect(PaneTabStripLadder.layout(available: 340, titles: five, scale: 1).rung == .compact)
-        #expect(PaneTabStripLadder.layout(available: 220, titles: five, scale: 1).rung == .chip)
     }
 
     @Test func fiveTabsCrossIntoFullFivePointsAbove520() {
@@ -120,7 +119,13 @@ import Design
 
     /// The trap. The app scales its own type, so five tabs that fit at the default don't at Large:
     /// a chip's floor is its chrome plus a legible stub of a name, and both move with the font.
+    ///
+    /// The floor is a measurement, not the constant 96, which is only its lower bound: at the
+    /// largest size the chrome plus a five-character stub exceeds the constant, which follows from
+    /// the first two lines here. A test that pinned 96 at every scale would pass with the
+    /// measurement deleted.
     @Test func aLargerFontShedsEarlier() {
+        #expect(PaneTabStripLadder.floorWidth(scale: 1) >= PaneTabStripLadder.minTabWidth)
         #expect(PaneTabStripLadder.floorWidth(scale: 1.35) > PaneTabStripLadder.floorWidth(scale: 1))
         // The claim in the width the user sees: the same five tabs stop fitting in a wider pane
         // once the type grows. A ladder of constants, the pane bar's shape, fails this.
@@ -129,14 +134,6 @@ import Design
         let wide: CGFloat = 900
         #expect(PaneTabStripLadder.layout(available: wide, titles: five, scale: 1.35).tabWidth
                 > PaneTabStripLadder.layout(available: wide, titles: five, scale: 1).tabWidth)
-    }
-
-    /// The floor is a measurement, not the constant 96, which is only its lower bound. A test that
-    /// pinned 96 at every scale would pass with the measurement deleted.
-    @Test func theFloorIsMeasuredNotAssumed() {
-        #expect(PaneTabStripLadder.floorWidth(scale: 1) >= PaneTabStripLadder.minTabWidth)
-        // At the largest text size the chrome plus a five-character stub exceeds the constant.
-        #expect(PaneTabStripLadder.floorWidth(scale: 1.35) > PaneTabStripLadder.minTabWidth)
     }
 
     /// A longer name asks for a wider chip, up to the cap: the measurement is of the actual title,
@@ -334,26 +331,11 @@ import Design
 /// `NSEvent` can reach, so no unit test can exercise the failure; the scan refuses the construct.
 @Suite struct PaneColumnRowHasNoGestureTests {
 
-    private func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/PaneColumnsView.swift")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
-
-    /// The positive control: the scan reads the file it claims to.
-    @Test func theScanCanActuallyFail() throws {
-        #expect(try source().contains("struct PaneColumnsView"), "this is not the columns view — the scan is vacuous")
-    }
+    private func source() throws -> String { try SourceText.fileExplorer("PaneColumnsView.swift") }
 
     /// Comment lines stripped, because the note on the row names the constructs it forbids, and a
-    /// scan that read prose would convict the explanation. A local copy of `PaneTabWiringTests`'
-    /// `codeOnly`, which lives in another target.
-    private func codeOnly(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
+    /// scan that read prose would convict the explanation.
+    private func codeOnly(_ text: String) -> String { SourceText.codeOnly(text) }
 
     /// The row itself carries no gesture of any kind. Scoped to the row's own modifier chain,
     /// because `.onTapGesture` is legitimate elsewhere in the file: the trailing deselect filler is
@@ -388,10 +370,7 @@ import Design
     /// With no gesture there is no ⌘-double-click, so Open in New Tab must stay reachable from the
     /// row's menu.
     @Test func openInNewTabIsStillReachableFromTheRowMenu() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/FileTreeView.swift")
-        let code = try String(contentsOf: url, encoding: .utf8)
+        let code = try SourceText.fileExplorer("FileTreeView.swift")
         #expect(code.contains("Label(\"Open in New Tab\""),
                 "the row menu lost Open in New Tab, which is now its only pointer-driven route")
     }

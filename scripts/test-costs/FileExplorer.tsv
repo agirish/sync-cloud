@@ -69,7 +69,6 @@
 2.41	FileExplorerTests.EditorFewerColumnsLayoutTests
 2.38	FileExplorerTests.ColumnPreviewClearanceTests
 2.38	FileExplorerTests.RestructureGroupTableSurfaceTests
-2.36	FileExplorerTests.HeaderLadderCostBenchmark
 2.23	FileExplorerTests.EditorReadableColumnTests
 2.20	FileExplorerTests.EditorRailRowMenuTests
 2.20	FileExplorerTests.ColumnPreviewEditorButtonTests
@@ -98,7 +97,6 @@
 1.72	FileExplorerTests.EditorPDFRailTests
 1.71	FileExplorerTests.DifferencesPairCompareTests
 1.71	FileExplorerTests.RuleOfferPromptTests
-1.70	FileExplorerTests.FileExplorerSnapshotTests
 1.66	FileExplorerTests.PaneSearchColumnsRevealTests
 1.63	FileExplorerTests.FilingRefineRouteCostTests
 1.61	FileExplorerTests.EditorPDFSignatureStylesTests
@@ -106,7 +104,6 @@
 1.60	FileExplorerTests.QuickLookHTMLTests
 1.60	FileExplorerTests.SetKeepDownloadedTests
 1.57	FileExplorerTests.LayoutPumpWaitTests
-1.57	FileExplorerTests.ColumnClickCostBenchmark
 1.55	FileExplorerTests.EditorPDFDocumentTests
 1.52	FileExplorerTests.CommandPaletteBarTests
 1.49	FileExplorerTests.RestructureLensRenderSmokeTests
@@ -294,7 +291,6 @@
 0.04	FileExplorerTests.RestructureLensPerRenderTests
 0.04	FileExplorerTests.ActivityCenterTests
 0.04	FileExplorerTests.BoundedResolveViewTests
-0.03	FileExplorerTests.RenamePassLensTests
 0.03	FileExplorerTests.HeaderCompactionTests
 0.03	FileExplorerTests.EditorListsAndKeysTests
 0.03	FileExplorerTests.EditorNewFileDestinationTests
@@ -425,7 +421,6 @@
 0.01	FileExplorerTests.PaneTabStripActiveVisibilityTests
 0.01	FileExplorerTests.PaneTabStripSpokenNameTests
 0.01	FileExplorerTests.PaneTreeCarryBackTests
-0.01	FileExplorerTests.PreviewEditSpeedTests
 0.01	FileExplorerTests.PreviewMatchesPaneTypeTests
 0.01	FileExplorerTests.ProviderMenuTests
 0.01	FileExplorerTests.QuiescenceTimerTests
@@ -437,7 +432,6 @@
 0.01	FileExplorerTests.ReviewSessionStoreTests
 0.01	FileExplorerTests.ReviewSessionTests
 0.01	FileExplorerTests.ReviewVerifyCompletionTests
-0.01	FileExplorerTests.RiskyNameBadgeCostBenchmark
 0.01	FileExplorerTests.RiskyNameBadgePredicateTests
 0.01	FileExplorerTests.RiskyNameMarkingTests
 0.01	FileExplorerTests.RuleOfferLogicTests

@@ -14,25 +14,6 @@ import Sync
 @MainActor
 @Suite(.serialized) struct ColumnRowBottomsProbeTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -72,7 +53,7 @@ import Sync
                 treeRoot: ColumnRowBottomsProbeTests.root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .comfortable, isActivePane: true,
                 placement: placement, onBarEdgeFlip: {}, onQuickLook: { _ in },
                 onBackgroundDeselect: { _ in }
@@ -129,20 +110,10 @@ import Sync
         return m
     }
 
-    private func scrollViews(_ view: NSView) -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        func walk(_ v: NSView) {
-            if let s = v as? NSScrollView { found.append(s) }
-            v.subviews.forEach(walk)
-        }
-        walk(view)
-        return found
-    }
-
     /// The columns' lists, left to right.
     private func columnLists(_ m: Mounted) -> [NSScrollView] {
         guard let content = m.window.contentView else { return [] }
-        return scrollViews(content)
+        return PaneRowRevealTests.scrollViews(content)
             .filter { $0.documentView is NSTableView }
             .sorted { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
     }
@@ -183,7 +154,7 @@ import Sync
     @Test func aSidewaysScrollMovesNoRowBottom() async throws {
         let m = await mount()
         defer { m.window.contentView = nil }
-        let stack = try #require(scrollViews(m.window.contentView!).first { !($0.documentView is NSTableView) })
+        let stack = try #require(PaneRowRevealTests.scrollViews(m.window.contentView!).first { !($0.documentView is NSTableView) })
         let clip = stack.contentView
         let range = (clip.documentView?.frame.width ?? 0) - clip.bounds.width
         try #require(range > 40, "the stack does not overflow — a sideways scroll would test nothing")
@@ -310,22 +281,14 @@ import Sync
     /// sideways scroll, and costs only frame drops in a real swipe. Scoped to the column row,
     /// `ColumnRowView`, `FileRowView` and the row background; comment lines are stripped.
     @Test func noColumnRowCarriesAGeometryReader() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
-        func codeOnly(_ text: Substring) -> String {
-            text.split(separator: "\n", omittingEmptySubsequences: false)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
-                          && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("///") }
-                .joined(separator: "\n")
-        }
-        let columns = try String(contentsOf: sources.appendingPathComponent("PaneColumnsView.swift"), encoding: .utf8)
+        func codeOnly(_ text: Substring) -> String { SourceText.codeOnly(String(text)) }
+        let columns = try SourceText.fileExplorer("PaneColumnsView.swift")
         let rowStart = try #require(columns.range(of: "private func columnRow("), "the column row moved")
         let rowEnd = try #require(columns[rowStart.upperBound...].range(of: "\n    }\n"), "the column row has no end")
         let columnRow = codeOnly(columns[rowStart.lowerBound..<rowEnd.upperBound])
         #expect(columnRow.contains(".tag(node.id)"), "the scan is not reading the column row — it proves nothing")
 
-        let rows = try String(contentsOf: sources.appendingPathComponent("FileTreeView.swift"), encoding: .utf8)
+        let rows = try SourceText.fileExplorer("FileTreeView.swift")
         let fileRowStart = try #require(rows.range(of: "struct FileRowView: View {"), "FileRowView moved")
         let fileRowEnd = try #require(rows[fileRowStart.upperBound...].range(of: "\nstruct "), "no struct follows FileRowView")
         let fileRow = codeOnly(rows[fileRowStart.lowerBound..<fileRowEnd.lowerBound])

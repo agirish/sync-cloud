@@ -167,15 +167,6 @@ import Design
                 "the query narrowed the denominator too — M must be the list before the search")
     }
 
-    /// Whole-line `//` comments removed, so a scan for what the code does can't be satisfied or
-    /// falsified by the prose describing it. Only for the negative checks, per the convention in
-    /// `OrganizeScopeCallSiteTests`.
-    static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     @Test("A fold made on the All page cannot empty a section the rail selected")
     func collapsingAppliesToTheAllPageOnly() throws {
         // The rail and the fold both hide a list, so together they could hide it twice:
@@ -183,11 +174,7 @@ import Design
         // page would open, once selected, as one collapsed header and nothing else. The fold is for
         // triaging three lists stacked under a treemap; narrowed to one, it doesn't apply. Asserted
         // on the source because `collapsed` is view state with no seam.
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("StorageLensView.swift")
         #expect(source.contains("let canCollapse = self.section == nil"),
                 "the fold no longer consults the rail's selection, so selecting a folded section shows an empty page")
         #expect(source.contains("let isCollapsed = canCollapse && collapsed.contains(section)"))
@@ -201,12 +188,7 @@ import Design
         // so a header action there would always take the `insert` arm: nothing visible where it was
         // clicked, the section folded on the All page instead, and no click there to undo it. So
         // on a narrowed page the header is a plain row, not a button, and draws no chevron.
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read StorageLensView.swift — this scan would be vacuous")
-        try #require(source.count > 500, "StorageLensView.swift is implausibly short")
+        let source = try SourceText.fileExplorer("StorageLensView.swift")
         // The write is unreachable because the Button is: the header is only wrapped in one where
         // the fold applies, and the same row is drawn plain otherwise.
         #expect(source.contains("if canCollapse {\n                Button {"),
@@ -215,7 +197,7 @@ import Design
                 "a narrowed page draws no plain header row")
         // Not a disabled button: that still announces an unavailable control and costs Full
         // Keyboard Access a stop, and the title, caption and count are reachable only through it.
-        #expect(!Self.codeOnly(source).contains(".disabled(!canCollapse)"),
+        #expect(!SourceText.codeOnly(source).contains(".disabled(!canCollapse)"),
                 "the narrowed header is a disabled button rather than a plain row")
         // The chevron follows the parameter the caller passes, not a re-read of the view's own
         // `section` through a shadowing name.
@@ -233,11 +215,7 @@ import Design
         let empty = Self.report(largest: 0, stale: 0, reclaim: 0)
         #expect(StorageSection.allCases.allSatisfy { $0.entries(in: empty).isEmpty })
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("StorageLensView.swift")
         // Asserted on the source because the arm is a `@ViewBuilder` branch with no seam to ask.
         // Adjacency, not membership: the bar must sit immediately above `reportBody`, inside the
         // `let report` arm; "the file mentions sectionBar" would pass with the bar hoisted above
@@ -280,11 +258,7 @@ import Design
         #expect(StorageSection.PillCount(shown: 1, listed: 20, total: 318).speech == "1 file")
 
         // And the header draws it — from the section's own list and total, not the shown rows.
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("StorageLensView.swift")
         #expect(source.contains("let count = StorageSection.PillCount(shown: entries.count,\n"
                                 + "                                             listed: section.entries(in: report).count,\n"
                                 + "                                             total: section.total(in: report))"))

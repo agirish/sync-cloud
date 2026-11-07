@@ -10,25 +10,6 @@ import Testing
 @MainActor
 @Suite(.serialized) struct OneWaySyncPaneMenuTests {
 
-    private final class Stub: FileActionDelegate, @unchecked Sendable {
-        func handleOpenInEditor(_ path: String) {}
-        func handleRefresh() {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private static func items(for row: FileNode) -> [NSMenuItem] {
         let menu = NSHostingMenu(rootView: FileContextMenu(
             row: PaneRow(side: .right, version: 1, node: row, children: nil),
@@ -36,7 +17,7 @@ import Testing
             tree: PaneTree(side: .right, version: 1, nodes: [row]),
             otherTree: PaneTree(side: .left, version: 1, nodes: []),
             otherSelection: [], isLeft: false, currentPath: (row.id as NSString).deletingLastPathComponent,
-            delegate: Stub(), otherPaneName: "Left", isSingleSource: true,
+            delegate: NoOpFileActionDelegate(), otherPaneName: "Left", isSingleSource: true,
             onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver()))
         menu.update()
         return menu.items

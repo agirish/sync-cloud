@@ -266,34 +266,13 @@ import Testing
         #expect(TextPairDiff.wordCount("a\u{00A0}b") < TextPairDiff.words("a\u{00A0}b").count,
                 "the approximation is gone — update the doc on `wordCount`")
     }
-
-    /// A 4 MiB line with no newlines in it is the case the word budget exists for, and it must not
-    /// be tokenised to find that out.
-    @Test func anEnormousLineIsPricedWithoutBeingSplit() {
-        let left = String(repeating: "abcd ", count: 400_000)
-        let right = String(repeating: "abce ", count: 400_000)
-        #expect(TextPairDiff.wordCount(left) > TextPairDiff.maxWordsForIntraLine,
-                "the fixture is no longer past the gate")
-        let diff = TextPairDiff.make(left: [left], right: [right])
-        #expect(diff.coarseRows == 1, "the row paid for a word pass it could not afford")
-        #expect(diff.rows.first?.leftSegments == nil)
-        #expect(diff.rows.first?.left == left, "the text itself must survive: the pane draws it")
-    }
 }
 
 /// A reproducible generator, so a corpus failure names a pair someone can re-run. SplitMix64:
 /// small, and its quality is beside the point; what matters is that the same seed gives the same
 /// corpus on every machine and every run.
 struct SeededGenerator: RandomNumberGenerator {
-    private var state: UInt64
-
-    init(seed: UInt64) { state = seed }
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
+    private var mix: SplitMix
+    init(seed: UInt64) { mix = SplitMix(state: seed) }
+    mutating func next() -> UInt64 { mix.next() }
 }

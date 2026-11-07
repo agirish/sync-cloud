@@ -144,7 +144,7 @@ public enum DocumentPDF {
                         // Clipped to this page's slice, not the content box. A page that breaks
                         // early is shorter than the box, and clipping to the box would let the next
                         // block's first line bleed in and print on two pages
-                        // (`noBlockIsSplitAcrossAPageBreak`).
+                        // (`aLongDocumentPaginatesWithEveryBlockOnExactlyOnePage`).
                         context.clip(to: CGRect(x: geometry.content.minX,
                                                 y: geometry.content.maxY - page.height,
                                                 width: geometry.content.width,

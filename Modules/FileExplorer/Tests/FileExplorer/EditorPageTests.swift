@@ -35,22 +35,10 @@ import Design
 
     private func hosted(width: CGFloat, column: CGFloat?, wraps: Bool = true, appearance: NSAppearance.Name)
         -> (window: NSWindow, view: EditorTextView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        let scroll = EditorTextView.scrollableTextView()
-        scroll.drawsBackground = false
-        scroll.frame = NSRect(x: 0, y: 0, width: width, height: 400)
-        scroll.autoresizingMask = [.width, .height]
-        window.contentView = scroll
-        window.appearance = NSAppearance(named: appearance)
-        let view = scroll.documentView as! EditorTextView
-        view.font = PlainTextEditor.font(scale: 1)
-        view.drawsBackground = false    // as `makeNSView` sets it
-        view.textContainerInset = EditorReadableColumn.baseInset
-        view.string = "one line"
-        PlainTextEditor.applyWrapping(wraps, to: view, in: scroll)
-        view.readableColumnWidth = column
-        return (window, view)
+        let rig = EditorTestRigs.editorTextView(width: width, text: "one line", wraps: wraps,
+                                                appearance: appearance) { $0.drawsBackground = false }
+        rig.view.readableColumnWidth = column
+        return (rig.window, rig.view)
     }
 
     /// The pixel at `x` (in points), well below the one line of text, as drawn.
@@ -200,18 +188,8 @@ import Design
         let editor = PlainTextEditor(source: EditorSourceStorage(text: "words\n"),
                                      isEditable: true, fontScale: 1,
                                      documentID: "/a/b.txt", undoManager: UndoManager())
-        let host = NSHostingView(rootView: AnyView(editor.defaultAppStorage(defaults)))
-        host.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
-        host.layoutSubtreeIfNeeded()
-        var found: EditorTextView?
-        func walk(_ v: NSView) {
-            if let scroll = v as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier {
-                found = scroll.documentView as? EditorTextView
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return (host, found!)
+        let (host, view) = EditorTestRigs.mountedEditor(editor, defaults: defaults, width: 900)
+        return (host, view as! EditorTextView)
     }
 
     /// The editor reads the switch and hands it to the text view: never set is off, and a flip under

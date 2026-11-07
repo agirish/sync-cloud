@@ -108,15 +108,6 @@ import Design
         #expect(picked == [5, 12])
     }
 
-    /// The menu's last item says what it does, and is the rail's own act.
-    @Test func theRailItemShowsTheOutline() throws {
-        var shown = 0
-        let item = try #require(make(pasta, caretLine: 16, rail: true, showRail: { shown += 1 }))
-        #expect(item.offersRailOutline)
-        item.onShowRailOutline()
-        #expect(shown == 1)
-    }
-
     /// A setext heading's hard break is not a line in the menu, and the tooltip speaks of the
     /// heading only when there is one to speak of.
     @Test func aNameIsOneLineAndTheTooltipFitsWhatIsShown() throws {
@@ -599,31 +590,27 @@ import Design
     /// width from roomy to the narrowest column (the full rung with the whole heading, the heading
     /// truncated, the counts gone, the caret rung beside a heading that has taken all the room). A
     /// hint that took the whole line would move Line/Col out from under the pointer for its four
-    /// seconds.
-    @Test func theHintNeverMovesLineCol() async throws {
+    /// seconds. The notice moves nothing either: a notice such as "Reloaded — changed elsewhere"
+    /// stands where the hint would, at every width the hint is held to.
+    @Test(arguments: [false, true])
+    func theHintOrNoticeNeverMovesLineCol(notice: Bool) async throws {
+        let what = notice ? "notice" : "hint"
         for width: CGFloat in [900, 700, 520, 420, EditorLayoutMetrics.minDocumentWidth] {
             let without = await buttonRings(width: width, hint: nil)
-            try #require(without.count == 2, "\(width)pt: \(without.count) buttons drawn without a hint")
-            let with = await buttonRings(width: width, hint: aHint)
+            try #require(without.count == 2, "\(width)pt: \(without.count) buttons drawn without a \(what)")
+            let with = notice ? await buttonRings(width: width, hint: nil, notice: Self.notice)
+                              : await buttonRings(width: width, hint: aHint)
             #expect(with.contains(without[1]), "\(width)pt: Line/Col moved from \(without[1]) — now \(with)")
             #expect(with.allSatisfy { $0 == without[0] || $0 == without[1] },
-                    "\(width)pt: a button moved with the hint up: \(without) became \(with)")
+                    "\(width)pt: a button moved with the \(what) up: \(without) became \(with)")
         }
     }
 
-    /// The notice moves nothing either: a notice such as "Reloaded — changed elsewhere" stands
-    /// where the hint would, at every width the hint is held to, and Line/Col stays put.
-    @Test func theNoticeNeverMovesLineCol() async throws {
-        let notice = "Reloaded — changed elsewhere"
-        for width: CGFloat in [900, 700, 520, 420, EditorLayoutMetrics.minDocumentWidth] {
-            let without = await buttonRings(width: width, hint: nil)
-            try #require(without.count == 2, "\(width)pt: \(without.count) buttons drawn without a notice")
-            let with = await buttonRings(width: width, hint: nil, notice: notice)
-            #expect(with.contains(without[1]), "\(width)pt: Line/Col moved from \(without[1]) — now \(with)")
-            #expect(with.allSatisfy { $0 == without[0] || $0 == without[1] },
-                    "\(width)pt: a button moved with the notice up: \(without) became \(with)")
-        }
-        // And it is drawn: a line that dropped the notice would pass the above.
+    static let notice = "Reloaded — changed elsewhere"
+
+    /// The notice is drawn: a line that dropped it would pass the test above.
+    @Test func theNoticeIsDrawnOnTheLine() async throws {
+        let notice = Self.notice
         func drawn(_ notice: String?) async throws -> NSBitmapImageRep {
             let line = EditorStatusLine(facts: facts, caret: EditorCaret(line: 408, column: 118), fileSize: "421 bytes",
                                         headings: long, goToLine: goTo, notice: notice)

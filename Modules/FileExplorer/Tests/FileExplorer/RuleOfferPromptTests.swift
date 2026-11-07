@@ -114,16 +114,7 @@ import Design
 
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
-        var count = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
-                if abs(p.redComponent - q.redComponent) > 0.02
-                    || abs(p.greenComponent - q.greenComponent) > 0.02
-                    || abs(p.blueComponent - q.blueComponent) > 0.02 { count += 1 }
-            }
-        }
-        return count
+        return PixelDiff.differingPixels(a, b, tolerance: 0.02)
     }
 
     /// The band is a hard-coded rectangle over a laid-out view, which can go stale silently and

@@ -37,7 +37,7 @@ import FileExplorerTestSupport
 
     /// The gate the menu item is written with, over the kinds the rail lists and the kinds it does
     /// not. This is the classifier alone; that the menu item applies it is asserted by
-    /// `theRowMenuOffersTheEditorOnlyForFilesEditOpens` below.
+    /// `thePredicateAgreesWithTheGateTheRowMenuApplies` below.
     @Test func theVerbIsOfferedForTextKindsAndNothingElse() {
         for name in ["notes.md", "readme.txt", "data.json", "run.sh", "Package.swift", "notes.markdown"] {
             #expect(PairContentKind.classify(path: name) == .text,
@@ -71,7 +71,9 @@ import FileExplorerTestSupport
     /// The predicate and the menu item's own gate are one answer, not two that agree today. Checked
     /// against each other over the same inputs, since each against its own list would miss them
     /// drifting apart. The menu is read as drawn, because the item asks `opensInEdit` (text, or a
-    /// PDF read-only) rather than the text kind.
+    /// PDF read-only) rather than the text kind. `openInEditor` is a `@ViewBuilder` that builds
+    /// nothing for a row Edit can't open, and an empty build has no size, so deleting the item or
+    /// dropping the `if` that gates it fails here.
     @Test func thePredicateAgreesWithTheGateTheRowMenuApplies() {
         let delegate = Recorder()
         for name in ["notes.md", "readme.txt", "Package.swift", "photo.jpg", "report.pdf", "noext"] {
@@ -81,6 +83,7 @@ import FileExplorerTestSupport
                     "the predicate and the row menu's gate disagree about \(name)")
         }
         // And the predicate is text OR PDF, nothing wider.
+        #expect(EditableText.opensInEdit(path: "notes.md"), "no item was built for a text row — the verb is gone")
         #expect(EditableText.opensInEdit(path: "/a/report.pdf") && EditableText.isPDF(path: "/a/report.pdf"))
         #expect(!EditableText.isText(path: "/a/report.pdf"), "isText must keep meaning text")
         #expect(!EditableText.opensInEdit(path: "/a/photo.jpg"))
@@ -100,26 +103,6 @@ import FileExplorerTestSupport
         let listed = Set(EditorRail.entries(in: folder.path, showsHidden: false,
                                             isCloudOnly: { _ in false }).map(\.name))
         #expect(listed == ["notes.md", "readme.txt", "paper.pdf"], "the rail lists \(listed)")
-    }
-
-    /// The menu item itself, not the classifier it consults: deleting
-    /// `SharedFileMenuItems.openInEditor`, or dropping the `if` that gates it, must fail here.
-    /// `openInEditor` is a `@ViewBuilder` that builds nothing for a row Edit can't open, and a
-    /// rendered measurement can see that: an empty build has no size.
-    @MainActor
-    @Test func theRowMenuOffersTheEditorOnlyForFilesEditOpens() {
-        let delegate = Recorder()
-        func drawn(_ path: String) -> CGSize {
-            NSHostingView(rootView: AnyView(
-                SharedFileMenuItems.openInEditor(path, delegate: delegate).labelsHidden()
-            )).fittingSize
-        }
-        let text = drawn("/a/notes.md")
-        let pdf = drawn("/a/report.pdf")
-        let image = drawn("/a/photo.jpg")
-        #expect(text.height > 0, "no item was built for a text row — the verb is gone")
-        #expect(pdf.height > 0, "no item was built for a PDF row — PDFs open read-only in Edit")
-        #expect(image.height == 0, "an item was built for a JPEG — the gate is not applied")
     }
 
     /// The menu as drawn, in order, not the source that describes it. The app target pins the order
@@ -188,14 +171,5 @@ import FileExplorerTestSupport
         host.frame = NSRect(x: 0, y: 0, width: 260, height: height)
         host.layoutSubtreeIfNeeded()
         return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }
-    }
-
-    /// Only checks the test double these tests rely on. The real delegate,
-    /// `PaneActionDelegate.handleOpenInEditor`, lives in the app target, so its test lives beside
-    /// it, in `SyncCloudTests/EditorHandOffTests.swift`.
-    @Test func theRecorderUsedByTheseTestsRecords() {
-        let recorder = Recorder()
-        recorder.handleOpenInEditor("/a/b/notes.md")
-        #expect(recorder.opened == ["/a/b/notes.md"], "the double these tests rely on does not record")
     }
 }

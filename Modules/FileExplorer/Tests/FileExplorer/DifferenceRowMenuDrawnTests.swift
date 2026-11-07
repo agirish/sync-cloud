@@ -126,30 +126,25 @@ import FileExplorerTestSupport
 /// name.
 @Suite struct DifferenceRowMenuOrderScanTests {
 
-    /// `DifferenceInspectionMenu`'s body, by its own matched braces (``SwiftBlockScan``).
+    /// `DifferenceInspectionMenu`'s body, by its own matched braces (``SourceText``).
     private static func menuBody() throws -> String {
-        try SwiftBlockScan.block(opening: "struct DifferenceInspectionMenu: View {", in: try viewSource())
+        try SourceText.block(opening: "struct DifferenceInspectionMenu: View {", in: try viewSource())
     }
 
     static func viewSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8))
-        try #require(text.count > 5_000, "DifferencesView.swift is implausibly short")
-        return text
+        try SourceText.fileExplorer("DifferencesView.swift", atLeast: 5_000)
     }
 
     /// Compare…, its divider, the editor group, its divider, then Get Info, with the group's
     /// divider inside its own `if` so a row offering nothing draws no extra separator.
     ///
     /// About structure, not indentation: snippets are matched whitespace-normalised
-    /// (``SwiftBlockScan/normalized(_:)``), and "inside the gate" is read off the gate's own braces
+    /// (``SourceText/normalized(_:)``), and "inside the gate" is read off the gate's own braces
     /// (its last statement is `Divider()`), so re-indenting or a blank line can't turn it red.
     @Test func openInEditSitsBetweenCompareAndGetInfoWithItsOwnDivider() throws {
         let raw = try Self.menuBody()
-        let body = SwiftBlockScan.normalized(raw)
-        func find(_ snippet: String) -> Range<String.Index>? { body.range(of: SwiftBlockScan.normalized(snippet)) }
+        let body = SourceText.normalized(raw)
+        func find(_ snippet: String) -> Range<String.Index>? { body.range(of: SourceText.normalized(snippet)) }
         let compare = try #require(find("Label(\"Compare…\""), "Compare… is gone")
         let gate = try #require(find("if let onOpenInEditor, !editable.isEmpty {"),
                                 "the editor group is no longer gated on both a host and an editable side")
@@ -168,8 +163,8 @@ import FileExplorerTestSupport
                 "more than one divider between Open in Edit and Get Info")
         // …and inside the gate, as its last statement. Past the gate's closing brace it would still
         // sit between the labels, but draw a second separator on every row offering no editor.
-        let gateBody = SwiftBlockScan.normalized(
-            try SwiftBlockScan.block(opening: "if let onOpenInEditor, !editable.isEmpty {", in: raw))
+        let gateBody = SourceText.normalized(
+            try SourceText.block(opening: "if let onOpenInEditor, !editable.isEmpty {", in: raw))
         #expect(gateBody.hasSuffix("Divider()"),
                 "the editor group's divider has left its gate — a non-text row would draw a double separator")
         #expect(find("ForEach(editable, id: \\.paneName)") != nil,
@@ -180,7 +175,7 @@ import FileExplorerTestSupport
 
     /// The item hands over the side's path.
     @Test func openInEditHandsTheEditorTheSidesPath() throws {
-        let body = SwiftBlockScan.normalized(try Self.menuBody())
+        let body = SourceText.normalized(try Self.menuBody())
         #expect(body.contains("onOpenInEditor(side.path)"), "Open in Edit does not hand over the side's path")
     }
 
@@ -189,147 +184,16 @@ import FileExplorerTestSupport
     @Test func bothRowMenusBuildTheInspectionItemsWithTheHostsEditor() throws {
         let source = try Self.viewSource()
         // Each member by its own braces.
-        let wrapperBody = SwiftBlockScan.normalized(try SwiftBlockScan.block(
+        let wrapperBody = SourceText.normalized(try SourceText.block(
             opening: "private func inspectionMenuItems(for difference: FileDifference) -> some View {", in: source))
         #expect(wrapperBody.contains("DifferenceInspectionMenu(")
-                && wrapperBody.contains(SwiftBlockScan.normalized("onOpenInEditor: onOpenInEditor")),
+                && wrapperBody.contains(SourceText.normalized("onOpenInEditor: onOpenInEditor")),
                 "the row menus no longer pass the host's editor to the items")
 
         for member in ["private func singleRowMenu(", "private func reviewTable("] {
-            let body = SwiftBlockScan.normalized(try SwiftBlockScan.block(opening: member, in: source))
-            #expect(body.contains(SwiftBlockScan.normalized("inspectionMenuItems(for: difference)")),
+            let body = SourceText.normalized(try SourceText.block(opening: member, in: source))
+            #expect(body.contains(SourceText.normalized("inspectionMenuItems(for: difference)")),
                     "\(member) no longer builds the shared inspection items — it would lack Open in Edit")
         }
-    }
-}
-
-/// A block's own braces, and code compared without its layout, for the scans above.
-///
-/// The app target's `TestSupport.swift` has the full reader (`declarationBody`, `CodeText`,
-/// `CallArguments`), which this module can't see. This is the part these scans need: a lexer that
-/// knows comments and string literals (escapes, `\(…)`, `"""`, `#"…"#`), a brace matcher over it,
-/// and a whitespace normaliser. Keep the two in step.
-private enum SwiftBlockScan {
-    enum Kind { case code, string, comment }
-
-    /// What each byte is part of: code, a string literal (interpolations included), or a comment.
-    static func kinds(_ b: [UInt8]) -> [Kind] {
-        var kinds = [Kind](repeating: .code, count: b.count)
-        func at(_ i: Int) -> UInt8? { i < b.count ? b[i] : nil }
-        let quote = UInt8(ascii: "\""), hash = UInt8(ascii: "#"), slash = UInt8(ascii: "/"),
-            star = UInt8(ascii: "*"), newline = UInt8(ascii: "\n"), backslash = UInt8(ascii: "\\"),
-            open = UInt8(ascii: "("), close = UInt8(ascii: ")")
-        // Code from `i`; with `interpolation`, returns after the `)` that closes it.
-        func code(from start: Int, interpolation: Bool, mark: Bool) -> Int {
-            var i = start, depth = 0
-            while i < b.count {
-                let c = b[i]
-                var end: Int?
-                var kind = Kind.comment
-                if c == slash, at(i + 1) == slash {
-                    var j = i
-                    while j < b.count, b[j] != newline { j += 1 }
-                    end = j
-                } else if c == slash, at(i + 1) == star {
-                    var j = i + 2, level = 1
-                    while j < b.count, level > 0 {
-                        if b[j] == slash, at(j + 1) == star { level += 1; j += 2 }
-                        else if b[j] == star, at(j + 1) == slash { level -= 1; j += 2 }
-                        else { j += 1 }
-                    }
-                    end = j
-                } else if c == quote || c == hash {
-                    end = string(at: i)
-                    kind = .string
-                }
-                if let end {
-                    if mark { for k in i..<min(end, b.count) { kinds[k] = kind } }
-                    i = end
-                    continue
-                }
-                if interpolation, c == open { depth += 1 }
-                if interpolation, c == close {
-                    if depth == 0 { return i + 1 }
-                    depth -= 1
-                }
-                i += 1
-            }
-            return b.count
-        }
-        func string(at i: Int) -> Int? {
-            var j = i, hashes = 0
-            while at(j) == hash { hashes += 1; j += 1 }
-            guard at(j) == quote else { return nil }
-            let multiline = at(j + 1) == quote && at(j + 2) == quote
-            j += multiline ? 3 : 1
-            func hashesAt(_ k: Int) -> Bool { (0..<hashes).allSatisfy { at(k + $0) == hash } }
-            while j < b.count {
-                if b[j] == backslash, hashesAt(j + 1) {
-                    let k = j + 1 + hashes
-                    j = at(k) == open ? code(from: k + 1, interpolation: true, mark: false) : k + 1
-                    continue
-                }
-                if b[j] == quote, !multiline || (at(j + 1) == quote && at(j + 2) == quote) {
-                    let after = j + (multiline ? 3 : 1)
-                    if hashesAt(after) { return after + hashes }
-                }
-                if !multiline, b[j] == newline { return j }
-                j += 1
-            }
-            return b.count
-        }
-        _ = code(from: 0, interpolation: false, mark: true)
-        return kinds
-    }
-
-    /// The text inside the braces of the block `opening` starts — the first `{` in code from the
-    /// start of `opening`, to its match. `opening` must occur exactly once.
-    static func block(opening: String, in source: String,
-                      sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
-        let count = source.components(separatedBy: opening).count - 1
-        try #require(count == 1, "\(opening) occurs \(count)× — the scan would read the wrong block",
-                     sourceLocation: sourceLocation)
-        let start = try #require(source.range(of: opening), sourceLocation: sourceLocation)
-        let b = Array(source.utf8)
-        let kind = kinds(b)
-        var i = source.utf8.distance(from: source.startIndex, to: start.lowerBound)
-        while i < b.count, !(kind[i] == .code && b[i] == UInt8(ascii: "{")) { i += 1 }
-        let open = i
-        var depth = 0
-        while i < b.count {
-            if kind[i] == .code, b[i] == UInt8(ascii: "{") { depth += 1 }
-            if kind[i] == .code, b[i] == UInt8(ascii: "}") {
-                depth -= 1
-                if depth == 0 { return String(decoding: b[(open + 1)..<i], as: UTF8.self) }
-            }
-            i += 1
-        }
-        Issue.record("\(opening) never closes — the scan would read the rest of the file", sourceLocation: sourceLocation)
-        return String(decoding: b[min(open + 1, b.count)...], as: UTF8.self)
-    }
-
-    /// Comments dropped, and whitespace outside string literals dropped except between two word
-    /// characters, where it becomes one space. Strings are kept byte for byte.
-    static func normalized(_ text: String) -> String {
-        let b = Array(text.utf8)
-        let kind = kinds(b)
-        func isWord(_ c: UInt8) -> Bool {
-            (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)
-                || c == UInt8(ascii: "_") || c == UInt8(ascii: "$") || c == UInt8(ascii: "@")
-                || c == UInt8(ascii: "#") || c >= 0x80
-        }
-        var out: [UInt8] = []
-        var pending = false
-        for i in 0..<b.count {
-            let c = b[i]
-            if kind[i] == .comment || (kind[i] == .code && (c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D)) {
-                pending = true
-                continue
-            }
-            if pending, let last = out.last, isWord(last), isWord(c) { out.append(0x20) }
-            pending = false
-            out.append(c)
-        }
-        return String(decoding: out, as: UTF8.self)
     }
 }

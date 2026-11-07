@@ -124,19 +124,7 @@ import Design
                                       riskyReason: riskyReason)
                 .frame(width: canvas.width, height: canvas.height, alignment: .leading)
                 .environment(\.colorScheme, .light)
-            let host = NSHostingView(rootView: AnyView(subject))
-            host.frame = CGRect(origin: .zero, size: canvas)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: .aqua)
-            window.colorSpace = .sRGB
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds),
-                                   "no bitmap rep")
-            host.cacheDisplay(in: host.bounds, to: rep)
+            let rep = try #require(PixelDiff.render(subject, size: canvas), "no bitmap rep")
             // What the badge is specified to paint in this appearance. Raw `SemanticColor.caution`
             // is `Color.yellow`, and a glyph whose colour is its meaning takes `ChromeInk.semantic`
             // (deepened in light, untouched in dark), because system yellow on a light row falls

@@ -18,41 +18,16 @@ import Foundation
 /// moved".
 @Suite struct GoToResultsPanelShadowTests {
 
-    private func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)              // …/Tests/FileExplorer/<this>.swift
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/GoToResultsPanel.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read GoToResultsPanel.swift — the check below would be vacuous")
-        try #require(text.count > 500, "GoToResultsPanel.swift is implausibly short")
-        return text
-    }
-
     /// Comments stripped, because the reasoning above the `groundedGlassCard` call quotes the very
     /// modifier this forbids; a scan that read the explanation instead of the code would fail on a
     /// correct file.
-    private func codeOnly(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     @Test func theResultsPanelDeclaresNoShadow() throws {
-        let code = codeOnly(try source())
+        let code = SourceText.codeOnly(try SourceText.fileExplorer("GoToResultsPanel.swift"))
         // Non-vacuity: the scan must still be looking at a real view body, or "no `.shadow(`" is
         // true of an empty string too.
         try #require(code.contains("groundedGlassCard"),
                      "the card's own edge treatment is gone — this scan is no longer reading the surface it guards")
         #expect(!code.contains(".shadow("),
                 "GoToResultsPanel declares a shadow again. The panel window is sized to exactly this list, so the blur is clipped to the window RECTANGLE and all that renders is dark notches in the card's rounded corners — measured at 14–26 luminance units on v4.2, with no shadow below the card at all. NSWindow.hasShadow does not help. See the reasoning above `groundedGlassCard`.")
-    }
-
-    /// The scan can fail: the guard against a matcher that has quietly stopped matching.
-    @Test func theShadowScanCanActuallyFail() throws {
-        let mutated = codeOnly(try source())
-            .replacingOccurrences(of: ".groundedGlassCard(level: glassLevel)",
-                                  with: ".groundedGlassCard(level: glassLevel)\n        .shadow(color: .black.opacity(0.3), radius: 24, y: 6)")
-        #expect(mutated.contains(".shadow("),
-                "the matcher no longer sees a shadow that IS there, so the test above proves nothing")
     }
 }

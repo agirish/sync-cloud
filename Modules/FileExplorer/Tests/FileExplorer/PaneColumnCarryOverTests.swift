@@ -101,51 +101,40 @@ import Sync
     /// A rule extracted for testability is one revert from being unused, and this one is reached
     /// from a SwiftUI `onAppear` no unit test can drive. Source-level, with the blind spot that
     /// implies; the helper it borrows fails loudly rather than scanning an empty haystack.
-    @Test func testTheTreesArrivalActuallyCarriesTheColumnsOver() throws {
-        let source = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
-        let body = try OrganizeScopeCallSiteTests.body(of: "private var paneList: some View", in: source)
-
-        #expect(body.contains("carryColumnsIntoTree(proxy)"),
-                "the Tree branch's arrival no longer carries a parked column stack over")
-        // The order matters as much as the call: a search hit is a place asked for by name, and the
-        // carry-over must stand down rather than scroll the tree away from it.
-        #expect(body.contains("search.hit(at: searchHitIndex) == nil"),
-                "the carry-over must be gated on there being no search hit to reveal instead")
-    }
-
-    /// The refusal while the tree is still arriving, which no picture here can show. The guard
-    /// protects the scroll: a `scrollTo` for a row the list doesn't hold yet is silently dropped,
-    /// and the latch then makes that permanent. The render fixture asserts row arrival, since an
-    /// offscreen, never-key window's scroll position isn't a reliable instrument, so it stays green
-    /// with the guard removed. That is why this scan exists.
-    @Test func testTheCarryRefusesWhileTheTreeIsStillArriving() throws {
-        let source = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
-        let carryBody = try OrganizeScopeCallSiteTests.body(of: "private func carryColumnsIntoTree",
-                                                           in: source)
-        #expect(carryBody.contains("guard !isLoading else { return }"),
-                "the carry-over decides from a half-built tree again, and latches the result")
-        // A refusal must be re-asked when the load lands, or it is a silent failure. The Columns
-        // direction pairs them the same way.
-        let arrival = try OrganizeScopeCallSiteTests.body(of: "private var paneList: some View",
-                                                          in: source)
-        #expect(arrival.contains("onChange(of: isLoading)"),
-                "a carry refused mid-load is never re-asked when the load lands")
-    }
-
+    ///
+    /// The carry refuses while the tree is still arriving, which no picture here can show: a
+    /// `scrollTo` for a row the list doesn't hold yet is silently dropped, and the latch then makes
+    /// that permanent. The render fixture asserts row arrival, since an offscreen, never-key
+    /// window's scroll position isn't a reliable instrument, so it stays green with the guard
+    /// removed.
+    ///
     /// The scroll is gated on the stack having changed, because the Tree branch appears on every
     /// tab switch and pane collapse, not only on a mode flip, and scrolling on each would yank a
     /// tree the user has since scrolled elsewhere.
-    @Test func testTheScrollIsGatedOnTheStackHavingChanged() throws {
-        let source = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
-        let body = try OrganizeScopeCallSiteTests.body(of: "private func carryColumnsIntoTree", in: source)
+    @Test func testTheTreesArrivalActuallyCarriesTheColumnsOver() throws {
+        let source = try SourceText.fileExplorer("FileTreeView.swift")
+        let arrival = try SourceText.body(of: "private var paneList: some View", in: source)
+        let carry = try SourceText.body(of: "private func carryColumnsIntoTree", in: source)
 
-        #expect(body.contains("guard carriedStack != browsePath else { return }"),
+        #expect(arrival.contains("carryColumnsIntoTree(proxy)"),
+                "the Tree branch's arrival no longer carries a parked column stack over")
+        // The order matters as much as the call: a search hit is a place asked for by name, and the
+        // carry-over must stand down rather than scroll the tree away from it.
+        #expect(arrival.contains("search.hit(at: searchHitIndex) == nil"),
+                "the carry-over must be gated on there being no search hit to reveal instead")
+        #expect(carry.contains("guard !isLoading else { return }"),
+                "the carry-over decides from a half-built tree again, and latches the result")
+        // A refusal must be re-asked when the load lands, or it is a silent failure. The Columns
+        // direction pairs them the same way.
+        #expect(arrival.contains("onChange(of: isLoading)"),
+                "a carry refused mid-load is never re-asked when the load lands")
+        #expect(carry.contains("guard carriedStack != browsePath else { return }"),
                 "without this the carry-over re-scrolls on every appearance of the Tree branch")
         // And the expansion must happen before that gate: opening folders is idempotent, so it is
         // right on every appearance, and skipping it would leave the tree closed after a tab
-        // switch.
-        let gate = try #require(body.range(of: "guard carriedStack != browsePath"))
-        let assignment = try #require(body.range(of: "expanded = carry.expanded"))
+        // switch. Last, so a missing range stops only this check.
+        let gate = try #require(carry.range(of: "guard carriedStack != browsePath"))
+        let assignment = try #require(carry.range(of: "expanded = carry.expanded"))
         #expect(assignment.lowerBound < gate.lowerBound,
                 "opening the folders is idempotent and belongs ahead of the scroll's gate")
     }

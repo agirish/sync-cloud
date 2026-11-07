@@ -68,23 +68,14 @@ import Design
     /// The editor's own text view, in a window, `width` wide, holding enough text to wrap.
     private func hosted(width: CGFloat, column: CGFloat?, legacyScrollers: Bool = false, text: String? = nil)
         -> (window: NSWindow, scroll: NSScrollView, view: EditorTextView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        let scroll = EditorTextView.scrollableTextView()
-        if legacyScrollers { scroll.scrollerStyle = .legacy }
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true    // as `makeNSView` sets it: the scroller comes and goes
-        scroll.frame = NSRect(x: 0, y: 0, width: width, height: 400)
-        scroll.autoresizingMask = [.width, .height]
-        window.contentView = scroll
-        let view = scroll.documentView as! EditorTextView
-        view.font = PlainTextEditor.font(scale: 1)
-        view.drawsBackground = false    // as `makeNSView` sets it, so only the text inks
-        view.textContainerInset = EditorReadableColumn.baseInset
-        view.string = text ?? String(repeating: "readable line length keeps prose in a column ", count: 30)
-        PlainTextEditor.applyWrapping(true, to: view, in: scroll)
-        view.readableColumnWidth = column
-        return (window, scroll, view)
+        let rig = EditorTestRigs.editorTextView(
+            width: width, text: text ?? String(repeating: "readable line length keeps prose in a column ", count: 30)) {
+            if legacyScrollers { $0.scrollerStyle = .legacy }
+            $0.hasVerticalScroller = true
+            $0.autohidesScrollers = true    // as `makeNSView` sets it: the scroller comes and goes
+        }
+        rig.view.readableColumnWidth = column
+        return rig
     }
 
     /// The column is centred, the container is the column, and the view stays on TextKit 2, so
@@ -292,18 +283,8 @@ import Design
         let editor = PlainTextEditor(source: EditorSourceStorage(text: "words words words\n"),
                                      isEditable: true, fontScale: fontScale,
                                      documentID: "/a/b.md", undoManager: UndoManager())
-        let host = NSHostingView(rootView: AnyView(editor.defaultAppStorage(defaults)))
-        host.frame = NSRect(x: 0, y: 0, width: width, height: 300)
-        host.layoutSubtreeIfNeeded()
-        var found: NSTextView?
-        func walk(_ v: NSView) {
-            if let scroll = v as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier {
-                found = scroll.documentView as? NSTextView
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
-        return (host, found!)
+        let (host, view) = EditorTestRigs.mountedEditor(editor, defaults: defaults, width: width)
+        return (host, view as! NSTextView)
     }
 
     private func withSetting(_ on: Bool?, _ body: () throws -> Void) rethrows {
@@ -393,7 +374,7 @@ import Design
     }
 
     /// The item sits beside Wrap Lines, ticked by the stored setting, on a read-only file too, since
-    /// it changes nothing on disk.
+    /// it changes nothing on disk. Check Spelling is offered there too, unlike the markup verbs.
     @Test func theRightClickMenuOffersItBesideWrapLines() {
         for on in [true, false] {
             withSetting(on) {
@@ -405,6 +386,7 @@ import Design
                 let wrap = titles.firstIndex(of: "Wrap Lines")
                 #expect(wrap != nil && titles.firstIndex(of: "Readable Line Length") == wrap! + 1,
                         "the menu reads \(titles)")
+                #expect(titles.contains("Check Spelling While Typing"), "the menu read \(titles)")
                 #expect(menu.items.first { $0.title == "Readable Line Length" }?.state == (on ? .on : .off))
             }
         }

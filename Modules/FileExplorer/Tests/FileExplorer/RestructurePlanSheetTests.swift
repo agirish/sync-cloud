@@ -217,25 +217,16 @@ import Testing
                     == "was Federal Tax, absorbed State Tax")
         #expect(RestructurePlanSheet.fateNote(.created) == "created")
         #expect(RestructurePlanSheet.fateNote(.kept) == "kept — no slot in the target shape")
+        // A kept folder's note says why: "kept" alone reads as the user's choice.
+        #expect(RestructurePlanSheet.fateNote(.kept)?.contains("no slot") == true)
         #expect(RestructurePlanSheet.fateNote(.unchanged) == nil,
                 "an untouched folder says nothing rather than saying \"unchanged\"")
-    }
-
-    /// A kept folder's note explains itself: it is kept because the target shape has no slot for
-    /// it, and "kept" alone reads as the user's choice.
-    @Test func theKeptNoteSaysWhy() {
-        let note = try? #require(RestructurePlanSheet.fateNote(.kept))
-        #expect(note?.contains("no slot") == true)
     }
 
     /// The sheet draws the preview from the planner's rule rather than a second derivation, and
     /// picks a member the plan touches: two identical columns teach nothing.
     @Test func theSheetDrawsTheRulesPreviewForATouchedMember() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructurePlanSheet.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructurePlanSheet.swift")
         #expect(text.contains("RestructurePlanner.preview(member: exemplar, in: manifest,"),
                 "the columns come from the shared rule, not a second derivation")
         #expect(text.contains("for action in manifest.actions where action.action != .keep"),
@@ -270,41 +261,6 @@ import Testing
         #expect(RestructurePlanSheet.previewMember(of: elsewhere, family: family,
                                                    members: members) == nil,
                 "an operation outside every member names no exemplar")
-    }
-
-    /// Renders the sheet over a family, with the mapping either doing something or all-keep.
-    static func renderPlanSheet(mapped: Bool) throws -> Data {
-        let finding = StructureFinding(
-            family: "F",
-            schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
-                      .init(vocabulary: ["federal tax"], members: ["2014"])])
-        let files: [String: [String]] = [
-            "F/2013/Federal Tax": ["a.pdf", "b.pdf"],
-            "F/2013/State Tax": ["c.pdf"],
-            "F/2014/Forms": ["d.pdf"],
-        ]
-        let folders: [String: [String]] = [
-            "F": ["2013", "2014"],
-            "F/2013": ["Federal Tax", "State Tax"],
-            "F/2014": ["Forms"],
-        ]
-        let tree = RestructureTreeView(
-            childFolders: { folders[$0] ?? (files[$0] != nil ? [] : nil) },
-            files: { files[$0] },
-            fileCount: { files[$0]?.count })
-        let sheet = RestructurePlanSheet(
-            finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
-            profileId: "p", accent: .blue,
-            initialRows: mapped ? [.init(source: "Federal Tax", target: "Forms"),
-                                   .init(source: "State Tax", target: "Forms")]
-                                : [.init(source: "Federal Tax"), .init(source: "State Tax")],
-            onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
-        let host = NSHostingView(rootView: sheet.frame(width: 620, height: 700))
-        host.frame = NSRect(x: 0, y: 0, width: 620, height: 700)
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return try #require(rep.representation(using: .png, properties: [:]))
     }
 
     /// The whole sheet renders with the preview present, so a layout crash fails here rather than
@@ -442,11 +398,7 @@ import Testing
         #expect(!drops(.failure(.nothingMapped)), "all-keep discards, and the title says Close")
         #expect(!drops(clash, exported: true))
 
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
-        let sheet = try String(contentsOf: sources.appendingPathComponent("RestructurePlanSheet.swift"),
-                               encoding: .utf8)
+        let sheet = try SourceText.fileExplorer("RestructurePlanSheet.swift")
         #expect(sheet.contains("Text(Self.closeDropsEditSentence)"), "the footer draws it")
     }
 
@@ -473,11 +425,7 @@ import Testing
 
     /// The footer uses the rules: a rule extracted for testing is one revert away from unused.
     @Test func theFooterAndTheHostUseTheCloseRules() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer")
-        let sheet = try String(contentsOf: sources.appendingPathComponent(
-            "RestructurePlanSheet.swift"), encoding: .utf8)
+        let sheet = try SourceText.fileExplorer("RestructurePlanSheet.swift")
         #expect(sheet.contains("let disposition = Self.closeDisposition("))
         #expect(sheet.contains("Button(Self.closeTitle(applied: isApplied, disposition: disposition,"))
         #expect(sheet.contains("case .keep(let manifest): onKeepDraft?(manifest, vocabulary)"))
@@ -486,13 +434,12 @@ import Testing
         #expect(sheet.contains("if baseline.hasDraft, onDiscardDraft != nil"),
                 "Discard Plan is offered on a different condition from the close's discard")
         // Both exports move the baseline when they save.
-        let single = try OrganizeScopeCallSiteTests.body(of: "private func exportPlan(", in: sheet)
+        let single = try SourceText.body(of: "private func exportPlan(", in: sheet)
         #expect(single.contains("case .saved(let filename):\n"
                                 + "            baseline.exported(rows: rows, vocabulary: vocabulary)"))
-        let group = try OrganizeScopeCallSiteTests.body(of: "private func exportGroup(", in: sheet)
+        let group = try SourceText.body(of: "private func exportGroup(", in: sheet)
         #expect(group.contains("if !names.isEmpty { baseline.exported(rows: rows, vocabulary: vocabulary) }"))
-        let host = try String(contentsOf: sources.appendingPathComponent(
-            "LensWorkspaceView.swift"), encoding: .utf8)
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("hasSavedDraft: store.draft(for: key) != nil"))
         #expect(host.contains("onDiscardDraft: { store.removeDraft(for: key) }"))
     }

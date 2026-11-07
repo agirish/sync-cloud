@@ -22,9 +22,7 @@ import Testing
         // 1 h 47 rounds down to the five-minute mark.
         #expect(DocumentSurveyCardText.remaining((107 * 60)) == "about 1 h 45 min left")
         #expect(DocumentSurveyCardText.remaining((110 * 60)) == "about 1 h 50 min left")
-    }
-
-    @Test func remainingNeverGoesNegative() {
+        // Never negative.
         #expect(DocumentSurveyCardText.remaining(-500) == "under a minute left")
     }
 
@@ -80,10 +78,11 @@ import Testing
     }
 
     /// No bar before anything has happened, and none once done, where a full bar would only repeat
-    /// "Documents read".
+    /// "Documents read". A settled receipt is not a to-do: no bar, no badge, as on Storage's card.
     @Test func onlyTheRunningStatesDrawABar() {
         #expect(DocumentSurveyCardText.fraction(for: .offered(documents: 10)) == nil)
         #expect(DocumentSurveyCardText.fraction(for: .finished(summary: "x", unreadableTypes: 0)) == nil)
+        #expect(DocumentSurveyCardText.fraction(for: .settled(folders: 2306, lastRead: nil)) == nil)
         #expect(DocumentSurveyCardText.fraction(for: .interrupted(done: 1, total: 4)) == 0.25)
         #expect(DocumentSurveyCardText.fraction(
             for: .running(done: 2, total: 4, folder: nil, secondsRemaining: nil, pause: nil)) == 0.5)
@@ -97,19 +96,15 @@ import Testing
 
     // MARK: - Running and paused
 
+    /// The title counts against the total; the detail names the folder and the time.
     @Test func theRunningTitleCountsAgainstTheTotal() {
-        let title = DocumentSurveyCardText.title(
-            for: .running(done: 2871, total: 7558, folder: "Health/Medical/Kaiser",
-                          secondsRemaining: 6600, pause: nil))
+        let running = DocumentSurveyCardState.running(done: 2871, total: 7558, folder: "Health/Medical/Kaiser",
+                                                      secondsRemaining: 6600, pause: nil)
+        let title = DocumentSurveyCardText.title(for: running)
         #expect(title.contains("2,871"))
         #expect(title.contains("7,558"))
         #expect(!title.lowercased().contains("paused"))
-    }
-
-    @Test func theRunningDetailNamesTheFolderAndTheTime() {
-        let detail = DocumentSurveyCardText.detail(
-            for: .running(done: 2871, total: 7558, folder: "Health/Medical/Kaiser",
-                          secondsRemaining: 6600, pause: nil))
+        let detail = DocumentSurveyCardText.detail(for: running)
         #expect(detail.contains("Health/Medical/Kaiser"))
         #expect(detail.contains("about 1 h 50 min left"))
     }
@@ -223,10 +218,6 @@ import Testing
         #expect(detail.lowercased().contains("only what has changed"))
     }
 
-    /// A receipt is not a to-do: no bar, no badge, as on Storage's card.
-    @Test func theSettledReceiptDrawsNoProgressBar() {
-        #expect(DocumentSurveyCardText.fraction(for: .settled(folders: 2306, lastRead: nil)) == nil)
-    }
 
     /// Singular and plural, verb included, so a one-folder tree never reads "1 folder have learned
     /// content".

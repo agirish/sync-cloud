@@ -8,7 +8,7 @@ import Design
 /// the field read the only ways a hosted SwiftUI popover can be: the popover windows on screen, the
 /// field editor that holds the typing, and what the binding and `onGo` hear.
 @MainActor
-@Suite(.serialized) struct EditorGoToLineFieldTests {
+@Suite(.serialized) struct EditorGoToLineFieldTests: EditorPopoverRig {
 
     final class Model: ObservableObject {
         @Published var shown = false
@@ -40,39 +40,12 @@ import Design
         outline: [MarkdownOutlineEntry(line: 1, level: 2, depth: 0, title: "Method for the very patient weekend cook")],
         current: 0, offersRailOutline: false, accent: .blue, onSelect: { _ in }, onShowRailOutline: {})
 
-    // MARK: The rig
-
-    private func spin(_ window: NSWindow, _ turns: Int = 15) {
-        for _ in 0..<turns {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.03, true)
-            window.layoutIfNeeded()
-        }
-    }
-
-    /// Every popover up — each buried with the window it opened from, under everything on screen.
-    private func popovers(sourceLocation: SourceLocation = #_sourceLocation) -> [NSWindow] {
-        let open = NSApp.windows.filter { String(describing: type(of: $0)).contains("Popover") && $0.isVisible }
-        for popover in open {
-            #expect(BuriedWindow.isBuried(popover), "a popover opened above the buried window, at level \(popover.level.rawValue)",
-                    sourceLocation: sourceLocation)
-        }
-        return open
-    }
+    // MARK: The rig (`EditorPopoverRig`)
 
     private func mount(_ model: Model, headings: EditorStatusHeadings? = nil) -> (NSWindow, NSView) {
-        _ = NSApplication.shared
         let host = NSHostingView(rootView: Harness(model: model, headings: headings))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 40)
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 40),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
-        // Key and ordered in, because the popover presents only from a visible window — and buried,
-        // so no package run stands this status line on the user's desktop.
-        window.buryUnderEverything()
-        window.makeKeyAndOrderFront(nil)
-        #expect(BuriedWindow.isBuried(window), "the fixture window is above the desktop, at level \(window.level.rawValue)")
-        spin(window)
-        return (window, host)
+        return (window(for: host), host)
     }
 
     private func close(_ model: Model, _ window: NSWindow) {

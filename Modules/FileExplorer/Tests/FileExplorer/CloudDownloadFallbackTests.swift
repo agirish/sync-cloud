@@ -93,14 +93,23 @@ import Testing
         let (recorder, token) = listening(on: channel, as: .right)
         defer { channel.removeObserver(token) }
         var revealed: [URL] = []
+        final class Seen: @unchecked Sendable { var files: [String] = []; var folders: [String] = [] }
+        let seen = Seen()
 
         await CloudDownloadRequest.requestDownloads(
-            files: ["/P/loose.bin"], folders: ["/P/Folder"], from: .right, through: channel,
-            fetch: { _, _ in .init(requested: [], refused: ["/P/Folder/a", "/P/loose.bin"], unreadable: 0) },
+            files: ["/P/loose.bin"], folders: ["/P/Folder", "/P/G"], from: .right, through: channel,
+            fetch: { files, folders in
+                seen.files = files; seen.folders = folders
+                return .init(requested: [], refused: ["/P/Folder/a", "/P/loose.bin"], unreadable: 0)
+            },
             whenUnavailable: { revealed.append(contentsOf: $0) })
 
+        // The fetch is handed the selection as given, files and folders apart, so a folder is
+        // walked and a file is not.
+        #expect(seen.files == ["/P/loose.bin"])
+        #expect(seen.folders == ["/P/Folder", "/P/G"])
         // The whole selection, folders first: what was asked for, not what was found inside.
-        #expect(revealed.map(\.path) == ["/P/Folder", "/P/loose.bin"])
+        #expect(revealed.map(\.path) == ["/P/Folder", "/P/G", "/P/loose.bin"])
         #expect(recorder.accepted.isEmpty, "a watch was started for a download nobody started")
     }
 
@@ -118,24 +127,5 @@ import Testing
 
         #expect(revealed.isEmpty)
         #expect(recorder.accepted.isEmpty)
-    }
-}
-
-/// The fetch is handed exactly the selection it was given, files and folders apart, so a folder is
-/// walked and a file is not.
-@MainActor
-@Suite struct RequestDownloadsHandOffTests {
-    @Test func theSelectionReachesTheFetchAsGiven() async {
-        final class Seen: @unchecked Sendable { var files: [String] = []; var folders: [String] = [] }
-        let seen = Seen()
-        await CloudDownloadRequest.requestDownloads(
-            files: ["/P/a.bin"], folders: ["/P/F", "/P/G"], from: .left, through: NotificationCenter(),
-            fetch: { files, folders in
-                seen.files = files; seen.folders = folders
-                return .init(requested: [], refused: [], unreadable: 0)
-            },
-            whenUnavailable: { _ in })
-        #expect(seen.files == ["/P/a.bin"])
-        #expect(seen.folders == ["/P/F", "/P/G"])
     }
 }

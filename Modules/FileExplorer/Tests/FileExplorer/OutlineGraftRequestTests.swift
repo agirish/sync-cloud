@@ -41,20 +41,15 @@ import Sync
         return asked
     }
 
-    @MainActor
-    @Test func openingAnUnreadDirectoryAsksForIt() {
-        let rows = [node("/r/unread", unexplored: true, children: [])]
-        #expect(requestsWhenExpanding(rows, path: "/r/unread", open: true) == ["/r/unread"],
-                "expanding a folder the walk never read asked for nothing — it opens onto an empty body forever")
-    }
-
     /// Opening is an explicit ask, never a passive one, so the manager retries a folder it found
     /// unreadable before (a slow cloud folder may have downloaded since), where a scroll past would
     /// not.
     @MainActor
-    @Test func openingAsksExplicitly() {
+    @Test func openingAnUnreadDirectoryAsksForIt() {
         let rows = [node("/r/unread", unexplored: true, children: [])]
         let asked = requestsWhenExpandingWithPassive(rows, path: "/r/unread", open: true)
+        #expect(asked.map(\.path) == ["/r/unread"],
+                "expanding a folder the walk never read asked for nothing — it opens onto an empty body forever")
         #expect(asked.map(\.passive) == [false],
                 "opening a row asked passively — a folder found unreadable once could never be retried")
     }
@@ -63,8 +58,8 @@ import Sync
     /// past, which is what the manager's unreadable memory is for. Read from the body, since
     /// `onAppear` cannot be fired from a test.
     @Test func thePlaceholderAsksPassively() throws {
-        let outline = try OrganizeScopeCallSiteTests.source("PaneOutlineRows.swift")
-        let body = try OrganizeScopeCallSiteTests.body(of: "var body: some View {", in: outline)
+        let outline = try SourceText.fileExplorer("PaneOutlineRows.swift")
+        let body = try SourceText.body(of: "var body: some View {", in: outline)
         #expect(body.contains("onNeedChildren(paneRow.node.id, true)"),
                 "the placeholder's appear-time ask is not marked passive — every scroll past re-lists an unreadable folder")
         #expect(!outline.contains("onNeedChildren(id, true)"),
@@ -144,11 +139,11 @@ import Sync
     /// draw the row from the rule above, and the pane must pass its own walk and in-flight state
     /// rather than the defaults.
     @Test func theOutlineDrawsItAndThePanePassesItsState() throws {
-        let outline = try OrganizeScopeCallSiteTests.source("PaneOutlineRows.swift")
-        let body = try OrganizeScopeCallSiteTests.body(of: "var body: some View {", in: outline)
+        let outline = try SourceText.fileExplorer("PaneOutlineRows.swift")
+        let body = try SourceText.body(of: "var body: some View {", in: outline)
         #expect(body.contains("Self.placeholder(for: paneRow, isLoading: isLoading,"))
         #expect(body.contains("Self.placeholderRow(caption)"))
-        let pane = try OrganizeScopeCallSiteTests.source("FileTreeView.swift")
+        let pane = try SourceText.fileExplorer("FileTreeView.swift")
         #expect(pane.contains("isLoading: isLoading, graftsInFlight: graftsInFlight) { row in"),
                 "the tree's outline is not told the pane's walk and in-flight state")
     }

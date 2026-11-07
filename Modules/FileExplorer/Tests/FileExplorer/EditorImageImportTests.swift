@@ -17,19 +17,10 @@ import FileExplorerTestSupport
 
     private func folder(of note: String) -> String { (note as NSString).deletingLastPathComponent }
 
-    /// A real PNG, so the bytes are an image and not a placeholder string.
-    private func png(_ side: Int = 2) -> Data {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
-                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        return rep.representation(using: .png, properties: [:])!
-    }
+    private func png(_ side: Int = 2) -> Data { EditorTestRigs.png(side: side) }
 
-    /// An image file somewhere else on disk, as Finder would hand it over.
     private func imageElsewhere(_ name: String = "IMG_4120.png") throws -> String {
-        let path = try TestTextFiles.write("", named: name)
-        try png(3).write(to: URL(fileURLWithPath: path))
-        return path
+        try EditorTestRigs.imageFile(named: name, side: 3)
     }
 
     private func listing(_ path: String) -> [String] {
@@ -198,8 +189,8 @@ import FileExplorerTestSupport
         #expect(links == ["Images/Caf%C3%A9-5.png"])
     }
 
-    /// An unreadable photo is refused as unreadable, before anything is written, not as one that
-    /// "couldn't be saved".
+    /// An unreadable photo is refused as unreadable, naming it, before anything is written, not as
+    /// one that "couldn't be saved". No folder is left behind.
     @Test func anUnreadableSourceIsRefusedAsUnreadable() throws {
         let note = try note()
         let source = try imageElsewhere()
@@ -207,7 +198,7 @@ import FileExplorerTestSupport
         defer { chmod(source, 0o644) }
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.file(source)], forNote: note),
-                      in: folder(of: note), before: before, mentioning: "can’t be read")
+                      in: folder(of: note), before: before, mentioning: "“IMG_4120.png” can’t be read")
     }
 
     /// A file of `bytes`, sparse, so a test of the limit costs no disk.
@@ -357,19 +348,10 @@ import FileExplorerTestSupport
         let note = try note()
         let source = try imageElsewhere()
         let before = listing(folder(of: note))
-        expectRefusal(EditorImageImport.importImages([.file(source)], forNote: note, isCloudOnly: { $0.hasSuffix(".png") }),
-                      in: folder(of: note), before: before, mentioning: "still in the cloud")
-    }
-
-    /// The cloud-only refusal reads for a paste as well as a drop, never telling a pasted file to
-    /// be dropped again.
-    @Test func theCloudOnlyRefusalDoesNotSayDrop() throws {
-        let note = try note()
-        let report = EditorImageImport.importImages([.file(try imageElsewhere())], forNote: note, isCloudOnly: { $0.hasSuffix(".png") })
-        guard case .refused(let reason) = report else {
-            Issue.record("not refused: \(report)")
-            return
-        }
+        let report = EditorImageImport.importImages([.file(source)], forNote: note, isCloudOnly: { $0.hasSuffix(".png") })
+        expectRefusal(report, in: folder(of: note), before: before, mentioning: "still in the cloud")
+        // It reads for a paste as well as a drop, never telling a pasted file to be dropped again.
+        guard case .refused(let reason) = report else { return }
         #expect(reason.hasSuffix("Download it first, then add it again."), "\(reason)")
         #expect(!reason.contains("drop"), "\(reason)")
     }
@@ -417,23 +399,6 @@ import FileExplorerTestSupport
         #expect((attributes[.immutable] as? Bool) != true, "the lock came with it")
         #expect(fm.isWritableFile(atPath: copy), "the copy is read-only")
         #expect(listing(folder(of: note) + "/Images") == ["Pasta-1.png"], "something hidden was left behind")
-    }
-
-    /// An import that wrote nothing takes back the folder it made (only an empty one) and is a
-    /// refusal with the disk as it was.
-    @Test func aFailureAfterTheFolderWasMadeLeavesNoFolder() throws {
-        let note = try note()
-        let source = try imageElsewhere()
-        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: source)
-        defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: source) }
-        let before = listing(folder(of: note))
-        let report = EditorImageImport.importImages([.file(source)], forNote: note)
-        guard case .refused(let reason) = report else {
-            Issue.record("not refused: \(report)")
-            return
-        }
-        #expect(reason.contains("IMG_4120.png"), "the refusal does not say which image: \(reason)")
-        #expect(listing(folder(of: note)) == before, "the made folder was left behind")
     }
 
     /// A number the note still links is never given out again, even with its file gone.

@@ -132,12 +132,12 @@ guard, not specifically *that* one. What it does establish is enough to disquali
 below: a fixture driven by `layoutIfNeeded` can churn half a million constraint updates and still
 report success.
 
-Every headless fixture written against this bug drives with `layoutIfNeeded` — the `roundsToSettle`
-helper in `PaneTreeSwapLayoutBudgetTests`, `PaneRowHeightStabilityTests` and
-`ColumnsRepublishLayoutLoopTests`, and the `pump` in `PaneColumnsLayoutLoopTests`, which re-lays out
-by hand on every runloop turn. **Their "settles in 2 rounds" verdicts are therefore not evidence
-about this crash**: they were measuring a path that structurally cannot fail. Each now carries a
-note saying so. What they do still prove — that the tree stops dirtying itself under a manual pump —
+Every headless fixture written against this bug drives with `layoutIfNeeded` — the
+`PaneLayoutSettle.roundsToSettle` helper that `PaneTreeSwapLayoutBudgetTests`,
+`PaneRowHeightStabilityTests` and `ColumnsRepublishLayoutLoopTests` share, and the `pump` in
+`PaneColumnsLayoutLoopTests`, which re-lays out by hand on every runloop turn. **Their "settles in 2
+rounds" verdicts are therefore not evidence about this crash**: they were measuring a path that
+structurally cannot fail. Both helpers now carry a note saying so. What they do still prove — that the tree stops dirtying itself under a manual pump —
 is worth keeping, and is a weaker claim than the one they were being read as making.
 
 **The continuous metric.** `-[NSWindow updateConstraintsIfNeeded]` is called once per

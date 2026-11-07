@@ -16,25 +16,6 @@ import Sync
 @MainActor
 @Suite struct ColumnsRepublishLayoutLoopTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     /// The column width from the app's real defaults (`com.abhishekgirish.SyncCloud`).
     private static let realColumnWidth: CGFloat = 210
 
@@ -80,7 +61,7 @@ import Sync
                 childrenIndex: PaneChildrenIndex(tree: box.tree, treeRoot: root), treeRoot: root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
                 onBackgroundDeselect: { _ in }
@@ -101,54 +82,16 @@ import Sync
         return window
     }
 
-    private func pump(_ window: NSWindow, seconds: Double) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, true)
-            window.layoutIfNeeded()
-        }
-    }
-
-    private func dirtyCount(_ v: NSView) -> Int {
-        (v.needsLayout ? 1 : 0) + (v.needsUpdateConstraints ? 1 : 0)
-            + v.subviews.reduce(0) { $0 + dirtyCount($1) }
-    }
-
-    private func viewCount(_ v: NSView) -> Int {
-        1 + v.subviews.reduce(0) { $0 + viewCount($1) }
-    }
-
-    private func tableRowCounts(_ view: NSView) -> [Int] {
-        var counts: [Int] = []
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { counts.append(t.numberOfRows) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return counts
-    }
-
-    /// **This driver can't see AppKit's display-cycle guard.** `layoutIfNeeded()` runs constraint
-    /// updates with the runaway guard disarmed, so a low round count says the tree stops dirtying
-    /// itself under a manual pump, not that the window stays inside AppKit's pass budget. The
-    /// run-loop counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
-    private func roundsToSettle(_ window: NSWindow, cap: Int = 500) -> Int {
-        var rounds = 0
-        while rounds < cap, dirtyCount(window.contentView!) > 0 {
-            window.layoutIfNeeded()
-            rounds += 1
-        }
-        return rounds
-    }
-
     /// The crash's own sequence, in the crash's own configuration.
-    @Test func testProviderSwitchRepublishInColumnsSettles() {
+    @Test func testProviderSwitchRepublishInColumnsSettles() async {
         let fixture = Fixture(files: 40)
         let box = Box(tree: fixture.tree(files: 40, version: 1))
         let window = mount(box, root: fixture.root, width: 760)
-        pump(window, seconds: 0.6)
+        _ = await LayoutPumpWait.pump(window, upTo: 15) {
+            PaneLayoutSettle.tableRowCounts(window.contentView!).contains(40)
+        }
 
-        let before = tableRowCounts(window.contentView!)
+        let before = PaneLayoutSettle.tableRowCounts(window.contentView!)
         #expect(before.contains(40), "columns did not lay out the root column: \(before)")
 
         // retargetPane(): this pane's tree dropped, then the shallow 19-node paint from the new root.
@@ -156,20 +99,22 @@ import Sync
         box.browsePath = PaneBrowsePath()
         box.tree = fixture.tree(files: 19, version: 3)
 
-        let rounds = roundsToSettle(window)
-        let views = viewCount(window.contentView!)
+        let rounds = PaneLayoutSettle.roundsToSettle(window)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         #expect(rounds < views / 4,
                 "republish took \(rounds) layout rounds against \(views) views — AppKit raises once passes exceed views")
     }
 
     /// The same republish while the pane's width moves, which is what a real provider switch does to
     /// a Columns pane: the column stack re-fits.
-    @Test func testRepublishWhileTheColumnStackRefitsSettles() {
+    @Test func testRepublishWhileTheColumnStackRefitsSettles() async {
         let fixture = Fixture(files: 40)
         let box = Box(tree: fixture.tree(files: 40, version: 1))
         let window = mount(box, root: fixture.root, width: 900)
-        pump(window, seconds: 0.6)
-        #expect(tableRowCounts(window.contentView!).contains(40))
+        _ = await LayoutPumpWait.pump(window, upTo: 15) {
+            PaneLayoutSettle.tableRowCounts(window.contentView!).contains(40)
+        }
+        #expect(PaneLayoutSettle.tableRowCounts(window.contentView!).contains(40))
 
         var worst = 0
         var worstWidth: CGFloat = 0
@@ -179,10 +124,10 @@ import Sync
             box.tree = PaneTree(side: .left, version: version, nodes: [])
             box.tree = fixture.tree(files: 19, version: version + 1)
             version += 2
-            let rounds = roundsToSettle(window)
+            let rounds = PaneLayoutSettle.roundsToSettle(window)
             if rounds > worst { worst = rounds; worstWidth = width }
         }
-        let views = viewCount(window.contentView!)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         #expect(worst < views / 4,
                 "a republish took \(worst) layout rounds against \(views) views at width \(worstWidth)")
     }

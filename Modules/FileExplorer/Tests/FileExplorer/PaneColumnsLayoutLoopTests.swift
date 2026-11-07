@@ -23,25 +23,6 @@ import Sync
         var flips = 0
     }
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     /// Stands in for the app's `FileSyncManager` + `ContentView` state. `selection` and
     /// `hostSelection` are separate on purpose, as in the app: the pane's List holds the clicked
     /// row at once, while the host's `barSelectionNodes` is empty for a pane that isn't the active
@@ -93,7 +74,7 @@ import Sync
                 selection: $box.selection,
                 otherSelection: [],
                 isLeft: true,
-                delegate: StubDelegate(),
+                delegate: NoOpFileActionDelegate(),
                 placement: placement,
                 onBarEdgeFlip: {
                     counter.flips += 1
@@ -152,18 +133,6 @@ import Sync
         }
     }
 
-    /// Rows AppKit actually laid out, per table: the guard against a vacuous pass. A window that
-    /// never materialised the columns would satisfy every assertion below while proving nothing.
-    private func tableRowCounts(_ view: NSView) -> [Int] {
-        var counts: [Int] = []
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { counts.append(t.numberOfRows) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return counts
-    }
-
     /// Clicking a folder low in a column must not make the pane ask the host to move the bar for a
     /// selection the host isn't showing a bar for.
     @Test func testDrillOnALowRowDoesNotFlipAnEdgeTheHostWillUnflip() throws {
@@ -177,7 +146,7 @@ import Sync
         pump(window, seconds: 0.3)
 
         // Proof the pane really laid out: the root column's rows, and nothing else yet.
-        #expect(tableRowCounts(window.contentView!) == [40])
+        #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [40])
         // The lowest row inside the viewport: the one a bottom-docked bar would cover, whose click
         // asks for the flip. Taken from live geometry, not a row index, so a density or font change
         // can't move the test off the band.
@@ -200,7 +169,7 @@ import Sync
         pump(window, seconds: 1.0)
 
         // The drilled column is open: the click did what a click does.
-        #expect(tableRowCounts(window.contentView!) == [40, 4])
+        #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [40, 4])
         // …and the pane asked for no edge flip, because the bar it would move isn't showing. Fails
         // if the pane resolves from its own raw selection while the host commits from its empty
         // one.

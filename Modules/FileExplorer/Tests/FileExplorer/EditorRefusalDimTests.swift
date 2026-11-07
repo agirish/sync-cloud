@@ -84,10 +84,7 @@ import Sync
     /// `DuplicateRowPickerTests`. Sliced to `FileRowView`'s body so a `.help` elsewhere in the file
     /// cannot stand in.
     @Test func theRefusalIsTheRowsTooltip() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/FileTreeView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceText.fileExplorer("FileTreeView.swift")
         let start = try #require(source.range(of: "struct FileRowView: View {"), "FileRowView moved")
         let body = source[start.upperBound...]
         let end = try #require(body.range(of: "\nstruct "), "no struct follows FileRowView")

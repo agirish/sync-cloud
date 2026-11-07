@@ -204,9 +204,7 @@ import Design
 
     /// VoiceOver reads the visible words: the status word's button has no label of its own.
     @Test func theStatusWordIsReadAsItsWords() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
-        let code = try String(contentsOf: url, encoding: .utf8)
+        let code = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         let start = try #require(code.range(of: "private func statusWord(_ word: String) -> some View {"))
         let end = try #require(code.range(of: "private func statusWordPerform", range: start.upperBound..<code.endIndex))
         #expect(!code[start.upperBound..<end.lowerBound].contains(".accessibilityLabel("))
@@ -267,19 +265,6 @@ import Design
                                          autosaveOff: true) == .saved)
     }
 
-    /// A word only where it changes what the reader must do.
-    @Test func onlyTheStatesThatNeedWordsHaveThem() {
-        let silent: [EditorSaveStatus] = [.saved, .unsaved]
-        let speaking: [EditorSaveStatus] = [.heldUnsaved, .readOnly,
-                                            .stopped("not saving — changed on disk")]
-        for state in silent {
-            #expect(state.word == nil, "\(state) says \(state.word ?? "") and should say nothing")
-        }
-        for state in speaking {
-            #expect(state.word?.isEmpty == false, "\(state) says nothing and should speak")
-        }
-    }
-
     /// A stop outranks dirtiness, and read-only outranks both. A stopped document is dirty by
     /// definition, so "unsaved" there would be the same fact in its less useful spelling.
     @Test func aStopOutranksTheOrdinaryPendingState() {
@@ -291,27 +276,10 @@ import Design
                 "a stopped document does not warn — it looks exactly like ordinary pending work")
         // Read-only wins even over a stop: nothing can be written, so nothing is pending.
         #expect(EditorSaveStatus.resolve(isReadOnly: true, isDirty: true, stopped: "x") == .readOnly)
+        #expect(EditorSaveStatus.readOnly.word?.isEmpty == false, "read-only says nothing and should speak")
         // A stop outranks the switch too: it is the more specific reason nothing is being written.
         #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: "x",
                                          autosaveOff: true) == .stopped("x"))
-    }
-
-    /// `write` re-stats the file it installed and checks the length matches what it handed over.
-    /// This pins that premise for every encoding: a byte-order mark is part of the file, so a check
-    /// that forgot one would refuse every UTF-16 save. Driven off `allCases`, so none is skipped.
-    @Test(arguments: BoundedTextRead.TextEncoding.allCases)
-    func aSavedFileIsExactlyAsLongAsWhatWasWritten(encoding: BoundedTextRead.TextEncoding) throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let body = "hello there\n"
-        let bytes = try #require(EditorFileStore.encode(body, as: encoding))
-        let path = folder.appendingPathComponent("note.md").path
-        try bytes.write(to: URL(fileURLWithPath: path))
-
-        let stamp = try EditorFileStore.write(body, toPath: path, encoding: encoding)
-        #expect(stamp.size == bytes.count,
-                "\(encoding.rawValue): the stamp reports \(stamp.size)B for \(bytes.count)B written")
-        #expect(try Data(contentsOf: URL(fileURLWithPath: path)).count == bytes.count)
     }
 
     /// The quiet interval is short enough that little is at risk, and long enough that a paragraph

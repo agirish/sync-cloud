@@ -52,36 +52,10 @@ import Testing
                 "the action names the copy it was built for, and reaches the card's handler")
     }
 
-    /// One rule, read by one control: the row is a button exactly in the `selectable` case, never
-    /// on the keeper and never where no choice exists.
-    @Test func theRowIsPickableExactlyWhereTheMarkerIsSelectable() {
-        let (card, copies) = Self.card()
-        #expect(!card.isRowPickable(copies[0]), "the keeper's own row offers no pick")
-        #expect(card.isRowPickable(copies[1]))
-        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false)
-                == .selectable)
-        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: true) == .keeper)
-        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
-    }
-
     // MARK: Nothing inside the row is also a control
 
-    private static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/\(file)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(file) — every scan here would be vacuous")
-        try #require(text.count > 500, "\(file) read as \(text.count) characters — truncated?")
-        return text
-    }
-
-    /// Whole-line comments stripped, so prose naming a pattern can't satisfy or trip a scan for it.
-    private static func codeOnly(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
+    private static func source(_ file: String) throws -> String { try SourceText.fileExplorer(file) }
+    private static func codeOnly(_ text: String) -> String { SourceText.codeOnly(text) }
 
     /// The tile carries no control semantics. Scanned, not rendered: a nested tap target, a second
     /// tooltip and a duplicate `.isButton` paint nothing. The control below finds the row's own
@@ -122,13 +96,8 @@ import Testing
                 "the row's wash is the affordance that replaced the tile's lift")
         #expect(row.contains(".help("),
                 "the row states what clicking does; with no tooltip on the row and none on the tile, nothing does")
-    }
-
-    /// The slice really is narrower than the file, or `copyRowBody` returning the whole document
-    /// would make the checks above pass for the wrong reason.
-    @Test func theSliceIsJustTheRowAndNotTheWholeCard() throws {
-        let card = Self.codeOnly(try Self.source("DuplicateGroupCard.swift"))
-        let row = try Self.copyRowBody(card)
+        // The slice really is narrower than the file, or `copyRowBody` returning the whole
+        // document would make the checks above pass for the wrong reason.
         #expect(row.count < card.count / 4,
                 "the copyRow slice is \(row.count) of \(card.count) characters — it is not a slice")
         #expect(!row.contains("private var header"),
@@ -158,15 +127,10 @@ import Testing
             Self.thumbnail(isKeeper: true), width: 80, height: 90))
         let other = try #require(RestructureRender.raster(
             Self.thumbnail(isKeeper: false), width: 80, height: 90))
+        // Both tiles draw at all, or the comparison would be vacuous.
+        #expect(RestructureRender.inkedPixels(keeper) > 100)
+        #expect(RestructureRender.inkedPixels(other) > 100)
         #expect(RestructureRender.differingPixels(keeper, other) > 100,
                 "the seal tells the kept copy from the redundant one")
-    }
-
-    /// Both tiles draw at all, or the comparison above would be vacuous.
-    @Test func bothTilesDraw() throws {
-        for tile in [Self.thumbnail(isKeeper: true), Self.thumbnail(isKeeper: false)] {
-            let rep = try #require(RestructureRender.raster(tile, width: 80, height: 90))
-            #expect(RestructureRender.inkedPixels(rep) > 100)
-        }
     }
 }

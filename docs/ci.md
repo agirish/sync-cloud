@@ -39,9 +39,8 @@ it carries the measurements and the fix for each.
   chunk keeps finishing well after the rest. A stale file costs time, never coverage.
 - Machine-pinned suites are marked at the declaration with
   `.machinePinned(_:)` and a reason, and the workflow sets
-  `SYNCCLOUD_SKIP_MACHINE_PINNED=referenceImages` to exclude only the image
-  snapshots (see [Image snapshots](#image-snapshots)), whose
-  reference PNGs only match the machine that recorded them. Excluded suites
+  `SYNCCLOUD_SKIP_MACHINE_PINNED=referenceImages,liveProfile` to exclude the
+  reasons whose verdict holds only on one machine. Excluded suites
   still compile, so breakage in their code is caught, and they report as
   *skipped with a reason* rather than silently vanishing. See
   [Machine-pinned tests](#machine-pinned-tests) for the reasons and the switch.
@@ -115,9 +114,8 @@ reason:
 
 | Reason | What it means | Where it appears | On CI |
 |---|---|---|---|
-| `referenceImages` | compares against PNGs recorded on one Mac | FileExplorer | **excluded** |
 | `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | Design, Dashboard, FileExplorer, Settings | runs |
-| `calibratedTiming` | latency thresholds tuned on this hardware | FileExplorer | runs |
+| `calibratedTiming` | latency thresholds tuned on this hardware | Sync | runs |
 | `layoutMetrics` | laid-out text, window and control geometry that tracks fonts, screen size and scale | Dashboard, Design, FileExplorer, app | runs |
 | `textRecognition` | Vision text recognition, which errors on GitHub's hosted VMs | FileExplorer | runs |
 | `iCloudDrive` | needs a signed-in iCloud Drive folder | Sync | runs |
@@ -164,41 +162,18 @@ cannot silently change what CI runs. (Swift Testing tags would be the idiomatic
 marker, but SwiftPM 6.3 has no tag filtering — `--filter`/`--skip` match only
 type names, so a tag would be decorative.)
 
-The pixel-sampling suites and the benchmark are pinned to the renderer and the
-machine in the same way the excluded PNGs are; they keep running because the
-cost of being wrong is lower, not because they are machine-independent.
+The pixel-sampling and timing suites are pinned to the renderer and the
+machine; they keep running because the cost of being wrong is low, not because
+they are machine-independent.
 
 This is currently sound because the self-hosted runner IS the recording
-machine — the same Mac that recorded the snapshot references, tuned the
-benchmark, and renders the sampled pixels, so there is no second renderer to
-disagree with. It stops being sound the moment the runner moves to different
-hardware or a different macOS version: expect the pixel-sampling suites and
-the benchmark to fail there for machine reasons, not code reasons, and plan
-to re-validate (and re-record/re-calibrate) on the new machine — see the
-re-record workflow in [Image snapshots](#image-snapshots).
-
-#### Image snapshots
-
-`FileExplorerSnapshotTests` (swift-snapshot-testing, test-only), the last image snapshot suite, renders
-each scenario offscreen through `NSHostingView` in a borderless `NSWindow` at a fixed size, light and
-dark, and compare it with `precision: 0.99, perceptualPrecision: 0.98` against PNGs under
-`__Snapshots__/`, through its helper `SnapshotRendering.swift`. Dashboard, Design and Settings retired
-theirs on 2026-11-06. After an intentional visual change, re-record and commit the
-new PNGs:
-
-```sh
-cd Modules/<Package>     # build-slot: CLAUDE.md §7
-SNAPSHOT_TESTING_RECORD=all ../../scripts/build-slot swift test --filter <Suite>SnapshotTests   # exits "failed": recording always reports
-../../scripts/build-slot swift test --filter <Suite>SnapshotTests                               # must pass against the fresh references
-```
-
-Open the regenerated PNGs before committing: a recording run blesses a broken layout. Unset
-`SYNCCLOUD_SKIP_MACHINE_PINNED` first, or the suite is skipped and records nothing. References are
-valid on the recording Mac and OS release only: they bake in font rasterization, SF Symbols, the
-backing scale, the system accent and the time zone. A view that formats a date needs its zone
-injected and pinned in the test, not only a frozen `Date`. Keep `installPerceptualCompareShim()`: without it a mismatch aborts the process instead
-of failing ("A snapshot mismatch that aborts the process instead of failing" in
-`docs/flaky-tests.md`).
+machine — the same Mac that tuned the timing bars and renders the sampled
+pixels, so there is no second renderer to disagree with. It stops being sound
+the moment the runner moves to different hardware or a different macOS version:
+expect the pixel-sampling suites and the timing suites to fail there for machine
+reasons, not code reasons, and plan to re-validate (and re-calibrate) on the new
+machine. The image snapshot suites, the last of them FileExplorer's, retired on
+2026-11-06.
 
 ## Docs-only pushes start no run
 

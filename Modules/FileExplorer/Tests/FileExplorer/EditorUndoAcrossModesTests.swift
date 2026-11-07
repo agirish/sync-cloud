@@ -183,8 +183,6 @@ import FileExplorerTestSupport
             _ = await LayoutPumpWait.pump(probe.window, upTo: 2) {
                 document.text == expected && (!showsSource || textView?.string == expected)
             }
-            print("[undo-modes] screen \((textView?.string ?? "-").debugDescription) · document "
-                  + "\(document.text.debugDescription) · canUndo \(undo.canUndo) · canRedo \(undo.canRedo)")
             #expect(document.text == expected, "⌘Z left the document at \(document.text.debugDescription)",
                     sourceLocation: sourceLocation)
             if showsSource {
@@ -204,11 +202,6 @@ import FileExplorerTestSupport
         try await rig.switchTo(.split)
         #expect(rig.textView?.string == "Hello there world\n", "Split did not show the typing")
         await rig.undoAndSettle(expecting: "Hello world\n")
-
-        #expect(rig.textView?.string == "Hello world\n",
-                "⌘Z after Source → Split left the typing on screen — it reverted a discarded view")
-        #expect(rig.document.text == "Hello world\n",
-                "⌘Z after Source → Split left the typing in the document")
     }
 
     /// The round trip: type in Source, look at Preview, come back, ⌘Z.
@@ -221,11 +214,6 @@ import FileExplorerTestSupport
         try await rig.switchTo(.edit)
         #expect(rig.textView?.string == "Hello there world\n", "Source came back without the typing")
         await rig.undoAndSettle(expecting: "Hello world\n")
-
-        #expect(rig.textView?.string == "Hello world\n",
-                "⌘Z after Source → Preview → Source left the typing on screen")
-        #expect(rig.document.text == "Hello world\n",
-                "⌘Z after Source → Preview → Source left the typing in the document")
     }
 
     /// ⌘Z with no switch at all reaches the document too. On TextKit 2 an `NSTextView` undo edits
@@ -237,10 +225,6 @@ import FileExplorerTestSupport
         defer { withExtendedLifetime(rig) {} }
         try await rig.type(" there", at: 5)
         await rig.undoAndSettle(expecting: "Hello world\n")
-
-        #expect(rig.textView?.string == "Hello world\n", "⌘Z did not revert the text on screen")
-        #expect(rig.document.text == "Hello world\n",
-                "⌘Z reverted the screen and left the typing in the document — autosave would write it")
     }
 
     /// Type, ⌘Z, close: the file holds the undone text. The close settles the buffer through
@@ -298,11 +282,7 @@ import FileExplorerTestSupport
         #expect(rig.textView?.string == "- [x] milk\nnotes!\n", "the tick did not reach the text on screen")
 
         await rig.undoAndSettle(expecting: "- [ ] milk\nnotes!\n")
-        #expect(rig.textView?.string == "- [ ] milk\nnotes!\n", "the first ⌘Z did not take back exactly the tick")
-        #expect(rig.document.text == "- [ ] milk\nnotes!\n")
         await rig.undoAndSettle(expecting: "- [ ] milk\nnotes\n")
-        #expect(rig.textView?.string == "- [ ] milk\nnotes\n", "the second ⌘Z did not take back the typing")
-        #expect(rig.document.text == "- [ ] milk\nnotes\n")
     }
 
     /// A tick, and its ⌘Z, leave Source's selection and scroll where they were, in Split, where a
@@ -363,8 +343,6 @@ import FileExplorerTestSupport
         try await rig.switchTo(.edit)
         #expect(rig.textView?.string == "- [x] milk\n")
         await rig.undoAndSettle(expecting: "- [ ] milk\n")
-        #expect(rig.textView?.string == "- [ ] milk\n", "⌘Z in Source did not untick a box ticked in Preview")
-        #expect(rig.document.text == "- [ ] milk\n")
     }
 
     /// The checkbox reaches the undoable tick: the test above drives the extracted action, and
@@ -411,8 +389,6 @@ import FileExplorerTestSupport
         try await rig.open(a)
         #expect(rig.textView?.string == "Hello there world\n", "a.md came back without its typing")
         await rig.undoAndSettle(expecting: "Hello world\n")
-        #expect(rig.textView?.string == "Hello world\n", "⌘Z after a file round trip left the typing on screen")
-        #expect(rig.document.text == "Hello world\n")
     }
 
     // MARK: A CRLF file (LF only, 2026-10-05)
@@ -429,8 +405,6 @@ import FileExplorerTestSupport
             #expect(rig.document.text == "Hello!\nworld\n", "the first edit did not convert the file")
             for mode in path { try await rig.switchTo(mode) }
             await rig.undoAndSettle(expecting: text)
-            #expect(rig.textView?.string == text, "\(path): ⌘Z after the switch left \(String(reflecting: rig.textView?.string))")
-            #expect(rig.document.text == text, "\(path): the document kept \(String(reflecting: rig.document.text))")
         }
     }
 

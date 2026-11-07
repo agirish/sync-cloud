@@ -101,15 +101,7 @@ import Testing
     // MARK: Same pane
 
     /// The entry that needs no new rules: a pane's selection is a `Set`, so two files in one tree
-    /// is already reachable.
-    @Test func twoFilesSelectedInOnePaneAreAPair() throws {
-        let nodes = [file("/L/a.pdf"), file("/L/b.pdf")]
-        let counterpart = try #require(PaneComparePairMenu.samePaneCounterpart(
-            clicked: nodes[1], selectedNodes: nodes))
-        #expect(counterpart.id == "/L/a.pdf", "the counterpart is the OTHER one, by id")
-    }
-
-    /// The counterpart is found by id, not index, because `selectedNodes` is in tree order and the
+    /// is already reachable. The counterpart is found by id, not index, because `selectedNodes` is in tree order and the
     /// clicked row isn't reliably its head. Clicking either end must give the other; an index-based
     /// rule passes one of these and fails the other.
     @Test func eitherRowOfThePairFindsTheOther() throws {

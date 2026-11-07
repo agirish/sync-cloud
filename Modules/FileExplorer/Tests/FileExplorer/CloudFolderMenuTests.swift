@@ -13,25 +13,6 @@ import Testing
 @MainActor
 @Suite struct CloudFolderMenuTests {
 
-    private final class Stub: FileActionDelegate, @unchecked Sendable {
-        func handleOpenInEditor(_ path: String) {}
-        func handleRefresh() {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private static func items(for row: FileNode, selecting selection: [FileNode] = [],
                               reads: BoundedCloudRead = BoundedCloudRead(deadline: .seconds(30))) -> [NSMenuItem] {
         let menu = NSHostingMenu(rootView: FileContextMenu(
@@ -40,7 +21,7 @@ import Testing
             tree: PaneTree(side: .left, version: 1, nodes: selection.isEmpty ? [row] : selection),
             otherTree: PaneTree(side: .right, version: 1, nodes: []),
             otherSelection: [], isLeft: true, currentPath: (row.id as NSString).deletingLastPathComponent,
-            delegate: Stub(), otherPaneName: "Right", isSingleSource: true,
+            delegate: NoOpFileActionDelegate(), otherPaneName: "Right", isSingleSource: true,
             onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver(), cloudHome: home,
             cloudReads: reads))
         menu.update()
@@ -100,19 +81,10 @@ import Testing
         #expect(!stuck.contains("Keep Downloaded"), "the menu reads \(stuck)")
 
         release.signal()
-        #expect(await waitUntil { reads.recoveries == 1 }, "the stuck read never reported back")
+        #expect(await LayoutPumpWait.poll(upTo: 15) { reads.recoveries == 1 }.held, "the stuck read never reported back")
         let after = Self.items(for: folder, reads: reads).map(\.title)
         #expect(after.contains("Download All"), "the menu reads \(after)")
         #expect(after.contains("Keep Downloaded"), "the menu reads \(after)")
-    }
-
-    private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return condition()
     }
 
     // MARK: - Several selected

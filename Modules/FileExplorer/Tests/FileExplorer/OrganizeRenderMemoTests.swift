@@ -115,14 +115,7 @@ import Testing
 /// `thePlanSheetWiringGoesThroughPlanDiskRoot` does for its call site.
 @Suite struct RestructureSheetWiringTests {
 
-    private func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/\(name)")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
+    private func source(_ name: String) throws -> String { try SourceText.fileExplorer(name) }
 
     /// Every derivation reads the HELD view, not the one the parent handed in on this render.
     @Test func thePlanSheetDerivesAgainstTheHeldTree() throws {
@@ -159,10 +152,8 @@ import Testing
         let sheet = try source("RestructurePlanSheet.swift")
         #expect(sheet.contains(".task { seedGroupPointer() }"),
                 "the several-hundred-listing sibling walk must not block the sheet's first paint")
-        // And `seed()` must not have kept a copy of it.
-        let seedBody = try #require(sheet.range(of: "private func seed() {").map {
-            String(sheet[$0.upperBound...].prefix(1600))
-        })
+        // And `seed()` must not have kept a copy of it, anywhere in its own body.
+        let seedBody = try SourceText.body(of: "private func seed() {", in: sheet)
         #expect(!seedBody.contains("parallelFamilies(of:"),
                 "`seed()` still walks the siblings — the move bought nothing")
     }

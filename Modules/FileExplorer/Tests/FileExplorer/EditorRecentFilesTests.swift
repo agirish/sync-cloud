@@ -218,10 +218,10 @@ import FileExplorerTestSupport
         full.record(path: "/n/Recipes/Pasta.md", kind: .text, at: Date().addingTimeInterval(-120))
         full.record(path: "/n/Scans/Lease.pdf", kind: .pdf, at: Date().addingTimeInterval(-90_000))
         let blank = try #require(render(EditorWorkspaceView.fixture(recentFiles: empty, onOpenRecent: { _ in }),
-                                        width: 520, name: "te58-empty"))
+                                        width: 520))
         let listed = try #require(render(EditorWorkspaceView.fixture(recentFiles: full, onOpenRecent: { _ in }),
-                                         width: 520, name: "te58-listed"))
-        let withoutStore = try #require(render(EditorWorkspaceView.fixture(), width: 520, name: "te58-nostore"))
+                                         width: 520))
+        let withoutStore = try #require(render(EditorWorkspaceView.fixture(), width: 520))
         #expect(differing(blank, withoutStore) == 0, "an empty list changed the page it falls back to")
         #expect(differing(blank, listed) > 2_000, "the list is not drawn")
 
@@ -261,22 +261,17 @@ import FileExplorerTestSupport
                 "the drop takes only what the page draws, not the whole page")
     }
 
-    /// The narrowest column, 260pt, still reads (rendered for a look): the folder column goes below
-    /// that width rather than squeezing the name.
-    @Test func theNarrowestColumnKeepsTheName() throws {
+    /// The narrowest column, 260pt, still reads: the folder column goes below that width rather
+    /// than squeezing the name.
+    @Test func theNarrowestColumnKeepsTheName() {
         #expect(EditorRecentFilesPage<EmptyView>.folderColumnMinimumListWidth > 260 - 32)
-        let full = store()
-        full.record(path: "/n/Recipes/A rather long recipe name.md", kind: .text, at: Date().addingTimeInterval(-120))
-        full.record(path: "/n/Scans/Lease.pdf", kind: .pdf, at: Date().addingTimeInterval(-90_000))
-        _ = try #require(render(EditorWorkspaceView.fixture(recentFiles: full, onOpenRecent: { _ in }),
-                                width: 260, name: "te58-narrow"))
     }
 
     // MARK: Rendering
 
     private struct Pixels { let bytes: [UInt8]; let width: Int; let height: Int }
 
-    private func render<V: View>(_ view: V, width: CGFloat, height: CGFloat = 420, name: String) -> Pixels? {
+    private func render<V: View>(_ view: V, width: CGFloat, height: CGFloat = 420) -> Pixels? {
         let size = CGSize(width: width, height: height)
         let host = NSHostingView(rootView: view
             .environment(\.controlActiveState, .key)
@@ -296,9 +291,6 @@ import FileExplorerTestSupport
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)
-        let out = (NSTemporaryDirectory() as NSString).appendingPathComponent("\(name).png")
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
-        print("[te58-render] \(out)")
         guard let data = rep.bitmapData else { return nil }
         return Pixels(bytes: Array(UnsafeBufferPointer(start: data, count: rep.bytesPerRow * rep.pixelsHigh)),
                       width: rep.pixelsWide, height: rep.pixelsHigh)

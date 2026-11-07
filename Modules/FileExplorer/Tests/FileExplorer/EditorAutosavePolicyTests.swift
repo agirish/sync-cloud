@@ -34,11 +34,15 @@ import Design
         #expect(policy.suspendedCount == 1)
     }
 
+    /// The toggle's answer is what the workspace's resume hangs off: turning autosave back on must
+    /// write what is already waiting, since the debounce `.task(id:)` doesn't re-fire for a setting
+    /// change. Switching off must not report a resume.
     @Test func togglingReturnsWhereItLanded() {
         let policy = EditorAutosavePolicy()
-        #expect(policy.toggle("/n/a.md") == false)
+        #expect(policy.toggle("/n/a.md") == false, "switching off reported a resume")
         #expect(!policy.isOn("/n/a.md"))
-        #expect(policy.toggle("/n/a.md") == true)
+        #expect(policy.toggle("/n/a.md") == true,
+                "the toggle did not report the ON transition the resume hangs off")
         #expect(policy.isOn("/n/a.md"))
         #expect(policy.suspendedCount == 0, "switching back on left the path behind")
     }
@@ -141,27 +145,5 @@ import Design
         let on = size(AutosaveSwitchTrack(isOn: true, fill: .blue), scale: 1)
         let off = size(AutosaveSwitchTrack(isOn: false, fill: .blue), scale: 1)
         #expect(on == off, "the switch changes size when it is toggled: \(on) then \(off)")
-    }
-}
-
-/// The autosave switch's two side effects, which are the half a policy object cannot show.
-@MainActor
-@Suite struct EditorAutosaveResumeTests {
-
-    /// Turning autosave back on must write what is already waiting. The debounce is a `.task(id:)`
-    /// keyed on the buffer's version and doesn't re-fire for a setting change, so without this
-    /// signal the file would stay unwritten until the next keystroke.
-    @Test func switchingBackOnReportsThatItResumed() {
-        let policy = EditorAutosavePolicy()
-        policy.setOn(false, for: "/n/a.md")
-        #expect(policy.toggle("/n/a.md") == true,
-                "the toggle did not report the ON transition the resume hangs off")
-    }
-
-    /// Switching off must not report a resume: a write triggered by turning writing off is the
-    /// opposite of what was asked.
-    @Test func switchingOffReportsOff() {
-        let policy = EditorAutosavePolicy()
-        #expect(policy.toggle("/n/a.md") == false)
     }
 }

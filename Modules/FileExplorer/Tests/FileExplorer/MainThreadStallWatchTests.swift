@@ -23,21 +23,33 @@ import Testing
         }
     }
 
-    @Test("An idle queue yields nothing; a 3 s stall yields one line and one stack of it")
-    func aStallLeavesOneLineAndOneStack() async throws {
+    /// A watch over `queue` reporting into fresh `Lines`, its stacks going to a fresh directory the
+    /// caller removes. Beat 0.2 s, `tweak` sets the rest; not started. `thread` defaults to the
+    /// one `Lines` records.
+    private static func watch(queue: DispatchQueue, thread: (@Sendable () -> thread_act_t?)? = nil,
+                              _ tweak: (inout MainThreadStallWatch.Configuration) -> Void)
+        -> (watch: MainThreadStallWatch, lines: Lines, directory: URL,
+            configuration: MainThreadStallWatch.Configuration) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
         var configuration = MainThreadStallWatch.Configuration()
         configuration.directory = directory
         configuration.beat = 0.2
-        configuration.minimumGap = 0
-        configuration.perSession = 10
+        tweak(&configuration)
         let lines = Lines()
-        let queue = DispatchQueue(label: "stall-watch-test")
         let watch = MainThreadStallWatch(configuration: configuration, queue: queue,
-                                         thread: { lines.thread },
-                                         report: { lines.append($0) })
+                                         thread: thread ?? { lines.thread }, report: { lines.append($0) })
+        return (watch, lines, directory, configuration)
+    }
+
+    @Test("An idle queue yields nothing; a 3 s stall yields one line and one stack of it")
+    func aStallLeavesOneLineAndOneStack() async throws {
+        let queue = DispatchQueue(label: "stall-watch-test")
+        let (watch, lines, directory, _) = Self.watch(queue: queue) {
+            $0.minimumGap = 0
+            $0.perSession = 10
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         watch.start()
         defer { watch.stop() }
 
@@ -213,26 +225,20 @@ import Testing
     /// not a stall: no line, no file, no sample spent, and the count reaches the next real line.
     @Test("An overdue heartbeat over an idle run loop is not sampled")
     func anIdleRunLoopIsNotAStall() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        var configuration = MainThreadStallWatch.Configuration()
-        configuration.directory = directory
-        configuration.beat = 0.2
-        configuration.minimumGap = 0
-        configuration.runLoopEntry = "Foundation"
-        configuration.reportHeldAfter = 1
         let idle = RunLoopThread()
         let port = idle.startAndWait()
         defer { idle.finish() }
-        let lines = Lines()
         // The heartbeats queue here and never run, as when the system holds them.
         let held = DispatchQueue(label: "stall-watch-held")
         held.suspend()
         var heldResumed = false
         defer { if !heldResumed { held.resume() } }
-        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
-                                         thread: { port }, report: { lines.append($0) })
+        let (watch, lines, directory, _) = Self.watch(queue: held, thread: { port }) {
+            $0.minimumGap = 0
+            $0.runLoopEntry = "Foundation"
+            $0.reportHeldAfter = 1
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         watch.start()
         defer { watch.stop() }
         try await Task.sleep(for: .seconds(3))
@@ -256,17 +262,9 @@ import Testing
     /// stalls, not one long one.
     @Test("A second stall inside the gap is not sampled; with no gap it is", arguments: [600.0, 0.0])
     func theGapHoldsASecondStall(gap: TimeInterval) async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        var configuration = MainThreadStallWatch.Configuration()
-        configuration.directory = directory
-        configuration.beat = 0.2
-        configuration.minimumGap = gap
-        let lines = Lines()
         let queue = DispatchQueue(label: "stall-watch-gap-\(gap)")
-        let watch = MainThreadStallWatch(configuration: configuration, queue: queue,
-                                         thread: { lines.thread }, report: { lines.append($0) })
+        let (watch, lines, directory, _) = Self.watch(queue: queue) { $0.minimumGap = gap }
+        defer { try? FileManager.default.removeItem(at: directory) }
         watch.start()
         defer { watch.stop() }
         func stall() { queue.async { lines.thread = pthread_mach_thread_np(pthread_self()); Thread.sleep(forTimeInterval: 2) } }
@@ -290,23 +288,17 @@ import Testing
     /// the heartbeat finally runs — here, never.
     @Test("A stall after a hold is dated by its own stacks")
     func aStallAfterAHoldIsDatedByItsOwnStacks() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        var configuration = MainThreadStallWatch.Configuration()
-        configuration.directory = directory
-        configuration.beat = 0.2
-        configuration.minimumGap = 0
-        configuration.runLoopEntry = "Foundation"
         let thread = RunLoopThread()
         let port = thread.startAndWait()
         defer { thread.finish() }
-        let lines = Lines()
         let held = DispatchQueue(label: "stall-watch-held-then-stalled")
         held.suspend()
         defer { held.resume() }
-        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
-                                         thread: { port }, report: { lines.append($0) })
+        let (watch, lines, directory, configuration) = Self.watch(queue: held, thread: { port }) {
+            $0.minimumGap = 0
+            $0.runLoopEntry = "Foundation"
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let instants = Instants()
         instants.stamp("armed")
         watch.start()
@@ -338,26 +330,20 @@ import Testing
     /// heartbeat must not move the end it found, or the stall is logged longer than it was.
     @Test("A heartbeat held past a stall's end does not stretch it")
     func aHeldHeartbeatDoesNotStretchTheStall() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        var configuration = MainThreadStallWatch.Configuration()
-        configuration.directory = directory
-        configuration.beat = 0.2
-        configuration.minimumGap = 0
-        configuration.runLoopEntry = "Foundation"
-        // `sample` records past the late heartbeat, so the line cannot go out before it runs.
-        configuration.sampleSeconds = 6
         let thread = RunLoopThread()
         let port = thread.startAndWait()
         defer { thread.finish() }
-        let lines = Lines()
         let held = DispatchQueue(label: "stall-watch-held-past-the-end")
         held.suspend()
         var resumed = false
         defer { if !resumed { held.resume() } }
-        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
-                                         thread: { port }, report: { lines.append($0) })
+        let (watch, lines, directory, _) = Self.watch(queue: held, thread: { port }) {
+            $0.minimumGap = 0
+            $0.runLoopEntry = "Foundation"
+            // `sample` records past the late heartbeat, so the line cannot go out before it runs.
+            $0.sampleSeconds = 6
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         watch.start()
         defer { watch.stop() }
         try await Task.sleep(for: .seconds(2.5))          // held over an idle loop
@@ -387,28 +373,22 @@ import Testing
     /// heartbeat is the stall's, not a hold of its own to report and count.
     @Test("A stall outlasting the sampler is ended by the watch, not booked as a hold")
     func aStallOutlastingTheSamplerIsNotBookedAsAHold() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("stall-watch-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        var configuration = MainThreadStallWatch.Configuration()
-        configuration.directory = directory
-        configuration.beat = 0.2
-        configuration.minimumGap = 0
-        // The app's shape: the in-process stacks stop a second in, while `sample` records on.
-        configuration.sampleSeconds = 6
-        configuration.stacksSeconds = 1
-        configuration.reportHeldAfter = 1
-        configuration.runLoopEntry = "Foundation"
         let thread = RunLoopThread()
         let port = thread.startAndWait()
         defer { thread.finish() }
-        let lines = Lines()
         let held = DispatchQueue(label: "stall-watch-outlasting")
         held.suspend()
         var resumed = false
         defer { if !resumed { held.resume() } }
-        let watch = MainThreadStallWatch(configuration: configuration, queue: held,
-                                         thread: { port }, report: { lines.append($0) })
+        let (watch, lines, directory, _) = Self.watch(queue: held, thread: { port }) {
+            $0.minimumGap = 0
+            // The app's shape: the in-process stacks stop a second in, while `sample` records on.
+            $0.sampleSeconds = 6
+            $0.stacksSeconds = 1
+            $0.reportHeldAfter = 1
+            $0.runLoopEntry = "Foundation"
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         watch.start()
         defer { watch.stop() }
         try await Task.sleep(for: .seconds(2.5))          // held over an idle loop

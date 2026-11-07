@@ -25,25 +25,6 @@ import Sync
 @MainActor
 @Suite struct PaneRowHeightStabilityTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private static let root = "/root"
 
     /// Names of the length real documents have. `long: false` gives short synthetic names, so the
@@ -72,7 +53,7 @@ import Sync
                 selection: $selection,
                 otherSelection: [],
                 isLeft: true,
-                delegate: StubDelegate()
+                delegate: NoOpFileActionDelegate()
             )
         }
     }
@@ -85,23 +66,6 @@ import Sync
         window.contentView = host
         window.layoutIfNeeded()
         return window
-    }
-
-    private func pump(_ window: NSWindow, seconds: Double) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, true)
-            window.layoutIfNeeded()
-        }
-    }
-
-    private func dirtyCount(_ v: NSView) -> Int {
-        (v.needsLayout ? 1 : 0) + (v.needsUpdateConstraints ? 1 : 0)
-            + v.subviews.reduce(0) { $0 + dirtyCount($1) }
-    }
-
-    private func viewCount(_ v: NSView) -> Int {
-        1 + v.subviews.reduce(0) { $0 + viewCount($1) }
     }
 
     private func rowCount(_ view: NSView) -> Int {
@@ -126,40 +90,25 @@ import Sync
         return heights
     }
 
-    /// This driver can't see the AppKit display-cycle guard. `layoutIfNeeded()` runs constraint
-    /// updates with the runaway guards disarmed: a never-settling sibling ping-pong survives
-    /// hundreds of rounds of it without raising, while the runloop alone raises on the first cycle.
-    /// So a low round count here says the tree stops dirtying itself under a manual pump, which is
-    /// worth having but is not "this window won't blow AppKit's pass budget". The runloop-driven
-    /// counterpart is `ColumnsDisplayCycleTests`; see `docs/columns-layout-loop.md`.
-    private func roundsToSettle(_ window: NSWindow, cap: Int = 500) -> Int {
-        var rounds = 0
-        while rounds < cap, dirtyCount(window.contentView!) > 0 {
-            window.layoutIfNeeded()
-            rounds += 1
-        }
-        return rounds
-    }
-
     /// Narrowing the pane must not make a row's height a moving target.
     ///
     /// The width sweep is the point: a real pane's width moves (the split divider, the details
     /// sidebar, a window resize), and each new width re-asks every wrapping name how tall it wants
     /// to be. This walks the pane down through the widths where a long name goes from one line to
     /// two and measures whether the window ever stops dirtying itself.
-    @Test func testALongNameDoesNotMakeRowHeightAMovingTarget() {
+    @Test func testALongNameDoesNotMakeRowHeightAMovingTarget() async {
         let window = mount(Self.tree(files: 40, long: true), width: 900)
-        pump(window, seconds: 0.5)
+        _ = await LayoutPumpWait.pump(window, upTo: 15) { rowCount(window.contentView!) == 40 }
         #expect(rowCount(window.contentView!) == 40, "pane did not lay out its rows — test is vacuous")
 
         var worst = 0
         var worstWidth: CGFloat = 0
         for width in stride(from: CGFloat(900), through: 260, by: -40) {
             window.setContentSize(NSSize(width: width, height: 600))
-            let rounds = roundsToSettle(window)
+            let rounds = PaneLayoutSettle.roundsToSettle(window)
             if rounds > worst { worst = rounds; worstWidth = width }
         }
-        let views = viewCount(window.contentView!)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         let heights = rowHeights(window.contentView!)
         #expect(worst < views / 4,
                 "the width change to \(worstWidth)pt took \(worst) layout rounds against \(views) views — AppKit raises once passes exceed views")
@@ -194,15 +143,15 @@ import Sync
 
     /// The same sweep with short synthetic names: the control, which stays settled where long names
     /// might not.
-    @Test func testShortNamesAreTheControlAndStaySettled() {
+    @Test func testShortNamesAreTheControlAndStaySettled() async {
         let window = mount(Self.tree(files: 40, long: false), width: 900)
-        pump(window, seconds: 0.5)
+        _ = await LayoutPumpWait.pump(window, upTo: 15) { rowCount(window.contentView!) == 40 }
         #expect(rowCount(window.contentView!) == 40)
 
         var worst = 0
         for width in stride(from: CGFloat(900), through: 260, by: -40) {
             window.setContentSize(NSSize(width: width, height: 600))
-            worst = max(worst, roundsToSettle(window))
+            worst = max(worst, PaneLayoutSettle.roundsToSettle(window))
         }
         let heights = rowHeights(window.contentView!)
         #expect(heights.count == 1, "even short names disagreed on height: \(heights.sorted())")

@@ -9,26 +9,14 @@ import Testing
 /// outline near the change rather than on it looks just like a working feature.
 @Suite struct ChangedRegionCalloutTests {
 
-    private func image(width: Int, height: Int, fills: [CGRect] = []) throws -> CGImage {
-        let ctx = try #require(CGContext(data: nil, width: width, height: height,
-                                         bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: CGColorSpaceCreateDeviceRGB(),
-                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-        for rect in fills { ctx.fill(rect) }
-        return try #require(ctx.makeImage())
-    }
-
     // MARK: The merge
 
     /// A cell is not a region: one edited sentence spans several 16px cells, and "8 regions
     /// differ" about one edit is wrong. A 64×16 change crosses four cells and must come back as
     /// one rect.
     @Test func adjacentCellsMergeIntoOneRegion() throws {
-        let a = try image(width: 128, height: 128)
-        let b = try image(width: 128, height: 128, fills: [CGRect(x: 16, y: 16, width: 64, height: 16)])
+        let a = try BitmapDiffTests.image(width: 128, height: 128)
+        let b = try BitmapDiffTests.image(width: 128, height: 128, fills: [CGRect(x: 16, y: 16, width: 64, height: 16)])
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.changedRects.count == 1,
                 "one change came back as \(result.changedRects.count) regions")
@@ -37,8 +25,8 @@ import Testing
     /// The positive control on the merge: a rule that merged everything into one rect would pass
     /// the test above, so two changes at opposite corners must stay two.
     @Test func separatedChangesStayTwoRegions() throws {
-        let a = try image(width: 128, height: 128)
-        let b = try image(width: 128, height: 128,
+        let a = try BitmapDiffTests.image(width: 128, height: 128)
+        let b = try BitmapDiffTests.image(width: 128, height: 128,
                           fills: [CGRect(x: 0, y: 0, width: 16, height: 16),
                                   CGRect(x: 96, y: 96, width: 16, height: 16)])
         let result = try #require(BitmapDiff.compare(a, b))

@@ -17,9 +17,10 @@ import Design
 /// difference between drawing that button and not, so two renders differ only in the element
 /// under test.
 ///
-/// `.machinePinned(.pixelSampling)`, like every suite here that samples a live renderer.
+/// Its pixel tests are `.machinePinned(.pixelSampling)`, like every test here that samples a live
+/// renderer; the source scan is not.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct OrganizeOverviewRenderTests {
+@Suite(.serialized) struct OrganizeOverviewRenderTests {
 
     /// The Organize pane's real proportions: a tall column, where an empty lower half shows. A
     /// short canvas would hide it.
@@ -99,17 +100,7 @@ import Design
     /// can't tell "the button is gone" from "the button moved".
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
-        var n = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(p.redComponent - q.redComponent),
-                                max(abs(p.greenComponent - q.greenComponent),
-                                    abs(p.blueComponent - q.blueComponent)))
-                if delta > 0.04 { n += 1 }
-            }
-        }
-        return n
+        return PixelDiff.differingPixels(a, b, tolerance: 0.04)
     }
 
     /// Rows carrying real ink, measured against a background sampled where content never reaches.
@@ -137,7 +128,7 @@ import Design
     /// answered, so the diff is the card itself. The button needs no pixel test:
     /// `noPassIsOfferedWithoutAWayToRunIt` pins `pendingPasses ⊆ runnablePasses`, so a card without
     /// its button can't be represented.
-    @Test func anUnrunPassTakesACardOfItsOwn() throws {
+    @Test(.machinePinned(.pixelSampling)) func anUnrunPassTakesACardOfItsOwn() throws {
         let band = Self.fullBand
         let pending = Self.sections(examples: 3)
         let answered = pending.map {
@@ -164,7 +155,7 @@ import Design
     /// one mark a lens row can't be drawn without, the accent bracket on its leading edge, and
     /// requires one per lens. Other accent ink is on the screen too, so ``accentRowBrackets`` keys
     /// on a row's height (56 device pixels).
-    @Test func theFileCardDrawsOneRowPerLens() throws {
+    @Test(.machinePinned(.pixelSampling)) func theFileCardDrawsOneRowPerLens() throws {
         let mounted = mount(Self.sections(examples: 3))
         let rep = try #require(bitmap(mounted, Self.fullBand))
         let runs = Self.accentRowBrackets(rep)
@@ -213,7 +204,7 @@ import Design
     /// work and leaves the screen unchanged is a dead end, and an unchanged `Run the file pass`
     /// under a scan in flight invites the second click that `rescanFilingButton` disables itself to
     /// prevent.
-    @Test func aRunningPassReplacesItsOfferWithProgress() throws {
+    @Test(.machinePinned(.pixelSampling)) func aRunningPassReplacesItsOfferWithProgress() throws {
         let band = Self.fullBand
         let idle = Self.sections(examples: 3)
         let running = idle.map {
@@ -240,7 +231,7 @@ import Design
     /// A lens that has already answered can re-run its own scan, so Duplicates, whose answer ages
     /// fastest, can be re-hashed from here and not only the file pass. Measured on a fixture where
     /// nothing is pending, so `runnablePasses` moves only the row controls.
-    @Test func anAnsweredLensCanRerunItsOwnPass() throws {
+    @Test(.machinePinned(.pixelSampling)) func anAnsweredLensCanRerunItsOwnPass() throws {
         let band = Self.fullBand
         let a = try #require(bitmap(mount(Self.allAnswered()), band))
         let b = try #require(bitmap(mount(Self.allAnswered(), runnable: []), band))
@@ -257,7 +248,7 @@ import Design
     /// A row says so while its scan runs: the count gives way to a spinner rather than a stale
     /// figure in bold. This can't also pin that the rescan control is withdrawn: the spinner
     /// changes the row so much that any threshold catching the button is met without it.
-    @Test func aRunningLensSaysSoInItsRow() throws {
+    @Test(.machinePinned(.pixelSampling)) func aRunningLensSaysSoInItsRow() throws {
         let band = Self.fullBand
         let idle = Self.allAnswered()
         let running = idle.map {
@@ -295,28 +286,16 @@ import Design
 
     /// The source with comment lines removed, because the file's comments quote `"Scan…"` and a
     /// scan of the raw text would read prose as code.
-    private static func overviewCode() throws -> String {
-        try overviewSource()
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
+    private static func overviewCode() throws -> String { SourceText.codeOnly(try overviewSource()) }
 
-    private static func overviewSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // FileExplorer (tests)
-            .deletingLastPathComponent()      // Tests
-            .deletingLastPathComponent()      // FileExplorer (package)
-            .appendingPathComponent("Sources/FileExplorer/OrganizeOverview.swift")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
+    private static func overviewSource() throws -> String { try SourceText.fileExplorer("OrganizeOverview.swift") }
 
     // MARK: The evidence is real
 
     /// A finding draws every example it is given, up to the limit. Measured by changing how many
     /// there are, one against three: a single fixture would be satisfied by a view that drew one
     /// line and ignored the rest.
-    @Test func aFindingDrawsEveryExampleItIsGiven() throws {
+    @Test(.machinePinned(.pixelSampling)) func aFindingDrawsEveryExampleItIsGiven() throws {
         let band = Self.fullBand
         let one = try #require(bitmap(mount(Self.sections(examples: 1)), band))
         let three = try #require(bitmap(mount(Self.sections(examples: 3)), band))
@@ -332,7 +311,7 @@ import Design
 
     /// The limit holds: a lens handing over more examples than the row allows draws no more than
     /// the row allows. Without it Duplicates' 722 groups could unroll into the card.
-    @Test func aFindingDrawsNoMoreThanTheLimit() throws {
+    @Test(.machinePinned(.pixelSampling)) func aFindingDrawsNoMoreThanTheLimit() throws {
         let band = Self.fullBand
         let atLimit = try #require(bitmap(mount(Self.sections(examples: 3)), band))
         let over = try #require(bitmap(mount(Self.sections(examples: 12)), band))
@@ -345,7 +324,7 @@ import Design
     /// The content reaches down the column instead of stopping a fifth of the way. The floor is far
     /// below what the layout produces: a guard against collapse to a near-empty pane, not a
     /// pixel-accurate lock on the design.
-    @Test func theOverviewFillsMoreThanTheTopOfThePane() throws {
+    @Test(.machinePinned(.pixelSampling)) func theOverviewFillsMoreThanTheTopOfThePane() throws {
         let band = Self.fullBand
         let rep = try #require(bitmap(mount(Self.sections(examples: 3)), band))
         let bg = try #require(rep.colorAt(x: rep.pixelsWide - 3, y: rep.pixelsHigh - 3))
@@ -361,7 +340,7 @@ import Design
     /// The sentence itself is drawn, not merely a row of the right height. "No nudge" against "a
     /// nudge" only proves the layout got taller, which a blank row would pass. Two nudges of the
     /// same height with different sentences can't be passed that way.
-    @Test func theNudgesOwnSentenceIsDrawn() throws {
+    @Test(.machinePinned(.pixelSampling)) func theNudgesOwnSentenceIsDrawn() throws {
         func mounted(_ sentence: String) -> Mounted {
             mount(Self.sections(examples: 1),
                   nudge: OrganizeOverview.BacklogNudge(sentence: sentence,
@@ -377,7 +356,7 @@ import Design
     }
 
     /// And it renders only when one is due — the row is absent, not blank, with no nudge.
-    @Test func theNudgeLineRendersOnlyWhenOneIsDue() throws {
+    @Test(.machinePinned(.pixelSampling)) func theNudgeLineRendersOnlyWhenOneIsDue() throws {
         let without = try #require(bitmap(mount(Self.sections(examples: 1)), Self.fullBand))
         let with = try #require(bitmap(
             mount(Self.sections(examples: 1),
@@ -393,7 +372,7 @@ import Design
     /// render. The render alone proves nothing, since `mount` passes a `Ledger` the test builds.
     /// `Ledger.derived` takes only the sections and the runnable passes, so the nudge can't reach
     /// the ratio.
-    @Test func theNudgeDoesNotTouchTheChecksLedger() throws {
+    @Test(.machinePinned(.pixelSampling)) func theNudgeDoesNotTouchTheChecksLedger() throws {
         // The derivation the workspace uses, over the same sections, is the number that must not
         // move; nothing about a nudge can reach it.
         let counted = OrganizeOverview.Ledger.derived(

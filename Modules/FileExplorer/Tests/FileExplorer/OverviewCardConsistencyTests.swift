@@ -25,8 +25,10 @@ import Design
 
     private static func overview(_ sections: [OrganizeOverviewSection],
                                  runnable: Set<OrganizePass> = Set(OrganizePass.allCases),
-                                 buildStorage: (() -> Void)? = {}) -> OrganizeOverview {
+                                 buildStorage: (() -> Void)? = {},
+                                 nudge: OrganizeOverview.BacklogNudge? = nil) -> OrganizeOverview {
         OrganizeOverview(sections: sections, scopeLabel: nil, accent: .blue,
+                         backlogNudge: nudge,
                          ledger: OrganizeOverview.Ledger(),
                          runnablePasses: runnable,
                          onOpen: { _ in }, onRun: { _ in },
@@ -57,7 +59,11 @@ import Design
     /// At most one primary per card, in every state any card can be in, so no card grows two verbs
     /// competing to be the important one. Enumerated over every card the overview can draw, so a
     /// new state that forgets the rule fails here.
-    @Test func noCardOffersTwoPrimaries() {
+    ///
+    /// And a card's verbs are distinct, or `ForEach` silently draws one of them:
+    /// `OverviewCardAction` is `Identifiable` on its title, so two verbs with one title collapse to
+    /// a single button with no error anywhere.
+    @Test func noCardOffersTwoPrimariesOrTwoVerbsWithTheSameName() {
         for lens in OrganizeLens.allCases {
             for state in Self.everyState {
                 for scanning in [false, true] {
@@ -65,6 +71,9 @@ import Design
                     let actions = Self.overview([section]).actions(for: section)
                     #expect(actions.filter { $0.rank == .primary }.count <= 1,
                             "\(lens.title) offers two primaries")
+                    let titles = actions.map(\.title)
+                    #expect(titles.count == Set(titles).count,
+                            "\(lens.title) offers two verbs called the same thing: \(titles)")
                 }
             }
         }
@@ -107,22 +116,6 @@ import Design
         let settled = DocumentSurveyCard(state: .settled(folders: 2_309, lastRead: nil),
                                          accent: .blue, onUpdate: {})
         #expect(settled.verbs.map(\.rank) == [.primary])
-    }
-
-    /// A card's verbs are distinct, or `ForEach` silently draws one of them: `OverviewCardAction`
-    /// is `Identifiable` on its title, so two verbs with one title collapse to a single button with
-    /// no error anywhere.
-    @Test func noCardOffersTwoVerbsWithTheSameName() {
-        for lens in OrganizeLens.allCases {
-            for state in Self.everyState {
-                for scanning in [false, true] {
-                    let section = Self.section(lens, state, scanning: scanning)
-                    let titles = Self.overview([section]).actions(for: section).map(\.title)
-                    #expect(titles.count == Set(titles).count,
-                            "\(lens.title) offers two verbs called the same thing: \(titles)")
-                }
-            }
-        }
     }
 
     /// The states a lens's card can be in, for the sweeps above and below.
@@ -218,15 +211,6 @@ import Design
               setUp: {}, dismiss: {})
     }
 
-    private static func page(_ sections: [OrganizeOverviewSection],
-                             nudge: OrganizeOverview.BacklogNudge?) -> OrganizeOverview {
-        OrganizeOverview(sections: sections, scopeLabel: nil, accent: .blue,
-                         backlogNudge: nudge,
-                         ledger: OrganizeOverview.Ledger(),
-                         runnablePasses: Set(OrganizePass.allCases),
-                         onOpen: { _ in }, onRun: { _ in }, onBuildStorage: {})
-    }
-
     /// A due nudge belongs to Restructure's card, because it names one of that card's findings.
     /// `LensWorkspaceView.backlogNudge()` derives it from `scopedStructureFindings`, and the
     /// overview's Restructure arm counts the same `structureFindings` through the same `.inside`
@@ -235,14 +219,14 @@ import Design
     @Test func aDueNudgeAttachesToTheCardWhoseFindingItNames() {
         let reporting = Self.section(.restructure,
                                      .findings(count: 53, headline: "53 findings", examples: []))
-        #expect(Self.page([reporting], nudge: Self.nudge()).nudgeHost?.lens == .restructure)
+        #expect(Self.overview([reporting], nudge: Self.nudge()).nudgeHost?.lens == .restructure)
     }
 
     /// And nothing attaches when nothing is due: the host is about the nudge, not about the card.
     @Test func noNudgeMeansNoHost() {
         let reporting = Self.section(.restructure,
                                      .findings(count: 53, headline: "53 findings", examples: []))
-        #expect(Self.page([reporting], nudge: nil).nudgeHost == nil)
+        #expect(Self.overview([reporting]).nudgeHost == nil)
     }
 
     /// A nudge with no host still draws, on a rung of its own. The two derivations are in step
@@ -250,13 +234,13 @@ import Design
     /// line vanishing), and a defined answer costs one branch.
     @Test func theNudgeSurvivesLosingItsHost() throws {
         let clean = Self.section(.restructure, .clean)
-        let page = Self.page([clean], nudge: Self.nudge())
+        let page = Self.overview([clean], nudge: Self.nudge())
         #expect(page.nudgeHost == nil, "a clean Restructure is not a card to hang a nudge on")
 
         // And it reaches the pixels rather than only the model: the same page without a nudge draws
         // measurably less.
         let with = try #require(Self.render(page))
-        let without = try #require(Self.render(Self.page([clean], nudge: nil)))
+        let without = try #require(Self.render(Self.overview([clean])))
         var differing = 0
         for y in 0..<min(with.pixelsHigh, without.pixelsHigh) {
             for x in 0..<min(with.pixelsWide, without.pixelsWide) {
@@ -338,11 +322,7 @@ import Design
     /// One findings card's rendered height, off the real view.
     private static func cardHeight(_ section: OrganizeOverviewSection,
                                    nudge: OrganizeOverview.BacklogNudge? = nil) -> CGFloat {
-        let page = OrganizeOverview(sections: [section], scopeLabel: nil, accent: .blue,
-                                    backlogNudge: nudge,
-                                    ledger: OrganizeOverview.Ledger(),
-                                    runnablePasses: Set(OrganizePass.allCases),
-                                    onOpen: { _ in }, onRun: { _ in })
+        let page = overview([section], buildStorage: nil, nudge: nudge)
         // The page's own 14pt padding top and bottom is the only other tenant with one section.
         let host = NSHostingView(rootView: AnyView(page.frame(width: 560)))
         return host.fittingSize.height - 28

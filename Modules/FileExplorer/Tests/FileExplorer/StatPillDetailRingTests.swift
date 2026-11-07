@@ -25,20 +25,8 @@ import Testing
     }
 
     private func render(_ view: some View, _ appearance: NSAppearance.Name) -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: AnyView(view.environment(\.colorScheme,
-                                                                   appearance == .darkAqua ? .dark : .light)))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.contentView = nil
-        return rep
+        PixelDiff.render(view.environment(\.colorScheme, appearance == .darkAqua ? .dark : .light),
+                         size: size, appearance: appearance)!
     }
 
     private func luminance(_ c: NSColor) -> CGFloat {

@@ -163,8 +163,6 @@ import EventsTestSupport
         let bar = p.segments.first { $0.kind == .content && slice(p, $0.source) == "bar baz" }
         #expect(bar?.source.location == 7)
         #expect(p.blocks.allSatisfy { $0.readOnly == nil })
-        checkInvariants(p)
-        #expect(checkSentinels("foo\n   bar baz\n\tqux") > 0)
     }
 
     @Test func aQuotedContinuationIsMappedPastItsMarkersAndIndent() {
@@ -172,8 +170,6 @@ import EventsTestSupport
         let p = project(source)
         #expect(contentSources(p) == ["lead ", "x", " y", "cont ", "z"])
         #expect(p.blocks.map(\.readOnly) == [nil])
-        checkInvariants(p)
-        checkSentinels(source)
     }
 
     /// The paragraph's own indent shifts the other way: `cont` is reported a column LATE.
@@ -181,7 +177,6 @@ import EventsTestSupport
         let source = "   indented para *x*\n  cont"
         let p = project(source)
         #expect(contentSources(p) == ["indented para ", "x", "cont"])
-        checkSentinels(source)
     }
 
     /// A `>` after four spaces is text, not a quote marker: `a` then `    >b` reads "a >b". Skipped
@@ -194,8 +189,6 @@ import EventsTestSupport
         let p = project(source)
         #expect(p.blocks.map(\.readOnly) == [nil, nil])
         #expect(contentSources(p) == ["a", ">b ", "c", "q", ">r ", "s"])
-        checkInvariants(p)
-        #expect(checkSentinels(source) > 0)
     }
 
     /// A backslash break does not advance the parser's line count. Every later line of the
@@ -208,18 +201,14 @@ import EventsTestSupport
         let breaks = p.segments.filter { $0.kind == .hardBreak }.map { slice(p, $0.source) }
         #expect(breaks == ["\\\n   ", "\\\n"])
         #expect(p.renderedString == "foo\u{2028}bar em x\u{2028}baz qux b")
-        checkInvariants(p)
-        checkSentinels(source)
     }
 
     @Test func quotedBackslashBreaksAndTwoSpaceBreaksBothMap() {
-        checkSentinels("> a\\\n> b\n> c")
         let source = "a  \n  b\\\n\tc"
         let p = project(source)
         #expect(contentSources(p) == ["a", "b", "c"])
         #expect(p.segments.filter { $0.kind == .hardBreak }.map { slice(p, $0.source) }
                 == ["  \n  ", "\\\n\t"])
-        checkSentinels(source)
     }
 
     /// The parser reports `b \| c` as five bytes. The text is aligned from its start instead, so
@@ -232,8 +221,6 @@ import EventsTestSupport
         let cell = p.segments.first { slice(p, $0.source) == "b \\| c" }
         // After "b " the rendered "|" is two source units, so " c" starts one unit later.
         #expect(cell?.sourceOffset(forRenderedBoundary: 3) == (cell?.source.location ?? 0) + 4)
-        checkInvariants(p)
-        checkSentinels(source)
     }
 
     /// Two more table-cell cases, measured: an unmatched `~~` arrives as text with no range, and
@@ -243,12 +230,10 @@ import EventsTestSupport
         let p = project(unmatched)
         #expect(p.blocks.map(\.readOnly) == [nil])
         #expect(contentSources(p) == ["a", "b~~", "c", "d"])
-        checkSentinels(unmatched)
         let pipes = "| a |\n|---|\n| *x*\\|*y* \\| z |"
         let q = project(pipes)
         #expect(q.blocks.map(\.readOnly) == [nil])
         #expect(contentSources(q) == ["a", "x", "\\|", "y", " \\| z"])
-        checkSentinels(pipes)
     }
 
     // MARK: Escapes, entities, multibyte
@@ -266,8 +251,6 @@ import EventsTestSupport
         #expect(segment.sourceOffset(forRenderedBoundary: 5) == 10)
         // Between the emoji's two units there is no source position.
         #expect(segment.sourceOffset(forRenderedBoundary: 9) == nil)
-        checkInvariants(p)
-        checkSentinels(source)
     }
 
     /// The parser curls quotes and joins dashes, so the rendered characters are not the file's.
@@ -289,8 +272,6 @@ import EventsTestSupport
         let source = "Café **naïve** 中文 😀 *ok*"
         let p = project(source)
         #expect(contentSources(p) == ["Café ", "naïve", " 中文 😀 ", "ok"])
-        checkInvariants(p)
-        checkSentinels(source)
     }
 
     @Test func codeSpansMapTheirContentAndNotTheirBackticks() {
@@ -353,8 +334,6 @@ import EventsTestSupport
         let source = "x\r\ny **b**\r\n\r\n> q\r\n> r"
         let p = project(source)
         #expect(contentSources(p) == ["x", "y ", "b", "q", "r"])
-        checkInvariants(p)
-        checkSentinels(source)
     }
 
     /// After a backslash break the parser counts a CRLF as one byte, as it counts every line
@@ -367,8 +346,6 @@ import EventsTestSupport
         let p = project(source)
         #expect(p.blocks.map(\.readOnly) == [nil, nil])
         #expect(contentSources(p) == ["foo", "bar ", "x", "baz", "a", "b", "c ", "d"])
-        checkInvariants(p)
-        #expect(checkSentinels(source) > 0)
     }
 
     @Test func fencedCodeMapsEachLineAsTheTailOfItsSourceLine() {

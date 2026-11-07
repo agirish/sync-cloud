@@ -27,6 +27,23 @@ extension MarkdownListEdits {
     }
 }
 
+/// Splits `"- a|"` into the buffer and the caret.
+func caret(_ marked: String) -> (text: String, selection: NSRange) {
+    let ns = marked as NSString
+    let at = ns.range(of: "|")
+    return (ns.replacingCharacters(in: at, with: ""), NSRange(location: at.location, length: 0))
+}
+
+/// Splits `"- «ab»"` into the buffer and a selection.
+func selecting(_ marked: String) -> (text: String, selection: NSRange) {
+    let ns = marked as NSString
+    let open = ns.range(of: "«")
+    let without = ns.replacingCharacters(in: open, with: "") as NSString
+    let close = without.range(of: "»")
+    return (without.replacingCharacters(in: close, with: ""),
+            NSRange(location: open.location, length: close.location - open.location))
+}
+
 /// Files outside this package that Edit's paste and drop make claims in: the app's wiring and its
 /// Help, under `MacApp/`, which no package test otherwise reads. Found from this file's own path.
 enum EditRepoFile {

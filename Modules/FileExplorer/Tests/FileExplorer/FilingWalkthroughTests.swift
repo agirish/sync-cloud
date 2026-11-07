@@ -10,12 +10,7 @@ import Sync
 /// the cursor can run past its queue.
 @Suite struct FilingWalkthroughTests {
 
-    private func row(_ name: String) -> AutomationDryRunRow {
-        AutomationDryRunRow(id: "/inbox/\(name)", fileName: name, ruleID: UUID(), ruleName: "Rule",
-                            verdict: .wouldFile(destination: "Docs"),
-                            destinationDir: URL(fileURLWithPath: "/root/Docs"), destinationLabel: "Docs",
-                            destinationAnchor: URL(fileURLWithPath: "/root"))
-    }
+    private func row(_ name: String) -> AutomationDryRunRow { .walkFixture(name) }
 
     @Test func approvingEveryFileFilesEveryFile() {
         var walk = FilingWalkthrough()
@@ -152,12 +147,7 @@ import Sync
 @MainActor
 @Suite(.serialized) struct FilingWalkthroughLogTests {
 
-    private func row(_ name: String) -> AutomationDryRunRow {
-        AutomationDryRunRow(id: "/inbox/\(name)", fileName: name, ruleID: UUID(), ruleName: "Rule",
-                            verdict: .wouldFile(destination: "Docs"),
-                            destinationDir: URL(fileURLWithPath: "/root/Docs"), destinationLabel: "Docs",
-                            destinationAnchor: URL(fileURLWithPath: "/root"))
-    }
+    private func row(_ name: String) -> AutomationDryRunRow { .walkFixture(name) }
 
     /// Everything logged while `act` runs, read from a capture opened before it, never from
     /// `Logger.shared.entries`, which is a rolled 1000-line window.

@@ -70,17 +70,10 @@ import SwiftUI
         // every assertion about a filing control fails as "painted nothing", indistinguishable from
         // the control being broken.
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
-        let host = NSHostingView(rootView: AnyView(
+        let (host, _) = HostedView.framed(
             LensWorkspaceView(syncManager: m, lens: .filing, providerName: "Projects",
                      scanTargetFolder: "/root/Downloads", onFindDuplicates: {})
-                .defaultAppStorage(defaults)
-                .frame(width: size.width, height: size.height)))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+                .defaultAppStorage(defaults), size: size)
         for i in 0..<12 {
             m.banner = .success("render \(i)")   // a published change the lens observes
             host.needsLayout = true

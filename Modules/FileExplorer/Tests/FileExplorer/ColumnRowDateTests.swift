@@ -7,7 +7,8 @@ import Sync
 /// The row's trailing detail (a folder's date, a file's size) and which presentation carries it:
 /// Columns withholds both, the tree keeps both. Measured in pixels, since the detail sits behind a
 /// `Spacer` and a row is equally wide with or without it. Positive controls
-/// (`theTreeRowStillPaintsTheFolderDate`, `aRowWithoutAChevronDoesNotReachTheEdge`) stop a harness
+/// (the tree cases of `eachPresentationPaintsOrWithholdsTheDetail`,
+/// `aRowWithoutAChevronDoesNotReachTheEdge`) stop a harness
 /// that paints nothing from passing the zero-difference checks.
 ///
 /// Known boundary: these build `ColumnRowView` directly, so they don't pin that
@@ -24,7 +25,8 @@ import Sync
     /// A fixed instant, so the formatted string cannot vary with the day the suite runs.
     private static let stamp = Date(timeIntervalSince1970: 1_700_000_000)
 
-    /// Built independently of the app's formatter, as in `theTreesDateKeepsItsFormat`: the string is
+    /// The tree's date is medium style with no time; "not nil" can't see a formatter that gained a
+    /// time or dropped to `.short`. Built independently of the app's formatter: the string is
     /// locale- and timezone-dependent, so a literal would pin the suite to one Mac.
     private static let reference: DateFormatter = {
         let f = DateFormatter()
@@ -56,18 +58,7 @@ import Sync
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return PixelDiff.render(subject, size: size)
     }
 
     /// The rightmost pixel column holding anything other than the window background, or nil for a
@@ -87,17 +78,7 @@ import Sync
     }
 
     private func pixelsDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Int {
-        var differing = 0
-        for y in 0..<min(lhs.pixelsHigh, rhs.pixelsHigh) {
-            for x in 0..<min(lhs.pixelsWide, rhs.pixelsWide) {
-                guard let a = lhs.colorAt(x: x, y: y), let b = rhs.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(a.redComponent - b.redComponent),
-                                max(abs(a.greenComponent - b.greenComponent),
-                                    abs(a.blueComponent - b.blueComponent)))
-                if delta > 0.02 { differing += 1 }
-            }
-        }
-        return differing
+        PixelDiff.differingPixels(lhs, rhs, tolerance: 0.02)
     }
 
     // MARK: - The rule
@@ -119,18 +100,6 @@ import Sync
                 "The tree must still ask for the date — the flag is not a global removal")
         #expect(FileRowView.secondaryText(for: sizedFile, showsSecondaryText: true) == "1 KB",
                 "The tree must still ask for the size")
-    }
-
-    /// The tree's date is medium style with no time; "not nil" can't see a formatter that gained a
-    /// time or dropped to `.short`. Built from an independent formatter, since a literal would pin
-    /// the suite to one Mac's locale and timezone.
-    @Test func theTreesDateKeepsItsFormat() {
-        let reference = DateFormatter()
-        reference.dateStyle = .medium
-        reference.timeStyle = .none
-
-        #expect(FileRowView.secondaryText(for: FileRowInfo(folder(dated: true)), showsSecondaryText: true)
-                    == reference.string(from: Self.stamp))
     }
 
     /// A folder the scan never dated is nil under either setting.
@@ -163,17 +132,7 @@ import Sync
         }
         /// Differing pixels strictly left of `x`, i.e. in the name's half of the row.
         func nameRegionDiff(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, before x: Int) -> Int {
-            var n = 0
-            for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
-                for px in 0..<min(x, min(a.pixelsWide, b.pixelsWide)) {
-                    guard let p = a.colorAt(x: px, y: y), let q = b.colorAt(x: px, y: y) else { continue }
-                    let d = max(abs(p.redComponent - q.redComponent),
-                                max(abs(p.greenComponent - q.greenComponent),
-                                    abs(p.blueComponent - q.blueComponent)))
-                    if d > 0.02 { n += 1 }
-                }
-            }
-            return n
+            PixelDiff.differingPixels(a, b, tolerance: 0.02, beforeX: x)
         }
 
         // The string this rests on, so a formatter change cannot quietly move the measurement.
@@ -198,31 +157,40 @@ import Sync
                 """)
     }
 
-    /// Positive control for the zero-difference claims below: the tree's row does paint a folder
-    /// date. It also pins the default: `FileTreeView.treeRow` passes no `showsSecondaryText`, so a
-    /// default of false would strip dates from both tree panes and the Organize rail. `treeRow`
-    /// passing `false` explicitly would be a design change, so it isn't guarded.
-    @Test(.machinePinned(.pixelSampling)) func theTreeRowStillPaintsTheFolderDate() throws {
-        let dated = try #require(bitmap(FileRowView(
-            node: FileRowInfo(folder(dated: true)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable)))
-        let undated = try #require(bitmap(FileRowView(
-            node: FileRowInfo(folder(dated: false)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable)))
-        #expect(pixelsDiffering(dated, undated) > 0,
-                "The tree row stopped drawing folder dates — the Columns change was not supposed to reach it")
-    }
-
-    /// In Columns a dated folder is painted identically to an undated one.
-    @Test(.machinePinned(.pixelSampling)) func theColumnRowPaintsNoFolderDate() throws {
-        let dated = try #require(bitmap(ColumnRowView(
-            row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable, showsChevron: true)))
-        let undated = try #require(bitmap(ColumnRowView(
-            row: row(folder(dated: false)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable, showsChevron: true)))
-        #expect(pixelsDiffering(dated, undated) == 0,
-                "ColumnRowView is painting the folder date — it must pass showsSecondaryText: false")
+    /// Which presentation paints the detail: the tree row paints a folder's date and a file's
+    /// size, and the Columns row paints neither, identically to a row without one. The tree cases
+    /// are the positive controls for the zero-difference ones. They also pin the default:
+    /// `FileTreeView.treeRow` passes no `showsSecondaryText`, so a default of false would strip
+    /// dates from both tree panes and the Organize rail. `treeRow` passing `false` explicitly would
+    /// be a design change, so it isn't guarded.
+    @Test(.machinePinned(.pixelSampling), arguments: [
+        (true, false, true),    // a folder's date, tree row: painted
+        (true, true, false),    // a folder's date, Columns row: not painted
+        (false, true, false),   // a file's size, Columns row: not painted
+        (false, false, true),   // a file's size, tree row: painted
+    ])
+    func eachPresentationPaintsOrWithholdsTheDetail(isFolder: Bool, inColumns: Bool,
+                                                     paints: Bool) throws {
+        func rendered(_ withDetail: Bool) throws -> NSBitmapImageRep {
+            let node = isFolder ? folder(dated: withDetail) : file(sized: withDetail)
+            if inColumns {
+                return try #require(bitmap(ColumnRowView(
+                    row: row(node), isIgnored: false, diffStatus: nil,
+                    containedDiffCount: 0, density: .comfortable, showsChevron: isFolder)))
+            }
+            return try #require(bitmap(FileRowView(
+                node: FileRowInfo(node), isIgnored: false, diffStatus: nil,
+                containedDiffCount: 0, density: .comfortable)))
+        }
+        let differing = pixelsDiffering(try rendered(true), try rendered(false))
+        let detail = isFolder ? "folder date" : "file size"
+        if paints {
+            #expect(differing > 0,
+                    "The tree row stopped drawing the \(detail) — the Columns change was not supposed to reach it")
+        } else {
+            #expect(differing == 0,
+                    "ColumnRowView is painting the \(detail) — it must pass showsSecondaryText: false")
+        }
     }
 
     /// The chevron reaches the row's trailing edge. It is flush by construction: `FileRowView` ends
@@ -251,29 +219,5 @@ import Sync
         let gap = Double(rep.pixelsWide - 1 - edge) / (Double(rep.pixelsWide) / Self.canvas.width)
         #expect(gap > 3,
                 "A chevron-less row is flush to the edge too, so the trailing-edge measurement proves nothing")
-    }
-
-    /// In Columns a sized file paints exactly as an unsized one. Its positive control follows.
-    @Test(.machinePinned(.pixelSampling)) func theColumnRowPaintsNoFileSize() throws {
-        let sized = try #require(bitmap(ColumnRowView(
-            row: row(file(sized: true)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable, showsChevron: false)))
-        let unsized = try #require(bitmap(ColumnRowView(
-            row: row(file(sized: false)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable, showsChevron: false)))
-        #expect(pixelsDiffering(sized, unsized) == 0,
-                "ColumnRowView is painting the file size — it must pass showsSecondaryText: false")
-    }
-
-    /// Positive control for the test above: the tree row still paints a file's size.
-    @Test(.machinePinned(.pixelSampling)) func theTreeRowStillPaintsAFileSize() throws {
-        let sized = try #require(bitmap(FileRowView(
-            node: FileRowInfo(file(sized: true)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable)))
-        let unsized = try #require(bitmap(FileRowView(
-            node: FileRowInfo(file(sized: false)), isIgnored: false, diffStatus: nil,
-            containedDiffCount: 0, density: .comfortable)))
-        #expect(pixelsDiffering(sized, unsized) > 0,
-                "The tree row stopped drawing file sizes — the Columns change was not supposed to reach it")
     }
 }

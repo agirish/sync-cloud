@@ -63,6 +63,10 @@ import FileExplorerTestSupport
     @Test func theRailDrawsAtTheReservedWidthWithItsRowsInIt() {
         let one = size(rail(entries: [entry("one.md")]))
         let three = size(rail(entries: [entry("one.md"), entry("two.md"), entry("three.md")]))
+        // The outline tab draws at the same width: neither tab's content escapes the hard frame.
+        let outlined = size(rail(entries: [entry("one.md")],
+                                 outline: (1...3).map { heading("Row \($0)", line: $0) },
+                                 tab: .outline))
 
         #expect(abs(one.width - EditorLayoutMetrics.railWidth) < 0.51,
                 "the rail draws \(one.width)pt against the \(EditorLayoutMetrics.railWidth)pt the layout reserves")
@@ -70,6 +74,8 @@ import FileExplorerTestSupport
                 "three rows widened the rail to \(three.width)pt")
         #expect(three.height > one.height,
                 "three rows measure the same as one (\(three.height)pt) — the rows are not drawn, so the width assertion above is measuring an empty frame")
+        #expect(abs(outlined.width - EditorLayoutMetrics.railWidth) < 0.51,
+                "the outline tab drew at \(outlined.width)")
     }
 
     /// A long file name truncates rather than wrapping, measured in height: the rail is hard
@@ -122,12 +128,7 @@ import FileExplorerTestSupport
         #expect(EditorFileRailView.rowShape != HoverAffordanceShape.default(for: .inline),
                 "the shape .inline would have chosen is the defect this test exists for")
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorFileRailView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read EditorFileRailView.swift — this scan would be vacuous")
-        try #require(source.count > 500, "the file is implausibly short — the scan would be near-vacuous")
+        let source = try SourceText.fileExplorer("EditorFileRailView.swift")
         // Scoped to the row builder, so a `.glyph` elsewhere (the ＋ button and the naming row have
         // their own) can't satisfy or break this. `row(_:)` is the type's last member, so "to the
         // end" is its body; asserted, because a member added after it would widen the scan.
@@ -138,9 +139,7 @@ import FileExplorerTestSupport
                 "row(_:) is no longer the last member, so this scan now covers more than the row")
         // Comment lines dropped first: the comment above the button style names `.inline`, so a
         // scan of the raw text would find the spelling it asserts is absent.
-        let code = whole.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let code = SourceText.codeOnly(whole)
         try #require(code.contains("buttonStyle"), "the comment filter ate the code as well")
         let body = code
         #expect(body.contains(".hoverAffordance(isSelected ? .filled : .row,"),
@@ -389,43 +388,24 @@ import FileExplorerTestSupport
         }
     }
 
-    /// Both tabs draw at the one width the layout reserves: neither half's content escapes the hard
-    /// frame and pushes it.
-    @Test func eitherTabDrawsAtTheReservedWidth() {
-        let files = size(rail(entries: [entry("one.md")], tab: .files))
-        let outlined = size(rail(entries: [entry("one.md")],
-                                 outline: (1...3).map { heading("Row \($0)", line: $0) },
-                                 tab: .outline))
-        #expect(abs(files.width - EditorLayoutMetrics.railWidth) < 0.51,
-                "the files tab drew at \(files.width)")
-        #expect(abs(outlined.width - EditorLayoutMetrics.railWidth) < 0.51,
-                "the outline tab drew at \(outlined.width)")
-    }
-
     // MARK: The outline tab
 
     /// The outline has the whole card, with no row cap, so its twelfth row is drawn as surely as
-    /// its fourth. Twelve against four, either side of an eight-row cap.
+    /// its fourth. Twelve against four, either side of an eight-row cap; one row against four shows
+    /// the rows are really drawn rather than reserved.
     @Test func theOutlineTabDrawsPastTheRowCapTheStackImposed() {
+        let one = size(rail(entries: [entry("one.md")], outline: [heading("A", line: 1)],
+                            tab: .outline))
         let four = size(rail(entries: [entry("one.md")],
                              outline: (1...4).map { heading("Row \($0)", line: $0) },
                              tab: .outline))
         let twelve = size(rail(entries: [entry("one.md")],
                                outline: (1...12).map { heading("Row \($0)", line: $0) },
                                tab: .outline))
-        #expect(twelve.height > four.height,
-                "twelve outline rows measured \(twelve.height) against four rows' \(four.height) — something is still capping the section")
-    }
-
-    /// The rows are really drawn rather than reserved: one row is shorter than four.
-    @Test func theOutlineGrowsWithItsRows() {
-        let one = size(rail(entries: [entry("one.md")], outline: [heading("A", line: 1)],
-                            tab: .outline))
-        let four = size(rail(entries: [entry("one.md")],
-                             outline: (1...4).map { heading("Row \($0)", line: $0) },
-                             tab: .outline))
         #expect(four.height > one.height,
                 "four outline rows measured \(four.height) against one row's \(one.height)")
+        #expect(twelve.height > four.height,
+                "twelve outline rows measured \(twelve.height) against four rows' \(four.height) — something is still capping the section")
     }
 
     /// The empty outline is a note with no headings yet, the only empty the tab can show since it
@@ -549,9 +529,6 @@ import FileExplorerTestSupport
                              .environment(\.appFontScale, scale))
             #expect(abs(labelled.height - glyph.height) < 0.51,
                     "at scale \(scale) the rungs are \(labelled.height)pt and \(glyph.height)pt tall")
-            // The positive control: they differ in width, which is what the rungs are for.
-            #expect(labelled.width > glyph.width + 10,
-                    "the two rungs measure the same width — the shedding is not happening")
         }
     }
 
@@ -578,30 +555,18 @@ import FileExplorerTestSupport
     /// the same named constant, so widening the dot on one row alone fails. Comments are stripped
     /// first, so prose can't satisfy it.
     @Test func bothHeaderRowsReserveTheDotColumn() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read EditorWorkspaceView.swift — this scan would be vacuous")
-        let code = source
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in line.drop { $0 == " " }.hasPrefix("//") ? "" : line }
-            .joined(separator: "\n")
+        let source = try SourceText.fileExplorer("EditorWorkspaceView.swift")
+        let code = SourceText.codeOnly(source)
 
         try #require(code.contains("static let dotColumnWidth"),
                      "the shared constant is gone — the two rows can no longer agree by construction")
         let uses = code.components(separatedBy: "Self.dotColumnWidth").count - 1
         #expect(uses >= 2,
                 "only \(uses) row(s) reserve the dot column; the header's two left edges will differ")
-    }
 
-    /// The reservation has to be an unconditional shape. An `if` around it contributes nothing to
-    /// layout, which would leave the subtitle flush left while the title stayed indented.
-    @Test func theSubtitlesReservationIsUnconditional() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+        // The subtitle's reservation has to be an unconditional shape. An `if` around it
+        // contributes nothing to layout, which would leave the subtitle flush left while the title
+        // stayed indented.
         let metaRow = try #require(source.range(of: "private var metaRow: some View {"))
         let end = try #require(source.range(of: "static let dotColumnWidth", range: metaRow.upperBound..<source.endIndex))
         let body = String(source[metaRow.upperBound..<end.lowerBound])

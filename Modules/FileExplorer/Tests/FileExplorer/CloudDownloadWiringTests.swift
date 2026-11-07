@@ -13,25 +13,6 @@ import Sync
 @MainActor
 @Suite(.serialized) struct CloudDownloadWiringTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private final class Box: ObservableObject {
         @Published var tree: PaneTree
         init(_ tree: PaneTree) { self.tree = tree }
@@ -51,7 +32,7 @@ import Sync
                 otherTree: PaneTree(side: isLeft ? .right : .left, version: 0, nodes: []),
                 isLoading: false, currentPath: currentPath,
                 selection: .constant([]), otherSelection: [],
-                isLeft: isLeft, delegate: StubDelegate(),
+                isLeft: isLeft, delegate: NoOpFileActionDelegate(),
                 rootPath: rootPath,
                 isSingleSource: isSingleSource,
                 downloadChannel: channel
@@ -93,20 +74,6 @@ import Sync
         window.contentView = nil
     }
 
-    /// Turns the run loop until `condition` holds or the timeout expires, and returns whether it
-    /// held. `LayoutPumpWait.pump` does the work; see `pumpFloor` there for why a wall-clock
-    /// deadline alone doesn't bound a congested main actor.
-    @discardableResult
-    private func settle(_ window: NSWindow, timeout: Double = 3, until condition: () -> Bool) async -> Bool {
-        await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
-    }
-
-    /// The real poster both Download buttons use, so these tests send the app's own payload. Only
-    /// `through:` differs: the app passes the pane's channel, which there is `.default`.
-    private func post(_ path: String, from token: PaneToken, through channel: NotificationCenter) {
-        CloudDownloadRequest.post(path: path, from: token, through: channel)
-    }
-
     // MARK: - Routing
 
     /// Positive control for the ignore tests below: with this harness and timing, a post the pane
@@ -118,9 +85,9 @@ import Sync
         defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
-        post(ghost, from: .left, through: channel)
+        CloudDownloadRequest.post(path: ghost, from: .left, through: channel)
 
-        #expect(await settle(window) { CloudOnlyBadgeCache.cached(ghost) != true })
+        #expect(await LayoutPumpWait.pump(window, upTo: 3) { CloudOnlyBadgeCache.cached(ghost) != true }.held)
     }
 
     /// The right pane derives its own token and must take a `.right` post. Fails if the receiver is
@@ -132,9 +99,9 @@ import Sync
         defer { teardown(window) }
         CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
 
-        post(ghost, from: .right, through: channel)
+        CloudDownloadRequest.post(path: ghost, from: .right, through: channel)
 
-        #expect(await settle(window) { CloudOnlyBadgeCache.cached(ghost) != true })
+        #expect(await LayoutPumpWait.pump(window, upTo: 3) { CloudOnlyBadgeCache.cached(ghost) != true }.held)
     }
 
     /// Both panes default to the same provider, so one path can be on screen twice; the pane that
@@ -179,10 +146,10 @@ import Sync
         CloudOnlyBadgeCache.record(ignored, isCloudOnly: true)
         CloudOnlyBadgeCache.record(taken, isCloudOnly: true)
 
-        post(ignored, from: ignoredToken, through: channel)
-        post(taken, from: takenToken, through: channel)
+        CloudDownloadRequest.post(path: ignored, from: ignoredToken, through: channel)
+        CloudDownloadRequest.post(path: taken, from: takenToken, through: channel)
 
-        #expect(await settle(window) { CloudOnlyBadgeCache.cached(taken) != true },
+        #expect(await LayoutPumpWait.pump(window, upTo: 3) { CloudOnlyBadgeCache.cached(taken) != true }.held,
                 "the pane never acted on its OWN request — the absence below proves nothing")
         #expect(CloudOnlyBadgeCache.cached(ignored) == true,
                 "the pane acted on \(ignoredToken)'s request")
@@ -212,12 +179,12 @@ import Sync
         CloudOnlyBadgeCache.record(first, isCloudOnly: true)
         CloudOnlyBadgeCache.record(second, isCloudOnly: true)
 
-        post(first, from: .left, through: channel)
-        post(second, from: .left, through: channel)
+        CloudDownloadRequest.post(path: first, from: .left, through: channel)
+        CloudDownloadRequest.post(path: second, from: .left, through: channel)
 
-        #expect(await settle(window, timeout: 20) {
+        #expect(await LayoutPumpWait.pump(window, upTo: 20) {
             CloudOnlyBadgeCache.cached(first) == false && CloudOnlyBadgeCache.cached(second) == false
-        }, "one of the two downloads was never watched to its end — first: \(String(describing: CloudOnlyBadgeCache.cached(first))), second: \(String(describing: CloudOnlyBadgeCache.cached(second)))")
+        }.held, "one of the two downloads was never watched to its end — first: \(String(describing: CloudOnlyBadgeCache.cached(first))), second: \(String(describing: CloudOnlyBadgeCache.cached(second)))")
     }
 
     /// The same file asked for twice is still one watch, the newer request. Keyed by request id
@@ -276,7 +243,7 @@ import Sync
 
         // Generous, because it waits for something to happen rather than bounding an absence: on a
         // contended main actor a short deadline would report starvation as a missing cancellation.
-        #expect(await hold(upTo: 30) { log.cancelled.contains(first.requestID) },
+        #expect(await LayoutPumpWait.poll(upTo: 30) { log.cancelled.contains(first.requestID) }.held,
                 "the superseded watch for \(first.path) is still running")
         #expect(log.started.contains(firstAgain.requestID), "the repeat request started no watch")
         #expect(!log.cancelled.contains(other.requestID),
@@ -314,14 +281,6 @@ import Sync
         }
     }
 
-    /// Yields until `condition` holds, or until both the deadline has passed and `pumpFloor` polls
-    /// have been made, and returns whether it held. `poll`, not `pump`: nothing is mounted. The
-    /// floor is the bound that matters under load (`docs/flaky-tests.md`, "Fixed pumps and fixed
-    /// sleeps").
-    private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
-        await LayoutPumpWait.poll(upTo: seconds, until: condition).held
-    }
-
     // MARK: - The republish clear's root
 
     /// A republish clears the memo under the folder the pane is showing. Focused on a subfolder,
@@ -339,7 +298,7 @@ import Sync
 
         box.tree = Self.tree(2, root: "/wiring/provider/sub")   // the republish
 
-        #expect(await settle(window) { CloudOnlyBadgeCache.cached(inside) == nil })
+        #expect(await LayoutPumpWait.pump(window, upTo: 3) { CloudOnlyBadgeCache.cached(inside) == nil }.held)
         #expect(CloudOnlyBadgeCache.cached(outside) == true)
     }
 }

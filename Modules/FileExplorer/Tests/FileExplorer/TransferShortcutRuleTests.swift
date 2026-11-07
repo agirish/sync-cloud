@@ -23,10 +23,6 @@ import Design
         #expect(Self.available())
     }
 
-    @Test func nothingSelectedWithholdsIt() {
-        #expect(!Self.available(selectionCount: 0))
-    }
-
     /// The gate that stands in for focus. Both panes and the table can hold a selection at once;
     /// with the panes holding it, ⌘→ must not transfer rows the user stopped meaning, since the
     /// pane action bar's own Copy is what they want then.
@@ -36,20 +32,27 @@ import Design
                 "the table's chord fired for a selection owned by \(String(describing: surface))")
     }
 
-    /// A review session owns the keyboard while it runs: its card reads plain ⌫ and ↩, one modifier
-    /// away from these.
-    @Test func aRunningReviewWithholdsIt() {
-        #expect(!Self.available(sessionActive: true))
+    /// The other axes, each removed alone.
+    enum Withheld: String, CaseIterable {
+        case nothingSelected
+        /// A review session owns the keyboard while it runs: its card reads plain ⌫ and ↩, one
+        /// modifier away from these.
+        case aRunningReview
+        case aBlockingSync
+        /// The destination picker and the ⌘K palette silence every mirrored chord; a transfer
+        /// started underneath one would move the files the pick is asking about.
+        case suspension
     }
 
-    @Test func aBlockingSyncWithholdsIt() {
-        #expect(!Self.available(blocked: true))
-    }
-
-    /// The destination picker and the ⌘K palette silence every mirrored chord; a transfer started
-    /// underneath one would move the files the pick is asking about.
-    @Test func suspensionWithholdsIt() {
-        #expect(!Self.available(suspended: true))
+    @Test(arguments: Withheld.allCases)
+    func eachOtherAxisWithholdsIt(_ axis: Withheld) {
+        let available = switch axis {
+        case .nothingSelected: Self.available(selectionCount: 0)
+        case .aRunningReview: Self.available(sessionActive: true)
+        case .aBlockingSync: Self.available(blocked: true)
+        case .suspension: Self.available(suspended: true)
+        }
+        #expect(!available, "\(axis.rawValue) left the chord available")
     }
 }
 
@@ -139,12 +142,7 @@ import Design
     /// nothing can construct, so the wiring is checked at source level: name the file, fail if it
     /// can't be read, and assert the strings whose presence is the regression.
     @Test func theChordTakesNoSnapshotOfTheRows() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — every check below would be vacuous")
-        try #require(source.count > 5_000, "DifferencesView.swift is implausibly short")
+        let source = try SourceText.fileExplorer("DifferencesView.swift", atLeast: 5_000)
 
         // The rows must not be closed over from `body`'s local: a focused value isn't re-armed
         // while a menu is open.

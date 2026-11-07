@@ -107,17 +107,10 @@ import SwiftUI
     /// The glyph is tinted; the label is not. Accent on 9.5pt text is the contrast trap the
     /// repo's amber-on-body-text rule exists for, so this pins the call site.
     @Test func theTagTintsItsGlyphAndNeverItsText() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
-        let tag = try #require(text.range(of: "private func kindTag(_ kind: FindingKind)"))
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
         // To the end of the function, not a byte count, so a comment added inside `kindTag` can't
         // push the accent line out of the window.
-        let rest = text[tag.lowerBound...]
-        let end = rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex
-        let body = String(rest[..<end])
+        let body = try SourceText.body(of: "private func kindTag(_ kind: FindingKind)", in: text)
         let glyph = try #require(body.range(of: "Image(systemName: Self.kindSymbol(kind))"))
         let label = try #require(body.range(of: "Text(Self.kindLabel(kind))"))
         let accent = try #require(body.range(of: "AnyShapeStyle(accent)"))
@@ -211,8 +204,8 @@ import SwiftUI
         #expect(empties.contains("Open the list"),
                 "the help points at the control that exists")
         #expect(empties.contains("Trash"), "the Trash-only rule is the reassurance")
-        #expect(!empties.contains("takes these when Apply lands"),
-                "the false promise must not come back")
+        #expect(!empties.contains("when Apply lands"),
+                "the false promise must not come back — the button exists now")
         #expect(!empties.contains("call to make in Finder"),
                 "nor the sentence that outlived the route being built")
     }
@@ -233,13 +226,13 @@ import SwiftUI
 /// rows that draw a member list carry it whole in `.help`.
 @Suite struct RestructureMemberColumnTests {
     @Test func bothMemberRowsCarryTheWholeListAsATooltip() throws {
-        let lens = try OrganizeScopeCallSiteTests.source("RestructureLens.swift")
-        let scheme = try OrganizeScopeCallSiteTests.body(
+        let lens = try SourceText.fileExplorer("RestructureLens.swift")
+        let scheme = try SourceText.body(
             of: "private func schemeRow(_ scheme: StructureFinding.Scheme) -> some View {", in: lens)
         #expect(scheme.contains("let members = scheme.members.joined(separator: \", \")"))
         #expect(scheme.contains("Text(members)") && scheme.contains(".help(members)"),
                 "the shape row's member list has no tooltip")
-        let extra = try OrganizeScopeCallSiteTests.body(
+        let extra = try SourceText.body(
             of: "private func extraRow(members: String, note: String) -> some View {", in: lens)
         #expect(extra.contains(".help(members)"), "the drift row's member list has no tooltip")
     }

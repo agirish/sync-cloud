@@ -4,6 +4,7 @@ import PDFKit
 import SwiftUI
 import Design
 import Sync
+import EventsTestSupport
 @testable import FileExplorer
 
 /// A PDF tool sheet's other buttons draw their words at 4.5:1, in light and dark.
@@ -25,19 +26,14 @@ import Sync
     static let size = CGSize(width: 420, height: 460)
 
     let folder = NSTemporaryDirectory() + "editor-pdf-button-words-" + UUID().uuidString
-    let suiteName = "EditorPDFSheetButtonWordsTests-" + UUID().uuidString
-    let defaults: UserDefaults
+    let defaults = ScratchDefaults("EditorPDFSheetButtonWordsTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(LiquidGlassHue.green.rawValue, forKey: LiquidGlass.hueKey)
     }
 
-    deinit {
-        try? FileManager.default.removeItem(atPath: folder)
-        UserDefaults().removePersistentDomain(forName: suiteName)
-    }
+    deinit { try? FileManager.default.removeItem(atPath: folder) }
 
     /// A PDF with a title and an author, so Keep Current Values is enabled.
     private func fixture() throws -> EditorPDFTools {

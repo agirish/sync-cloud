@@ -20,25 +20,6 @@ import Sync
 @MainActor
 @Suite(.serialized) struct ColumnPreviewRevealTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -92,7 +73,7 @@ import Sync
                 childrenIndex: index, treeRoot: ColumnPreviewRevealTests.root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in },
                 onBackgroundDeselect: { _ in }
@@ -192,16 +173,6 @@ import Sync
         return max(worst, abs(clip.bounds.origin.x - origin))
     }
 
-    private func scrollViews(_ view: NSView) -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        func walk(_ v: NSView) {
-            if let s = v as? NSScrollView { found.append(s) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return found
-    }
-
     /// The overscroll watchdogs mounted under this pane. The watchdog enforces the axis lock, so
     /// swapping its `axisLock` for a test-owned tracker is the only deterministic way to hold a
     /// mounted stack: `WheelGestureTracker.shared` is driven by the machine's own trackpad.
@@ -251,7 +222,7 @@ import Sync
         await pump(window, seconds: 0.3)
 
         let stack = try #require(
-            scrollViews(window.contentView!).first { !($0.documentView is NSTableView) },
+            PaneRowRevealTests.scrollViews(window.contentView!).first { !($0.documentView is NSTableView) },
             "no stack scroll view")
         let mounted = Mounted(window: window, box: box, stack: stack, defaults: defaults,
                               depth: opened)
@@ -265,7 +236,7 @@ import Sync
     /// The columns' frames in the stack document's own coordinates, leading edge first.
     private func columnFrames(_ mounted: Mounted) -> [CGRect] {
         guard let document = mounted.stack.documentView else { return [] }
-        return scrollViews(mounted.window.contentView!)
+        return PaneRowRevealTests.scrollViews(mounted.window.contentView!)
             .filter { $0.documentView is NSTableView }
             .map { $0.convert($0.bounds, to: document) }
             .sorted { $0.minX < $1.minX }
@@ -577,22 +548,10 @@ import Sync
         // belongs to this test's drill.
         try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
 
-        // Take this pane's watchdog off the app-wide lock (which a real trackpad feeds) and onto a
-        // tracker this test drives by hand.
-        let watchdog = try #require(soleWatchdog(mounted))
-        let lock = WheelGestureTracker()
-        watchdog.axisLock = lock
-
-        // A vertical drag delivering now, inside this stack, dated an hour ahead (as in
-        // `PaneColumnsAxisLockTests`) so the hold can't lapse on its own; only the release ends it.
+        // This pane's watchdog moves onto a tracker this test drives by hand, with a vertical drag
+        // delivering inside this stack.
+        let (lock, ahead) = try holdStack(mounted)
         let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
-        let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                    window: mounted.window, locationInWindow: inStack, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                    window: mounted.window, locationInWindow: inStack, at: ahead + 0.01)
-        try #require(lock.shouldHoldHorizontalDrift(for: clip),
-                     "the fixture's gesture does not hold this stack — nothing below is under a hold")
 
         // Drill one deeper: four 210pt columns are 840pt in a 690pt pane, so the new deepest column
         // is off the trailing edge and only a reveal can bring it back.

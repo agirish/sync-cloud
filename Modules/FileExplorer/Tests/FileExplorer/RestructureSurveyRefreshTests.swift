@@ -74,30 +74,22 @@ import Testing
     /// landed offers the scaffold instead; a refresh there would re-derive a survey that isn't
     /// stale.
     @Test func theButtonBelongsToTheScaffoldedStateAlone() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
         let landed = try #require(text.range(of: "if scaffoldedSubjects.contains(finding.subject)"))
         let elseBranch = try #require(text.range(of: "} else if !scaffold.isEmpty, let onScaffold {",
                                                  range: landed.lowerBound..<text.endIndex))
         let branch = text[landed.lowerBound..<elseBranch.lowerBound]
         #expect(branch.contains("Button(\"Update the Survey\") { onRefreshSurvey"),
                 "the button lives in the scaffolded branch")
-        #expect(!text[elseBranch.lowerBound...].prefix(600).contains("onRefreshSurvey(finding.subject)"),
+        #expect(!SourceText.normalized(String(text[elseBranch.lowerBound...].prefix(600)))
+                    .contains(SourceText.normalized("onRefreshSurvey(finding.subject)")),
                 "and not in the not-yet-scaffolded one")
     }
 
     /// The host runs the manager's re-derive rather than a walk of its own, and clears the previous
     /// refusal before trying again.
     @Test func theHostAsksTheManagerToReDerive() throws {
-        let host = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift"),
-            encoding: .utf8)
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("await syncManager.refreshDerivedProfile()"))
         #expect(host.contains("refreshSurveyRefusal = nil"),
                 "a stale refusal must not survive the next press")
@@ -107,7 +99,7 @@ import Testing
     /// silence reads as a button that did nothing. Asserted at the call sites, not on
     /// `SurveyRefreshOutcome`, because the type can't make anyone render it.
     @Test func everyRefreshCallSiteSaysSomethingWhenItWorked() throws {
-        let host = try Self.hostSource()
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         // Both closures destructure the outcome and both mention the success branch.
         let calls = host.components(separatedBy: "await syncManager.refreshDerivedProfile()")
         #expect(calls.count == 3, "expected exactly two call sites, found \(calls.count - 1)")
@@ -121,7 +113,7 @@ import Testing
     /// The control that starts the walk is disabled while it runs, and says so; otherwise a button
     /// that looks dead gets pressed again, collecting a refusal per press.
     @Test func theRefreshControlsShowTheyAreBusy() throws {
-        let lens = try Self.lensSource()
+        let lens = try SourceText.fileExplorer("RestructureLens.swift")
         #expect(lens.contains("var isRefreshing: Bool"),
                 "the lens cannot show a busy state it is never told about")
         #expect(lens.contains("Button(isRefreshing ? \"Updating the Survey…\" : \"Update the Survey\")"),
@@ -132,32 +124,8 @@ import Testing
                 "the setup card's secondary action must carry the same busy state")
 
         // And the host must actually pass the engine's own flag, not a local that can drift.
-        let host = try Self.hostSource()
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("isRefreshing: syncManager.restructureLandingInProgress"),
                 "the button's enabled state must be the engine's guard, or the two disagree")
-    }
-
-    /// Positive control for the source scans above: they read real files, so an empty result means
-    /// absence rather than a path that resolved nowhere.
-    @Test func theSourceScansAreReadingRealFiles() throws {
-        #expect(try Self.hostSource().contains("struct LensWorkspaceView"))
-        #expect(try Self.lensSource().contains("struct RestructureLens"))
-    }
-
-    static func hostSource() throws -> String {
-        try String(contentsOf: sourcesDirectory.appendingPathComponent("LensWorkspaceView.swift"),
-                   encoding: .utf8)
-    }
-
-    static func lensSource() throws -> String {
-        try String(contentsOf: sourcesDirectory.appendingPathComponent("RestructureLens.swift"),
-                   encoding: .utf8)
-    }
-
-    static var sourcesDirectory: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
     }
 }

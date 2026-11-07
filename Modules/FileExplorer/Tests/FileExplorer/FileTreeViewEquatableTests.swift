@@ -174,141 +174,96 @@ import Design
 
 
 
-    @Test("A republished tree is noticed")
-    func treeVersionIsCompared() {
-        #expect(pane() != pane(tree: PaneTree(side: .left, version: 2, nodes: [])))
+    /// Each input the gate compares, changed alone against the reference pane.
+    enum Input: String, CaseIterable {
+        case tree, otherTree, isLoading, currentPath
+        /// A `Binding`: comparing the binding rather than its value would make every click
+        /// invisible to the gate.
+        case selection
+        /// Drives the paste-from-other menu item.
+        case otherSelection
+        case isLeft
+        /// The badges render from it.
+        case diffIndex
+        /// The menu labels name it.
+        case otherPaneName
+        /// Both select the placeholder.
+        case rootPathIsValid, providerIsEnabled
+        /// Changes the empty state's caption.
+        case hasOnlyHiddenEntries
+        /// The invalid placeholder prints it.
+        case rootPath
+        /// Empties the diff index and reshapes the row menu.
+        case isSingleSource
+        /// Changes what every row draws (the emphasis, the dimming, the annotations); a pane that
+        /// kept its view would go on showing the previous query's answer.
+        case search
+        /// What fires the reveal: kept, ↩ would move the hit and the reveal's `.onChange` would
+        /// never fire.
+        case searchHitIndex
+        /// The reveal's only trigger: ↩ over a single hit moves nothing but the nonce.
+        case searchRevealNonce
+        /// Sets the selection wash's strength.
+        case isActivePane
+        /// Picks the whole presentation.
+        case viewMode
+        /// The columns resolve their rows from it.
+        case childrenIndex
+        /// A `Binding`, compared by value.
+        case browsePath
+        /// By identity: two panes must never share one.
+        case placement
+        /// By identity: `.onReceive` is declared in `body`, so a pane that keeps its view keeps
+        /// its subscription to the channel it was first mounted with.
+        case downloadChannel
+        /// A delegate that says it is different.
+        case delegate
     }
 
-    @Test("The OTHER pane's tree is noticed — the row menu reads it")
-    func otherTreeIsCompared() {
-        #expect(pane() != pane(otherTree: PaneTree(side: .right, version: 2, nodes: [])))
+    /// Two panes differing only in `input`.
+    private func variants(_ input: Input) -> (FileTreeView, FileTreeView) {
+        switch input {
+        case .tree: return (pane(), pane(tree: PaneTree(side: .left, version: 2, nodes: [])))
+        case .otherTree: return (pane(), pane(otherTree: PaneTree(side: .right, version: 2, nodes: [])))
+        case .isLoading: return (pane(), pane(isLoading: true))
+        case .currentPath: return (pane(), pane(currentPath: "/root/Docs"))
+        case .selection: return (pane(), pane(selection: ["/root/a.txt"]))
+        case .otherSelection: return (pane(), pane(otherSelection: ["/other/a.txt"]))
+        case .isLeft: return (pane(), pane(isLeft: false))
+        case .diffIndex:
+            return (pane(), pane(diffIndex: DiffStatusIndex(differences: [difference("a.txt")], rootPath: "/root")))
+        case .otherPaneName: return (pane(), pane(otherPaneName: "Dropbox"))
+        case .rootPathIsValid: return (pane(), pane(rootPathIsValid: false))
+        case .providerIsEnabled: return (pane(), pane(providerIsEnabled: false))
+        case .hasOnlyHiddenEntries: return (pane(), pane(hasOnlyHiddenEntries: true))
+        case .rootPath: return (pane(), pane(rootPath: "/elsewhere"))
+        case .isSingleSource: return (pane(), pane(isSingleSource: true))
+        case .search:
+            return (pane(), pane(search: PaneSearchResults(side: .left, generation: 1, query: "a",
+                                                           tree: PaneTree(side: .left, version: 1, nodes: []),
+                                                           otherPaths: nil)))
+        case .searchHitIndex: return (pane(), pane(searchHitIndex: 1))
+        case .searchRevealNonce: return (pane(), pane(searchRevealNonce: 1))
+        case .isActivePane: return (pane(), pane(isActivePane: false))
+        case .viewMode: return (pane(), pane(viewMode: .columns))
+        case .childrenIndex:
+            return (pane(childrenIndex: PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: []), treeRoot: "/root")),
+                    pane(childrenIndex: PaneChildrenIndex(tree: PaneTree(side: .left, version: 2, nodes: []), treeRoot: "/root")))
+        case .browsePath:
+            var drilled = PaneBrowsePath()
+            drilled.drill(into: "Docs", atDepth: 0)
+            return (pane(), pane(browsePath: drilled))
+        case .placement: return (pane(placement: PaneBarPlacement()), pane(placement: PaneBarPlacement()))
+        case .downloadChannel:
+            return (pane(downloadChannel: NotificationCenter()), pane(downloadChannel: NotificationCenter()))
+        case .delegate: return (pane(delegate: StubDelegate(id: 0)), pane(delegate: StubDelegate(id: 1)))
+        }
     }
 
-    @Test("The loading flag is noticed")
-    func isLoadingIsCompared() {
-        #expect(pane() != pane(isLoading: true))
-    }
-
-    @Test("The pane's folder is noticed")
-    func currentPathIsCompared() {
-        #expect(pane() != pane(currentPath: "/root/Docs"))
-    }
-
-    /// The one most likely to be got wrong: `selection` is a `Binding`, and comparing the binding
-    /// rather than its value would make every click invisible to the gate.
-    @Test("A selection change is noticed, through the binding")
-    func selectionIsComparedByValue() {
-        #expect(pane() != pane(selection: ["/root/a.txt"]))
-    }
-
-    @Test("The other pane's selection is noticed — it drives the paste-from-other menu item")
-    func otherSelectionIsCompared() {
-        #expect(pane() != pane(otherSelection: ["/other/a.txt"]))
-    }
-
-    @Test("Which side this is, is noticed")
-    func isLeftIsCompared() {
-        #expect(pane() != pane(isLeft: false))
-    }
-
-    @Test("A new difference index is noticed — the badges render from it")
-    func diffIndexIsCompared() {
-        let populated = DiffStatusIndex(differences: [difference("a.txt")], rootPath: "/root")
-        #expect(pane() != pane(diffIndex: populated))
-    }
-
-    @Test("The other pane's display name is noticed — the menu labels name it")
-    func otherPaneNameIsCompared() {
-        #expect(pane() != pane(otherPaneName: "Dropbox"))
-    }
-
-    @Test("Root validity is noticed — it selects the placeholder")
-    func rootValidityIsCompared() {
-        #expect(pane() != pane(rootPathIsValid: false))
-    }
-
-    @Test("Provider enablement is noticed — it selects the placeholder")
-    func providerEnabledIsCompared() {
-        #expect(pane() != pane(providerIsEnabled: false))
-    }
-
-    @Test("The hidden-entries-only flag is noticed — it changes the empty state's caption")
-    func hiddenEntriesFlagIsCompared() {
-        #expect(pane() != pane(hasOnlyHiddenEntries: true))
-    }
-
-    @Test("The provider root is noticed — the invalid placeholder prints it")
-    func rootPathIsCompared() {
-        #expect(pane() != pane(rootPath: "/elsewhere"))
-    }
-
-    @Test("Single-source is noticed — it empties the diff index and reshapes the row menu")
-    func singleSourceIsCompared() {
-        #expect(pane() != pane(isSingleSource: true))
-    }
-
-    /// A new result set changes what every row draws (the emphasis, the dimming, the annotations),
-    /// so a pane that kept the view it had would go on showing the previous query's answer.
-    @Test("A recomputed search is noticed — the rows render their emphasis from it")
-    func searchResultsAreCompared() {
-        let searched = PaneSearchResults(side: .left, generation: 1, query: "a",
-                                         tree: PaneTree(side: .left, version: 1, nodes: []),
-                                         otherPaths: nil)
-        #expect(pane() != pane(search: searched))
-    }
-
-    /// The walk itself. `==` answering true here would mean ↩ moved the hit and the pane never
-    /// re-rendered, so the reveal's `.onChange` never fired: the whole feature, silently dead.
-    @Test("Walking to another hit is noticed — it is what fires the reveal")
-    func searchHitIndexIsCompared() {
-        #expect(pane() != pane(searchHitIndex: 1))
-    }
-
-    /// The reveal's own trigger. `.onChange` only observes values that survive a re-render, so a
-    /// nonce this gate filtered out would never fire one; ↩ over a single hit moves nothing but the
-    /// nonce, and the reveal would be silently dead exactly there.
-    @Test("The reveal nonce is noticed — it is the only signal a reveal fires on")
-    func searchRevealNonceIsCompared() {
-        #expect(pane() != pane(searchRevealNonce: 1))
-    }
-
-    @Test("Which pane is active is noticed — it sets the selection wash's strength")
-    func activePaneIsCompared() {
-        #expect(pane() != pane(isActivePane: false))
-    }
-
-    @Test("The view mode is noticed — it picks the whole presentation")
-    func viewModeIsCompared() {
-        #expect(pane() != pane(viewMode: .columns))
-    }
-
-    @Test("A rebuilt children index is noticed — the columns resolve their rows from it")
-    func childrenIndexIsCompared() {
-        let a = PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: []), treeRoot: "/root")
-        let b = PaneChildrenIndex(tree: PaneTree(side: .left, version: 2, nodes: []), treeRoot: "/root")
-        #expect(pane(childrenIndex: a) != pane(childrenIndex: b))
-    }
-
-    @Test("A drill is noticed, through the binding")
-    func browsePathIsComparedByValue() {
-        var drilled = PaneBrowsePath()
-        drilled.drill(into: "Docs", atDepth: 0)
-        #expect(pane() != pane(browsePath: drilled))
-    }
-
-    @Test("A different placement box is noticed — two panes must never share one")
-    func placementIsComparedByIdentity() {
-        #expect(pane(placement: PaneBarPlacement()) != pane(placement: PaneBarPlacement()))
-    }
-
-    /// The channel the pane's `.cloudDownloadRequested` subscription is built on. Compared by
-    /// identity, like the placement box: `.onReceive` is declared in `body`, so a pane that keeps
-    /// its view keeps its subscription, and would go on listening to the channel it was first
-    /// mounted with. In the app that never changes; in a test it is the only thing separating one
-    /// mounted pane from another.
-    @Test("A different download channel is noticed — it decides which posts the pane hears")
-    func downloadChannelIsComparedByIdentity() {
-        #expect(pane(downloadChannel: NotificationCenter()) != pane(downloadChannel: NotificationCenter()))
+    @Test("Each compared input is noticed", arguments: Input.allCases)
+    func eachComparedInputIsNoticed(_ input: Input) {
+        let (a, b) = variants(input)
+        #expect(a != b, "\(input.rawValue) changed and the gate kept the old pane")
     }
 
     @Test("Gaining or losing a callback is noticed — presence changes what the pane offers")
@@ -336,11 +291,6 @@ import Design
         #expect(pane(graftsInFlight: ["/root/a"]) != pane(graftsInFlight: ["/root/b"]))
         #expect(pane(graftsInFlight: ["/root/a"]) == pane(graftsInFlight: ["/root/a"]),
                 "equal sets must not defeat the gate — the pane would re-render on every render")
-    }
-
-    @Test("A delegate that says it is different is treated as different")
-    func delegateInequivalenceIsCompared() {
-        #expect(pane(delegate: StubDelegate(id: 0)) != pane(delegate: StubDelegate(id: 1)))
     }
 
     // MARK: What is deliberately NOT compared

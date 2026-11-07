@@ -74,16 +74,7 @@ import Design
     /// Pixels differing between two same-sized images.
     static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var differing = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let pa = a.colorAt(x: x, y: y), let pb = b.colorAt(x: x, y: y) else { continue }
-                if abs(pa.redComponent - pb.redComponent) > 0.01
-                    || abs(pa.greenComponent - pb.greenComponent) > 0.01
-                    || abs(pa.blueComponent - pb.blueComponent) > 0.01 { differing += 1 }
-            }
-        }
-        return differing
+        return PixelDiff.differingPixels(a, b, tolerance: 0.01)
     }
 
     /// Pixels that are recognisably the accent (blue clear of red and green) — the selection fill.
@@ -224,12 +215,5 @@ import Design
         let medical = Self.renderList(rows: Self.rows("medical"), selection: 0, scheme: scheme)
         #expect(Self.differingPixels(legal, medical) > 1_000,
                 "two different queries rendered the same list in \(scheme)")
-    }
-
-    /// The empty-query landing and a typed query are different pages. If the field's text never
-    /// reached the view, or the list never recomputed, these would coincide.
-    @Test func theEmptyLandingIsNotTheSameAsAQueriedList() {
-        #expect(Self.differingPixels(Self.renderList(rows: Self.rows(""), selection: 0, scheme: .light),
-                                     Self.renderList(rows: Self.rows("legal"), selection: 0, scheme: .light)) > 2_000)
     }
 }

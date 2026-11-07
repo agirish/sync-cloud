@@ -13,25 +13,6 @@ import Sync
 @MainActor
 @Suite struct PaneTreeSwapLayoutBudgetTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     /// The host's state, both panes. Both sit on one `path` because that is the harder
     /// configuration to settle.
     final class Box: ObservableObject {
@@ -83,7 +64,7 @@ import Sync
                 selection: selection,
                 otherSelection: [],
                 isLeft: isLeft,
-                delegate: StubDelegate(),
+                delegate: NoOpFileActionDelegate(),
                 placement: placement,
                 onBarEdgeFlip: {},
                 isActivePane: isLeft
@@ -103,61 +84,19 @@ import Sync
         return window
     }
 
-    private func pump(_ window: NSWindow, seconds: Double) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, true)
-            window.layoutIfNeeded()
-        }
-    }
-
-    /// Every view in the window: the exception's actual budget.
-    private func viewCount(_ v: NSView) -> Int {
-        1 + v.subviews.reduce(0) { $0 + viewCount($1) }
-    }
-
-    private func dirtyCount(_ v: NSView) -> Int {
-        (v.needsLayout ? 1 : 0) + (v.needsUpdateConstraints ? 1 : 0)
-            + v.subviews.reduce(0) { $0 + dirtyCount($1) }
-    }
-
-    /// Layout rounds needed before nothing in the window is dirty, measured from the moment a
-    /// change lands. Not preceded by a pump: pumping first measures the settled state, a vacuous
-    /// pass. This driver can't see AppKit's display-cycle guard: `layoutIfNeeded()` runs constraint
-    /// updates with the runaway guards disarmed, so a never-settling loop survives 400 rounds here
-    /// while the run loop raises on its first cycle. A low count says the tree stops dirtying
-    /// itself under a manual pump, not that the window stays inside AppKit's pass budget; the
-    /// run-loop counterpart is `ColumnsDisplayCycleTests` (see `docs/columns-layout-loop.md`).
-    private func roundsToSettle(_ window: NSWindow, cap: Int = 400) -> Int {
-        var rounds = 0
-        while rounds < cap, dirtyCount(window.contentView!) > 0 {
-            window.layoutIfNeeded()
-            rounds += 1
-        }
-        return rounds
-    }
-
-    private func tableRowCounts(_ view: NSView) -> [Int] {
-        var counts: [Int] = []
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { counts.append(t.numberOfRows) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return counts
-    }
-
     /// A provider switch: two populated panes on one root, then both trees dropped and refilled
     /// from a different root in a single turn.
-    @Test func testProviderSwitchTreeSwapSettlesWellInsideTheWindowsViewBudget() throws {
+    @Test func testProviderSwitchTreeSwapSettlesWellInsideTheWindowsViewBudget() async throws {
         let box = Box(left: Self.tree(side: .left, files: 60),
                       right: Self.tree(side: .right, files: 60),
                       path: Self.root)
         let window = mount(box)
-        pump(window, seconds: 0.5)
+        _ = await LayoutPumpWait.pump(window, upTo: 15) {
+            PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60]
+        }
 
         // Not vacuous: both panes materialised tables with rows in them.
-        let before = tableRowCounts(window.contentView!)
+        let before = PaneLayoutSettle.tableRowCounts(window.contentView!)
         #expect(before.count == 2, "expected two pane tables, got \(before)")
         #expect(before.allSatisfy { $0 == 60 }, "panes did not lay out their rows: \(before)")
 
@@ -169,8 +108,8 @@ import Sync
         box.left = Self.tree(side: .left, files: 19, version: 3)
         box.right = Self.tree(side: .right, files: 19, version: 3)
 
-        let rounds = roundsToSettle(window)
-        let views = viewCount(window.contentView!)
+        let rounds = PaneLayoutSettle.roundsToSettle(window, cap: 400)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         // The exception's own comparison, with a margin: the real window also carries the toolbar,
         // both action bars and the details sidebar, and everything in it spends the budget.
         #expect(rounds < views / 4,
@@ -180,13 +119,15 @@ import Sync
 
     /// The same swap into a nearly empty window: the right pane paints 19 nodes and the left none.
     /// The budget is smallest here, so a fixed amount of churn is likeliest to exceed it.
-    @Test func testSwapIntoANearlyEmptyWindowStaysInsideItsShrunkenBudget() throws {
+    @Test func testSwapIntoANearlyEmptyWindowStaysInsideItsShrunkenBudget() async throws {
         let box = Box(left: Self.tree(side: .left, files: 60),
                       right: Self.tree(side: .right, files: 60),
                       path: Self.root)
         let window = mount(box)
-        pump(window, seconds: 0.5)
-        #expect(tableRowCounts(window.contentView!).allSatisfy { $0 == 60 })
+        _ = await LayoutPumpWait.pump(window, upTo: 15) {
+            PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60]
+        }
+        #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60])
 
         // Both trees dropped; only the right one comes back, and only shallowly.
         box.left = PaneTree(side: .left, version: 2, nodes: [])
@@ -194,8 +135,8 @@ import Sync
         box.path = "/newroot"
         box.right = Self.tree(side: .right, files: 19, version: 3)
 
-        let rounds = roundsToSettle(window)
-        let views = viewCount(window.contentView!)
+        let rounds = PaneLayoutSettle.roundsToSettle(window, cap: 400)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         #expect(rounds < views / 4,
                 "swap into a nearly-empty window took \(rounds) rounds against \(views) views")
         #expect(rounds < 400, "swap never settled (\(rounds) rounds)")

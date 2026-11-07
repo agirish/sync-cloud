@@ -30,32 +30,21 @@ import Testing
 
     // MARK: Table search
 
-    @Test func testFindsTheListItIsAnchoredOver() {
+    /// A list is found by the anchor laid over it. A table with no columns yet (SwiftUI mid-mount)
+    /// still counts: the pane list is single-column by construction, and refusing it would leave the
+    /// gray highlight on until a relayout. A multi-column table is a `Table` (the differences list),
+    /// not a pane list: styling it would strip the selection highlight from the wrong view.
+    @Test(arguments: [(1, true), (0, true), (3, false)])
+    func testTheListIsFoundByColumnCount(columns: Int, isPaneList: Bool) {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
-        let (scroll, table) = list(at: frame)
+        let (scroll, table) = list(at: frame, columns: columns)
         let anchor = anchor(at: frame)
         _ = nest([scroll, anchor])
-        #expect(PaneListResolver.table(matching: anchor) === table)
-    }
-
-    /// A table with no columns yet (SwiftUI mid-mount) still counts: the pane list is single-column
-    /// by construction, and refusing it would leave the gray highlight on until a relayout.
-    @Test func testZeroColumnTableCounts() {
-        let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
-        let (scroll, table) = list(at: frame, columns: 0)
-        let anchor = anchor(at: frame)
-        _ = nest([scroll, anchor])
-        #expect(PaneListResolver.table(matching: anchor) === table)
-    }
-
-    /// A multi-column table is a `Table` (the differences list), not a pane list. Styling it would
-    /// strip the selection highlight from the wrong view.
-    @Test func testMultiColumnTableIsIgnored() {
-        let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
-        let (scroll, _) = list(at: frame, columns: 3)
-        let anchor = anchor(at: frame)
-        _ = nest([scroll, anchor])
-        #expect(PaneListResolver.table(matching: anchor) == nil)
+        if isPaneList {
+            #expect(PaneListResolver.table(matching: anchor) === table)
+        } else {
+            #expect(PaneListResolver.table(matching: anchor) == nil)
+        }
     }
 
     /// Three columns are siblings under one `HStack`, so the first ancestor holding any table holds

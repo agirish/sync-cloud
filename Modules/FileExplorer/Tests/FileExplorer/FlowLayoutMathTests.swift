@@ -19,8 +19,6 @@ import Foundation
         // A rule card ~260 pt wide holding a chip for a long mentions phrase, whose ideal width
         // (400 pt) exceeds the card. It must be placed at x = 0 with its width clamped to the
         // container, never proposed its full 400 pt.
-        let chip = automationConditionChipText(.mentionsAll(["confidential-quarterly-earnings-restatement-memo"]))
-        #expect(chip.count > 40, "the phrase must be long enough to overflow a card")
         let result = place([CGSize(width: 400, height: 20)], maxWidth: 260)
         #expect(result.placements == [.init(origin: .zero, size: CGSize(width: 260, height: 20))])
         #expect(result.total == CGSize(width: 260, height: 20))

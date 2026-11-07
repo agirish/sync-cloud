@@ -14,12 +14,11 @@ import Testing
         ])
         #expect(HeaderCompaction.allCases == HeaderCompaction.allCases.sorted())
         #expect(HeaderCompaction.full < HeaderCompaction.shortPrimary)
-    }
 
-    @Test func testDestinationNamesAreShedAfterEverythingElse() {
-        // Verify and Review name no destination, so both are gone before either transfer button
-        // gives up a word; the widest button never loses its destination first, as a middle
-        // truncation would make it.
+        // Destination names are shed after everything else: a rule the pinned order only happens
+        // to satisfy, so it is stated on its own. Verify and Review name no destination, so both
+        // are gone before either transfer button gives up a word; the widest button never loses
+        // its destination first, as a middle truncation would make it.
         #expect(HeaderCompaction.foldVerify < .shortReverse)
         #expect(HeaderCompaction.foldReview < .shortReverse)
         // And the primary's destination outlives the reverse's and the filter's.

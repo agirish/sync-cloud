@@ -16,14 +16,7 @@ import Foundation
 /// "fix" this by making the field useless, and would pass a one-sided test.
 @Suite struct FilingCardTypedNameScopeTests {
 
-    private static func cardSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // …/Tests/FileExplorer
-            .deletingLastPathComponent()      // …/Tests
-            .deletingLastPathComponent()      // …/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/FilingSuggestionCard.swift")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
+    private static func cardSource() throws -> String { try SourceText.fileExplorer("FilingSuggestionCard.swift") }
 
     @Test func theTypedNameIsClearedWhenTheProposedFolderChanges() throws {
         let source = try Self.cardSource()
@@ -36,19 +29,14 @@ import Foundation
 
         #expect(source.contains(".onChange(of: best?.newSegments.last) { _, _ in editedFolderName = \"\" }"),
                 "nothing clears the typed name when the destination changes, so it carries to the next one")
-    }
 
-    /// The button must still use the field, or the reset above would be protecting nothing.
-    @Test func fileHereStillAppliesTheTypedName() throws {
-        let source = try Self.cardSource()
+        // The button must still use the field, or the reset would be protecting nothing.
         #expect(source.contains("onFileHere(best.renamingNewFolder(to: editedFolderName))"),
                 "File here stopped applying the typed name — the field is decorative")
-    }
 
-    /// And the reset is keyed on the destination, not fired unconditionally: an `onChange` with no
-    /// key, or one on something that moves every render, would clear the field as the user typed.
-    @Test func theResetIsKeyedOnTheDestinationRatherThanFiringAlways() throws {
-        let source = try Self.cardSource()
+        // And the reset is keyed on the destination, not fired unconditionally: an `onChange` with
+        // no key, or one on something that moves every render, would clear the field as the user
+        // typed.
         let resets = source.components(separatedBy: "editedFolderName = \"\"").count - 1
         #expect(resets == 1, "expected exactly one place to clear the typed name, found \(resets)")
         #expect(!source.contains(".onAppear { editedFolderName = \"\" }"),

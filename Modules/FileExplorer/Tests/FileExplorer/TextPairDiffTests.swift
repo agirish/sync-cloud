@@ -58,6 +58,8 @@ import Testing
                 "the file's content was read despite it being a placeholder")
     }
 
+    /// Also the positive control for the BOM check running before the NUL sniff, the ordering that
+    /// could let a PNG through.
     @Test func aBinaryFileIsNotOfferedAsLines() throws {
         let fixture = try Fixture()
         let path = try fixture.write("bin", Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0x0D, 0x0A]))
@@ -114,14 +116,6 @@ import Testing
         let path = try fixture.write("bom.txt", bytes)
         #expect(BoundedTextRead.read(path: path, isCloudOnly: { _ in false })
                     == .text("one\n", lossy: false, encoding: .utf8WithBOM))
-    }
-
-    /// A binary file stays binary: the positive control for the BOM check running before the NUL
-    /// sniff, the ordering that could let a PNG through.
-    @Test func aBOMlessBinaryFileIsStillNotOfferedAsLines() throws {
-        let fixture = try Fixture()
-        let path = try fixture.write("bin2", Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0x0D, 0x0A]))
-        #expect(BoundedTextRead.read(path: path, isCloudOnly: { _ in false }) == .binary)
     }
 
     /// The diff compares decoded text, so two files differing only in encoding show no changed

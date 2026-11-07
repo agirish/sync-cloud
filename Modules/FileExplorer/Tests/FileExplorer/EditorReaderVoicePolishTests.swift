@@ -163,12 +163,11 @@ import FileExplorerTestSupport
     @Test func theLineHoldsStillWhileANewFileIsCounted() throws {
         let caret = EditorCaret(line: 48, column: 12)
         let counted = try Self.inkColumns(EditorStatusLine(facts: Self.counted, caret: caret, fileSize: "4 KB",
-                                                           forcedRung: .full), name: "counted")
+                                                           forcedRung: .full))
         let counting = try Self.inkColumns(EditorStatusLine(facts: nil, caret: caret, fileSize: "4 KB", forcedRung: .full,
-                                                            heldFacts: Self.counted), name: "counting")
+                                                            heldFacts: Self.counted))
         let noCaret = try Self.inkColumns(EditorStatusLine(facts: nil, caret: caret, fileSize: "4 KB", forcedRung: .full,
-                                                           heldFacts: Self.counted, caretIsCurrent: false), name: "no-caret")
-        print("[EP5] ink columns: counted \(counted.count) · counting \(counting.count) · no caret \(noCaret.count)")
+                                                           heldFacts: Self.counted, caretIsCurrent: false))
         #expect(!counting.isEmpty && !noCaret.isEmpty, "the size is not drawn")
         let moved = counting.subtracting(counted).sorted().prefix(8)
         #expect(counting.isSubset(of: counted), "the caret or the size moved while the file was counted: \(moved)")
@@ -193,9 +192,8 @@ import FileExplorerTestSupport
                 "VoiceOver offers Go to Line on a line with no caret drawn")
     }
 
-    /// The columns of `line` that carry ink, drawn at 1× in a window and saved beside the run for a
-    /// look.
-    private static func inkColumns(_ line: EditorStatusLine, name: String) throws -> Set<Int> {
+    /// The columns of `line` that carry ink, drawn at 1× in a window.
+    private static func inkColumns(_ line: EditorStatusLine) throws -> Set<Int> {
         let host = NSHostingView(rootView: line.frame(width: 620))
         host.frame = NSRect(x: 0, y: 0, width: 620, height: 30)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -208,9 +206,6 @@ import FileExplorerTestSupport
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        let png = NSTemporaryDirectory() + "ep5-status-line-\(name).png"
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: png))
-        print("[EP5] \(name): \(png)")
         var columns: Set<Int> = []
         for x in 0..<rep.pixelsWide { for y in 0..<rep.pixelsHigh {
             guard let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.1 else { continue }
@@ -316,6 +311,18 @@ import FileExplorerTestSupport
         #expect(ink() == green, "a new hue left the page's links as they were")
     }
 
+    /// `host` in a titled window of its size, in `appearance`, laid out and given a run-loop turn.
+    /// The caller closes the window.
+    private static func mountPreview(_ host: NSView, appearance: NSAppearance.Name) -> NSWindow {
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        return window
+    }
+
     /// Rendered and read back: the link is the hue, never system blue. AppKit paints its own
     /// `linkTextAttributes` over a link's colour, so the run's colour alone isn't what is drawn. In
     /// light, the deepest warm pixel is the hue's readable (deepened) shade, not the raw accent.
@@ -326,13 +333,8 @@ import FileExplorerTestSupport
                                      linkColor: LiquidGlassHue.coral.accentColor)
         let host = NSHostingView(rootView: view.frame(width: 520, height: 200))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 200)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.contentView = host
+        let window = Self.mountPreview(host, appearance: dark ? .darkAqua : .aqua)
         defer { window.close() }
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let textView = try #require(Self.previewTextView(in: host), "no editable Preview mounted")
         // The colour the text view paints links in, resolved in this window's appearance.
         let painted = try #require(textView.linkTextAttributes?[.foregroundColor] as? NSColor)
@@ -364,7 +366,6 @@ import FileExplorerTestSupport
             }
             if c.blueComponent > c.redComponent + 0.25 { blue += 1 }
         } }
-        print("[ED5/FE2] \(dark ? "dark" : "light") link pixels: warm \(warm) · blue \(blue) · deepest L \(deepest)")
         #expect(warm > 200, "the link's coral ink is not drawn (\(warm) warm pixels)")
         #expect(blue < 20, "the link is drawn in system blue (\(blue) blue pixels)")
         if !dark {
@@ -386,13 +387,8 @@ import FileExplorerTestSupport
         }
         let host = NSHostingView(rootView: page(.coral))
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.contentView = host
+        let window = Self.mountPreview(host, appearance: .aqua)
         defer { window.close() }
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let mounted = try #require(Self.previewTextView(in: host), "no editable Preview mounted")
 
         host.rootView = page(.green)

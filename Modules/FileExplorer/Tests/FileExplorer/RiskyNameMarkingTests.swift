@@ -72,8 +72,8 @@ import Testing
     /// rows don't render in an offscreen host (only section headers do), so a pixel probe would
     /// measure nothing and pass. The paint is confirmed in the installed app.
     @Test func theToFixRowDrawsTheMarkedName() throws {
-        let source = try OrganizeScopeCallSiteTests.source("RenamePassLens.swift")
-        let body = try OrganizeScopeCallSiteTests.body(of: "private var toFixSection: some View {",
+        let source = try SourceText.fileExplorer("RenamePassLens.swift")
+        let body = try SourceText.body(of: "private var toFixSection: some View {",
                                                        in: source)
         #expect(body.contains("Text(Self.marked(risky.currentName))"),
                 "the to-fix row is drawing the raw name again — an invisible hazard shows nothing")

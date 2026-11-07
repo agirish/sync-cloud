@@ -606,11 +606,7 @@ import EventsTestSupport
     /// every row, not one line, and emoji and CJK line up only nearly. Read from source because
     /// `MacApp/` is in no package, so nothing else reads it here.
     @Test func helpSaysWhatATableEditChanges() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let help = try #require(try? String(contentsOf: root.appendingPathComponent("MacApp/HelpBook.swift"), encoding: .utf8),
-                                "cannot read MacApp/HelpBook.swift — this check would be vacuous")
+        let help = try EditRepoFile.text("MacApp/HelpBook.swift")
         #expect(help.contains("In the Table submenu, Insert Table"), "the Table paragraph moved — this check reads the wrong text")
         #expect(!help.contains("so a synced file shows just that line"), "Help still promises a one-line change for a column edit")
         #expect(help.contains("a new row is one new line, and adding or deleting a column changes just that cell on each row"))
@@ -669,17 +665,8 @@ import EventsTestSupport
         #expect(MarkdownTables.refusal(.deleteRow, in: csv, selection: NSRange(location: 1, length: 0)) == TableVerb.deleteRow.refusal)
 
         // Through the menu bar's door, into the log.
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let (window, view) = Self.windowedTextView(csv as String)
         defer { window.close() }
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.string = csv as String
-        window.makeFirstResponder(view)
         view.setSelectedRange(NSRange(location: 1, length: 0))
         let log = LogCapture()
         #expect(EditorDocumentSurface.applyMarkup(.table(.fromSelection), in: window))
@@ -732,18 +719,8 @@ import EventsTestSupport
 
     /// One ⌘Z takes a table edit back, and a Table item with nothing to do says why.
     @Test func aTableEditIsOneUndoAndANoOpSaysWhy() async {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let (window, view) = Self.windowedTextView(Self.ragged, allowsUndo: true)
         defer { window.close() }
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.allowsUndo = true
-        view.string = Self.ragged
-        window.makeFirstResponder(view)
         view.setSelectedRange(NSRange(location: (Self.ragged as NSString).range(of: "1").location, length: 0))
         #expect(EditorDocumentSurface.applyMarkup(.table(.addRowBelow), in: window))
         #expect(view.string == "|a|bb|\n|-|-|\n|1|2|\n|  |  |\n|3|4|")
@@ -766,5 +743,22 @@ import EventsTestSupport
         #expect(view.string == Self.ragged, "Bulleted List on a table row left “\(view.string)”")
         #expect(await log.holds(containing: "Markup ▸ Bulleted List did nothing: the selection is in a table"),
                 "a verb refused in a table said nothing")
+    }
+
+    /// A text view holding `text`, first responder in a window as Edit's document surface, so the
+    /// menu bar's `applyMarkup` door finds it. The caller closes the window.
+    private static func windowedTextView(_ text: String, allowsUndo: Bool = false) -> (NSWindow, NSTextView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let scroll = NSTextView.scrollableTextView()
+        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        scroll.identifier = EditorDocumentSurface.identifier
+        window.contentView?.addSubview(scroll)
+        let view = scroll.documentView as! NSTextView
+        if allowsUndo { view.allowsUndo = true }
+        view.string = text
+        window.makeFirstResponder(view)
+        return (window, view)
     }
 }

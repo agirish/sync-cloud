@@ -13,25 +13,6 @@ import Sync
 @MainActor
 @Suite struct ColumnDrillSourceTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -69,7 +50,7 @@ import Sync
                 browsePath: $box.browsePath,
                 onNavigate: { box.navigations += 1; box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "Right",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "Right",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
@@ -96,31 +77,16 @@ import Sync
     /// `DispatchQueue.main.async` navigation can't run until the body suspends. Spinning the run
     /// loop instead leaves the block queued until teardown.
     ///
-    /// The deadline bounds only a failing run; polling costs a passing run nothing and gives a
-    /// starved one the whole deadline. On timeout it `#require`s, naming the wait, because falling
+    /// The deadline bounds only a failing run, and `LayoutPumpWait`'s pass floor keeps a starved
+    /// one from giving up early. On timeout it `#require`s, naming the wait, because falling
     /// through would report "browse = []", the very defect the suite catches.
     private func settle(_ window: NSWindow, _ premise: String, deadline: TimeInterval = 20,
                         until condition: () -> Bool) async throws {
-        let start = Date()
-        let end = start.addingTimeInterval(deadline)
-        while !condition() && Date() < end {
-            window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
-        try #require(condition(),
-                     "\(premise) — never held; gave up after \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
+        let wait = await LayoutPumpWait.pump(window, upTo: deadline, until: condition)
+        try #require(wait.held, "\(premise) — never held; gave up after \(wait.pumps) passes")
     }
 
-    private func tables(_ view: NSView) -> [NSTableView] {
-        var found: [NSTableView] = []
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { found.append(t) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return found
-    }
+    private func tables(_ view: NSView) -> [NSTableView] { PaneSearchTreeRevealTests.tables(view) }
 
     /// The reported bug: a folder selected without the tap firing must still open its column.
     @Test func testAListCommittedFolderSelectionOpensItsColumn() async throws {

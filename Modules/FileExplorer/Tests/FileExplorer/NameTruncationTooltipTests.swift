@@ -12,25 +12,16 @@ import AppKit
 
     // MARK: The tooltip rule
 
-    @Test func aWholeNameGetsNoTooltip() {
-        #expect(FileRowView.rowHelp(name: "Notes.txt", nameIsTruncated: false, editorRefusal: nil) == "")
-    }
-
-    @Test func aCutNameGetsItsFullName() {
-        #expect(FileRowView.rowHelp(name: "Statement - Account - January.pdf", nameIsTruncated: true,
-                                    editorRefusal: nil)
-                == "Statement - Account - January.pdf")
-    }
-
-    @Test func theRefusalStaysTheTooltipOnAWholeName() {
-        #expect(FileRowView.rowHelp(name: "a.zip", nameIsTruncated: false, editorRefusal: "Not a kind Edit opens.")
-                == "Not a kind Edit opens.")
-    }
-
-    @Test func aCutRefusedNameSaysBoth() {
-        #expect(FileRowView.rowHelp(name: "Quarterly report.zip", nameIsTruncated: true,
-                                    editorRefusal: "Not a kind Edit opens.")
-                == "Quarterly report.zip\nNot a kind Edit opens.")
+    /// No tooltip for a whole name, the full name for a cut one, the refusal on either, and both
+    /// when a cut name is refused.
+    @Test(arguments: [
+        ("Notes.txt", false, nil, ""),
+        ("Statement - Account - January.pdf", true, nil, "Statement - Account - January.pdf"),
+        ("a.zip", false, "Not a kind Edit opens.", "Not a kind Edit opens."),
+        ("Quarterly report.zip", true, "Not a kind Edit opens.", "Quarterly report.zip\nNot a kind Edit opens."),
+    ] as [(String, Bool, String?, String)])
+    func theTooltipRule(name: String, truncated: Bool, refusal: String?, expected: String) {
+        #expect(FileRowView.rowHelp(name: name, nameIsTruncated: truncated, editorRefusal: refusal) == expected)
     }
 
     /// The tooltip spells the name as the row draws it, so a trailing space stays visible.
@@ -132,10 +123,7 @@ import AppKit
     /// tooltip. A source scan, sliced to `FileRowView`, because a hosted SwiftUI tree exposes no
     /// tooltip under `swift test` (see `EditorRefusalDimTests.theRefusalIsTheRowsTooltip`).
     @Test func theRowMeasuresItsNameAndUsesTheRule() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/FileTreeView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceText.fileExplorer("FileTreeView.swift")
         let start = try #require(source.range(of: "struct FileRowView: View {"), "FileRowView moved")
         let body = source[start.upperBound...]
         let end = try #require(body.range(of: "\nstruct "), "no struct follows FileRowView")

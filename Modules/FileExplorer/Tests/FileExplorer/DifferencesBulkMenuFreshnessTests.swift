@@ -14,22 +14,12 @@ import Foundation
 @Suite struct DifferencesBulkMenuFreshnessTests {
 
     private static func viewSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)          // …/Tests/FileExplorer/<this>.swift
-            .deletingLastPathComponent()                    // …/Tests/FileExplorer
-            .deletingLastPathComponent()                    // …/Tests
-            .deletingLastPathComponent()                    // …/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        return try String(contentsOf: url, encoding: .utf8)
+        try SourceText.fileExplorer("DifferencesView.swift")
     }
 
-    /// The body of `bulkMenu`, from its signature to the start of the next `private func`.
+    /// The body of `bulkMenu`, by its own braces.
     private static func bulkMenuBody() throws -> String {
-        let source = try viewSource()
-        let start = try #require(source.range(of: "private func bulkMenu("),
-                                 "bulkMenu was renamed — this scan is measuring nothing")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n    private func ") ?? rest.range(of: "\n}")
-        return String(rest[..<(end?.lowerBound ?? rest.endIndex)])
+        try SourceText.block(opening: "private func bulkMenu(", in: try viewSource())
     }
 
     /// Every `Button { … } label:` action body inside `bulkMenu`.
@@ -67,8 +57,11 @@ import Foundation
         let body = try Self.bulkMenuBody()
         // The premise: the snapshot bindings exist and the labels use them, or the absence below
         // passes on a function that no longer has them.
-        #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected,"),
+        // In full, so the labels count with the rule the actions send: "Copy 3" cannot sit over a
+        // run that copies two.
+        #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToRight)"),
                 "the snapshot bindings are gone — this absence is no longer measuring anything")
+        #expect(body.contains("let toLeft = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToLeft)"))
         #expect(body.contains("\\(toRight.count)"), "the label stopped counting the snapshot")
 
         for action in Self.actionBodies(in: body) {
@@ -86,24 +79,11 @@ import Foundation
     /// the row's paths, and an NSMenu outlives the table state it was built from.
     @Test func theSingleRowIgnoreToggleResolvesItsRowWhenItFires() throws {
         let source = try Self.viewSource()
-        let start = try #require(source.range(of: "private func singleRowMenu("),
-                                 "singleRowMenu was renamed — this scan is measuring nothing")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n    /// ") ?? rest.range(of: "\n    private func ")
-        let body = String(rest[..<(end?.lowerBound ?? rest.endIndex)])
+        let body = try SourceText.block(opening: "private func singleRowMenu(", in: source)
 
         #expect(body.contains("DifferencesShortcutRules.rows(displayRows.sorted, matching: [id])"),
                 "the ignore toggle still writes from the row captured at menu-build")
         #expect(body.contains("toggledIgnoredPaths(\n                for: live,"),
                 "the toggle does not use the resolved row")
-    }
-
-    /// The read-only items deliberately take the captured row: resolving them would make Reveal do
-    /// nothing for a row that left the filtered list, which is worse than revealing what the user
-    /// pointed at.
-    @Test func theInspectionItemsStillTakeTheClickedRow() throws {
-        let source = try Self.viewSource()
-        #expect(source.contains("inspectionMenuItems(for: difference)"),
-                "the inspection items were converted too — they should name the row that was clicked")
     }
 }

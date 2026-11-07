@@ -9,7 +9,7 @@ import Testing
 /// column width and the scroll position survive it. Measured on the real `NSTableView`, because
 /// SwiftUI can't be asked whether a Table is the one it had before. Splitting it back into two
 /// Tables behind an `if` must fail `widthSurvivesTheGroupingToggle` on "the toggle swapped the
-/// NSTableView" while `togglingGroupingChangesTheRowShape` still passes.
+/// NSTableView" while its row counts still settle.
 ///
 /// Harness traps:
 /// - Wait asynchronously, never by spinning `RunLoop.run`: the rows arrive from a `.task(id:)` hop
@@ -35,8 +35,9 @@ import Testing
     // MARK: Fixture
 
     /// Three folders of four rows each, which clears `isWorthGrouping` (sections must average
-    /// >= 3 rows), so the toggle really changes the row shape. `togglingGroupingChangesTheRowShape`
-    /// checks that, since a fixture failing the gate would make the identity assertion vacuous.
+    /// >= 3 rows), so the toggle really changes the row shape. `widthSurvivesTheGroupingToggle`
+    /// checks that (12 rows flat, 15 grouped), since a fixture failing the gate would make the
+    /// identity assertion vacuous.
     private func differences(folders: [String] = ["Documents", "Photos", "Projects"],
                              perFolder: Int = 4) -> [FileDifference] {
         folders.flatMap { folder in
@@ -90,14 +91,6 @@ import Testing
     }
 
     // MARK: Waiting + hierarchy helpers
-
-    /// Waits until `condition` holds and reports whether it did; every caller must assert on the
-    /// result, or a test would pass vacuously once the rows stopped arriving. Pumps `host`, bounded
-    /// by `LayoutPumpWait`'s pass floor as well as its deadline (see `settle`).
-    private func wait(_ host: NSView, for condition: () -> Bool,
-                      timeout: TimeInterval = 5) async -> (held: Bool, pumps: Int) {
-        await LayoutPumpWait.pump(host, upTo: timeout, until: condition)
-    }
 
     /// Waits for the table to settle at exactly `expected` rows and reports the last count seen.
     /// `rows > 0` is no signal: rows and the grouping toggle land asynchronously, so the first
@@ -244,21 +237,6 @@ import Testing
         #expect(afterOffset > 100, "list snapped back to \(afterOffset) — scroll position was lost")
     }
 
-    /// Guards the fixture: the toggle must change what is drawn (a header row per folder), or the
-    /// identity checks would only show that an untouched table keeps its columns.
-    @Test func togglingGroupingChangesTheRowShape() async throws {
-        let (host, window, store) = mount(grouped: false)
-        defer { window.contentView = nil }
-
-        let flat = await settle(host, atRows: 12)
-        #expect(flat.rows == 12, "expected the 12 fixture rows, settled at \(flat.rows) after \(flat.pumps) passes")
-
-        store.set(true, forKey: "differencesGroupByFolder")
-        let grouped = await settle(host, atRows: 15)
-        #expect(grouped.rows > flat.rows,
-                "grouped settled at \(grouped.rows) rows vs flat \(flat.rows) — fixture is not clearing isWorthGrouping")
-    }
-
     /// Both row shapes accept selection, which the context menu and the copy shortcuts act on.
     ///
     /// `selectionHighlightStyle` is `.none` on purpose: `DifferencesTableSelectionStyler` replaces
@@ -274,14 +252,14 @@ import Testing
             #expect(settled.rows == expected,
                     "grouped=\(grouped) settled at \(settled.rows) row(s) after \(settled.pumps) passes, expected \(expected)")
             let table = try #require(tableView(in: host))
-            let styled = await wait(host, for: { table.selectionHighlightStyle == .none })
+            let styled = await LayoutPumpWait.pump(host, upTo: 5, until: { table.selectionHighlightStyle == .none })
             #expect(styled.held,
                     "grouped=\(grouped): the wash styler never reached the table after \(styled.pumps) passes")
 
             // Row 0 is a section header in the grouped shape, so reach past it for a data row.
             let target = grouped ? 1 : 0
             table.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
-            let selected = await wait(host, for: { table.selectedRowIndexes.contains(target) }, timeout: 2)
+            let selected = await LayoutPumpWait.pump(host, upTo: 2, until: { table.selectedRowIndexes.contains(target) })
             #expect(selected.held,
                     "grouped=\(grouped): row \(target) would not select after \(selected.pumps) passes")
         }
@@ -298,7 +276,7 @@ import Testing
         #expect(settled.rows == 12,
                 "settled at \(settled.rows) row(s) after \(settled.pumps) passes, not the 12 fixture rows")
         let table = try #require(tableView(in: host))
-        let styled = await wait(host, for: { table.selectionHighlightStyle == .none })
+        let styled = await LayoutPumpWait.pump(host, upTo: 5, until: { table.selectionHighlightStyle == .none })
         #expect(styled.held, "the wash styler never reached the table after \(styled.pumps) passes")
 
         func wash(row: Int) -> SelectionWashView? {
@@ -307,7 +285,7 @@ import Testing
         }
 
         table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
-        let washed = await wait(host, for: { wash(row: 2) != nil }, timeout: 5)
+        let washed = await LayoutPumpWait.pump(host, upTo: 5, until: { wash(row: 2) != nil })
         #expect(washed.held, "no wash appeared on the selected row after \(washed.pumps) passes")
         #expect(wash(row: 3) == nil, "an unselected row is wearing the selection wash")
 
@@ -326,7 +304,7 @@ import Testing
 
         // Deselection must take the wash with it, or every visited row stays painted.
         table.selectRowIndexes(IndexSet(), byExtendingSelection: false)
-        let cleared = await wait(host, for: { wash(row: 2) == nil }, timeout: 5)
+        let cleared = await LayoutPumpWait.pump(host, upTo: 5, until: { wash(row: 2) == nil })
         #expect(cleared.held, "the wash outlived its selection after \(cleared.pumps) passes")
     }
 

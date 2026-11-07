@@ -526,6 +526,19 @@ enum PDFURLOpens {
         return nil
     }
 
+    /// `pdf`'s pages hosted at `size`, pumped until the reader has a width, then refitted. The
+    /// caller clears the window's content view when done.
+    private func mountedReader(_ pdf: EditorPDFDocument, size: CGSize) async throws -> (NSWindow, ReaderPDFView) {
+        let window = host(EditorPDFPageView(document: pdf.document, state: pdf.view), size: size)
+        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
+            (readerView(in: window.contentView!)?.bounds.width ?? 0) > 0
+        }
+        try #require(settled.held)
+        let view = try #require(readerView(in: window.contentView!))
+        view.refit()
+        return (window, view)
+    }
+
     /// Page fit shows a whole page, in both shapes. Measured as `PDFPreviewMountedTests` measures
     /// the preview: the drawn size in the view's coordinates, not the scale that produced it.
     @Test(arguments: [CGSize(width: 820, height: 600), CGSize(width: 420, height: 900)])
@@ -534,14 +547,8 @@ enum PDFURLOpens {
         PDFFixtures.write(file, pages: 3)
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
         #expect(await open(pdf, file) == .open)
-        let window = host(EditorPDFPageView(document: pdf.document, state: pdf.view), size: size)
+        let (window, view) = try await mountedReader(pdf, size: size)
         defer { window.contentView = nil }
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
-            (readerView(in: window.contentView!)?.bounds.width ?? 0) > 0
-        }
-        try #require(settled.held)
-        let view = try #require(readerView(in: window.contentView!))
-        view.refit()
         let drawn = CGSize(width: PDFFixtures.letter.width * view.scaleFactor,
                            height: PDFFixtures.letter.height * view.scaleFactor)
         #expect(drawn.width <= view.bounds.width + 0.5 && drawn.height <= view.bounds.height + 0.5,
@@ -557,15 +564,8 @@ enum PDFURLOpens {
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
         #expect(await open(pdf, file) == .open)
         pdf.view.fit = .width
-        let window = host(EditorPDFPageView(document: pdf.document, state: pdf.view),
-                          size: CGSize(width: 820, height: 500))
+        let (window, view) = try await mountedReader(pdf, size: CGSize(width: 820, height: 500))
         defer { window.contentView = nil }
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
-            (readerView(in: window.contentView!)?.bounds.width ?? 0) > 0
-        }
-        try #require(settled.held)
-        let view = try #require(readerView(in: window.contentView!))
-        view.refit()
         let drawnWidth = PDFFixtures.letter.width * view.scaleFactor
         #expect(abs(drawnWidth - (view.bounds.width - 2 * view.sideMargin)) < 1)
         #expect(PDFFixtures.letter.height * view.scaleFactor > view.bounds.height)
@@ -634,9 +634,7 @@ enum PDFURLOpens {
         #expect(!EditorPDFCapsule.go(typed: "x", pageCount: 10, state: state))
         #expect(state.focusRequest == after, "a field with no number gave the keyboard away")
         // And the field's Return goes through it, as its Esc does.
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorPDFCapsule.swift"), encoding: .utf8)
+        let source = try SourceText.fileExplorer("EditorPDFCapsule.swift")
         #expect(source.contains("guard Self.go(typed: typedPage, pageCount: pageCount, state: state) else {"))
         #expect(source.contains(".onExitCommand {"))
     }

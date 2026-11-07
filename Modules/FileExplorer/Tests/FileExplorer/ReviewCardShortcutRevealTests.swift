@@ -32,34 +32,11 @@ import Testing
             // "nothing painted" whatever the code did.
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return PixelDiff.render(subject, size: Self.canvas)
     }
 
     private func pixelsDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Int {
-        var differing = 0
-        for y in 0..<min(lhs.pixelsHigh, rhs.pixelsHigh) {
-            for x in 0..<min(lhs.pixelsWide, rhs.pixelsWide) {
-                guard let a = lhs.colorAt(x: x, y: y), let b = rhs.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(a.redComponent - b.redComponent),
-                                max(abs(a.greenComponent - b.greenComponent),
-                                    abs(a.blueComponent - b.blueComponent)))
-                if delta > 0.02 { differing += 1 }
-            }
-        }
-        return differing
+        PixelDiff.differingPixels(lhs, rhs, tolerance: 0.02)
     }
 
     // MARK: The reservation

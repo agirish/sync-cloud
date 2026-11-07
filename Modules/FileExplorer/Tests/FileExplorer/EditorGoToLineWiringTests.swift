@@ -10,51 +10,14 @@ import FileExplorerTestSupport
 /// Source's caret on the line. `EditorGoToLineTests` tests the rules; this connects them, so a
 /// revert at any call site turns it red.
 @MainActor
-@Suite(.serialized) struct EditorGoToLineWiringTests {
+@Suite(.serialized) struct EditorGoToLineWiringTests: EditorPopoverRig {
 
-    // MARK: The rig
-
-    private func spin(_ window: NSWindow, _ turns: Int = 15) {
-        for _ in 0..<turns {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.03, true)
-            window.layoutIfNeeded()
-        }
-    }
-
-    /// Every popover up — each buried with the window it opened from, under everything on screen.
-    private func popovers(sourceLocation: SourceLocation = #_sourceLocation) -> [NSWindow] {
-        let open = NSApp.windows.filter { String(describing: type(of: $0)).contains("Popover") && $0.isVisible }
-        for popover in open {
-            #expect(BuriedWindow.isBuried(popover), "a popover opened above the buried window, at level \(popover.level.rawValue)",
-                    sourceLocation: sourceLocation)
-        }
-        return open
-    }
-
-    private func window(for host: NSView) -> NSWindow {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(origin: CGPoint(x: 200, y: 200), size: host.frame.size),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
-        // Key and ordered in, because the popover presents only from a visible window — and buried,
-        // so no package run stands this workspace on the user's desktop.
-        window.buryUnderEverything()
-        window.makeKeyAndOrderFront(nil)
-        #expect(BuriedWindow.isBuried(window), "the fixture window is above the desktop, at level \(window.level.rawValue)")
-        spin(window)
-        return window
-    }
+    // MARK: The rig (`EditorPopoverRig`)
 
     private func dismiss(_ window: NSWindow) {
         for popover in popovers() { popover.orderOut(nil) }
         window.orderOut(nil)
         spin(window, 3)
-    }
-
-    private func textView(in view: NSView) -> NSTextView? {
-        if let found = view as? NSTextView { return found }
-        for sub in view.subviews { if let found = textView(in: sub) { return found } }
-        return nil
     }
 
     // MARK: The field alone
@@ -127,7 +90,7 @@ import FileExplorerTestSupport
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = window(for: host)
         spin(window, 20)
-        let editor = try #require(textView(in: host), "no text view mounted — this test sees nothing")
+        let editor = try #require(EditorTestRigs.textView(in: host), "no text view mounted — this test sees nothing")
         return Mounted(host: host, window: window, defaults: defaults, document: document, editor: editor)
     }
 
@@ -148,21 +111,15 @@ import FileExplorerTestSupport
         spin(mounted.window)
     }
 
-    /// The menu's press opens the field, once per press.
-    @Test func theMenusPressOpensTheField() throws {
-        let mounted = try mountWorkspace()
-        defer { dismiss(mounted.window) }
-        #expect(popovers().isEmpty, "a field was up before anything asked for one")
-        pressGoToLine(mounted, request: 1)
-        #expect(popovers().count == 1, "the press opened \(popovers().count) fields")
-    }
-
-    /// Return closes the field and puts the caret on the line and column typed.
+    /// The menu's press opens the field, once per press; Return closes it and puts the caret on
+    /// the line and column typed.
     @Test func goingClosesTheFieldAndMovesTheCaret() throws {
         let mounted = try mountWorkspace()
         defer { dismiss(mounted.window) }
         try #require(mounted.caret == EditorCaret(line: 1, column: 1), "the caret started at \(mounted.caret)")
+        #expect(popovers().isEmpty, "a field was up before anything asked for one")
         pressGoToLine(mounted, request: 1)
+        #expect(popovers().count == 1, "the press opened \(popovers().count) fields")
         try go("3:2", in: mounted)
         #expect(mounted.caret == EditorCaret(line: 3, column: 2), "the caret went to \(mounted.caret)")
         #expect(popovers().isEmpty, "the field stayed up after going")

@@ -164,14 +164,7 @@ import Sync
     /// menu bodies don't run in a test window (see `renderMenus`): the pane's `@State` resolver goes
     /// to the Tree's menus and the Columns view, which hands it to its own.
     @Test func everyMenuIsHandedThePanesResolver() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
-        func code(_ file: String) throws -> String {
-            try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
-                .split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
-        }
+        func code(_ file: String) throws -> String { SourceText.codeOnly(try SourceText.fileExplorer(file)) }
         let tree = try code("FileTreeView.swift")
         let columns = try code("PaneColumnsView.swift")
         func count(_ needle: String, in haystack: String) -> Int { haystack.components(separatedBy: needle).count - 1 }
@@ -200,25 +193,6 @@ import Sync
 
     // MARK: - Hosted menus
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     /// Renders one real `FileContextMenu` per row and lays them out so every body runs. Hosted
     /// directly, as `OpenInEditorVerbTests` does, because in a test window SwiftUI runs a row's
     /// `.contextMenu` closure but never the menu's body. In the app the body runs for every visible
@@ -230,7 +204,7 @@ import Sync
             ForEach(rows) { row in
                 FileContextMenu(row: row, selection: selection, tree: tree, otherTree: otherTree,
                                 otherSelection: otherSelection, isLeft: true, currentPath: "/r",
-                                delegate: StubDelegate(), otherPaneName: "Right", isSingleSource: false,
+                                delegate: NoOpFileActionDelegate(), otherPaneName: "Right", isSingleSource: false,
                                 onQuickLook: { _ in }, selectionResolver: resolver)
             }
         }

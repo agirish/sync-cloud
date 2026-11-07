@@ -60,12 +60,6 @@ import SwiftUI
         await LayoutPumpWait.pump(window, upTo: 15, until: done).pumps
     }
 
-    private func markedScroll(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier { return scroll }
-        for sub in view.subviews { if let found = markedScroll(in: sub) { return found } }
-        return nil
-    }
-
     /// ↩ in the filter's field, given the keys in the same breath as focus: text focus is
     /// arbitrated process-wide, and another suite's field can take it in between
     /// (`docs/flaky-tests.md`, "Text-field focus is arbitrated process-wide").
@@ -96,39 +90,30 @@ import SwiftUI
         try pressReturn(in: mounted.window)
         var found: (NSScrollView, NSTextView)?
         await spin(mounted.window) {
-            guard let scroll = markedScroll(in: mounted.host), let view = scroll.documentView as? NSTextView,
+            guard let scroll = EditorTestRigs.markedScroll(in: mounted.host), let view = scroll.documentView as? NSTextView,
                   view.selectedRange().length > 0, scroll.isFindBarVisible else { return false }
             found = (scroll, view)
             return true
         }
-        let scroll = try #require(found?.0 ?? markedScroll(in: mounted.host), "no text view mounted")
+        let scroll = try #require(found?.0 ?? EditorTestRigs.markedScroll(in: mounted.host), "no text view mounted")
         let view = try #require(scroll.documentView as? NSTextView)
         return (scroll, view, mounted)
     }
 
-    @Test func fromTheEmptyPageTheFileOpensAtTheMatchWithFindHoldingIt() async throws {
+    /// From the empty page, or from another open file: either road opens the file at the match
+    /// with Find holding it.
+    @Test(arguments: [false, true])
+    func theFileOpensAtTheMatchWithFindHoldingIt(fromAnotherFile: Bool) async throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let text = "Intro\nsome red lentils here\nmore LENTILS\n"
+        let text = fromAnotherFile ? "Intro\nsome red lentils here\n" : "Intro\nsome red lentils here\nmore LENTILS\n"
         try Data(text.utf8).write(to: folder.appendingPathComponent("soup.md"))
         let document = EditorDocument()
-
-        let (scroll, view, mounted) = try await openFirstResult(folder: folder, document: document)
-        defer { PlainTextEditor.retireFindBar(of: view) }
-        #expect(document.path == folder.appendingPathComponent("soup.md").path)
-        #expect(view.selectedRange() == NSRange(location: 15, length: 7), "selected \(view.selectedRange())")
-        #expect(scroll.isFindBarVisible, "Find was not seeded")
-        _ = mounted
-    }
-
-    @Test func fromAnotherOpenFileTheFileOpensAtTheMatchWithFindHoldingIt() async throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        try Data("Intro\nsome red lentils here\n".utf8).write(to: folder.appendingPathComponent("soup.md"))
-        let other = folder.appendingPathComponent("other.txt")
-        try Data("nothing to see\n".utf8).write(to: other)
-        let document = EditorDocument()
-        _ = EditorFileStore.load(path: other.path, into: document)
+        if fromAnotherFile {
+            let other = folder.appendingPathComponent("other.txt")
+            try Data("nothing to see\n".utf8).write(to: other)
+            _ = EditorFileStore.load(path: other.path, into: document)
+        }
 
         let (scroll, view, mounted) = try await openFirstResult(folder: folder, document: document)
         defer { PlainTextEditor.retireFindBar(of: view) }

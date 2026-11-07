@@ -140,8 +140,7 @@ import EventsTestSupport
             }),
             ("Paste of two lines", { e in
                 let r = self.rig(self.paragraph(e), caret: self.at(3, e))
-                let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-                board.clearContents(); board.setString("x\ny", forType: .string)
+                let board = self.board { $0.setString("x\ny", forType: .string) }
                 r.view.readSelection(from: board, type: .string); self.spin()
                 board.releaseGlobally()
                 return r.view.string
@@ -149,8 +148,7 @@ import EventsTestSupport
             ("Image paste", { e in
                 let note = try! TestTextFiles.write(self.paragraph(e), named: "Note.md")
                 let r = self.rig(self.paragraph(e), caret: self.at(3, e), importer: note)
-                let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-                board.clearContents(); board.setData(Self.pngData(), forType: .png)
+                let board = self.board { $0.setData(Self.pngData(), forType: .png) }
                 _ = r.view.handledPaste(from: board); self.spin()
                 board.releaseGlobally()
                 return r.view.string
@@ -233,8 +231,7 @@ import EventsTestSupport
     /// A pasted CRLF goes in as LF, in an LF file too: Edit writes nothing but LF.
     @Test func aPastedCRLFIsWrittenAsLF() {
         let r = rig("one\n", caret: 3)
-        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-        board.clearContents(); board.setString("x\r\ny\rz", forType: .string)
+        let board = board { $0.setString("x\r\ny\rz", forType: .string) }
         r.view.readSelection(from: board, type: .string); spin()
         board.releaseGlobally()
         #expect(r.view.string == "onex\ny\nz\n")
@@ -368,8 +365,7 @@ import EventsTestSupport
                 let text = "a" + e.rawValue + "b" + e.rawValue + "see plenty here" + e.rawValue + "end"
                 let r = self.rig(text, caret: 0)
                 r.view.setSelectedRange((text as NSString).range(of: "plenty")); self.spin()
-                let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-                board.clearContents(); board.setString("https://example.com", forType: .string)
+                let board = self.board { $0.setString("https://example.com", forType: .string) }
                 _ = r.view.handledPaste(from: board); self.spin()
                 board.releaseGlobally()
                 return (r.view.string, r.view.selectedRange())
@@ -551,8 +547,7 @@ import EventsTestSupport
     @Test func anEditThatDoesNothingConvertsNothing() {
         let text = "one\r\ntwo\r\n"
         let r = rig(text, caret: 2)
-        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-        board.clearContents()
+        let board = board { _ in }
         _ = r.view.handledPaste(from: board); spin()
         board.releaseGlobally()
         #expect(!PlainTextEditor.apply(.table(.addRowBelow), to: r.view))   // not in a table
@@ -564,8 +559,7 @@ import EventsTestSupport
     /// A pasted CRLF alone, with no lone CR beside it, is written as LF too.
     @Test func aPastedCRLFAloneIsWrittenAsLF() {
         let r = rig("one\n", caret: 3)
-        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-        board.clearContents(); board.setString("x\r\ny", forType: .string)
+        let board = board { $0.setString("x\r\ny", forType: .string) }
         r.view.readSelection(from: board, type: .string); spin()
         board.releaseGlobally()
         #expect(r.view.string == "onex\ny\n")
@@ -575,8 +569,7 @@ import EventsTestSupport
     /// font, not none.
     @Test func whatTheNetWritesKeepsTheViewsFont() throws {
         let r = rig("", caret: 0)
-        let board = NSPasteboard(name: NSPasteboard.Name("LineEndingPathsTests.\(UUID())"))
-        board.clearContents(); board.setString("a\r\nb", forType: .string)
+        let board = board { $0.setString("a\r\nb", forType: .string) }
         r.view.readSelection(from: board, type: .string); spin()
         board.releaseGlobally()
         #expect(r.view.string == "a\nb")

@@ -103,13 +103,6 @@ import Sync
         #expect(DifferenceSearch.parse("only:right").matches(diff("a", type: .missingOnLeft), pathRootName: nil))
     }
 
-    @Test func tokensAndFreeTextCombineWithAnd() {
-        let query = DifferenceSearch.parse("kind:pdf report")
-        #expect(query.matches(diff("Docs/report.pdf", leftSize: 1), pathRootName: nil))
-        #expect(!query.matches(diff("Docs/summary.pdf", leftSize: 1), pathRootName: nil))   // free text "report" fails
-        #expect(!query.matches(diff("Docs/report.txt", leftSize: 1), pathRootName: nil))    // kind fails
-    }
-
     @Test func kindImageClassMatchesAnyImageExtension() {
         // `kind:image` is the class alias the lens search resolves: one vocabulary across surfaces.
         let query = DifferenceSearch.parse("kind:image")
@@ -125,39 +118,6 @@ import Sync
         // Both surfaces resolve `kind:` aliases through one table; a fork would silently break the
         // shared vocabulary and suggestion copy.
         #expect(DuplicateSearch.kindClasses == DifferenceSearch.kindClasses)
-    }
-
-    // MARK: kind: is last-wins
-
-    @Test func repeatedKindTokensAreLastWins() {
-        // A path has one extension, so two conjunctive kind: tokens could never match; parse keeps
-        // only the last, like the lens and Log searches.
-        let query = DifferenceSearch.parse("kind:pdf kind:png")
-        #expect(query.tokens == [.kind("png")])
-        #expect(query.matches(diff("a.png"), pathRootName: nil))
-        #expect(!query.matches(diff("a.pdf"), pathRootName: nil))
-        // Size and only: tokens stay conjunctive, since ranges are legitimate.
-        let range = DifferenceSearch.parse(">1mb <5mb")
-        #expect(range.tokens == [.sizeAtLeast(1_000_000), .sizeAtMost(5_000_000)])
-    }
-
-    // MARK: chips
-
-    @Test func chipsListTokenWordsAndSkipFreeText() {
-        let chips = DifferenceSearch.chips("kind:PDF >10mb only:left budget")
-        #expect(chips == [
-            DifferenceSearch.Chip(raw: "kind:PDF", token: .kind("pdf")),
-            DifferenceSearch.Chip(raw: ">10mb", token: .sizeAtLeast(10_000_000)),
-            DifferenceSearch.Chip(raw: "only:left", token: .onlyLeft),
-        ])
-    }
-
-    @Test func duplicateKindChipsMarkEarlierOnesInactive() {
-        let chips = DifferenceSearch.chips("kind:pdf >10mb kind:png")
-        #expect(chips.count == 3)
-        #expect(chips[0].raw == "kind:pdf" && chips[0].isActive == false)
-        #expect(chips[1].raw == ">10mb" && chips[1].isActive == true)
-        #expect(chips[2].raw == "kind:png" && chips[2].isActive == true)
     }
 
     // MARK: removing

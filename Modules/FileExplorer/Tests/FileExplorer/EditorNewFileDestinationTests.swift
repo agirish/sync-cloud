@@ -40,19 +40,10 @@ import FileExplorerTestSupport
     }
 
     private static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // package root
-            .appendingPathComponent("Sources/FileExplorer")
-            .appendingPathComponent(name)
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — this scan would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scan would be near-vacuous")
         // Whole-line comments out (these files keep no `//` inside a string literal), then every
         // run of whitespace as one space.
-        let code = text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let code = SourceText.codeOnly(try SourceText.fileExplorer(name))
+            .split(separator: "\n", omittingEmptySubsequences: false)
             .map { line in line.range(of: " // ").map { String(line[..<$0.lowerBound]) } ?? String(line) }
             .joined(separator: " ")
         return code.split(whereSeparator: \.isWhitespace).joined(separator: " ")

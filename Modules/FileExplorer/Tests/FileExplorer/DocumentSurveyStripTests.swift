@@ -24,14 +24,6 @@ import Testing
         #expect(!DocumentSurveyStrip.isShown(for: nil))
     }
 
-    /// The strip quotes the card rather than wording the same run a second time.
-    @Test func theWordsAreTheCardsOwn() {
-        let state = DocumentSurveyCardState.running(done: 140, total: 6_140, folder: "Finance",
-                                                    secondsRemaining: 900, pause: nil)
-        #expect(DocumentSurveyCardText.title(for: state).contains("140"))
-        #expect(!DocumentSurveyCardText.detail(for: state).isEmpty)
-    }
-
     /// The strip offers only verbs the card offers in the same state, under the card's tooltip. A
     /// Stop on the interrupted strip, say, would do nothing: there is no run to stop.
     @MainActor @Test func everyVerbIsOneTheCardOffers() {
@@ -75,11 +67,7 @@ import Testing
 @Suite struct DocumentSurveyStripCallSiteTests {
 
     private static func lensWorkspaceSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read LensWorkspaceView.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("LensWorkspaceView.swift")
         try #require(source.contains("private var sourceBar"),
                      "that is not the lens workspace — every check below would be vacuous")
         return source
@@ -120,11 +108,7 @@ import Testing
     @Test func theCardsStartOverIsWiredToTheVerbThatDiscards() throws {
         let workspace = try Self.lensWorkspaceSource()
         #expect(workspace.contains("onStartDocumentSurveyOver: onStartDocumentSurveyOver"))
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/OrganizeOverview.swift")
-        let overview = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                    "cannot read OrganizeOverview.swift — this scan would be vacuous")
+        let overview = try SourceText.fileExplorer("OrganizeOverview.swift")
         #expect(overview.contains("onStartOver: onStartDocumentSurveyOver"))
     }
 }

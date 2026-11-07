@@ -44,13 +44,7 @@ private final class LyingContent: NSView {
         manager.hasScanned = true
         let view = DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())
             .defaultAppStorage(store)
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.host(AnyView(view), size: CGSize(width: 900, height: 600))
         return (host, window)
     }
 
@@ -205,9 +199,7 @@ private final class LyingContent: NSView {
     /// with two lists whose viewports don't overlap: the point is in the lower, the hit in the upper.
     @Test("A hit-test answer is ignored when the click is outside that list's viewport")
     func aHitOutsideItsOwnViewportIsNotBelieved() async {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = HostedView.window(NSRect(x: 0, y: 0, width: 400, height: 600))
 
         func list(at frame: NSRect) -> NSTableView {
             let scroll = NSScrollView(frame: frame)
@@ -300,9 +292,7 @@ private final class LyingContent: NSView {
     /// list permanently unclaimable, since both routes test containment against this rect.
     @Test("A list with no scroll view reports its own frame as its viewport")
     func visibleRectFallsBackToTheTableFrame() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = HostedView.window(NSRect(x: 0, y: 0, width: 300, height: 200))
         let bare = NSTableView(frame: NSRect(x: 10, y: 20, width: 120, height: 60))
         window.contentView?.addSubview(bare)
         window.contentView?.layoutSubtreeIfNeeded()
@@ -322,9 +312,7 @@ private final class LyingContent: NSView {
     /// window would take the keyboard, the review queue included.
     @Test("The frame route ignores a table that never registered")
     func frameRouteIgnoresUnregistered() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = HostedView.window(NSRect(x: 0, y: 0, width: 400, height: 300))
         let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         scroll.documentView = table
@@ -370,9 +358,7 @@ private final class LyingContent: NSView {
             func numberOfRows(in tableView: NSTableView) -> Int { 200 }
             func tableView(_ t: NSTableView, objectValueFor c: NSTableColumn?, row: Int) -> Any? { "row \(row)" }
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = HostedView.window(NSRect(x: 0, y: 0, width: 400, height: 600))
         // A short scroll view at the TOP of the window, holding a table far taller than it.
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 400, width: 400, height: 200))
         let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))

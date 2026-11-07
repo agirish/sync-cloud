@@ -29,26 +29,20 @@ import Testing
 
     // MARK: The clamp
 
-    /// The window floor is 810×560 and the overlay must be usable there. That is why it is an
-    /// overlay, not a sheet: macOS would silently squeeze a 1080pt sheet to the window's width.
-    @Test func atTheWindowFloorTheOverlayGetsTwoWorkablePanes() {
-        let size = CompareOverlayMetrics.size(available: CGSize(width: 810, height: 560))
-        #expect(size == CGSize(width: 762, height: 512))
-    }
-
-    /// And it stops growing: a 27-inch window must not hand two previews 1,900 points each.
-    @Test func onALargeWindowTheOverlayStopsAtItsIdealSize() {
-        let size = CompareOverlayMetrics.size(available: CGSize(width: 2400, height: 1400))
-        #expect(size == CGSize(width: CompareOverlayMetrics.idealWidth,
-                               height: CompareOverlayMetrics.idealHeight))
-    }
-
-    /// Below the minimum it overhangs rather than shrinking: a 40pt-wide preview pane hides the
-    /// bug, an overhanging card shows it.
-    @Test func belowTheMinimumTheOverlayOverhangsRatherThanShrinking() {
-        let size = CompareOverlayMetrics.size(available: CGSize(width: 300, height: 200))
-        #expect(size == CGSize(width: CompareOverlayMetrics.minimumWidth,
-                               height: CompareOverlayMetrics.minimumHeight))
+    /// At the window floor, 810×560, the overlay must be usable. That is why it is an overlay, not a
+    /// sheet: macOS would silently squeeze a 1080pt sheet to the window's width. It stops growing:
+    /// a 27-inch window must not hand two previews 1,900 points each. And below the minimum it
+    /// overhangs rather than shrinking: a 40pt-wide preview pane hides the bug, an overhanging card
+    /// shows it.
+    @Test(arguments: [
+        (CGSize(width: 810, height: 560), CGSize(width: 762, height: 512)),
+        (CGSize(width: 2400, height: 1400),
+         CGSize(width: CompareOverlayMetrics.idealWidth, height: CompareOverlayMetrics.idealHeight)),
+        (CGSize(width: 300, height: 200),
+         CGSize(width: CompareOverlayMetrics.minimumWidth, height: CompareOverlayMetrics.minimumHeight)),
+    ])
+    func theOverlayIsClampedToTheWindow(available: CGSize, expected: CGSize) {
+        #expect(CompareOverlayMetrics.size(available: available) == expected)
     }
 
     // MARK: The remembered size
@@ -109,6 +103,9 @@ import Testing
         #expect(pair.other(than: "/root/a/x.txt")?.path == "/root/b/x.txt")
         #expect(pair.other(than: "/root/b/x.txt")?.path == "/root/a/x.txt",
                 "flipping the keeper flips which copy the verdict acts on, without moving a pane")
+        // A keeper path naming neither side has no "other copy" to trash, and the surface must not
+        // invent one.
+        #expect(pair.other(than: "/root/c/x.txt") == nil)
     }
 
     /// The label the surface draws, at the call site that draws it. `DuplicateComparePrompt`'s own
@@ -147,15 +144,6 @@ import Testing
             hue: .blue, availableSize: CGSize(width: 900, height: 700),
             onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
         #expect(sheet.trashTitle == "Trash the Other Copy")
-    }
-
-    /// A keeper path naming neither side has no "other copy" to trash, and the surface must not
-    /// invent one.
-    @Test func aKeeperPathFromOutsideThePairHasNoOtherCopy() {
-        let pair = DuplicateComparePair(keeper: copy("/root/a/x.txt", keeper: true),
-                                        other: copy("/root/b/x.txt"),
-                                        matchType: .identical, groupName: "x.txt")
-        #expect(pair.other(than: "/root/c/x.txt") == nil)
     }
 
     // MARK: A keeper the pair cannot see
@@ -241,20 +229,26 @@ import Testing
 
     // MARK: The branch
 
-    /// A file pair never reaches the Compare-workspace hand-off, which relativizes both paths
-    /// against provider roots and re-pins the two panes: right for two folders, wrong for files.
-    @Test func aFilePairOpensTheOverlayAndNeverTheWorkspaceHandoff() {
-        final class Box: @unchecked Sendable {
-            var workspace: [(String, String)] = []
-            var overlay: [DuplicateComparePair] = []
-        }
-        let box = Box()
-        let manager = FileSyncManager()
+    private final class BranchBox: @unchecked Sendable {
+        var workspace: [(String, String)] = []
+        var overlay: [DuplicateComparePair] = []
+    }
+
+    /// A lens whose two hosts record what each was handed.
+    private func branchView() -> (LensWorkspaceView, BranchBox) {
+        let box = BranchBox()
         let view = LensWorkspaceView(
-            syncManager: manager, lens: .filing, providerName: "Projects",
+            syncManager: FileSyncManager(), lens: .filing, providerName: "Projects",
             scanTargetFolder: "/root", onFindDuplicates: {},
             onCompareCopies: { k, o in box.workspace.append((k.path, o.path)) },
             onCompareFilePair: { box.overlay.append($0) })
+        return (view, box)
+    }
+
+    /// A file pair never reaches the Compare-workspace hand-off, which relativizes both paths
+    /// against provider roots and re-pins the two panes: right for two folders, wrong for files.
+    @Test func aFilePairOpensTheOverlayAndNeverTheWorkspaceHandoff() {
+        let (view, box) = branchView()
 
         let keeper = copy("/root/a/x.txt", keeper: true)
         let other = copy("/root/b/x.txt")
@@ -269,17 +263,7 @@ import Testing
     /// The other direction, which a swapped branch would fail: a folder pair keeps the hand-off
     /// and never opens the overlay, whose Quick Look panes would preview a directory as nothing.
     @Test func aFolderPairKeepsTheWorkspaceHandoff() {
-        final class Box: @unchecked Sendable {
-            var workspace: [(String, String)] = []
-            var overlay: [DuplicateComparePair] = []
-        }
-        let box = Box()
-        let manager = FileSyncManager()
-        let view = LensWorkspaceView(
-            syncManager: manager, lens: .filing, providerName: "Projects",
-            scanTargetFolder: "/root", onFindDuplicates: {},
-            onCompareCopies: { k, o in box.workspace.append((k.path, o.path)) },
-            onCompareFilePair: { box.overlay.append($0) })
+        let (view, box) = branchView()
 
         let keeper = copy("/root/a/Docs", keeper: true, isDirectory: true)
         let other = copy("/root/b/Docs", isDirectory: true)
@@ -439,17 +423,11 @@ import Testing
                        probeCount: ProbeCount? = nil) -> Mounted {
         let keeper = copy(fixture.left, keeper: true)
         let other = copy(fixture.right)
-        let host = NSHostingView(rootView: Harness(
+        let (host, window) = HostedView.host(Harness(
             pair: DuplicateComparePair(keeper: keeper, other: other,
                                        matchType: .identical, groupName: "note.txt"),
             keeperPath: fixture.left, isStale: isStale, available: available, source: source,
-            startingMode: startingMode, probeCount: probeCount))
-        host.frame = CGRect(origin: .zero, size: available)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+            startingMode: startingMode, probeCount: probeCount), size: available)
         return Mounted(window: window, host: host)
     }
 
@@ -512,18 +490,12 @@ import Testing
         defaults.set(600.0, forKey: CompareOverlayMetrics.heightDefaultsKey)
         let keeper = copy(fixture.left, keeper: true)
         let other = copy(fixture.right)
-        let host = NSHostingView(rootView: AnyView(
+        let (host, window) = HostedView.host(AnyView(
             Harness(pair: DuplicateComparePair(keeper: keeper, other: other,
                                                matchType: .identical, groupName: "note.txt"),
                     keeperPath: fixture.left, isStale: false, available: available,
                     source: .missing)
-                .defaultAppStorage(defaults)))
-        host.frame = CGRect(origin: .zero, size: available)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+                .defaultAppStorage(defaults)), size: available)
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 3) {
             abs(host.fittingSize.width - 880) < 1
         }
@@ -539,23 +511,17 @@ import Testing
         let first = try ImageFixture()
         let second = try ImageFixture()
         let probed = ProbeCount()
-        let box = PairBox(pair: Self.pair(first))
+        let box = PairBox(pair: Self.pair(left: first.left, right: first.right, groupName: "a.png"))
         let available = CGSize(width: 1200, height: 800)
-        let host = NSHostingView(rootView: AnyView(
-            SwappableHarness(box: box, available: available, probeCount: probed)))
-        host.frame = CGRect(origin: .zero, size: available)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (_, window) = HostedView.host(AnyView(
+            SwappableHarness(box: box, available: available, probeCount: probed)), size: available)
 
         let (firstDone, _) = await LayoutPumpWait.pump(window, upTo: 3) {
             probed.paths.isSuperset(of: [first.left, first.right])
         }
         try #require(firstDone, "the first pair was never classified — the swap proves nothing")
 
-        box.pair = Self.pair(second)
+        box.pair = Self.pair(left: second.left, right: second.right, groupName: "a.png")
         let (secondDone, pumps) = await LayoutPumpWait.pump(window, upTo: 3) {
             probed.paths.isSuperset(of: [second.left, second.right])
         }
@@ -611,37 +577,14 @@ import Testing
         }
     }
 
-    private static func pair(_ fixture: CorruptImageFixture) -> DuplicateComparePair {
+    private static func pair(left: String, right: String, groupName: String) -> DuplicateComparePair {
         func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
             DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
                           size: 1000, itemCount: 1, modificationDate: scanned,
                           uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
         }
-        return DuplicateComparePair(keeper: copy(fixture.left, keeper: true),
-                                    other: copy(fixture.right, keeper: false),
-                                    matchType: .identical, groupName: "scan.png")
-    }
-
-    private static func pair(_ fixture: ImageFixture) -> DuplicateComparePair {
-        func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
-            DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                          size: 1000, itemCount: 1, modificationDate: scanned,
-                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
-        }
-        return DuplicateComparePair(keeper: copy(fixture.left, keeper: true),
-                                    other: copy(fixture.right, keeper: false),
-                                    matchType: .identical, groupName: "a.png")
-    }
-
-    private static func pair(_ fixture: Fixture) -> DuplicateComparePair {
-        func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
-            DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                          size: 1000, itemCount: 1, modificationDate: scanned,
-                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
-        }
-        return DuplicateComparePair(keeper: copy(fixture.left, keeper: true),
-                                    other: copy(fixture.right, keeper: false),
-                                    matchType: .identical, groupName: "note.txt")
+        return DuplicateComparePair(keeper: copy(left, keeper: true), other: copy(right, keeper: false),
+                                    matchType: .identical, groupName: groupName)
     }
 
     final class PairBox: ObservableObject {
@@ -685,15 +628,9 @@ import Testing
     @Test func aPairThatCannotBeRenderedStopsSpinningAndSaysWhy() async throws {
         let fixture = try CorruptImageFixture()
         let available = CGSize(width: 1000, height: 700)
-        let host = NSHostingView(rootView: AnyView(
-            SwappableHarness(box: PairBox(pair: Self.pair(fixture)), available: available,
-                             probeCount: ProbeCount())))
-        host.frame = CGRect(origin: .zero, size: available)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.host(AnyView(
+            SwappableHarness(box: PairBox(pair: Self.pair(left: fixture.left, right: fixture.right, groupName: "scan.png")), available: available,
+                             probeCount: ProbeCount())), size: available)
 
         func spinners(_ view: NSView) -> [NSProgressIndicator] {
             view.subviews.flatMap {

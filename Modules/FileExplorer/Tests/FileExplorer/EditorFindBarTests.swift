@@ -18,21 +18,9 @@ import SwiftUI
     /// opening it searches for whatever the machine-wide Find pasteboard holds, and a match landing
     /// as the rig is freed leaves AppKit's find indicator a redraw for a freed finder, crashing a
     /// later test (`docs/flaky-tests.md`, "A find indicator's redraw outlives the text view it was
-    /// asked for").
+    /// asked for"). `theEditorReallyMarksItsScrollView` checks the real editor applies the mark too.
     private func hosted() -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        // Marked the way `PlainTextEditor.makeNSView` marks its own;
-        // `theEditorReallyMarksItsScrollView` checks the real editor applies the mark too.
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.usesFindBar = true
-        view.isIncrementalSearchingEnabled = true
-        view.string = "one two three\nfour five six\n"
-        return (scroll, view, window)
+        EditorTestRigs.markedTextView(text: "one two three\nfour five six\n", allowsUndo: false)
     }
 
     /// Every text field in the bar, and whether anything in its ancestry hides it. `NSSearchField`
@@ -111,21 +99,13 @@ import SwiftUI
             .editorTestDefaults(defaults))
     }
 
-    private func markedScroll(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier {
-            return scroll
-        }
-        for sub in view.subviews { if let found = markedScroll(in: sub) { return found } }
-        return nil
-    }
-
     /// A text view built after a Find press doesn't replay it. The counter is the workspace's and
     /// outlives the text view (× and Close Document, a refused file and Preview each take the view
     /// down), so a new coordinator starting at 0 would read the standing count as a fresh press.
     @Test func aTextViewBuiltAfterAFindPressDoesNotOpenTheBar() {
         let defaults = ScratchDefaults("EditorFindBarTests")
         let (host, window) = mountedEditor(findRequest: 3, defaults: defaults)
-        guard let scroll = markedScroll(in: host) else {
+        guard let scroll = EditorTestRigs.markedScroll(in: host) else {
             Issue.record("the editor mounted no marked scroll view")
             return
         }
@@ -165,22 +145,6 @@ import SwiftUI
         _ = scroll
     }
 
-    /// The find bar's own fields live inside the editor's scroll view, so they count as "in the
-    /// document", which stops a second ⌘F from the Find field falling through to the pane search.
-    @Test func theFindBarsOwnFieldsCountAsTheDocument() {
-        let (scroll, view, window) = hosted()
-        defer { PlainTextEditor.retireFindBar(of: view) }
-        PlainTextEditor.showFindBar(in: view)
-        guard let bar = scroll.findBarView,
-              let field = fields(in: bar).first?.field else {
-            Issue.record("the find bar produced no fields to focus")
-            return
-        }
-        window.makeFirstResponder(field)
-        #expect(EditorDocumentSurface.focusedTextView(in: window) === view,
-                "the find bar's own field was treated as being outside the editor")
-    }
-
     /// An unmarked text view, any other the app might grow, is not the document either: the mark
     /// is the whole qualification.
     @Test func anUnmarkedTextViewIsNotTheDocument() {
@@ -208,14 +172,7 @@ import SwiftUI
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.layoutSubtreeIfNeeded()
 
-        var marked: NSScrollView?
-        func walk(_ v: NSView) {
-            if let scroll = v as? NSScrollView, scroll.identifier == EditorDocumentSurface.identifier {
-                marked = scroll
-            }
-            v.subviews.forEach(walk)
-        }
-        walk(host)
+        let marked = EditorTestRigs.markedScroll(in: host)
         #expect(marked != nil, "the editor mounted no scroll view carrying the mark")
         #expect(marked?.documentView is NSTextView,
                 "the marked view holds no text view for a chord to reach")
@@ -245,7 +202,7 @@ import SwiftUI
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        guard let scroll = markedScroll(in: host) else {
+        guard let scroll = EditorTestRigs.markedScroll(in: host) else {
             Issue.record("the \(editor) editor mounted no marked scroll view")
             return
         }

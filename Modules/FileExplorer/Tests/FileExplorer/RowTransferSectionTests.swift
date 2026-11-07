@@ -11,25 +11,6 @@ import Testing
 @MainActor
 @Suite struct RowTransferSectionTests {
 
-    private final class Stub: FileActionDelegate, @unchecked Sendable {
-        func handleOpenInEditor(_ path: String) {}
-        func handleRefresh() {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     /// The titles from Cut through Paste Here, separators included as "".
     private static func section(selecting nodes: [FileNode], row: FileNode,
                                 isSingleSource: Bool) throws -> [String] {
@@ -39,7 +20,7 @@ import Testing
             tree: PaneTree(side: .left, version: 1, nodes: nodes),
             otherTree: PaneTree(side: .right, version: 1, nodes: []),
             otherSelection: [], isLeft: true, currentPath: "/a",
-            delegate: Stub(), otherPaneName: "Right", isSingleSource: isSingleSource,
+            delegate: NoOpFileActionDelegate(), otherPaneName: "Right", isSingleSource: isSingleSource,
             onQuickLook: { _ in }, selectionResolver: PaneSelectionResolver()))
         menu.update()
         let titles = menu.items.map { $0.isSeparatorItem ? "" : $0.title }
@@ -52,16 +33,15 @@ import Testing
     private static let file = FileNode(id: "/a/never-on-disk-report.txt",
                                        name: "never-on-disk-report.txt", isDirectory: false)
 
-    /// One pane: the transfers open a folder picker.
-    @Test func oneSourceReadsCutCopyTransfersPaste() throws {
-        let section = try Self.section(selecting: [], row: Self.file, isSingleSource: true)
-        #expect(section == ["Cut", "Copy", "Copy to…", "Move to…", "Paste Here"])
-    }
-
-    /// Two panes: the transfers send to the other pane, in the same slot.
-    @Test func twoPanesReadCutCopyTransfersPaste() throws {
-        let section = try Self.section(selecting: [], row: Self.file, isSingleSource: false)
-        #expect(section == ["Cut", "Copy", "Copy to Right", "Move to Right", "Paste Here"])
+    /// One pane: the transfers open a folder picker. Two panes: they send to the other pane, in
+    /// the same slot.
+    @Test(arguments: [
+        (true, ["Cut", "Copy", "Copy to…", "Move to…", "Paste Here"]),
+        (false, ["Cut", "Copy", "Copy to Right", "Move to Right", "Paste Here"]),
+    ])
+    func theSectionReadsCutCopyTransfersPaste(isSingleSource: Bool, expected: [String]) throws {
+        let section = try Self.section(selecting: [], row: Self.file, isSingleSource: isSingleSource)
+        #expect(section == expected)
     }
 
     /// A batch keeps the order with counted titles.

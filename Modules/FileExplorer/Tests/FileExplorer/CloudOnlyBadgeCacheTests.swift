@@ -22,70 +22,55 @@ import Foundation
         }
     }
 
-    /// A stat that is guaranteed to observe the invalidation, by performing it itself at the exact
-    /// point the real one is suspended off-actor.
-    @MainActor
-    private func statThatInvalidates(_ invalidate: @escaping @MainActor () -> Void)
-    -> @MainActor (String) async -> Bool? {
-        { _ in
-            invalidate()
-            return true
+    /// What lands while a stat is out, at the exact point the real one is suspended off-actor
+    /// (the stat performs it itself), and whether its answer may then be memoized. The caller gets
+    /// the answer either way: it is the best truth available.
+    enum Window: CaseIterable, Sendable {
+        /// Nothing: the call memoizes, or every "not memoized" case would pass for a cache that
+        /// never memoizes.
+        case nothing
+        /// A whole-table clear: everything it knew was stale.
+        case clear
+        /// `forget(_:)` of this path. On the download path it drops the pre-download answer, and a
+        /// stat started earlier must not put "still cloud-only" back.
+        case forget
+        /// A `forget` of a different path, on purpose: the generation is one counter, so a rare
+        /// extra `lstat` buys a guard with no per-path bookkeeping to get wrong.
+        case forgetOfAnotherPath
+        /// A scoped clear bumps the generation too.
+        case scopedClear
+        /// A no-op clear (an empty root) doesn't: nothing was invalidated. Fails if
+        /// `clear(underRoot:)` returns early but still bumps, which the empty-root tests miss.
+        case emptyRootClear
+
+        var memoizes: Bool { self == .nothing || self == .emptyRootClear }
+
+        @MainActor func land(_ reset: @MainActor () -> Void, path: String) {
+            switch self {
+            case .nothing: break
+            case .clear: reset()
+            case .forget: CloudOnlyBadgeCache.forget(path)
+            case .forgetOfAnotherPath: CloudOnlyBadgeCache.forget("/fixture/other.bin")
+            case .scopedClear: CloudOnlyBadgeCache.clear(underRoot: "/scoped")
+            case .emptyRootClear: CloudOnlyBadgeCache.clear(underRoot: "")
+            }
         }
     }
 
     @MainActor
-    @Test func aStatSpanningAClearIsNotMemoized() async {
+    @Test(arguments: Window.allCases)
+    func aStatIsMemoizedOnlyIfNothingInvalidatedItsWindow(_ window: Window) async {
         reset()
-        let path = "/fixture/spanning-clear.bin"
+        // Under the root the scoped clear takes, so that case would drop it if it were memoized.
+        let path = window == .scopedClear ? "/scoped/spanning.bin" : "/fixture/spanning-\(window).bin"
 
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(
-            atPath: path, stat: statThatInvalidates { reset() })
-
-        // The caller still gets the answer: it is the best truth available.
-        #expect(answer)
-        // But the memo must not hold it: the clear said everything it knew was stale.
-        #expect(CloudOnlyBadgeCache.cached(path) == nil)
-    }
-
-    /// With no invalidation in the window the same call does memoize; otherwise the test above would
-    /// pass for a cache that never memoizes.
-    @MainActor
-    @Test func aStatWithNoInvalidationIsMemoized() async {
-        reset()
-        let path = "/fixture/no-invalidation.bin"
-
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: { _ in true })
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: path, stat: { _ in
+            window.land(reset, path: path)
+            return true
+        })
 
         #expect(answer)
-        #expect(CloudOnlyBadgeCache.cached(path) == true)
-    }
-
-    /// `forget(_:)` invalidates an in-flight stat too. On the download path it drops the
-    /// pre-download answer, and a stat started earlier must not put "still cloud-only" back.
-    @MainActor
-    @Test func aStatSpanningAForgetIsNotMemoized() async {
-        reset()
-        let path = "/fixture/spanning-forget.bin"
-
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(
-            atPath: path, stat: statThatInvalidates { CloudOnlyBadgeCache.forget(path) })
-
-        #expect(answer)
-        #expect(CloudOnlyBadgeCache.cached(path) == nil)
-    }
-
-    /// A `forget` of a different path also invalidates, on purpose: the generation is one counter,
-    /// so a rare extra `lstat` buys a guard with no per-path bookkeeping to get wrong.
-    @MainActor
-    @Test func aForgetOfAnotherPathAlsoDeclinesToMemoize() async {
-        reset()
-        let path = "/fixture/mine.bin"
-
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(
-            atPath: path, stat: statThatInvalidates { CloudOnlyBadgeCache.forget("/fixture/other.bin") })
-
-        #expect(answer)
-        #expect(CloudOnlyBadgeCache.cached(path) == nil)
+        #expect(CloudOnlyBadgeCache.cached(path) == (window.memoizes ? true : nil))
     }
 
     /// A hit returns before the stat runs at all, which is the memo's purpose.
@@ -142,7 +127,8 @@ import Foundation
     /// Another path's `record` leaves this stat free to memoize, which is why the check above is
     /// per-entry, not a generation bump in `record`. A `List` realizes rows by the dozen, each
     /// stat-and-record, so a bump would leave the memo writing almost nothing while scrolling.
-    /// Contrast `aForgetOfAnotherPathAlsoDeclinesToMemoize`: a forget throws an answer away, so it
+    /// Contrast the `.forgetOfAnotherPath` window of
+    /// `aStatIsMemoizedOnlyIfNothingInvalidatedItsWindow`: a forget throws an answer away, so it
     /// is global; a record only adds one.
     @MainActor
     @Test func anotherPathsRecordDoesNotStopThisStatMemoizing() async {
@@ -184,8 +170,9 @@ import Foundation
                 "the memo holds an entry asserting local content for a path with no file behind it")
     }
 
-    /// The same rule at the seam, without the filesystem, beside its guard
-    /// `aStatWithNoInvalidationIsMemoized`, which shows a definite answer still memoizes.
+    /// The same rule at the seam, without the filesystem, beside its guard (the `.nothing` window
+    /// of `aStatIsMemoizedOnlyIfNothingInvalidatedItsWindow`), which shows a definite answer still
+    /// memoizes.
     @MainActor
     @Test func anInjectedStatWithNoAnswerIsNotMemoized() async {
         reset()
@@ -231,14 +218,17 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/a/b") == nil)            // the root itself dropped
     }
 
-    /// A root handed in with a trailing separator scopes identically to one without.
+    /// A root handed in with trailing separators scopes identically to one without. Every one is
+    /// normalized away, not just one: `/root//` trimmed once would match no key the walk produced,
+    /// and the clear would silently take nothing.
     @MainActor
-    @Test func aScopedClearNormalizesATrailingSeparator() {
+    @Test(arguments: ["/memo-root/", "/memo-root//"])
+    func aScopedClearNormalizesTrailingSeparators(_ root: String) {
         reset()
         CloudOnlyBadgeCache.record("/memo-root/x.bin", isCloudOnly: true)
         CloudOnlyBadgeCache.record("/memo-rootling/y.bin", isCloudOnly: true)
 
-        CloudOnlyBadgeCache.clear(underRoot: "/memo-root/")
+        CloudOnlyBadgeCache.clear(underRoot: root)
 
         #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == nil)
         #expect(CloudOnlyBadgeCache.cached("/memo-rootling/y.bin") == true)
@@ -257,33 +247,12 @@ import Foundation
 
         #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
         #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == false)
-    }
 
-    /// The same guard as a rule: only an absolute root scopes a clear. A relative string can't
-    /// prefix a key the walk produced, so matching it would take nothing or, like `""`, everything.
-    @MainActor
-    @Test func aRelativeRootClearsNothing() {
-        reset()
-        CloudOnlyBadgeCache.record("/left/a.bin", isCloudOnly: true)
-
+        // The same guard as a rule: only an absolute root scopes a clear. A relative string can't
+        // prefix a key the walk produced, so matching it would take nothing or, like `""`,
+        // everything.
         CloudOnlyBadgeCache.clear(underRoot: "left")
-
         #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
-    }
-
-    /// A no-op clear doesn't bump the generation: nothing was invalidated, so a stat in flight
-    /// across it may memoize. Fails if `clear(underRoot:)` returns early but still bumps, which the
-    /// two tests above would miss.
-    @MainActor
-    @Test func aStatSpanningAnEmptyRootClearIsStillMemoized() async {
-        reset()
-        let path = "/fixture/spanning-noop.bin"
-
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(
-            atPath: path, stat: statThatInvalidates { CloudOnlyBadgeCache.clear(underRoot: "") })
-
-        #expect(answer)
-        #expect(CloudOnlyBadgeCache.cached(path) == true)
     }
 
     /// The filesystem root passes the absolute-path guard: it normalizes to `""`, whose descendant
@@ -304,20 +273,6 @@ import Foundation
         #expect(CloudOnlyBadgeCache.ClearScope(root: "~/iCloud") == nil)
     }
 
-    /// Every trailing separator is normalized away, not just one; `/root//` trimmed once would
-    /// match no key the walk produced, and the clear would silently take nothing.
-    @MainActor
-    @Test func aScopedClearNormalizesRepeatedTrailingSeparators() {
-        reset()
-        CloudOnlyBadgeCache.record("/memo-root/x.bin", isCloudOnly: true)
-        CloudOnlyBadgeCache.record("/memo-rootling/y.bin", isCloudOnly: true)
-
-        CloudOnlyBadgeCache.clear(underRoot: "/memo-root//")
-
-        #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == nil)
-        #expect(CloudOnlyBadgeCache.cached("/memo-rootling/y.bin") == true)
-    }
-
     /// Matching is case-sensitive, by decision: the memo is a dictionary, so `cached(_:)` already
     /// is. Keys come from the tree walk and roots from `PaneLogic.fullPath`, which agree because the
     /// walk starts from that root string; pinned so case-folding either side shows up here, not as
@@ -330,20 +285,6 @@ import Foundation
         CloudOnlyBadgeCache.clear(underRoot: "/Root")
 
         #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == true)
-    }
-
-    /// A scoped clear bumps the generation: a stat in flight when it lands must not memoize its
-    /// now-stale answer.
-    @MainActor
-    @Test func aStatSpanningAScopedClearIsNotMemoized() async {
-        reset()
-        let path = "/scoped/spanning.bin"
-
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(
-            atPath: path, stat: statThatInvalidates { CloudOnlyBadgeCache.clear(underRoot: "/scoped") })
-
-        #expect(answer)
-        #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
     /// The capacity wipe is a bulk invalidation and must bump the generation like any other.

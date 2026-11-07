@@ -27,19 +27,6 @@ import Sync
         #expect(DifferenceGrouping.folder(for: diff("Work/report.docx")) == "Work")
     }
 
-    @Test func testRootLevelItemsGetTheRootLabel() {
-        #expect(DifferenceGrouping.folder(for: diff("loose.pdf")) == DifferenceGrouping.rootKey)
-    }
-
-    @Test func testLeadingSlashDoesNotProduceANamelessSection() {
-        // `parentPath` is relative and should never start with "/", but a nameless section is a
-        // visible, confusing failure and the fallback costs one line.
-        let folder = DifferenceGrouping.folder(for: diff("/Immigration/form.pdf"))
-        #expect(!folder.isEmpty)
-        // …and it must name the folder, not the raw parent string ("/Immigration").
-        #expect(folder == "Immigration")
-    }
-
     // MARK: Section building
 
     @Test func testSectionsAppearInTheOrderTheirFirstRowDoes() {
@@ -142,13 +129,15 @@ import Sync
 
     /// `folder(for:)` produces a printable bucket for the whole input space, not just well-formed
     /// paths. Engine-built `relativePath`s never carry a leading or trailing slash or a "//", so a
-    /// mishandling could sit unseen until a refactor made it live.
+    /// mishandling could sit unseen until a refactor made it live. A leading slash names the folder,
+    /// not the raw parent ("/Immigration"), and never a nameless section; a parent of pure
+    /// separators files under the root label, as a root-level item does.
     @Test func testMalformedParentsStillBucketPrintably() {
         let paths = [
             "Claude/Projects/Investing/notes.md", "Work/report.docx", "loose.pdf",
             "/Immigration/form.pdf", "/loose.pdf", "/Claude/Projects/notes.md",
             "Work//report.docx", "Claude///Projects/notes.md", "Immigration//",
-            "/", "//", "///", "",
+            "/", "//", "///", "", "//loose.pdf",
         ]
         for path in paths {
             let d = diff(path)
@@ -175,12 +164,6 @@ import Sync
         let sections = DifferenceGrouping.sections([diff("/Work/a.pdf"), diff("Work/b.pdf")])
         #expect(sections.map(\.folder) == ["Work"])
         #expect(sections.first?.count == 2)
-    }
-
-    /// A parent of pure separators has no folder to name, so it files under the root label rather
-    /// than minting a section whose header is blank or "/".
-    @Test func testASeparatorOnlyParentFilesUnderTheRootLabel() {
-        #expect(DifferenceGrouping.folder(for: diff("//loose.pdf")) == DifferenceGrouping.rootKey)
     }
 
     // MARK: The worth-grouping gate

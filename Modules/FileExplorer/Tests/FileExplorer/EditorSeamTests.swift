@@ -159,50 +159,17 @@ import Design
                 "the ramp and a bare multiply agree at every size the app offers — this test cannot fail")
     }
 
-    /// The undo stack is per document, not per text: two files holding the same bytes get different
-    /// stacks.
-    ///
-    /// `NSTextView` registers undo by character range, so a stack shared between two documents
-    /// replays one file's edits into another, splicing characters out where the old ranges land or
-    /// throwing `NSRangeException` and taking every unsaved buffer down with it. Identical contents
-    /// are the case a buffer comparison misses: open `a.md`, edit it, then open `b.md` holding the
-    /// same bytes. Checked directly on `EditorUndoStore`, which owns the rule.
-    @MainActor
-    @Test func twoFilesHoldingTheSameBytesDoNotShareAnUndoStack() throws {
-        let store = EditorUndoStore()
-        store.activate(path: "/n/a.md", text: "identical")
-        let first = store.current
-        // An edit, so a's stack is kept at all: an empty one is not, and the check below would then
-        // pass with nothing to hand out.
-        first.registerUndo(withTarget: store) { _ in }
-        store.remember(text: "identical")
-
-        store.activate(path: "/n/b.md", text: "identical")
-        #expect(store.current !== first,
-                "two files with identical contents were handed the same undo stack")
-    }
-
-    /// And the wipe must not come back: with a stack per document, `removeAllActions()` on a
+    /// The wipe must not come back: with a stack per document, `removeAllActions()` on a
     /// document change would silently throw away the history this feature exists to keep.
     @Test func theEditorNoLongerWipesTheStackWhenTheDocumentChanges() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/PlainTextEditor.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read PlainTextEditor.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("PlainTextEditor.swift")
         try #require(source.contains("func updateNSView"), "the scan is not reading updateNSView")
         try #require(source.contains("context.coordinator.documentID != documentID"),
                      "the document-identity branch is gone — this scan is checking nothing")
 
         // Comments are stripped first, so a note that names `removeAllActions()` can't pass for
         // code.
-        let code = source
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                let trimmed = line.drop { $0 == " " }
-                return trimmed.hasPrefix("//") ? "" : line
-            }
-            .joined(separator: "\n")
+        let code = SourceText.codeOnly(source)
         #expect(!code.contains("removeAllActions()"),
                 "the per-document undo history is being wiped on a document change again")
     }

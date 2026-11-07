@@ -74,25 +74,19 @@ import Design
         }
         #expect(differing == 0,
                 "the name zone differs in \(differing) pixels — the icon is not holding a fixed width, so each file type starts its name at a different x")
-    }
 
-    /// The control for the zero above: the two renders must differ somewhere. If `isDirectory`
-    /// stopped reaching the glyph, both would be the same card and the test above would pass on a
-    /// tautology.
-    @Test func theTwoCardsReallyDoDrawDifferentIcons() throws {
-        let asFile = try #require(render(card(.sameText, isDirectory: false)))
-        let asFolder = try #require(render(card(.sameText, isDirectory: true)))
-        let device = CGFloat(asFile.pixelsWide) / Self.size.width
+        // The control for the zero above: the two renders must differ in the icon zone. If
+        // `isDirectory` stopped reaching the glyph, both would be the same card and the zero would
+        // be a tautology.
         let iconStart = Int(floor((12 + 14) * device))
         let iconEnd = Int(ceil((12 + 14 + 17) * device))
-        let yBand = Int(20 * device)..<Int((Self.size.height - 20) * device)
-        var differing = 0
+        var iconDiffering = 0
         for x in iconStart..<iconEnd {
             for y in yBand {
-                if asFile.colorAt(x: x, y: y) != asFolder.colorAt(x: x, y: y) { differing += 1 }
+                if asFile.colorAt(x: x, y: y) != asFolder.colorAt(x: x, y: y) { iconDiffering += 1 }
             }
         }
-        #expect(differing > 20,
-                "the folder and document glyphs painted \(differing) differing pixels — they are not actually drawing differently, so the alignment test above compares a card with itself")
+        #expect(iconDiffering > 20,
+                "the folder and document glyphs painted \(iconDiffering) differing pixels — they are not actually drawing differently, so the alignment check compares a card with itself")
     }
 }

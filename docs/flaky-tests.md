@@ -231,8 +231,9 @@ what re-measuring it in a target that DOES mount windows produced, 2026-08-21:
 
 Forty spins with a window cost 0.998 s — it really blocks. So the generalisation condemned code
 that is fine: `PaneTreeCarryBackWiringTests:88,152,159,228,234,236`,
-`PaneColumnCarryOverRenderTests:131,134` and `CountPillResetObservationTests:105` all spin
-`run(until:)` in suites that mount windows (3, 1 and 1 `NSWindow(` respectively), and they pump.
+`PaneColumnCarryOverRenderTests:131,134` and `CountPillResetObservationTests:105` all spun
+`run(until:)` in suites that mount windows (3, 1 and 1 `NSWindow(` respectively), and they pumped.
+(CountPillResetObservationTests became a source scan on 2026-11-06 and mounts nothing now.)
 
 **The converse is a real cross-suite hazard, and it is the one to carry away.** Whether such a
 loop pumps depends on whether ANY window is mounted in the process when it runs — not on whether
@@ -404,16 +405,16 @@ does nothing for it.
   with the deadline already spent, a condition needing 25 passes still gets them. Mutation says
   `pumpFloor = 0` fails it; `pumpFloor = 24` does **not**, because the loop re-evaluates
   `condition()` once after the deadline, so the real guarantee is `pumpFloor + 1` evaluations.
-- `ColumnDrillSourceTests.settle` — **the grep above misses it**, because it writes
-  `while !condition() && Date() < end`. It does fail on expiry via `#require`, so it cannot pass
-  vacuously, but it forwards no `#_sourceLocation`, so every caller's timeout is reported against
-  the helper's own line.
+- ~~`ColumnDrillSourceTests.settle`~~ — **migrated 2026-11-06**, with `PaneBarPlacementCommitTests`,
+  `ColumnWidthsMountTests` and `PaneScrollMemoryTests`' `waitUntil`. The grep above missed it,
+  because it wrote `while !condition() && Date() < end`. It still forwards no `#_sourceLocation`,
+  so every caller's timeout is reported against the helper's own line.
 
 *Unconditional fixed pumps — not this defect.* `pump(_ window:seconds:)` in
-`ColumnClickCostBenchmark`, `ColumnPreviewLayoutTests`, `ColumnPreviewRevealTests`,
-`ColumnTapSelectionTests`, `PaneColumnsLayoutLoopTests`, `PaneColumnsScrollTests`, and in the three
-layout-budget suites. They pump for a fixed interval and check nothing, so there is no condition to
-be starved of turns.
+`ColumnPreviewLayoutTests`, `ColumnPreviewRevealTests`, `ColumnTapSelectionTests`,
+`PaneColumnsLayoutLoopTests` and `PaneColumnsScrollTests`. They pump for a fixed interval and check
+nothing, so there is no condition to be starved of turns. The three layout-budget suites had one
+too; since 2026-11-06 they wait on their rows through `LayoutPumpWait.pump` instead.
 
 **One of them has now been seen to fail — 2026-08-04, `FoldAllToggleBindingTests`.** It gave up in a
 full-package FileExplorer run with the table showing **0 rows** against an expected 15, and then
@@ -1100,6 +1101,11 @@ pinned by a decoy instead: a row inside the off-path directory that carries the 
 path, which any walk entering that directory returns. A whole-tree scan, put in by mutation, fails
 it; no load can.
 
+**Both benchmarks below were retired on 2026-11-06**, and what follows is the mechanism's evidence,
+not a description of live tests. `HeaderRungBuildCountTests` now counts the rows the Compare header
+builds, so the six-rung search coming back fails it with no clock; `ContextMenuWalkTests` guards
+the click cost by counting walks.
+
 **A ratio is not immune, 2026-08-03.** `HeaderLadderCostBenchmark.computingTheRungBeatsSearchingForIt`
 failed the full package with `speedup → 1.7575 > 1.8`, a 2.4% miss. Its comment argues a ratio
 needs no nominal constant and "a faster machine cannot break it" — true of a faster machine, false
@@ -1251,9 +1257,10 @@ was floored and its bar unstretched — no inflated ColumnClick median is record
 evidence that a CPU probe is anti-correlated with this machine's starvation. The **163ms with
 nothing regressed** is from a separate, earlier deliberate-starvation run whose `slowdown` print was
 not recorded. Put together: a multiplier that demonstrably does not rise, guarding a bar the
-documented worst case already sits above. It is now a fixed 250ms: above that worst case, still far below the ~290ms click the test was
+documented worst case already sits above. It became a fixed 250ms: above that worst case, still far below the ~290ms click the test was
 built to chase, and legitimate as an absolute because `.machinePinned(.calibratedTiming)` pins it to
-the machine it was calibrated on. The probe is printed and asserted on nowhere.
+the machine it was calibrated on. The probe was printed and asserted on nowhere. The benchmark was
+retired on 2026-11-06: `ContextMenuWalkTests` guards the walk it chased by counting, not timing.
 
 A tight FNV loop and a run-loop-driven render are starved by different things — the loop only wants
 a core, the render waits on the main run loop and the window server — which is why one was never
@@ -1398,8 +1405,7 @@ is. Neither call site is reachable from a test today (both sit behind a real `Ma
 call against a provider placeholder), which is exactly why this was worth fixing before it bit.
 
 **Every test that mounts a `FileTreeView` must pass one** — including the ones with no interest in
-downloads at all (`PaneOutlineRepublishTests`, `PaneColumnsLayoutLoopTests`,
-`ColumnClickCostBenchmark` all do), because the subscription exists whether the test wants it or
+downloads at all (`PaneOutlineRepublishTests` and `PaneColumnsLayoutLoopTests` both do), because the subscription exists whether the test wants it or
 not. Unlike picking a token, this never runs out. As of 2026-08-03 every mounting test in the
 package carries its own channel; none is left on `.default`.
 
@@ -2452,6 +2458,13 @@ to stage the race. A guarded rename is worth a seam.
 **Do not race a concurrent session.** Check `git worktree list` and recent commits touching the
 file first. Two sessions rewriting one test harness is worse than the flake.
 
+**A click can't be synthesized under `swift test`.** Its windows are never key, so a
+`leftMouseDown`/`leftMouseUp` pair sent through `sendEvent` reaches neither a row nor the empty
+area beside it (measured on a mounted Columns pane; the test that pinned this asserted only the
+harness and was retired 2026-11-06). Drive the seam the click would: the closure a button's action
+runs, or the pure function behind it. The end-to-end proof is a line in a live session's log, such
+as `[deselect]`.
+
 ---
 
 ### 14. A palette wait that has to outlast a 36-hop retry budget
@@ -3148,7 +3161,8 @@ under `--filter <Suite>SnapshotTests`.
 from `assertViewSnapshot`, the one funnel every snapshot goes through — gives `NSValue` the missing
 selector, answering with its `rectValue`. It is additive (`class_addMethod` never replaces) and
 guarded, so it does nothing where the selector already resolves. Delete it once the pinned
-SnapshotTesting passes a `CIVector`.
+SnapshotTesting passes a `CIVector`. (Moot since 2026-11-06: the snapshot suites, the shim and
+the SnapshotTesting dependency all retired.)
 
 `SnapshotPerceptualCompareTests` (Modules/Design, **not** machine-pinned, so CI runs it) drives the
 strategy on images whose difference is painted pixel by pixel and pins the numbers it reports, not
@@ -3365,8 +3379,8 @@ pixels. Against the new one, both mutations above put all three Browse tests red
 reading 0 painted pixels and 0 runs of ink, and the unmutated suites stay green 5 of 5.
 
 **Nothing else is exposed today.** `SetupArtworkRenderTests` was the only suite reading pixels from
-`ImageRenderer`'s own image. The `SnapshotRendering.swift` copies render through `NSWindow` +
-`NSHostingView`, and `DocumentPDF` and `DocumentPrinting` already draw through `render(...)` into
+`ImageRenderer`'s own image. The `SnapshotRendering.swift` copies (retired 2026-11-06) rendered
+through `NSWindow` + `NSHostingView`, and `DocumentPDF` and `DocumentPrinting` already draw through `render(...)` into
 PDF contexts of their own — the path that stays clean.
 
 **The general rule:** a render harness that does not own its output buffer can answer with someone

@@ -26,18 +26,11 @@ import Sync
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    private static func source(_ file: String) throws -> String {
-        let here = URL(fileURLWithPath: #filePath)
-        let url = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/\(file)")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
-
     // MARK: TE165 — the pill's count names the button
 
     /// The pill's tooltip uses the button's own words: Save Corrected Copy with only corrections.
     @Test func thePillsCountNamesItsOwnButton() throws {
-        let palette = try Self.source("EditorPDFFillPalette.swift")
+        let palette = try SourceText.fileExplorer("EditorPDFFillPalette.swift")
         #expect(palette.contains(".help(\"Nothing is written until \\(fill.saveTitle) — the original stays as it is\")"))
         #expect(!palette.contains("Nothing is written until Save Filled Copy"))
     }
@@ -116,11 +109,7 @@ import Sync
     @Test func aRestrictedFileOffersRemovePassword() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
+        let pdf = try await PDFFixtures.opened(file, defaults: defaults)
         var said: [String] = []
         pdf.fill.presentRefusal = { said.append($0) }
         pdf.fill.toggle()
@@ -268,7 +257,7 @@ import Sync
         #expect(pad.strokes.isEmpty, "⌘Z with no strokes brought something back")
 
         // Only on Draw, greyed with no strokes; Clear keeps no history for it to bring back.
-        let sheet = try Self.source("EditorPDFSignatureSheet.swift")
+        let sheet = try SourceText.fileExplorer("EditorPDFSignatureSheet.swift")
         // Compared with the whitespace folded, so a re-indent doesn't fail it.
         let folded = sheet.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(folded.contains("if !typing { Button(Self.undoStrokeTitle) { _ = strokes.popLast() } "

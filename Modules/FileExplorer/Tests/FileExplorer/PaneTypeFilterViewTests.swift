@@ -135,18 +135,3 @@ import Sync
         #expect(control(allButImages).help == "Showing all but Images. Click to change.")
     }
 }
-
-/// The type list, drawn and kept, so it is checked by rendering it and looking. Machine-pinned like
-/// every reference image here, so CI never reads it.
-@MainActor
-@Suite(.serialized, .machinePinned(.referenceImages)) struct PaneTypeFilterSnapshotTests {
-    @Test func theTypeList() {
-        let control = PaneTypeFilterControl(
-            filter: .constant(PaneTypeFilter(families: [.pdfs], extensions: ["jpg"])),
-            facts: PaneTypeFilterFacts(census: ["jpg": 10, "png": 3, "pdf": 12, "dmg": 1, "zip": 4],
-                                       unexploredCount: 1, itemCountBeforeFilter: 40),
-            folderName: "Downloads")
-        assertViewSnapshot(of: PaneTypeFilterPopover(control: control).padding(1),
-                           size: CGSize(width: 302, height: 330), named: "type-list")
-    }
-}

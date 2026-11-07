@@ -71,16 +71,5 @@ import Sync
                 "The half-built tooltip appears more than once — one of them is a second spelling.")
     }
 
-    private static func lensSource() throws -> String {
-        // Tests/FileExplorer/<this file> -> package root is three levels up.
-        let packageRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Tests/FileExplorer
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // package root
-        let url = packageRoot.appendingPathComponent("Sources/FileExplorer/AutomationsLens.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        // A scan that finds nothing is not the same as a scan that finds nothing wrong.
-        try #require(!source.isEmpty)
-        return source
-    }
+    private static func lensSource() throws -> String { try SourceText.fileExplorer("AutomationsLens.swift") }
 }

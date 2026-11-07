@@ -16,15 +16,9 @@ import Testing
     private static let hue = LiquidGlassHue.green
 
     private func render<V: View>(_ view: V) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(origin: .zero, size: host.fittingSize)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.host(AnyView(view), size: NSHostingView(rootView: AnyView(view)).fittingSize)
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        withExtendedLifetime(window) { host.cacheDisplay(in: host.bounds, to: rep) }
         return rep
     }
 
@@ -101,17 +95,8 @@ import Testing
             .background(dark ? Color(white: 0.13) : Color(white: 0.96))
             .environment(\.colorScheme, dark ? .dark : .light)
             .environment(\.appFontScale, 1.6)
-        let host = NSHostingView(rootView: AnyView(pill))
-        host.frame = CGRect(origin: .zero, size: host.fittingSize)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        defer { window.close() }
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try #require(PixelDiff.render(pill, size: NSHostingView(rootView: AnyView(pill)).fittingSize,
+                                                appearance: dark ? .darkAqua : .aqua))
         // Raw bytes: `colorAt` tags sRGB numbers as calibrated. Two reads, because one can't decide
         // alone: the chevron and the rolling count keep a label-colour pixel whatever the words
         // wear, so the extreme pixel passes either way. So also count strongly coloured pixels:

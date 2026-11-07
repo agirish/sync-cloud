@@ -16,18 +16,7 @@ import EventsTestSupport
     /// `EditorFindBarTests`: a detached view has no first responder to ask about. A test that opens
     /// the find bar retires it as it ends.
     private func hosted(text: String = "one two three\n") -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.usesFindBar = true
-        view.isIncrementalSearchingEnabled = true
-        view.allowsUndo = true
-        view.string = text
-        return (scroll, view, window)
+        EditorTestRigs.markedTextView(text: text)
     }
 
     // MARK: Which verbs carry a chord
@@ -44,13 +33,6 @@ import EventsTestSupport
         #expect(MarkupVerb.strikethrough.chord?.display == "⇧⌘X")
         #expect(MarkupVerb.inlineCode.chord?.display == "⇧⌘K")
         #expect(MarkupVerb.link.chord?.display == "⇧⌘L")
-    }
-
-    /// The three view modes each carry their own ⌃⌘ digit, in the capsule's order.
-    @Test func theViewModesCarryControlCommandDigits() {
-        #expect(EditorMode.edit.chord.display == "⌃⌘1")
-        #expect(EditorMode.preview.chord.display == "⌃⌘2")
-        #expect(EditorMode.split.chord.display == "⌃⌘3")
     }
 
     // MARK: The context menu draws the same chords

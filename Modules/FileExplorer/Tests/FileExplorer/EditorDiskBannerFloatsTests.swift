@@ -2,6 +2,7 @@ import Testing
 import SwiftUI
 import AppKit
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The disk banner floats over the text's foot, so nothing under it moves when a change from
 /// elsewhere is noticed, and the text view gains room to scroll its last lines clear of it. Covers
@@ -24,19 +25,9 @@ import AppKit
         _ = EditorFileStore.load(path: file.path, into: document)
         // The watch's own step when the file turns unreadable mid-session (`EditorDiskWatch`).
         if readOnly { document.reload(.readOnly(text: document.text, reason: Self.unreadable, stamp: nil)) }
-        let workspace = EditorWorkspaceView(
-            document: document, autosavePolicy: EditorAutosavePolicy(),
-            folder: file.deletingLastPathComponent().path,
-            entries: [], showsRail: false, railIsHidden: true,
-            accent: .blue, accentFill: .blue, onAccent: .white,
-            mode: .constant(mode), splitFraction: .constant(0.5), isNaming: .constant(false),
-            typedName: .constant(""), railFilter: .constant(""), railFilterIsExpanded: .constant(false),
-            railTab: .constant(.files), railOutlineAnchors: .constant([:]), undoManager: UndoManager(),
-            diskBanner: banner,
-            prefilledName: { "Untitled.md" }, refusal: { _ in nil },
-            onOpen: { _ in }, onCreate: { _ in true }, onRevealInBrowse: { _ in }, location: nil,
-            onLocationDoor: { _ in }, railRowActions: .inert, onToggleJustTheText: {}, onNewTextFile: nil,
-            onCloseDocument: {}, folderTrail: nil, onGoToFolder: nil)
+        let workspace = EditorWorkspaceView.fixture(document: document, folder: file.deletingLastPathComponent().path,
+                                                    railIsHidden: true, mode: mode, diskBanner: banner,
+                                                    onNewTextFile: nil)
         let host = NSHostingView(rootView: AnyView(workspace.editorTestDefaults("EditorDiskBannerFloatsTests")))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)

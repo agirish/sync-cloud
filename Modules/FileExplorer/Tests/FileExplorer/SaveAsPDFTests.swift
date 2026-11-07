@@ -73,25 +73,6 @@ private struct SaveDelegate: FileActionDelegate {
         return file
     }
 
-    private struct Original {
-        let bytes: Data
-        let modified: Date
-    }
-
-    /// The original's bytes and date, set into the past first so a write this second can't hide
-    /// behind it.
-    private func pin(_ file: String) throws -> Original {
-        let past = Date(timeIntervalSince1970: 1_600_000_000)
-        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file)
-        return Original(bytes: try Data(contentsOf: URL(fileURLWithPath: file)), modified: past)
-    }
-
-    private func expectUntouched(_ file: String, _ original: Original, _ label: String) throws {
-        #expect(try Data(contentsOf: URL(fileURLWithPath: file)) == original.bytes, "\(label): the original's bytes changed")
-        let modified = try FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date
-        #expect(modified == original.modified, "\(label): the original's date moved")
-    }
-
     private func pdfText(_ file: String) -> String {
         PDFDocument(url: URL(fileURLWithPath: file))?.string ?? ""
     }
@@ -116,7 +97,7 @@ private struct SaveDelegate: FileActionDelegate {
     /// Saves beside the original, under its name, and leaves the original untouched.
     @Test func savesBesideTheOriginalUnderItsName() async throws {
         let note = try write("# Trip\n\nSAVEASPDF-NOTE\n", "Trip notes.md")
-        let original = try pin(note)
+        let original = try RestPinnedOriginal(note)
         var wrote: [String] = []
         let model = model(host: PaneSaveAsPDFHost(didWrite: { wrote.append($0) }))
         await run(model, [note])
@@ -129,7 +110,7 @@ private struct SaveDelegate: FileActionDelegate {
         #expect(model.banner?.message == "Saved “Trip notes.pdf” · 1 page")
         #expect(model.banner?.detail == nil)
         #expect(!model.isRunning)
-        try expectUntouched(note, original, "Trip notes.md")
+        try original.expectUntouched(note, "Trip notes.md")
     }
 
     /// A name already taken gets the next number, as Finder numbers it, and the file that had the
@@ -138,12 +119,12 @@ private struct SaveDelegate: FileActionDelegate {
         let note = try write("SAVEASPDF-CLASH\n", "Lease.txt")
         let taken = path("Lease.pdf"), alsoTaken = path("Lease 2.pdf")
         try Data("not a pdf".utf8).write(to: URL(fileURLWithPath: taken))
-        let before = try pin(taken)
+        let before = try RestPinnedOriginal(taken)
         let model = model()
         await run(model, [note])
         #expect(files() == ["Lease 2.pdf", "Lease.pdf", "Lease.txt"])
         #expect(pdfText(alsoTaken).contains("SAVEASPDF-CLASH"))
-        try expectUntouched(taken, before, "the PDF already there")
+        try before.expectUntouched(taken, "the PDF already there")
 
         // And again: the next free number.
         await run(model, [note])

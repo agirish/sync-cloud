@@ -39,17 +39,34 @@ import Testing
 
     // MARK: The regression
 
+    /// The two attachments that share the rule.
+    enum Anchor: CaseIterable { case styler, deselectCatcher }
+
+    private func make(_ anchor: Anchor) -> (view: NSView, resolve: () -> NSTableView?) {
+        switch anchor {
+        case .styler:
+            let styler = PaneListSelectionStyler.StylerView(frame: Self.listFrame)
+            return (styler, { styler.resolveTableView() })
+        case .deselectCatcher:
+            let catcher = PaneBackgroundDeselect.CatcherView(onDeselect: {})
+            catcher.frame = Self.listFrame
+            return (catcher, { catcher.resolveTableView() })
+        }
+    }
+
     /// The budget is spent while no table can be found; then the list arrives (or is swapped in)
     /// beneath a stationary anchor. Without the periodic retry this returns nil forever and the row
     /// keeps the OS highlight for the rest of the session.
-    @Test("A list that appears after the budget is spent is still found")
-    func recoversAfterBudgetExhaustion() {
-        let styler = PaneListSelectionStyler.StylerView(frame: Self.listFrame)
-        let window = mount([styler])
-        _ = window
+    ///
+    /// `PaneBackgroundDeselect` shares the pattern, and its failure is worse because it is
+    /// invisible: no recognizer is installed and clicking empty space silently stops deselecting.
+    @Test("A list that appears after the budget is spent is still found", arguments: Anchor.allCases)
+    func recoversAfterBudgetExhaustion(anchor: Anchor) {
+        let (view, resolve) = make(anchor)
+        let window = mount([view])
 
         // Spend the burst with nothing in the hierarchy to find.
-        for _ in 0..<10 { #expect(styler.resolveTableView() == nil) }
+        for _ in 0..<10 { #expect(resolve() == nil) }
 
         // SwiftUI mounts the list, in the same place, without touching the anchor.
         let (scroll, table) = list(at: Self.listFrame)
@@ -58,7 +75,7 @@ import Testing
         // The periodic retry has to carry this: the anchor hasn't moved and there was never a
         // cached table, so neither change signal fires.
         var found: NSTableView?
-        for _ in 0..<40 where found == nil { found = styler.resolveTableView() }
+        for _ in 0..<40 where found == nil { found = resolve() }
         #expect(found === table)
     }
 
@@ -124,25 +141,5 @@ import Testing
         }
         #expect(scans <= 4, "expected the retry to be periodic, saw \(scans) scans in 100 passes")
         #expect(scans >= 1, "expected it to keep looking occasionally, saw none")
-    }
-
-    // MARK: The deselect catcher carries the identical rule
-
-    /// `PaneBackgroundDeselect` shares the pattern, and its failure is worse because it is
-    /// invisible: no recognizer is installed and clicking empty space silently stops deselecting.
-    @Test("The deselect catcher recovers on the same terms")
-    func deselectCatcherRecoversToo() {
-        let catcher = PaneBackgroundDeselect.CatcherView(onDeselect: {})
-        catcher.frame = Self.listFrame
-        let window = mount([catcher])
-
-        for _ in 0..<10 { #expect(catcher.resolveTableView() == nil) }
-
-        let (scroll, table) = list(at: Self.listFrame)
-        window.contentView?.addSubview(scroll)
-
-        var found: NSTableView?
-        for _ in 0..<40 where found == nil { found = catcher.resolveTableView() }
-        #expect(found === table)
     }
 }

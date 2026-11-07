@@ -36,14 +36,7 @@ import Sync
         let canvas = clean.pixelsWide * clean.pixelsHigh
         #expect(Double(differing) > Double(canvas) * 0.05,
                 "\(differing) of \(canvas) pixels separate a clean tree from one with findings — the two states are drawing the same thing")
-
-        // And the words, which no render can read back: the claim is about the whole tree only when
-        // the lens is looking at the whole tree.
-        #expect(RestructureLens.cleanTitle(isScoped: false) == "The tree agrees with itself")
-        #expect(RestructureLens.cleanTitle(isScoped: true) == "This folder agrees with itself")
-        #expect(RestructureLens.cleanMessage(folderCount: 3_013).hasPrefix("Checked 3,013 folders."))
-        #expect(!RestructureLens.cleanMessage(folderCount: nil).contains("Checked"),
-                "a lens with no folder count invented one")
+        // The words, which no render can read back, are `OrganizeScopeUnknownCountsTests`'.
     }
 
     /// Findings about the folder above are not emptiness. `isEmpty` covers both lists, so a scope

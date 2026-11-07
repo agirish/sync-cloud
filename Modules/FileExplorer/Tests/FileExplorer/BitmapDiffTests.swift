@@ -7,28 +7,27 @@ import Testing
 /// exists to get right.
 @Suite struct BitmapDiffTests {
 
-    /// Draws a white image of `width`×`height` with `fill` painted into `rect` (pixel coords).
+    /// Draws a white image of `width`×`height` with `color` painted into `fill` and each of
+    /// `fills` (pixel coords). `ChangedRegionCalloutTests` draws with it too.
     ///
     /// `bytesPerRow: 0` everywhere, as production uses, so the stride must be read back rather
     /// than computed.
-    private func image(width: Int, height: Int, fill: CGRect? = nil,
-                       color: (Double, Double, Double) = (0, 0, 0)) throws -> CGImage {
+    static func image(width: Int, height: Int, fill: CGRect? = nil, fills: [CGRect] = [],
+                      color: (Double, Double, Double) = (0, 0, 0)) throws -> CGImage {
         let ctx = try #require(CGContext(data: nil, width: width, height: height,
                                          bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        if let fill {
-            ctx.setFillColor(CGColor(red: color.0, green: color.1, blue: color.2, alpha: 1))
-            ctx.fill(fill)
-        }
+        ctx.setFillColor(CGColor(red: color.0, green: color.1, blue: color.2, alpha: 1))
+        for rect in [fill].compactMap({ $0 }) + fills { ctx.fill(rect) }
         return try #require(ctx.makeImage())
     }
 
     @Test func twoIdenticalPagesReportNoChange() throws {
-        let a = try image(width: 64, height: 64, fill: CGRect(x: 8, y: 8, width: 16, height: 16))
-        let b = try image(width: 64, height: 64, fill: CGRect(x: 8, y: 8, width: 16, height: 16))
+        let a = try Self.image(width: 64, height: 64, fill: CGRect(x: 8, y: 8, width: 16, height: 16))
+        let b = try Self.image(width: 64, height: 64, fill: CGRect(x: 8, y: 8, width: 16, height: 16))
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.isIdentical)
         #expect(result.changedRects.isEmpty)
@@ -37,8 +36,8 @@ import Testing
 
     /// One region changed, and the rects name where, not the whole page.
     @Test func oneChangedRegionIsLocated() throws {
-        let a = try image(width: 64, height: 64)
-        let b = try image(width: 64, height: 64, fill: CGRect(x: 32, y: 32, width: 16, height: 16))
+        let a = try Self.image(width: 64, height: 64)
+        let b = try Self.image(width: 64, height: 64, fill: CGRect(x: 32, y: 32, width: 16, height: 16))
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(!result.isIdentical)
         // 16×16 of 64×64 = 1/16 of the page.
@@ -65,13 +64,13 @@ import Testing
         try #require(ctx.bytesPerRow > width * 4,
                      "this width is no longer padded (\(ctx.bytesPerRow) == \(width * 4)) — pick another")
 
-        let a = try image(width: width, height: 40)
-        let b = try image(width: width, height: 40)
+        let a = try Self.image(width: width, height: 40)
+        let b = try Self.image(width: width, height: 40)
         let same = try #require(BitmapDiff.compare(a, b))
         #expect(same.isIdentical,
                 "a stride-padded identical pair reported \(same.changedFraction) changed — the loop assumed width × 4")
 
-        let c = try image(width: width, height: 40, fill: CGRect(x: 0, y: 0, width: width, height: 40))
+        let c = try Self.image(width: width, height: 40, fill: CGRect(x: 0, y: 0, width: width, height: 40))
         let all = try #require(BitmapDiff.compare(a, c))
         #expect(all.changedFraction > 0.99, "a fully repainted page reported \(all.changedFraction)")
     }
@@ -79,10 +78,10 @@ import Testing
     /// Anti-alias jitter is not a content change: a re-saved PDF re-embeds its fonts and every
     /// text edge differs by a few levels, so at zero tolerance the pair would read as all changed.
     @Test func aFewLevelsOfJitterIsNotAChange() throws {
-        let a = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
+        let a = try Self.image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.5, 0.5, 0.5))
         // ~2/255 apart, well inside the tolerance.
-        let b = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
+        let b = try Self.image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.508, 0.508, 0.508))
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.isIdentical, "\(result.changedFraction) of the page counted as changed")
@@ -91,9 +90,9 @@ import Testing
     /// The other direction, without which the tolerance test above would pass on a comparison
     /// that never reports anything.
     @Test func aRealChangeIsStillSeenAtTheSameSize() throws {
-        let a = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
+        let a = try Self.image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.5, 0.5, 0.5))
-        let b = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
+        let b = try Self.image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32),
                           color: (0.6, 0.6, 0.6))   // ~25/255 — twice the tolerance
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.changedFraction > 0.99)
@@ -102,8 +101,8 @@ import Testing
     /// Mismatched sizes rescale to a common raster and say so: a resampled figure is a weaker
     /// claim than a matched pair's, and the viewer must be able to disclose that.
     @Test func mismatchedSizesRescaleAndAreDisclosed() throws {
-        let a = try image(width: 64, height: 64, fill: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let b = try image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32))
+        let a = try Self.image(width: 64, height: 64, fill: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let b = try Self.image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32))
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.sizesDiffer)
         // Same picture at two scales: it still reads as unchanged, which is the useful answer.
@@ -113,29 +112,29 @@ import Testing
     /// A zero-sized side has no raster to compare, and that is nil, never "no difference": the two
     /// must differ on a surface whose next button trashes a file.
     @Test func aZeroSizedSideIsNilAndNotIdentical() throws {
-        let a = try image(width: 8, height: 8)
+        let a = try Self.image(width: 8, height: 8)
         let ctx = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
                                          bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         let tiny = try #require(ctx.makeImage())
         // A 1×1 side is degenerate but comparable; the nil case is a cropped-to-nothing overlap.
         #expect(BitmapDiff.compare(a, tiny) != nil)
-        #expect(BitmapDiff.compare(a, try image(width: 8, height: 8)) != nil)
+        #expect(BitmapDiff.compare(a, try Self.image(width: 8, height: 8)) != nil)
     }
 
     // MARK: The difference image
 
     /// Identical pages produce black, which is what makes a glow mean something.
     @Test func theDifferenceOfIdenticalPagesIsBlack() throws {
-        let a = try image(width: 16, height: 16, fill: CGRect(x: 2, y: 2, width: 6, height: 6))
-        let b = try image(width: 16, height: 16, fill: CGRect(x: 2, y: 2, width: 6, height: 6))
+        let a = try Self.image(width: 16, height: 16, fill: CGRect(x: 2, y: 2, width: 6, height: 6))
+        let b = try Self.image(width: 16, height: 16, fill: CGRect(x: 2, y: 2, width: 6, height: 6))
         let diff = try #require(BitmapDiff.differenceImage(a, b))
         #expect(try brightest(of: diff) == 0)
     }
 
     @Test func theDifferenceOfAChangedRegionGlows() throws {
-        let a = try image(width: 16, height: 16)
-        let b = try image(width: 16, height: 16, fill: CGRect(x: 4, y: 4, width: 4, height: 4))
+        let a = try Self.image(width: 16, height: 16)
+        let b = try Self.image(width: 16, height: 16, fill: CGRect(x: 4, y: 4, width: 4, height: 4))
         let diff = try #require(BitmapDiff.differenceImage(a, b))
         #expect(try brightest(of: diff) > 200)
     }

@@ -24,25 +24,6 @@ import UniformTypeIdentifiers
 
     private static let root = "/download-wiring"
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     private final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -82,7 +63,7 @@ import UniformTypeIdentifiers
                     otherTree: PaneTree(side: .right, version: 1, nodes: []),
                     isLoading: false, currentPath: root,
                     selection: $box.selection, otherSelection: [],
-                    isLeft: true, delegate: StubDelegate(),
+                    isLeft: true, delegate: NoOpFileActionDelegate(),
                     isSingleSource: true,
                     viewMode: .columns,
                     childrenIndex: index, browsePath: $box.browsePath,
@@ -343,6 +324,11 @@ import UniformTypeIdentifiers
     /// preview. A request starts it and the end of exactly that request's watch clears it; another
     /// file's request and a superseded request's end leave it alone. Every end counts against its
     /// file, which makes the preview look again.
+    ///
+    /// "Downloading…" outlives the preview that started it. A click on a folder and back rebuilds
+    /// the preview, so the state lives in the host, or the new preview would offer Download again
+    /// for a watched file. No preview is mounted here at all: what it would read is the host's
+    /// record.
     @Test func theInspectorFollowsEachWatchByRequest() {
         let channel = NotificationCenter()
         let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600))
@@ -354,24 +340,14 @@ import UniformTypeIdentifiers
         #expect(downloads.isAwaiting(path))
         channel.post(name: .cloudDownloadRequested,
                      object: CloudDownloadRequest(path: "\(Self.root)/other.mov", paneToken: .left))
-        #expect(!downloads.isAwaiting("\(Self.root)/movie2.mov"))
+        #expect(downloads.isAwaiting(path), "another file's request cleared this one")
+        #expect(downloads.isAwaiting("\(Self.root)/other.mov"))
         channel.post(name: .cloudDownloadRequested, object: again)
         channel.post(name: .cloudDownloadWatchEnded, object: first)
         #expect(downloads.isAwaiting(path), "a superseded watch's end cleared the newer request")
         channel.post(name: .cloudDownloadWatchEnded, object: again)
         #expect(!downloads.isAwaiting(path))
         #expect(downloads.watchesEnded(path) == 2)
-    }
-
-    /// "Downloading…" outlives the preview. A click on a folder and back rebuilds the preview, so the
-    /// state lives in the host, or the new preview would offer Download again for a watched file.
-    @Test func aDownloadOutlivesThePreviewThatStartedIt() {
-        let channel = NotificationCenter()
-        let downloads = InspectorDownloads(channel: channel, deadline: .seconds(3600))
-        let path = "\(Self.root)/movie.mov"
-        channel.post(name: .cloudDownloadRequested, object: CloudDownloadRequest(path: path, paneToken: .left))
-        // No preview is mounted at all here: what it would read is the host's record.
-        #expect(downloads.isAwaiting(path))
     }
 
     /// A watch that ends after the inspector's deadline still makes the preview look again;
@@ -440,10 +416,7 @@ import UniformTypeIdentifiers
     /// pane's channel, so the two can't drift. Its click is out of reach (see the suite comment), so
     /// the call is pinned by source.
     @Test func thePreviewsDownloadIsTheRowMenusVerb() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/ColumnPreviewColumn.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceText.fileExplorer("ColumnPreviewColumn.swift")
         let flat = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(flat.contains("CloudDownloadRequest.requestDownload(path: item.path, name: item.name, "
                               + "from: paneToken, through: downloadChannel)"),

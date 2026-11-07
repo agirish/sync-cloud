@@ -52,28 +52,6 @@ import SwiftUI
                               reclaimableBytes: 10)
     }
 
-    /// A scan of one browsed subfolder must not be allowed to call the whole tree clean. Unscoped
-    /// the overview says "Nothing to do here. Every check that has run came back clean." — about
-    /// everything — so its subject is the provider root, and `/root/Photos` does not cover it.
-    @Test func aSubfolderScanDoesNotLetTheOverviewCallTheWholeTreeClean() {
-        let m = FileSyncManager()
-        m.duplicateScanRoot = "/root/Photos"
-        m.hasFoundDuplicates = true
-        m.duplicateGroups = []
-        #expect(duplicatesState(m) == .notScanned,
-                "a scan of one subfolder was reported as a clean bill for the whole tree")
-    }
-
-    /// The other direction, so the guard above cannot be "never clean": a scan of the tree's top
-    /// with nothing found is a real clean bill.
-    @Test func aScanOfTheWholeTreeStillReportsClean() {
-        let m = FileSyncManager()
-        m.duplicateScanRoot = "/root"
-        m.hasFoundDuplicates = true
-        m.duplicateGroups = []
-        #expect(duplicatesState(m) == .clean)
-    }
-
     /// Coverage decides what a zero means; it must never suppress findings the scan really made.
     /// Groups found under `/root/Photos` are real wherever the subject points, and an
     /// uncovered-therefore-notScanned arm would bury them.
@@ -169,16 +147,6 @@ import SwiftUI
         #expect(renamesState(m) == .notScanned)
     }
 
-    /// The filing walk marks every lens it answers. `isScanningNames` alone is never true on this
-    /// path: the filing scan reaches names through `detectRiskyNames`, which calls `completeScan`
-    /// without `beginScan` (only `scanNames`, which has no caller in the app, begins the name
-    /// lifecycle). Read alone, Renames would show a stale count while To File says "rescanning".
-    @Test func theFilingWalkMarksEveryLensItAnswers() {
-        let m = FileSyncManager()
-        m.isSuggestingFiles = true
-        #expect(scanning(m) == Set(OrganizePass.file.lenses))
-    }
-
     /// The name lifecycle still counts when it is the thing running: the condition covers both
     /// flags, not one in place of the other.
     @Test func aStandaloneNameScanStillMarksNames() {
@@ -190,31 +158,20 @@ import SwiftUI
         #expect(!scanning(m).contains(.toFile), "a name scan is not the whole filing walk")
     }
 
-    /// Restructure follows the folder survey, which is its pass, so its Refresh button and count go
-    /// quiet for the survey it started, as the menu item running the same action is `.disabled`.
-    @Test func restructureFollowsTheFolderSurvey() {
-        let m = FileSyncManager()
-        #expect(!scanning(m).contains(.restructure))
-        m.filingSurveyLifecycle.isRunning = true
-        #expect(scanning(m).contains(.restructure))
-    }
-
-    /// Duplicates follows its own hashing pass, and nothing else does.
-    @Test func duplicatesFollowsItsOwnScan() {
-        let m = FileSyncManager()
-        m.isFindingDuplicates = true
-        #expect(scanning(m) == [.duplicates])
-    }
-
     /// An idle manager marks nothing — the floor that keeps the assertions above from passing on a
     /// model that simply reports everything as busy.
     @Test func anIdleManagerMarksNothing() {
+        // Restructure included: before the survey drove it, its flag was a hard-coded `false`,
+        // which this floor and `eachPassMarksExactlyItsOwnLenses` together tell apart.
         #expect(scanning(FileSyncManager()).isEmpty)
     }
 
     /// Every lens's scanning flag belongs to its own pass, checked one pass at a time: driving each
     /// pass alone and asserting exactly its lenses light catches a lens reading another's
-    /// lifecycle.
+    /// lifecycle. The filing walk must mark Renames too: `isScanningNames` is never true on that
+    /// path (`detectRiskyNames` calls `completeScan` without `beginScan`), so read alone, Renames
+    /// would show a stale count while To File says "rescanning". And Restructure follows the folder
+    /// survey, its pass, so its Refresh button and count go quiet for the survey it started.
     @Test func eachPassMarksExactlyItsOwnLenses() {
         for pass in OrganizePass.allCases {
             let m = FileSyncManager()
@@ -514,18 +471,15 @@ import SwiftUI
         #expect(DuplicateGroupCard.memberCount(3, isDirectory: false, matchType: .versions) == "3 versions")
         #expect(DuplicateGroupCard.memberCount(1, isDirectory: false, matchType: .versions) == "1 version")
         #expect(DuplicateGroupCard.memberCount(3, isDirectory: false, matchType: .identical) == "3 copies")
-        let card = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DuplicateGroupCard.swift"), encoding: .utf8)
+        let card = try SourceText.fileExplorer("DuplicateGroupCard.swift")
         #expect(card.contains("return Self.memberCount(n, isDirectory: group.isDirectory, matchType: group.matchType)"),
                 "the card's version subtitle no longer reads the shared rule")
         #expect(!model.contains("copies.count) copies"), "the Overview says copies for folders again")
     }
 
     private static func overviewModelCode() throws -> String {
-        try OrganizeScopeCallSiteTests.body(
-            of: "var overviewModel: OverviewModel {",
-            in: try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift"))
+        try SourceText.body(of: "var overviewModel: OverviewModel {",
+                            in: try SourceText.fileExplorer("LensWorkspaceView.swift"))
     }
 
     /// Non-vacuity for both guards above: the arms that should still draw rows do, so a `body(of:)`

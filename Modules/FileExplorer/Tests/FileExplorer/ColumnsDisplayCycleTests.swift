@@ -178,20 +178,6 @@ import Sync
         Issue.record("\(what) never happened within \(maxTurns) turns", sourceLocation: location)
     }
 
-    private func viewCount(_ v: NSView) -> Int {
-        1 + v.subviews.reduce(0) { $0 + viewCount($1) }
-    }
-
-    private func tableRowCounts(_ view: NSView) -> [Int] {
-        var counts: [Int] = []
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { counts.append(t.numberOfRows) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return counts
-    }
-
     /// The crash's own sequence and configuration, on the run-loop driver. AppKit raises once a
     /// window's passes exceed its view count; this asserts well inside that, because the number
     /// that matters is how close it came, not whether it survived.
@@ -201,7 +187,7 @@ import Sync
         let window = mount(box, root: fixture.root, width: 760)
         pumpUntilQuiet(window)
 
-        let before = tableRowCounts(window.contentView!)
+        let before = PaneLayoutSettle.tableRowCounts(window.contentView!)
         #expect(before.contains(40), "columns did not lay out the root column: \(before)")
 
         // retargetPane(): this pane's tree is dropped, then the shallow paint from the new root.
@@ -210,7 +196,7 @@ import Sync
         box.tree = fixture.tree(files: 19, version: 3)
 
         let perTurn = pumpUntilQuiet(window)
-        let views = viewCount(window.contentView!)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         let worst = perTurn.max() ?? 0
         let total = perTurn.reduce(0, +)
         // Printed unconditionally: a green check over an instrument that never fired would look
@@ -379,7 +365,7 @@ import Sync
             box.selection = ["\(box.root)/\(DeepFixture.folder(0))/\(Fixture.name(0))"]
         }
         await pumpUntil(window, "both panes drilled to two columns") {
-            self.tableRowCounts(window.contentView!).count >= 4
+            PaneLayoutSettle.tableRowCounts(window.contentView!).count >= 4
         }
         pumpUntilQuiet(window)
 
@@ -387,7 +373,7 @@ import Sync
         // that drilled, and a plainer pane would report similar numbers. (`onBarEdgeFlip` is wired
         // as in `ContentView` but never fires here, so it is not ruled out.) Checked against what
         // AppKit laid out.
-        let tables = tableRowCounts(window.contentView!)
+        let tables = PaneLayoutSettle.tableRowCounts(window.contentView!)
         #expect(tables.count >= 4,
                 "both panes were meant to be drilled to a two-column stack; tables: \(tables)")
 
@@ -398,7 +384,7 @@ import Sync
         right.tree = other.tree(side: .right, folders: 9, filesPerFolder: 21, version: 3)
 
         let perTurn = pumpUntilQuiet(window)
-        let views = viewCount(window.contentView!)
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         let worst = perTurn.max() ?? 0
         let total = perTurn.reduce(0, +)
         print("[cycle:two-pane badges=\(badges)] views=\(views) worst=\(worst) "

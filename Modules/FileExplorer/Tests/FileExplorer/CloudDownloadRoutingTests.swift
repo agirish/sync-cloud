@@ -12,18 +12,12 @@ struct CloudDownloadRoutingTests {
         Notification(name: .cloudDownloadRequested, object: request)
     }
 
-    @Test func theRequestingPaneAcceptsItsOwnPost() {
-        let request = CloudDownloadRequest(path: "/iCloud/report.pdf", paneToken: .left)
-
-        let accepted = CloudDownloadRequest.accepted(from: notification(request), paneToken: .left)
-
-        #expect(accepted == request)
-    }
-
-    /// The other pane, showing a twin row for the same path, must not latch it.
+    /// The requesting pane latches its own post; the other pane, showing a twin row for the same
+    /// path, must not.
     @Test func theOtherPaneIgnoresThePost() {
         let request = CloudDownloadRequest(path: "/iCloud/report.pdf", paneToken: .left)
 
+        #expect(CloudDownloadRequest.accepted(from: notification(request), paneToken: .left) == request)
         #expect(CloudDownloadRequest.accepted(from: notification(request), paneToken: .right) == nil)
         #expect(CloudDownloadRequest.accepted(from: notification(request), paneToken: .singleSource) == nil)
     }

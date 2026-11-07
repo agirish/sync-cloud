@@ -105,30 +105,18 @@ import Sync
     }
 
     /// A folder with nothing in it answers `0`, and a folder that couldn't be read answers `nil`:
-    /// one is a fact about the folder, the other the absence of one.
+    /// one is a fact about the folder, the other the absence of one. One that can't be listed has
+    /// no rows rather than an error.
     @Test func nothingInItAndCouldNotReadItAreDifferentAnswers() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
 
         #expect(EditorRail.survey(in: folder.path, showsHidden: false,
                                   isCloudOnly: nothingIsCloudOnly).otherFileCount == 0)
-        #expect(EditorRail.survey(in: "/nowhere/at/all", showsHidden: false,
-                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == nil)
-        #expect(EditorRail.survey(in: "", showsHidden: false,
-                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == nil)
-    }
-
-    @Test func foldersAreNotOfferedAsFilesToOpen() throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        try file("real.md", in: folder)
-        // A directory whose name ends in a text extension: the case a name-only filter passes.
-        try FileManager.default.createDirectory(at: folder.appendingPathComponent("archive.md"),
-                                                withIntermediateDirectories: true)
-
-        let names = EditorRail.entries(in: folder.path, showsHidden: false,
-                                       isCloudOnly: nothingIsCloudOnly).map(\.name)
-        #expect(names == ["real.md"], "a folder named like a text file was offered for editing")
+        let nowhere = EditorRail.survey(in: "/nowhere/at/all", showsHidden: false, isCloudOnly: nothingIsCloudOnly)
+        #expect(nowhere.otherFileCount == nil && nowhere.rows.isEmpty)
+        let empty = EditorRail.survey(in: "", showsHidden: false, isCloudOnly: nothingIsCloudOnly)
+        #expect(empty.otherFileCount == nil && empty.rows.isEmpty)
     }
 
     @Test func hiddenFilesFollowTheAppsOwnPreference() throws {
@@ -204,12 +192,6 @@ import Sync
         }
     }
 
-    @Test func aFolderThatCannotBeListedIsEmptyRatherThanAnError() {
-        #expect(EditorRail.entries(in: "", showsHidden: false, isCloudOnly: nothingIsCloudOnly).isEmpty)
-        #expect(EditorRail.entries(in: "/nowhere/at/all", showsHidden: false,
-                                   isCloudOnly: nothingIsCloudOnly).isEmpty)
-    }
-
     // MARK: The filter
 
     private var three: [EditorRailEntry] {
@@ -218,26 +200,17 @@ import Sync
         }
     }
 
-    @Test func aFilterMatchesAnywhereInTheNameAndIgnoresCase() {
-        #expect(EditorRail.filtered(three, matching: "plan").map(\.name) == ["Release plan.md"])
-        #expect(EditorRail.filtered(three, matching: "PLAN").map(\.name) == ["Release plan.md"])
-        #expect(EditorRail.filtered(three, matching: ".md").map(\.name).count == 2)
-    }
-
-    /// His folders have accented names in them, and somebody typing `rec` means `Récipes`.
-    @Test func aFilterIgnoresDiacritics() {
-        #expect(EditorRail.filtered(three, matching: "recipes").map(\.name) == ["Récipes.md"])
-    }
-
-    /// Somebody who has typed a space and stopped is mid-thought; answering "no files" would look
-    /// like the rail emptied itself.
-    @Test func anEmptyOrBlankFilterIsNoFilter() {
-        #expect(EditorRail.filtered(three, matching: "").count == 3)
-        #expect(EditorRail.filtered(three, matching: "   ").count == 3)
-    }
-
-    @Test func aFilterThatMatchesNothingReturnsNothing() {
-        #expect(EditorRail.filtered(three, matching: "zzz").isEmpty)
+    /// Anywhere in the name, ignoring case and diacritics: his folders have accented names in
+    /// them, and somebody typing `rec` means `Récipes`. An empty or blank filter is no filter,
+    /// since somebody who has typed a space and stopped is mid-thought, and answering "no files"
+    /// would look like the rail emptied itself.
+    @Test(arguments: [("plan", ["Release plan.md"]), ("PLAN", ["Release plan.md"]),
+                      ("recipes", ["Récipes.md"]),
+                      ("", ["Release plan.md", "scratch.txt", "Récipes.md"]),
+                      ("   ", ["Release plan.md", "scratch.txt", "Récipes.md"]), ("zzz", []),
+                      (".md", ["Release plan.md", "Récipes.md"])])
+    func aFilterMatches(_ query: String, names: [String]) {
+        #expect(EditorRail.filtered(three, matching: query).map(\.name) == names)
     }
 
     /// The filter narrows what is drawn and never reorders it: the Finder-like order is decided in

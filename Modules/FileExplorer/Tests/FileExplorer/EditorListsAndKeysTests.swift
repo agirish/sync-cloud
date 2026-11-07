@@ -10,20 +10,18 @@ import Foundation
 @MainActor
 @Suite struct EditorListsAndKeysTests {
 
-    private static func source(_ file: String) throws -> String { try EditorRailRowMenuTests.source(file) }
-
     // MARK: TE154 — Esc back to the document
 
     /// Each list hands Esc on: the Files list and the outline to the rail's door, a PDF's bookmarks
     /// and its Pages grid straight to the pages. Dropping any one handler fails its line.
     @Test func escInEachListGoesBackToTheDocument() throws {
-        let files = try Self.source("EditorFileRailView.swift")
+        let files = try SourceText.fileExplorer("EditorFileRailView.swift")
         #expect(Self.escape(in: files).contains("onReturnKeys()"), "Esc in the Files list does not hand the keys back")
         #expect(files.contains("onSelect: onSelectHeading, onEscape: onReturnKeys)"),
                 "Esc in a note's outline does not hand the keys back")
-        let outline = try Self.source("EditorRailOutlineList.swift")
+        let outline = try SourceText.fileExplorer("EditorRailOutlineList.swift")
         #expect(Self.escape(in: outline).contains("onEscape()"), "the outline list does not take Esc")
-        let pdf = try Self.source("EditorPDFRailViews.swift")
+        let pdf = try SourceText.fileExplorer("EditorPDFRailViews.swift")
         #expect(pdf.contains("onEscape: { view.requestFocus() })"), "Esc in a PDF's outline does not go to the pages")
         #expect(Self.escape(in: pdf).contains(
                     "if tools.selection.pages.isEmpty { view.requestFocus() } else { tools.clearSelection() }"),
@@ -40,7 +38,7 @@ import Foundation
     /// window, where the undo anchor takes the keys in read-only Preview. Offered only with a
     /// document open; on the empty page Esc is left alone.
     @Test func theWorkspaceGivesTheKeysToWhatIsOpen() throws {
-        let workspace = try Self.source("EditorWorkspaceView.swift")
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         #expect(workspace.contains("onReturnKeys: railReturnKeys,"))
         #expect(workspace.contains("guard pdf != nil || document.path != nil else { return nil }"))
         let door = try #require(workspace.range(of: "private func returnKeysToDocument() {"))
@@ -55,7 +53,7 @@ import Foundation
     /// Space previews the cursor's row through the row menu's own Quick Look, the host's one panel,
     /// which closes when asked for the file it shows. A chord is left alone.
     @Test func spaceQuickLooksTheCursorsRow() throws {
-        let files = try Self.source("EditorFileRailView.swift")
+        let files = try SourceText.fileExplorer("EditorFileRailView.swift")
         let space = try #require(files.range(of: ".onKeyPress(keys: [.space], phases: .down) { press in"),
                                  "Space is not handled in the Files list")
         let body = files[space.upperBound...].prefix(300)
@@ -80,9 +78,9 @@ import Foundation
                 == "“Plan for the long weekend.md” — right-click to reveal, get info or rename")
         let order = ["Reveal in Browse", "Get Info", "Rename"].map { EditorRailRowMenuTests.six.firstIndex(of: $0) ?? -1 }
         #expect(order == order.sorted() && !order.contains(-1), "the tooltip's verbs are not in the menu's order")
-        #expect(try Self.source("EditorWorkspaceView.swift")
+        #expect(try SourceText.fileExplorer("EditorWorkspaceView.swift")
             .contains(".help(document.path == nil ? \"\" : EditorRailRowMenu.nameTooltip(document.name))"))
-        #expect(try Self.source("EditorPDFCard.swift")
+        #expect(try SourceText.fileExplorer("EditorPDFCard.swift")
             .contains(".help(pdf.path == nil ? \"\" : EditorRailRowMenu.nameTooltip(pdf.name))"))
     }
 
@@ -109,7 +107,7 @@ import Foundation
 
     /// The list asks the rule whenever the current row changes, and scrolls as the Pages tab does.
     @Test func theOutlineListAsksTheRuleAsTheReaderMoves() throws {
-        let list = try Self.source("EditorRailOutlineList.swift")
+        let list = try SourceText.fileExplorer("EditorRailOutlineList.swift")
         let change = try #require(list.range(of: ".onChange(of: currentIndex) { _, _ in"))
         let body = list[change.upperBound...].prefix(500)
         #expect(body.contains("EditorOutlineScroll.followTarget(current: currentRow, top: topRow,"))
@@ -120,7 +118,7 @@ import Foundation
 
     /// The workspace takes the host's door when it has one, and the status line's item uses it.
     @Test func showOutlineUsesTheHostsDoor() throws {
-        let workspace = try Self.source("EditorWorkspaceView.swift")
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         #expect(workspace.contains("onShowRailOutline: onShowRailOutline ?? { railTab = .outline })"))
     }
 
@@ -128,7 +126,7 @@ import Foundation
 
     @Test func aDoubleClickPutsTheDividerBackInTheMiddle() throws {
         #expect(EditorLayoutMetrics.splitStart == 0.5)
-        let workspace = try Self.source("EditorWorkspaceView.swift")
+        let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         let handle = try #require(workspace.range(of: "private func splitHandle(width: CGFloat) -> some View {"))
         let body = workspace[handle.upperBound...].prefix(2_500)
         #expect(body.contains(".simultaneously(with: TapGesture(count: 2).onEnded {"))
@@ -176,11 +174,11 @@ import Foundation
 
     @Test func theFolderMenuOffersShowAllWithTheTotal() throws {
         #expect(EditorFolderTrail.showAllTitle(count: 52) == "Show All 52 in the File Pane")
-        let menu = try Self.source("EditorRailFolderMenu.swift")
+        let menu = try SourceText.fileExplorer("EditorRailFolderMenu.swift")
         #expect(menu.contains("if trail.subfolders.count > EditorFolderTrail.subfolderCap, let onShowAll {"))
         #expect(menu.contains("Button(EditorFolderTrail.showAllTitle(count: trail.subfolders.count), action: onShowAll)"))
         #expect(!menu.contains("open the file pane to see them all"))
-        #expect(try Self.source("EditorFileRailView.swift").contains("onGoTo: onGoToFolder, onShowAll: onOpenFilePane)"))
-        #expect(try Self.source("EditorWorkspaceView.swift").contains("onOpenFilePane: onOpenFilePane,"))
+        #expect(try SourceText.fileExplorer("EditorFileRailView.swift").contains("onGoTo: onGoToFolder, onShowAll: onOpenFilePane)"))
+        #expect(try SourceText.fileExplorer("EditorWorkspaceView.swift").contains("onOpenFilePane: onOpenFilePane,"))
     }
 }

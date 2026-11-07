@@ -25,6 +25,7 @@ import Sync
         fresh()
         #expect(RiskyNameBadgeCache.reason(name: "Q3: final.pdf", isDirectory: false, provider: .oneDrive) != nil)
         #expect(RiskyNameBadgeCache.reason(name: "Q3 final.pdf", isDirectory: false, provider: .oneDrive) == nil)
+        #expect(RiskyNameBadgeCache.reason(name: "Q3 final.pdf", isDirectory: false, provider: .iCloud) == nil)
     }
 
     /// A zero-width character is invisible, so the badge is the only thing that can report it.
@@ -140,27 +141,8 @@ import Sync
 
     /// A delegate that hasn't opted in (every test double, and any pane with no provider context)
     /// reports nothing, so no surface badges by accident.
-    private struct BareDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     @Test func theDefaultDelegateBadgesNothing() {
-        let delegate: FileActionDelegate = BareDelegate()
+        let delegate: FileActionDelegate = NoOpFileActionDelegate()
         #expect(delegate.riskyNameReason(forName: "Q3: final.pdf", isDirectory: false) == nil)
         #expect(delegate.isKeptName("Q3: final.pdf") == false)
     }
@@ -199,26 +181,12 @@ import Sync
 @MainActor
 @Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct DifferencesRiskyNameRulesTests {
 
+    /// A mixed pair keeps both rulesets: the case the type exists for is a name iCloud stores and
+    /// OneDrive rejects (`Q3: final.pdf`, pinned per provider above), which checking only the left
+    /// would leave unflagged on its way to the side that can't store it.
     @Test func distinctCollapsesAMatchedPairAndKeepsAMixedOne() {
         #expect(PaneProviderRules(left: .iCloud, right: .iCloud).distinct == [.iCloud])
         #expect(PaneProviderRules(left: .iCloud, right: .oneDrive).distinct == [.iCloud, .oneDrive])
-    }
-
-    /// The case the type exists for: a name iCloud stores and OneDrive rejects, on a row spanning
-    /// both. Checking only the left would leave it unflagged on its way to the side that can't
-    /// store it.
-    @Test func aNameOnlyOneSideRejectsIsStillFlagged() {
-        RiskyNameBadgeCache.resetForTesting()
-        let rules = PaneProviderRules(left: .iCloud, right: .oneDrive)
-        let flagged = rules.distinct.contains {
-            RiskyNameBadgeCache.reason(name: "Q3: final.pdf", isDirectory: false, provider: $0) != nil
-        }
-        #expect(flagged)
-        // And a name neither side objects to stays clean, so the union is not simply "always yes".
-        let clean = rules.distinct.contains {
-            RiskyNameBadgeCache.reason(name: "Q3 final.pdf", isDirectory: false, provider: $0) != nil
-        }
-        #expect(clean == false)
     }
 
     /// The fallback for an unresolved provider is the strictest ruleset, so a pane whose provider

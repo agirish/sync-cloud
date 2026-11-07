@@ -96,10 +96,10 @@ import Foundation
     /// `Text` in a header no test can read back. `LensHeaderReadoutTests` covers the rows half by
     /// render; this is the denominator half.
     @Test func theBacklogReadoutUsesTheFoldedTotal() throws {
-        let body = try OrganizeScopeCallSiteTests.body(
+        let body = try SourceText.body(
             of: "private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {",
-            in: try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift"))
-        let code = OrganizeScopeCallSiteTests.codeOnly(body)
+            in: try SourceText.fileExplorer("LensWorkspaceView.swift"))
+        let code = SourceText.codeOnly(body)
         #expect(code.contains("ofMLabel(rows.renames.count + rows.risky.count, counts[.renames])"),
                 "the backlog's readout is not counting the folded list at both ends")
         #expect(!code.contains("counts.renames"),

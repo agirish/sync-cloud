@@ -2227,7 +2227,7 @@ struct DifferenceSectionHeader: View {
     /// Vertical padding inside the tap target, above and below the label row.
     ///
     /// It makes the header easy to hit and, since a collapsed table is all headers, sets the
-    /// collapsed summary's rhythm. `sectionHeaderIsAComfortableClickTarget` pins the laid-out
+    /// collapsed summary's rhythm. `theHeaderClearsItsOwnTextByBothPaddings` pins the laid-out
     /// height, not this constant.
     ///
     /// 2 is the largest padding that reaches SwiftUI's 28pt floor for a section header row; the
@@ -2330,8 +2330,8 @@ struct DifferenceSectionHeader: View {
 /// Path column; the full relative path is on the hover help.
 ///
 /// `compact` sets subheadline via `compactCellFont`, since the Table doesn't pass an ambient
-/// `.font` into its cells (see Design's `listDensity(_:)`). Internal, not file-private, so
-/// `FileExplorerSnapshotTests` can render it, as for `DifferenceSectionHeader`.
+/// `.font` into its cells (see Design's `listDensity(_:)`). Internal, not file-private, so tests
+/// can render it.
 struct DifferenceNameCell: View {
     let difference: FileDifference
     var compact: Bool = false
@@ -2452,8 +2452,6 @@ private struct ReviewStatusCell: View {
 /// root-level row, "Home/Legal" for a nested one (`DifferencesQuery.pathColumnText`), so even a
 /// root-level file shows its location. Middle-truncated, so the anchor and nearest parent
 /// survive a squeeze.
-///
-/// Internal rather than file-private so `FileExplorerSnapshotTests` can render it directly.
 struct DifferencePathCell: View {
     let difference: FileDifference
     var compact: Bool = false

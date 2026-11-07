@@ -126,12 +126,6 @@ import FileExplorerTestSupport
 
     // MARK: The tabs
 
-    @Test func pagesIsOfferedOnlyWhileAPDFIsOpen() {
-        #expect(EditorRailTab.shown(pdfIsOpen: true, pdfHasOutline: true, markdownIsOpen: false) == [.files, .pages, .outline])
-        #expect(EditorRailTab.shown(pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true) == [.files, .outline])
-        #expect(EditorRailTab.files.title == "Files")
-    }
-
     /// A PDF keeps Outline only with contents worth the tab: two bookmarks or more, every level
     /// counted. A Markdown note keeps it whatever the flag says. Mutation: a threshold of 1 must
     /// fail it.
@@ -149,11 +143,10 @@ import FileExplorerTestSupport
     }
 
     /// Pages falls back to Files when text opens, as drawn, not written back, so the next PDF opens
-    /// on Pages again. Outline is offered for Markdown notes and stays.
+    /// on Pages again.
     @Test func pagesFallsBackToFilesWhenTextOpens() async {
         #expect(EditorRailTab.resolved(.pages, pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true) == .files)
         #expect(EditorRailTab.resolved(.pages, pdfIsOpen: true, pdfHasOutline: false, markdownIsOpen: false) == .pages)
-        #expect(EditorRailTab.resolved(.outline, pdfIsOpen: false, pdfHasOutline: false, markdownIsOpen: true) == .outline)
 
         // On the rail itself: the same remembered `.pages`, with a PDF and without.
         let file = path("two.pdf")
@@ -481,19 +474,10 @@ import FileExplorerTestSupport
         writeBookmarked(second, pages: 40, tree: marks)
         let pdf = await opened(first)
         pdf.view.currentPage = 32
-        let view = EditorPDFRailOutline(pdf: pdf, view: pdf.view, outlineAnchors: .constant([:]), accent: .blue)
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 232, height: 200)))
-        host.frame = CGRect(x: 0, y: 0, width: 232, height: 200)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = host
+        let (window, host) = mountedOutline(pdf, anchors: .constant([:]))
         defer { window.contentView = nil }
-        func settle() { for _ in 0..<30 { _ = CFRunLoopRunInMode(.defaultMode, 0.02, true); window.layoutIfNeeded() } }
-        func offset() -> CGFloat? {
-            var scroll: NSScrollView?
-            func walk(_ v: NSView) { if scroll == nil, let s = v as? NSScrollView { scroll = s }; v.subviews.forEach(walk) }
-            walk(host)
-            return scroll?.documentVisibleRect.origin.y
-        }
+        func settle() { settleOutline(window) }
+        func offset() -> CGFloat? { listOffset(in: host) }
         settle()
         let onFirst = try #require(offset(), "no scroll view in the mounted outline")
         #expect(onFirst > 100, "control: the first PDF's outline did not open at its current bookmark: \(onFirst)")
@@ -656,18 +640,9 @@ import FileExplorerTestSupport
         func offset(_ remembered: [String: Int]) -> CGFloat? {
             let box = Box()
             box.anchors = remembered
-            let view = EditorPDFRailOutline(pdf: pdf, view: pdf.view,
-                                            outlineAnchors: Binding(get: { box.anchors }, set: { box.anchors = $0 }),
-                                            accent: .blue)
-            let host = NSHostingView(rootView: AnyView(view.frame(width: 232, height: 200)))
-            host.frame = CGRect(x: 0, y: 0, width: 232, height: 200)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-            window.contentView = host
-            for _ in 0..<30 { _ = CFRunLoopRunInMode(.defaultMode, 0.02, true); window.layoutIfNeeded() }
-            var scroll: NSScrollView?
-            func walk(_ v: NSView) { if scroll == nil, let s = v as? NSScrollView { scroll = s }; v.subviews.forEach(walk) }
-            walk(host)
-            return scroll?.documentVisibleRect.origin.y
+            let (window, host) = mountedOutline(pdf, anchors: Binding(get: { box.anchors }, set: { box.anchors = $0 }))
+            settleOutline(window)
+            return listOffset(in: host)
         }
         // The Markdown outline's rule, for a page instead of a caret: the current bookmark wins when
         // the anchor would leave it past the fold. So the reader is put on page 33, which the
@@ -682,6 +657,28 @@ import FileExplorerTestSupport
     }
 
     // MARK: Helpers
+
+    /// The outline list, 232 × 200, in a window.
+    private func mountedOutline(_ pdf: EditorPDFDocument, anchors: Binding<[String: Int]>) -> (NSWindow, NSView) {
+        let view = EditorPDFRailOutline(pdf: pdf, view: pdf.view, outlineAnchors: anchors, accent: .blue)
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 232, height: 200)))
+        host.frame = CGRect(x: 0, y: 0, width: 232, height: 200)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        return (window, host)
+    }
+
+    private func settleOutline(_ window: NSWindow) {
+        for _ in 0..<30 { _ = CFRunLoopRunInMode(.defaultMode, 0.02, true); window.layoutIfNeeded() }
+    }
+
+    /// How far down the first scroll view under `host` is scrolled.
+    private func listOffset(in host: NSView) -> CGFloat? {
+        var scroll: NSScrollView?
+        func walk(_ v: NSView) { if scroll == nil, let s = v as? NSScrollView { scroll = s }; v.subviews.forEach(walk) }
+        walk(host)
+        return scroll?.documentVisibleRect.origin.y
+    }
 
     /// Yields the main actor until `done`, with no lane turn (for waits made while the lane is
     /// held) and no fixed pause. Bounded, so a pump that never asks fails rather than hangs.

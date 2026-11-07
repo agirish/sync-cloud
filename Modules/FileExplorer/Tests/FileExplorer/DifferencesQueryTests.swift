@@ -318,13 +318,9 @@ import Sync
     /// The call site: the header's Copy/Move sends exactly `transferItems`, the set its count
     /// describes — not its own filter over `targets`.
     @Test func testTheHeaderCopySendsTransferItems() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let start = try #require(source.range(of: "private func copy(direction: FileDifference.SyncAction, targets: DifferenceActionTargets)"),
-                                 "the header's copy was renamed — this scan is measuring nothing")
-        let body = source[start.upperBound...].prefix(400)
+        let source = try SourceText.fileExplorer("DifferencesView.swift")
+        let body = try SourceText.block(
+            opening: "private func copy(direction: FileDifference.SyncAction, targets: DifferenceActionTargets)", in: source)
         #expect(body.contains("items: targets.transferItems(direction)"))
     }
 
@@ -355,20 +351,6 @@ import Sync
         #expect(DifferencesShortcutRules.transferItems(rows: [guess, plain], selection: [guess.id],
                                                         direction: .copyToRight).map(\.relativePath) == ["guess.txt"],
                 "a held row the user selected alone and asked to copy was refused")
-    }
-
-    /// The call site: the bulk menu's labels count with the rule its actions send, so "Copy 3"
-    /// cannot sit over a run that copies two.
-    @Test func testTheBulkMenuCountsWhatItsActionsSend() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let start = try #require(source.range(of: "private func bulkMenu("),
-                                 "bulkMenu was renamed — this scan is measuring nothing")
-        let body = source[start.upperBound...].prefix(600)
-        #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToRight)"))
-        #expect(body.contains("let toLeft = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToLeft)"))
     }
 
     /// The header names the rows it won't copy, so "Copy 3 →" over five rows says why two are
@@ -415,13 +397,8 @@ import Sync
     /// `syncAll` (it leaves them out and names them) and takes `syncFile` only when none are in
     /// hand; and the header draws the readout from the string the ladder priced.
     @Test func testEveryRunIsHandedItsHeldRowsAndTheHeaderSaysHowMany() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/DifferencesView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DifferencesView.swift — every check below would be vacuous")
-        let run = try #require(source.range(of: "private func runCopyOrMove(")
-            .map { String(source[$0.lowerBound...].prefix(900)) }, "runCopyOrMove was renamed — this scan measures nothing")
+        let source = try SourceText.fileExplorer("DifferencesView.swift")
+        let run = try SourceText.block(opening: "private func runCopyOrMove(", in: source)
         #expect(run.contains("if items.count == 1, held.isEmpty, let single = items.first {"),
                 "one item with held rows in hand goes to syncFile, which never mentions them")
         #expect(run.contains("subset: items + held"), "the run no longer hands syncAll the held rows")

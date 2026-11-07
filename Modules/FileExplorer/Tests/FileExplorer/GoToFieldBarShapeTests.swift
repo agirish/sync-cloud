@@ -17,26 +17,13 @@ import Foundation
 /// entirely. The message names the symptom so whoever trips it knows what they are looking at.
 @Suite struct GoToFieldBarShapeTests {
 
-    private func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)              // …/Tests/FileExplorer/<this>.swift
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/GoToFieldBar.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read GoToFieldBar.swift — the check below would be vacuous")
-        try #require(text.count > 500, "GoToFieldBar.swift is implausibly short")
-        return text
-    }
+    private func source() throws -> String { try SourceText.fileExplorer("GoToFieldBar.swift") }
 
     @Test func theItemsContentHasOneRootViewInBothStates() throws {
-        let text = try source()
-        let body = try #require(text.range(of: "public var body: some View {"))
         // Comments stripped first: the explanation of this rule sits inside `body` and is long
         // enough to push the code out of any fixed window, and a scan that reads the comment and
         // not the code passes on a broken file.
-        let head = text[body.upperBound...].prefix(2000)
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let head = try SourceText.body(of: "public var body: some View {", in: try source())
         // The first view constructed in `body` must be a container, not the `switch` itself.
         let switchIndex = try #require(head.range(of: "switch mode"))
         let containerIndex = try #require(head.range(of: "HStack"),
@@ -55,9 +42,7 @@ import Foundation
     /// (`theAnchorKeepsLookingAcrossRunloopTurnsRatherThanSpendingEveryRetryAtOnce` in
     /// `CommandPalettePanelTests`), so the rule is pinned once for real and once by spelling.
     @Test func theCaretClaimRetriesOnADelayRatherThanInTheSameRunloopTurn() throws {
-        let text = try source()
-        let claim = try #require(text.range(of: "private func claimFocus("))
-        let body = String(text[claim.upperBound...].prefix(900))
+        let body = try SourceText.body(of: "private func claimFocus(", in: try source())
         #expect(!body.contains("DispatchQueue.main.async {"),
                 "the caret claim retries with a bare `async` — every attempt runs in one runloop turn, before the field is mounted, and \u{2318}K opens a field with no caret")
         #expect(body.contains("DispatchQueue.main.asyncAfter("),

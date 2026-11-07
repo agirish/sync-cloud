@@ -76,14 +76,6 @@ import PDFKit
         }
     }
 
-    /// Vector text, not a picture of it. A rasterised render still looks right in a viewer but is
-    /// unsearchable, unselectable and soft at any zoom, and PDFKit extracts nothing from it.
-    @Test func thePageCarriesSelectableTextRatherThanAnImage() throws {
-        let document = try render("# Heading\n\nSome ordinary prose.\n")
-        #expect(!allText(document).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                "the page has no extractable text — the render rasterised")
-    }
-
     /// A paragraph too long for one line wraps rather than being truncated to one. A frame set on
     /// the host doesn't constrain `NSHostingView.fittingSize`, so a block measured that way comes
     /// back one line tall and prints ending in an ellipsis. The check reads the paragraph's last
@@ -114,47 +106,33 @@ import PDFKit
 
     // MARK: Pagination, end to end
 
-    /// A document longer than one page becomes several, in order.
-    @Test func aLongDocumentPaginates() throws {
-        let source = (1...60).map { "Paragraph number \($0), which is here to take up room." }
-            .joined(separator: "\n\n")
+    /// A document longer than one page becomes several, in order, with every paragraph printed
+    /// once: a break that skipped content would leave one out, and a block cut in half would be
+    /// extracted from both sides of the break. Checked on a real render, not the paginator's model.
+    @Test func aLongDocumentPaginatesWithEveryBlockOnExactlyOnePage() throws {
+        let markers = (1...60).map { "Paragraph number \($0)," }
+        let source = markers.map { "\($0) which is here to take up room." }.joined(separator: "\n\n")
         let document = try render(source, geometry: Self.small)
         #expect(document.pageCount > 1, "sixty paragraphs fitted on one small page")
         #expect(text(of: document, page: 0).contains("Paragraph number 1,"),
                 "the first page does not start at the start")
-        #expect(allText(document).contains("Paragraph number 60,"),
-                "the last paragraph never made it onto paper")
-    }
-
-    /// No paragraph is on two pages at once, checked on a real render rather than the paginator's
-    /// model: a block cut in half would be extracted from both sides of the break.
-    @Test func noBlockIsSplitAcrossAPageBreak() throws {
-        let source = (1...40).map { "Paragraph number \($0), which is here to take up room." }
-            .joined(separator: "\n\n")
-        let document = try render(source, geometry: Self.small)
+        let printed = allText(document)
+        let missing = markers.filter { !printed.contains($0) }
+        #expect(missing.isEmpty, "these paragraphs never reached the paper: \(missing)")
         var seen: [String: Int] = [:]
         for index in 0..<document.pageCount {
-            for marker in (1...40).map({ "Paragraph number \($0)," }) where
-                text(of: document, page: index).contains(marker) {
-                seen[marker, default: 0] += 1
-            }
+            let page = text(of: document, page: index)
+            for marker in markers where page.contains(marker) { seen[marker, default: 0] += 1 }
         }
         let split = seen.filter { $0.value > 1 }.keys.sorted()
         #expect(split.isEmpty, "these blocks were cut across a page break: \(split)")
     }
 
-    /// Every paragraph is printed: a break that skipped content would leave one out.
-    @Test func everyBlockIsPrintedExactlyOnce() throws {
-        let source = (1...40).map { "Paragraph number \($0), which is here to take up room." }
-            .joined(separator: "\n\n")
-        let printed = allText(try render(source, geometry: Self.small))
-        let missing = (1...40).filter { !printed.contains("Paragraph number \($0),") }
-        #expect(missing.isEmpty, "these paragraphs never reached the paper: \(missing)")
-    }
-
-    /// An empty document is a blank sheet rather than a file nothing will open.
+    /// An empty document, Markdown or plain text, is a blank sheet rather than a file nothing will
+    /// open.
     @Test func anEmptyDocumentIsOneBlankPage() throws {
         #expect(try render("").pageCount == 1)
+        #expect(try render("", isMarkdown: false).pageCount == 1)
     }
 
     // MARK: Plain text
@@ -177,11 +155,6 @@ import PDFKit
         let printed = allText(document)
         #expect(printed.contains("# not a heading"), "the plain-text page was rendered as Markdown")
         #expect(printed.contains("**not bold**"))
-    }
-
-    /// An empty plain-text file is a blank sheet too, by the same argument.
-    @Test func anEmptyPlainTextFileIsOneBlankPage() throws {
-        #expect(try render("", isMarkdown: false).pageCount == 1)
     }
 
     // MARK: Geometry

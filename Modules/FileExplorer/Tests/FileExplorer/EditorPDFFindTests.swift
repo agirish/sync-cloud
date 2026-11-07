@@ -192,18 +192,6 @@ enum PDFTextFixtures {
         #expect(view.pageRequest?.value == 1)
     }
 
-    /// A phrase broken across two lines on a real page is found, as one match on two lines.
-    @Test func aPhraseBrokenAcrossLinesIsFoundOnThePage() async {
-        let file = path("broken.pdf")
-        PDFTextFixtures.write(file, pages: [["The annual", "statement is enclosed."]])
-        let find = find(file, pages: 1)
-        find.show()
-        find.search("annual statement")
-        await wait("the search") { find.phase == .done }
-        #expect(find.matches.count == 1, "the phrase across the break was not found")
-        #expect(find.matches.first?.rects.count == 2, "the match is not drawn on both lines")
-    }
-
     /// A changed query withdraws the turn already queued: held behind the lane, the first search's
     /// page turn comes up after the second has started, and must skip without reading.
     @Test func aChangedQueryWithdrawsItsQueuedPages() async {
@@ -511,7 +499,7 @@ enum PDFTextFixtures {
     }
 
     /// ⌘E on a hidden bar searches once, for the selection, and a selection across lines is put on
-    /// one.
+    /// one. The phrase, broken across two lines on the page, is found as one match on both.
     @Test func useSelectionSearchesOnceAndOnOneLine() async {
         let file = path("lines.pdf")
         PDFTextFixtures.write(file, pages: [["The annual", "statement is enclosed."]])
@@ -522,7 +510,8 @@ enum PDFTextFixtures {
         #expect(find.query == "annual statement")
         #expect(find.searchesStarted == started + 1, "showing the bar searched the old query first")
         await wait("the search") { find.phase == .done }
-        #expect(find.matches.count == 1)
+        #expect(find.matches.count == 1, "the phrase across the break was not found")
+        #expect(find.matches.first?.rects.count == 2, "the match is not drawn on both lines")
     }
 
     /// A PDF whose text can't be read says so, rather than "Not found".
@@ -624,6 +613,21 @@ enum PDFTextFixtures {
         #expect(overlay.needsDisplay, "a page turn left the highlights where the pages were")
     }
 
+    /// `file` in a 700pt-wide reader, `height` tall, one continuous column at 100%, in a window.
+    /// The caller clears the window's content view when done.
+    private func continuousReader(_ file: String, height: CGFloat) throws -> (NSWindow, ReaderPDFView, PDFDocument) {
+        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
+        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: height))
+        reader.displayMode = .singlePageContinuous
+        reader.autoScales = false
+        reader.scaleFactor = 1
+        reader.document = document
+        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = reader
+        reader.layoutDocumentView()
+        return (window, reader, document)
+    }
+
     /// A step to a match on its own page doesn't jump to the page's top first, and a match already
     /// in sight is not scrolled to.
     @Test func showingAMatchDoesNotJumpThePage() throws {
@@ -632,17 +636,8 @@ enum PDFTextFixtures {
         #expect(EditorPDFPageView.goesToPageTop(page: 3, reveal: nil))
         #expect(EditorPDFPageView.goesToPageTop(page: 4, reveal: reveal))
 
-        let file = needles("sight.pdf", pages: 6)
-        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
-        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
-        reader.displayMode = .singlePageContinuous
-        reader.autoScales = false
-        reader.scaleFactor = 1
-        reader.document = document
-        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = reader
+        let (window, reader, document) = try continuousReader(needles("sight.pdf", pages: 6), height: 900)
         defer { window.contentView = nil }
-        reader.layoutDocumentView()
         reader.go(to: try #require(document.page(at: 0)))
         let first = try #require(document.page(at: 0)), last = try #require(document.page(at: 5))
         #expect(EditorPDFPageView.isInSight(CGRect(x: 72, y: 650, width: 100, height: 20), on: first, in: reader))
@@ -662,17 +657,8 @@ enum PDFTextFixtures {
     /// `go(to:on:)` does nothing for a rect already on screen, so relying on it would leave a match
     /// under Fill & Sign's palette at every ⌘G.
     @Test func aMatchUnderThePaletteIsScrolledClearOfIt() throws {
-        let file = needles("palette.pdf", pages: 6)
-        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
-        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
-        reader.displayMode = .singlePageContinuous
-        reader.autoScales = false
-        reader.scaleFactor = 1
-        reader.document = document
-        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = reader
+        let (window, reader, document) = try continuousReader(needles("palette.pdf", pages: 6), height: 900)
         defer { window.contentView = nil }
-        reader.layoutDocumentView()
         let first = try #require(document.page(at: 0))
         reader.go(to: first)
         // A match well inside the view, and a palette-shaped piece over it at the canvas's left.
@@ -708,17 +694,8 @@ enum PDFTextFixtures {
     /// A bookmark's place comes to the top of the view, not its page's top, and out from under a
     /// piece floating there.
     @Test func aBookmarksPlaceComesToTheTop() throws {
-        let file = needles("bookmark.pdf", pages: 6)
-        let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
-        let reader = ReaderPDFView(frame: CGRect(x: 0, y: 0, width: 700, height: 500))
-        reader.displayMode = .singlePageContinuous
-        reader.autoScales = false
-        reader.scaleFactor = 1
-        reader.document = document
-        let window = NSWindow(contentRect: reader.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = reader
+        let (window, reader, document) = try continuousReader(needles("bookmark.pdf", pages: 6), height: 500)
         defer { window.contentView = nil }
-        reader.layoutDocumentView()
         reader.go(to: try #require(document.page(at: 0)))
         let third = try #require(document.page(at: 2))
         let heading = CGPoint(x: 72, y: 300)

@@ -13,21 +13,12 @@ import Foundation
 /// Its own file, like `TrashFallbackWiringTests`, so it isn't lost inside an unrelated suite.
 @Suite struct CompareRasterTokenScanTests {
 
-    private func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/CompareCopiesSheet.swift")
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read CompareCopiesSheet.swift — this check is vacuous")
-    }
+    private func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }
 
     @Test func theOneClearerRotatesTheTokenBeforeItClears() throws {
         let source = try source()
-        // The positive control for the read: a rename fails loudly rather than passing.
-        let start = try #require(source.range(of: "private func clearRasters() {"),
-                                 "`clearRasters` is gone or renamed — re-aim this scan")
-        let end = try #require(source.range(of: "\n    }\n", range: start.upperBound..<source.endIndex))
-        let body = String(source[start.upperBound..<end.lowerBound])
+        // A rename fails loudly rather than passing.
+        let body = try SourceText.body(of: "private func clearRasters() {", in: source)
 
         let rotate = try #require(body.range(of: "rasterToken = UUID()"), """
                 `clearRasters` drops the rasters without rotating `rasterToken`, so a render \

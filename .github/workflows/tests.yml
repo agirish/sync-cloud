@@ -5,14 +5,14 @@
 # verdict on the machine that recorded them are marked at the declaration with
 # `.machinePinned(_:)` and a reason, and SYNCCLOUD_SKIP_MACHINE_PINNED below
 # selects which reasons to exclude. Four reasons exist: `referenceImages`
-# (compares against PNGs recorded on one Mac; see "Image snapshots" in
-# docs/ci.md), `pixelSampling` (reads
-# painted pixels out of a live renderer), `calibratedTiming` (the
-# click-cost benchmark's thresholds) and `liveProfile` (reads the developer's
+# (compares against PNGs recorded on one Mac; no suite has used it since
+# 2026-11-06), `pixelSampling` (reads
+# painted pixels out of a live renderer), `calibratedTiming` (latency
+# thresholds tuned on this Mac) and `liveProfile` (reads the developer's
 # live filing profile and real document tree).
 #
 # We exclude `referenceImages` and `liveProfile`, so pixel sampling and the
-# benchmark still run — sound only while the runner IS the recording machine;
+# timing suites still run — sound only while the runner IS the recording machine;
 # see docs/ci.md.
 #
 # `liveProfile` is excluded for a reason worth keeping attached: because the
@@ -38,7 +38,7 @@ on:
   push:
     # Routine pushes to main are tested on GitHub's hosted runners (hosted-ci.yml). This Mac runs
     # the release tags, so cutting v6.2 is verified on the recording machine with its pinned
-    # suites; a nightly run of main, so pixel sampling and the timing benchmark keep a verdict;
+    # suites; a nightly run of main, so pixel sampling and the timing suites keep a verdict;
     # and any run by hand. A maintenance line's push reads that line's own copy of this file.
     tags: ['v*']
   schedule:

@@ -429,10 +429,12 @@ import Foundation
     }
 }
 
-/// A small seeded generator, so a failure names a seed that reproduces it.
-struct SplitMix {
+/// A small seeded generator, so a failure names a seed that reproduces it. SplitMix64;
+/// `TextPairDiffMyersTests`' `SeededGenerator` is this one started at its seed unmixed.
+struct SplitMix: RandomNumberGenerator {
     private var state: UInt64
     init(seed: UInt64) { state = seed &* 0x9E37_79B9_7F4A_7C15 }
+    init(state: UInt64) { self.state = state }
 
     mutating func next() -> UInt64 {
         state &+= 0x9E37_79B9_7F4A_7C15

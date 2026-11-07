@@ -651,9 +651,8 @@ private actor AsyncGate {
     }
 }
 
-/// A cost assertion, machine-pinned for the same reason as `ColumnClickCostBenchmark`: the bar is
-/// a ratio between two calls in one run, so it scales with the machine, but it is still a latency
-/// claim. The empty-verdicts early-out must come before the taxonomy overload's full walk of the
+/// A cost assertion, machine-pinned (`calibratedTiming`): the bar is a ratio between two calls in
+/// one run, so it scales with the machine, but it is still a latency claim. The empty-verdicts early-out must come before the taxonomy overload's full walk of the
 /// provider; skipping it changes only the cost, which only a clock can see.
 @Suite(.machinePinned(.calibratedTiming)) struct FilingApplyVerdictsCostTests {
 

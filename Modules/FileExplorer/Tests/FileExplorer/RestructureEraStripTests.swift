@@ -180,11 +180,7 @@ import Testing
 
     /// The rule is one revert away from being unused, so the strip's call is pinned.
     @Test func theStripActuallyAsksForThoseWidths() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
         #expect(text.contains("widths: Self.eraSegmentWidths(segments, available: geo.size.width)"))
         // And that they reach a frame: pinning only the call leaves `.frame(maxWidth: .infinity)`
         // free to ignore them.

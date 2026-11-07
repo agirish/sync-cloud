@@ -37,16 +37,7 @@ import FileExplorerTestSupport
     private func open(pages: Int) async throws -> EditorPDFDocument {
         let file = (folder as NSString).appendingPathComponent("r.pdf")
         PDFFixtures.write(file, pages: pages)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        var phases: [EditorPDFDocument.Phase] = []
-        pdf.onLoaded = { phases.append($0) }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where phases.isEmpty {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(phases.first == .open)
-        return pdf
+        return try await PDFFixtures.openedWhenLoaded(file, defaults: defaults)
     }
 
     private func width<V: View>(_ view: V, scale: CGFloat) -> CGFloat {

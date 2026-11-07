@@ -7,16 +7,6 @@ import cmark_gfm
 /// where the paste stays a plain paste is here as much as the ones where it doesn't.
 struct MarkdownPasteEditsTests {
 
-    /// `"See «the long-ferment version» for"` → the buffer and the selection.
-    private func selecting(_ marked: String) -> (text: String, selection: NSRange) {
-        let ns = marked as NSString
-        let open = ns.range(of: "«")
-        let without = ns.replacingCharacters(in: open, with: "") as NSString
-        let close = without.range(of: "»")
-        return (without.replacingCharacters(in: close, with: ""),
-                NSRange(location: open.location, length: close.location - open.location))
-    }
-
     private func paste(_ pasted: String, over marked: String) -> (String, NSRange)? {
         let (text, selection) = selecting(marked)
         return MarkdownPasteEdits.linkPaste(pasted, over: selection, in: text).map {
@@ -295,12 +285,6 @@ struct MarkdownPasteEditsTests {
     }
 
     // MARK: - TE56: where the image's line goes
-
-    private func caret(_ marked: String) -> (text: String, range: NSRange) {
-        let ns = marked as NSString
-        let at = ns.range(of: "|")
-        return (ns.replacingCharacters(in: at, with: ""), NSRange(location: at.location, length: 0))
-    }
 
     private func image(_ marked: String, _ links: [String] = ["Images/Pasta-1.jpg"]) -> (String, NSRange)? {
         let (text, range) = caret(marked)

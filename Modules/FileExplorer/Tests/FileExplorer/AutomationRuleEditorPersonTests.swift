@@ -55,32 +55,17 @@ import Sync
 
     // MARK: The picker can never be blank
 
-    /// A person row keeps its own type in the picker with no roster. Reachable: the call sites
-    /// pass `syncManager.filingPeopleStore?.people ?? []`, so a person rule opens with an empty
-    /// roster until the store loads, and without the "plus the row's current type" clause the
-    /// picker would match no tag and draw nothing. Checked against the populated case too.
-    @Test func aPersonRowKeepsItsTypeInThePickerWithNoRoster() {
-        let row = AutomationCondition.personIs("daughter")
-        #expect(AutomationRuleEditor.pickerTypes(for: row, hasPeople: true).contains(.personIs),
-                "a person row cannot show its own type even with a roster — the harness is wrong")
-        #expect(AutomationRuleEditor.pickerTypes(for: row, hasPeople: false).contains(.personIs),
-                "with no roster a saved person row's kind picker matches no tag and renders blank")
-    }
-
-    /// The same clause for the case it was written for: a condition from a newer build.
-    @Test func anAlienRowKeepsItsTypeInThePicker() {
-        let alien = AutomationCondition.unrecognized(name: "colourIs", payload: Data("{}".utf8))
-        let types = AutomationRuleEditor.pickerTypes(for: alien, hasPeople: true)
-        #expect(types.contains(.unrecognized),
-                "an alien row's picker matches no tag and renders blank, reading as broken rather than as unreadable")
-        #expect(!ConditionType.addable(hasPeople: true).contains(.unrecognized),
-                "the clause under test is inert — `unrecognized` is addable, so it would be in the list anyway")
-    }
-
     /// The current type is added, not duplicated: `ForEach` over `ConditionType` is keyed on the
     /// case, so a type listed twice is a duplicate SwiftUI id, and every ordinary row goes through
-    /// this clause.
+    /// this clause. Added at all, so the picker is never blank: a person rule opens with an empty
+    /// roster until the store loads, and a newer build's condition is never addable.
     @Test func thePickerNeverOffersATypeTwice() {
+        // Literal types, since the loop's check goes through the `ConditionType(_:)` mapping.
+        #expect(AutomationRuleEditor.pickerTypes(for: .personIs("daughter"), hasPeople: false).contains(.personIs),
+                "with no roster a saved person row's kind picker matches no tag and renders blank")
+        #expect(AutomationRuleEditor.pickerTypes(for: .unrecognized(name: "x", payload: Data()), hasPeople: true)
+                    .contains(.unrecognized),
+                "an alien row's picker matches no tag and renders blank, reading as broken rather than as unreadable")
         for condition: AutomationCondition in [.personIs("daughter"), .kindIs(.pdf),
                                                .nameMatches("*.pdf"),
                                                .unrecognized(name: "x", payload: Data())] {

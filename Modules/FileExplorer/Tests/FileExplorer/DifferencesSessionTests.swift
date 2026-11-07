@@ -29,61 +29,23 @@ import Testing
         #expect(session.searchText.isEmpty && !session.isSearchExpanded && session.collapsedSections.isEmpty)
     }
 
-    @Test func aSessionKeepsTheTablesNarrowing() {
+    /// What Compare opens on before anyone narrows it, and what it forgot on every workspace switch
+    /// before the session held it.
+    @Test func aFreshSessionHasTheDefaults() {
         let session = DifferencesSession()
-        session.selectedFilter = .missingOnRight
-        session.searchText = "invoice"
-        session.isSearchExpanded = true
-        session.showItemCounts = true
-        session.sortOrder = [KeyPathComparator(\FileDifference.fileName,
-                                               comparator: .localizedStandard, order: .reverse)]
-
-        #expect(session.selectedFilter == .missingOnRight)
-        #expect(session.searchText == "invoice")
-        #expect(session.isSearchExpanded)
-        #expect(session.showItemCounts)
-        #expect(session.sortOrder.first?.order == .reverse)
-    }
-
-    // MARK: The folds, and the scan they describe
-
-    /// The rule the arrival guard implements: folds are kept while the comparison they describe is
-    /// on screen, and dropped once it is not. Checked against the stored scan date, because a
-    /// rendered table can't be asked whether its folds belong to this scan.
-    @Test func foldsAreKeptForTheirOwnScanAndDroppedForAnyOther() {
-        let firstScan = Date(timeIntervalSince1970: 1_000)
-        let session = DifferencesSession()
-        session.collapsedSections = ["Documents", "Photos"]
-        session.collapsedSectionsScanDate = firstScan
-
-        // Coming back to the same comparison: the folds are still about these rows.
-        #expect(session.collapsedSectionsScanDate == firstScan)
-        #expect(session.collapsedSections.count == 2)
-
-        // A rescan while Compare was off screen: the stored date no longer matches, which is the
-        // signal the arrival guard reads.
-        let secondScan = Date(timeIntervalSince1970: 2_000)
-        #expect(session.collapsedSectionsScanDate != secondScan,
-                "a new comparison was mistaken for the one the folds belong to")
-    }
-
-    /// A session that has never seen a scan does not claim to match one. At launch `nil !=
-    /// someDate`, so the first arrival drops an empty set, which costs nothing.
-    @Test func aFreshSessionMatchesNoScan() {
-        #expect(DifferencesSession().collapsedSectionsScanDate == nil)
+        #expect(session.selectedFilter == .all)
+        #expect(session.searchText.isEmpty && !session.isSearchExpanded)
+        #expect(session.sortOrder.count == 1 && session.sortOrder.first?.keyPath == \FileDifference.fileName
+                && session.sortOrder.first?.order == .forward)
+        #expect(!session.showItemCounts)
+        // Nil, so the first arrival drops an empty fold set rather than claiming to match a scan.
+        #expect(session.collapsedSections.isEmpty && session.collapsedSectionsScanDate == nil)
+        #expect(session.requestedSelection == nil)
     }
 
     // MARK: The guards, which nothing rendered would notice going missing
 
-    private static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/\(file)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(file) — every scan here would be vacuous")
-        try #require(text.count > 500, "\(file) read as \(text.count) characters — truncated?")
-        return text
-    }
+    private static func source(_ file: String) throws -> String { try SourceText.fileExplorer(file) }
 
     /// The folds' retirement runs on arrival, not only on a change. Without `initial: true` the
     /// handler fires only when the scan date moves while Compare is on screen, and folds would

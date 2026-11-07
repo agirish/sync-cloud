@@ -13,16 +13,7 @@ import Testing
 /// `ComparePairViewingTests` owns the drivable behaviour: the observers, the latch, the page turn.
 @Suite struct CompareCopiesStaleWriteTests {
 
-    private static let sheet = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()   // …/Tests/FileExplorer
-        .deletingLastPathComponent()   // …/Tests
-        .deletingLastPathComponent()   // …/FileExplorer
-        .appendingPathComponent("Sources/FileExplorer/CompareCopiesSheet.swift")
-
-    private static func source() throws -> String {
-        try #require(try? String(contentsOf: sheet, encoding: .utf8),
-                     "cannot read \(sheet.path) — every check below would be vacuous")
-    }
+    private static func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }
 
     /// The three async paths, each named by the state it writes.
     @Test(arguments: ["rasterToken", "verifyToken", "textDiffToken"])
@@ -32,16 +23,6 @@ import Testing
                 "\(token) is never taken before the hop — nothing to compare afterwards")
         #expect(text.contains("guard \(token) == token"),
                 "\(token) is never re-read after the hop — a superseded result still lands")
-    }
-
-    /// The positive control: without it, renaming the async writers would leave the suite
-    /// guarding code that no longer exists.
-    @Test func theSurfaceStillHasThreeAsyncWriters() throws {
-        let text = try Self.source()
-        for anchor in ["private func refreshRasters", "private func runVerify",
-                       "private func refreshTextDiff"] {
-            #expect(text.contains(anchor), "\(anchor) is gone — this suite is guarding nothing")
-        }
     }
 
     /// The reset for a new pair clears the diff too: the guard stops a stale write, this stops a
@@ -87,5 +68,11 @@ import Testing
                 "the block reaches into refreshTextDiff, whose own clears would satisfy every check")
         #expect(!reset.contains("private func runVerify"),
                 "the block reaches into runVerify, whose own token take would satisfy every check")
+        // The positive control for those absences, and for the suite: renaming the async writers
+        // would leave it guarding code that no longer exists.
+        for anchor in ["private func refreshRasters", "private func runVerify",
+                       "private func refreshTextDiff"] {
+            #expect(text.contains(anchor), "\(anchor) is gone — this suite is guarding nothing")
+        }
     }
 }

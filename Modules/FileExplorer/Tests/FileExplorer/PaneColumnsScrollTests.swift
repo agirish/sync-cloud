@@ -20,25 +20,6 @@ import Sync
 @MainActor
 @Suite struct PaneColumnsScrollTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
@@ -70,7 +51,7 @@ import Sync
                 childrenIndex: index, treeRoot: PaneColumnsScrollTests.root,
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
@@ -95,16 +76,6 @@ import Sync
         window.layoutIfNeeded()
     }
 
-    private func scrollViews(_ view: NSView) -> [NSScrollView] {
-        var found: [NSScrollView] = []
-        func walk(_ v: NSView) {
-            if let s = v as? NSScrollView { found.append(s) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return found
-    }
-
     /// Mounts the pane with three columns open in a 520pt window: 630pt of content, so the stack
     /// genuinely scrolls. Returns the window (kept alive by the caller), the stack's scroll view
     /// and the columns' lists.
@@ -122,7 +93,7 @@ import Sync
         box.browsePath = PaneBrowsePath(components: ["a2", "b3"])
         await pump(window, seconds: 1.5)
 
-        let all = scrollViews(window.contentView!)
+        let all = PaneRowRevealTests.scrollViews(window.contentView!)
         let stack = try #require(all.first { !($0.documentView is NSTableView) }, "no stack scroll view")
         let columns = all.filter { $0.documentView is NSTableView }
         return (window, stack, columns)
@@ -436,11 +407,6 @@ import Sync
 @MainActor
 @Suite struct PaneColumnsOverscrollReturnCycleTests {
 
-    /// Lets any proposed bounds through, the way the rubber band's in-flight state does.
-    private final class StrandableClipView: NSClipView {
-        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
-    }
-
     /// A 200pt scroll view over 600pt of content, with the watchdog mounted inside the document
     /// view, where the SwiftUI `.background` puts it in the real stack.
     private func mount() -> (window: NSWindow, scroller: NSScrollView, clip: NSClipView) {
@@ -468,30 +434,6 @@ import Sync
         return (window, scroller, clip)
     }
 
-    private func pump(seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-    }
-
-    /// Waits for the watchdog to move the clip, with a floor on passes rather than on seconds. The
-    /// pull home arrives on a main-actor turn, and a congested run has fewer turns per second, so a
-    /// deadline in seconds alone can expire however generous it looks. `LayoutPumpWait.pumpFloor`
-    /// passes are guaranteed however little of the deadline is left.
-    ///
-    /// Returns the pass count with the verdict so the caller can report it: a wait that gave up
-    /// after a handful of passes was starved and says nothing about the code; one that gave up
-    /// after hundreds disproved the condition.
-    ///
-    /// `poll`, not `pump`: nothing here waits on a layout pass, and pumping would disarm the
-    /// runaway-layout guards. See `LayoutPumpWait.poll`.
-    @MainActor
-    private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
-                               timeout: Double = 15) async -> (held: Bool, passes: Int) {
-        await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
-    }
-
     /// Pins the shipped pull duration, which no other test reads. Every mount here injects
     /// `pullDuration = 0` so CoreAnimation starvation can't decide the verdict, so a default
     /// drifting to zero would delete the bounce for real users with the suite still green.
@@ -506,7 +448,7 @@ import Sync
     @Test func testAStrandedClipIsPulledHomeOnceAtRest() async {
         let (window, _, clip) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)  // let the watchdog arm
+        await idle(seconds: 0.3)  // let the watchdog arm
 
         // Stranded past the left edge and displaced vertically, as the lost-phase gesture leaves it.
         clip.setBoundsOrigin(NSPoint(x: -40, y: 12))
@@ -525,7 +467,7 @@ import Sync
     @Test func testAClipStrandedPastTheEndIsPulledToTheEnd() async {
         let (window, _, clip) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
 
         clip.setBoundsOrigin(NSPoint(x: 460, y: 0))  // 400 is the last legal origin
         #expect(clip.bounds.origin.x == 460, "fixture failed to strand the clip")
@@ -551,11 +493,11 @@ import Sync
     @Test func testARestTheGrownViewportMadeIllegalIsPulledBack() async throws {
         let (window, scroller, clip) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
 
         // Resting legally at the far end of a 200pt viewport over 600pt of content.
         clip.setBoundsOrigin(NSPoint(x: 400, y: 0))
-        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
+        await idle(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
         try #require(clip.bounds.origin.x == 400,
                      "the far-end rest was pulled before the viewport ever grew — nothing below measures growth")
 
@@ -589,10 +531,10 @@ import Sync
     @Test func testAnInRangeRestIsNeverTouched() async {
         let (window, _, clip) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
 
         clip.setBoundsOrigin(NSPoint(x: 150, y: 0))
-        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
+        await idle(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
         #expect(clip.bounds.origin == NSPoint(x: 150, y: 0),
                 "the watchdog moved a clip resting inside its legal range")
     }
@@ -604,7 +546,7 @@ import Sync
     @Test(.machinePinned(.layoutMetrics)) func testAFractionalOffsetIsLeftAloneNotCorrectedForever() async throws {
         let (window, _, clip) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
 
         // `setBoundsOrigin` itself pixel-rounds (−0.4 lands as −0.5 on this backing), so the pin is
         // against the value that landed: what matters is that the watchdog never "corrects" it to
@@ -614,7 +556,7 @@ import Sync
         clip.setBoundsOrigin(NSPoint(x: -0.4, y: 0.33))
         let parked = clip.bounds.origin
         #expect(parked != .zero, "fixture failed to park the clip off the mathematical home")
-        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 6)
+        await idle(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 6)
         #expect(clip.bounds.origin == parked,
                 "the watchdog corrected a sub-point offset — the repeating-pull loop is back")
     }
@@ -635,7 +577,7 @@ import Sync
         document.addSubview(watchdog)
         window.contentView?.addSubview(scroller)
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
 
         clip.setBoundsOrigin(NSPoint(x: -60, y: 0))
         #expect(clip.bounds.origin.x == -60, "fixture failed to strand the fitting document")
@@ -672,10 +614,6 @@ import Sync
 @MainActor
 @Suite struct PaneColumnListWatchdogTests {
 
-    private final class StrandableClipView: NSClipView {
-        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
-    }
-
     /// A table-backed scroll view (what a column's List is to the resolver), with the probe mounted
     /// as a frame-matched sibling, as SwiftUI lays out a `.background`.
     private func mount() -> (window: NSWindow, clip: NSClipView, probe: PaneColumnJitterProbe.ProbeView) {
@@ -708,30 +646,6 @@ import Sync
         return (window, clip, probe)
     }
 
-    private func pump(seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-    }
-
-    /// Waits for the watchdog to move the clip, with a floor on passes rather than on seconds. The
-    /// pull home arrives on a main-actor turn, and a congested run has fewer turns per second, so a
-    /// deadline in seconds alone can expire however generous it looks. `LayoutPumpWait.pumpFloor`
-    /// passes are guaranteed however little of the deadline is left.
-    ///
-    /// Returns the pass count with the verdict so the caller can report it: a wait that gave up
-    /// after a handful of passes was starved and says nothing about the code; one that gave up
-    /// after hundreds disproved the condition.
-    ///
-    /// `poll`, not `pump`: nothing here waits on a layout pass, and pumping would disarm the
-    /// runaway-layout guards. See `LayoutPumpWait.poll`.
-    @MainActor
-    private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
-                               timeout: Double = 15) async -> (held: Bool, passes: Int) {
-        await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
-    }
-
     /// Pins the shipped pull duration, which no other test reads. Every mount here injects
     /// `pullDuration = 0` so CoreAnimation starvation can't decide the verdict, so a default
     /// drifting to zero would delete the bounce for real users with the suite still green. Same
@@ -746,7 +660,7 @@ import Sync
     @Test(.machinePinned(.layoutMetrics)) func testAListParkedInTopOverscrollIsPulledHome() async throws {
         let (window, clip, probe) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
         try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
 
         clip.setBoundsOrigin(NSPoint(x: 0, y: -17.5))
@@ -765,7 +679,7 @@ import Sync
     @Test func testAListParkedPastTheBottomIsPulledToTheEnd() async throws {
         let (window, clip, probe) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
         try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
 
         clip.setBoundsOrigin(NSPoint(x: 0, y: 560))  // 500 is the last legal origin
@@ -782,11 +696,11 @@ import Sync
     @Test func testALegallyScrolledRestIsNeverTouchedByTheListWatchdog() async throws {
         let (window, clip, probe) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
         try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
 
         clip.setBoundsOrigin(NSPoint(x: 0, y: 250))
-        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
+        await idle(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
         #expect(clip.bounds.origin == NSPoint(x: 0, y: 250),
                 "the watchdog moved a list resting at a legal scroll position")
     }
@@ -1144,10 +1058,6 @@ import Sync
 @MainActor
 @Suite struct PaneColumnsAxisLockTests {
 
-    private final class StrandableClipView: NSClipView {
-        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
-    }
-
     /// Never lands where the hold puts it: every revert to x comes back at x+0.5, as an animated
     /// SwiftUI scroll moving the clip against the hold would.
     private final class FightingClipView: NSClipView {
@@ -1161,35 +1071,18 @@ import Sync
         }
     }
 
-    private func mount() -> (window: NSWindow, clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView, lock: WheelGestureTracker) {
+    private func mount(clip: NSClipView = StrandableClipView()) -> (window: NSWindow, clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView, lock: WheelGestureTracker) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                               styleMask: [.titled], backing: .buffered, defer: false)
-        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        let clip = StrandableClipView()
-        clip.automaticallyAdjustsContentInsets = false
-        scroller.contentView = clip
-        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
-        scroller.documentView = document
-        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
-        watchdog.pullDuration = 0        // see `pullDuration`
         let lock = WheelGestureTracker()
-        watchdog.axisLock = lock
-        document.addSubview(watchdog)
-        window.contentView?.addSubview(scroller)
-        return (window, clip, watchdog, lock)
-    }
-
-    private func pump(seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
+        let stack = addStack(to: window, x: 0, clip: clip, lock: lock)
+        return (window, clip, stack.watchdog, lock)
     }
 
     @Test func testLeakedHorizontalDriftIsRevertedDuringAVerticalGesture() async throws {
         let (window, clip, watchdog, lock) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
         try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
 
         // A vertical drag is delivering events now, dated ahead of the wall clock so the lock reads
@@ -1203,12 +1096,8 @@ import Sync
         // Attributed to this stack on purpose: `ingest` with no window takes the unattributed
         // fallback, and the scoped path (window match, scroll-view containment) would go untested
         // from the enforcement side.
-        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
-        let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                    window: window, locationInWindow: inStack, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                    window: window, locationInWindow: inStack, at: ahead + 0.01)
+        beginVerticalDragAhead(lock, window: window,
+                               at: clip.convert(NSPoint(x: 20, y: 20), to: nil))
 
         // One leaked horizontal delta strands the stack sideways.
         clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
@@ -1228,22 +1117,10 @@ import Sync
     /// mid-gesture, and the enforcement must stay bounded, one revert per runloop turn at most,
     /// instead of recursing inside the notification until the stack guard kills the app.
     @Test func testAFightingScrollCannotRecurseTheHold() async throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let clip = FightingClipView()
-        clip.automaticallyAdjustsContentInsets = false
-        scroller.contentView = clip
-        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
-        scroller.documentView = document
-        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
-        watchdog.pullDuration = 0        // see `pullDuration`
-        let lock = WheelGestureTracker()
-        watchdog.axisLock = lock
-        document.addSubview(watchdog)
-        window.contentView?.addSubview(scroller)
+        let (window, _, watchdog, lock) = mount(clip: clip)
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
         try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
 
         // Vertical gesture in flight; the clip refuses to land on the held position (every revert
@@ -1251,12 +1128,8 @@ import Sync
         // above, so the "engaged and fought" bound can't starve. Attributed to this stack for the
         // same reason: the only regression net for the recursion crash must run through the scoped
         // path the app takes.
-        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
-        let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                    window: window, locationInWindow: inStack, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                    window: window, locationInWindow: inStack, at: ahead + 0.01)
+        beginVerticalDragAhead(lock, window: window,
+                               at: clip.convert(NSPoint(x: 20, y: 20), to: nil))
         // Counted from here: mounting alone racks up setBoundsOrigin calls, and a lower bound that
         // included them would hold even with enforceHold's revert deleted.
         let mountSets = clip.setCount
@@ -1289,34 +1162,16 @@ import Sync
                               styleMask: [.titled], backing: .buffered, defer: false)
         defer { _ = window }
         let lock = WheelGestureTracker()
-        func addPane(x: CGFloat) -> (clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView) {
-            let scroller = NSScrollView(frame: NSRect(x: x, y: 0, width: 200, height: 100))
-            let clip = StrandableClipView()
-            clip.automaticallyAdjustsContentInsets = false
-            scroller.contentView = clip
-            let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
-            scroller.documentView = document
-            let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
-            watchdog.pullDuration = 0    // see `pullDuration`
-            watchdog.axisLock = lock
-            document.addSubview(watchdog)
-            window.contentView?.addSubview(scroller)
-            return (clip, watchdog)
-        }
-        let paneA = addPane(x: 0)
-        let paneB = addPane(x: 260)
-        await pump(seconds: 0.3)
+        let paneA = addStack(to: window, x: 0, lock: lock)
+        let paneB = addStack(to: window, x: 260, lock: lock)
+        await idle(seconds: 0.3)
         try #require(paneA.watchdog.resolvedScroller != nil, "pane A's watchdog failed to arm")
         try #require(paneB.watchdog.resolvedScroller != nil, "pane B's watchdog failed to arm")
 
         // A vertical drag in pane A, dated ahead of the wall clock so the lock reads "in flight"
         // however late enforcement lands (as in the tests above).
-        let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        let inA = paneA.clip.convert(NSPoint(x: 20, y: 20), to: nil)
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                    window: window, locationInWindow: inA, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                    window: window, locationInWindow: inA, at: ahead + 0.01)
+        beginVerticalDragAhead(lock, window: window,
+                               at: paneA.clip.convert(NSPoint(x: 20, y: 20), to: nil))
 
         // Pane B scrolls itself (the programmatic reveal's stand-in) and pane A drifts from the
         // gesture's leaked deltas. Both land on legal origins, so the quiescence return never moves
@@ -1349,41 +1204,22 @@ import Sync
                               styleMask: [.titled], backing: .buffered, defer: false)
         defer { _ = window }
         let lock = WheelGestureTracker()
-        func addPane(x: CGFloat) -> (clip: NSClipView, gate: PaneColumnHoldGate) {
-            let scroller = NSScrollView(frame: NSRect(x: x, y: 0, width: 200, height: 100))
-            let clip = StrandableClipView()
-            clip.automaticallyAdjustsContentInsets = false
-            scroller.contentView = clip
-            scroller.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
-            let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
-            watchdog.pullDuration = 0    // see `pullDuration`
-            watchdog.axisLock = lock
-            let gate = PaneColumnHoldGate()
-            watchdog.holdGate = gate
-            scroller.documentView?.addSubview(watchdog)
-            window.contentView?.addSubview(scroller)
-            return (clip, gate)
-        }
-        let paneA = addPane(x: 0)
-        let paneB = addPane(x: 260)
-        await pump(seconds: 0.3)
+        let paneA = addStack(to: window, x: 0, lock: lock, gate: PaneColumnHoldGate())
+        let paneB = addStack(to: window, x: 260, lock: lock, gate: PaneColumnHoldGate())
+        await idle(seconds: 0.3)
 
         // Before any gesture, neither pane defers a reveal.
-        #expect(!paneA.gate.isStackHeld && !paneB.gate.isStackHeld,
+        #expect(!paneA.gate!.isStackHeld && !paneB.gate!.isStackHeld,
                 "a stack reported held with no gesture in flight — every reveal would be deferred")
 
         // A vertical drag in pane A, dated ahead of the wall clock so the hold can't lapse mid-test
         // (as in the enforcement tests above).
-        let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        let inA = paneA.clip.convert(NSPoint(x: 20, y: 20), to: nil)
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                    window: window, locationInWindow: inA, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                    window: window, locationInWindow: inA, at: ahead + 0.01)
+        beginVerticalDragAhead(lock, window: window,
+                               at: paneA.clip.convert(NSPoint(x: 20, y: 20), to: nil))
 
-        #expect(paneA.gate.isStackHeld,
+        #expect(paneA.gate!.isStackHeld,
                 "the gesture's own pane did not report held — its reveal will be issued into the hold and reverted")
-        #expect(!paneB.gate.isStackHeld,
+        #expect(!paneB.gate!.isStackHeld,
                 "a gesture in pane A held pane B's gate — B's reveal is stalled by a flick it has nothing to do with")
     }
 
@@ -1402,9 +1238,7 @@ import Sync
         watchdog.holdGate = gate
         // Unattributed and vertical: the lock holds everywhere, so only the missing scroll view can
         // make this false.
-        let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: ahead + 0.01)
+        beginVerticalDragAhead(lock)
         try #require(lock.shouldHoldHorizontalDrift(for: NSView()),
                      "the fixture's own lock is not holding — the gate's false below proves nothing")
         #expect(!gate.isStackHeld,
@@ -1526,7 +1360,7 @@ import Sync
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {
         let (window, clip, watchdog, lock) = mount()
         defer { _ = window }
-        await pump(seconds: 0.3)
+        await idle(seconds: 0.3)
         try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
 
         lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
@@ -1536,4 +1370,63 @@ import Sync
         #expect(clip.bounds.origin.x == 120,
                 "the lock held the stack during a HORIZONTAL gesture — columns can no longer scroll")
     }
+}
+
+/// Lets any proposed bounds through, the way the rubber band's in-flight state does.
+private final class StrandableClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
+}
+
+/// Lets the main actor turn for `seconds` without laying anything out.
+@MainActor private func idle(seconds: Double) async {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline {
+        try? await Task.sleep(nanoseconds: 8_000_000)
+    }
+}
+
+/// Waits for the watchdog to move the clip, with a floor on passes rather than on seconds. The
+/// pull home arrives on a main-actor turn, and a congested run has fewer turns per second, so a
+/// deadline in seconds alone can expire however generous it looks. `LayoutPumpWait.pumpFloor`
+/// passes are guaranteed however little of the deadline is left.
+///
+/// Returns the pass count with the verdict so the caller can report it: a wait that gave up
+/// after a handful of passes was starved and says nothing about the code; one that gave up
+/// after hundreds disproved the condition.
+///
+/// `poll`, not `pump`: nothing here waits on a layout pass, and pumping would disarm the
+/// runaway-layout guards. See `LayoutPumpWait.poll`.
+@MainActor private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
+                                      timeout: Double = 15) async -> (held: Bool, passes: Int) {
+    await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
+}
+
+/// A 200pt stack over 600pt of content at `x` in `window`, its watchdog on `lock` (and `gate`).
+@MainActor private func addStack(
+    to window: NSWindow, x: CGFloat, clip: NSClipView = StrandableClipView(),
+    lock: WheelGestureTracker, gate: PaneColumnHoldGate? = nil
+) -> (clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView, gate: PaneColumnHoldGate?) {
+    let scroller = NSScrollView(frame: NSRect(x: x, y: 0, width: 200, height: 100))
+    clip.automaticallyAdjustsContentInsets = false
+    scroller.contentView = clip
+    let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+    scroller.documentView = document
+    let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+    watchdog.pullDuration = 0    // see `pullDuration`
+    watchdog.axisLock = lock
+    if let gate { watchdog.holdGate = gate }
+    document.addSubview(watchdog)
+    window.contentView?.addSubview(scroller)
+    return (clip, watchdog, gate)
+}
+
+/// A vertical drag delivering events at `location`, dated an hour ahead of the wall clock so the
+/// lock reads "in flight" for the whole test however late enforcement lands.
+@MainActor private func beginVerticalDragAhead(_ lock: WheelGestureTracker, window: NSWindow? = nil,
+                                               at location: NSPoint = .zero) {
+    let ahead = CFAbsoluteTimeGetCurrent() + 3600
+    lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                window: window, locationInWindow: location, at: ahead)
+    lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                window: window, locationInWindow: location, at: ahead + 0.01)
 }

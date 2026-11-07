@@ -19,13 +19,7 @@ import Sync
 @MainActor
 @Suite(.serialized) struct FilingWalkthroughCardKeyTests {
 
-    private static func row(_ name: String) -> AutomationDryRunRow {
-        AutomationDryRunRow(id: "/inbox/\(name)", fileName: name, ruleID: UUID(), ruleName: "Rule",
-                            verdict: .wouldFile(destination: "Docs"),
-                            destinationDir: URL(fileURLWithPath: "/root/Docs"),
-                            destinationLabel: "Docs",
-                            destinationAnchor: URL(fileURLWithPath: "/root"))
-    }
+    private static func row(_ name: String) -> AutomationDryRunRow { .walkFixture(name) }
 
     /// What the card reported. A reference type: the closures escape into SwiftUI's update.
     private final class Recorder: @unchecked Sendable {
@@ -72,15 +66,8 @@ import Sync
     // MARK: Harness
 
     private func host(_ view: some View) -> (NSWindow, NSHostingView<AnyView>) {
-        let size = CGSize(width: 520, height: 480)
-        let hostView = NSHostingView(rootView: AnyView(view.frame(width: size.width, height: size.height)))
-        hostView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = hostView
-        hostView.layoutSubtreeIfNeeded()
-        return (window, hostView)
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 520, height: 480))
+        return (window, host)
     }
 
     /// Waits for the card's own deferred `FocusState` claim to land, the same acquisition the app
@@ -175,26 +162,6 @@ import Sync
         #expect(recorder.cancels == 0)
     }
 
-    /// The held-key rule for the keypad's Enter: it enters through the same handler as ⏎, but a key
-    /// added to a set is exactly where a `.repeat` phase could be re-admitted unnoticed. A held
-    /// keypad Enter must file exactly one file.
-    @Test func aHeldKeypadEnterFilesExactlyOneFile() async {
-        let recorder = Recorder()
-        let (window, _) = host(card(into: recorder))
-        guard await waitForCardFocus(in: window) else { return }
-
-        sendKeypadEnter(window)
-        for _ in 0..<3 { sendKeypadEnter(window, isARepeat: true) }
-        #expect(recorder.decisions == [true], """
-                a held keypad Enter produced \(recorder.decisions.count) decisions — auto-repeat                 is filing files.
-                """)
-
-        // The honesty control: fresh presses still arrive, so the single decision above is the
-        // phase filter, not the harness dropping events after the first.
-        for _ in 0..<3 { sendKeypadEnter(window) }
-        #expect(recorder.decisions.count == 4, "fresh presses stopped arriving: \(recorder.decisions)")
-    }
-
     /// The modifier rule for the keypad's Enter: ⌘⏎/⇧⏎ are "open"/"extend" chords whichever keycap
     /// produced them, and this Enter arrives with `.numericPad` and `.function` already set, so the
     /// guard has to be `isPlainKeystroke` (⌘⌥⌃⇧ only) and not `modifiers.isEmpty`, which would
@@ -242,25 +209,6 @@ import Sync
         #expect(recorder.cancels == 1, "esc did not cancel")
     }
 
-    /// Key-repeat decides nothing. ⏎ moves a real file and → skips one no back-step can revisit, so
-    /// the handlers are `.down`-phase only: a held key must decide exactly one file.
-    @Test func aHeldKeyDecidesExactlyOneFile() async {
-        let recorder = Recorder()
-        let (window, _) = host(card(into: recorder))
-        guard await waitForCardFocus(in: window) else { return }
-
-        sendReturn(window)
-        for _ in 0..<3 { sendReturn(window, isARepeat: true) }
-        #expect(recorder.decisions == [true],
-                "a held ⏎ produced \(recorder.decisions.count) decisions — auto-repeat is filing files")
-
-        // The control that keeps the assertion honest: the same key sent as three fresh presses is
-        // delivered three times, so the single decision above is the phase filter working, not the
-        // harness dropping events after the first.
-        for _ in 0..<3 { sendReturn(window) }
-        #expect(recorder.decisions.count == 4, "fresh presses stopped arriving: \(recorder.decisions)")
-    }
-
     /// A modified key is not a decision. ⌘⏎ / ⇧⏎ are "open"/"add to selection" chords all over
     /// macOS, and ⌥→ / ⌃→ are word-wise and Space-switch navigation; none of them is the plain
     /// keystroke the keycaps advertise, and ⏎ files a real file while → skips one no back-step can
@@ -293,25 +241,6 @@ import Sync
         #expect(recorder.cancels == 0)
     }
 
-    /// The held-key rule, for → specifically: it has its own handler, so the ⏎ repeat test says
-    /// nothing about it, and → could regress to `[.down, .repeat]` with that test green. A held →
-    /// must skip exactly one file (skips are unrevisitable; there is no back-step).
-    @Test func aHeldArrowSkipsExactlyOneFile() async {
-        let recorder = Recorder()
-        let (window, _) = host(card(into: recorder))
-        guard await waitForCardFocus(in: window) else { return }
-
-        sendRightArrow(window)
-        for _ in 0..<3 { sendRightArrow(window, isARepeat: true) }
-        #expect(recorder.decisions == [false],
-                "a held → produced \(recorder.decisions.count) decisions — auto-repeat is skipping files")
-
-        // Same honesty control as the ⏎ test: fresh presses still arrive, so the single decision
-        // above is the phase filter, not the harness dropping events.
-        for _ in 0..<3 { sendRightArrow(window) }
-        #expect(recorder.decisions.count == 4, "fresh presses stopped arriving: \(recorder.decisions)")
-    }
-
     /// ⌫ skips too: Compare's one-at-a-time review skips on ⌫, so someone who learned that one
     /// presses it here. Plain only, once per press, like →: ⌘⌫ and ⌥⌫ are text-editing chords, and
     /// a held ⌫ must not run through the queue.
@@ -335,21 +264,40 @@ import Sync
         send(window, keyCode: 51, characters: "\u{08}", modifiers: modifiers, isARepeat: isARepeat)
     }
 
-    /// And for esc: a held esc must cancel once. Cancel tears the walkthrough down, so in the app a
-    /// second delivery lands on nothing, but the handler's contract should not depend on that, and
-    /// the two decision handlers are `.down`-only for the same reason.
-    @Test func aHeldEscCancelsExactlyOnce() async {
+    enum HeldKey: CaseIterable, Sendable { case returnKey, keypadEnter, rightArrow, escape }
+
+    /// Key-repeat decides nothing. ⏎ moves a real file and → skips one no back-step can revisit, so
+    /// the handlers are `.down`-phase only: a held key must act exactly once. Each key is its own
+    /// case because each is its own handler or its own entry in a key set, where a `.repeat` phase
+    /// could be re-admitted unnoticed (→ regressing to `[.down, .repeat]` with ⏎'s case green). And
+    /// esc: cancel tears the walkthrough down, so in the app a second delivery lands on nothing, but
+    /// the handler's contract should not depend on that.
+    @Test(arguments: HeldKey.allCases)
+    func aHeldKeyActsExactlyOnce(_ key: HeldKey) async {
         let recorder = Recorder()
         let (window, _) = host(card(into: recorder))
         guard await waitForCardFocus(in: window) else { return }
+        func press(isARepeat: Bool) {
+            switch key {
+            case .returnKey: sendReturn(window, isARepeat: isARepeat)
+            case .keypadEnter: sendKeypadEnter(window, isARepeat: isARepeat)
+            case .rightArrow: sendRightArrow(window, isARepeat: isARepeat)
+            case .escape: sendEscape(window, isARepeat: isARepeat)
+            }
+        }
+        func acts() -> Int { key == .escape ? recorder.cancels : recorder.decisions.count }
 
-        sendEscape(window)
-        for _ in 0..<3 { sendEscape(window, isARepeat: true) }
-        #expect(recorder.cancels == 1,
-                "a held esc cancelled \(recorder.cancels) times — the handler is not .down-only")
+        press(isARepeat: false)
+        for _ in 0..<3 { press(isARepeat: true) }
+        #expect(acts() == 1, "a held \(key) acted \(acts()) times — auto-repeat is deciding files")
+        if key != .escape {
+            #expect(recorder.decisions == [key != .rightArrow], "got \(recorder.decisions)")
+        }
 
-        for _ in 0..<3 { sendEscape(window) }
-        #expect(recorder.cancels == 4, "fresh presses stopped arriving: \(recorder.cancels)")
+        // The honesty control: fresh presses still arrive, so the single act above is the phase
+        // filter, not the harness dropping events after the first.
+        for _ in 0..<3 { press(isARepeat: false) }
+        #expect(acts() == 4, "fresh presses stopped arriving: \(recorder.decisions), \(recorder.cancels) cancels")
     }
 
     /// Caps Lock is not a chord. `.capsLock` is present on every event while the lock is engaged,
@@ -500,9 +448,8 @@ import Sync
     /// unrevisitable skip to get ⏎/→/esc back; the non-destructive Preview/Reveal recover it too,
     /// through the same wrapper the lens installs.
     ///
-    /// The card's buttons cannot be clicked under `swift test` (see
-    /// `PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`: this window
-    /// can never be key), so the test fires the exact closure the Preview button's action would:
+    /// The card's buttons cannot be clicked under `swift test` (see `docs/flaky-tests.md`, "When
+    /// you fix one": this window can never be key), so the test fires the exact closure the Preview button's action would:
     /// the wrapped gesture, built with `recoveringFocus` the way
     /// `AutomationsLens.filingReviewState` builds it, bumping the same host state the card reads.
     /// The reclaim is proven the only non-vacuous way: ⏎ reaching the card's handler again.
@@ -550,13 +497,7 @@ import Sync
     /// to the exact spelling on purpose: if the wiring is renamed, rename it here, and keep the
     /// bump-inside-`recoveringFocus` shape.
     @Test func theLensWiresBothInspectionGesturesThroughTheRecovery() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests/FileExplorer
-            .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests
-            .deletingLastPathComponent()   // …/Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/AutomationsLens.swift")
-        let text = try #require(try? String(contentsOf: source, encoding: .utf8),
-                                "cannot read \(source.path) — is the file gone or renamed?")
+        let text = try SourceText.fileExplorer("AutomationsLens.swift")
         #expect(text.contains("onQuickLook: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onQuickLook)"),
                 "the lens no longer wires Preview through recoveringFocus — clicking Preview stops recovering key focus")
         #expect(text.contains("onReveal: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onReveal)"),
@@ -608,13 +549,7 @@ import Sync
     /// `theLensWiresBothInspectionGesturesThroughTheRecovery` above: the tree is unreadable here,
     /// so without this the two strings could be correct and unused.
     @Test func theCardInstallsTheContainerLabelAndHint() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests/FileExplorer
-            .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests
-            .deletingLastPathComponent()   // …/Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/AutomationsLens.swift")
-        let text = try #require(try? String(contentsOf: source, encoding: .utf8),
-                                "cannot read \(source.path) — is the file gone or renamed?")
+        let text = try SourceText.fileExplorer("AutomationsLens.swift")
         // `.contain` specifically: `.combine` would fold the card's Skip/File/Cancel/Preview/Reveal
         // buttons into the label and take the controls away from VoiceOver entirely.
         #expect(text.contains(".accessibilityElement(children: .contain)\n        .accessibilityLabel(Self.cardSpeech("),

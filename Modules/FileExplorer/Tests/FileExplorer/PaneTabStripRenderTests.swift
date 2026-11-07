@@ -43,12 +43,19 @@ import Design
             // The app pins this on its own window; without it SwiftUI renders an inactive window's
             // desaturated version, which the user never sees.
             .environment(\.controlActiveState, .active)
+        return rasterize(subject, width: width, height: PaneTabStripLadder.stripHeight,
+                         appearance: scheme == .dark ? .darkAqua : .aqua)
+    }
+
+    /// The host both renders share: a borderless window never ordered in, laid out twice.
+    private func rasterize(_ subject: some View, width: CGFloat, height: CGFloat,
+                           appearance: NSAppearance.Name?) -> NSBitmapImageRep {
         let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: PaneTabStripLadder.stripHeight)
+        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        if let appearance { window.appearance = NSAppearance(named: appearance) }
         window.colorSpace = .sRGB
         window.contentView = host
         host.layoutSubtreeIfNeeded()
@@ -75,21 +82,8 @@ import Design
                                         : Color(red: 0.95, green: 0.95, blue: 0.96))
             .environment(\.colorScheme, scheme)
             .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: PaneTabStripLadder.stripHeight)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return rasterize(subject, width: width, height: PaneTabStripLadder.stripHeight,
+                         appearance: scheme == .dark ? .darkAqua : .aqua)
     }
 
     /// A point in the strip's empty stretch, right of the last chip and left of the ＋. With two
@@ -184,17 +178,7 @@ import Design
     }
 
     func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var differing = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let pa = a.colorAt(x: x, y: y), let pb = b.colorAt(x: x, y: y) else { continue }
-                if abs(pa.redComponent - pb.redComponent) > 0.01
-                    || abs(pa.greenComponent - pb.greenComponent) > 0.01
-                    || abs(pa.blueComponent - pb.blueComponent) > 0.01 { differing += 1 }
-            }
-        }
-        return differing
+        differingPixels(a, b, in: NSRect(x: 0, y: 0, width: a.pixelsWide, height: a.pixelsHigh))
     }
 
     // MARK: The positive control
@@ -207,23 +191,6 @@ import Design
     }
 
     // MARK: What a person has to be able to see
-
-    /// Which tab is live. Otherwise the strip is identical chips and nothing says which folder the
-    /// pane belongs to.
-    @Test(.machinePinned(.pixelSampling)) func theActiveTabIsDrawnDifferentlyFromTheParkedOnes() {
-        let ids = [UUID(), UUID()]
-        func strip(activeIndex: Int) -> [PaneTabStrip.Item] {
-            [PaneTabStrip.Item(id: ids[0], title: "Finance", markImageName: "folder.fill",
-                               isActive: activeIndex == 0, fullPath: "/x/Finance"),
-             PaneTabStrip.Item(id: ids[1], title: "Photos", markImageName: "folder.fill",
-                               isActive: activeIndex == 1, fullPath: "/x/Photos")]
-        }
-        let first = render(items: strip(activeIndex: 0), width: 620)
-        let second = render(items: strip(activeIndex: 1), width: 620)
-        // Not merely "different somewhere": moving the active state moves a raised ground and a 2pt
-        // rule across a whole chip, hundreds of pixels.
-        #expect(differingPixels(first, second) > 300)
-    }
 
     /// Which tab is live, in both appearances: ground and rule together. `.quaternary` grounds can
     /// vanish in one scheme and survive in the other, so the claim is made per appearance.
@@ -929,19 +896,6 @@ import Design
         .background(Color(red: 0.95, green: 0.95, blue: 0.96))
         .environment(\.colorScheme, .light)
         .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return rasterize(subject, width: width, height: height, appearance: nil)
     }
 }

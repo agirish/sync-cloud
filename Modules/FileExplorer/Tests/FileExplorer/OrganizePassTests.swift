@@ -43,29 +43,11 @@ import SwiftUI
         #expect(OrganizePass(producing: .rules) == nil)
     }
 
-    /// The file pass answers two lenses, which is the point of the type. A literal, because the
-    /// number is the claim: `FileSyncManager` publishes the filing queue and the rename backlog
-    /// (risky names included, as its to-fix rows) from one walk.
-    @Test func theFilePassAnswersBothOfItsLenses() {
-        #expect(OrganizePass.file.lenses == [.toFile, .renames])
-        #expect(OrganizePass.duplicates.lenses == [.duplicates])
-        #expect(OrganizePass.folderMemory.lenses == [.restructure])
-    }
-
-    /// No lens is claimed by two passes — otherwise the overview would draw two offers for one
-    /// answer, and running either would silently satisfy both cards.
-    @Test func noLensIsClaimedByTwoPasses() {
-        var seen: Set<OrganizeLens> = []
-        for pass in OrganizePass.allCases {
-            for lens in pass.lenses {
-                #expect(seen.insert(lens).inserted, "\(lens.title) is claimed by two passes")
-            }
-        }
-    }
-
     /// A card names only lenses you can go to. Derived from `railItems` rather than written out, so
     /// folding a lens without giving this card a presentation list of its own fails here rather
-    /// than on screen.
+    /// than on screen. Then the lists as literals, because the number is the claim: the file pass
+    /// answers two lenses from one walk, which is the point of the type, and no lens is claimed
+    /// twice, or running either pass would silently satisfy both cards.
     @Test func aPassCardListsOnlyLensesThatHaveAPlaceToGo() {
         for pass in OrganizePass.allCases {
             #expect(pass.lenses.allSatisfy { OrganizeLens.railItems.contains($0) },
@@ -225,14 +207,7 @@ import SwiftUI
     /// saved suggestions" there is no card title to supply the noun, so a bare verb would say
     /// nothing. A source scan, because `Menu` content isn't built until the menu opens.
     @Test func theRescanMenuItemKeepsItsObject() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()                   // …/Tests/FileExplorer
-            .deletingLastPathComponent()                   // …/Tests
-            .deletingLastPathComponent()                   // …/FileExplorer (package)
-            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        try #require(source.count > 5000,
-                     "LensWorkspaceView.swift could not be read — the scan below would be vacuous")
+        let source = try SourceText.fileExplorer("LensWorkspaceView.swift", atLeast: 5000)
 
         #expect(source.contains("Label(\"Refresh What\u{2019}s Learned\", systemImage: \"brain\")"),
                 "the survey item in the Rescan menu no longer names what it refreshes")
@@ -521,11 +496,7 @@ import SwiftUI
     @Test func theDuplicatePassWearsTheDuplicatesLensGlyph() throws {
         #expect(OrganizePass.duplicates.symbol != OrganizeLens.rules.symbol,
                 "the duplicate pass card wears the Rules glyph again")
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/OrganizePass.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read OrganizePass.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("OrganizePass.swift")
         #expect(source.contains("case .duplicates: return OrganizeLens.duplicates.symbol"),
                 "the pass restates a glyph instead of asking the lens for it")
     }

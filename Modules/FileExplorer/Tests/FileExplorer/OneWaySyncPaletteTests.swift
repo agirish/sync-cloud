@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import Design
 @testable import FileExplorer
 
 /// One-way sync's teal and slate are used as text and glyphs (History's outcomes, the side
@@ -15,8 +16,7 @@ import Testing
     }
 
     func luminance(_ c: NSColor) -> CGFloat {
-        func channel(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
-        return 0.2126 * channel(c.redComponent) + 0.7152 * channel(c.greenComponent) + 0.0722 * channel(c.blueComponent)
+        AccentLabel.relativeLuminance(red: c.redComponent, green: c.greenComponent, blue: c.blueComponent)
     }
 
     func ratio(_ a: NSColor, _ b: NSColor) -> CGFloat {

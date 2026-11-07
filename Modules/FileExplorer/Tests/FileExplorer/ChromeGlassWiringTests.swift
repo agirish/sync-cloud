@@ -6,7 +6,7 @@ import Foundation
 /// pane bar in Dashboard (`ChromeGlassPaneBarTests`); this scan catches a site that lost its glass,
 /// which falls back to the Solid look and would never be noticed on screen.
 ///
-/// Read over `OrganizeScopeCallSiteTests.codeOnly`, because these call sites carry comments naming
+/// Read over `SourceText.codeOnly`, because these call sites carry comments naming
 /// the very modifiers counted here.
 ///
 /// Where glass may be written (on the button, after its style, never inside a label) is pinned
@@ -14,13 +14,7 @@ import Foundation
 @Suite struct ChromeGlassWiringTests {
 
     static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/\(file)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(file) — every scan here would be vacuous")
-        try #require(text.count > 500, "\(file) read as \(text.count) characters — truncated?")
-        return OrganizeScopeCallSiteTests.codeOnly(text)
+        SourceText.codeOnly(try SourceText.fileExplorer(file))
     }
 
     static func count(_ needle: String, in text: String) -> Int {
@@ -63,12 +57,19 @@ import Foundation
         #expect(Self.count(".chromeGlassGlyphButton(tint: glassHue.accentColor, outset: 2)", in: compare) == 2)
     }
 
+    /// Also the rail: its chosen item sits on the lens and must not lift off it on hover (the
+    /// others lift), and the rail scrolls, so a move with either end scrolled out of view switches
+    /// instantly rather than gliding across the edge, which only happens if the host is handed
+    /// what the rail shows.
     @Test func organizesHeaderControlsWearGlass() throws {
         let lens = try Self.source("LensWorkspaceView.swift")
         #expect(lens.contains(".chromeGlassGround(.capsule, outset: 4)"), "Duplicates' filter menu lost its glass")
         #expect(lens.contains(".pillSurface(.mini, tint: .secondary)\n            .chromeGlassGround(.capsule, rim: false)"),
                 "the Source pill lost its glass, or doubles its own edge with Clear's rim")
         #expect(try Self.source("StorageLensView.swift").contains(".chromeGlassTrack()"))
+        #expect(Self.count(".chromeHover(onLens: isSelected)", in: lens) == 2)
+        #expect(lens.contains("visibleRegion: railVisibleRegion)"))
+        #expect(lens.contains(".selectionLensTracksVisibleRegion(railVisibleRegion)"))
     }
 
     @Test func editsBarsWearGlass() throws {
@@ -89,13 +90,6 @@ import Foundation
 
     @Test func theCompareCopiesSheetsCloseWearsGlass() throws {
         #expect(try Self.source("CompareCopiesSheet.swift").contains(".chromeGlassGround(.capsule, outset: 2)"))
-    }
-
-    /// The rail scrolls, and a move with either end scrolled out of view switches instantly rather
-    /// than gliding across the edge, which only happens if the host is handed what the rail shows.
-    /// The rail's chosen item sits on the lens and must not lift off it on hover; the others lift.
-    @Test func organizesChosenRailItemStaysSeatedOnItsLens() throws {
-        #expect(Self.count(".chromeHover(onLens: isSelected)", in: try Self.source("LensWorkspaceView.swift")) == 2)
     }
 
     /// The hidden mode bars that only reserve a header's height are drawn at Solid: no lens of their
@@ -122,11 +116,5 @@ import Foundation
         // Hosted on the scroll view's content, with the region it shows, as the sidebar's lenses are.
         #expect(picker.contains("visibleRegion: railVisibleRegion)"))
         #expect(picker.contains(".selectionLensTracksVisibleRegion(railVisibleRegion)"))
-    }
-
-    @Test func organizesRailHostReadsWhatTheRailShows() throws {
-        let lens = try Self.source("LensWorkspaceView.swift")
-        #expect(lens.contains("visibleRegion: railVisibleRegion)"))
-        #expect(lens.contains(".selectionLensTracksVisibleRegion(railVisibleRegion)"))
     }
 }

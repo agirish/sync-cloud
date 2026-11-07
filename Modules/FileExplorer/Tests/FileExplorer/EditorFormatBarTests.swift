@@ -83,15 +83,7 @@ import EventsTestSupport
     /// A text view in a window, marked as `PlainTextEditor` marks its own (as in
     /// `EditorMenuChordTests`).
     private func hosted(text: String) -> (view: NSTextView, window: NSWindow) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 360)
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        view.allowsUndo = true
-        view.string = text
+        let (_, view, window) = EditorTestRigs.markedTextView(text: text, scrollHeight: 360, usesFindBar: false)
         return (view, window)
     }
 

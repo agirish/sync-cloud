@@ -34,18 +34,10 @@ import Testing
     /// show steps for work that finished or refused, so the sheet renders it only while the manager
     /// publishes one.
     @Test func theSheetShowsTheChecklistOnlyWhileApplying() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructurePlanSheet.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
+        let text = try SourceText.fileExplorer("RestructurePlanSheet.swift")
         #expect(text.contains("if let applyProgress { progressChecklist(applyProgress) }"))
 
-        let engine = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sync/Sources/Sync/FileSyncManager+RestructureApply.swift")
-        let engineText = try String(contentsOf: engine, encoding: .utf8)
+        let engineText = try SourceText.sync("FileSyncManager+RestructureApply.swift")
         #expect(engineText.contains("restructureApplyProgress = nil"),
                 "the value has to be cleared however the landing returns")
         // The engine publishes every stage the type declares; one that never arrives would sit
@@ -60,12 +52,7 @@ import Testing
     /// The host hands the manager's published value straight through: a sheet holding its own copy
     /// could show a stage the engine never reached.
     @Test func theHostPassesTheManagersProgress() throws {
-        let host = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift"),
-            encoding: .utf8)
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("applyProgress: syncManager.restructureApplyProgress"))
     }
 

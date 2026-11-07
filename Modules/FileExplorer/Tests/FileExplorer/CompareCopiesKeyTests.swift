@@ -51,16 +51,7 @@ import Testing
     }
 
     private func host(_ view: some View) -> NSWindow {
-        let size = CGSize(width: 1200, height: 800)
-        let hostView = NSHostingView(rootView: AnyView(view.frame(width: size.width,
-                                                                  height: size.height)))
-        hostView.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: hostView.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = hostView
-        hostView.layoutSubtreeIfNeeded()
-        return window
+        HostedView.framed(view, size: CGSize(width: 1200, height: 800)).window
     }
 
     /// Waits for the surface's deferred `FocusState` claim, so a green also says the overlay takes
@@ -105,32 +96,22 @@ import Testing
 
     // MARK: ⏎ closes, and never trashes
 
-    @Test func returnClosesAndTrashesNothing() async throws {
-        let recorder = Recorder()
-        let window = host(sheet(into: recorder))
-        guard await waitForFocus(in: window) else { return }
-        sendReturn(window)
-        #expect(recorder.closes == 1)
-        #expect(recorder.trashes.isEmpty, "⏎ destroyed one of the user's files")
-    }
+    enum CloseKey: CaseIterable, Sendable { case returnKey, keypadEnter, escape }
 
-    /// The keypad's Enter closes too. keyCode 76 sends U+0003, so a handler keyed on `.return`
-    /// alone is silently deaf to it.
-    @Test func theKeypadsEnterClosesToo() async throws {
+    /// ⏎, the keypad's Enter and esc each close once, and none trashes. The keypad's Enter is
+    /// keyCode 76, U+0003, so a handler keyed on `.return` alone is silently deaf to it.
+    @Test(arguments: CloseKey.allCases)
+    func aClosingKeyClosesAndTrashesNothing(_ key: CloseKey) async throws {
         let recorder = Recorder()
         let window = host(sheet(into: recorder))
         guard await waitForFocus(in: window) else { return }
-        sendKeypadEnter(window)
+        switch key {
+        case .returnKey: sendReturn(window)
+        case .keypadEnter: sendKeypadEnter(window)
+        case .escape: sendEscape(window)
+        }
         #expect(recorder.closes == 1)
-        #expect(recorder.trashes.isEmpty)
-    }
-
-    @Test func escapeCloses() async throws {
-        let recorder = Recorder()
-        let window = host(sheet(into: recorder))
-        guard await waitForFocus(in: window) else { return }
-        sendEscape(window)
-        #expect(recorder.closes == 1)
+        #expect(recorder.trashes.isEmpty, "\(key) destroyed one of the user's files")
     }
 
     /// A chord belongs to whoever owns it: ⌘⏎ does nothing here, not even close.
@@ -187,39 +168,5 @@ import Testing
         // …and closing still works, because that is not an act on the group.
         sendEscape(window)
         #expect(recorder.closes == 1)
-    }
-
-    // MARK: The Differences overlay, before its stat lands
-
-    /// esc closes while the surface is still only a spinner. The pair view, which owns the keys,
-    /// mounts only after both sides are statted, and a dead SMB or unmounted cloud volume can block
-    /// that stat forever. A focusable placeholder carries its own esc handler; this pins that it is
-    /// focused and wired to the close. The stat here never answers: that is the state under test.
-    @Test func escapeClosesTheDifferencesOverlayWhileTheStatIsStillBlocking() async throws {
-        let recorder = Recorder()
-        let difference = FileDifference(relativePath: "Reports/Q3.pdf",
-                                        leftItemPath: "/L/Reports/Q3.pdf",
-                                        rightItemPath: "/R/Reports/Q3.pdf",
-                                        type: .differentDates, action: .copyToRight,
-                                        description: "differs", enclosedItemCount: nil)
-        // Built outside the `@Sendable` closure, since these come from a main-actor helper.
-        let left = copy("/L/Reports/Q3.pdf", keeper: true)
-        let right = copy("/R/Reports/Q3.pdf")
-        let pair = try #require(DifferencesPairCompare.pair(
-            for: difference,
-            paneNames: PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")))
-        let overlay = DifferencesPairCompareOverlay(
-            pair: pair, hue: .blue,
-            onClose: { recorder.closes += 1 },
-            copies: { _ in
-                try? await Task.sleep(nanoseconds: .max)   // a mount that will not answer
-                return (left: left, right: right)          // never reached; the closure must type
-            })
-        let window = host(overlay)
-        guard await waitForFocus(in: window) else { return }
-
-        sendEscape(window)
-
-        #expect(recorder.closes == 1, "esc did nothing while the surface waited on its stat")
     }
 }

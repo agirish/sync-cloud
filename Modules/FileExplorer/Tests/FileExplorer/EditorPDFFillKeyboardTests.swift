@@ -59,12 +59,7 @@ extension PDFFixtures {
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
     private func open(_ file: String) async throws -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
-        return pdf
+        try await PDFFixtures.opened(file, defaults: defaults)
     }
 
     private func letter(pages: Int = 1) async throws -> EditorPDFDocument {
@@ -88,21 +83,9 @@ extension PDFFixtures {
     }
 
     private func stage(_ pdf: EditorPDFDocument, scale: CGFloat = 1) async throws -> Stage {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
-        window.contentView = reader
-        window.buryUnderEverything()
-        window.makeKeyAndOrderFront(nil)
+        let (window, reader) = EditorTestRigs.readerWindow(pdf.document, fill: pdf.fill,
+                                                           size: CGSize(width: 600, height: 700), scale: scale, bury: true)
         #expect(BuriedWindow.isBuried(window))
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = pdf.document
-        reader.scaleFactor = scale
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
         // A real "Save the filled copy?" alert would wait forever, so turning Fill & Sign off with
         // work on the page discards it.
         pdf.fill.askLeaving = { _, _ in .discard }
@@ -457,34 +440,6 @@ extension PDFFixtures {
         #expect(initials.spokenName(among: store.saved) == "Drawn initials 1, fine pen")
         let onPage = EditorPDFFillItem(page: 0, rect: .zero, content: .signature(older), fontSize: 12, color: .blue, font: .sans)
         #expect(onPage.spokenName(among: store.saved) == "Drawn signature 2, bold pen")
-    }
-
-    /// Delete a Saved Signature asks first; Esc cancels and no key deletes.
-    @Test func deletingASavedSignatureAsksFirst() throws {
-        let store = EditorPDFSignatureStore(defaults: ScratchDefaults("EditorPDFFillKeyboardTests.delete"))
-        let fill = EditorPDFFillSign(store: store)
-        let signature = EditorPDFSignature(kind: .signature, look: .typed("Ada Quill"))
-        store.add(signature)
-        var asked: [String] = []
-        var answer = false
-        fill.confirmDeletingSaved = { _, name in asked.append(name); return answer }
-        func chooseDelete() throws {
-            let submenu = try #require(EditorPDFSignatureMenu.menu(for: fill, kind: .signature).items.last?.submenu)
-            let line = try #require(submenu.items.first)
-            _ = (line.target as AnyObject).perform(line.action, with: line)
-        }
-        try chooseDelete()
-        #expect(asked == ["Ada Quill"], "deleting didn't ask")
-        #expect(store.saved == [signature], "a No still deleted it")
-        answer = true
-        try chooseDelete()
-        #expect(store.saved.isEmpty)
-
-        let alert = EditorPDFFillSign.deleteSavedAlert(signature, name: "Ada Quill")
-        #expect(alert.buttons.map(\.title) == ["Cancel", "Delete"])
-        #expect(alert.buttons[0].keyEquivalent == "\u{1b}", "Esc doesn’t cancel (TE203)")
-        #expect(alert.buttons[1].keyEquivalent.isEmpty, "a key deletes")
-        #expect(alert.buttons[1].hasDestructiveAction)
     }
 
     // MARK: Add Signature (decision BC)

@@ -46,35 +46,9 @@ import Design
 
     // MARK: Harness
 
-    /// The same harness aimed at another lens, for the comparison that makes "one rail" checkable.
-    private func mountLens(_ lens: WorkspaceLensKind, _ manager: FileSyncManager,
-                           scale: CGFloat = 1) -> NSHostingView<AnyView> {
-        let canvas = Self.canvas
-        let defaults = ScratchDefaults("StorageRailRenderTests")
-        defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
-        defaults.removeObject(forKey: StorageSection.defaultsKey)
-        let subject = LensWorkspaceView(syncManager: manager, lens: lens, providerName: "Projects",
-                               scanTargetFolder: "/root/Documents", onFindDuplicates: {},
-                               onBuildStorage: {})
-            .defaultAppStorage(defaults)
-            .environment(\.appFontScale, scale)
-            .frame(width: canvas.width, height: canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        return host
-    }
-
-    private func mount(_ manager: FileSyncManager, section: StorageSection?,
+    /// Storage's page, or with `lens` the same harness aimed at another lens, for the comparison
+    /// that makes "one rail" checkable.
+    private func mount(_ manager: FileSyncManager, lens: WorkspaceLensKind = .storage, section: StorageSection?,
                        width: CGFloat? = nil, scale: CGFloat = 1) -> NSHostingView<AnyView> {
         let canvas = CGSize(width: width ?? Self.canvas.width, height: Self.canvas.height)
         let defaults = ScratchDefaults("StorageRailRenderTests")
@@ -87,8 +61,8 @@ import Design
         // The rail lens selects the Storage page; `lens: .storage` alone isn't enough. `lensBody`
         // keys on `organizeLens`, which reads this key, so without it the mount renders Organize's
         // overview and every assertion about Storage's content is made against the wrong page.
-        defaults.set(OrganizeLens.storage.rawValue, forKey: OrganizeLens.defaultsKey)
-        let subject = LensWorkspaceView(syncManager: manager, lens: .storage, providerName: "Projects",
+        if lens == .storage { defaults.set(OrganizeLens.storage.rawValue, forKey: OrganizeLens.defaultsKey) }
+        let subject = LensWorkspaceView(syncManager: manager, lens: lens, providerName: "Projects",
                                scanTargetFolder: "/root/Documents", onFindDuplicates: {},
                                onBuildStorage: {})
             .defaultAppStorage(defaults)
@@ -186,7 +160,7 @@ import Design
         let onStorage = try #require(leadingExtent(mount(Self.manager(report), section: nil, scale: size.scale),
                                                    width: Self.canvas.width),
                                      "row 1 drew no leading cluster on Storage at \(size.scale)× — the rail is not on screen at all")
-        let onDuplicates = try #require(leadingExtent(mountLens(.duplicates, Self.manager(report), scale: size.scale),
+        let onDuplicates = try #require(leadingExtent(mount(Self.manager(report), lens: .duplicates, section: nil, scale: size.scale),
                                                       width: Self.canvas.width),
                                         "row 1 drew no leading cluster on Duplicates at \(size.scale)×")
         // Not exact equality: `RailItemLabel` draws the selected item semibold and the rest medium,

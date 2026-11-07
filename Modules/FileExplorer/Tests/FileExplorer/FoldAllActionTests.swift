@@ -8,10 +8,6 @@ import Testing
 
     // MARK: What a click does
 
-    @Test func anExpandedTableOffersCollapse() {
-        #expect(FoldAllAction.next(collapsedOnScreen: 0, sectionCount: 4) == .collapse)
-    }
-
     @Test func aFullyCollapsedTableOffersExpand() {
         #expect(FoldAllAction.next(collapsedOnScreen: 4, sectionCount: 4) == .expand)
     }

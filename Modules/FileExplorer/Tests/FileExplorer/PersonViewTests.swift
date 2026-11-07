@@ -253,51 +253,38 @@ import Design
     /// The two answers paint as controls, not as more links: as plain text the row reads as three
     /// links, with the refusal looking like a tertiary action beside "Reveal" rather than half of
     /// the question. The fill is drawn by hand because `.borderedProminent` renders unfilled in an
-    /// offscreen host. Measured inside the capsule: a band over the whole trailing group would
-    /// count the row's text and pass with no fill.
-    @Test("The confirm button is a filled control, in both themes", .machinePinned(.pixelSampling))
-    func theConfirmButtonPaintsFilled() {
-        let capsule = CGRect(x: 612, y: 298, width: 38, height: 10)
-        for scheme in [ColorScheme.light, .dark] {
-            let host = mount(Self.daughterWithReview, scheme: scheme)
-            host.layoutSubtreeIfNeeded()
-            guard let rep = host.bitmapImageRepForCachingDisplay(in: capsule) else {
-                Issue.record("no bitmap in \(scheme)")
-                return
-            }
-            host.cacheDisplay(in: capsule, to: rep)
-            var accentPixels = 0
-            for y in 0..<rep.pixelsHigh {
-                for x in 0..<rep.pixelsWide {
-                    guard let c = rep.colorAt(x: x, y: y) else { continue }
-                    // A blue fill: blue materially above red. Neither theme's row background is.
-                    if c.blueComponent - c.redComponent > 0.25 { accentPixels += 1 }
-                }
-            }
-            #expect(accentPixels > 200,
-                    "the confirm button is not filled in \(scheme) — \(accentPixels) accent pixels")
-        }
-    }
-
-    /// The confirm button fills with the deepened accent under a white label, like every other
-    /// filled control; a raw-accent fill with `Color.onFillLabel` would put dark ink on Green.
-    /// Green is the hue where the two fills differ most, so the fill read back can only be one.
+    /// offscreen host.
+    ///
+    /// It fills with the deepened accent under a white label, like every other filled control; a
+    /// raw-accent fill with `Color.onFillLabel` would put dark ink on Green. Green is the hue where
+    /// the two fills differ most, so the fill read back can only be one; Blue's deepened fill is
+    /// far from Green's, so a fill that ignored the accent fails one of the two.
     @Test("The confirm button is the deepened accent with a white label", .machinePinned(.pixelSampling),
-          arguments: [ColorScheme.light, ColorScheme.dark])
-    func theConfirmButtonTakesTheDeepenedFill(scheme: ColorScheme) throws {
-        let raw = try #require(NSColor(LiquidGlassHue.green.accentColor).usingColorSpace(.sRGB))
-        let deepened = AccentFill.deepened(raw)
-        #expect(PixelProbe.distance(raw, deepened) > 0.1, "Green's fill and raw accent are too close to tell apart")
+          arguments: [ColorScheme.light, ColorScheme.dark], [LiquidGlassHue.green, .blue])
+    func theConfirmButtonTakesTheDeepenedFill(scheme: ColorScheme, hue: LiquidGlassHue) throws {
+        func deepenedFill(_ hue: LiquidGlassHue) throws -> (raw: NSColor, deepened: NSColor) {
+            let raw = try #require(NSColor(hue.accentColor).usingColorSpace(.sRGB))
+            return (raw, AccentFill.deepened(raw))
+        }
+        let (raw, deepened) = try deepenedFill(hue)
+        if hue == .green {
+            #expect(PixelProbe.distance(raw, deepened) > 0.1, "Green's fill and raw accent are too close to tell apart")
+        } else {
+            #expect(PixelProbe.distance(deepened, try deepenedFill(.green).deepened) > 0.1,
+                    "\(hue)'s fill is too close to Green's to catch a fill that ignores the accent")
+        }
 
-        // The capsule `theConfirmButtonPaintsFilled` measures, centred in a band wide enough to
-        // hold all of it; the fill is the commonest colour that is not the ground.
+        // The capsule, centred in a band wide enough to hold all of it; the fill is the commonest
+        // colour that is not the ground.
         let band = CGRect(x: 596, y: 288, width: 70, height: 30)
-        let host = mount(Self.daughterWithReview, scheme: scheme, accent: LiquidGlassHue.green.accentColor)
+        let host = mount(Self.daughterWithReview, scheme: scheme, accent: hue.accentColor)
         let rep = try #require(PixelProbe.render(host, band))
         let ground = try #require(rep.colorAt(x: 0, y: 0))
         let fill = try #require(PixelProbe.dominant(in: rep) { PixelProbe.distance($0, ground) > 0.1 })
         #expect(PixelProbe.distance(fill, deepened) < 0.01,
-                "the confirm button fills with \(PixelProbe.describe(fill)) in \(scheme), not the deepened Green \(PixelProbe.describe(deepened))")
+                "the confirm button fills with \(PixelProbe.describe(fill)) in \(scheme), not the deepened \(hue) \(PixelProbe.describe(deepened))")
+        #expect(PixelProbe.count(in: rep) { PixelProbe.distance($0, deepened) < 0.01 } > 200,
+                "the confirm button is not filled in \(scheme)")
         // The label, inside the capsule: white there, and no dark ink.
         let box = try #require(PixelProbe.bounds(in: rep) { PixelProbe.distance($0, fill) < 0.01 })
         let scale = CGFloat(rep.pixelsWide) / band.width
@@ -313,6 +300,10 @@ import Design
     func theReviewCountIsSeparate() {
         #expect(differingPixels(mount(Self.daughterWithReview), mount(Self.daughter), Self.headerZone) > 20,
                 "the header paints the same with and without questions — the chip is missing")
+    }
+
+    /// The model half of the separate count, unpinned: it reads no pixels.
+    @Test func aQuestionIsNotCountedAsAnAnswer() {
         #expect(Self.daughterWithReview.total == Self.daughter.total,
                 "a question was counted as an answer")
     }

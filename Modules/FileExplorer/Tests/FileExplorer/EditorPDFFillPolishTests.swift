@@ -48,23 +48,12 @@ import Sync
     private func open(pages: Int = 1) async throws -> EditorPDFDocument {
         let file = path("Lease \(UUID().uuidString.prefix(8)).pdf")
         PDFFixtures.write(file, pages: pages)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
-        return pdf
+        return try await PDFFixtures.opened(file, defaults: defaults)
     }
 
     private func fire(_ item: NSMenuItem?) throws {
         let item = try #require(item)
         _ = item.target?.perform(item.action)
-    }
-
-    private func source(_ name: String) throws -> String {
-        let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()      // Tests/FileExplorer
-            .deletingLastPathComponent().deletingLastPathComponent()               // FileExplorer
-        return try String(contentsOf: here.appendingPathComponent("Sources/FileExplorer/\(name)"), encoding: .utf8)
     }
 
     private static let typed = EditorPDFSignature(kind: .signature, look: .typed("Alex Morgan"))
@@ -98,7 +87,7 @@ import Sync
     /// The save pill ends with Done, which uses the header's toggle, and Save Filled Copy wears the
     /// window's hue. The pill's buttons are SwiftUI, so the source is read.
     @Test func thePillEndsWithDoneAndItsSaveWearsTheHue() throws {
-        let palette = try source("EditorPDFFillPalette.swift")
+        let palette = try SourceText.fileExplorer("EditorPDFFillPalette.swift")
         // Its title is "Save Corrected Copy" when only corrections are placed.
         let save = try #require(palette.range(of: #"Button(fill.saveTitle) { Task { await fill.save() } }"#))
         let done = try #require(palette.range(of: "Button(Self.doneTitle) { fill.toggle() }"), "the pill has no Done")
@@ -143,7 +132,7 @@ import Sync
 
     /// Choosing one under Delete asks first; Cancel keeps it, Delete removes it from this Mac and
     /// leaves what is already placed. The menus say "Delete a Saved Signature" and "Delete Saved
-    /// Initials".
+    /// Initials". The question names the one it deletes; Esc cancels and no key deletes.
     @Test func deletingASavedSignatureAsksFirst() throws {
         let fill = fill()
         let initials = EditorPDFSignature(kind: .initials, look: .typed("AM"))
@@ -152,8 +141,13 @@ import Sync
         fill.armed = .signature(initials)
         let placed = try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0))
         var asked: [EditorPDFSignature.Kind] = []
+        var names: [String] = []
         var answer = false
-        fill.confirmDeletingSaved = { signature, _ in asked.append(signature.kind); return answer }
+        fill.confirmDeletingSaved = { signature, name in
+            asked.append(signature.kind)
+            names.append(name)
+            return answer
+        }
 
         let menu = EditorPDFSignatureMenu.menu(for: fill, kind: .initials)
         let delete = try #require(menu.items.last)
@@ -161,12 +155,18 @@ import Sync
         #expect(EditorPDFSignatureMenu.menu(for: fill, kind: .signature).items.last?.title == "Delete a Saved Signature")
         try fire(delete.submenu?.items.first)
         #expect(asked == [.initials] && fill.store.saved(.initials) == [initials], "Cancel deleted the initials")
+        #expect(names == ["AM"], "the question didn't name what it deletes")
         answer = true
         try fire(delete.submenu?.items.first)
         #expect(fill.store.saved(.initials).isEmpty, "Delete kept the initials")
         #expect(fill.store.saved(.signature) == [Self.typed], "deleting the initials touched the signature")
         #expect(fill.items.contains { $0.id == placed }, "the initials on the page went with the saved ones")
 
+        let alert = EditorPDFFillSign.deleteSavedAlert(initials, name: "AM")
+        #expect(alert.buttons.map(\.title) == ["Cancel", "Delete"])
+        #expect(alert.buttons[0].keyEquivalent == "\u{1b}", "Esc doesn’t cancel (TE203)")
+        #expect(alert.buttons[1].keyEquivalent.isEmpty, "a key deletes")
+        #expect(alert.buttons[1].hasDestructiveAction)
     }
 
     /// With six saved, the Add sheet says the next one replaces the oldest; with five it says
@@ -181,7 +181,7 @@ import Sync
         #expect(EditorPDFAddSignatureSheet.fullCaption(.initials, store: store) == nil, "a full kind spoke for the other")
         for n in 0..<6 { store.add(EditorPDFSignature(kind: .initials, look: .typed("A\(n)"))) }
         #expect(EditorPDFAddSignatureSheet.fullCaption(.initials, store: store)?.hasSuffix("Adding these replaces the oldest.") == true)
-        let sheet = try source("EditorPDFSignatureSheet.swift")
+        let sheet = try SourceText.fileExplorer("EditorPDFSignatureSheet.swift")
         #expect(sheet.contains("if keep, let full = Self.fullCaption(kind, store: fill.store) {"), "the sheet never shows it")
     }
 
@@ -279,23 +279,10 @@ import Sync
     @Test func clickingASignatureFieldOnTheOverlaySignsIt() async throws {
         let file = path("W-9 \(UUID().uuidString.prefix(8)).pdf")
         try PDFFixtures.writeForm(file)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
+        let pdf = try await PDFFixtures.opened(file, defaults: defaults)
         let document = try #require(pdf.document)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 700, height: 900))
-        window.contentView = reader
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = document
-        reader.scaleFactor = 1
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
+        let (window, reader) = EditorTestRigs.readerWindow(document, fill: pdf.fill,
+                                                           size: CGSize(width: 700, height: 900), scale: 1)
         let overlay = reader.fillOverlay
         let fill = pdf.fill
         fill.toggle()
@@ -366,7 +353,7 @@ import Sync
         for tool in styling { #expect(P.refusal(tool, fill: closed) == EditorPDFFillSign.noCommentingReason) }
         #expect(P.refusal(.formFields, fill: closed) == nil)
 
-        let palette = try source("EditorPDFFillPalette.swift")
+        let palette = try SourceText.fileExplorer("EditorPDFFillPalette.swift")
         #expect(palette.contains(".disabled(Self.refusal(tool, fill: fill) != nil)"))
         #expect(palette.contains(".help(Self.refusal(tool, fill: fill) ?? Self.hint(tool))"))
     }
@@ -453,17 +440,8 @@ import Sync
     /// corner handle shows a resize pointer, not the placing tools' crosshair.
     @Test func theSelectionWearsTheHueAndTheHandleShowsAResizePointer() async throws {
         let pdf = try await open()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
-        window.contentView = reader
-        reader.autoScales = false
-        reader.fit = nil
-        reader.document = pdf.document
-        reader.scaleFactor = 0.5
-        reader.layoutDocumentView()
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
+        let (window, reader) = EditorTestRigs.readerWindow(pdf.document, fill: pdf.fill,
+                                                           size: CGSize(width: 500, height: 700), scale: 0.5)
         let overlay = reader.fillOverlay
         pdf.fill.toggle()
         pdf.fill.armed = .mark(.check)
@@ -506,15 +484,15 @@ import Sync
     /// The canvas hands the overlay the window's hue, and the Add sheet's Add and the text editor's
     /// style picker wear it too.
     @Test func theHueReachesTheOverlayTheSheetAndTheStylePicker() throws {
-        #expect(try source("EditorPDFCanvas.swift").contains("coveredRects: frames.covered, accent: accent)"))
-        #expect(try source("EditorPDFPageView.swift").contains("view.fillOverlay.accent = NSColor(accent)"))
-        let overlay = try source("EditorPDFFillOverlay.swift")
+        #expect(try SourceText.fileExplorer("EditorPDFCanvas.swift").contains("coveredRects: frames.covered, accent: accent)"))
+        #expect(try SourceText.fileExplorer("EditorPDFPageView.swift").contains("view.fillOverlay.accent = NSColor(accent)"))
+        let overlay = try SourceText.fileExplorer("EditorPDFFillOverlay.swift")
         #expect(!overlay.contains("controlAccentColor.") && !overlay.contains("= NSColor.controlAccentColor"),
                 "the overlay still draws in the Mac's own accent")
-        let sheet = try source("EditorPDFSignatureSheet.swift")
+        let sheet = try SourceText.fileExplorer("EditorPDFSignatureSheet.swift")
         let add = try #require(sheet.range(of: #"Button("Add") { add() }"#))
         #expect(sheet[add.upperBound...].prefix(300).contains(".accentedProminent(hue)"), "Add is the Mac's blue")
-        let bar = try source("EditorFormatBar.swift")
+        let bar = try SourceText.fileExplorer("EditorFormatBar.swift")
         #expect(bar.contains("EditorStylePicker(current: state.heading, accent: accent)"))
         #expect(bar.contains("fill(hovering ? AccentFill.deepened(accent) : .clear)"))
         #expect(!bar.contains("fill(hovering ? Color.accentColor"))

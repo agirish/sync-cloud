@@ -181,10 +181,10 @@ import Sync
     /// The key and both menus ask the one rule, read from their source, since a `.contextMenu` body
     /// and an `.onKeyPress` handler never run in a package test.
     @Test func theKeyAndBothMenusAskTheOneRule() throws {
-        let rail = try EditorRailRowMenuTests.source("EditorPDFRailViews.swift")
+        let rail = try SourceText.fileExplorer("EditorPDFRailViews.swift")
         #expect(rail.contains("tools.deleteSelectedPages() ? .handled : .ignored"), "the Delete key decides for itself")
         #expect(rail.contains(".disabled(!tools.mayDelete(pages))"), "the Pages tab's menu decides for itself")
-        let menu = try EditorRailRowMenuTests.source("EditorPDFToolViews.swift")
+        let menu = try SourceText.fileExplorer("EditorPDFToolViews.swift")
         #expect(menu.contains("enabled: pages && tools.mayDelete(selected)"), "the Tools menu decides for itself")
     }
 
@@ -312,8 +312,6 @@ import Sync
         host.layoutSubtreeIfNeeded()
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?
-            .write(to: URL(fileURLWithPath: NSTemporaryDirectory() + "pdf-ring-te137.png"))
 
         let scale = CGFloat(rep.pixelsWide) / host.bounds.width
         func box(_ matches: (NSColor) -> Bool) -> (minX: Int, minY: Int, maxX: Int, maxY: Int)? {

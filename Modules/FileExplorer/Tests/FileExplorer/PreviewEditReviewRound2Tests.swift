@@ -159,11 +159,53 @@ import EventsTestSupport
     }
     // MARK: R6 — speed, kept equal
 
+    /// A long note with every kind of block, repeated to `bytes`.
+    private static func note(bytes: Int) -> String {
+        let section = """
+        ## Section heading
+
+        Some **bold** text, some *italic* text, a [link](https://example.com) and `inline code` in a \
+        paragraph that runs on for a while so that it wraps across a few lines in the preview column.
+
+        - First item with **emphasis**
+        - Second item with a [link](https://example.com/two)
+        - [ ] A task still to do
+
+        | Name | Size |
+        | ---- | ---- |
+        | one  | 12   |
+        | two  | 345  |
+
+        > A quoted line that says something worth quoting.
+
+        ```swift
+        let x = 1
+        ```
+
+
+        """
+        var text = "# A long note\n\n"
+        while text.utf8.count < bytes { text += section }
+        return text
+    }
+
+    /// A note that is one long list, as a log or a journal kept in bullets is: the list is one
+    /// block, so it is re-read whole at every keystroke in it.
+    private static func list(bytes: Int) -> String {
+        var text = "# A long list\n\n"
+        var n = 0
+        while text.utf8.count < bytes {
+            n += 1
+            text += "- Item \(n): something noted down, with a **bold** word and a [link](https://example.com)\n"
+        }
+        return text
+    }
+
     /// Halving finds the segment a walk finds, at every offset of notes with empty anchors (an
     /// empty item, cell or heading), pictures, tables, breaks and quotes. Mutation: halve on `<`;
     /// an offset at a segment's start finds the segment before it.
     @Test func theSegmentAtAnOffsetIsFoundByHalvingAsByWalking() {
-        let notes = [PreviewEditSpeedTests.note(bytes: 4_000), PreviewEditSpeedTests.list(bytes: 2_000),
+        let notes = [Self.note(bytes: 4_000), Self.list(bytes: 2_000),
                      "- \n- [ ] \n- x\n\n## \n\n| a |  |\n|---|---|\n|  | b |\n\n> q  \n> r\n\n![i](a) t\n\n```\n\n```",
                      "", "x", "---\na: b\n---\n\ntext <b>bold</b> &amp; more"]
         // And the property test's random documents, every kind of block side by side.

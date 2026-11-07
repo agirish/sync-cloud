@@ -30,27 +30,21 @@ import UniformTypeIdentifiers
 
     // MARK: - Whether Quick Look may see it
 
-    /// The case that matters. In cloud folders a dataless placeholder is a file's normal state, and
-    /// handing one to Quick Look makes the provider fetch it all. Selecting a row must never do that.
-    @Test func testACloudOnlyPlaceholderIsNeverHandedToQuickLook() {
-        #expect(ColumnPreviewSource.classify(exists: true, isCloudOnly: true) == .cloudOnly)
-    }
-
-    /// The dataless check comes first, as `FileContentVerifier` explains: a placeholder is a
-    /// placeholder whatever else is true of it.
-    @Test func testTheDatalessCheckOutranksEverythingElse() {
-        #expect(ColumnPreviewSource.classify(exists: false, isCloudOnly: true) == .cloudOnly)
-    }
-
-    @Test func testAMaterializedFileIsPreviewable() {
-        #expect(ColumnPreviewSource.classify(exists: true, isCloudOnly: false) == .quickLook)
-    }
-
-    /// A path a rescan hasn't caught up with is distinguished from a placeholder: one offers a
-    /// download, the other says the file is gone. Collapsing them would offer to download a file
-    /// that no longer exists.
-    @Test func testAVanishedFileIsMissingRatherThanCloudOnly() {
-        #expect(ColumnPreviewSource.classify(exists: false, isCloudOnly: false) == .missing)
+    /// Every case of the classification. The one that matters is a cloud-only placeholder: in
+    /// cloud folders a dataless placeholder is a file's normal state, and handing one to Quick Look
+    /// makes the provider fetch it all, so selecting a row must never do that. The dataless check
+    /// comes first, as `FileContentVerifier` explains: a placeholder is a placeholder whatever else
+    /// is true of it. A path a rescan hasn't caught up with is distinguished from a placeholder:
+    /// one offers a download, the other says the file is gone, and collapsing them would offer to
+    /// download a file that no longer exists.
+    @Test(arguments: [
+        (true, true, ColumnPreviewSource.cloudOnly),     // never handed to Quick Look
+        (false, true, ColumnPreviewSource.cloudOnly),    // dataless outranks everything else
+        (true, false, ColumnPreviewSource.quickLook),    // a materialized file is previewable
+        (false, false, ColumnPreviewSource.missing),     // vanished, not cloud-only
+    ])
+    func testClassify(exists: Bool, isCloudOnly: Bool, expected: ColumnPreviewSource) {
+        #expect(ColumnPreviewSource.classify(exists: exists, isCloudOnly: isCloudOnly) == expected)
     }
 
     // MARK: - What the preview area says and offers
@@ -73,7 +67,7 @@ import UniformTypeIdentifiers
     }
 
     /// Only a placeholder has anything to offer. A vanished file can't be fetched; this is
-    /// `testAVanishedFileIsMissingRatherThanCloudOnly`'s rule, at the control.
+    /// `testClassify`'s vanished-file rule, at the control.
     @Test func aVanishedFileSaysSoAndOffersNothing() {
         #expect(ColumnPreviewColumn.caption(source: .missing, isAwaitingDownload: false)
                 == "This file is no longer here")

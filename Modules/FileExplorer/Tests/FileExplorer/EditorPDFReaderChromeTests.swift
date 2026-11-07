@@ -28,16 +28,7 @@ import Sync
     private func open(pages: Int, name: String = "Run of show.pdf") async throws -> EditorPDFDocument {
         let file = (folder as NSString).appendingPathComponent(name)
         PDFFixtures.write(file, pages: pages)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        var phases: [EditorPDFDocument.Phase] = []
-        pdf.onLoaded = { phases.append($0) }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where phases.isEmpty {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(phases.first == .open)
-        return pdf
+        return try await PDFFixtures.openedWhenLoaded(file, defaults: defaults)
     }
 
     private func size<V: View>(_ view: V, width: CGFloat? = nil, scale: CGFloat = 1) -> CGSize {
@@ -94,7 +85,7 @@ import Sync
         let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         let header = try #require(card.range(of: "struct EditorPDFHeader<Trailing: View>: View {"))
         let body = String(card[header.upperBound...].prefix(900))
-        #expect(body.contains("VStack(alignment: .leading, spacing: 2) {\n            nameRow\n            metaRow\n        }"),
+        #expect(EditorAcrossPolishTests.squashed(body).contains("VStack(alignment: .leading, spacing: 2) { nameRow metaRow }"),
                 "the PDF header is not the name row over the facts row")
         let row = try #require(card.range(of: "struct EditorPDFFactsRow: View {"))
         let rowBody = String(card[row.upperBound...].prefix(900))

@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Sync
 import Design
+import DesignTestSupport
 @testable import FileExplorer
 
 /// The Storage section header, rendered in both shapes: a fold control on the All page, a plain row
@@ -26,15 +27,9 @@ import Design
                                  reclaimableBytes: entries.reduce(0) { $0 + $1.bytes })
     }
 
-    private final class Mounted {
-        let host: NSHostingView<AnyView>
-        let window: NSWindow
-        init(host: NSHostingView<AnyView>, window: NSWindow) { self.host = host; self.window = window }
-    }
-
     /// The window background matters: without one the content composites against the borderless
     /// window's own buffer and every comparison reads zero difference.
-    private func mount(section: StorageSection?) -> Mounted {
+    private func mount(section: StorageSection?) -> ProbeRig<AnyView> {
         let manager = FileSyncManager()
         manager.storageLensReport = Self.report()
         let subject = StorageLensView(syncManager: manager, providerName: "Projects",
@@ -42,20 +37,10 @@ import Design
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        return Mounted(host: host, window: window)
+        return ProbeRig(AnyView(subject), size: Self.canvas)
     }
 
-    private func bitmap(_ m: Mounted, _ band: CGRect) -> NSBitmapImageRep? {
+    private func bitmap(_ m: ProbeRig<AnyView>, _ band: CGRect) -> NSBitmapImageRep? {
         m.host.layoutSubtreeIfNeeded()
         guard let rep = m.host.bitmapImageRepForCachingDisplay(in: band) else { return nil }
         m.host.cacheDisplay(in: band, to: rep)
@@ -84,7 +69,7 @@ import Design
     /// card above it), and the first painted row on either is the lens header card. Full-height
     /// strips would pass with the chevron drawn everywhere. `StorageSection.tint` is unique to this
     /// row.
-    private func headerBand(_ m: Mounted, tint: NSColor) throws -> CGRect {
+    private func headerBand(_ m: ProbeRig<AnyView>, tint: NSColor) throws -> CGRect {
         let full = try #require(bitmap(m, CGRect(origin: .zero, size: Self.canvas)))
         let scale = max(full.pixelsHigh / Int(Self.canvas.height), 1)
         for row in 0..<full.pixelsHigh {
@@ -104,15 +89,10 @@ import Design
         return .zero
     }
 
-    private func isInk(_ rep: NSBitmapImageRep, _ x: Int, _ y: Int) -> Bool {
-        guard let c = rep.colorAt(x: x, y: y), let bg = rep.colorAt(x: 1, y: 1) else { return false }
-        return abs(c.redComponent - bg.redComponent) > 0.06
-            || abs(c.greenComponent - bg.greenComponent) > 0.06
-            || abs(c.blueComponent - bg.blueComponent) > 0.06
-    }
-
     /// The All page keeps its chevron; a narrowed page has none. The fold doesn't apply there, and
-    /// a control that can't act must not offer to.
+    /// a control that can't act must not offer to. And the row still spans the width on both: the
+    /// header has no explicit `maxWidth: .infinity`; its trailing `Spacer` claims the row, and
+    /// without it the title would drift toward the centre.
     @Test func theChevronIsDrawnOnlyWhereTheFoldApplies() throws {
         let tint = try #require(NSColor(SemanticColor.info).usingColorSpace(.sRGB))
         for (section, expectsChevron) in [(StorageSection?.none, true), (.largest, false)] {
@@ -127,6 +107,9 @@ import Design
             // Non-vacuity: the band really is the header, with its icon and title painted.
             #expect(leadingInk > 0,
                     "no header content at the leading edge for \(String(describing: section))")
+            let edge = try #require(bitmap(m, CGRect(x: 0, y: band.minY, width: 60, height: band.height)))
+            #expect(inked(edge) > 0,
+                    "nothing painted at the leading edge for section \(String(describing: section))")
 
             if expectsChevron {
                 #expect(trailingInk > 0, "the All page lost its fold chevron")
@@ -134,19 +117,6 @@ import Design
                 #expect(trailingInk == 0,
                         "a narrowed page still paints \(trailingInk) chevron pixels for a fold it cannot perform")
             }
-        }
-    }
-
-    /// And the row still spans the width. The header has no explicit `maxWidth: .infinity`; its
-    /// trailing `Spacer` claims the row, and without it the title would drift toward the centre.
-    @Test func theHeaderRowStillStartsAtTheLeadingEdge() throws {
-        let tint = try #require(NSColor(SemanticColor.info).usingColorSpace(.sRGB))
-        for section in [StorageSection?.none, .largest] {
-            let m = mount(section: section)
-            let band = try headerBand(m, tint: tint)
-            let leading = try #require(bitmap(m, CGRect(x: 0, y: band.minY, width: 60, height: band.height)))
-            #expect(inked(leading) > 0,
-                    "nothing painted at the leading edge for section \(String(describing: section))")
         }
     }
 }

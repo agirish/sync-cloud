@@ -16,7 +16,7 @@ import Sync
 /// The sharp check is `theGroupHoldingTheFileIsTheOneOpened`: a resolver that always opened the
 /// first group would pass every "something changed" case and fail only that one.
 @MainActor
-@Suite(.machinePinned(.pixelSampling)) struct DuplicateRevealLandingTests {
+@Suite struct DuplicateRevealLandingTests {
 
     private static let canvas = CGSize(width: 520, height: 620)
 
@@ -64,28 +64,21 @@ import Sync
     /// The selection reaches the view through a fresh `ScratchDefaults` suite, not
     /// `UserDefaults.standard`: `@AppStorage` binds one process-wide location per (store, key),
     /// other suites write this key (`FilingRefineControlTests`), and suites run in parallel.
+    /// With `selectsDuplicates` false nothing is stored, so no rail item is selected.
     private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?,
+                       selectsDuplicates: Bool = true,
                        onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
-        let defaults = ScratchDefaults("DuplicateRevealLandingTests")
-        defaults.set(OrganizeLens.duplicates.rawValue, forKey: OrganizeLens.defaultsKey)
+        let defaults = ScratchDefaults(selectsDuplicates ? "DuplicateRevealLandingTests"
+                                                         : "DuplicateRevealLandingTests-overview")
+        if selectsDuplicates {
+            defaults.set(OrganizeLens.duplicates.rawValue, forKey: OrganizeLens.defaultsKey)
+        }
         let subject = LensWorkspaceView(syncManager: manager, lens: .filing,
                                providerName: "Projects", scanTargetFolder: "/root",
                                onFindDuplicates: {}, revealRequest: request,
                                onRevealHandled: onRevealHandled)
             .defaultAppStorage(defaults)
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = ReviewLensHost.mount(subject, size: Self.canvas)
         return Mounted(host: host, window: window, defaults: defaults)
     }
 
@@ -93,31 +86,13 @@ import Sync
     /// that landed on the overview would compare two wrong screens and agree. Checked by paint: with
     /// no rail selection the same manager draws the overview, and the two must differ, as they
     /// wouldn't if `.defaultAppStorage` failed to reach `railLens`.
-    @Test func theMountLandsOnDuplicatesAndNotOnTheOverview() async throws {
+    @Test(.machinePinned(.pixelSampling)) func theMountLandsOnDuplicatesAndNotOnTheOverview() async throws {
         let groups = [Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")]
         let selected = try #require(await settled(mount(Self.manager(groups: groups), request: nil),
                                                   "duplicates selected"))
 
-        let defaults = ScratchDefaults("DuplicateRevealLandingTests-overview")
-        let view = LensWorkspaceView(syncManager: Self.manager(groups: groups), lens: .filing,
-                            providerName: "Projects", scanTargetFolder: "/root",
-                            onFindDuplicates: {}, revealRequest: nil)
-            .defaultAppStorage(defaults)          // nothing stored: no rail item is selected
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let overview = try #require(await settled(Mounted(host: host, window: window,
-                                                          defaults: defaults),
-                                                  "no selection"))
+        let overview = try #require(await settled(
+            mount(Self.manager(groups: groups), request: nil, selectsDuplicates: false), "no selection"))
         #expect(pixelsDiffering(selected, overview) > 0,
                 "the stored rail selection changed nothing — this suite is mounting the overview")
     }
@@ -195,7 +170,7 @@ import Sync
 
     /// A reveal changes what is on screen at all. Every case below reads a landing as a change in
     /// paint, so without this they could all pass against a feature that does nothing.
-    @Test func aRevealChangesWhatIsPainted() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aRevealChangesWhatIsPainted() async throws {
         let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
         let quiet = try #require(await settled(mount(Self.manager(groups: [target]), request: nil),
                                               "no request"))
@@ -219,15 +194,6 @@ import Sync
             var value: [UUID] { lock.lock(); defer { lock.unlock() }; return ids }
         }
 
-        // Answered: the file is in a group, the reveal applies, the id comes back.
-        let answered = Handled()
-        let request = DuplicateRevealRequest(path: "/root/b/x.txt")
-        let mounted = mount(Self.manager(groups: [target]), request: request,
-                            onRevealHandled: { answered.record($0) })
-        _ = try #require(await settled(mounted, "the reveal"))
-        #expect(answered.value == [request.id],
-                "an applied plan must hand its request back for retirement — once, with the right id")
-
         // Waiting: a scan is running, so nothing is handed back; retiring the request would drop
         // the answer its scan is about to give.
         let waitingLog = Handled()
@@ -236,7 +202,20 @@ import Sync
         let waitingMount = mount(scanning,
                                  request: DuplicateRevealRequest(path: "/root/b/x.txt"),
                                  onRevealHandled: { waitingLog.record($0) })
-        _ = try #require(await settled(waitingMount, "the waiting lens"))
+
+        // Answered: the file is in a group, the reveal applies, the id comes back. Waited for by
+        // the id itself, not by paint, so this runs unpinned.
+        let answered = Handled()
+        let request = DuplicateRevealRequest(path: "/root/b/x.txt")
+        let mounted = mount(Self.manager(groups: [target]), request: request,
+                            onRevealHandled: { answered.record($0) })
+        let (handed, pumps) = await LayoutPumpWait.pump(mounted.host, upTo: 10) { !answered.value.isEmpty }
+        try #require(handed, "the applied plan never handed its request back (\(pumps) passes)")
+        // More turns for both lenses, in which a second hand-back, or one from the waiting lens,
+        // would land.
+        _ = await LayoutPumpWait.pump(waitingMount.host, upTo: 1) { false }
+        #expect(answered.value == [request.id],
+                "an applied plan must hand its request back for retirement — once, with the right id")
         #expect(waitingLog.value.isEmpty,
                 "a request the scan has not answered yet must stay standing")
     }
@@ -246,7 +225,7 @@ import Sync
     /// The group holding the file is the one opened, not simply the first. Two groups, two requests
     /// naming a file in each: a resolver that opened the first, all, or none paints the same both
     /// times; only one following the requested path paints differently.
-    @Test func theGroupHoldingTheFileIsTheOneOpened() async throws {
+    @Test(.machinePinned(.pixelSampling)) func theGroupHoldingTheFileIsTheOneOpened() async throws {
         let first = Self.group(["/root/a/aaa.txt", "/root/b/aaa.txt"], name: "aaa.txt")
         let second = Self.group(["/root/a/zzz.txt", "/root/b/zzz.txt"], name: "zzz.txt")
 
@@ -263,7 +242,7 @@ import Sync
     /// A request made mid-scan resolves when the results land, not before: the common first-use
     /// shape, where the handoff starts a scan. The scan ends as `findDuplicates` ends one (publish
     /// the results, then clear the running flag), and nothing re-triggers the request.
-    @Test func aRequestMadeDuringAScanLandsWhenTheResultsArrive() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aRequestMadeDuringAScanLandsWhenTheResultsArrive() async throws {
         let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
         let manager = FileSyncManager()
         manager.isFindingDuplicates = true
@@ -293,7 +272,7 @@ import Sync
 
     /// A file in no group lands on a named answer, not a list quietly filtered to nothing. Compared
     /// against a grouped file in the same results, so the difference is the outcome.
-    @Test func aFileInNoGroupLandsSomewhereElseThanAGroupedOne() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aFileInNoGroupLandsSomewhereElseThanAGroupedOne() async throws {
         let groups = [Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")]
         let grouped = try #require(await settled(
             mount(Self.manager(groups: groups),
@@ -311,7 +290,7 @@ import Sync
     ///
     /// The two files share a name and differ only in folder; with different names the pixels would
     /// differ even with the rule removed.
-    @Test func aFileTheScanNeverLookedAtLandsSomewhereElseThanOneItCleared() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aFileTheScanNeverLookedAtLandsSomewhereElseThanOneItCleared() async throws {
         // The manager records a completed scan of /root, so /elsewhere was never examined.
         let cleared = try #require(await settled(
             mount(Self.manager(groups: []),
@@ -327,7 +306,7 @@ import Sync
     /// the last scan never covered while its groups are on screen, then resolve every group: the
     /// list must show the all-clear, not "wasn't in the last scan" about a file asked about long
     /// before. Pins `applyRevealPlan`'s call of `landingToStore`, which its pure tests can't see.
-    @Test func aLatentNotScannedLandingDoesNotSurfaceOverALaterAllClear() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aLatentNotScannedLandingDoesNotSurfaceOverALaterAllClear() async throws {
         let group = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
 
         // The reference: the same end state with no request ever made.
@@ -351,7 +330,7 @@ import Sync
 
     /// A scan that found no groups still answers about the file, not with the folder's generic
     /// all-clear, which would leave the user to infer it covered what they clicked.
-    @Test func aScanWithNoGroupsAtAllStillAnswersAboutTheFile() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aScanWithNoGroupsAtAllStillAnswersAboutTheFile() async throws {
         func emptyManager() -> FileSyncManager {
             let m = FileSyncManager()
             m.hasFoundDuplicates = true

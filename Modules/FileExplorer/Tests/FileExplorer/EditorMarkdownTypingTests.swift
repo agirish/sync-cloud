@@ -495,12 +495,7 @@ import FileExplorerTestSupport
 
     // MARK: - TE56 an image pasted or dropped
 
-    private func pngData() -> Data {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8,
-                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        return rep.representation(using: .png, properties: [:])!
-    }
+    private func pngData() -> Data { EditorTestRigs.png() }
 
     @Test func aPastedScreenshotIsSavedLinkedAndUndoLeavesTheFile() throws {
         let note = try TestTextFiles.write("# Pasta\n\nServes 2.", named: "Pasta.md")
@@ -586,8 +581,7 @@ import FileExplorerTestSupport
     /// file is copied, never moved.
     @Test func anImageFileCopiedInFinderIsCopiedIn() throws {
         let note = try TestTextFiles.write("x", named: "Pasta.md")
-        let source = try TestTextFiles.write("", named: "IMG_4120.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4120.png")
         let rig = rig("x", importer: note)
         let board = pasteboard {
             $0.writeObjects([URL(fileURLWithPath: source) as NSURL])
@@ -605,8 +599,7 @@ import FileExplorerTestSupport
     /// nothing is written.
     @Test func anImageFileCopiedIntoCodePastesItsName() throws {
         let note = try TestTextFiles.write("x", named: "Pasta.md")
-        let source = try TestTextFiles.write("", named: "IMG_4125.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4125.png")
         let rig = rig("```\ncode", importer: note)
         let board = pasteboard {
             $0.writeObjects([URL(fileURLWithPath: source) as NSURL])
@@ -622,8 +615,7 @@ import FileExplorerTestSupport
     /// tag in two.
     @Test func aDropOnAnHTMLLineIsRefused() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
-        let source = try TestTextFiles.write("", named: "IMG_4126.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4126.png")
         let rig = rig("<p align=\"center\">\n  hi\n</p>", importer: note)
         #expect(rig.coordinator.handleDrop(imageFiles: [source], at: 5, in: rig.view) == .refused)
         #expect(rig.view.string == "<p align=\"center\">\n  hi\n</p>")
@@ -695,8 +687,7 @@ import FileExplorerTestSupport
 
     @Test func aDroppedImageIsCopiedAndLinkedWhereItWasDropped() throws {
         let note = try TestTextFiles.write("one\n\ntwo", named: "Pasta.md")
-        let source = try TestTextFiles.write("", named: "IMG_4120.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4120.png")
         let rig = rig("one\n\ntwo", importer: note)
         #expect(rig.coordinator.handleDrop(imageFiles: [source], at: 3, in: rig.view) == .handled)
         #expect(rig.view.string == "one\n\n![](Images/Pasta-1.png)\n\ntwo")
@@ -707,8 +698,7 @@ import FileExplorerTestSupport
     @Test func aDropInATableGoesAfterTheTable() throws {
         let text = "| a | b |\n|---|---|\n| 1 | 2 |\n\nafter"
         let note = try TestTextFiles.write(text, named: "Pasta.md")
-        let source = try TestTextFiles.write("", named: "IMG_4121.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4121.png")
         let rig = rig(text, importer: note)
         #expect(rig.coordinator.handleDrop(imageFiles: [source], at: 22, in: rig.view) == .handled)
         #expect(rig.view.string == "| a | b |\n|---|---|\n| 1 | 2 |\n\n![](Images/Pasta-1.png)\n\nafter")
@@ -718,8 +708,7 @@ import FileExplorerTestSupport
     /// written; a blank line after raw HTML is not, and takes the image.
     @Test func aBlankLineIsLiteralOnlyWhereTheImageWouldBe() throws {
         let note = try TestTextFiles.write("x", named: "Note.md")
-        let source = try TestTextFiles.write("", named: "IMG_4122.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4122.png")
         let fenced = rig("```\ncode\n\nmore\n```", importer: note)
         #expect(fenced.coordinator.handleDrop(imageFiles: [source], at: 9, in: fenced.view) == .refused)
         #expect(fenced.view.string == "```\ncode\n\nmore\n```")
@@ -768,8 +757,7 @@ import FileExplorerTestSupport
     /// editor's, taking the link back, not the window's, which is the file operations'.
     @Test func aHandledDropPutsTheCaretInTheText() throws {
         let note = try TestTextFiles.write("one\n\ntwo", named: "Pasta.md")
-        let source = try TestTextFiles.write("", named: "IMG_4123.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4123.png")
         let rig = rig("one\n\ntwo", importer: note)
         let elsewhere = NSTextField(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         rig.window.contentView?.addSubview(elsewhere)
@@ -789,8 +777,7 @@ import FileExplorerTestSupport
     /// A refused drop is rejected: `false` back to AppKit, the text untouched, the host told.
     @Test func aRefusedDropIsRejected() throws {
         let note = try TestTextFiles.write("```\ncode", named: "Pasta.md")
-        let source = try TestTextFiles.write("", named: "IMG_4124.png")
-        try pngData().write(to: URL(fileURLWithPath: source))
+        let source = try EditorTestRigs.imageFile(named: "IMG_4124.png")
         let rig = rig("```\ncode", importer: note)
         let board = pasteboard { $0.writeObjects([URL(fileURLWithPath: source) as NSURL]) }
         defer { board.releaseGlobally() }

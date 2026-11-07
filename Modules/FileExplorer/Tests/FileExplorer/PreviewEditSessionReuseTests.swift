@@ -392,22 +392,16 @@ import EventsTestSupport
             let at = (session.display.string as NSString).range(of: "\u{FFFC}").location
             return (session.display.attribute(.attachment, at: at, effectiveRange: nil) as? NSTextAttachment)?.image
         }
-        func settle(until done: () -> Bool) async throws {
-            for _ in 0..<200 where !done() { try await Task.sleep(nanoseconds: 10_000_000) }
-        }
-        try await settle { loads == 1 }
+        try await Self.settle { loads == 1 }
         #expect(loads == 1, "the first look, which finds nothing")
         #expect(picture()?.size != NSSize(width: 40, height: 30))
 
-        let image = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8,
-                                     samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-        try #require(image?.representation(using: .png, properties: [:])).write(to: folder.appendingPathComponent("pic.png"))
+        try PreviewEditorViewTests.png(width: 40, height: 30).write(to: folder.appendingPathComponent("pic.png"))
         session.imageRetry = 0
         let words = (session.display.string as NSString).range(of: "Words").location
         session.perform(RenderedEdit(range: NSRange(location: words + 5, length: 0), text: "!", action: .typing))
         #expect(source.text.hasSuffix("Words!."), "the keystroke was written")
-        try await settle { loads == 2 }
+        try await Self.settle { loads == 2 }
         #expect(loads == 2, "looked for again")
         #expect(picture()?.size == NSSize(width: 40, height: 30))
     }
@@ -479,10 +473,7 @@ import EventsTestSupport
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("te67-folder-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let image = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8,
-                                     samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-        try #require(image?.representation(using: .png, properties: [:])).write(to: folder.appendingPathComponent("pic.png"))
+        try PreviewEditorViewTests.png(width: 40, height: 30).write(to: folder.appendingPathComponent("pic.png"))
         let source = EditorSourceStorage(text: "![pic](pic.png)\n\nWords.")
         let session = PreviewEditSession(source: source, undoManager: UndoManager(), documentFolder: nil)
         var loads = 0

@@ -13,9 +13,10 @@ import Testing
 /// `TextPairDiffPipeline` with this overlay's labels; this suite covers the chrome around it.
 ///
 /// Ink is counted as dark pixels, not inked rows: the full-bleed scrim inks every row before the
-/// card draws anything. `.pixelSampling` because it reads a live renderer's pixels; CI runs it.
+/// card draws anything. The ink count is `.pixelSampling` because it reads a live renderer's
+/// pixels; the empty-document check reads no pixel value, so it runs everywhere.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct EditorDivergenceOverlayMountTests {
+@Suite(.serialized) struct EditorDivergenceOverlayMountTests {
 
     private static let width: CGFloat = 900
     private static let height: CGFloat = 620
@@ -76,7 +77,7 @@ import Testing
     /// The card comes up, with words on it: the header sentence, two column captions and three foot
     /// buttons (the rows can't arrive here). An empty view through the same harness measures 0 dark
     /// pixels, which is the positive control.
-    @Test func theOverlayMountsAndDrawsItsChrome() throws {
+    @Test(.machinePinned(.pixelSampling)) func theOverlayMountsAndDrawsItsChrome() throws {
         let (document, folder) = try divergedDocument()
         defer { try? FileManager.default.removeItem(at: folder) }
 

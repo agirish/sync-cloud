@@ -120,11 +120,7 @@ import Testing
     /// filed nothing. The `#require` is the positive control: a missing handler fails rather than
     /// passing on an empty search.
     @Test func theScanStartHandlerStillRetiresEveryOrganizeSessionFlag() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read LensWorkspaceView.swift — this scan would be vacuous")
+        let source = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let marker = try #require(source.range(of: ".onChange(of: syncManager.isSuggestingFiles)"),
                                   "the filing scan-start handler is gone — nothing retires the session flags")
         let handler = String(source[marker.lowerBound...].prefix(1_200))

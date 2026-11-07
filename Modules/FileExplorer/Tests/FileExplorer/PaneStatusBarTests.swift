@@ -128,7 +128,7 @@ import Sync
     /// is one child, collapsing the ladder to one candidate), so a rung added to the enum and
     /// forgotten in the view would be silently unreachable at every width, the strip truncating.
     @Test func theLadderOffersEveryRungInSheddingOrder() throws {
-        let source = try Self.barSource()
+        let source = try SourceText.fileExplorer("PaneStatusBar.swift")
         let offered = PaneStatusFacts.Rung.allCases.map { "strip(.\($0))" }
         var cursor = source.startIndex
         for call in offered {
@@ -255,16 +255,5 @@ import Sync
         private var paths: Set<String> = []
         func record(_ path: String) { lock.withLock { _ = paths.insert(path) } }
         var all: Set<String> { lock.withLock { paths } }
-    }
-
-    private static func barSource() throws -> String {
-        let packageRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Tests/FileExplorer
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // package root
-        let source = try String(contentsOf: packageRoot
-            .appendingPathComponent("Sources/FileExplorer/PaneStatusBar.swift"), encoding: .utf8)
-        try #require(!source.isEmpty)
-        return source
     }
 }

@@ -8,98 +8,38 @@ import Sync
 /// read without a scene.
 @Suite struct DifferencesShortcutRulesTests {
 
+    /// The one axis a case flips from the all-good fixture; `.none` is that fixture, which must be
+    /// available. `nothing` is a zero count: no targets, nothing verifiable, no sections.
+    enum Axis: Sendable { case none, session, nothing, blocked, suspended, collapsed }
+
     // MARK: ⇧⌘R Review
 
-    @Test func reviewIsAvailableInTheQuietState() {
+    @Test(arguments: [Axis.none, .session, .nothing, .blocked, .suspended])
+    func review(_ axis: Axis) {
         #expect(DifferencesShortcutRules.reviewAvailable(
-            sessionActive: false, targetCount: 3, blocked: false, suspended: false))
-    }
-
-    @Test func aRunningSessionWithholdsReview() {
-        #expect(!DifferencesShortcutRules.reviewAvailable(
-            sessionActive: true, targetCount: 3, blocked: false, suspended: false))
-    }
-
-    @Test func nothingToReviewWithholdsReview() {
-        #expect(!DifferencesShortcutRules.reviewAvailable(
-            sessionActive: false, targetCount: 0, blocked: false, suspended: false))
-    }
-
-    @Test func aBlockingSyncWithholdsReview() {
-        #expect(!DifferencesShortcutRules.reviewAvailable(
-            sessionActive: false, targetCount: 3, blocked: true, suspended: false))
-    }
-
-    @Test func aDestinationPickWithholdsReview() {
-        #expect(!DifferencesShortcutRules.reviewAvailable(
-            sessionActive: false, targetCount: 3, blocked: false, suspended: true))
+            sessionActive: axis == .session, targetCount: axis == .nothing ? 0 : 3,
+            blocked: axis == .blocked, suspended: axis == .suspended) == (axis == .none))
     }
 
     // MARK: ⇧⌘V Verify
 
-    @Test func verifyIsAvailableInTheQuietState() {
-        #expect(DifferencesShortcutRules.verifyAvailable(
-            sessionActive: false, verifiableCount: 1, blocked: false, collapsed: false,
-            suspended: false))
-    }
-
-    @Test func aRunningSessionWithholdsVerify() {
-        #expect(!DifferencesShortcutRules.verifyAvailable(
-            sessionActive: true, verifiableCount: 1, blocked: false, collapsed: false,
-            suspended: false))
-    }
-
-    @Test func nothingVerifiableWithholdsVerify() {
-        #expect(!DifferencesShortcutRules.verifyAvailable(
-            sessionActive: false, verifiableCount: 0, blocked: false, collapsed: false,
-            suspended: false))
-    }
-
-    @Test func aBlockingSyncWithholdsVerify() {
-        #expect(!DifferencesShortcutRules.verifyAvailable(
-            sessionActive: false, verifiableCount: 1, blocked: true, collapsed: false,
-            suspended: false))
-    }
-
-    @Test func aDestinationPickWithholdsVerify() {
-        #expect(!DifferencesShortcutRules.verifyAvailable(
-            sessionActive: false, verifiableCount: 1, blocked: false, collapsed: false,
-            suspended: true))
-    }
-
     /// Verify's progress strip renders inside the pane, so collapsed it would run with hidden
     /// feedback. Review has no collapse gate: starting one reopens the pane.
-    @Test func aCollapsedPaneWithholdsVerify() {
-        #expect(!DifferencesShortcutRules.verifyAvailable(
-            sessionActive: false, verifiableCount: 1, blocked: false, collapsed: true,
-            suspended: false))
+    @Test(arguments: [Axis.none, .session, .nothing, .blocked, .suspended, .collapsed])
+    func verify(_ axis: Axis) {
+        #expect(DifferencesShortcutRules.verifyAvailable(
+            sessionActive: axis == .session, verifiableCount: axis == .nothing ? 0 : 1,
+            blocked: axis == .blocked, collapsed: axis == .collapsed,
+            suspended: axis == .suspended) == (axis == .none))
     }
 
     // MARK: ⇧⌘F fold
 
-    @Test func foldIsAvailableInTheQuietState() {
+    @Test(arguments: [Axis.none, .session, .collapsed, .nothing, .suspended])
+    func fold(_ axis: Axis) {
         #expect(DifferencesShortcutRules.foldAvailable(
-            sessionActive: false, collapsed: false, sectionCount: 2, suspended: false))
-    }
-
-    @Test func aRunningSessionWithholdsFold() {
-        #expect(!DifferencesShortcutRules.foldAvailable(
-            sessionActive: true, collapsed: false, sectionCount: 2, suspended: false))
-    }
-
-    @Test func aCollapsedPaneWithholdsFold() {
-        #expect(!DifferencesShortcutRules.foldAvailable(
-            sessionActive: false, collapsed: true, sectionCount: 2, suspended: false))
-    }
-
-    @Test func anUnsectionedTableWithholdsFold() {
-        #expect(!DifferencesShortcutRules.foldAvailable(
-            sessionActive: false, collapsed: false, sectionCount: 0, suspended: false))
-    }
-
-    @Test func aDestinationPickWithholdsFold() {
-        #expect(!DifferencesShortcutRules.foldAvailable(
-            sessionActive: false, collapsed: false, sectionCount: 2, suspended: true))
+            sessionActive: axis == .session, collapsed: axis == .collapsed,
+            sectionCount: axis == .nothing ? 0 : 2, suspended: axis == .suspended) == (axis == .none))
     }
 
     // MARK: - Menu items hold ids, and read values when they fire

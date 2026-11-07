@@ -14,25 +14,6 @@ import Sync
 @MainActor
 @Suite struct PaneDiffBadgeSuppressionTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     /// Two differences under `Health/`: the folder earns a contained-count pill and one of the
     /// files earns a status glyph.
     private var populatedIndex: DiffStatusIndex {
@@ -55,21 +36,15 @@ import Sync
             otherTree: PaneTree(side: .right, version: 0, nodes: []),
             isLoading: false, currentPath: "/root",
             selection: .constant([]), otherSelection: [],
-            isLeft: true, delegate: StubDelegate(),
+            isLeft: true, delegate: NoOpFileActionDelegate(),
             diffIndex: populatedIndex,
             isSingleSource: isSingleSource
         )
     }
 
-    /// The fixture is only meaningful if it actually badges something; otherwise the rail assertion
-    /// below would pass against an index that was empty all along.
-    @Test func testFixtureBadgesTheFolderAndTheFile() {
-        let index = populatedIndex
-        #expect(index.containedDiffCount(forNodeId: "/root/Health") == 2)
-        #expect(index.status(forNodeId: "/root/Health/report.pdf") == .missingOnRight)
-    }
-
-    /// Comparison pane: the badges survive the trip through `init` untouched.
+    /// Comparison pane: the badges survive the trip through `init` untouched. Also the proof the
+    /// fixture badges something, since `init` can only empty the index, never add to it; without it
+    /// the rail assertion below would pass against an index that was empty all along.
     @Test func testComparisonPaneKeepsItsBadges() {
         let rendered = pane(isSingleSource: false).diffIndex
         #expect(rendered.containedDiffCount(forNodeId: "/root/Health") == 2)

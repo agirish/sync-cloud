@@ -49,7 +49,7 @@ import Foundation
         }
 
         watch.begin(CloudDownloadRequest(path: Self.path, paneToken: .left))
-        let ran = await hold(upTo: 30) { armed.fired }
+        let ran = await LayoutPumpWait.poll(upTo: 30) { armed.fired }.held
         #expect(ran, "the injected watch never ran — the assertion below would prove nothing")
 
         #expect(CloudOnlyBadgeCache.cached(Self.path) == true)
@@ -101,29 +101,20 @@ import Foundation
         #expect(dropsLatch)
     }
 
-    /// Download, attempts run out, and Download on the same file again before this watch finishes:
-    /// the latch now holds a fresh request for the same path. A guard comparing paths would let the
-    /// finishing watch clear the new one's latch.
+    /// The latch now holds someone else's request, or nothing. Download, attempts run out, and
+    /// Download on the same file again before this watch finishes: a fresh request for the same
+    /// path, and a guard comparing paths would let the finishing watch clear the new one's latch.
+    /// And an empty latch is nobody's to drop.
     @MainActor
-    @Test func aSupersededWatchDoesNotDropTheNewRequestsLatch() async {
+    @Test(arguments: [true, false])
+    func aWatchDropsNoLatchItDoesNotHold(supersededBySameFile: Bool) async {
         CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
         let first = CloudDownloadRequest(path: Self.path, paneToken: .left)
         let second = CloudDownloadRequest(path: Self.path, paneToken: .left)   // same path, new identity
+        let latched: CloudDownloadRequest? = supersededBySameFile ? second : nil
 
         let dropsLatch = await CloudDownloadPoll.watch(first, attempts: 1, interval: .zero,
-                                                       isCloudOnly: { _ in true }, latch: { second })
-
-        #expect(!dropsLatch)
-    }
-
-    /// And an empty latch is nobody's to drop.
-    @MainActor
-    @Test func aWatchWhoseLatchIsAlreadyEmptyDropsNothing() async {
-        CloudOnlyBadgeCache.clear(underRoot: "/iCloud")
-        let request = CloudDownloadRequest(path: Self.path, paneToken: .left)
-
-        let dropsLatch = await CloudDownloadPoll.watch(request, attempts: 1, interval: .zero,
-                                                       isCloudOnly: { _ in true }, latch: { nil })
+                                                       isCloudOnly: { _ in true }, latch: { latched })
 
         #expect(!dropsLatch)
     }
@@ -216,7 +207,7 @@ import Foundation
             })
         }
 
-        #expect(await hold(upTo: 5) { gate.isWaiting },
+        #expect(await LayoutPumpWait.poll(upTo: 5) { gate.isWaiting }.held,
                 "the resolution never reached its stat — there is nothing here to supersede")
 
         resolution.cancel()
@@ -283,15 +274,6 @@ import Foundation
             continuation?.resume()
             continuation = nil
         }
-    }
-
-    /// Yields until `condition` holds or the deadline passes, and returns whether it held. What
-    /// carries it under load is `LayoutPumpWait.poll`'s floor, not the deadline: it gives up only
-    /// after the deadline and `pumpFloor` polls (`docs/flaky-tests.md`, "Fixed pumps and fixed
-    /// sleeps").
-    @MainActor
-    private func hold(upTo seconds: Double, until condition: () -> Bool) async -> Bool {
-        await LayoutPumpWait.poll(upTo: seconds, until: condition).held
     }
 
     /// Counts probes across the poll's `@Sendable` closure without a data race.

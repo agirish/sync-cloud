@@ -11,28 +11,11 @@ import Testing
 /// would be a timing test over an absence.
 @Suite struct CompareWorkLifetimeTests {
 
-    private func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/CompareCopiesSheet.swift")
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read CompareCopiesSheet.swift — this check is vacuous")
-    }
-
-    /// The member a rule is about, so the question is asked inside that function rather than over
-    /// a window of characters, as in `CompareRasterTokenScanTests`.
-    private func member(_ name: String, in source: String,
-                        endingWith terminator: String = "\n    }\n") throws -> String {
-        let start = try #require(source.range(of: name),
-                                 "`\(name)` is gone or renamed — re-aim this scan")
-        let end = try #require(source.range(of: terminator,
-                                            range: start.upperBound..<source.endIndex))
-        return String(source[start.upperBound..<end.lowerBound])
-    }
+    private func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }
 
     /// Closing the card cancels both handles; otherwise only finishing stops either job.
     @Test func closingTheSurfaceCancelsBothLongJobs() throws {
-        let body = try member(".onDisappear {", in: try source(), endingWith: "\n        }")
+        let body = try SourceText.block(opening: ".onDisappear {", in: try source())
         #expect(body.contains("textDiffTask?.cancel()"),
                 "closing the card leaves the line diff walking two files nobody is looking at")
         #expect(body.contains("pageSearchTask?.cancel()"),
@@ -42,7 +25,7 @@ import Testing
     /// The walk between candidate pages asks both questions: the token says a newer search
     /// superseded this one, cancellation says nobody wants any search.
     @Test func thePageSearchChecksCancellationBetweenCandidates() throws {
-        let body = try member("private func stepToDifferingPage(", in: try source())
+        let body = try SourceText.body(of: "private func stepToDifferingPage(", in: try source())
         #expect(body.contains("!Task.isCancelled"), """
                 the page walk checks only its token, so a cancelled search still renders up to \
                 `PageDifferenceStepper.renderBudget` page pairs
@@ -64,7 +47,7 @@ import Testing
                 """)
         #expect(source.contains("textDiffPairKey"),
                 "the memo that makes the diff survive a mode toggle is gone — re-aim this scan")
-        let body = try member("private func refreshTextDiff(", in: try source)
+        let body = try SourceText.body(of: "private func refreshTextDiff(", in: source)
         #expect(body.contains("guard textDiffPairKey != pairKey else { return }"),
                 "the diff is recomputed even when one for this pair is already in hand")
     }
@@ -75,16 +58,16 @@ import Testing
         let source = try source()
         #expect(source.contains("private var decodeKey: String {"),
                 "the decode key is gone — re-aim this scan")
-        let decode = try member("private var decodeKey: String {", in: source)
+        let decode = try SourceText.body(of: "private var decodeKey: String {", in: source)
         #expect(!decode.contains("showsOverlayModes"), """
                 the decode key carries the mode again, so entering a pixel mode re-renders both \
                 sides rather than reusing them
                 """)
-        let raster = try member("private var rasterKey: String {", in: source)
+        let raster = try SourceText.body(of: "private var rasterKey: String {", in: source)
         #expect(raster.contains("showsOverlayModes") && raster.contains("decodeKey"), """
                 the render key no longer builds on the decode key plus the mode — re-aim this scan
                 """)
-        let refresh = try member("private func refreshRasters(", in: source)
+        let refresh = try SourceText.body(of: "private func refreshRasters(", in: source)
         #expect(refresh.contains("heldRasterKey == decodeKey"),
                 "the refresh no longer reuses rasters it already has")
     }
@@ -97,14 +80,14 @@ import Testing
         #expect(source.contains(
                     "private var wantsAlignedDifference: Bool { activeMode == .difference }"),
                 "the de-skew and the difference raster are no longer gated on the mode")
-        let refresh = try member("private func refreshRasters(", in: source)
+        let refresh = try SourceText.body(of: "private func refreshRasters(", in: source)
         #expect(refresh.contains("guard wantsAligned else { return (nil, BitmapDiff.compare("), """
                 the visible page is de-skewed whatever the mode, which is ~565 ms per page of an                 estimate that swipe and onion read nothing of
                 """)
         #expect(refresh.contains("BitmapDiff.compareAligning("),
                 "the difference mode no longer aligns at all — re-aim this scan")
         // The premise of the above, pinned where it can rot: the page walk is unaligned.
-        let walk = try member("private func comparedState(", in: source)
+        let walk = try SourceText.body(of: "private func comparedState(", in: source)
         #expect(walk.contains("BitmapDiff.compare(") && !walk.contains("compareAligning"), """
                 `comparedState` now aligns too — the strip is no longer uniformly unaligned                 outside the difference mode, and the gate's justification needs re-reading
                 """)

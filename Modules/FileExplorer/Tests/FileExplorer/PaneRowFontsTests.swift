@@ -37,7 +37,8 @@ import Design
 
     /// Every non-default size, against `ScaledFont`'s own resolution of the same specification.
     /// This makes the type a relocation of the existing rule rather than a second copy that can
-    /// drift.
+    /// drift. At `.small` it is also the badges' legibility floor: their glyphs start below
+    /// `FontSize.legibilityFloor`, which lives in `ScaledFont`.
     @Test("A scaled row font matches ScaledFont's resolution of the same specification",
           arguments: [FontSize.small, .medium, .large, .extraLarge])
     func scaledMatchesScaledFont(size: FontSize) {
@@ -62,15 +63,5 @@ import Design
         #expect(base.name != large.name)
         #expect(base.secondary != large.secondary)
         #expect(base.differenceBadge != large.differenceBadge)
-    }
-
-    /// The badge glyphs start below `FontSize.legibilityFloor`, which keeps shrinking from making
-    /// them illegible. Asserted here because the floor lives in `ScaledFont` and this type decides
-    /// what a badge is drawn at.
-    @Test("Shrinking honours the legibility floor the badges rely on")
-    func smallSizeHonoursTheFloor() {
-        let small = PaneRowFonts(scale: FontSize.small.scale)
-        #expect(small.countPill == ScaledFont.caption2.weight(.semibold).resolved(scale: FontSize.small.scale))
-        #expect(small.cloudBadge == ScaledFont.caption.resolved(scale: FontSize.small.scale))
     }
 }

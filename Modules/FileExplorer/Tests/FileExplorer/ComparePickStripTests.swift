@@ -12,7 +12,7 @@ import Design
 /// constant would only re-assert itself. That the bar takes layout space rather than floating over
 /// the chrome is structural, in `mainContentView`.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct ComparePickStripTests {
+@Suite(.serialized) struct ComparePickStripTests {
 
     private func strip(_ name: String) -> some View {
         // `.content`, not the bar: the shape-backed container renders empty offscreen and takes
@@ -27,7 +27,7 @@ import Design
     }
 
     /// A long real filename, against a short one: the bar may grow by at most the name column.
-    @Test func aLongFilenameCannotStretchTheBarPastItsNameColumn() {
+    @Test(.machinePinned(.layoutMetrics)) func aLongFilenameCannotStretchTheBarPastItsNameColumn() {
         let short = fittingWidth(strip("a.pdf"))
         let real = fittingWidth(strip("Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf"))
         let absurd = fittingWidth(strip(String(repeating: "long-name-", count: 40) + ".pdf"))

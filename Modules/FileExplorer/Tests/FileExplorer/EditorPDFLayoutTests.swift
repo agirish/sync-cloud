@@ -487,25 +487,6 @@ import FileExplorerTestSupport
         #expect(state.fit == .page)
     }
 
-    /// The layouts' menu: four, the one in use ticked, the cover greyed where there is no spread
-    /// for it to change.
-    @Test func theLayoutMenuGreysTheCoverInTheSinglePageLayouts() throws {
-        let state = state(.twoPages, cover: true)
-        var menu = EditorPDFLayoutMenu.menu(for: state)
-        #expect(menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
-                == ["Single Page", "Continuous", "Two Pages", "Two Pages, Continuous", "—", "Cover Page Separately"])
-        #expect(menu.items.filter { $0.state == .on }.map(\.title) == ["Two Pages", "Cover Page Separately"])
-        #expect(menu.items.last?.isEnabled == true)
-        for layout in [EditorPDFLayout.singlePage, .continuous] {
-            state.layout = layout
-            menu = EditorPDFLayoutMenu.menu(for: state)
-            #expect(menu.items.last?.isEnabled == false, "Cover Page Separately is live in \(layout)")
-        }
-        let item = try #require(menu.items.first { $0.title == "Two Pages, Continuous" })
-        _ = item.target?.perform(item.action)
-        #expect(state.layout == .twoPagesContinuous)
-    }
-
     /// The capsule's view menu: the zoom menu exactly as `theZoomMenuReadsAsTheMockupDoes` reads it,
     /// then a separator and Page Layout ▸, with nothing folded into the zoom part and nothing after.
     @Test func theViewMenuIsTheZoomMenuThenPageLayout() throws {
@@ -523,8 +504,8 @@ import FileExplorerTestSupport
         #expect(view.items.last?.isEnabled == true, "Page Layout is greyed")
     }
 
-    /// The layout menu as the view menu's Page Layout submenu: `theLayoutMenuGreysTheCover…`'s
-    /// assertions, read through the menu the capsule opens.
+    /// The layouts' menu, read through the view menu's Page Layout submenu the capsule opens: four,
+    /// the one in use ticked, the cover greyed where there is no spread for it to change.
     @Test func thePageLayoutSubmenuGreysTheCoverInTheSinglePageLayouts() throws {
         let state = state(.twoPages, cover: true)
         func submenu() throws -> NSMenu {

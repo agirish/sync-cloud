@@ -108,14 +108,6 @@ import Testing
 
     // MARK: Page state
 
-    /// Pending is its own state. A strip showing "same" while the comparison is still queued would
-    /// make a claim nobody checked, beside a button that trashes a file.
-    @Test func pendingIsNotSame() {
-        #expect(PageDiffState.pending != .same)
-        #expect(!PageDiffState.pending.isResolved)
-        #expect(PageDiffState.same.isResolved)
-    }
-
     /// A raster that couldn't be built is `unrenderable`, never `same`, for the reason
     /// `BitmapDiff.compare` returns nil rather than a zero result.
     @Test func anUnbuiltRasterIsNotAMatch() {
@@ -134,11 +126,7 @@ import Testing
         #expect(PageDiffState.changed(fraction: 0.2).dot == .changed)
         #expect(PageDiffState.oneSided.dot == .oneSided)
         #expect(PageDiffState.unrenderable.dot == .unrenderable)
-    }
-
-    /// Every resolved state has a dot and the pending one does not, asserted as a pair so a new
-    /// state can't be added with neither.
-    @Test func aDotExistsForExactlyTheResolvedStates() {
+        // And as a pair, so a new state can't be added with neither.
         let states: [PageDiffState] = [.pending, .same, .changed(fraction: 0.5), .oneSided,
                                        .unrenderable]
         for state in states {
@@ -306,13 +294,7 @@ import Testing
         let view = PDFPairView(leftPath: fixture.twoPage, rightPath: fixture.twoPageEdited,
                                page: 0, pairing: PagePairing(leftPages: 2, rightPages: 2),
                                syncSuspended: false)
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 800, height: 500)))
-        host.frame = CGRect(x: 0, y: 0, width: 800, height: 500)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 800, height: 500))
         func views(_ v: NSView) -> [PDFView] {
             v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
         }
@@ -343,13 +325,7 @@ import Testing
         let view = PDFPairView(leftPath: fixture.twoPage, rightPath: fixture.twoPageEdited,
                                page: 0, pairing: PagePairing(leftPages: 2, rightPages: 2),
                                syncSuspended: false)
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 400, height: 200)))
-        host.frame = CGRect(x: 0, y: 0, width: 400, height: 200)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 400, height: 200))
         func views(_ v: NSView) -> [PDFView] {
             v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
         }
@@ -445,15 +421,9 @@ import Testing
     private func mountSwitchable(_ fixture: LetterFixture, box: ZoomBox,
                                  syncSuspended: Bool = false)
         -> (NSHostingView<AnyView>, NSWindow) {
-        let host = NSHostingView(rootView: AnyView(
+        let (host, window) = HostedView.host(AnyView(
             ModeSwitchHarness(left: fixture.left, right: fixture.right,
-                              syncSuspended: syncSuspended, box: box)))
-        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+                              syncSuspended: syncSuspended, box: box)), size: CGSize(width: 1000, height: 430))
         return (host, window)
     }
 
@@ -520,13 +490,7 @@ import Testing
         let view = PDFPairView(leftPath: fixture.left, rightPath: fixture.right, page: 0,
                                pairing: PagePairing(leftPages: 3, rightPages: 3),
                                syncSuspended: false, zoom: remembered)
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
-        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 1000, height: 430))
 
         let panes = try await loadedPanes(host, window)
         let (applied, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
@@ -626,13 +590,7 @@ import Testing
                                pairing: PagePairing(leftPages: 3, rightPages: 3),
                                syncSuspended: syncSuspended,
                                onPageChange: { [pageReports] in pageReports?.record($0) })
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
-        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 1000, height: 430))
         return (host, window)
     }
 
@@ -739,13 +697,7 @@ import Testing
                                pairing: PagePairing(leftPages: 3, rightPages: 3),
                                syncSuspended: false,
                                onPageChange: { reports.record($0) })
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
-        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.framed(view, size: CGSize(width: 1000, height: 430))
         let (loaded, passes) = await LaneWait.pump(window) {
             pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
         }
@@ -788,14 +740,8 @@ import Testing
     @Test func aPageTurnedWhileTheDocumentsOpenIsNotLost() async throws {
         let fixture = try PDFFixture()
         let box = PageBox(page: 0)
-        let host = NSHostingView(rootView: AnyView(
-            PagingHarness(box: box, left: fixture.twoPage, right: fixture.twoPageEdited)))
-        host.frame = CGRect(x: 0, y: 0, width: 800, height: 500)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = HostedView.host(AnyView(
+            PagingHarness(box: box, left: fixture.twoPage, right: fixture.twoPageEdited)), size: CGSize(width: 800, height: 500))
 
         func panes(_ v: NSView) -> [PDFView] {
             v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + panes($0) }

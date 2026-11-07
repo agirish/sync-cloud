@@ -70,17 +70,8 @@ import Design
     /// the rail overlaps the pane beside it. A source scan, for the replica's reason, of the
     /// function's own body so a `ScrollView` elsewhere in the file can't satisfy it.
     @Test func theShippedRailIsTheScrolledArm() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()                   // …/Tests/FileExplorer
-            .deletingLastPathComponent()                   // …/Tests
-            .deletingLastPathComponent()                   // …/FileExplorer (package)
-            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let start = try #require(source.range(of: "private func lensTitle(_ counts: RailCounts) -> some View {"),
-                                 "lensTitle has been renamed or removed — this scan is reading nothing")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    private "), "could not find where lensTitle ends")
-        let body = rest[..<end.lowerBound]
+        let body = try SourceText.body(of: "private func lensTitle(_ counts: RailCounts) -> some View {",
+                                       in: try SourceText.fileExplorer("LensWorkspaceView.swift"))
 
         #expect(body.contains("ScrollView(.horizontal) {"),
                 "lensTitle no longer wraps the rail in a horizontal ScrollView — an over-wide rail widens its card and draws over the pane beside it")

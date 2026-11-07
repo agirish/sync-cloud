@@ -30,16 +30,6 @@ import Sync
         controller.refreshChangeTally()
     }
 
-    /// The call site: the record the controller holds is what the count judges against. Without it
-    /// the count has nothing to compare with and counts nothing.
-    @Test func theControllersRecordIsWhatTheCountJudgesAgainst() throws {
-        let scratch = try Scratch()
-        let (controller, _) = controller(scratch)
-        noteRemoval(controller, scratch)
-        #expect(controller.changeTally == .init(count: 1))
-        #expect(controller.ladder == .changes(1, since: Date(timeIntervalSince1970: TimeInterval(Self.lastSync))))
-    }
-
     /// A record the controller takes on reaches the pill at once: a folder unticked in Choose
     /// Folders takes its count with it, with no batch needed to show it.
     @Test func aNewRecordReachesThePillAtOnce() throws {
@@ -56,12 +46,14 @@ import Sync
 
     /// The ladder, first that applies: what needs you and Pause outrank the count, which outranks
     /// "Synced at"; unknown reads as changes that may be waiting; never synced stays "not yet".
+    /// The count judges against the record the controller holds; without it, it counts nothing.
     @Test func theCountSitsBelowPauseAndAboveSynced() throws {
         let scratch = try Scratch()
         let since = Date(timeIntervalSince1970: TimeInterval(Self.lastSync))
         let (controller, center) = controller(scratch)
         #expect(controller.ladder == .upToDate(asOf: since, skipped: 0))
         noteRemoval(controller, scratch)
+        #expect(controller.changeTally == .init(count: 1))
         #expect(controller.ladder == .changes(1, since: since))
         controller.adopt(scratch.record, state: OneWaySyncSavedState(pausedSince: Self.lastSync + 60, lastSyncAt: Self.lastSync))
         #expect(controller.ladder == .paused(since: since.addingTimeInterval(60)), "Pause leaves the count but shows Paused")

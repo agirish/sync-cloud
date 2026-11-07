@@ -38,7 +38,7 @@ struct HeaderLadderTests {
 
     /// A comparison whose header has something in every slot: both directions non-empty, verifiable
     /// items for Verify, and enough folders to offer the fold-all toggle.
-    private func differences(toRight: Int = 12, toLeft: Int = 5, verifiable: Int = 4, held: Int = 0,
+    fileprivate func differences(toRight: Int = 12, toLeft: Int = 5, verifiable: Int = 4, held: Int = 0,
                              folders: [String] = ["Documents", "Photos", "Projects"]) -> [FileDifference] {
         var rows: [FileDifference] = []
         // Held rows (`heldBack`): no transfer button counts them, and the header says how many.
@@ -77,7 +77,7 @@ struct HeaderLadderTests {
     /// The dressings the count pill can wear. Each changes the pill's width, so the ladder has to
     /// price all three: no scan yet, a fresh age run, and a stale one, which wears an inset capsule
     /// worth `2 × 6pt` more than the bare run.
-    private static func dressings() -> [(name: String, value: DifferencesView.CountPillDressing)] {
+    fileprivate static func dressings() -> [(name: String, value: DifferencesView.CountPillDressing)] {
         let accent = SemanticCapsuleStyle.onAccent(fill: .blue, label: .white)
         return [
             ("pre-scan", .init(semantic: accent, detailStyle: nil, detail: nil,
@@ -94,7 +94,7 @@ struct HeaderLadderTests {
 
     /// Pane names of very different lengths: the transfer buttons' destinations, and so the biggest
     /// lever on where the rungs sit.
-    private static let paneNamePairs: [(String, String)] = [
+    fileprivate static let paneNamePairs: [(String, String)] = [
         ("Left", "Right"),
         ("iCloud Drive", "Dropbox"),
         ("OneDrive — Personal", "Google Drive — someone@example.com"),
@@ -116,7 +116,7 @@ struct HeaderLadderTests {
 
     /// The facts the row about to be rendered really has, built from the values the row draws with
     /// rather than by hand, so a fixture can't describe a header the test isn't rendering.
-    private func facts(rows: [FileDifference], names: PaneProviderNames,
+    fileprivate func facts(rows: [FileDifference], names: PaneProviderNames,
                        dressing: DifferencesView.CountPillDressing,
                        targets: DifferenceActionTargets,
                        sections: [DifferenceGrouping.Section],
@@ -624,6 +624,15 @@ struct HeaderLadderTests {
             .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
             .map { "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
     }
+}
+
+/// The ladder's own rule, as arithmetic over `HeaderLadder`'s widths. Nothing is rendered and every
+/// assertion is a relation between widths, so unlike `HeaderLadderTests` these are not pinned to
+/// the machine.
+@MainActor
+@Suite struct HeaderLadderRuleTests {
+
+    private let fixture = HeaderLadderTests()
 
     // MARK: - The rule the ladder follows
 
@@ -631,11 +640,11 @@ struct HeaderLadderTests {
     /// the narrowest when none does. Stated directly so the property survives a fixture change.
     @Test func theLadderTakesTheFirstRungThatFitsAndBottomsOut() {
         let names = PaneProviderNames(leftName: "iCloud Drive", rightName: "Dropbox")
-        let rows = differences()
+        let rows = fixture.differences()
         let targets = DifferenceActionTargets(filtered: rows, selection: [])
         let sections = DifferenceGrouping.sections(rows)
-        let ladder = HeaderLadder(facts: facts(rows: rows, names: names,
-                                               dressing: Self.dressings()[1].value,
+        let ladder = HeaderLadder(facts: fixture.facts(rows: rows, names: names,
+                                               dressing: HeaderLadderTests.dressings()[1].value,
                                                targets: targets, sections: sections),
                                   scale: 1)
 
@@ -668,17 +677,17 @@ struct HeaderLadderTests {
     /// doesn't apply (no reverse button to shorten, nothing verifiable to fold) costs nothing, and
     /// a tie must resolve to the earlier rung to match `ViewThatFits`.
     @Test func theLadderNeverWidensAsItSheds() {
-        for (leftName, rightName) in Self.paneNamePairs {
+        for (leftName, rightName) in HeaderLadderTests.paneNamePairs {
             let names = PaneProviderNames(leftName: leftName, rightName: rightName)
-            for rows in [differences(),
-                         differences(toRight: 1, toLeft: 0, verifiable: 1, folders: ["Documents"]),
-                         differences(toRight: 3, toLeft: 400, verifiable: 0),
-                         differences(toRight: 0, toLeft: 9, verifiable: 2)] {
+            for rows in [fixture.differences(),
+                         fixture.differences(toRight: 1, toLeft: 0, verifiable: 1, folders: ["Documents"]),
+                         fixture.differences(toRight: 3, toLeft: 400, verifiable: 0),
+                         fixture.differences(toRight: 0, toLeft: 9, verifiable: 2)] {
                 let targets = DifferenceActionTargets(filtered: rows, selection: [])
                 let sections = DifferenceGrouping.sections(rows)
-                for (dressingName, dressing) in Self.dressings() {
+                for (dressingName, dressing) in HeaderLadderTests.dressings() {
                     let ladder = HeaderLadder(
-                        facts: facts(rows: rows, names: names, dressing: dressing,
+                        facts: fixture.facts(rows: rows, names: names, dressing: dressing,
                                      targets: targets, sections: sections),
                         scale: 1)
                     let widths = DifferencesView.renderedCompactionLadder.map { ladder.width(of: $0) }

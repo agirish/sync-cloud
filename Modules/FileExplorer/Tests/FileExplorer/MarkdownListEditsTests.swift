@@ -13,23 +13,6 @@ let CMARK_NODE_CODE_BLOCK_RAW = CMARK_NODE_CODE_BLOCK.rawValue
 /// parse, rather than trusted from the indent arithmetic.
 struct MarkdownListEditsTests {
 
-    /// Splits `"- a|"` into the buffer and the caret.
-    private func caret(_ marked: String) -> (text: String, selection: NSRange) {
-        let ns = marked as NSString
-        let at = ns.range(of: "|")
-        return (ns.replacingCharacters(in: at, with: ""), NSRange(location: at.location, length: 0))
-    }
-
-    /// Splits `"- «ab»"` into the buffer and a selection.
-    private func selecting(_ marked: String) -> (text: String, selection: NSRange) {
-        let ns = marked as NSString
-        let open = ns.range(of: "«")
-        let without = ns.replacingCharacters(in: open, with: "") as NSString
-        let close = without.range(of: "»")
-        return (without.replacingCharacters(in: close, with: ""),
-                NSRange(location: open.location, length: close.location - open.location))
-    }
-
     private func returnEdit(_ marked: String) -> MarkdownListEdits.ReturnEdit? {
         let (text, selection) = caret(marked)
         return MarkdownListEdits.returnEdit(in: text, selection: selection)
@@ -689,10 +672,7 @@ struct MarkdownListEditsTests {
     /// Help says what Return does above a sub-list: a plain Return unless the sub-items are tasks.
     /// Held against the rule itself, so the next change to either is caught here.
     @Test func helpDescribesReturnAboveASubListAsItIs() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let help = try #require(try? String(contentsOf: root.appendingPathComponent("MacApp/HelpBook.swift"), encoding: .utf8),
-                                "cannot read HelpBook.swift — this check would be vacuous")
+        let help = try EditRepoFile.text("MacApp/HelpBook.swift")
         let lists = try #require(help.components(separatedBy: "\n").first { $0.contains("Lists carry on as you write them.") },
                                  "Help no longer has the lists paragraph — this check is reading the wrong text")
         #expect(!lists.contains("starts the first of those"))

@@ -27,18 +27,7 @@ import Sync
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return PixelDiff.render(subject, size: size)
     }
 
     /// Painted runs along x, in points, with gaps narrower than `merge` (between glyphs and words)
@@ -116,15 +105,7 @@ import Sync
                 density: .comfortable, showsChevron: false, searchContext: context), width: 240))
         }
         let withMatch = try rendered(hit), plain = try rendered(.none)
-        var differing = 0
-        for y in 0..<min(withMatch.pixelsHigh, plain.pixelsHigh) {
-            for x in 0..<min(withMatch.pixelsWide, plain.pixelsWide) {
-                guard let a = withMatch.colorAt(x: x, y: y), let b = plain.colorAt(x: x, y: y) else { continue }
-                if max(abs(a.redComponent - b.redComponent),
-                       max(abs(a.greenComponent - b.greenComponent),
-                           abs(a.blueComponent - b.blueComponent))) > 0.02 { differing += 1 }
-            }
-        }
+        let differing = PixelDiff.differingPixels(withMatch, plain, tolerance: 0.02)
         #expect(differing > 0, "the hit row painted exactly what the plain row did — its match was cut away")
     }
 
@@ -180,15 +161,7 @@ import Sync
         }
         let january = try rendered("Brokerage Statement - Individual Account - January 2024.pdf")
         let february = try rendered("Brokerage Statement - Individual Account - February 2024.pdf")
-        var differing = 0
-        for y in 0..<min(january.pixelsHigh, february.pixelsHigh) {
-            for x in 0..<min(january.pixelsWide, february.pixelsWide) {
-                guard let a = january.colorAt(x: x, y: y), let b = february.colorAt(x: x, y: y) else { continue }
-                if max(abs(a.redComponent - b.redComponent),
-                       max(abs(a.greenComponent - b.greenComponent),
-                           abs(a.blueComponent - b.blueComponent))) > 0.02 { differing += 1 }
-            }
-        }
+        let differing = PixelDiff.differingPixels(january, february, tolerance: 0.02)
         #expect(differing > 0,
                 "two names that differ only near their end render identically — the end is being cut")
     }

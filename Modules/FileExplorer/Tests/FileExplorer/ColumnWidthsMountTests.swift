@@ -12,25 +12,6 @@ import Sync
 @MainActor
 @Suite(.serialized) struct ColumnWidthsMountTests {
 
-    private struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath(components: ["a", "b"])
         @Published var selection: Set<String> = []
@@ -54,7 +35,7 @@ import Sync
                 treeRoot: "/r",
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
-                delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
+                delegate: NoOpFileActionDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .comfortable, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
@@ -67,12 +48,7 @@ import Sync
     /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return condition()
+        await LayoutPumpWait.poll(upTo: timeout, until: condition).held
     }
 
     private func lists(_ root: NSView) -> [NSScrollView] {
@@ -185,29 +161,11 @@ import Sync
                 .frame(width: width, height: 26, alignment: .leading)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, .light)
-            let host = NSHostingView(rootView: AnyView(subject))
-            host.frame = CGRect(x: 0, y: 0, width: width, height: 26)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: .aqua)
-            window.colorSpace = .sRGB
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
-            return rep
+            return try #require(PixelDiff.render(subject, size: CGSize(width: width, height: 26)))
         }
         func differing(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, upTo width: CGFloat) -> Int {
             let scale = Double(a.pixelsWide) / Double(a.size.width)
-            var n = 0
-            for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
-                for x in 0..<Int(Double(width) * scale) {
-                    guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
-                    if max(abs(p.redComponent - q.redComponent), max(abs(p.greenComponent - q.greenComponent),
-                           abs(p.blueComponent - q.blueComponent))) > 0.02 { n += 1 }
-                }
-            }
-            return n
+            return PixelDiff.differingPixels(a, b, tolerance: 0.02, beforeX: Int(Double(width) * scale))
         }
         let roomy = try bitmap(900)
         let fit = try bitmap(rowWidth)
@@ -279,10 +237,7 @@ import Sync
     /// and is the one most worth widening. A source scan, because a SwiftUI gesture view exposes
     /// nothing a mounted test can find; scoped to the overlay that places the divider.
     @Test func theDeepestColumnHasAResizeHandle() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/PaneColumnsView.swift")
-        let code = try String(contentsOf: url, encoding: .utf8)
+        let code = try SourceText.fileExplorer("PaneColumnsView.swift")
         let overlay = try #require(code.range(of: ".overlay(alignment: .trailing) {"), "the divider overlay moved")
         let body = code[overlay.upperBound...].prefix(900)
             .split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }

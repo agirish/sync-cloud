@@ -220,17 +220,11 @@ import Testing
         #expect(RestructureRender.differingPixels(with, without) > 100,
                 "a sheet opened on a saved plan draws a Discard Plan button")
 
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer")
-        let host = try String(contentsOf: sources.appendingPathComponent("LensWorkspaceView.swift"),
-                              encoding: .utf8)
-        let pairSheet = try #require(host.range(of: "private func pairMergeSheet("))
-        let body = host[pairSheet.lowerBound...].prefix(4000)
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
+        let body = try SourceText.block(opening: "private func pairMergeSheet(", in: host)
         #expect(body.contains("hasSavedDraft: store.draft(for: key) != nil"))
         #expect(body.contains("onDiscardDraft: { store.removeDraft(for: key) }"))
-        let pairSource = try String(
-            contentsOf: sources.appendingPathComponent("RestructurePairMergeSheet.swift"), encoding: .utf8)
+        let pairSource = try SourceText.fileExplorer("RestructurePairMergeSheet.swift")
         #expect(pairSource.contains("Button(Self.closeTitle(landed: landed, hasSavedDraft: hasSavedDraft))"),
                 "the footer draws the rule's title")
     }
@@ -240,24 +234,18 @@ import Testing
     /// Pins the wiring: gating on `finding.kind == .shape` would leave every rule test above green
     /// while five kinds lost their button.
     @Test func theLensAndTheHostBothRouteThroughTheRule() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer (tests)
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer")
-        let lens = try String(contentsOf: sources.appendingPathComponent("RestructureLens.swift"),
-                              encoding: .utf8)
+        let lens = try SourceText.fileExplorer("RestructureLens.swift")
         #expect(lens.contains("RestructurePlanRouting.carriesPlanSurface(finding)"),
                 "the trigger's gate is the route, not the kind")
         // Scoped to the trigger's own gate, not the whole file: `finding.kind == .shape` elsewhere
         // is legitimate.
         let trigger = try #require(lens.range(of: "if let onPlan,"))
-        #expect(!lens[trigger.lowerBound...].prefix(400).contains("finding.kind == .shape"),
+        // Layout-free on both sides, so a reformatted `finding.kind==.shape` can't slip past.
+        #expect(!SourceText.normalized(String(lens[trigger.lowerBound...].prefix(400)))
+                    .contains(SourceText.normalized("finding.kind == .shape")),
                 "gating on the kind is the shipped narrowing this change removes")
 
-        let host = try String(
-            contentsOf: sources.appendingPathComponent("LensWorkspaceView.swift"),
-            encoding: .utf8)
+        let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("RestructurePlanRouting.route(for: finding)"),
                 "the host picks its sheet from the same rule the lens gates on")
         #expect(host.contains("case .pairMerge(let source, let destination):"),

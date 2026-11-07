@@ -714,17 +714,20 @@ extension PDFFixtures {
         #expect(tools.running == nil)
     }
 
-    /// Cancel pressed while the run still waits for the lane writes nothing either.
-    @Test func cancellingACompressBeforeItStartsLeavesNoFile() async throws {
-        let file = path("Scan.pdf")
-        PDFFixtures.writeScan(file, pages: 2)
+    /// Cancel pressed while the run still waits for the lane writes nothing either, for Compress
+    /// and for every tool, not only Compress's page loop: Rotate has none.
+    @Test(arguments: [true, false])
+    func cancellingARunBeforeItStartsLeavesNoFile(compress: Bool) async throws {
+        let name = compress ? "Scan.pdf" : "Four.pdf"
+        let file = path(name)
+        if compress { PDFFixtures.writeScan(file, pages: 2) } else { PDFFixtures.write(file, pages: 4) }
         let tools = tools(file)
-        let run = Task { await tools.run(.compress(.quality(0.35))) }
+        let run = Task { await tools.run(compress ? .compress(.quality(0.35)) : .rotate(pages: [0], quarterTurns: 1)) }
         for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
         try #require(tools.running != nil, "the run never began")
         tools.cancelRun()
         #expect(await run.value == .cancelled)
-        #expect(files() == ["Scan.pdf"], "a cancelled run left: \(files())")
+        #expect(files() == [name], "a cancelled run left: \(files())")
     }
 
     /// Compress's progress reaches the main actor for every page, ending on the last, however late
@@ -1084,20 +1087,6 @@ extension PDFFixtures {
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == real, "the link was replaced")
     }
 
-    /// Cancel holds for every tool, not only Compress's page loop: pressed while the run waits for
-    /// the lane, it still writes nothing.
-    @Test func cancelStopsAToolThatHasNoPageLoop() async throws {
-        let file = path("Four.pdf")
-        PDFFixtures.write(file, pages: 4)
-        let tools = tools(file)
-        let run = Task { await tools.run(.rotate(pages: [0], quarterTurns: 1)) }
-        for _ in 0..<10_000 where tools.running == nil { await Task.yield() }
-        try #require(tools.running != nil, "the run never began")
-        tools.cancelRun()
-        #expect(await run.value == .cancelled)
-        #expect(files() == ["Four.pdf"], "a cancelled rotate wrote: \(files())")
-    }
-
     /// A run that ends after its file was closed says nothing about the next one: no banner, no
     /// running state carried over.
     @Test func aRunThatOutlivesItsFileLeavesTheNextOneAlone() async throws {
@@ -1359,9 +1348,7 @@ extension PDFFixtures {
     /// The menu's two reorder lines do what the reorder bar's buttons do: the same two calls. The
     /// items are a view only a running menu builds, so the switch that maps them is read.
     @Test func theReorderLinesCallTheBarsActions() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/EditorPDFToolViews.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try SourceText.fileExplorer("EditorPDFToolViews.swift")
         let flat = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(flat.contains("case .saveArrangement: Button(entry.title) { Task { await tools.saveArrangement() } }.disabled(!entry.enabled)"))
         #expect(flat.contains("case .resetArrangement: Button(entry.title) { tools.resetArrangement() }.disabled(!entry.enabled)"))

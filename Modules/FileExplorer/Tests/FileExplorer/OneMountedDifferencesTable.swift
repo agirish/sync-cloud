@@ -11,35 +11,29 @@ import Testing
 /// Applied as a trait so a new mounting suite only has to add it to its declaration.
 struct OneMountedDifferencesTable: SuiteTrait, TestTrait, TestScoping {
 
-    /// A cooperative gate. Waiting yields rather than blocks: these tests are async and several
-    /// of them are `@MainActor`, so a blocking wait would deadlock the actor the held test needs
-    /// to make progress on.
-    private actor Gate {
-        static let shared = Gate()
+    private static let gate = Gate()
+
+    func provideScope(for test: Test, testCase: Test.Case?,
+                      performing function: @Sendable () async throws -> Void) async throws {
+        try await Self.gate.holding(function)
+    }
+
+    /// A cooperative gate, one instance per trait. Waiting yields rather than blocks: these tests
+    /// are async and several of them are `@MainActor`, so a blocking wait would deadlock the actor
+    /// the held test needs to make progress on. `OneRiskyNameBadgeCacheOwner` has its own.
+    actor Gate {
         private var isHeld = false
 
-        func acquire() async {
+        func holding(_ body: @Sendable () async throws -> Void) async throws {
             // The check and the set are not separated by a suspension point, so two waiters
             // released together cannot both come through.
             while isHeld { try? await Task.sleep(nanoseconds: 5_000_000) }
             isHeld = true
-        }
-
-        func release() { isHeld = false }
-    }
-
-    func provideScope(for test: Test, testCase: Test.Case?,
-                      performing function: @Sendable () async throws -> Void) async throws {
-        await Gate.shared.acquire()
-        do {
-            try await function()
-        } catch {
             // Released on the failure path too: a throwing test must not strand every suite
             // behind it, which would turn one failure into a whole-run timeout.
-            await Gate.shared.release()
-            throw error
+            defer { isHeld = false }
+            try await body()
         }
-        await Gate.shared.release()
     }
 }
 

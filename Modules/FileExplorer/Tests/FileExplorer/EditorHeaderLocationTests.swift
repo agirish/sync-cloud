@@ -393,13 +393,7 @@ import FileExplorerTestSupport
     /// slides the switch. A source scan of `metaRow`, comments stripped; moving the location above
     /// `autosaveSwitch` fails it.
     @Test func theLocationFollowsTheSwitch() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
-        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in line.drop { $0 == " " }.hasPrefix("//") ? "" : line }
-            .joined(separator: "\n")
+        let code = SourceText.codeOnly(try SourceText.fileExplorer("EditorWorkspaceView.swift"))
         let row = try #require(code.range(of: "private var metaRow: some View {"))
         let end = try #require(code.range(of: "private func statusWord", range: row.upperBound..<code.endIndex))
         let body = String(code[row.upperBound..<end.lowerBound])

@@ -93,19 +93,7 @@ import SwiftUI
                                providerName: "Projects", scanTargetFolder: "/root/Downloads",
                                onFindDuplicates: {}, onConfigureCloudRefine: configure)
             .defaultAppStorage(manager.filingContentDefaults)
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let (host, window) = ReviewLensHost.mount(subject, size: Self.canvas)
         return Mounted(host: host, window: window)
     }
 
@@ -132,16 +120,7 @@ import SwiftUI
 
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
-        var count = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide {
-                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
-                if abs(p.redComponent - q.redComponent) > 0.02
-                    || abs(p.greenComponent - q.greenComponent) > 0.02
-                    || abs(p.blueComponent - q.blueComponent) > 0.02 { count += 1 }
-            }
-        }
-        return count
+        return PixelDiff.differingPixels(a, b, tolerance: 0.02)
     }
 
     @Test func theRefineControlPaintsWhenThereAreResults() throws {
@@ -182,13 +161,6 @@ import SwiftUI
             Self.manager(cloudOn: false), configure: nil)))
 
         #expect(inkedPixels(offered) > inkedPixels(withheld))
-    }
-
-    @Test func aScanWithNoResultsOffersNoRefine() throws {
-        // The setup card's state. Refining nothing is not a thing to offer, and the manager agrees.
-        let empty = FileSyncManager()
-        #expect(!empty.canRefineFilingSuggestions)
-        #expect(empty.filingSuggestionsEligibleForRefine([]).isEmpty)
     }
 
     @Test func cloudEnabledWithoutAKeyOffersTheInvitationNotAModelPromise() throws {

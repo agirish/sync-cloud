@@ -12,31 +12,17 @@ import Testing
     /// A glyph-only control needs a name as well as a tooltip: `.help` is the tooltip, and
     /// VoiceOver reads the label.
     @Test func theAffordanceIsNamedAndDescribed() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
-        let pointer = try #require(text.range(of: "private var helpPointer: some View {"))
-        let body = String(text[pointer.lowerBound...].prefix(900))
+        let text = try SourceText.fileExplorer("RestructureLens.swift")
+        let body = try SourceText.block(opening: "private var helpPointer: some View {", in: text)
         #expect(body.contains(".accessibilityLabel(\"About Restructure\")"),
                 "a glyph-only button with no label is unreadable to VoiceOver")
         #expect(body.contains(".help("), "and the tooltip says what the page covers")
         #expect(body.contains("questionmark.circle"))
     }
 
-    /// nil hides it: a pointer at documentation that goes nowhere is worse than none.
-    @Test func noHandlerMeansNoAffordance() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
-        let text = try String(contentsOf: source, encoding: .utf8)
-        #expect(text.contains("if let onOpenHelp {"))
-    }
-
     /// Rendered with and without the handler: the strip lays out either way, and the pointer is
-    /// visibly there in only one. Deleting the overlay must fail it.
+    /// visibly there in only one, since nil hides it (a pointer at documentation that goes nowhere
+    /// is worse than none). Deleting the overlay must fail it.
     @Test func theStripRendersWithAndWithoutThePointer() throws {
         func lens(_ handler: (() -> Void)?) -> RestructureLens {
             RestructureLens(

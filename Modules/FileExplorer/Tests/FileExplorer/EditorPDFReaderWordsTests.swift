@@ -19,7 +19,7 @@ import PDFToolkitCore
         let loading = try #require(card.range(of: "case .loading:")).upperBound
         #expect(card[loading...].prefix(200).contains("EditorPDFReadingSpinner()"), "the card's spinner says nothing")
         let sheets = try ChromeGlassWiringTests.source("EditorPDFToolSheets.swift")
-        #expect(sheets.contains("} else if failure == nil {\n                EditorPDFReadingSpinner()"),
+        #expect(EditorAcrossPolishTests.squashed(sheets).contains("} else if failure == nil { EditorPDFReadingSpinner()"),
                 "Clean Metadata's spinner says nothing")
         #expect(ChromeGlassWiringTests.count("ProgressView().controlSize(.small)\n            }", in: sheets) == 0)
     }

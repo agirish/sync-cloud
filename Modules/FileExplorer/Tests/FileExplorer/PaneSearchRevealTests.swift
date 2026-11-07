@@ -219,12 +219,14 @@ import Sync
                 "the pane should show its two top-level folders and nothing else (\(settled.pumps) pumps, \(Self.rowCount(window)) rows)")
     }
 
-    /// The feature: walking to a hit three levels down brings its row into the list.
-    @Test("Walking to a hit opens its ancestors, and the hit's own row arrives")
+    /// The feature: walking to a hit three levels down brings its row into the list, and the hit
+    /// takes the selection highlight, which is also what leaves something selected for Esc to keep.
+    @Test("Walking to a hit opens its ancestors, the hit's own row arrives, and it is selected")
     func revealingAHitOpensItsAncestors() async {
         let box = Box()
         let window = Self.mount(box, viewMode: .tree)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
+        #expect(box.selection.isEmpty, "nothing should be selected before the walk")
 
         box.ask(Self.results("notes"), at: 0)
 
@@ -233,6 +235,10 @@ import Sync
         }
         #expect(settled.held,
                 "revealing Documents/Finance/tax-notes.md should open both its ancestors (\(settled.pumps) pumps, \(Self.rowCount(window)) rows)")
+        let selected = await LayoutPumpWait.pump(window, upTo: 10) {
+            box.selection == ["\(Self.root)/Documents/Finance/tax-notes.md"]
+        }
+        #expect(selected.held, "the hit should be selected (\(selected.pumps) pumps, got \(box.selection))")
     }
 
     /// “Exactly the hit's ancestors”, measured: revealing a hit in Finance must not open IRS.
@@ -274,22 +280,6 @@ import Sync
         }
         #expect(settled.held,
                 "IRS should open alongside Finance (\(settled.pumps) pumps, \(Self.rowCount(window)) rows)")
-    }
-
-    /// The current hit takes the selection highlight — which is also what leaves something selected
-    /// for Esc to keep.
-    @Test("The revealed hit becomes the pane's selection")
-    func revealingAHitSelectsIt() async {
-        let box = Box()
-        let window = Self.mount(box, viewMode: .tree)
-        _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
-        #expect(box.selection.isEmpty, "nothing should be selected before the walk")
-
-        box.ask(Self.results("notes"), at: 0)
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
-            box.selection == ["\(Self.root)/Documents/Finance/tax-notes.md"]
-        }
-        #expect(settled.held, "the hit should be selected (\(settled.pumps) pumps, got \(box.selection))")
     }
 
     /// A query that matches nothing must leave the pane exactly as it was — no expansion, no
@@ -422,6 +412,10 @@ import Sync
 /// switch, a pane collapse and re-expand), so it must not select: walk to a hit, click another
 /// file, switch tabs, and a selecting handler would undo the click. Mounting is an appearance, so
 /// the pane is created with a live search already in it, as a mode switch rebuilds it.
+///
+/// The control, that a WALK still selects, is `PaneSearchTreeRevealTests.revealingAHitOpensItsAncestors`.
+/// Without it the fix could be "never select", which would break the feature rather than the
+/// appearance case.
 @MainActor
 @Suite struct PaneSearchAppearanceTests {
 
@@ -460,22 +454,6 @@ import Sync
         #expect(box.selection == ["\(Fixture.root)/Movies"],
                 "appearing must not move a selection the user made — got \(box.selection)")
     }
-
-    /// The control: a WALK still selects. Without this the fix above could be "never select", which
-    /// would break the feature rather than the appearance case.
-    @Test("A walk still takes the selection")
-    func walkingStillSelects() async {
-        let box = Fixture.Box()
-        let window = Fixture.mount(box, viewMode: .tree)
-        _ = await LayoutPumpWait.pump(window, upTo: 5) {
-            Fixture.rowCount(window) == Fixture.collapsedRowCount
-        }
-        box.ask(Fixture.results("notes"), at: 0)
-        let selected = await LayoutPumpWait.pump(window, upTo: 10) {
-            box.selection == ["\(Fixture.root)/Documents/Finance/tax-notes.md"]
-        }
-        #expect(selected.held, "walking to a hit must still select it (\(selected.pumps) pumps)")
-    }
 }
 
 /// The expansion set is bounded by the pane's current root. `@MainActor` because `FileTreeView` is,
@@ -491,6 +469,9 @@ import Sync
     /// Re-rooting the pane makes every remembered expansion under the old root dead weight. Without
     /// the prune, a session that focuses a subfolder, switches provider and walks a search would
     /// collect paths from every tree it has seen.
+    ///
+    /// The exact set also leaves out `/root2/Docs`, a sibling root sharing the prefix, which a bare
+    /// `hasPrefix` without the separator would let through.
     @Test("Re-rooting drops the expansions that belong to somewhere else")
     func reRootingDropsForeignPaths() {
         let kept = FileTreeView.expansionPruned(Self.remembered, toRoot: "/root")
@@ -503,13 +484,6 @@ import Sync
     func aTrailingSlashIsNormalized() {
         #expect(FileTreeView.expansionPruned(Self.remembered, toRoot: "/root/")
                 == FileTreeView.expansionPruned(Self.remembered, toRoot: "/root"))
-    }
-
-    /// A sibling root that shares a prefix is not under the root: `/root2` must not survive a prune
-    /// to `/root`, which a bare `hasPrefix` without the separator would let through.
-    @Test("A sibling root sharing a prefix is not kept")
-    func aPrefixSiblingIsNotUnderTheRoot() {
-        #expect(!FileTreeView.expansionPruned(Self.remembered, toRoot: "/root").contains("/root2/Docs"))
     }
 
     /// The root itself is legitimately expandable, so it survives its own prune.
@@ -573,8 +547,11 @@ import Sync
     }
 
     /// The reveal opens the columns down to the hit's parent: three columns for a file two folders
-    /// deep, the root, Documents, and Finance, whose rows include the hit.
-    @Test("Walking to a hit opens the columns down to it")
+    /// deep, the root, Documents, and Finance, whose rows include the hit. The hit is selected.
+    ///
+    /// The move is routed through `onColumnNavigate`, not written straight to the binding: the seam
+    /// link makes a column move a two-pane decision, and only the host can mirror it.
+    @Test("Walking to a hit opens the columns down to it, through the host, and selects it")
     func revealingAHitOpensItsColumns() async {
         let box = Fixture.Box()
         let window = Fixture.mount(box, viewMode: .columns)
@@ -588,21 +565,15 @@ import Sync
         #expect(settled.held,
                 "root + Documents + Finance (\(settled.pumps) pumps, \(Fixture.tables(window.contentView!).count) columns)")
         #expect(box.browsePath.components == ["Documents", "Finance"])
-    }
 
-    /// Routed through `onColumnNavigate`, not written straight to the binding: the seam link makes
-    /// a column move a two-pane decision, and only the host can mirror it.
-    @Test("The column move goes through the host's navigation callback")
-    func theMoveIsRoutedThroughTheHost() async {
-        let box = Fixture.Box()
-        let window = Fixture.mount(box, viewMode: .columns)
-        _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.tables(window.contentView!).count == 1 }
-
-        box.ask(Fixture.results("notes"), at: 0)
-
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) { !box.navigated.isEmpty }
-        #expect(settled.held, "the host should have been asked to navigate (\(settled.pumps) pumps)")
+        let routed = await LayoutPumpWait.pump(window, upTo: 10) { !box.navigated.isEmpty }
+        #expect(routed.held, "the host should have been asked to navigate (\(routed.pumps) pumps)")
         #expect(box.navigated.last?.components == ["Documents", "Finance"])
+
+        let selected = await LayoutPumpWait.pump(window, upTo: 10) {
+            box.selection == ["\(Fixture.root)/Documents/Finance/tax-notes.md"]
+        }
+        #expect(selected.held, "the hit should be selected (\(selected.pumps) pumps, got \(box.selection))")
     }
 
     /// Selecting a row is not revealing it: the column count and the selection both pass while the
@@ -628,19 +599,6 @@ import Sync
         #expect(revealed.held,
                 "the hit's row should be scrolled into its column (\(revealed.pumps) pumps)")
         #expect(box.selection == [needle], "…and selected")
-    }
-
-    @Test("The revealed hit becomes the pane's selection in Columns too")
-    func revealingAHitSelectsItInColumns() async {
-        let box = Fixture.Box()
-        let window = Fixture.mount(box, viewMode: .columns)
-        _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.tables(window.contentView!).count == 1 }
-
-        box.ask(Fixture.results("notes"), at: 0)
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
-            box.selection == ["\(Fixture.root)/Documents/Finance/tax-notes.md"]
-        }
-        #expect(settled.held, "the hit should be selected (\(settled.pumps) pumps, got \(box.selection))")
     }
 
     /// A hit at the top level closes the stack back to one column rather than leaving it wherever

@@ -45,6 +45,11 @@ import Sync
         #expect(DifferenceFilter.changedCopyToLeft.displayName(leftName: "iCloud", rightName: "Dropbox") == "Changed (Dropbox newer)")
         // The one label that names neither pane: it is about an event, not a side.
         #expect(DifferenceFilter.failed.displayName(leftName: "iCloud", rightName: "Dropbox") == "Failed to transfer")
+        #expect(DifferenceFilter.nameConflicts.displayName(leftName: "iCloud", rightName: "Dropbox") == "Name conflicts")
+        // Every case has a label, including any added later.
+        for filter in DifferenceFilter.allCases {
+            #expect(!filter.displayName(leftName: "A", rightName: "B").isEmpty)
+        }
     }
 
     /// `.failed` ignores every property the shape filters read and answers only from the id set.
@@ -66,15 +71,6 @@ import Sync
         #expect(DifferenceFilter.missingOnRight.displayName(leftName: names.left, rightName: names.right) == "Missing on Right")
         #expect(DifferenceFilter.changedCopyToRight.displayName(leftName: names.left, rightName: names.right) == "Changed (Left newer)")
         #expect(DifferenceFilter.changedCopyToLeft.displayName(leftName: names.left, rightName: names.right) == "Changed (Right newer)")
-    }
-
-    @Test func testMatchingLogicIsIndependentOfDisplayName() {
-        // Display is derived per-render from provider names; matching keys off case identity.
-        for filter in DifferenceFilter.allCases {
-            let renamed = filter.displayName(leftName: "A", rightName: "B")
-            #expect(renamed.isEmpty == false)
-        }
-        #expect(DifferenceFilter.missingOnLeft.matches(diff(.missingOnLeft, .copyToLeft), failedIDs: []))
     }
 }
 
