@@ -25,6 +25,17 @@ public enum LogLevel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The level as Settings ▸ Advanced ▸ Log level names it, for the lines that state the gate
+    /// (the launch line, the CLI's start line, a level change), so the log and the picker agree.
+    public var settingName: String {
+        switch self {
+        case .debug: return "Debug"
+        case .info: return "Info"
+        case .warning: return "Warnings"
+        case .error: return "Errors only"
+        }
+    }
+
     // No `color` here, on purpose. Events is a leaf module that must not depend on Design, so a
     // level's color belongs to the module drawing it (the Activity Log's `LogLevel.semanticColor`).
     // Events owns only the level's identity, ordering and glyph.
@@ -231,7 +242,12 @@ public class Logger: ObservableObject {
             || environment["XCTestBundlePath"] != nil
     }
 
-    /// The persisted minimum level, or `.debug` (log everything) when unset or unrecognized.
+    /// The level a fresh install, an unrecognized value and Reset All all get: one line per
+    /// operation, its outcome and every one-off record, without the per-click and per-frame detail
+    /// Debug adds.
+    public nonisolated static let defaultMinimumLevel: LogLevel = .info
+
+    /// The persisted minimum level, or ``defaultMinimumLevel`` when unset or unrecognized.
     ///
     /// Under a test runner the ambient value is never read and this is `.debug`: app-target tests
     /// run inside SyncCloud.app, so `.standard` is the owner's live preferences, and a raised level
@@ -246,7 +262,20 @@ public class Logger: ObservableObject {
     /// the standard domain, which under `swift test` is one plist shared by every test process.
     nonisolated static func persistedMinimumLevel(from defaults: UserDefaults, ambient: UserDefaults) -> LogLevel {
         if isRunningTests, defaults == ambient { return .debug }
-        return defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? .debug
+        return defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? defaultMinimumLevel
+    }
+
+    /// The line a change of the running gate writes, or nil when the level does not move: the
+    /// picker's `.onChange` and a catalog write both apply the same choice, and the second must say
+    /// nothing. Pure, so its wording is tested without moving the process-wide gate.
+    ///
+    /// The caller writes it at INFO **before** a gate that rises and **after** one that falls, so
+    /// the line itself passes the gate either way. A change between Warnings and Errors only leaves
+    /// no line: both sides drop INFO, and the Logger has no bypass.
+    public nonisolated static func levelChangeLine(from old: LogLevel, to new: LogLevel,
+                                                   because cause: String) -> String? {
+        guard old != new else { return nil }
+        return "Log level \(old.settingName) → \(new.settingName) (\(cause))"
     }
 
     /// Entries below this severity are dropped before they reach memory or disk. Nonisolated
@@ -489,8 +518,27 @@ public class Logger: ObservableObject {
     }
 }
 
+/// Keys already reported in this process, for a line that is worth reading once per launch and
+/// noise every time after: a folder that can never be listed, a file that can never be trashed.
+/// Lock-guarded, so a nonisolated caller on any thread can ask.
+public final class OncePerLaunch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: Set<String> = []
+
+    public init() {}
+
+    /// True the first time `key` is offered in this process, false every time after.
+    public func isFirst(_ key: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return seen.insert(key).inserted
+    }
+}
+
 /// Lock-guarded `LogLevel` cell readable/writable from any thread — `log()` runs on the
-/// caller's thread, so the gate can't live in MainActor state.
+/// caller's thread, so the gate can't live in MainActor state. Stays `.debug`, not
+/// `Logger.defaultMinimumLevel`: an isolated Logger and every test process start with the gate
+/// open, and `LogCapture`'s flush marker is a debug line.
 private final class MinimumLevelBox: @unchecked Sendable {
     private let lock = NSLock()
     private var value: LogLevel = .debug

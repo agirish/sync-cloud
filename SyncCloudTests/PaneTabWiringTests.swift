@@ -1404,9 +1404,14 @@ import Sync
         manager.noteFocusedPane(isLeft: false, because: "moved \(token)")
         // The same side again: nothing changes, so nothing may be said.
         manager.noteFocusedPane(isLeft: false, because: "again \(token)")
-        let window = await log.entries.map(\.message)
+        let entries = await log.entries
+        let window = entries.map(\.message)
 
         let moved = window.filter { $0.contains("moved \(token)") }
+        // Info, the shipped level: at Debug the only record of where ⌘W was aimed is filtered out
+        // of every installed copy's log, and this test's forced Debug gate could not see it.
+        #expect(entries.filter { $0.message.contains("moved \(token)") }.allSatisfy { $0.level == .info },
+                "the focus move is no longer Info, so the shipped log level drops it")
         #expect(moved.count == 1,
                 "\(moved.count) lines for one focus move — a move of the pane-scoped chords is unlogged, so a window that closed has no trace of which pane ⌘W was aimed at")
         #expect(moved.first?.contains("the right pane") == true,

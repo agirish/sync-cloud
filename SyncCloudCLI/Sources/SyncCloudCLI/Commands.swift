@@ -73,6 +73,21 @@ func warnIfMigrationPending() {
     ).utf8))
 }
 
+/// Puts the CLI's log gate at the app's Log level and writes the start line that states it.
+///
+/// Without this the CLI never set a level, so it wrote Debug into the shared `~/sync-cloud.log`
+/// whatever the app's Settings said. Read from the app's suite, as `discoverProviderSnapshot` does:
+/// the un-bundled CLI's `.standard` is its own domain. Called at the top of each `run()`, never
+/// from `flushingLogToDisk`, which `CLIWiringTests` drives: an explicit suite is read even under a
+/// test runner (`Logger.persistedMinimumLevel(from:)`), so the wrapper would hand those tests his
+/// live level. `CLIWiringTests.everyCommandAdoptsTheAppsLogLevel` holds every verb to it.
+func adoptAppLogLevel(verb: String) {
+    let level = UserDefaults(suiteName: SettingsManager.appSuiteName)
+        .map { Logger.persistedMinimumLevel(from: $0) } ?? Logger.defaultMinimumLevel
+    Logger.shared.minimumLevel = level
+    Logger.shared.info("synccloud \(verb) started (log level \(level.settingName))")
+}
+
 /// The Core runner with production edges: real settings discovery, the app log, and the
 /// default stdout/stderr/prompt/copy/verify seams.
 private func makeRunner() -> CommandRunner {
@@ -129,6 +144,7 @@ struct Scan: AsyncParsableCommand {
 
     func run() async throws {
         try await flushingLogToDisk {
+            adoptAppLogLevel(verb: "scan")
             try preflightMigration()
             return try await makeRunner().runScan(
                 left: options.left, right: options.right,
@@ -167,6 +183,7 @@ struct SyncFiles: AsyncParsableCommand {
 
     func run() async throws {
         try await flushingLogToDisk {
+            adoptAppLogLevel(verb: "sync")
             try preflightMigration()
             return try await makeRunner().runSync(
                 left: options.left, right: options.right,
@@ -187,6 +204,7 @@ struct Providers: AsyncParsableCommand {
 
     func run() async throws {
         await flushingLogToDisk {
+            adoptAppLogLevel(verb: "providers")
             warnIfMigrationPending()
             await makeRunner().runProviders()
         }
@@ -219,6 +237,7 @@ struct Restructure: AsyncParsableCommand {
     /// log is not flushed.
     func run() async throws {
         try await flushingLogToDisk {
+            adoptAppLogLevel(verb: "restructure")
             let directory = profilesDir.map {
                 URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)
             }

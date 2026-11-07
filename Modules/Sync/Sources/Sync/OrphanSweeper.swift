@@ -88,6 +88,9 @@ public enum OrphanSweeper {
         }
     }
 
+    /// The paths whose failed removal has been reported at WARN this launch.
+    static let unremovableReported = OncePerLaunch()
+
     /// Trashes the given artifacts, with no `removeItem` fallback: a `.tmp_` can be the only
     /// copy of a consumed source (`replaceDestinationByMoving`'s double failure), so the sweep
     /// must stay recoverable. On a Trash-less volume the artifact stays where it is. Re-checks the
@@ -113,10 +116,15 @@ public enum OrphanSweeper {
                 }
                 removed += 1
             } catch {
-                Task { @MainActor in
-                    // "Left in place", not "left for the next sweep": on a Trash-less volume no
-                    // later sweep can succeed either.
-                    Logger.shared.debug("Orphan sweep: couldn't trash \(path) (\(error.localizedDescription)) — left in place")
+                // "Left in place", not "left for the next sweep": on a Trash-less volume no later
+                // sweep can succeed either. WARN once per path per launch, since every scan retries
+                // it; Debug after that. Logged here, not hopped to the main actor: the Logger is
+                // nonisolated, and the hop let a capture's flush marker finish before the line.
+                let logLine = "Orphan sweep: couldn't trash \(path) (\(error.localizedDescription)) — left in place"
+                if unremovableReported.isFirst(path) {
+                    Logger.shared.warning(logLine)
+                } else {
+                    Logger.shared.debug(logLine)
                 }
             }
         }

@@ -463,7 +463,7 @@ extension FileSyncManager {
         // through `enqueueFileOperation`, which bumps the epoch first. Discarding on them would
         // leave identical pairs listed if the user then declined, because no rescan would follow.
         guard fileOperationsEpoch == startOperationsEpoch else {
-            Logger.shared.debug("Scan checksum pass: discarded — the file operations epoch moved mid-hash")
+            Logger.shared.info("Scan checksum pass: discarded — the file operations epoch moved mid-hash")
             return
         }
         let liveIds = Set(rawDifferences.map(\.id))

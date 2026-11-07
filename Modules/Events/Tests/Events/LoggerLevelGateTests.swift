@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Pins the minimum-level gate: below-threshold entries reach neither memory nor disk, the
-/// default gate (.debug) changes nothing, and the persisted-level parsing falls back safely.
+/// Pins the minimum-level gate: below-threshold entries reach neither memory nor disk, an isolated
+/// logger's gate (.debug) changes nothing, and the persisted level falls back to Info.
 @Suite struct LoggerLevelGateTests {
 
     @MainActor
@@ -70,11 +70,11 @@ import Foundation
         let defaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
 
-        #expect(Logger.persistedMinimumLevel(from: defaults) == .debug)
+        #expect(Logger.persistedMinimumLevel(from: defaults) == .info)
         defaults.set(LogLevel.warning.rawValue, forKey: Logger.minimumLevelDefaultsKey)
         #expect(Logger.persistedMinimumLevel(from: defaults) == .warning)
         defaults.set("NONSENSE", forKey: Logger.minimumLevelDefaultsKey)
-        #expect(Logger.persistedMinimumLevel(from: defaults) == .debug)
+        #expect(Logger.persistedMinimumLevel(from: defaults) == .info)
     }
 
     // MARK: - The ambient level is not the developer's
@@ -106,11 +106,38 @@ import Foundation
         #expect(Logger.persistedMinimumLevel(from: suite) == .warning)
     }
 
-    /// An explicit suite with nothing stored still falls back to `.debug`.
-    @Test func anExplicitSuiteWithNothingStoredIsStillDebug() throws {
+    /// An explicit suite with nothing stored falls back to the shipped default, Info.
+    @Test func anExplicitSuiteWithNothingStoredIsInfo() throws {
         let name = "LoggerLevelGateTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(name) }
         let suite = try #require(UserDefaults(suiteName: name))
-        #expect(Logger.persistedMinimumLevel(from: suite) == .debug)
+        #expect(Logger.persistedMinimumLevel(from: suite) == .info)
+        #expect(Logger.defaultMinimumLevel == .info)
+    }
+
+    // MARK: - The level-change line
+
+    @Test func aLevelChangeIsOneLineNamingBothLevelsInThePickersWords() {
+        #expect(Logger.levelChangeLine(from: .debug, to: .info, because: "Reset All")
+                == "Log level Debug → Info (Reset All)")
+        #expect(Logger.levelChangeLine(from: .info, to: .error, because: "chosen in Settings")
+                == "Log level Info → Errors only (chosen in Settings)")
+    }
+
+    /// The picker's `.onChange` and the catalog writer both apply one choice, so the second call
+    /// must be silent.
+    @Test func noChangeWritesNoLine() {
+        for level in LogLevel.allCases {
+            #expect(Logger.levelChangeLine(from: level, to: level, because: "x") == nil)
+        }
+    }
+
+    // MARK: - Once per launch
+
+    @Test func aKeyIsFirstOnceAndNeverAgain() {
+        let once = OncePerLaunch()
+        #expect(once.isFirst("/a"))
+        #expect(!once.isFirst("/a"))
+        #expect(once.isFirst("/b"), "one key's report used up another's")
     }
 }

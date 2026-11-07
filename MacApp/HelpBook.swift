@@ -931,6 +931,7 @@ enum HelpBook {
                         "Show in History narrows History to that run’s records; Show in Log narrows the log to the minutes around the message. Show All puts the whole list back.",
                         "In Log, filter by severity and copy lines straight from the window.",
                         "The full log is written to sync-cloud.log — Help ▸ Reveal Log File in Finder opens it.",
+                        "The log keeps Info and above: every operation, what it did, and anything that went wrong. For per-click detail, set Log level to Debug in the Advanced settings; the “launched” line that opens each session says which level it kept.",
                     ]),
                     .tip("Attaching the log file to a bug report is the fastest way to get a problem understood."),
                 ],

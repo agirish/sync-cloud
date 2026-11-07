@@ -2439,25 +2439,14 @@ struct ContentView: View {
     }
 
     /// The full reset behind Settings → Advanced. `resetAllSettings()` clears the defaults domain
-    /// (all but `SettingsResetKeeps`) and republishes, and the `.onChange` mirrors re-seed the
-    /// engine; the log gate and the in-memory ignore sets don't flow through those and are reset
-    /// here.
+    /// (all but `SettingsResetKeeps`), republishes, and re-seeds the log gate from the cleared
+    /// value, Info, logging the change; the `.onChange` mirrors re-seed the engine. The in-memory
+    /// ignore sets don't flow through either and are reset here.
     ///
-    /// Static so a test can pin all three steps and their order: `resetAllSettings()` re-seeds the
-    /// log gate from the cleared defaults, so the `.debug` write must follow it. `setLogLevel` is a
-    /// seam so the test need not mutate the process-wide `Logger.shared` gate.
+    /// Static so a test can pin the steps with a real manager and a scratch suite.
     @MainActor
-    static func applyFullSettingsReset(
-        settings: SettingsManager,
-        syncManager: FileSyncManager,
-        // Optional rather than a defaulted closure: a default argument is evaluated in a
-        // nonisolated context, so `{ Logger.shared.minimumLevel = $0 }` there would mutate
-        // main-actor state from outside the actor (an error under Swift 6). Resolving the fallback
-        // inside this `@MainActor` body keeps the write isolated.
-        setLogLevel: ((LogLevel) -> Void)? = nil
-    ) {
+    static func applyFullSettingsReset(settings: SettingsManager, syncManager: FileSyncManager) {
         settings.resetAllSettings()
-        (setLogLevel ?? { Logger.shared.minimumLevel = $0 })(.debug)
         syncManager.clearAllIgnoredItems()
         // The one thing the defaults domain does not carry. `resetAllSettings()` drops all three
         // setup flags with the rest of the domain, so the alert's "SyncCloud forgets that setup has
@@ -3059,12 +3048,12 @@ struct ContentView: View {
                 // the same person, which `awaits` alone would accept. `awaits`: the slot must still
                 // be waiting for this person at all.
                 guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else {
-                    // Routine coalescing, so debug, but not silence. The "User asked…" line opens a
-                    // walk and the "Gathered N file(s)…" line closes it; a mute branch would leave
-                    // an opened sweep that never closes, which reads in the log like a wedged
-                    // gather. Says which guard fired, because a cancel and a slot that moved on are
-                    // different stories.
-                    Logger.shared.debug("People: discarded a finished gather for "
+                    // Info, like the line that opened the walk: "User asked…" opens it and
+                    // "Gathered N file(s)…" closes it, and a closing line at a lower level than its
+                    // opener leaves, at the shipped level, an opened sweep that never closes, which
+                    // reads like a wedged gather. Says which guard fired, because a cancel and a
+                    // slot that moved on are different stories.
+                    Logger.shared.info("People: discarded a finished gather for "
                                         + "\(person.displayName) — "
                                         + (Task.isCancelled ? "it was cancelled"
                                            : "the view is no longer waiting for it"))
@@ -3091,8 +3080,8 @@ struct ContentView: View {
                 // The canceller owns the slot, so there is nothing to write, but there is something
                 // to say: this is the third way out of a gather. A ✕ or Esc during the sweep, the
                 // common case, would otherwise leave an opened gather with no ending in the log.
-                // Debug, like its sibling above: cancelling is routine.
-                Logger.shared.debug("People: the gather for \(person.displayName) was cancelled "
+                // Info, like its sibling above, for the same reason.
+                Logger.shared.info("People: the gather for \(person.displayName) was cancelled "
                                     + "while it was reading")
             } catch {
                 // Nothing below throws anything but cancellation today. Swallowing this anyway

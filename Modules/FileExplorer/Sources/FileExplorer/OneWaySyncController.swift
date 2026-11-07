@@ -441,7 +441,7 @@ public final class OneWaySyncController: ObservableObject {
     /// Runs one pass: checks, waits for Dropbox to catch up, looks, applies, and says what waits.
     public func syncNow() {
         if let syncNowRefusal {
-            Logger.shared.debug("One-way sync: Sync Now not run: \(syncNowRefusal)")
+            Logger.shared.info("One-way sync: Sync Now not run: \(syncNowRefusal)")
             return
         }
         stopFlag.set(false)

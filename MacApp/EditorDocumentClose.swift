@@ -1,4 +1,5 @@
 import Foundation
+import Events
 import FileExplorer
 
 /// Putting the open document away: the header's × and File ▸ Close Document. (⌘W is Close Tab;
@@ -60,6 +61,9 @@ enum EditorDocumentClose {
         if let next = Self.paneSelection(afterClosing: path, selection: paneSelection()) {
             setPaneSelection(next)
         }
+        // Straight to the log, not through `log`: a close of a document autosave never wrote
+        // keeps the one line its callers expect.
+        if let tally = EditorAutosaveTally.closeOut(path) { Logger.shared.info(tally) }
         log("Editor closed \(path)")
         return true
     }

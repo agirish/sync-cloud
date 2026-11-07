@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Events
 import FileExplorer
 
 /// What is open in Edit: the text document or a PDF, only one at once.
@@ -91,6 +92,7 @@ enum EditorOpenRoute {
     /// Empties the text document, keeping its undo stack for when it is opened again.
     static func emptyText(_ document: EditorDocument, undoStore: EditorUndoStore) {
         guard document.path != nil else { return }
+        if let tally = EditorAutosaveTally.closeOut(document.path) { Logger.shared.info(tally) }
         undoStore.remember(text: document.text)
         document.close()
         undoStore.activate(path: nil, text: "")

@@ -23,6 +23,20 @@ enum PaneScrollTrace {
     static var isEnabled = UserDefaults.standard.bool(forKey: defaultsKey)
 }
 
+/// The hand-armed diagnostic switches, for the app's launch-time level decision
+/// (`LaunchLogLevel`). Public so `PaneScrollTrace` can stay internal.
+///
+/// Read from the store, not from the two `isEnabled` flags: those are lazily initialised statics a
+/// test may have set, and the decision has to be made before anything logs, ahead of their first
+/// read in `applicationDidFinishLaunching`.
+@MainActor
+public enum DiagnosticTraces {
+    /// The defaults keys of the switches armed in `defaults`, in a fixed order.
+    public static func armed(in defaults: UserDefaults) -> [String] {
+        [DisplayCycleTrace.defaultsKey, PaneScrollTrace.defaultsKey].filter { defaults.bool(forKey: $0) }
+    }
+}
+
 /// Watches one column's list: logs its vertical travel, and pulls it home when it parks
 /// stretched in overscroll.
 ///

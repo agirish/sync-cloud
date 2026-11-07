@@ -1501,14 +1501,15 @@ extension ContentView {
             editorAutosaveStop = nil
             // The disk agrees with the document now, so a disk-change banner has nothing to ask.
             editorDiskWatch.reconcile()
-            // An explicit save logs at INFO and an autosave at DEBUG: one line per save is a
-            // record, one every two seconds of typing would bury the failures below.
+            // An explicit save logs at INFO. An autosave logs its document's first at INFO and the
+            // rest at DEBUG, counted into one closing line (`EditorAutosaveTally`): one every two
+            // seconds of typing would bury the failures below.
             let path = editorDocument.path ?? ""
             noteEditorWrote(path)
             if explicit {
                 Logger.shared.info("Editor saved \(path)")
             } else {
-                Logger.shared.debug("Editor autosaved \(path)")
+                logAutosave(path)
             }
             Task { await refreshEditorRail() }
             if recreates { showCreatedFileInPane(path) }
@@ -1614,9 +1615,18 @@ extension ContentView {
         editorAutosaveStop = nil
         editorDiskWatch.reconcile()
         noteEditorWrote(editorDocument.path)
-        Logger.shared.debug("Editor autosaved \(editorDocument.path ?? "")")
+        logAutosave(editorDocument.path ?? "")
         Task { await refreshEditorRail() }
         return true
+    }
+
+    /// Both autosave sites' line: Info for the document's first, Debug for the rest.
+    private func logAutosave(_ path: String) {
+        if EditorAutosaveTally.note(path) == .info {
+            Logger.shared.info("Editor autosaved \(path)")
+        } else {
+            Logger.shared.debug("Editor autosaved \(path)")
+        }
     }
 
     /// Called after a flush that wrote or had nothing to do.

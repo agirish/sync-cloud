@@ -382,10 +382,11 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     // MARK: Reset All Settings
 
     @MainActor
-    @Test func testResetAllSettingsWipesDefaultsResetsTheLogGateAndClearsIgnores() throws {
+    @Test func testResetAllSettingsWipesDefaultsResetsTheLogLevelAndClearsIgnores() throws {
         let test = TestDefaults()
         // A key nothing re-writes on reset, so its disappearance proves the domain was cleared.
         test.defaults.set(true, forKey: "openSettingsOnLaunch")
+        test.defaults.set(LogLevel.warning.rawValue, forKey: Logger.minimumLevelDefaultsKey)
 
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
                                        overridesDomainName: test.suiteName,
@@ -396,25 +397,18 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let manager = FileSyncManager.scratch()
         manager.ignoredPaths = ["Documents/private.pdf"]
 
-        // Recorded rather than applied: the live `Logger.shared` gate is process-wide, and raising
-        // it would swallow other suites' entries. Each record notes whether the defaults wipe had
-        // happened, pinning the order: a log reset first would be overwritten by the re-seed.
-        var logLevels: [(level: LogLevel, patternsAlreadyCleared: Bool)] = []
-
-        ContentView.applyFullSettingsReset(settings: settings, syncManager: manager) { level in
-            logLevels.append((level, settings.ignorePatterns.isEmpty))
-        }
+        // The live gate is not asserted on: under a test runner the reset re-seeds it from the
+        // ambient level, which is always Debug (`Logger.persistedMinimumLevel`), so no suite's
+        // entries are swallowed. What the next launch and the re-seed read is the stored level.
+        ContentView.applyFullSettingsReset(settings: settings, syncManager: manager)
 
         // 1. The defaults domain is cleared (and the manager republished at its defaults).
         #expect(test.defaults.object(forKey: "openSettingsOnLaunch") == nil)
         #expect(settings.ignorePatterns.isEmpty)
         #expect(settings.conflictPolicy == .ask)
-        // 2. The log gate is back to logging everything — it does NOT flow through any
-        //    `.onChange` mirror, so only this call restores it before a relaunch.
-        #expect(logLevels.count == 1)
-        let logged = try #require(logLevels.first)
-        #expect(logged.level == .debug)
-        #expect(logged.patternsAlreadyCleared)
+        // 2. The stored Log level is gone, so it reads as the shipped default, Info.
+        #expect(test.defaults.object(forKey: Logger.minimumLevelDefaultsKey) == nil)
+        #expect(Logger.persistedMinimumLevel(from: test.defaults) == .info)
         // 3. The in-memory ignore sets are cleared — also not mirrored, so items ignored under
         //    the old settings would otherwise stay hidden from every comparison this session.
         #expect(manager.ignoredPaths.isEmpty)

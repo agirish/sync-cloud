@@ -1,4 +1,5 @@
 import Foundation
+import Events
 import FileExplorer
 
 /// Reading a file into the open document, and putting the undo stacks in step around it. Kept out
@@ -41,6 +42,11 @@ enum EditorDocumentLoad {
     @discardableResult
     static func run(path: String, document: EditorDocument, undoStore: EditorUndoStore,
                     log: (String) -> Void) -> EditorFileStore.OpenResult {
+        // The outgoing document's autosave count, before it is replaced. Not for a reload of the
+        // same file, which is still the document being typed in.
+        if document.path != path, let tally = EditorAutosaveTally.closeOut(document.path) {
+            Logger.shared.info(tally)
+        }
         // On the first load the buffer and the store each have a storage; from here on, one.
         undoStore.adopt(document.buffer.source)
         // `opening`: the file coming in is never the one evicted to make room.

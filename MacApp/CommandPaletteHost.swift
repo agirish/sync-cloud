@@ -341,7 +341,8 @@ extension ContentView {
     /// off-screen host. If AppKit hosts a full-screen window's toolbar in a separate window, this
     /// refuses it; running out of retries then hides the list rather than closing the palette.
     /// Check by pressing ⌘K in a full-screen window and reading the `[palette] placed under
-    /// field=` line in `~/sync-cloud.log`.
+    /// field=` line in `~/sync-cloud.log`. It is Debug: set Settings ▸ Advanced ▸ Log level to Debug
+    /// first, since the shipped level is Info.
     static func goToFieldItemView(in host: NSWindow) -> NSView? {
         guard let toolbar = host.toolbar else { return nil }
         for item in toolbar.items {

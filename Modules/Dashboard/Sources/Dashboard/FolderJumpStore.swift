@@ -843,6 +843,22 @@ public final class FolderJumpStore: ObservableObject {
 
 /// Filesystem side of the quick-jump menu: the current folder's sibling directories.
 enum FolderJump {
+    /// The parent folders whose listing failure has been reported at WARN this launch.
+    nonisolated static let siblingFailuresReported = OncePerLaunch()
+
+    /// One failed sibling listing: WARN the first time its parent folder fails this launch, Debug
+    /// after. Keyed by the parent `siblings` lists, so every child of one unreadable folder shares
+    /// the one WARN.
+    nonisolated static func reportSiblingFailure(_ message: String, rootPath: String, relativePath: String,
+                                                 logger: Logger) {
+        let parent = relativePath.split(separator: "/").dropLast().joined(separator: "/")
+        if siblingFailuresReported.isFirst(rootPath + "|" + parent) {
+            logger.warning(message)
+        } else {
+            logger.debug(message)
+        }
+    }
+
     /// The subfolders of the current folder's parent, excluding the current folder: the lateral hops
     /// neither the breadcrumb (up) nor back/forward (back) reach. Empty at the pane root or on any
     /// read error. Sorted in the file panes' localized-standard order. `nonisolated` and pure so it
@@ -932,10 +948,14 @@ struct FolderJumpMenu: View {
             let root = rootPath, rel = relativePath, hidden = showHidden
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             siblings = await Task.detached(priority: .userInitiated) {
-                // `.debug` on purpose: this runs on every folder change, so a failure repeats per
-                // navigation. The full reason is at the `logError?(…)` call inside `siblings`.
+                // WARN once per parent folder per launch, then Debug: this runs on every folder
+                // change, so a failure repeats per navigation. The full reason is at the
+                // `logError?(…)` call inside `siblings`.
                 FolderJump.siblings(rootPath: root, relativePath: rel, showHidden: hidden,
-                                    logError: { logger.debug($0) })
+                                    logError: { message in
+                                        FolderJump.reportSiblingFailure(message, rootPath: root, relativePath: rel,
+                                                                        logger: logger)
+                                    })
             }.value
         }
     }

@@ -4112,13 +4112,24 @@ struct AdvancedSettingsTab: View {
     /// card's question names it. Defaulted for the same reason as `onResetSetup`.
     var resetAllRaises: () -> [String] = { [] }
 
-    @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
+    @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.info.rawValue
+    /// Whether the running log gate differs from the stored choice, which only a trace switch
+    /// armed by hand does (it lowers this launch to Debug). Refreshed on appear and after a choice.
+    @State private var runningLevelDiffers = false
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
     /// Human-readable sizes of the two saved-scan-data files, or nil where there is no file. nil is
     /// what disables each Clear, so "None" and a live button cannot disagree.
     @State private var hashIndexSizeText: String?
     @State private var storageLensSizeText: String?
+
+    /// True when a trace switch lowered this launch below the level `raw` names. Not "the gate
+    /// differs from the picker": under a test runner the gate is always Debug, and that is no
+    /// trace switch.
+    static func runningLevelDiffers(from raw: String) -> Bool {
+        LogLevelSetting.traceLoweredThisLaunch
+            && Logger.shared.minimumLevel != (LogLevel(rawValue: raw) ?? Logger.defaultMinimumLevel)
+    }
 
     var body: some View {
         SettingsPage {
@@ -4127,18 +4138,30 @@ struct AdvancedSettingsTab: View {
                 caption: "Rotates at 5 MB."
             ) {
                 SettingsRow("Log level") {
-                    Picker("Log level", selection: $minimumLevelRaw) {
-                        Text("Debug (everything)").tag(LogLevel.debug.rawValue)
-                        Text("Info").tag(LogLevel.info.rawValue)
-                        Text("Warnings").tag(LogLevel.warning.rawValue)
-                        Text("Errors only").tag(LogLevel.error.rawValue)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("Log level", selection: $minimumLevelRaw) {
+                            Text("Debug (everything)").tag(LogLevel.debug.rawValue)
+                            Text("Info").tag(LogLevel.info.rawValue)
+                            Text("Warnings").tag(LogLevel.warning.rawValue)
+                            Text("Errors only").tag(LogLevel.error.rawValue)
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .onChange(of: minimumLevelRaw) { _, raw in
+                            LogLevelSetting.applyRunning(raw: raw)
+                            runningLevelDiffers = Self.runningLevelDiffers(from: raw)
+                        }
+                        .help("Which messages the log keeps: the chosen level and everything more severe; the rest are skipped entirely. Info, the default, keeps every operation and its outcome; Debug adds per-click detail.")
+                        // A hand-armed trace switch runs this launch at Debug whatever the picker
+                        // holds (`LaunchLogLevel` in the app); without this the picker would say Info
+                        // over a log that is keeping everything.
+                        if runningLevelDiffers {
+                            Text("This launch logs at Debug: a trace switch is on.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    .onChange(of: minimumLevelRaw) { _, raw in
-                        LogLevelSetting.applyRunning(raw: raw)
-                    }
-                    .help("Which messages the log keeps: the chosen level and everything more severe; the rest are skipped entirely. Debug keeps everything.")
+                    .onAppear { runningLevelDiffers = Self.runningLevelDiffers(from: minimumLevelRaw) }
                 }
 
                 SettingsRow("Log file") {

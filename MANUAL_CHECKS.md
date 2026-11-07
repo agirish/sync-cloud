@@ -225,8 +225,8 @@ clicking a chip, but nothing announces it, so it is worth one walk.
   follow Copy Path" is unfalsifiable: nothing on screen changes whether the code is right or wrong.
   **The only observable is the log line** written by `noteFocusedPane`
   (`FileSyncManager+Navigation.swift`) — *"The pane-scoped chords (⌘W, ⌘T, ⌘F) now aim at … rather
-  than …"*. It is `.debug`, and `minimumLevel` defaults to debug, so `tail -f ~/sync-cloud.log`
-  while you work is the instrument. Note it is deliberately silent on a no-op, so *no line* means
+  than …"*. It is Info, the shipped level, so `tail -f ~/sync-cloud.log` while you work is the
+  instrument. Note it is deliberately silent on a no-op, so *no line* means
   the aim was already there.
 - **Staging the verb also aims the verb.** Every route to a pinned or second right-hand tab runs
   through `tabAction(isLeft:)`, which calls `noteWorkingIn` unconditionally — so by the time you
@@ -273,7 +273,9 @@ the flag being there to read. The cost of the walk is the other half: 40,000 sta
 provider's synthetic filesystem is not a thing a mock can time.
 
 Preconditions: Browse (⌘1), pointed at a real iCloud or Dropbox root with a deep tree — the more
-cloud-only files the better. `tail -f ~/sync-cloud.log` beside it for the load lines.
+cloud-only files the better. `tail -f ~/sync-cloud.log` beside it for the load lines. At the
+shipped Info level only a load of 2 s or more, or one with no known ending, writes its `[load]`
+line; set Settings ▸ Advanced ▸ Log level to Debug to see every start and outcome.
 
 - [ ] **The cloud-only count lands, and it is not zero.** Point Browse at a provider root with
   files you know are evicted (Finder shows them with the ☁ badge). The segment reads `— in the

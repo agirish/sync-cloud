@@ -679,9 +679,9 @@ extension FileSyncManager {
         guard focusedPaneSide != side else { return }
         let was = focusedPaneSide
         focusedPaneSide = side
-        // Debug, like the strip's own lines: a pane click moves this, so info would flood the log.
-        // `minimumLevel` defaults to debug, so it still reaches `~/sync-cloud.log`.
-        Logger.shared.debug(
+        // Info: the only record of where ⌘W was aimed when a window closed, and the guard above
+        // keeps it to real moves, not every click in the pane already focused.
+        Logger.shared.info(
             "The pane-scoped chords (⌘W, ⌘T, ⌘F) now aim at \(Self.paneName(side)) rather than "
             + "\(Self.paneName(was)): \(reason)")
     }

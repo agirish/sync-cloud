@@ -26,6 +26,9 @@ struct Elapsed {
                       wall: Self.seconds(ContinuousClock.now - wall))
     }
 
+    /// Seconds awake since this started, the span `text` leads with.
+    var activeSeconds: Double { Self.seconds(SuspendingClock.now - active) }
+
     /// The formatting, apart from the clocks so tests can feed it spans no test could wait for,
     /// such as an hour of sleep.
     static func describe(active: Double, wall: Double) -> String {
@@ -44,6 +47,21 @@ struct Elapsed {
     private static func seconds(_ duration: Duration) -> Double {
         let parts = duration.components
         return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+}
+
+/// Which pane loads reach the log at Info: the start line and an ordinary outcome are Debug, one per
+/// navigation, but a slow load and one that never reached a known exit are the only after-the-fact
+/// record of a pane that hung or came up empty.
+enum LoadOutcome {
+    /// What a load's outcome says when no exit set it.
+    static let unknownExit = "ended without reaching a known exit"
+    /// A load at least this long, awake, is reported. Two seconds: a cached or local folder loads in
+    /// milliseconds, and a cloud walk that takes this long is one someone waited through.
+    static let slowSeconds = 2.0
+
+    static func isWorthReporting(activeSeconds: Double, outcome: String, strandedSpinner: Bool) -> Bool {
+        activeSeconds >= slowSeconds || outcome == unknownExit || strandedSpinner
     }
 }
 
@@ -82,7 +100,7 @@ extension FileSyncManager {
             // Node counts are raw walked nodes (`countItems`), not the filtered item count, because
             // a walk's cost is per node walked. Counting costs one main-actor traversal (~5 ms per
             // 40k nodes), which the reported duration includes.
-            var outcome = "ended without reaching a known exit"
+            var outcome = LoadOutcome.unknownExit
 
             // Whatever exit this load takes (completion, cache hit, or cancellation between the
             // walks), release the loading spinner, but only while this load is still the pane's
@@ -97,10 +115,16 @@ extension FileSyncManager {
                     strandedSpinner = Task.isCancelled
                 }
                 // The one line per load with its outcome and duration, from the `defer` so every
-                // exit is covered.
-                Logger.shared.debug(
-                    "[load] \(tag) \(outcome) in \(startedAt.text)"
-                    + (strandedSpinner ? "; cleared its stale loading spinner" : ""))
+                // exit is covered. Info, with the path, only for a load worth a report (slow, or
+                // with no known ending); the rest are Debug, one per navigation.
+                let line = "[load] \(tag) \(outcome) in \(startedAt.text)"
+                    + (strandedSpinner ? "; cleared its stale loading spinner" : "")
+                if LoadOutcome.isWorthReporting(activeSeconds: startedAt.activeSeconds, outcome: outcome,
+                                                strandedSpinner: strandedSpinner) {
+                    Logger.shared.info(line + " — \(path)")
+                } else {
+                    Logger.shared.debug(line)
+                }
             }
 
             let relPath = isLeft ? leftRelativePath : rightRelativePath
@@ -569,7 +593,9 @@ extension FileSyncManager {
             let removed = OrphanSweeper.removeTempArtifacts(atPaths: paths, fileManager: fm)
             guard removed > 0, let self else { return }
             await MainActor.run {
-                Logger.shared.debug("Swept \(removed) orphaned .tmp_ working file(s)")
+                // Info: files moved to the Trash with nobody asking, so the only record of where
+                // they went.
+                Logger.shared.info("Swept \(removed) orphaned .tmp_ working file(s) to the Trash")
                 // The swept entries are in the cached trees; drop the cache so navigation
                 // doesn't serve ghost entries.
                 self.dropPrefetchedTrees()

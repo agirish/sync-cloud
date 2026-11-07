@@ -27,6 +27,34 @@ enum DisplayCycleAssert {
     }
 }
 
+/// The log level this launch runs at, decided once in `App.init` before anything logs.
+///
+/// The persisted level, Info by default, unless a trace switch was armed by hand
+/// (`DiagnosticTraces`): then Debug, because a trace's readers also compare the ungated decision
+/// lines (`[click]`, `[columns]`, `[crumb]`, `[deselect]`, `PaneScrollTrace`), which are Debug, and
+/// read "no line" as a finding (`docs/columns-layout-loop.md`). For this launch only: nothing is
+/// stored, and choosing a level in Settings or Reset All ends it.
+@MainActor
+enum LaunchLogLevel {
+    private(set) static var level: LogLevel = Logger.defaultMinimumLevel
+    /// The one INFO line naming the armed switches, or nil when none is armed.
+    private(set) static var traceLine: String?
+
+    static func decide(persisted: LogLevel, armedTraces: [String]) {
+        let decided = Self.decision(persisted: persisted, armedTraces: armedTraces)
+        level = decided.level
+        traceLine = decided.line
+    }
+
+    /// Pure, for `LaunchLogLevelTests`.
+    nonisolated static func decision(persisted: LogLevel, armedTraces: [String]) -> (level: LogLevel, line: String?) {
+        guard !armedTraces.isEmpty, persisted != .debug else { return (persisted, nil) }
+        return (.debug, "[trace] \(armedTraces.joined(separator: ", ")) armed, so this launch logs at "
+                + "Debug; Settings ▸ Advanced ▸ Log level says \(persisted.settingName), and choosing a "
+                + "level there ends it")
+    }
+}
+
 /// AppKit's AutoFill heuristics, switched off app-wide.
 ///
 /// When an editable `NSTextField` (the Go to field among them) takes the caret,
@@ -150,10 +178,16 @@ struct SyncCloudApp: App {
     
     init() {
         LaunchTiming.initBegan()
-        // Apply the persisted log-level gate before anything logs; Settings → Advanced updates it
-        // from then on. The launch breadcrumb lives in `applicationDidFinishLaunching`, which fires
-        // once, because SwiftUI can re-run App.init.
-        Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
+        // Apply the launch's log-level gate before anything logs; Settings → Advanced updates it
+        // from then on. A hand-armed trace switch lowers it to Debug for this launch, so the
+        // ungated `[click]`/`[columns]` lines its readers compare against are written too
+        // (`docs/columns-layout-loop.md`). The launch breadcrumb, which states the level, and the
+        // trace's own line live in `applicationDidFinishLaunching`, which fires once, because
+        // SwiftUI can re-run App.init. Deterministic, so a re-run decides the same.
+        LaunchLogLevel.decide(persisted: Logger.persistedMinimumLevel(),
+                              armedTraces: DiagnosticTraces.armed(in: .standard))
+        Logger.shared.minimumLevel = LaunchLogLevel.level
+        LogLevelSetting.traceLoweredThisLaunch = LaunchLogLevel.traceLine != nil
 
         // Before any field can take the caret: AppKit caches the answer on first read. Not gated on
         // tests — a hosted test that focuses a field would hang the same way.
@@ -920,9 +954,14 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
     private var oneWaySyncReminders: Timer?
 
-    /// The rows' last save reaches the disk before the process ends.
+    /// The rows' last save reaches the disk before the process ends, and so does the count of
+    /// autosaves since each document's first (`EditorAutosaveTally`). Here, after every quit
+    /// branch, so a cancelled quit doesn't close the tally out early; flushed, because nothing
+    /// after this point flushes the log.
     func applicationWillTerminate(_ notification: Notification) {
         ActivityCenter.shared.flushOneWaySync()
+        for line in EditorAutosaveTally.closeOutAll() { Logger.shared.info(line) }
+        Logger.shared.flushToDisk()
     }
 
     /// Launch breadcrumb — fires exactly once per process (unlike App.init, which SwiftUI may
@@ -932,7 +971,11 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
-        Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
+        // The level inside the parentheses, not after "launched": the install skill waits for a
+        // line ending in "launched" (`.claude/skills/install-sync-cloud/SKILL.md` step 7). Read off
+        // the live gate, so it states what this session's log actually keeps.
+        Logger.shared.info(
+            "SyncCloud \(version) (build \(build), log level \(Logger.shared.minimumLevel.settingName)) launched")
         if let line = LaunchTiming.report() { Logger.shared.info(line) }
 
         // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live.
@@ -951,6 +994,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // behind the Documents-access dialog. A few milliseconds, so it runs inline and keeps the
         // lines adjacent. See `LaunchSignature`.
         Logger.shared.info(LaunchSignature.current().logLine)
+        // After the signature line, which the install skill and CLAUDE.md §6 read as the line after
+        // "launched". Says why the level above is not the one Settings shows.
+        if let line = LaunchLogLevel.traceLine { Logger.shared.info(line) }
 
         // Which appearance the session draws selection and bar buttons in (glass or plain markers,
         // gliding or instant), at launch and whenever it changes (`GlassLogLine`).

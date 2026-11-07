@@ -65,6 +65,25 @@ import SyncCloudCLICore
         }
     }
 
+    /// Every command puts the log at the app's level before it logs, inside its own `run()`, never
+    /// in `flushingLogToDisk`, which these tests drive and which would then read his live level.
+    @Test func everyCommandAdoptsTheAppsLogLevel() throws {
+        let source = try Self.commandsSource()
+        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run"] {
+            let body = try #require(Self.runBody(before: call, in: source),
+                                    "cannot find the run body that calls \(call)")
+            #expect(body.contains("adoptAppLogLevel(verb:"),
+                    "the command that calls \(call) logs at Debug whatever the app's Log level says")
+        }
+        let wrapper = try #require(source.range(of: "func flushingLogToDisk<T>"),
+                                   "flushingLogToDisk is gone or renamed — this check reads nothing")
+        let tail = source[wrapper.upperBound...]
+        // The wrapper's closing brace is the first one at column 0.
+        let wrapperBody = tail[..<(tail.range(of: "\n}\n")?.lowerBound ?? tail.endIndex)]
+        #expect(!wrapperBody.contains("adoptAppLogLevel"),
+                "the wrapper sets the level, so CLIWiringTests run at his live Log level")
+    }
+
     /// The positive control for the scan above: `runBody` really can come back WITHOUT the
     /// wrapper, so the `#expect` there can fail, and a green result is the source agreeing rather
     /// than the search missing.

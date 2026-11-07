@@ -145,7 +145,7 @@ extension FileSyncManager {
             // "Empty". `adoptRawTree` unwraps the same shape for the same reason.
             if Self.isUnreadableRootWalk(children, at: path) {
                 if self.rawTreeGeneration == generation { self.columnGraftsUnreadable.insert(key) }
-                Logger.shared.debug("[graft] \(isLeft ? "left" : "right") could not be read at “\(path)”")
+                Logger.shared.info("[graft] \(isLeft ? "left" : "right") could not be read at “\(path)”")
                 return
             }
 

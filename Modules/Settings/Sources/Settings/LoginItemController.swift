@@ -68,7 +68,7 @@ public final class LoginItemController: ObservableObject {
             // Echo of a programmatic set, or a gesture the in-flight call will carry in its
             // `settle`. Logged because the user can feel the second case (the switch moves and
             // nothing happens), and a guard stuck shut would otherwise leave no trace.
-            Logger.shared.debug("Launch-at-login: no round-trip started for \(enabled) (echo, or one already in flight)")
+            Logger.shared.info("Launch-at-login: no round-trip started for \(enabled) (echo, or one already in flight)")
             return
         }
         updateLoginItem(enabled)

@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Pins the safety gates of the orphaned-working-file sweep: only exact `.tmp_<UUID>`
@@ -107,6 +109,25 @@ import Testing
         #expect(removed == 0)
         #expect(fm.virtualDisk[tmp] != nil)      // survives, recoverable
         #expect(fm.attemptedRemovePaths.isEmpty) // removeItem never even attempted
+    }
+
+    /// A staging file the Trash refuses is reported at WARN once per launch, then Debug: every
+    /// scan retries it, and on a volume with no Trash it can never succeed. At the shipped level
+    /// the Debug-only line it used to be left no trace of a file the sweep could not clear.
+    @MainActor
+    @Test func anUntrashableStagingFileIsWarnedOncePerLaunch() async {
+        let fm = MockFileManager()
+        fm.shouldFailTrash = true
+        let tmp = "/root/.tmp_\(UUID().uuidString)"
+        fm.virtualDisk[tmp] = .init(isDirectory: false, attributes: nil, contents: nil)
+
+        let log = LogCapture()
+        OrphanSweeper.removeTempArtifacts(atPaths: [tmp], fileManager: fm)
+        OrphanSweeper.removeTempArtifacts(atPaths: [tmp], fileManager: fm)
+        let lines = await log.entries.filter { $0.message.contains(tmp) }
+
+        #expect(lines.map(\.level) == [.warning, .debug],
+                "\(lines.map(\.level)) — a sweep that can never clear this file should say so once at WARN, then quietly")
     }
 
     // MARK: - End to end on a real temp directory (the production data path:

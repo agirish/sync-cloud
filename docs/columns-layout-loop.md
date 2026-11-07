@@ -156,7 +156,10 @@ per display cycle", which is the continuous metric this file has been asking for
 
   Armed, it writes `[cycle] "<title>" (<n> views) spent N update-constraints passes in one display
   cycle` to `~/sync-cloud.log`, and keeps a per-window high-water mark so a session can be read
-  after the fact rather than watched live.
+  after the fact rather than watched live. Arming it (or `paneScrollTraceEnabled`) also lowers the
+  log level to Debug for that launch, whatever Settings says, because the `[cycle]` lines and the
+  `[click]`, `[columns]`, `[crumb]` and `[deselect]` lines they are read beside are Debug. The
+  launch line states the level, and a `[trace] … armed` line follows the signature line.
 
   **A cycle is reported only if it clears two gates**, both calibrated on the measurements below
   rather than guessed. It must reach **12** passes — a healthy two-pane provider switch spends 7 —
@@ -452,6 +455,9 @@ Before that click, in the same session, the main window produced no cycle line a
 popover's. After it, 9 of 10 switches ran away. The next session, driven identically but with
 **zero** interaction lines in the whole log (no `[click]`, `[columns]`, `[crumb]`, `[deselect]`),
 produced zero churning cycles across more than thirty switches, cold start and stall included.
+(Both sessions logged at Debug. Since the shipped level became Info, those four tags are written
+only when a trace switch is armed, which lowers the level for the launch; an unarmed session's
+silence says nothing about clicks.)
 
 So the missing precondition is something a **click** leaves behind that the provider switch does
 not clear and a `defaults write` never creates. First responder inside the column's `NSTableView` is the
@@ -492,7 +498,8 @@ defaults write com.abhishekgirish.SyncCloud displayCycleTraceEnabled -bool YES
 ```
 
 `grep '\[cycle\]' ~/sync-cloud.log`. A line naming `"SyncCloud"` with passes above the view count is
-the runaway; no line means the window stayed under an eighth of its budget. The number is reported
+the runaway; no line means the window stayed under an eighth of its budget, provided the launch line
+says `log level Debug` (arming lowers it; a later change in Settings raises it again). The number is reported
 whether or not the session dies, so a candidate fix is now evaluated by watching 5,840 fall rather
 than by counting survivals.
 

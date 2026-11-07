@@ -1,6 +1,7 @@
 import Design
 import Events
 import Foundation
+import os
 import Security
 import Sync
 import UserNotifications
@@ -35,9 +36,33 @@ public enum BackgroundNotificationPermission {
 public enum LogLevelSetting {
 
     /// Tells the running logger, as the picker does when its value changes. An unknown value means
-    /// Debug, the picker's default.
+    /// Info, the picker's default.
     public static func applyRunning(raw: String) {
-        Logger.shared.minimumLevel = LogLevel(rawValue: raw) ?? .debug
+        applyRunning(LogLevel(rawValue: raw) ?? Logger.defaultMinimumLevel, because: "chosen in Settings")
+    }
+
+    /// Moves the running gate and says so in one line (``Logger/levelChangeLine(from:to:because:)``),
+    /// written before a rise and after a fall so it passes the gate both ways. Nothing is written
+    /// when the level does not move. The picker and Reset All are its only callers: a trace
+    /// switch's launch-time lowering writes its own line (`SyncCloudApp.init`).
+    /// Whether a hand-armed trace switch lowered this launch to Debug (`LaunchLogLevel` in the
+    /// app), so Settings can say why the log keeps more than its picker shows. Set once at launch
+    /// by the app, cleared by any level applied here: choosing one in Settings, or Reset All, ends
+    /// the lowering. Never set under a test runner, so no test page grows a caption.
+    public static var traceLoweredThisLaunch: Bool {
+        get { traceLowered.withLock { $0 } }
+        set { traceLowered.withLock { $0 = newValue } }
+    }
+    private static let traceLowered = OSAllocatedUnfairLock(initialState: false)
+
+    static func applyRunning(_ level: LogLevel, because cause: String) {
+        traceLoweredThisLaunch = false
+        let old = Logger.shared.minimumLevel
+        let line = Logger.levelChangeLine(from: old, to: level, because: cause)
+        let rises = level.severity > old.severity
+        if rises, let line { Logger.shared.info(line) }
+        Logger.shared.minimumLevel = level
+        if !rises, let line { Logger.shared.info(line) }
     }
 
     /// Stores the level and tells the running logger: what choosing it in Settings does.

@@ -572,9 +572,11 @@ public class SettingsManager: ObservableObject {
         // no cache of it is left stale. The store is the sender so a test can tell this reset's
         // notice from another's.
         NotificationCenter.default.post(name: AskClaudePrivacy.didChange, object: userDefaults)
-        // Re-seed the live log level from the now-cleared persisted value, as launch does, or a
-        // raised threshold would keep hiding entries until relaunch.
-        Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
+        // Re-seed the live log level from the now-cleared persisted value (Info), as launch does,
+        // or a raised threshold would keep hiding entries until relaunch. Through the picker's own
+        // path, so the change is one line in the log. Ends a trace switch's Debug for this launch
+        // too: Reset All is an explicit choice, like the picker.
+        LogLevelSetting.applyRunning(Logger.persistedMinimumLevel(), because: "Reset All")
         ignoreGoogleDriveNewerDateOnly = false
         dateToleranceSeconds = 1
         autoVerifySameSizeDuringScan = false
