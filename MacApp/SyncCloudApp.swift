@@ -514,7 +514,11 @@ struct SyncCloudApp: App {
                                      defaults: UserDefaults = .standard) -> CollisionResolution? {
         let policy = ConflictPolicy.persisted(from: defaults)
         guard let auto = policy.autoResolution(isDirectory: collision.isDirectory) else { return nil }
-        Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(policy.displayName)")
+        // Skip and Keep Both stay Info: the only record of which file a policy left out, or kept a
+        // second copy of. A Replace is recorded by its own "Replaced … recoverable at" line, so its
+        // per-file line, one per colliding file in a bulk run, is Debug.
+        let logLine = "Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(policy.displayName)"
+        if case .replace = auto { Logger.shared.debug(logLine) } else { Logger.shared.info(logLine) }
         return auto
     }
 

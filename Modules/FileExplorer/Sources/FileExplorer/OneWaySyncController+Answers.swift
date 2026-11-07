@@ -205,8 +205,11 @@ extension OneWaySyncController {
             if result.failed.isEmpty {
                 clearRows(ofFolder: folder)
             } else {
-                Logger.shared.warning("One-way sync: \(result.failed.count) of \(folder)’s files didn’t move to SyncCloud Removed: "
-                                      + result.failed.prefix(5).joined(separator: "; "))
+                // Every one, not the first five: the log is where a reader looks for which.
+                for line in LogNames.lines("One-way sync: \(result.failed.count) of \(folder)’s files didn’t move to SyncCloud Removed",
+                                           result.failed) {
+                    Logger.shared.warning(line)
+                }
             }
             syncNow()
         case .matchICloud:
@@ -275,8 +278,10 @@ extension OneWaySyncController {
             if failure == nil, !failed.isEmpty {
                 failure = failed.count == 1 ? "1 file didn’t move: \(failed[0])"
                                             : "\(failed.count) files didn’t move: " + failed.prefix(3).joined(separator: "; ")
-                Logger.shared.warning("One-way sync: \(failed.count) files only in Dropbox didn’t move to SyncCloud Removed: "
-                                      + failed.prefix(5).joined(separator: "; "))
+                for line in LogNames.lines("One-way sync: \(failed.count) files only in Dropbox didn’t move to SyncCloud Removed",
+                                           failed) {
+                    Logger.shared.warning(line)
+                }
             }
         }
         // Asked again while anything couldn't move: the next pass raises the row anew.

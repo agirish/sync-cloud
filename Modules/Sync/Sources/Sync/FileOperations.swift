@@ -1538,8 +1538,12 @@ extension FileSyncManager {
             if permanentlyDeleted.isEmpty {
                 Logger.shared.info("Moved \(items.count) item(s) to Trash (\(elapsed.text))")
             } else {
-                let names = permanentlyDeleted.map { $0.original.lastPathComponent }.joined(separator: ", ")
-                Logger.shared.warning("Permanently deleted \(permanentlyDeleted.count) item(s) that could not be moved to Trash (unrecoverable): \(names)")
+                // Every name kept, the only record of what was destroyed; split into lines of at most
+                // 200 so a large delete stays readable.
+                for line in LogNames.lines("Permanently deleted \(permanentlyDeleted.count) item(s) that could not be moved to Trash (unrecoverable)",
+                                           permanentlyDeleted.map { $0.original.lastPathComponent }) {
+                    Logger.shared.warning(line)
+                }
                 let trashedCount = items.count - permanentlyDeleted.count
                 if trashedCount > 0 {
                     Logger.shared.info("Moved \(trashedCount) other item(s) to Trash (\(elapsed.text))")

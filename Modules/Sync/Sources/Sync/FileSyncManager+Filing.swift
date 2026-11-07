@@ -221,6 +221,23 @@ extension FileSyncManager {
         reportsTreeFindings: Bool = true,
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
+        // One budget per scan for the per-file read warnings (`FilingWarningBudget`): the first
+        // ones each get their line, every file past them is named once the scan ends.
+        let budget = FilingWarningBudget()
+        await FilingWarningBudget.$current.withValue(budget) {
+            await findFilingSuggestionsInScan(folder: folder, providerRoot: providerRoot, providerName: providerName,
+                                              nameProvider: nameProvider, ignoringCache: ignoringCache,
+                                              reportsTreeFindings: reportsTreeFindings, options: options, fileManager: fm)
+        }
+        for line in budget.overflowLines() { Logger.shared.warning(line) }
+    }
+
+    private func findFilingSuggestionsInScan(
+        folder: URL, providerRoot: URL, providerName: String?,
+        nameProvider: CloudProvider.ProviderType?, ignoringCache: Bool,
+        reportsTreeFindings: Bool,
+        options: FilingOptions, fileManager fm: FileManaging?
+    ) async {
         guard !isSuggestingFiles else {
             // Before `beginScan`, so this exit is outside the `defer`'s reach and reports itself.
             // Not a failure: the running scan covers the same ground.

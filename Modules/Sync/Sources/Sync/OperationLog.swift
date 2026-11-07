@@ -64,13 +64,24 @@ public enum VerifyAllLog {
 /// ``perLine`` a line, each continuation saying which slice it is. One physical line each.
 public enum LogNames {
     public static let perLine = 200
+    /// A line also stops at about this many bytes of names, so 200 long paths stay readable.
+    public static let bytesPerLine = 16 * 1024
 
     public static func lines(_ prefix: String, _ names: [String]) -> [String] {
         let sorted = names.sorted()
-        guard sorted.count > perLine else { return sorted.isEmpty ? [] : ["\(prefix): " + sorted.joined(separator: ", ")] }
-        return stride(from: 0, to: sorted.count, by: perLine).map { start in
-            let end = min(start + perLine, sorted.count)
-            return "\(prefix) \(start + 1)–\(end) of \(sorted.count): " + sorted[start..<end].joined(separator: ", ")
+        // Slices by count and size: a new slice starts at 200 names or 16 KB, whichever comes first.
+        var slices: [Range<Int>] = []
+        var start = 0, bytes = 0
+        for (i, name) in sorted.enumerated() {
+            if i > start, i - start >= perLine || bytes + name.utf8.count + 2 > bytesPerLine {
+                slices.append(start..<i); start = i; bytes = 0
+            }
+            bytes += name.utf8.count + 2
+        }
+        if start < sorted.count { slices.append(start..<sorted.count) }
+        guard slices.count > 1 else { return sorted.isEmpty ? [] : ["\(prefix): " + sorted.joined(separator: ", ")] }
+        return slices.map { r in
+            "\(prefix) \(r.lowerBound + 1)–\(r.upperBound) of \(sorted.count): " + sorted[r].joined(separator: ", ")
         }
     }
 }
@@ -93,5 +104,87 @@ public enum LogError {
             text += " (underlying \(underlying.domain) \(underlying.code))"
         }
         return text
+    }
+}
+
+extension LogError {
+    /// What puts two failures in one group of a grouped log line: never the description, which
+    /// names the file. The bridged domain and code; the app's own error's case name (without its
+    /// payload) or a `SyncError`'s title, since every `SyncError` bridges to one domain and code;
+    /// and for Cocoa's catch-all file codes (256, 512), the underlying error that holds the cause.
+    public static func groupKey(_ error: Error) -> String {
+        let ns = error as NSError
+        var key = "\(ns.domain) \(ns.code)"
+        if let sync = error as? SyncError {
+            key += " \(sync.title)"
+        } else if !systemDomains.contains(ns.domain) {
+            let described = String(describing: error)
+            key += " " + String(described.prefix(while: { $0 != "(" && $0 != ":" }))
+        }
+        if ns.domain == NSCocoaErrorDomain, [256, 512].contains(ns.code),
+           let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError {
+            key += " (underlying \(underlying.domain) \(underlying.code))"
+        }
+        return key
+    }
+
+    /// The group's reason, from the code, never the description: a POSIX code's own words where
+    /// there is one, else the error's failure reason, else its key.
+    public static func groupReason(_ error: Error) -> String {
+        let ns = error as NSError
+        let posix = (ns.domain == NSPOSIXErrorDomain ? ns : ns.userInfo[NSUnderlyingErrorKey] as? NSError)
+            .flatMap { $0.domain == NSPOSIXErrorDomain ? String(cString: strerror(Int32($0.code))) : nil }
+        if let posix { return posix }
+        if let sync = error as? SyncError { return sync.title }
+        if let reason = ns.localizedFailureReason, !reason.isEmpty { return reason }
+        return groupKey(error)
+    }
+}
+
+/// A run's failed items as grouped lines: one ERROR line per kind of failure with its count, its
+/// reason and the first item's full description (a provider's own words can't be rebuilt from a
+/// code), then every name in the group (``LogNames``). Groups and names sorted, so runs compare.
+public enum GroupedFailureLog {
+    public static func lines(_ operation: String, _ failures: [(name: String, error: Error)]) -> [String] {
+        let groups = Dictionary(grouping: failures, by: { LogError.groupKey($0.error) })
+        var out: [String] = []
+        for key in groups.keys.sorted() {
+            let group = groups[key] ?? []
+            guard let first = group.first else { continue }
+            out.append("\(operation): \(group.count) item(s) failed — \(LogError.groupReason(first.error)) [\(key)]; "
+                       + "first: \(first.name): \(first.error.localizedDescription)")
+            out += LogNames.lines("\(operation): failed (\(LogError.groupReason(first.error)))", group.map(\.name))
+        }
+        return out
+    }
+}
+
+/// A Filing scan's allowance of per-file read warnings (an OCR that failed, an unreadable image).
+/// When the Neural Engine refuses machine-wide, every image in a scan fails the same way, so the
+/// first ``allowed`` each get their own line and every file past them is named, sorted, in lines
+/// of at most 200 when the scan ends. No name is dropped. Bound per scan as a task-local, and read
+/// before any hop to a dispatch queue, where a task-local isn't visible.
+public final class FilingWarningBudget: @unchecked Sendable {
+    @TaskLocal public static var current: FilingWarningBudget?
+    public static let allowed = 20
+
+    private let lock = NSLock()
+    private var admitted = 0
+    private var overflow: [String] = []
+
+    public init() {}
+
+    /// Whether `name`'s warning gets its own line; past the allowance it is kept for the end.
+    public func admit(_ name: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard admitted >= Self.allowed else { admitted += 1; return true }
+        overflow.append(name)
+        return false
+    }
+
+    public func overflowLines() -> [String] {
+        lock.lock(); let names = overflow; lock.unlock()
+        return LogNames.lines("Filing: \(names.count) more file(s) couldn’t be read this scan, past the first "
+                              + "\(Self.allowed) logged above", names)
     }
 }

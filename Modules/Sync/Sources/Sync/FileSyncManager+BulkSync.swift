@@ -655,14 +655,12 @@ extension FileSyncManager {
                 isRetryable: false
             ))
         } else if result.failures.count > 1 {
-            // The alert holds one error at a time, so log each failure, then present one aggregate.
-            for (diff, error) in result.failures {
-                Logger.shared.error(SyncError.syncFailed(
-                    item: diff.relativePath,
-                    path: diff.sourceItemPath,
-                    reason: error.localizedDescription,
-                    isRetryable: false
-                ).logDescription)
+            // The alert holds one error at a time, so the log names every failure, grouped by
+            // kind: one ERROR line per kind with its reason, then every path in it, at most 200 a
+            // line, so a 5,000-item disk-full run is a handful of lines, not 5,000.
+            for line in GroupedFailureLog.lines("Bulk \(isMove ? "move" : "sync")",
+                                                result.failures.map { (name: $0.0.sourceItemPath, error: $0.1) }) {
+                Logger.shared.error(line)
             }
             let (firstDiff, firstError) = result.failures[0]
             present(.bulkFailed(

@@ -59,4 +59,42 @@ import Testing
         struct Refusal: Error, CustomStringConvertible { var description: String { "schema 3, not 2" } }
         #expect(LogError.describe(Refusal()) == "schema 3, not 2")
     }
+
+    /// A run's failures group by kind, never by description, which names the file: two disk-full
+    /// failures on different files are one group naming both; a different code is its own group.
+    @Test func failuresGroupByTheirKindAndKeepEveryName() {
+        let full = CocoaError(.fileWriteOutOfSpace, userInfo: [NSFilePathErrorKey: "/d/a.txt"])
+        let full2 = CocoaError(.fileWriteOutOfSpace, userInfo: [NSFilePathErrorKey: "/d/b.txt"])
+        let denied = CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: "/d/c.txt"])
+        let lines = GroupedFailureLog.lines("Bulk sync", [("/d/b.txt", full2), ("/d/a.txt", full), ("/d/c.txt", denied)])
+        let heads = lines.filter { $0.contains("item(s) failed") }
+        #expect(heads.count == 2, "\(lines)")
+        #expect(lines.contains("Bulk sync: failed (\(LogError.groupReason(full))): /d/a.txt, /d/b.txt"), "\(lines)")
+        #expect(lines.contains { $0.hasSuffix(": /d/c.txt") })
+    }
+
+    /// The app's own `SyncError`s all bridge to one domain and code; their titles keep them apart.
+    @Test func syncErrorsGroupByTitle() {
+        let a = SyncError(title: "Copy Failed", message: "x", path: nil, reason: nil, isRetryable: false)
+        let b = SyncError(title: "Move Failed", message: "x", path: nil, reason: nil, isRetryable: false)
+        #expect(LogError.groupKey(a) != LogError.groupKey(b))
+    }
+
+    @Test func longNamesSplitByBytesAsWellAsCount() {
+        let long = (1...10).map { _ in String(repeating: "x", count: 3_000) + UUID().uuidString }
+        let lines = LogNames.lines("X", long)
+        #expect(lines.count >= 2, "10 names of 3 KB in one line")
+        #expect(lines.allSatisfy { $0.utf8.count < LogNames.bytesPerLine + 4_000 })
+        #expect(Set(long).allSatisfy { name in lines.contains { $0.contains(name) } }, "a name was dropped")
+    }
+
+    /// The first warnings of a scan get their lines; every file past them is named at the end.
+    @Test func aScansWarningBudgetNamesEveryFilePastIt() {
+        let budget = FilingWarningBudget()
+        let admitted = (1...25).filter { budget.admit("f\($0).jpg") }
+        #expect(admitted.count == FilingWarningBudget.allowed)
+        let closing = budget.overflowLines()
+        #expect(closing.count == 1)
+        #expect((21...25).allSatisfy { n in closing[0].contains("f\(n).jpg") }, "\(closing)")
+    }
 }

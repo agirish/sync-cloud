@@ -14,6 +14,18 @@ import Events
 /// The heavy synchronous work (PDF parse, OCR) runs on a dedicated queue so it never blocks the
 /// Swift cooperative thread pool.
 enum ContentSignalExtractor {
+    /// The running scan's warning budget, set for the extraction `workQueue` is running.
+    /// Touched only on `workQueue`, which is serial.
+    nonisolated(unsafe) private static var budget: FilingWarningBudget?
+
+    /// Logs a per-file read warning, or keeps the name for the scan's closing line once the
+    /// budget is spent. With no budget (a read outside a scan) every warning is logged.
+    private static func warn(_ name: String, _ message: @autoclosure () -> String,
+                             file: String = #file, line: Int = #line, function: String = #function) {
+        guard budget?.admit(name) ?? true else { return }
+        // The caller's place in the Location tail, not this helper's.
+        Logger.shared.warning(message(), file: file, line: line, function: function)
+    }
 
     private static let maxTextChars = 20_000
     private static let maxTokens = 40
@@ -31,7 +43,14 @@ enum ContentSignalExtractor {
     /// The seam the manager injects: `syncManager.filingContentExtractor = ContentSignalExtractor.tokens(forFileAt:)`.
     static func tokens(forFileAt path: String) async -> Set<String> {
         await withCheckedContinuation { continuation in
-            workQueue.async { continuation.resume(returning: extractSync(path)) }
+            // Read here, in the task: a task-local isn't visible inside the queue's block.
+            let budget = FilingWarningBudget.current
+            workQueue.async {
+                // The queue is serial, so one extraction at a time sees this budget.
+                Self.budget = budget
+                defer { Self.budget = nil }
+                continuation.resume(returning: extractSync(path))
+            }
         }
     }
 
@@ -81,7 +100,7 @@ enum ContentSignalExtractor {
                     // recognizer that failed and for a blank page, and the caller
                     // (`FileSyncManager.readScan(for:)`) logs both as "no text". Warning, not
                     // error: one file's read failed and the button stays offered.
-                    Logger.shared.warning("Filing: OCR failed on “\(url.lastPathComponent)”: "
+                    warn(url.lastPathComponent, "Filing: OCR failed on “\(url.lastPathComponent)”: "
                                           + "\(error.localizedDescription)")
                 }
                 // Falls through rather than returning early: `perform` may leave partial results
@@ -165,7 +184,7 @@ enum ContentSignalExtractor {
         // As in `plainText` and the OCR branch: a PDF that will not open is not a PDF with no
         // text, so say so. `PDFDocument` reports no error of its own.
         guard let doc = PDFDocument(url: url) else {
-            Logger.shared.warning("Filing: could not open “\(url.lastPathComponent)” as a PDF")
+            warn(url.lastPathComponent, "Filing: could not open “\(url.lastPathComponent)” as a PDF")
             return ""
         }
         var out = ""
@@ -186,7 +205,7 @@ enum ContentSignalExtractor {
             let data = try FileHandle(forReadingFrom: url).read(upToCount: 64 * 1024)
             return String(decoding: data ?? Data(), as: UTF8.self)
         } catch {
-            Logger.shared.warning("Filing: could not read “\(url.lastPathComponent)”: "
+            warn(url.lastPathComponent, "Filing: could not read “\(url.lastPathComponent)”: "
                                   + "\(error.localizedDescription)")
             return ""
         }
@@ -200,7 +219,7 @@ enum ContentSignalExtractor {
         // as an image holding no words.
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            Logger.shared.warning("Filing: could not decode “\(url.lastPathComponent)” as an image")
+            warn(url.lastPathComponent, "Filing: could not decode “\(url.lastPathComponent)” as an image")
             return ""
         }
         let request = VNRecognizeTextRequest()
@@ -210,7 +229,7 @@ enum ContentSignalExtractor {
         // As in the OCR path above: an empty return looks like an image with no words, so the
         // failure is logged. Warning, since it is one file's read.
         do { try handler.perform([request]) } catch {
-            Logger.shared.warning("Filing: OCR failed on “\(url.lastPathComponent)”: "
+            warn(url.lastPathComponent, "Filing: OCR failed on “\(url.lastPathComponent)”: "
                                   + "\(error.localizedDescription)")
             return ""
         }
