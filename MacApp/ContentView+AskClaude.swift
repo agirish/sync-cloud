@@ -23,6 +23,30 @@ extension ContentView {
         return askClaudePinState.fits ? .info : .narrow
     }
 
+    /// Whether the room rule folds a pane for the column on this workspace: Organize's folder pane,
+    /// with its sidebar, or Edit's file list. Not stored anywhere.
+    var askClaudePinFoldWanted: Bool {
+        askClaudePinnedShown && askClaudePinState.folds && (selectedWorkspace == .filing || selectedWorkspace == .editor)
+    }
+
+    /// The pin is folding now: wanted, and not ended by the person opening the pane by hand.
+    var askClaudePinFoldActive: Bool { askClaudePinFoldWanted && !askClaudePinFoldReleased }
+
+    /// The person opened a pane the pin folded: ends the pin's fold. True when it did, so the act
+    /// that asked (the spine's button, a Files button) leaves the stored fold alone.
+    @discardableResult
+    func askClaudeReleasePinFold() -> Bool {
+        guard askClaudePinFoldActive else { return false }
+        askClaudePinFoldReleased = true
+        return true
+    }
+
+    /// The fold ended, or never began: the next one starts from the pin's own choice again.
+    func askClaudePinFoldEnded() {
+        askClaudePinFoldReleased = false
+        askClaudePinSidebarShown = false
+    }
+
     /// The workspace, as the room rule knows it.
     private var askClaudePinWorkspace: PaneLogic.PinWorkspace {
         switch selectedWorkspace {
@@ -45,11 +69,13 @@ extension ContentView {
             gutter: LiquidGlass.gutter(surfaceStyle),
             sidebarShown: folderSidebarPreference(for: selectedWorkspace) && selectedWorkspace.supportsFolderSidebar,
             sidebarStored: CGFloat(browseSidebarWidthRaw),
-            foldedByHand: selectedWorkspace == .editor ? editorRailFolded : panesHiddenForCurrentTab,
+            // Nothing for the pin to fold where the person already has: Edit with the pane folded and
+            // the list folded or put away too, Organize with its pane folded.
+            foldedByHand: selectedWorkspace == .editor
+                ? editorPaneIsFolded && (editorRailFolded || editorRailHidden) : panesStoredHiddenForCurrentTab,
             editColumn: CGFloat(editorColumnWidthRaw),
             dragging: dragging,
-            // The pin cannot fold a pane yet: Organize and Edit float it where they have no room.
-            canFold: false)
+            canFold: true)
     }
 
     /// Runs the room rule. Called as its input changes.
@@ -179,6 +205,7 @@ extension ContentView {
                       isPinned: askClaudePinnedShown, pinInput: askClaudePinInput,
                       onPinInput: { askClaudePinInputChanged($0) }, onLiveResize: { askClaudeWindowResizing = $0 },
                       isPinOn: askClaudePinned, onPinnedOn: { askClaudePinnedOn() },
+                      foldWanted: askClaudePinFoldWanted, onFoldEnded: { askClaudePinFoldEnded() },
                       pinToggle: askClaudePinBinding,
                       isBusy: askClaudeStateBusy != nil,
                       panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding,
@@ -1579,6 +1606,8 @@ struct AskClaudeHost: ViewModifier {
     /// The pin's setting, and what to do when it is turned on from outside the panel.
     let isPinOn: Bool
     let onPinnedOn: () -> Void
+    let foldWanted: Bool
+    let onFoldEnded: () -> Void
     /// View ▸ Pin Ask Claude.
     let pinToggle: Binding<Bool>
     /// Settings, Help, setup, a destination pick or a question is up: the panel steps aside.
@@ -1597,6 +1626,9 @@ struct AskClaudeHost: ViewModifier {
             .onChange(of: pinInput, initial: true) { _, input in onPinInput(input) }
             // Turned on from Settings: Info, which would take the edge, closes if there is room.
             .onChange(of: isPinOn) { _, on in if on { onPinnedOn() } }
+            // The pin's fold is over (the column went, floated, or the window has the room): the
+            // next one starts afresh, with the sidebar away.
+            .onChange(of: foldWanted) { _, wanted in if !wanted { onFoldEnded() } }
             // The window's own edge: nothing switches while it is dragged, and what it left is
             // decided the moment it is let go.
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.willStartLiveResizeNotification)) { _ in onLiveResize(true) }

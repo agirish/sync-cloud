@@ -656,6 +656,11 @@ struct ContentView: View {
     @State var askClaudePinState = PaneLogic.PinVerdict.floating
     /// The window's own edge is being dragged: the panel does not switch until it is let go.
     @State var askClaudeWindowResizing = false
+    /// The pin is folding Organize's folder pane or Edit's list (its fold is computed, never stored):
+    /// the person opened it by hand, which ends the pin's fold until the column goes or there is
+    /// room again, and the sidebar they brought back alone while Organize's pane is folded.
+    @State var askClaudePinFoldReleased = false
+    @State var askClaudePinSidebarShown = false
     /// The Info inspector's persisted width, resizable by dragging its leading edge. 360pt until
     /// dragged, wide enough for the preview to read a page. Clamped to
     /// `PaneLogic.inspector{Min,Max}Width` whenever it's written.
@@ -1929,7 +1934,16 @@ struct ContentView: View {
     /// Computed, so a workspace switch applies its remembered state with no plumbing. Read through
     /// `TopPaneVisibility.overrides`' one-entry memo rather than `decodeOverrides`, because it is
     /// read from dozens of sites per body pass and each direct read would parse the JSON again.
+    /// The panes as DRAWN: the stored fold, or the one the pinned Ask Claude column makes for itself.
+    /// Everything that lays out or enables a control reads this. What records or writes a fold reads
+    /// `panesStoredHiddenForCurrentTab`, so the pin's fold is never stored over a fold made by hand.
     var panesHiddenForCurrentTab: Bool {
+        PaneLogic.panesDrawnHidden(stored: panesStoredHiddenForCurrentTab,
+                                   pinFoldWanted: askClaudePinFoldWanted, releasedByHand: askClaudePinFoldReleased)
+    }
+
+    /// The stored fold: the workspace's default plus any override.
+    var panesStoredHiddenForCurrentTab: Bool {
         TopPaneVisibility.panesHidden(
             for: selectedWorkspace,
             override: TopPaneVisibility.overrides(in: topPaneOverridesRaw)[selectedWorkspace.rawValue]
@@ -1967,8 +1981,11 @@ struct ContentView: View {
     /// workspace and remembers the choice for it. The workspace bar is always on screen, so no
     /// region is forced back on to compensate.
     func togglePanesForCurrentTab() {
+        // The pin is holding the pane folded: opening it by hand ends the pin's fold and writes
+        // nothing, so the stored fold, and Expand's record, stay as they were.
+        if askClaudeReleasePinFold() { return }
         // Opening Edit's pane by hand ends Expand and spends its record (`paneOpenedByHand`).
-        if selectedWorkspace == .editor && panesHiddenForCurrentTab {
+        if selectedWorkspace == .editor && panesStoredHiddenForCurrentTab {
             var expand = editorExpand
             expand.paneOpenedByHand()
             editorExpand = expand
@@ -1977,7 +1994,7 @@ struct ContentView: View {
         let overrides = TopPaneVisibility.settingOverride(
             TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
             workspace: selectedWorkspace,
-            hidden: !panesHiddenForCurrentTab
+            hidden: !panesStoredHiddenForCurrentTab
         )
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }

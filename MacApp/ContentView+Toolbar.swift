@@ -330,7 +330,7 @@ extension ContentView {
                   : (FolderSidebarModel.unavailableReason(
                         workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
                         panesCollapsed: panesHiddenForCurrentTab,
-                        outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse) ?? ""))
+                        outlivesCollapse: folderSidebarOutlivesCollapse) ?? ""))
             .accessibilityLabel(showing ? "Hide sidebar" : "Show sidebar")
             // Both halves of one control agree, as with Info below: the menu item is disabled
             // wherever the column can't be drawn and silenced during a pick, so the button is too,

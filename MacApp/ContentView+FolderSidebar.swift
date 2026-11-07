@@ -33,11 +33,32 @@ extension ContentView {
     /// `EditorExpand.hidesSidebar` holds it off the column is down, and the preference is never
     /// written for it, since hiding it in Edit must not hide it in Compare.
     var folderSidebarIsShowing: Bool {
-        FolderSidebarModel.isShowing(
+        // While the pin holds Organize's folder pane folded the sidebar is away with it, and comes
+        // back alone only when asked (`askClaudePinSidebarShown`). Never the stored preference's
+        // doing: hiding it here must not hide it in Compare.
+        if folderSidebarHeldByPinFold {
+            return FolderSidebarModel.isShowing(
+                workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
+                panesCollapsed: panesHiddenForCurrentTab, outlivesCollapse: true,
+                preference: askClaudePinSidebarShown)
+        }
+        return FolderSidebarModel.isShowing(
             workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
             panesCollapsed: panesHiddenForCurrentTab,
             outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse,
             preference: folderSidebarPreference(for: selectedWorkspace) && !folderSidebarHeldByExpand)
+    }
+
+    /// Whether the pinned Ask Claude column is holding Organize's folder pane folded, and the
+    /// sidebar with it: Organize only, since Edit's sidebar already outlives a collapse.
+    var folderSidebarHeldByPinFold: Bool {
+        selectedWorkspace == .filing && askClaudePinFoldActive
+    }
+
+    /// Whether the sidebar outlives the pane's collapse here: Edit's always, and Organize's while
+    /// the pin holds the fold, so the sidebar button can bring it back on its own.
+    var folderSidebarOutlivesCollapse: Bool {
+        selectedWorkspace.folderSidebarOutlivesPaneCollapse || folderSidebarHeldByPinFold
     }
 
     /// Which switch a workspace's sidebar reads: Edit its own, off until shown; every other
@@ -69,13 +90,19 @@ extension ContentView {
         FolderSidebarModel.appliesTo(
             workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
             panesCollapsed: panesHiddenForCurrentTab,
-            outlivesCollapse: selectedWorkspace.folderSidebarOutlivesPaneCollapse)
+            outlivesCollapse: folderSidebarOutlivesCollapse)
     }
 
     /// ⌃⌘S's act, from the toolbar and View ▸ Sidebar alike. Showing it while Expand holds it off
     /// lifts the hold (`EditorExpand.sidebarShownByHand`); otherwise the press would flip a
     /// preference that is already on and nothing would appear.
     func setFolderSidebarVisible(_ visible: Bool) {
+        // While the pin holds the folder pane folded, the answer is this session's, not a
+        // preference: showing it here must not show it in Browse and Compare as well.
+        if folderSidebarHeldByPinFold {
+            askClaudePinSidebarShown = visible
+            return
+        }
         if visible && folderSidebarHeldByExpand {
             var expand = editorExpand
             expand.sidebarShownByHand()

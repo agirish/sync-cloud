@@ -76,7 +76,8 @@ extension ContentView {
     var editorRailIsDrawn: Bool {
         TopPaneVisibility.editorRailIsDrawn(paneHidden: panesHiddenForCurrentTab,
                                             railHidden: editorRailHidden,
-                                            railFolded: editorRailFolded)
+                                            // The hand fold, or the one the pinned Ask Claude column makes.
+                                            railFolded: editorRailFolded || askClaudePinFoldActive)
     }
 
     /// Whether Expand is on: the rail bit set AND the source pane folded. Opening the pane by hand
@@ -122,6 +123,9 @@ extension ContentView {
     /// folding the pane again leaves nothing open, as the lit button promised. Through
     /// `togglePanesForCurrentTab`, which ends Expand when it opens the pane.
     func runEditorPaneRung() {
+        // The pin has the list and the pane folded: either button brings them back, and the pin
+        // stops folding. Nothing else changes, so nothing stored is overwritten.
+        if askClaudeReleasePinFold() { return }
         switch EditorRailFold.paneRungAct(paneOpen: !editorPaneIsFolded) {
         case .openPane:
             if !editorRailFolded { editorRailFolded = true }
@@ -138,6 +142,10 @@ extension ContentView {
     /// the pane folded, since an open pane draws no list. Not `toggleJustTheText`, whose way out
     /// reopens a pane Expand folded.
     func showEditorRail(tab: EditorRailTab, from door: EditorRailDoor) {
+        if askClaudeReleasePinFold() {
+            if editorRailTab != tab { editorRailTab = tab }
+            return
+        }
         // The pane and the list are never on screen together, and the strip stays beside an open
         // pane: a list button pressed there folds the pane to show the list.
         if !editorPaneIsFolded {

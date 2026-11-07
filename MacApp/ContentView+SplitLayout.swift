@@ -201,7 +201,7 @@ extension ContentView {
         let sidebarWidth = folderSidebarIsShowing
             ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
                                          minSidebar: FolderSidebarView.minWidth,
-                                         gutter: LiquidGlass.gutter(surfaceStyle))
+                                         gutter: LiquidGlass.gutter(surfaceStyle), railCollapsed: collapsed)
             : 0
         // **`splitWidth`, never a shadowed `totalWidth`.** The fractions and minimums are measured
         // against the room the rail and workspace divide, while the row is still the full width. A
@@ -225,6 +225,12 @@ extension ContentView {
         // two arms of an `if` would rebuild the lens and reopen its lists at the top.
         CollapsibleRailRow {
             if collapsed {
+                // Only while the pinned column holds the folder pane folded and the sidebar was
+                // asked back: a collapse takes the sidebar with it otherwise.
+                if folderSidebarIsShowing {
+                    folderSidebar(width: sidebarWidth)
+                    folderSidebarResizeHandle(displayedWidth: sidebarWidth)
+                }
                 railSpine
             } else {
                 // Leading, as in `browseLayout`: the remembered folders belong to the pane's source,

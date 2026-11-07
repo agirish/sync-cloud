@@ -671,10 +671,20 @@ enum PaneLogic {
     ///   - totalWidth: the whole row the three share.
     ///   - gutter: the gap between the sidebar card and the rail.
     static func lensSidebarWidth(stored: CGFloat, totalWidth: CGFloat,
-                                 minSidebar: CGFloat, gutter: CGFloat) -> CGFloat {
-        sidebarWidthSharingRow(stored: stored, totalWidth: totalWidth,
-                               roomForOthers: minRailWidth + minLensWorkspaceWidth,
-                               minSidebar: minSidebar, gutter: gutter)
+                                 minSidebar: CGFloat, gutter: CGFloat, railCollapsed: Bool = false) -> CGFloat {
+        // A folded rail is its spine, so the sidebar the pin brings back beside it has more room.
+        let rail = railCollapsed ? railSpineWidth + gutter : minRailWidth
+        return sidebarWidthSharingRow(stored: stored, totalWidth: totalWidth,
+                                      roomForOthers: rail + minLensWorkspaceWidth,
+                                      minSidebar: minSidebar, gutter: gutter)
+    }
+
+    /// Whether a pane is drawn folded: the stored fold, or the one the pin makes for the column.
+    /// The pin's fold is never stored, so it cannot overwrite a fold made by hand, and a person who
+    /// opens the pane by hand while the pin holds it ends the pin's fold (`releasedByHand`) until
+    /// the column goes or the window has room again.
+    static func panesDrawnHidden(stored: Bool, pinFoldWanted: Bool, releasedByHand: Bool) -> Bool {
+        stored || (pinFoldWanted && !releasedByHand)
     }
 
     /// The same clamp for Compare, whose row holds two panes rather than a rail and a lens panel.

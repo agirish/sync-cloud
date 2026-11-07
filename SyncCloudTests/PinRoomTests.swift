@@ -128,3 +128,34 @@ import Testing
         #expect(verdict(input(.organize, 752, gutter: 5)).fits)
     }
 }
+
+/// What the pin folds is computed, never stored: a fold made by hand is never overwritten, and
+/// opening a pane the pin folded ends the pin's fold without touching what is stored.
+@Suite struct PinFoldTests {
+
+    @Test func thePinsFoldIsOnlyDrawnNeverStoredOverAHandFold() {
+        // Nothing stored, nothing wanted: the pane is open.
+        #expect(PaneLogic.panesDrawnHidden(stored: false, pinFoldWanted: false, releasedByHand: false) == false)
+        // The pin wants it folded: drawn folded, with nothing stored.
+        #expect(PaneLogic.panesDrawnHidden(stored: false, pinFoldWanted: true, releasedByHand: false))
+        // The person opened it: the pin's fold is over, and the stored value was never touched.
+        #expect(PaneLogic.panesDrawnHidden(stored: false, pinFoldWanted: true, releasedByHand: true) == false)
+        // A fold made by hand stays, whatever the pin says.
+        #expect(PaneLogic.panesDrawnHidden(stored: true, pinFoldWanted: false, releasedByHand: false))
+        #expect(PaneLogic.panesDrawnHidden(stored: true, pinFoldWanted: true, releasedByHand: true))
+    }
+
+    /// The sidebar brought back beside a folded Organize pane has more room than one beside an open
+    /// rail: the rail's 220 minimum becomes the spine and its gutter.
+    @Test func aSidebarBesideTheSpineGetsTheRoomTheRailWouldHaveTaken() {
+        let open = PaneLogic.lensSidebarWidth(stored: 280, totalWidth: 1000, minSidebar: 150, gutter: 0)
+        let folded = PaneLogic.lensSidebarWidth(stored: 280, totalWidth: 1000, minSidebar: 150, gutter: 0, railCollapsed: true)
+        #expect(open == 280)
+        #expect(folded == 280, "room for 280 beside a 34 pt spine and To File's 340")
+        // At the floor the open rail squeezes it to 150; the spine leaves it more.
+        let squeezedOpen = PaneLogic.lensSidebarWidth(stored: 280, totalWidth: 760, minSidebar: 150, gutter: 0)
+        let squeezedFolded = PaneLogic.lensSidebarWidth(stored: 280, totalWidth: 760, minSidebar: 150, gutter: 0, railCollapsed: true)
+        #expect(squeezedFolded > squeezedOpen)
+        #expect(squeezedOpen == 199)
+    }
+}

@@ -123,7 +123,8 @@ import FileExplorer
     /// dropped, or either door is handed `browseSidebarVisible`.
     @Test func theHandMadeDoorsOutOfExpandReachItsRecord() throws {
         let toggle = try Self.memberBody("func togglePanesForCurrentTab()", in: try Self.source("ContentView.swift"))
-        #expect(toggle.contains("if selectedWorkspace == .editor && panesHiddenForCurrentTab {"),
+        // The stored fold, not the drawn one: the pin's fold is released first and never reaches Expand.
+        #expect(toggle.contains("if selectedWorkspace == .editor && panesStoredHiddenForCurrentTab {"),
                 "opening Edit's pane by hand is not told apart from the other toggles")
         #expect(toggle.contains("expand.paneOpenedByHand()"),
                 "opening the pane by hand leaves Expand owing a pane and a sidebar")
