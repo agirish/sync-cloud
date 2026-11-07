@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Design
 import PDFKit
 import PDFToolkitCore
 import Sync

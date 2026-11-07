@@ -305,21 +305,21 @@ struct ContentView: View {
     ///
     /// App-wide rather than per pane, like the shared column width: "do I want a tab bar" is a
     /// question about the app.
-    @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
+    @AppStorage(BrowseWindowSettings.tabBarVisibleKey) var tabBarVisible: Bool = BrowseWindowSettings.tabBarVisibleDefault
     /// View ▸ Status Bar. On by default, unlike the tab bar: the strip states facts the window has
     /// nowhere else to put (how many items are here, how much of the tree lives in the cloud), and
     /// costs one 10pt row.
     ///
     /// App-wide, for the tab bar's reason. It is drawn only in Browse (see `PaneStatusBar`); a bar
     /// drawn elsewhere later should read this same key.
-    @AppStorage("browseStatusBarVisible") var statusBarVisible: Bool = true
+    @AppStorage(BrowseWindowSettings.statusBarVisibleKey) var statusBarVisible: Bool = BrowseWindowSettings.statusBarVisibleDefault
     /// The folder sidebar's column. On by default, so the pinned and recent lists are discoverable.
     ///
     /// One preference across every workspace that draws the column
     /// (`Workspace.supportsFolderSidebar`); `folderSidebarIsShowing` is the one rule that reads it.
     /// The key keeps its `browse` spelling: renaming it would re-default the column to `true` for
     /// everyone who switched it off.
-    @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
+    @AppStorage(BrowseWindowSettings.sidebarVisibleKey) var browseSidebarVisible: Bool = BrowseWindowSettings.sidebarVisibleDefault
     /// Edit's own sidebar switch, off until shown: Edit opens on the strip and the text, and ⌃⌘S
     /// there does not move the sidebar in Browse, Compare or Organize, which share
     /// `browseSidebarVisible` above. See `folderSidebarPreference`.
@@ -338,7 +338,7 @@ struct ContentView: View {
     @AppStorage("browseSidebarCollapsed") var browseSidebarCollapsed: String = ""
     /// Which list the sidebar's Recents heading shows — `RecentsMode`'s raw value. One sidebar-wide
     /// setting, remembered across launches like the folded sections.
-    @AppStorage("browseSidebarRecentsMode") var browseSidebarRecentsMode: String = RecentsMode.recents.rawValue
+    @AppStorage(BrowseWindowSettings.sidebarRecentsModeKey) var browseSidebarRecentsMode: String = RecentsMode.recents.rawValue
     /// Which places sit in Favorites, JSON-encoded — see `SidebarFavoritePlaces`. Empty means the
     /// key has never been written, which is not the same as "no favorites"; that distinction is
     /// what lets a first run get Desktop, Documents and Downloads while someone who removed all

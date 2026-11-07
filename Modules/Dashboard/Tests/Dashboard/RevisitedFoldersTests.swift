@@ -1,3 +1,4 @@
+import Design
 import Testing
 import Foundation
 @testable import Dashboard
