@@ -341,7 +341,6 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return nil
     }
 
-    /// Tools that act on the Browse pane itself.
     /// The name Settings gives what `show_in_app` was asked to open: a tab by its raw value or
     /// name ("intelligence" is Ask Claude), else the page holding a named setting, else the words.
     static func settingsPlaceName(_ asked: String) -> String {
@@ -352,6 +351,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return SettingsPlace.holding(asked)?.name ?? asked.capitalized
     }
 
+    /// Tools that act on the Browse pane itself.
     static func needsBrowsePane(_ call: AskClaudeToolCall) -> Bool {
         switch AskClaudeToolCatalog.Name(rawValue: call.name) {
         case .reveal, .select, .view: return true

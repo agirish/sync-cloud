@@ -217,7 +217,8 @@ extension ContentView {
             // to passing all of it through.
             settingsTabs: SettingsView.SettingsTab.digests.map {
                 PaletteSettingsTab(id: $0.id, name: $0.name, detail: $0.detail,
-                                   symbol: $0.symbol, vocabulary: $0.vocabulary)
+                                   symbol: $0.symbol, vocabulary: $0.vocabulary, pages: $0.pages,
+                                   pageOrder: $0.pageOrder)
             })
     }
 
@@ -258,7 +259,8 @@ extension ContentView {
         case .action(let action):
             runPaletteAction(action)
         case .settings(let raw):
-            guard let tab = SettingsView.SettingsTab(rawValue: raw) else {
+            // `tab` or `tab/page`: the page a word was found on, when the row matched through one.
+            guard let place = SettingsPlace(paletteRoute: raw) else {
                 // The raw value crosses the package wall as a string, so a tab renamed on one
                 // side lands here. Logged rather than opening Settings on whatever was last
                 // selected: delivering the wrong tab is worse than visibly doing nothing.
@@ -266,7 +268,7 @@ extension ContentView {
                     + "the row was built from a digest this app no longer recognises")
                 return
             }
-            openSettings(on: SettingsPlace(tab))
+            openSettings(on: place)
         }
     }
 

@@ -34,7 +34,7 @@ struct SummaryScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 0) {
-                row("cloud", "Locations: \(locationsSummary)", tab: SettingsPlace(.providers), verb: "Change")
+                row("cloud", "Locations: \(locationsSummary)", tab: SettingsPlace(.cloudProviders), verb: "Change")
                 Divider()
                 // Back to Learn, not out to Settings: no Settings tab learns a folder, and the
                 // Countries row below relies on this button to change them.

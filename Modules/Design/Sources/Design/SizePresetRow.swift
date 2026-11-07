@@ -123,8 +123,9 @@ public struct SizePresetRow: View {
             // 1.5pt ring alone — the whole face has to take the click.
             .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
-        .buttonStyle(.plain)
-        .chromeHover()
+        // The hover wash in the tile's own rounded rect. `.chromeHover()` washed a capsule, which on
+        // a rounded-rect tile read as a second, mismatched pill beside the chosen tile.
+        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: .roundedRect(Radius.control)))
         .accessibilityLabel("\(preset.fontSize.percent) percent text, \(preset.densityName) rows")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .help("\(preset.fontSize.percent)% text · \(preset.densityName) rows")

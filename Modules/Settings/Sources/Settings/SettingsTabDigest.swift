@@ -35,12 +35,22 @@ public struct SettingsTabDigest: Equatable, Sendable {
     /// controls on one tab share keywords and a stable order compares directly in a test.
     public let vocabulary: [String]
 
-    public init(id: String, name: String, detail: String, symbol: String, vocabulary: [String]) {
+    /// The pages each vocabulary word is on, lowercased word to `SettingsSubTab.rawValue`s in
+    /// strip order, so ⌘K can open the page a query is most about. Empty for a one-page tab.
+    public let pages: [String: [String]]
+
+    /// The tab's pages' raw values in strip order.
+    public let pageOrder: [String]
+
+    public init(id: String, name: String, detail: String, symbol: String, vocabulary: [String],
+                pages: [String: [String]] = [:], pageOrder: [String] = []) {
         self.id = id
         self.name = name
         self.detail = detail
         self.symbol = symbol
         self.vocabulary = vocabulary
+        self.pages = pages
+        self.pageOrder = pageOrder
     }
 }
 
@@ -76,8 +86,17 @@ public extension SettingsView.SettingsTab {
     var digest: SettingsTabDigest {
         let entries = SettingsSearchIndex.all.filter { $0.tab == self }
         let words = Set(entries.map(\.title) + entries.flatMap(\.keywords))
+        var pages: [String: [String]] = [:]
+        for page in subTabs {
+            for entry in entries where entry.place.subTab == page {
+                for word in [entry.title] + entry.keywords where pages[word.lowercased(), default: []].last != page.rawValue {
+                    pages[word.lowercased(), default: []].append(page.rawValue)
+                }
+            }
+        }
         return SettingsTabDigest(id: rawValue, name: displayName, detail: paletteDetail,
-                                 symbol: symbolName, vocabulary: words.sorted())
+                                 symbol: symbolName, vocabulary: words.sorted(), pages: pages,
+                                 pageOrder: subTabs.map(\.rawValue))
     }
 
     /// Every tab as a destination, in the rail's own order.

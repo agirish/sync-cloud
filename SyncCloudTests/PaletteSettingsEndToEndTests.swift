@@ -17,7 +17,8 @@ import Settings
     private static let index = PaletteIndex(
         settingsTabs: SettingsView.SettingsTab.digests.map {
             PaletteSettingsTab(id: $0.id, name: $0.name, detail: $0.detail,
-                               symbol: $0.symbol, vocabulary: $0.vocabulary)
+                               symbol: $0.symbol, vocabulary: $0.vocabulary, pages: $0.pages,
+                               pageOrder: $0.pageOrder)
         })
 
     private func leadingSettingsRow(_ query: String) -> PaletteRow? {
@@ -58,8 +59,34 @@ import Settings
         ]
         for (query, tab) in promised {
             let row = try #require(leadingSettingsRow(query), "nothing answers “\(query)”")
-            #expect(row.route == .settings(tab: tab.rawValue),
+            #expect(row.id == "settings.\(tab.rawValue)",
                     "“\(query)” leads with \(row.title), not \(tab.displayName)")
+        }
+    }
+
+    /// A word found on a page opens that page, not whichever page the tab last showed (TE332):
+    /// the route carries `tab/page`, and the host opens `SettingsPlace(page)` for it.
+    @Test func aWordOpensThePageItIsOn() throws {
+        let promised: [(String, String)] = [
+            ("glass", "appearance/look"), ("row spacing", "appearance/textAndSpacing"),
+            ("api key", "intelligence/keyAndSpending"), ("hide folder", "intelligence/privacy"),
+            ("node_modules", "sync/ignored"), ("household", "filing/people"),
+            ("word wrap", "edit/text"), ("sidebar", "browse/window"),
+            // Ties between pages go to the page the query is most about: three Ignored entries
+            // start "ign", one Differences switch does; "folder" is on both Sources lists.
+            ("ign", "sync/ignored"), ("folder", "providers/localFolders"),
+        ]
+        for (query, route) in promised {
+            let row = try #require(leadingSettingsRow(query), "nothing answers “\(query)”")
+            #expect(row.route == .settings(tab: route), "“\(query)” routes to \(row.route), not \(route)")
+        }
+        // A tab's own name opens the tab, on the page it last showed: no word chose one.
+        #expect(try #require(leadingSettingsRow("Organize")).route == .settings(tab: "filing"))
+        // And every route the index can mint resolves to the page it names.
+        for query in promised.map(\.0) {
+            guard case .settings(let raw) = try #require(leadingSettingsRow(query)).route else { continue }
+            let place = try #require(SettingsPlace(paletteRoute: raw))
+            #expect(place.subTab?.rawValue == raw.split(separator: "/").last.map(String.init))
         }
     }
 

@@ -268,7 +268,7 @@ import Sync
     @Test func aTabRouteGoesThroughTheOneDeepLinkDoor() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)
-        #expect(code.contains("openSettings(on: SettingsPlace(tab))"),
+        #expect(code.contains("openSettings(on: place)"),
                 "the Settings tab route no longer opens through openSettings(on:)")
         // `runPaletteAction`'s `case .settings` is the one legitimate bare latch in this file —
         // "put Settings back where I left it" names no tab. Anything beyond that one is the
@@ -294,7 +294,7 @@ import Sync
     @Test func anUnknownTabRawValueIsRefusedOutLoud() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)
-        #expect(code.contains("guard let tab = SettingsView.SettingsTab(rawValue: raw)"),
+        #expect(code.contains("guard let place = SettingsPlace(paletteRoute: raw)"),
                 "the raw value is no longer checked before it is used")
         #expect(code.contains("is not a settings tab"),
                 "an unrecognised tab is no longer logged — the palette would appear to do nothing")

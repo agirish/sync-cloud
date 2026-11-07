@@ -84,6 +84,19 @@ public struct SettingsPlace: Hashable, Sendable {
         subTab.map { "\(tab.displayName) ▸ \($0.displayName)" } ?? tab.displayName
     }
 
+    /// The place a ⌘K Settings route names: `tab`, or `tab/page` when the row was matched through a
+    /// word on that page. nil for a tab this build doesn't have; a page that isn't the tab's falls
+    /// back to the tab. Here, not in `CommandPaletteHost`, so a test can reach it.
+    public init?(paletteRoute raw: String) {
+        let parts = raw.split(separator: "/", maxSplits: 1).map(String.init)
+        guard let tab = parts.first.flatMap(SettingsView.SettingsTab.init(rawValue:)) else { return nil }
+        if parts.count == 2, let page = SettingsSubTab(rawValue: parts[1]), page.tab == tab {
+            self.init(page)
+        } else {
+            self.init(tab)
+        }
+    }
+
     /// Where a stored `settingsSelectedTab` resolves to, including when it resolves to nothing.
     ///
     /// Here, not in `MacApp/ContentView.swift` where the launch read happens, so a test can reach

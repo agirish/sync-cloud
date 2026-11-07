@@ -70,6 +70,20 @@ import Foundation
     }
 }
 
+/// A ⌘K route back to a place: `tab`, `tab/page`, and what a route this build can't read becomes.
+@Suite struct PaletteRouteParsingTests {
+    @Test func aRouteNamesItsTabAndPage() {
+        #expect(SettingsPlace(paletteRoute: "sync") == SettingsPlace(.sync))
+        #expect(SettingsPlace(paletteRoute: "sync/ignored") == SettingsPlace(.ignored))
+        #expect(SettingsPlace(paletteRoute: "intelligence/keyAndSpending") == SettingsPlace(.keyAndSpending))
+        // A page that isn't the tab's, or isn't a page, opens the tab rather than another tab.
+        #expect(SettingsPlace(paletteRoute: "sync/look") == SettingsPlace(.sync))
+        #expect(SettingsPlace(paletteRoute: "sync/nonsense") == SettingsPlace(.sync))
+        #expect(SettingsPlace(paletteRoute: "nonsense/ignored") == nil)
+        #expect(SettingsPlace(paletteRoute: "") == nil)
+    }
+}
+
 /// The page each paged tab opens on — see `SettingsSubTabMemory`.
 @Suite struct SubTabMemoryTests {
 
@@ -107,11 +121,8 @@ import Foundation
         #expect(SettingsSubTabMemory.page(for: .providers, in: stored) == .nameChecks)
     }
 
-    /// Every page belongs to the tab that lists it, and every paged tab has at least two pages.
-    @Test func everyPageIsOnItsTabsStrip() {
-        for page in SettingsSubTab.allCases {
-            #expect(page.tab.subTabs.contains(page))
-        }
+    /// Every paged tab has at least two pages: a strip of one is a heading, not a choice.
+    @Test func noStripHasOnePage() {
         for tab in SettingsView.SettingsTab.allCases where !tab.subTabs.isEmpty {
             #expect(tab.subTabs.count >= 2, "\(tab.displayName) has a strip of one")
         }

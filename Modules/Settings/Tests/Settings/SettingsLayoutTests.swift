@@ -314,8 +314,8 @@ import Testing
     ///
     /// A fixture that passes `nil` for the dependency a page's list comes from measures the empty
     /// state. Name Checks is exempt for that reason: with `syncManager: nil` it measures
-    /// `KeptNamesList.nothingKeptNote`, one line, where users get a row per allowed name. Compare ▸
-    /// Ignored, To File, Suggestions and Advanced also take `syncManager: nil` but belong here:
+    /// `KeptNamesList.nothingKeptNote`, one line, where users get a row per allowed name.
+    /// Suggestions and Advanced also take `syncManager: nil` but belong here:
     /// none of their rows grows with the user's data past a few. Ask that question of a new entry.
     @MainActor
     private func mustFitPages(_ settings: SettingsManager) -> [(SettingsPlace, AnyView)] {
@@ -328,8 +328,6 @@ import Testing
             .environmentObject(settings))),
          (SettingsPlace(.window), AnyView(BrowseSettingsTab(page: .window).environmentObject(settings))),
          (SettingsPlace(.differences), AnyView(SyncSettingsTab(page: .differences, syncManager: nil).environmentObject(settings))),
-         (SettingsPlace(.ignored), AnyView(SyncSettingsTab(page: .ignored, syncManager: nil).environmentObject(settings))),
-         (SettingsPlace(.toFile), AnyView(FilingSettingsTab(syncManager: nil, onOpenRules: {}))),
          (SettingsPlace(.suggestions), AnyView(OrganizeSuggestionsPage(syncManager: nil, onOpenHelp: { _ in },
                                                                      onJump: { _ in }))),
          (SettingsPlace(.duplicates), AnyView(DuplicatesSettingsTab())),

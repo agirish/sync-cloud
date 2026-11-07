@@ -63,7 +63,7 @@ import Sync
         var resets = 0
         var actions = SettingsActions(settings: nil, sync: sync, lookup: lookup(defaults, nil))
         actions.resetAll = { resets += 1 }
-        #expect(await actions.run("organize.keptNamesClearAll", target: nil) == .done("Cleared 1 kept name."))
+        #expect(await actions.run("organize.keptNamesClearAll", target: nil) == .done("Cleared 1 allowed name."))
         #expect(sync.keptNamesStore?.names.isEmpty == true)
         #expect(await actions.run("advanced.resetAll", target: nil) != .refused("That button is in Settings."))
         #expect(resets == 1)

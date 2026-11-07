@@ -143,6 +143,8 @@ public struct SettingsView: View {
         /// - Name Checks grows with the allowed-names list (`KeptNamesList`, one row per name),
         ///   passing a 1280×800 display's opening at about the 20th name.
         /// - People grows with the roster (`PeopleList` draws one row per person).
+        /// - To File grows with the cloud sources, a Folder surveys row each; seven fill it.
+        /// - Compare ▸ Ignored grows with the ignored items and name patterns, a row each.
         /// - One-Way Sync is drawn by the app (`SettingsView.oneWaySync`), so a test here has
         ///   nothing to measure.
         /// - Ask Claude ▸ Privacy grows with the hidden and shared lists.
@@ -155,6 +157,7 @@ public struct SettingsView: View {
         public static let exemptFromFitGuard: Set<SettingsPlace> = [
             SettingsPlace(.cloudProviders), SettingsPlace(.localFolders), SettingsPlace(.nameChecks),
             SettingsPlace(.people), SettingsPlace(.oneWaySync), SettingsPlace(.privacy),
+            SettingsPlace(.toFile), SettingsPlace(.ignored),
         ]
 
         /// The rail's rows in groups, separated by a hairline.
@@ -349,9 +352,15 @@ public struct SettingsView: View {
                                         selection: Binding(get: { selectedPage },
                                                            set: { go(to: SettingsPlace($0)) }),
                                         hue: selectedHue)
+                        // A strip per tab: a lens kept across tabs glided in from the last tab's
+                        // page, across labels that aren't this tab's.
+                        .id(selectedTab)
                     Divider()
                 }
                 page(selectedTab, selectedPage)
+                    // A page of its own, so one page's scroll position, open rows and drafts don't
+                    // carry onto the next page drawn by the same view.
+                    .id(selectedPage.map(\.rawValue) ?? selectedTab.rawValue)
             }
         }
     }
@@ -402,27 +411,68 @@ public struct SettingsView: View {
     }
 }
 
-/// The strip of a paged tab's sub-tabs, centred over its page. A segmented control, as System
-/// Settings puts one over a pane's pages. Fixed in height, like the title row, so each page's
-/// opening is arithmetic (`SettingsSheetMetrics.pageOpening`).
+/// The strip of a paged tab's sub-tabs, centred over its page. Drawn as the rail's rows are, not
+/// as a system segmented control: the chosen page takes the same accent fill as the chosen tab
+/// beside it (a glass lens that glides between pages in Frosted and Clear), and its labels follow
+/// the app's text size. A `.segmented` picker here drew its selection grey, under its own glass.
+///
+/// Fixed in height, like the title row, so each page's opening is arithmetic
+/// (`SettingsSheetMetrics.pageOpening`).
 struct SettingsSubTabStrip: View {
     let tab: SettingsView.SettingsTab
     @Binding var selection: SettingsSubTab
     let hue: LiquidGlassHue
     @Environment(\.appFontScale) private var scale
 
+    /// The strip's selection lens in Frosted and Clear — see `SelectionLens`. One channel per tab,
+    /// so a lens never travels from one tab's strip to another's.
+    static func lensChannel(_ tab: SettingsView.SettingsTab) -> SelectionLensChannel {
+        SelectionLensChannel("settings.subtabs.\(tab.rawValue)")
+    }
+
     var body: some View {
-        Picker("\(tab.displayName) pages", selection: $selection) {
+        HStack(spacing: 2) {
             ForEach(tab.subTabs, id: \.self) { page in
-                Text(page.displayName).tag(page)
+                pageButton(page)
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .accentedSegments(hue)
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: Radius.chip + 2, style: .continuous)
+            .fill(Color.primary.opacity(0.06)))
+        .selectionLensHost(Self.lensChannel(tab), selected: selection,
+                           style: .fill(.roundedRect(Radius.chip), color: hue.accentFillColor))
         .fixedSize()
         .frame(maxWidth: .infinity)
         .frame(height: SettingsSheetMetrics.subTabStripHeight * scale)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(tab.displayName) pages")
+    }
+
+    private func pageButton(_ page: SettingsSubTab) -> some View {
+        let isSelected = page == selection
+        return Button { selection = page } label: {
+            Text(page.displayName)
+                .scaledFont(.callout)
+                .lineLimit(1)
+                .selectionLensLabelInk(isSelected: isSelected, onFill: hue.onAccentLabelColor, unselected: .primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background {
+                    if isSelected {
+                        SelectionLensTodayMarker {
+                            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                                .fill(hue.accentFillColor)
+                        }
+                    }
+                }
+                .selectionLensStop(Self.lensChannel(tab), id: page)
+                .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+        }
+        // As the rail's rows: at Solid the chosen one takes `.filled` with the on-fill tint; under
+        // the lens, `.segment`.
+        .selectionLensChoiceButtonStyle(isSelected: isSelected, tint: hue.accentColor,
+                                        filledTint: hue.onAccentLabelColor, shape: .roundedRect(Radius.chip))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
@@ -719,6 +769,9 @@ enum SettingsSearchIndex {
         // key goes types the tab’s name.
         .init(at: .claudeGeneral, title: "Ask Claude",
               keywords: ["chat", "assistant", "ask", "claude chat", "panel", "⌘J", "copilot", "help me"]),
+        // The chat's own model, beside Organize's Cloud model: "model" must reach both.
+        .init(at: .claudeGeneral, title: "Chat model",
+              keywords: ["model", "ask claude model", "sonnet", "opus", "haiku", "default model"]),
         .init(at: .claudeGeneral, title: "Answers",
               keywords: ["brief", "detailed", "verbose", "answer length", "concise", "ask claude answers"]),
 
@@ -740,8 +793,8 @@ enum SettingsSearchIndex {
         .init(at: .keyAndSpending, title: "This month",
               keywords: ["ask claude spend", "chat cost", "spent", "usage", "cost"]),
         // "cloud spend" stays a keyword because the history sheet says it.
-        .init(at: .keyAndSpending, title: "Cost and limits",
-              keywords: ["spend", "cloud spend", "cost", "tokens", "billing", "usage", "money", "price"]),
+        .init(at: .keyAndSpending, title: "Refine spend history",
+              keywords: ["cost and limits", "spend", "cloud spend", "cost", "view history", "tokens", "billing", "usage", "money", "price"]),
         .init(at: .keyAndSpending, title: "Monthly budget cap",
               keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
         .init(at: .keyAndSpending, title: "Total budget cap",
@@ -1350,7 +1403,6 @@ struct ProvidersSettingsTab: View {
                 KeptNamesList.nothingKeptNote
             }
         }
-        .help("A name a cloud provider may mishandle — a trailing space, a forbidden character — draws no badge once allowed, and Organize never offers to rename it. Matched exactly, so it covers every file with that name; the files are never touched either way.")
     }
 
     /// One row's open/closed state. A binding over the shared set, not per-row `@State`, so a row
@@ -2143,7 +2195,7 @@ struct BrowseSettingsTab: View {
     }
 
     private var window: some View {
-        SettingsSection(caption: "The View menu’s switches. View as and the status bar are Browse’s; the rest apply everywhere.") {
+        SettingsSection(caption: "View as and the status bar are Browse’s. The sidebar shows in every workspace but Edit.") {
             SettingsRow("View as") {
                 Picker("View as", selection: $browseViewModeRaw) {
                     ForEach([PaneViewMode.columns, .tree]) { mode in
@@ -2234,10 +2286,8 @@ struct SyncSettingsTab: View {
 
     @ViewBuilder
     private var ignored: some View {
-        SettingsSection(
-            "Ignored items",
-            caption: "Remove one to see its differences again."
-        ) {
+        // No caption: "remove one" means nothing until there is one, so the list says it itself.
+        SettingsSection("Ignored items") {
             Toggle(isOn: $settings.rememberIgnoredItems) {
                 Text("Remember ignored items across rescans")
             }
@@ -2326,6 +2376,9 @@ struct IgnoredItemsList: View {
                     .accessibilityLabel("Stop ignoring this item")
                 }
             }
+            Text("Remove one to see its differences again.")
+                .scaledFont(.subheadline)
+                .foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Clear All…", role: .destructive) {
@@ -2485,7 +2538,7 @@ struct EditSettingsTab: View {
 
     @ViewBuilder
     private var text: some View {
-        SettingsSection("Text", caption: "The same switches as the Text menu, for every file.") {
+        SettingsSection("Text", content: {
             Toggle("Wrap lines", isOn: $wraps)
                 .help("Wraps lines at the column edge. Off, a long line runs on with a horizontal scroller, as a log or a CSV needs.")
             Toggle("Readable line length", isOn: $readableLineLength)
@@ -2497,12 +2550,13 @@ struct EditSettingsTab: View {
                 .help("Holds the caret’s line at mid-height as you type and move with the keyboard. A click, a drag and the trackpad leave the text where it is.")
             Toggle("Check spelling while typing", isOn: $checksSpelling)
                 .help("Underlines misspelled words. It never changes your text: nothing in the editor corrects or replaces words for you.")
-            Text("Autosave is set per file: Text ▸ Autosave This File.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        }, caption: {
+            // The rule, then its one exception.
+            VStack(alignment: .leading, spacing: 2) {
+                Text("The same switches as the Text menu, for every file.")
+                Text("Autosave is set per file: Text ▸ Autosave This File.")
+            }
+        })
 
         SettingsSection("Markdown") {
             Toggle("Format bar", isOn: $showsFormatBar)
@@ -2645,7 +2699,7 @@ struct OrganizeSuggestionsPage: View {
 
             SettingsSection(
                 "Saved suggestions",
-                caption: "Refine won’t pay twice for an unchanged file, unless you change its Cloud model."
+                caption: "With reuse on, an unchanged file keeps its suggestion, so Refine doesn’t pay for it twice."
             ) {
                 Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
                     .disabled(!filingUseAI)
@@ -3217,6 +3271,9 @@ struct PeopleList: View {
             HStack(spacing: 10) {
                 Text("People")
                     .scaledFont(.body.weight(.medium))
+                    // On the heading, not the section: a section's tooltip shows over every row
+                    // that has none of its own.
+                    .help(Self.purposeHelp)
                 Spacer()
                 if profile != nil, !store.people.isEmpty {
                     Button(action: look) {
@@ -3256,7 +3313,6 @@ struct PeopleList: View {
                 }
             }
         }
-        .help(Self.purposeHelp)
         .sheet(item: $editing) { person in
             PersonEditor(person: person,
                          isNew: person.id.isEmpty,
@@ -4051,12 +4107,10 @@ struct AdvancedSettingsTab: View {
 
             // Both ways back into setup, together (TE332): one keeps your answers, one starts over.
             if onRunSetup != nil || onResetSetup != nil {
-                SettingsSection(
-                    "Setup",
-                    caption: "Reset Setup starts over. Your folder profile and people stay; with no profile yet, its answers go."
-                ) {
+                SettingsSection("Setup", content: {
+                    // Leading and full size, as Reset All Settings… is below: the three ways to
+                    // start over read as one kind of control.
                     HStack(spacing: 8) {
-                        Spacer(minLength: 0)
                         if let onRunSetup {
                             Button("Run Setup Again…", action: onRunSetup)
                                 .help("Reopens the guided setup sheet with your current answers filled in. Nothing is reset.")
@@ -4068,8 +4122,12 @@ struct AdvancedSettingsTab: View {
                             .help("Forgets that setup has run and which location it learns from, and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one. Asks first.")
                         }
                     }
-                    .controlSize(.small)
-                }
+                }, caption: {
+                    // About Reset Setup alone, so only where it is offered.
+                    if onResetSetup != nil {
+                        Text("Reset Setup starts over. Your folder profile and people stay; with no profile yet, its answers go.")
+                    }
+                })
             }
 
             if let onResetAllSettings {

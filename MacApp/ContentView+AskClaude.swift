@@ -837,6 +837,8 @@ extension ContentView {
                     let wanted = tab?.lowercased()
                     let chosen = SettingsView.SettingsTab.allCases.first { $0.displayName.lowercased() == wanted || $0.rawValue == wanted }
                         .map { SettingsPlace($0) }
+                        ?? SettingsSubTab.allCases.first { $0.displayName.lowercased() == wanted || $0.rawValue.lowercased() == wanted }
+                        .map { SettingsPlace($0) }
                         ?? tab.flatMap(SettingsPlace.holding)
                         ?? (tab == nil ? SettingsPlace(.intelligence) : nil)
                     guard let chosen else { return false }
@@ -956,7 +958,8 @@ extension ContentView {
             read: { lookup.currentValue($0, target: $1) },
             targetName: { id in settings.availableProviders.first { $0.id == id }?.displayName ?? people.person(named: id)?.displayName ?? id },
             change: { askClaudeSettingChange($0, $1, $2) },
-            openSettings: { _ = askClaudeToolsContext().showPlace("settings", $0.label, true) },
+            // The entry's own page, not a lookup by its label: "Model" names two pages' controls.
+            openSettings: { openSettings(on: $0.place) },
             offersUndo: { undo.offersUndo($0, row: $1) },
             undo: { undo.undoCard($0, row: $1) },
             canAskAgain: { [weak chat] in

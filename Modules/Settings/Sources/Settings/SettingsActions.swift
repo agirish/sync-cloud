@@ -152,7 +152,7 @@ public struct SettingsActions {
             guard let store = sync?.keptNamesStore else { return unavailable }
             let count = store.names.count
             store.stopKeepingAll()
-            return .done("Cleared \(count) kept name\(count == 1 ? "" : "s").")
+            return .done("Cleared \(count) allowed name\(count == 1 ? "" : "s").")
         case "intelligence.apiKeyRemove":
             if let refusal = APIKeyRemoval.remove(from: keychain) { return .refused(refusal) }
             return .done("Removed the API key. Ask Claude and Refine need a key again to use Claude.")

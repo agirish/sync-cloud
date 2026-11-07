@@ -82,6 +82,34 @@ import Testing
         }
     }
 
+    /// Every word on a paged tab names a page of that tab, and the word reaching it is one of that
+    /// page's own entries: ⌘K opens the page a word was found on (TE332).
+    @Test func everyPagedTabsWordsNameTheirPage() {
+        for tab in Tab.allCases {
+            let digest = tab.digest
+            if tab.subTabs.isEmpty {
+                #expect(digest.pages.isEmpty, "\(tab.displayName) has no pages but its digest names some")
+                continue
+            }
+            #expect(digest.pageOrder == tab.subTabs.map(\.rawValue))
+            for word in digest.vocabulary {
+                // Every page in strip order that carries the word, computed here from the index
+                // rather than read back from the digest.
+                let carrying = tab.subTabs.filter { page in
+                    SettingsSearchIndex.all.contains { $0.place.subTab == page
+                        && ([$0.title] + $0.keywords).contains { $0.lowercased() == word.lowercased() } }
+                }.map(\.rawValue)
+                #expect(!carrying.isEmpty, "“\(word)” on \(tab.displayName) is on no page")
+                #expect(digest.pages[word.lowercased()] == carrying,
+                        "“\(word)” on \(tab.displayName) names \(digest.pages[word.lowercased()] ?? []), not \(carrying)")
+            }
+        }
+        #expect(Tab.appearance.digest.pages["glass"] == [SettingsSubTab.look.rawValue])
+        #expect(Tab.intelligence.digest.pages["api key"] == [SettingsSubTab.keyAndSpending.rawValue])
+        // A word on two pages names both, in strip order.
+        #expect(Tab.providers.digest.pages["folder"] == [SettingsSubTab.cloudProviders.rawValue, SettingsSubTab.localFolders.rawValue])
+    }
+
     /// `browse` is a keyword on Sources (Synchronized path's Browse… button) and the name of the
     /// Browse tab. That collision is why the palette penalises a vocabulary match below a name, so
     /// it is pinned: if it stopped being true, the penalty's justification would go with it.

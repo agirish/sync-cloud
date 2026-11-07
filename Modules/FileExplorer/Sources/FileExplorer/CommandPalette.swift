@@ -64,7 +64,8 @@ public enum PaletteRoute: Equatable, Sendable {
     /// A named action, run or opened.
     case action(PaletteAction)
 
-    /// Settings, opened on one named tab — the raw value of `SettingsView.SettingsTab`.
+    /// Settings, opened on one named tab — the raw value of `SettingsView.SettingsTab`, followed by
+    /// `/` and a page's raw value when the row was matched through a word on that page.
     ///
     /// **A string, not the enum, because the enum is in a package this one cannot see.**
     /// `FileExplorer` and `Settings` are siblings, so the tab arrives here as data
@@ -271,12 +272,57 @@ public struct PaletteSettingsTab: Equatable, Sendable {
     /// ``detail`` is for: the row cannot bold what is not in it, so it says what is on the tab.
     public let vocabulary: [String]
 
-    public init(id: String, name: String, detail: String, symbol: String, vocabulary: [String]) {
+    /// The pages each word of ``vocabulary`` is on, for a tab with pages: lowercased word to the
+    /// pages' raw values, in strip order. A row matched through its words opens the page they are
+    /// most about, so `glass` lands on Appearance ▸ Look and not on whichever page was last
+    /// shown. Empty for a one-page tab.
+    public let pages: [String: [String]]
+
+    /// The tab's pages in strip order, the last tie-break between them.
+    public let pageOrder: [String]
+
+    public init(id: String, name: String, detail: String, symbol: String, vocabulary: [String],
+                pages: [String: [String]] = [:], pageOrder: [String] = []) {
         self.id = id
         self.name = name
         self.detail = detail
         self.symbol = symbol
         self.vocabulary = vocabulary
+        self.pages = pages
+        self.pageOrder = pageOrder
+    }
+
+    /// The route for a row matched through `word`: the tab, and the word's page where it has one,
+    /// as `tab/page` — the form `PaletteRoute.settings(tab:)` carries across the package wall.
+    func routeID(matchedThrough word: String?) -> String {
+        guard let word, let page = pages[word.lowercased()]?.first else { return id }
+        return routeID(page: page)
+    }
+
+    func routeID(page: String?) -> String {
+        page.map { "\(id)/\($0)" } ?? id
+    }
+
+    /// The page a query is most about: the one with the most words that match it, then the one
+    /// whose best word matches it best, then the first in strip order. Not the first word in
+    /// alphabetical order, which sent `ign` to the Google Drive switch over Ignored's three
+    /// entries, and `folder` to Cloud Providers over Local Folders' five.
+    func page(for query: String) -> String? {
+        var best: [String: (count: Int, tier: PaletteMatch)] = [:]
+        for word in vocabulary {
+            let tier = PaletteRouter.match(word, query)
+            guard tier != .none else { continue }
+            for page in pages[word.lowercased()] ?? [] {
+                let was = best[page] ?? (0, .none)
+                best[page] = (was.count + 1, Swift.max(was.tier, tier))
+            }
+        }
+        func rank(_ page: String) -> Int { pageOrder.firstIndex(of: page) ?? pageOrder.count }
+        return best.max { a, b in
+            if a.value.count != b.value.count { return a.value.count < b.value.count }
+            if a.value.tier != b.value.tier { return a.value.tier < b.value.tier }
+            return rank(a.key) > rank(b.key)
+        }?.key
     }
 }
 
@@ -1070,9 +1116,11 @@ public enum PaletteRouter {
             let spoken = best(of: tab.vocabulary, query: query)
             let combined = Swift.max(score(named), score(spoken) - vocabularyPenalty)
             guard combined > 0 else { return nil }
+            // Matched through its words, not its name: open the page they are most about.
+            let page = score(spoken) - vocabularyPenalty > score(named) ? tab.page(for: query) : nil
             return PaletteRow(id: "settings.\(tab.id)", group: .settings, title: title,
                               detail: tab.detail, symbol: tab.symbol,
-                              route: .settings(tab: tab.id),
+                              route: .settings(tab: tab.routeID(page: page)),
                               score: combined - Swift.min(offset, maxPositionDecrement))
         }
     }

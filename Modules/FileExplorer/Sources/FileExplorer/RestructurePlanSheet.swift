@@ -979,7 +979,7 @@ struct RestructurePlanSheet: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("Proposes consistent names for this family’s folders — billed to your "
-                          + "own API key, set up in Settings ▸ Ask Claude. The mapping stays "
+                          + "own API key, set up in Settings ▸ Organize. The mapping stays "
                           + "yours: accepting a proposal edits a row, and the plan re-derives.")
                 }
                 if let refineFailedText {
@@ -1103,7 +1103,7 @@ struct RestructurePlanSheet: View {
                 refineFailedText = "Nothing was sent — part of this family is hidden from Claude."
             case .unavailable:
                 refineFailedText = "The pass didn’t run — the key, the budget caps or the "
-                    + "network said no. Settings ▸ Ask Claude has the details."
+                    + "network said no. Settings ▸ Organize has the details."
             }
         }
     }

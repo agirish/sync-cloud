@@ -34,6 +34,27 @@ import Testing
         PaletteRouter.rows(query: query, index: Self.index).filter { $0.group == .settings }
     }
 
+    // MARK: Pages
+
+    /// A row matched through a word carries the word's page (`tab/page`), and one matched by its
+    /// name carries the tab alone, so ⌘K opens the page the word is on, never a page it isn't.
+    @Test func aWordOpensItsPageAndTheNameOpensTheTab() throws {
+        let paged = PaletteSettingsTab(id: "appearance", name: "Appearance", detail: "Theme, accent, glass, text size",
+                                       symbol: "paintbrush",
+                                       vocabulary: ["Glass effect", "Row spacing", "glass"],
+                                       pages: ["glass effect": ["look"], "glass": ["look"], "row spacing": ["textAndSpacing"]])
+        let index = PaletteIndex(settingsTabs: [paged])
+        func route(_ query: String) -> PaletteRoute? {
+            PaletteRouter.rows(query: query, index: index).first { $0.group == .settings }?.route
+        }
+        #expect(route("glass") == .settings(tab: "appearance/look"))
+        #expect(route("row spacing") == .settings(tab: "appearance/textAndSpacing"))
+        #expect(route("appearance") == .settings(tab: "appearance"))
+        // A word with no page (a one-page tab, or a word the map lacks) opens the tab.
+        #expect(paged.routeID(matchedThrough: "nothing here") == "appearance")
+        #expect(paged.routeID(matchedThrough: nil) == "appearance")
+    }
+
     // MARK: The word that started this
 
     @Test func typingATabNameReachesThatTab() throws {

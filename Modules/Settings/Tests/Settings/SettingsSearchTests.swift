@@ -171,7 +171,7 @@ import Testing
             .suggestions: ["Suggest folders with Apple Intelligence", "Read file contents on this Mac",
                            "Use Claude (cloud) to refine suggestions", "Cloud model",
                            "Reuse suggestions for files that haven’t changed", "Saved suggestions"],
-            .keyAndSpending: ["Claude API key", "Cost and limits", "Monthly budget cap", "Total budget cap",
+            .keyAndSpending: ["Claude API key", "Refine spend history", "Monthly budget cap", "Total budget cap",
                               "Monthly limit"],
             .people: ["People", "Add Person…"],
             .oneWaySync: ["One-Way Sync"],

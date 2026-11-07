@@ -58,6 +58,9 @@ struct ContentView: View {
     /// the refused open would still leave Settings moved, and the next plain ⌘, would land on a
     /// page nobody asked for. Non-nil means a deep link is mid-flight; a plain open leaves it nil.
     @State private var settingsTabBeforeDeepLink: SettingsView.SettingsTab?
+    /// The remembered pages a deep link displaced (`SettingsSubTabMemory`), put back with the tab
+    /// when the open is refused, so a refused link leaves no page changed either.
+    @State private var settingsPagesBeforeDeepLink: String?
 
     // MARK: The Editor workspace
 
@@ -1267,11 +1270,16 @@ struct ContentView: View {
             guard isOpen else { return }
             if pendingDestination != nil {
                 if let displaced = settingsTabBeforeDeepLink { settingsTab = displaced }
+                if let pages = settingsPagesBeforeDeepLink {
+                    UserDefaults.standard.set(pages, forKey: SettingsSubTabMemory.defaultsKey)
+                }
                 settingsTabBeforeDeepLink = nil
+                settingsPagesBeforeDeepLink = nil
                 showSettings = false
                 return
             }
             settingsTabBeforeDeepLink = nil
+            settingsPagesBeforeDeepLink = nil
             showHelp = false
         }
         .onChange(of: showHelp) { _, isOpen in
@@ -2268,10 +2276,14 @@ struct ContentView: View {
         refreshAction()
     }
 
-    /// Opens the settings overlay preselected on Sources — the fix-it action for the
-    /// invalid-root / disabled-provider pane placeholders — on the page last shown there, since a
-    /// placeholder can belong to a cloud account or a folder.
-    private func openProviderSettings() { openSettings(on: SettingsPlace(.providers)) }
+    /// Opens the settings overlay on Sources — the fix-it action for the invalid-root /
+    /// disabled-provider pane placeholders, and the source menus' manage item — on the page that
+    /// lists the source: Local Folders for a folder, Cloud Providers otherwise. Name Checks holds
+    /// neither, so a remembered page is never the answer here.
+    private func openProviderSettings(for providerId: String? = nil) {
+        let isFolder = providerId.flatMap { id in settings.availableProviders.first { $0.id == id } }?.isLocalFolder ?? false
+        openSettings(on: SettingsPlace(isFolder ? .localFolders : .cloudProviders))
+    }
 
     /// The one door for every Settings deep link. The tab is preset before the latch, because the
     /// overlay reads `settingsTab` as it appears; the displaced tab is stashed so
@@ -2282,7 +2294,10 @@ struct ContentView: View {
         // Only while the latch is actually flipping. `onChange` consumes the stash and does not
         // fire for a redundant `true`, so stashing on an already-open panel would leave a value to
         // be restored later over a tab the user had since chosen by hand.
-        if !showSettings { settingsTabBeforeDeepLink = settingsTab }
+        if !showSettings {
+            settingsTabBeforeDeepLink = settingsTab
+            settingsPagesBeforeDeepLink = UserDefaults.standard.string(forKey: SettingsSubTabMemory.defaultsKey) ?? ""
+        }
         SettingsSubTabMemory.remember(place)
         settingsTab = place.tab
         showSettings = true
@@ -3657,7 +3672,7 @@ struct ContentView: View {
                 onSelectProvider: { id in
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
                 },
-                onManageProviders: openProviderSettings,
+                onManageProviders: { openProviderSettings() },
                 onChooseFolder: { chooseFolderSource { id in
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
                 } },
@@ -4483,7 +4498,7 @@ struct ContentView: View {
             providerIsEnabled: settings.isEnabled(pane.providerId),
             hasOnlyHiddenEntries: pane.hasOnlyHiddenEntries,
             rootPath: settings.rootPath(for: pane.providerId),
-            onOpenSettings: openProviderSettings,
+            onOpenSettings: { openProviderSettings(for: pane.providerId) },
             // The single-source rail has no opposite pane, so its row menu drops the
             // comparison-only items and renames "Compare only this folder" to "Open".
             isSingleSource: layoutMode == .singleSource,
@@ -4760,9 +4775,8 @@ struct ContentView: View {
                 onUpdateFolderMemory: syncManager.filingMemory == nil && syncManager.filingFolderProfile == nil
                     ? nil : { updateFolderMemoryAction() },
                 // The way in to the paid pass for someone who has never set it up: Organize's
-                // results offer it, and this deep-links the tab so the user lands on the cloud
-                // toggle. `.intelligence`, not `.filing`: that is where the toggle, key and model
-                // live (`theCloudRefineOfferLandsOnTheTabThatHoldsTheKey`).
+                // results offer it, and this deep-links Organize ▸ Suggestions, where the toggle and
+                // model are, with a jump to the key (`theCloudRefineOfferLandsOnThePageThatHoldsItsSwitch`).
                 onConfigureCloudRefine: { openSettings(on: SettingsView.SettingsTab.cloudRefineSetup) },
                 // The app's one Help front door, opened at a named page: Settings and Help never
                 // stack, and this must not grow a second overlay beside them.
@@ -4800,7 +4814,7 @@ struct ContentView: View {
                 providers: settings.enabledProviders,
                 currentProviderId: leftProviderId,
                 onSelectProvider: { leftProviderId = $0 },
-                onManageProviders: openProviderSettings,
+                onManageProviders: { openProviderSettings() },
                 onChooseFolder: { chooseFolderSource { leftProviderId = $0 } },
                 onCompareCopies: reviewCoordinator.compareCopies,
                 onCompareFilePair: { compareFilePair = $0 },
