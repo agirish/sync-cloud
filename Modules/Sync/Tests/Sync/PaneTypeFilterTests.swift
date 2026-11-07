@@ -368,6 +368,33 @@ import Foundation
         #expect(manager.rightBrowsePath.components == ["images", "old"])
     }
 
+    /// Walking away from a tab and back, or closing and reopening it, brings its filter back.
+    @Test func aTabKeepsItsFilterThroughASwitchAndAReopen() throws {
+        let manager = FileSyncManager()
+        manager.setPaneTabs(PaneTabList(tabs: [PaneTab(providerId: "icloud"), PaneTab(providerId: "icloud")],
+                                        selectedIndex: 0), isLeft: true)
+        let first = manager.leftPaneTabs.tabs[0].id
+        let second = manager.leftPaneTabs.tabs[1].id
+        manager.leftTypeFilter = PaneTypeFilter(families: [.pdfs])
+
+        _ = manager.switchTab(to: second, isLeft: true, currentProviderId: "icloud")
+        #expect(manager.leftTypeFilter == nil)
+        _ = manager.switchTab(to: first, isLeft: true, currentProviderId: "icloud")
+        #expect(manager.leftTypeFilter == PaneTypeFilter(families: [.pdfs]))
+
+        _ = manager.closeTab(id: first, isLeft: true, currentProviderId: "icloud")
+        #expect(manager.leftTypeFilter == nil)
+        _ = try #require(manager.reopenClosedTab(isLeft: true, currentProviderId: "icloud"))
+        #expect(manager.leftTypeFilter == PaneTypeFilter(families: [.pdfs]))
+    }
+
+    /// The save overlay keeps the active tab's filter, as it keeps its search.
+    @Test func theSaveOverlayKeepsTheActiveTabsFilter() {
+        let list = PaneTabList(single: PaneTab(providerId: "icloud", typeFilter: PaneTypeFilter(families: [.pdfs])))
+        let saved = list.replacingActive(providerId: "icloud", relativePath: "Downloads", browsePath: PaneBrowsePath())
+        #expect(saved.active.typeFilter == PaneTypeFilter(families: [.pdfs]))
+    }
+
     /// A filter left on is never saved: the stored strip brings the tab back without it.
     @Test func aTabsFilterDoesNotSurviveARelaunch() throws {
         let defaults = ScratchDefaults("PaneTypeFilterManagerTests")

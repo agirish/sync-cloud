@@ -14583,3 +14583,20 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The flat rail, long captions | RECORDED — not owed (a redesign, not a fix) |
+
+## A tab keeps its Filter by Type through a switch and a reopen — main only
+
+2026-11-06, for v7.1. On `main`, `PaneTabList.captureActive` rebuilt the parked tab without its
+type filter, so switching away from a tab and back cleared its Filter by Type; Reopen Closed Tab
+and the save overlay (`replacingActive`) dropped it the same way. All three now carry it, as they
+carry the search.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s filter=%s\n' $l "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/PaneTypeFilter.swift | wc -l | tr -d ' ')"; done
+# measured 2026-11-06, against origin, before this landed: every line filter=0 (main: 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No type filter at all | CLOSED — doesn't apply |

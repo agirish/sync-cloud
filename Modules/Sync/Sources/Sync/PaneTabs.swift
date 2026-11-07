@@ -207,6 +207,7 @@ public struct PaneTabList: Equatable, Sendable {
                                       selection: snapshot.selection,
                                       searchQuery: snapshot.searchQuery,
                                       searchIsExpanded: snapshot.searchIsExpanded,
+                                      typeFilter: snapshot.typeFilter,
                                       // Kept, not taken from the snapshot: the live pane doesn't
                                       // know whether its tab is pinned, so reading it from there
                                       // would unpin a tab every time the user walked away from it.
@@ -249,6 +250,7 @@ public struct PaneTabList: Equatable, Sendable {
             selection: live.selection,
             searchQuery: live.searchQuery,
             searchIsExpanded: live.searchIsExpanded,
+            typeFilter: live.typeFilter,
             isPinned: live.isPinned)
         return copy
     }
@@ -437,7 +439,8 @@ public struct PaneTabList: Equatable, Sendable {
                                history: tab.history,
                                selection: tab.selection,
                                searchQuery: tab.searchQuery,
-                               searchIsExpanded: tab.searchIsExpanded)
+                               searchIsExpanded: tab.searchIsExpanded,
+                               typeFilter: tab.typeFilter)
         open(reopened)
         return reopened
     }
