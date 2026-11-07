@@ -14737,3 +14737,20 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The folding summary, and no per-file record of a batch | RECORDED — not owed |
+
+## An unreadable Changed from Chat record is set aside, never overwritten — main only
+
+2026-11-07, for v7.1. On `main`, `SettingsChangeLog` sets a file it can't read aside under a name of
+its own (`UnreadableSetAside`) before writing a fresh record, logs where it went, and refuses to
+write while the move fails. Before, an unreadable file read as empty and the next change replaced it,
+and the "moved it to …" line was written whether or not the move worked.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s %s\n' $l "$(git ls-tree -r --name-only origin/$l | grep -c 'SettingsChangeLog.swift')"; done
+# measured 2026-11-07, against origin, before this landed: every line 0 (main: 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Changed from Chat record | CLOSED — doesn't apply |

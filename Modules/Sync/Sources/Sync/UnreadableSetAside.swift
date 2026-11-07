@@ -2,9 +2,9 @@ import Foundation
 
 /// Where a store's unreadable file is kept when it is moved out of the way of a fresh write.
 ///
-/// Shared by `PersonTagStore`, `FilingVerdictStore` and `StorageLensStore`, which each rescue a
-/// file this build can't read by renaming it before writing beside it. One implementation, so
-/// the stores can't drift apart.
+/// Shared by `PersonTagStore`, `FilingVerdictStore`, `StorageLensStore` and `SettingsChangeLog`,
+/// which each rescue a file this build can't read by renaming it before writing beside it. One
+/// implementation, so the stores can't drift apart.
 ///
 /// **A set-aside is never read back**, so it is the only copy of what it holds: paid answers for the
 /// verdict cache, the user's own judgements for the person tags. So each episode gets its own name,
@@ -14,8 +14,9 @@ import Foundation
 /// Nothing sweeps these files either, for the same reason. They stay bounded because an episode
 /// clears itself: the rescue frees the path and the next launch writes a readable file. A foreign
 /// schema would not clear (old and new builds would set each other's file aside on every launch),
-/// so `StorageLensStore.Read` and `FilingVerdictStore.load` never route one here. They live in
+/// so `StorageLensStore.Read` and `FilingVerdictStore.load` never route one here. Most live in
 /// `~/Library/Application Support/SyncCloud/`, which no pane or scan lists; the cost is disk.
+/// `SettingsChangeLog`'s lives beside its file in the home folder, as the old fixed-name one did.
 enum UnreadableSetAside {
 
     /// How many numbered candidates are probed before the disambiguator stops asking. The loop must

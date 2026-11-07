@@ -94,15 +94,28 @@ public final class SettingsChangeLog: ObservableObject {
     /// Rows this copy holds that it couldn't write. Only these are written back over the file: a row
     /// it wrote that is gone from the file was trimmed or cleared by another copy.
     private var unwritten: Set<UUID> = []
+    /// The file is there but couldn't be read as a list, so it may be the only copy of every change
+    /// it held: no write may replace it until it has been set aside (`setAsideUnreadableFile`).
+    /// Cleared only by a set-aside that worked, or by the file being gone.
+    private var fileIsUnreadable = false
+    private let fileManager: FileManager
 
     public static let maxChanges = 500
     public static let maxAge: TimeInterval = 90 * 86_400
 
-    public init(fileURL: URL = SettingsChangeLog.defaultFileURL()) {
+    /// - Parameter fileManager: A seam, so a test can refuse the set-aside's move.
+    public init(fileURL: URL = SettingsChangeLog.defaultFileURL(), fileManager: FileManager = .default) {
         self.fileURL = fileURL
-        let loaded = Self.load(fileURL, setAsideIfUnreadable: true)
+        self.fileManager = fileManager
+        let loaded = Self.load(fileURL, fileManager: fileManager)
         changes = Self.trimmed(loaded.changes, now: Date())
         unreadable = loaded.unreadable
+        // Set aside now, as the record is opened, so the move and its line come when the file was
+        // found unreadable; a refused move is tried again before every write.
+        if loaded.fileIsUnreadable {
+            fileIsUnreadable = true
+            setAsideUnreadableFile()
+        }
     }
 
     /// `SYNCCLOUD_SETTINGS_CHANGES_FILE`, else a per-process temp file under a test runner, else
@@ -121,7 +134,9 @@ public final class SettingsChangeLog: ObservableObject {
     /// read the file are kept: the file is read again and merged, by id, before it is written. Rows
     /// another copy trimmed or cleared stay gone; only a row this copy couldn't write is added back.
     public func record(_ change: SettingsChange) {
-        let disk = Self.load(fileURL, setAsideIfUnreadable: false)
+        let disk = Self.load(fileURL, fileManager: fileManager)
+        // Spoilt since it was opened: the write below must set it aside first, not replace it.
+        if disk.fileIsUnreadable { fileIsUnreadable = true }
         let onDisk = Set(disk.changes.map(\.id))
         let merged = disk.changes + changes.filter { unwritten.contains($0.id) && !onDisk.contains($0.id) } + [change]
         // Oldest first by when each was made, so the trim drops the oldest whichever copy wrote it.
@@ -190,17 +205,17 @@ public final class SettingsChangeLog: ObservableObject {
         return Array(recent.suffix(maxChanges))
     }
 
-    /// The rows on disk: those this build reads, and the rest as raw JSON. A file that isn't a list
-    /// at all is moved aside once, so the next write can't replace the only copy.
-    private static func load(_ url: URL, setAsideIfUnreadable: Bool) -> (changes: [SettingsChange], unreadable: [Data]) {
-        guard let data = try? Data(contentsOf: url) else { return ([], []) }
-        guard let items = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else {
-            if setAsideIfUnreadable {
-                let aside = url.deletingPathExtension().appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970)).json")
-                try? FileManager.default.moveItem(at: url, to: aside)
-                Logger.shared.error("Changed from Chat: \(url.lastPathComponent) can’t be read; moved it to \(aside.lastPathComponent) and started a new record")
-            }
-            return ([], [])
+    /// The rows on disk: those this build reads, and the rest as raw JSON. `fileIsUnreadable` is a
+    /// file that is there but can't be read, or isn't a list at all; the caller sets it aside before
+    /// any write. A missing file is not unreadable: it is an empty record. Probed with
+    /// `attributesOfItem`, not `fileExists`, so a dangling symlink counts as there, as in
+    /// `PersonTagStore`.
+    private static func load(_ url: URL, fileManager: FileManager)
+        -> (changes: [SettingsChange], unreadable: [Data], fileIsUnreadable: Bool) {
+        guard (try? fileManager.attributesOfItem(atPath: url.path)) != nil else { return ([], [], false) }
+        guard let data = try? Data(contentsOf: url),
+              let items = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else {
+            return ([], [], true)
         }
         var changes: [SettingsChange] = []
         var unreadable: [Data] = []
@@ -208,12 +223,47 @@ public final class SettingsChangeLog: ObservableObject {
             guard let row = try? JSONSerialization.data(withJSONObject: item, options: [.sortedKeys]) else { continue }
             if let change = try? JSONDecoder().decode(SettingsChange.self, from: row) { changes.append(change) } else { unreadable.append(row) }
         }
-        return (changes, unreadable)
+        return (changes, unreadable, false)
+    }
+
+    /// Moves the unreadable file out of the way of a fresh record, under a name unique to this
+    /// episode (`UnreadableSetAside`), so a later one can never land on it. Nothing here deletes.
+    ///
+    /// A move that fails leaves the flag set and refuses the write: writing then would replace the
+    /// only copy of every change the file held. The change stays in memory (`unwritten`) and is
+    /// written once a later set-aside works. A file that is gone since leaves nothing to replace.
+    /// - Returns: Whether a write may go ahead.
+    @discardableResult
+    private func setAsideUnreadableFile() -> Bool {
+        let kept = UnreadableSetAside.destination(for: fileURL, at: Date(), fileManager: fileManager)
+        do {
+            try fileManager.moveItem(at: fileURL, to: kept)
+            fileIsUnreadable = false
+            // "Will be", not "has been": the fresh write is still ahead and can fail.
+            Logger.shared.warning("Changed from Chat: \(fileURL.lastPathComponent) could not be read, so it "
+                                  + "has been kept as \(kept.lastPathComponent); a fresh record will be "
+                                  + "written beside it. The changes it held are in that file.")
+            return true
+        } catch {
+            if (try? fileManager.attributesOfItem(atPath: fileURL.path)) == nil {
+                fileIsUnreadable = false
+                Logger.shared.warning("Changed from Chat: the unreadable \(fileURL.lastPathComponent) is no "
+                                      + "longer there, so nothing is left to set aside and a fresh "
+                                      + "record is written.")
+                return true
+            }
+            Logger.shared.error("Changed from Chat: couldn’t set aside the unreadable "
+                                + "\(fileURL.lastPathComponent) (\(error.localizedDescription)) — NOT "
+                                + "overwriting it. Changes made now are kept in memory and written "
+                                + "once it can be moved.")
+            return false
+        }
     }
 
     /// - Returns: Whether the file was written.
     @discardableResult
     private func save() -> Bool {
+        if fileIsUnreadable, !setAsideUnreadableFile() { return false }
         do {
             let encoded = try JSONEncoder().encode(changes)
             let rows = ((try JSONSerialization.jsonObject(with: encoded)) as? [Any] ?? [])

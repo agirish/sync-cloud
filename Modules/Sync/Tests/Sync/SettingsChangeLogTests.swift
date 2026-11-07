@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import Events
+import EventsTestSupport
 @testable import Sync
 
 /// Changed from Chat keeps every change made from the chat in its own file: written at once, 90
@@ -115,16 +117,94 @@ import Testing
         #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["First", "Second"])
     }
 
-    @Test func aFileThatIsntARecordIsSetAsideNotOverwritten() throws {
+    private func directory() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsChangeLogTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("changes.json")
+        return dir
+    }
+
+    /// A file name unique to the case: the log lines name the file only, and the cases run in
+    /// parallel, so a shared name would let a sibling's line answer this one's capture.
+    private func record(in dir: URL) -> URL {
+        dir.appendingPathComponent("changes-\(UUID().uuidString).json")
+    }
+
+    /// A file that isn't a list is kept, byte for byte, under the shared set-aside name, and the
+    /// next change starts a fresh record beside it: the record keeps saving.
+    @Test func aFileThatIsntARecordIsSetAsideNotOverwritten() async throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let url = record(in: dir)
         try "{ not a list".write(to: url, atomically: true, encoding: .utf8)
+        let capture = LogCapture()
         let log = SettingsChangeLog(fileURL: url)
-        log.record(change())
-        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
-        #expect(names.contains { $0.hasPrefix("changes.unreadable-") })
+        log.record(change("After"))
+
+        let kept = setAsidesBeside(url)
+        #expect(kept.count == 1)
+        #expect(try kept.first.map { try String(contentsOf: $0, encoding: .utf8) } == "{ not a list")
+        #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["After"], "the record stopped saving")
+        #expect(await capture.holds(.warning, containing: "has been kept as \(kept.first?.lastPathComponent ?? "?")"))
+    }
+
+    /// A file that is there but can't be read at all is set aside too: before, it read as empty and
+    /// the first change replaced it.
+    @Test func aFileThatCantBeReadIsSetAsideNotOverwritten() throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let url = record(in: dir)
+        try "[]".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer { for kept in setAsidesBeside(url) { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path) } }
+        try #require((try? Data(contentsOf: url)) == nil, "the fixture is readable — this runner can read a mode-000 file")
+
+        SettingsChangeLog(fileURL: url).record(change("After"))
+        #expect(setAsidesBeside(url).count == 1)
+        #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["After"])
+    }
+
+    /// A missing file is an empty record, not an unreadable one: nothing to set aside, nothing said.
+    @Test func aMissingFileIsAnEmptyRecordNotAnUnreadableOne() async throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let url = record(in: dir)
+        let capture = LogCapture()
+        SettingsChangeLog(fileURL: url).record(change())
+        #expect(setAsidesBeside(url).isEmpty)
+        #expect(!(await capture.holds(containing: url.lastPathComponent + " could not be read")))
+    }
+
+    /// Two episodes keep two files: a second set-aside can never land on, and destroy, the first.
+    @Test func aSecondEpisodeNeverReplacesTheFirstsSetAside() throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let url = record(in: dir)
+        try "first".write(to: url, atomically: true, encoding: .utf8)
+        _ = SettingsChangeLog(fileURL: url)
+        try "second".write(to: url, atomically: true, encoding: .utf8)
+        _ = SettingsChangeLog(fileURL: url)
+
+        let kept = setAsidesBeside(url)
+        #expect(kept.count == 2)
+        #expect(Set(try kept.map { try String(contentsOf: $0, encoding: .utf8) }) == ["first", "second"])
+    }
+
+    /// When the move itself fails, nothing is written over the file and the failure is an ERROR;
+    /// the change waits in memory and is written once a set-aside works.
+    @Test func aFailedSetAsideRefusesTheWriteAndTriesAgain() async throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let url = record(in: dir)
+        try "{ not a list".write(to: url, atomically: true, encoding: .utf8)
+        let blocked = MoveBlockedFileManager()
+        blocked.movesToRefuse = 2   // the set-aside as it opens, and before the first write
+        let capture = LogCapture()
+
+        let log = SettingsChangeLog(fileURL: url, fileManager: blocked)
+        log.record(change("Waiting"))
+        #expect(try String(contentsOf: url, encoding: .utf8) == "{ not a list", "the only copy was overwritten")
+        #expect(setAsidesBeside(url).isEmpty)
+        #expect(await capture.holds(.error, containing: "unreadable \(url.lastPathComponent) ("))
+
+        log.record(change("Next"))
+        #expect(setAsidesBeside(url).count == 1)
+        #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["Waiting", "Next"],
+                "the change made while the move was refused was lost")
     }
 
     @Test func whatNamesAHiddenItemIsShownWithoutItsWords() {
