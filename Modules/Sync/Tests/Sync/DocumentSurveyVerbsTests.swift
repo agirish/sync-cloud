@@ -421,13 +421,19 @@ import EventsTestSupport
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
+        // Both jobs are queued on the main actor, in this order. The run's first job takes the
+        // handle and suspends in its first await; the Save's job is next in the queue, so it
+        // lands there, before the run's next job can ask the run actor to start reading. A loop
+        // of `Task.yield()` waiting to see the run under way raced that second job on a loaded
+        // machine ("`Task.yield()` assumed to park a test inside an async window" in
+        // `docs/flaky-tests.md`).
         let result = Task { @MainActor in await manager.runDocumentSurvey(plan: plan) }
-        // The first moment the run is seen under way — inside its first await.
-        let deadline = Date().addingTimeInterval(20)
-        while !manager.filingSurveyLifecycle.isRunning, Date() < deadline { await Task.yield() }
-        #expect(manager.filingSurveyLifecycle.isRunning, "premise: the run never started")
-
-        let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
+        let save = Task { @MainActor in
+            (manager.filingSurveyLifecycle.isRunning,
+             await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs))
+        }
+        let (wasRunning, stopped) = await save.value
+        #expect(wasRunning, "premise: the Save ran before the run started")
 
         #expect(stopped == .stopped(plan.root), "a Save as the run started found \(stopped)")
         #expect(await result.value == .failure(.stoppedForNewProfile))
