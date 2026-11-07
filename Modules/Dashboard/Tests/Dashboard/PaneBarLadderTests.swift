@@ -333,7 +333,7 @@ import FileExplorerTestSupport
     /// A gap widened for words must not be charged to a bar that has none. `itemGap` is 8 between
     /// titled items and 6 between untitled ones; charging 8 everywhere would make every untitled
     /// rung (all of Icon Only) wider, so the ladder would step down at a wider pane. The drawn half
-    /// is held by `theLadderRendersItsGolden`.
+    /// is held by `everyRungIsPricedAsTheBarItDraws`.
     @Test func theUntitledLadderIsPricedAsItWasBeforeTitles() {
         // The values, pinned.
         #expect(PaneNavMetrics.itemGap(titled: false) == 6,
@@ -638,57 +638,30 @@ import FileExplorerTestSupport
                 "the header drew rungs \(seen.sorted()) of the deep rungs \(deep) between 250 and 900pt")
     }
 
-    // MARK: - Golden
+    // MARK: - Where the bar sits
 
-    /// One golden row, as data: the source name, text scale, pane width and ring fingerprint.
-    private struct Golden {
-        let name: String
-        let scale: CGFloat
-        let width: CGFloat
-        let rings: String
-    }
-
-    /// The laid-out header, pinned whole, at the widths and text sizes that move the ladder. When
-    /// it changes, read the bar rings and the crumb rings separately: a change in a row's ring count
-    /// is the ladder stepping, while shifted positions with the same count are the bar or the trail
-    /// sliding. The first crumb is the source chip, a `Menu` with no focus ring, so this table pins
-    /// it only through the trail's position; `MenuLabelMarkTests` in the app target measures it.
-    @Test(.machinePinned(.pixelSampling)) func theLadderRendersItsGolden() {
-        for row in Self.golden {
-            let view = Self.header(row.name).environment(\.appFontScale, row.scale)
-            #expect(fingerprint(view, width: row.width) == row.rings,
-                    "\(row.name) @ scale \(row.scale), width \(row.width)")
+    /// With a provider the bar shares the breadcrumb's leading edge: it starts at the pane's
+    /// content inset with nothing before it, so the view switch, the first item, puts its ring
+    /// `segmentPadding` in, inside its capsule ground. The no-provider header keeps a 12pt gap
+    /// after its title instead (`theNoProviderHeaderReachesTheDeepRungs`). And the narrowest pane
+    /// draws the `.mini` rung, its pills smaller than a wider pane's `.small` ones.
+    @Test(.machinePinned(.pixelSampling)) func theBarStartsAtTheContentEdgeAndANarrowPaneTakesMiniPills() {
+        let rows: [(String, CGFloat, CGFloat, ControlSize)] = [
+            ("iCloud Drive", 1.0, 250, .mini), ("iCloud Drive", 0.9, 250, .mini),
+            ("iCloud Drive", 1.0, 330, .small), ("Marketing Team Shared Archive Drive", 1.0, 710, .small),
+        ]
+        for (name, scale, width, size) in rows {
+            let drawn = barRings(Self.header(name).environment(\.appFontScale, scale), width: width)
+            guard let first = drawn.map(\.minX).min() else {
+                Issue.record("\(name) @\(scale) \(width)pt: no bar drawn")
+                continue
+            }
+            #expect(abs(first - Self.contentInset - PaneNavMetrics.segmentPadding) <= 0.5,
+                    "\(name) @\(scale) \(width)pt: the bar's first ring is at \(first)pt, not the content edge plus the switch's ground")
+            let pill = PaneNavMetrics.pill(size).height
+            #expect(drawn.allSatisfy { abs($0.height - pill) <= 0.5 },
+                    "\(name) @\(scale) \(width)pt: rings \(drawn.map(\.height)) are not \(size)'s \(pill)pt pills")
         }
     }
-
-    private static let iCloud = "iCloud Drive"
-    private static let longName = "Marketing Team Shared Archive Drive"
-
-    private static let golden: [Golden] = goldenTable.map {
-        Golden(name: $0.0, scale: $0.1, width: $0.2, rings: $0.3)
-    }
-
-    private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
-        (iCloud, 0.9, 250, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 93,514/67x15 164,514/50x15"),
-        (iCloud, 0.9, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 122,514/67x15 193,514/50x15"),
-        (iCloud, 0.9, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 122,514/67x15 193,514/50x15"),
-        (iCloud, 0.9, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 219,469/33x20 268,469/33x20 309,469/33x20 122,514/67x15 193,514/50x15"),
-        // The narrowest pane: seven controls on a `.mini` rung, with the whole row to themselves.
-        (iCloud, 1.0, 250, "17,467/23x17 43,467/23x17 75,467/27x17 108,467/27x17 141,467/27x17 174,467/27x17 207,467/27x17 91,514/65x17 160,514/54x17"),
-        (iCloud, 1.0, 330, "17,467/29x20 49,467/29x20 87,467/33x20 126,467/33x20 165,467/33x20 204,467/33x20 243,467/33x20 282,467/33x20 128,514/73x17 205,514/54x17"),
-        // Where the titled rung begins: a title is affordable only once the bar has track to spare.
-        (iCloud, 1.0, 410, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
-        (iCloud, 1.0, 490, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
-        (iCloud, 1.0, 570, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
-        (iCloud, 1.0, 710, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 128,514/73x17 205,514/54x17"),
-        (longName, 1.0, 250, "17,467/23x17 43,467/23x17 75,467/27x17 108,467/27x17 141,467/27x17 174,467/27x17 207,467/27x17 91,514/65x17 160,514/54x17"),
-        (longName, 1.0, 410, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 243,514/73x17 320,514/54x17"),
-        // A long source name leaves the bar every control: the name reads on the breadcrumb below,
-        // where it truncates inside its own chip instead of pushing the bar off the end.
-        (longName, 1.0, 490, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
-        (longName, 1.0, 570, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
-        (longName, 1.0, 650, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
-        (longName, 1.0, 710, "17,467/29x20 49,467/29x20 89,467/33x20 128,467/33x20 169,467/33x20 221,467/33x20 273,467/33x20 315,467/33x20 281,514/73x17 358,514/54x17"),
-    ]
 
 }

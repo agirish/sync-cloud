@@ -176,8 +176,8 @@ import Testing
 
     @Test func testTheDeepestRungIsTodaysNarrowBar() {
         // A 250pt comparison pane shows the view switch as one pill, back, forward, scan and ⋯. If
-        // this set grows, the bar's minimum width grows and the 250pt golden in
-        // `PaneBarLadderTests` moves.
+        // this set grows, the bar's minimum width grows and a 250pt pane may lose its `.mini` rung
+        // (`PaneBarLadderTests.theBarStartsAtTheContentEdgeAndANarrowPaneTakesMiniPills`).
         let comparisonPane: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let plan = PaneBarLayout.plan(arrangement: .default, available: comparisonPane, depth: .max)
         #expect(plan.visible == [.viewMode, .backForward, .scan])

@@ -9,15 +9,10 @@ import FileExplorerTestSupport
 /// The differences header's ladder, whose rung is computed rather than searched.
 ///
 /// `HeaderLadder` chooses the rung by arithmetic instead of handing six candidate toolbars to
-/// `ViewThatFits`, so the claim is that its numbers describe the row actually drawn. Checked two
-/// ways, neither comparing a constant against another constant:
-///
-/// - Per rung: the width `HeaderLadder` computes is the width the row laid out at that rung
-///   occupies (`NSHostingView.fittingSize`).
-/// - End to end: at every width across a sweep, the row the computed rung produces is
-///   pixel-identical to the row a six-child `ViewThatFits` chooses. That searched ladder is rebuilt
-///   here, not kept in production, making a before/after oracle in one process (the same trick
-///   `PaneBarLadderTests` uses).
+/// `ViewThatFits`, so the claim is that its numbers describe the row actually drawn: the width
+/// `HeaderLadder` computes for a rung is the width the row laid out at that rung occupies
+/// (`NSHostingView.fittingSize`), never a constant against another constant. That the ladder picks
+/// the rung `ViewThatFits` would is `HeaderLadderRuleTests`' half.
 ///
 /// Controls are located by `_FocusRingView`, the handle `PaneBarLadderTests` reaches for: a SwiftUI
 /// `Button` with a custom style draws into a layer and puts no `NSControl` in the AppKit tree, and
@@ -156,17 +151,6 @@ struct HeaderLadderTests {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         return host
-    }
-
-    /// Every `_FocusRingView` in the laid-out row, as a stable string. This is the "what got drawn"
-    /// signal: two rows with the same fingerprint drew the same controls in the same places.
-    private func fingerprint(_ host: NSView) -> String {
-        let found = FocusRings.frames(in: host)
-        return found
-            .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
-            .map { "\(Int($0.minX.rounded())),\(Int($0.minY.rounded()))/"
-                 + "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
-            .joined(separator: " ")
     }
 
     // MARK: - The arithmetic against the drawn row
@@ -372,100 +356,6 @@ struct HeaderLadderTests {
         }
     }
 
-    // MARK: - The computed rung against the searched one
-
-    /// The end-to-end oracle: across a width sweep, the row the arithmetic picks is the row a
-    /// six-child `ViewThatFits` picks: same controls, same places, to the point. The searched
-    /// ladder is rebuilt here (`searchedLadder`), so this isn't the new code checking itself.
-    @Test func theComputedRungDrawsWhatTheSearchedLadderDrew() {
-        // `searchedLadder` spells its six rungs out because `ViewThatFits` can't take a loop. If a
-        // rung is added, this fails rather than quietly comparing against a ladder one rung short.
-        #expect(DifferencesView.renderedCompactionLadder.count == 6,
-                "the ladder has changed length — update `searchedLadder` to match before trusting it")
-        var disagreements: [String] = []
-        var compared = 0
-        for (leftName, rightName) in Self.paneNamePairs {
-            let names = PaneProviderNames(leftName: leftName, rightName: rightName)
-            let rows = differences()
-            let view = view(rows: rows, names: names)
-            let targets = DifferenceActionTargets(filtered: rows, selection: [])
-            let sections = DifferenceGrouping.sections(rows)
-            let (_, dressing) = Self.dressings()[1]     // the everyday case: a fresh age run
-            let ladder = HeaderLadder(facts: facts(rows: rows, names: names, dressing: dressing,
-                                                   targets: targets, sections: sections),
-                                      scale: 1)
-            for width in Self.oracleWidths(ladder) {
-                let searched = fingerprint(host(searchedLadder(view, facts: ladder.facts,
-                                                              dressing: dressing, targets: targets,
-                                                              sorted: rows, sections: sections),
-                                                width: width))
-                let computed = fingerprint(host(
-                    view.standardHeaderRow(ladder.rung(fitting: width), facts: ladder.facts,
-                                           dressing: dressing, targets: targets, sorted: rows,
-                                           sections: sections),
-                    width: width))
-                compared += 1
-                if searched != computed {
-                    disagreements.append("\(leftName)/\(rightName) at \(width)pt "
-                                         + "→ computed \(ladder.rung(fitting: width))\n"
-                                         + "  searched: \(searched)\n  computed: \(computed)")
-                }
-            }
-        }
-        #expect(compared > 150, "the sweep collapsed to \(compared) widths — it proves nothing")
-        let report = disagreements.prefix(5).joined(separator: "\n")
-        #expect(disagreements.isEmpty,
-                "\(disagreements.count) of \(compared) widths disagree:\n\(report)")
-    }
-
-    /// The widths the oracle compares at.
-    ///
-    /// Concentrated at the rung boundaries, the only place the two methods can disagree: between
-    /// them both hold the same rung for tens of points. Half-point steps either side of each
-    /// boundary, SwiftUI's own layout granularity, so a half-point arithmetic error is caught where
-    /// a uniform 4pt sweep would step over it. A coarse pass over the whole range catches anything
-    /// not boundary-shaped.
-    private static func oracleWidths(_ ladder: HeaderLadder) -> [CGFloat] {
-        var widths = Set<CGFloat>()
-        for rung in DifferencesView.renderedCompactionLadder {
-            let boundary = ladder.width(of: rung)
-            for delta in stride(from: CGFloat(-2), through: 2, by: 0.5) { widths.insert(boundary + delta) }
-        }
-        for width in stride(from: CGFloat(340), through: 1_500, by: 80) { widths.insert(width) }
-        // Below the narrowest rung, where nothing fits. The header's `minWidth` must reserve what
-        // `ViewThatFits` advertises as its minimum (its last child's width), or the card can be
-        // squeezed narrower than the row.
-        for width in [CGFloat(120), 200, 260, 300] { widths.insert(width) }
-        return widths.sorted()
-    }
-
-    /// The header's ladder searched the `ViewThatFits` way: six rows, widest first. The oracle
-    /// above compares against this.
-    @ViewBuilder
-    private func searchedLadder(_ view: DifferencesView,
-                                facts: HeaderLadder.Facts,
-                                dressing: DifferencesView.CountPillDressing,
-                                targets: DifferenceActionTargets,
-                                sorted: [FileDifference],
-                                sections: [DifferenceGrouping.Section]) -> some View {
-        func row(_ rung: HeaderCompaction) -> some View {
-            view.standardHeaderRow(rung, facts: facts, dressing: dressing, targets: targets,
-                                   sorted: sorted, sections: sections)
-        }
-        // Six literals, not a `ForEach`: `ViewThatFits` counts a `ForEach` as a single child, and
-        // the ladder would collapse to one rung. That makes this the one hand-written mirror of
-        // `renderedCompactionLadder` (the view itself reads that array), so the oracle asserts the
-        // count before trusting it.
-        return ViewThatFits(in: .horizontal) {
-            row(.full)
-            row(.foldVerify)
-            row(.foldReview)
-            row(.shortReverse)
-            row(.glyphFilter)
-            row(.shortPrimary)
-        }
-    }
-
     // MARK: - The mounted view
 
     /// Mounts the real `DifferencesView` and checks that the header on screen is a rung of this
@@ -662,6 +552,12 @@ struct HeaderLadderTests {
                 #expect(ladder.width(of: earlier) > width,
                         "\(earlier) fits at \(width)pt but \(chosen) was chosen")
             }
+        }
+        // Exactly at a rung's width that rung fits, as in `ViewThatFits`: the stride above lands
+        // on a boundary only while the widths are whole points.
+        for rung in DifferencesView.renderedCompactionLadder {
+            #expect(ladder.rung(fitting: ladder.width(of: rung)) <= rung,
+                    "\(rung) does not fit at its own width, \(ladder.width(of: rung))pt")
         }
     }
 

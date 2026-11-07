@@ -36,6 +36,16 @@ import Foundation
         #expect(MarkdownEdits.toggleTask(onLine: 1, in: "+ [ ] plus\n") == "+ [x] plus\n")
     }
 
+    /// The marker and the box are read a Character at a time. `isNumber` is Unicode's, so a digit
+    /// of another script numbers an item as an ASCII one does; and a combining mark joins the
+    /// character before it, so `[ \u{301}]` and `[x\u{301}]` hold no box and are left alone.
+    @Test func aMarkerAndABoxAreReadByCharacter() {
+        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "\u{663}. [ ] three\n") == "\u{663}. [x] three\n")
+        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "\u{1D7D9}. [x] one\n") == "\u{1D7D9}. [ ] one\n")
+        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [ \u{301}] mark\n") == nil)
+        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [x\u{301}] mark\n") == nil)
+    }
+
     /// Why the walk parses real GFM rather than pattern-matching: a bracket pair in prose is not a
     /// checkbox, and must not become an `[x]`.
     @Test func aBracketPairInProseIsLeftAlone() {
@@ -119,47 +129,6 @@ import Foundation
         #expect(line(3, of: lone) == "three")
     }
 
-    // MARK: The tick before P52, as the oracle
-
-    /// Every tick makes exactly the edit the character-walking tick made: the same range and
-    /// character, or the same refusal. Thousands of generated documents (every line ending,
-    /// combining marks next to the box and its brackets, emoji, tabs, non-ASCII digits), each
-    /// ticked on every line and one past the end, against ``PreP52Tick``, kept verbatim as the
-    /// oracle. Compared by UTF-16 unit, because `==` on two Strings calls `é` and `e` + U+0301 the
-    /// same.
-    @Test func everyTickMakesTheEditTheOldTickMade() {
-        var random = SeededGenerator(seed: 52)   // TextPairDiffMyersTests' SplitMix64
-        let pieces = ["- ", "* ", "+ ", "1. ", "12) ", "\u{663}. ", "\u{1D7D9}. ", "- [ ] ", "- [x] ", "- [X] ", "[ ]", "[x]", "[",
-                      "]", " ", "\t", "-", "x", "a", "\u{E9}", "e\u{301}", "\u{301}", "[\u{301}]", "[ \u{301}]",
-                      "\u{1F44D}\u{1F3FD}", "\n", "\n", "\r\n", "\r"]
-        var cases = 0
-        var flips = 0
-        var mismatches: [String] = []
-        for _ in 0..<4_000 {
-            let text = (0..<Int.random(in: 1...14, using: &random))
-                .map { _ in pieces.randomElement(using: &random)! }.joined()
-            let lines = text.filter { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }.count + 1
-            for target in 0...(lines + 1) {
-                let old = PreP52Tick.toggleTask(onLine: target, in: text)
-                    .map { MarkdownEdits.minimalReplacement(from: text, to: $0) }
-                let new = MarkdownEdits.taskToggle(onLine: target, in: text as NSString)
-                let same = switch (old, new) {
-                case (nil, nil): true
-                case let (old?, new?): old.range == new.range && old.text.utf16.elementsEqual(new.text.utf16)
-                default: false
-                }
-                if !same {
-                    mismatches.append("line \(target) of \(text.debugDescription): was \(String(describing: old)), now \(String(describing: new))")
-                }
-                cases += 1
-                if new != nil { flips += 1 }
-            }
-        }
-        #expect(mismatches.isEmpty, "\(mismatches.count) of \(cases) ticks differ, e.g. \(mismatches.prefix(5))")
-        // Both halves have to be exercised: refusals are most cases, and flips are the ones that write.
-        #expect(cases > 12_000 && flips > 1_000, "the generator no longer means anything: \(cases) cases, \(flips) flips")
-    }
-
     /// The tick reads the document only as far as its line, counted in units read rather than
     /// timed: a box on line 2 of a 1 MB document reads one chunk of it, not the whole document.
     @Test func aTickNearTheTopReadsOneChunkOfALongDocument() throws {
@@ -206,71 +175,5 @@ private final class CountingString: NSString {
     override func getCharacters(_ buffer: UnsafeMutablePointer<unichar>, range: NSRange) {
         unitsRead += range.length
         base.getCharacters(buffer, range: range)
-    }
-}
-
-/// `MarkdownEdits.toggleTask` and `lineRange` as a String walked a Character at a time and
-/// rewritten whole, kept verbatim as the oracle the chunked tick is held to.
-private enum PreP52Tick {
-    static func toggleTask(onLine target: Int, in text: String) -> String? {
-        guard let range = lineRange(of: target, in: text) else { return nil }
-        let line = String(text[range])
-        guard let flipped = flippedCheckbox(in: line) else { return nil }
-        return text.replacingCharacters(in: range, with: flipped)
-    }
-
-    static func lineRange(of target: Int, in text: String) -> Range<String.Index>? {
-        guard target >= 1 else { return nil }
-        var line = 1
-        var start = text.startIndex
-        var index = text.startIndex
-        while index < text.endIndex {
-            let character = text[index]
-            let next = text.index(after: index)
-            if character == "\n" || character == "\r\n" || character == "\r" {
-                if line == target { return start..<index }
-                line += 1
-                start = next
-            }
-            index = next
-        }
-        return line == target ? start..<text.endIndex : nil
-    }
-
-    private static func flippedCheckbox(in line: String) -> String? {
-        var index = line.startIndex
-        func skipWhitespace() {
-            while index < line.endIndex, line[index] == " " || line[index] == "\t" {
-                index = line.index(after: index)
-            }
-        }
-        skipWhitespace()
-        guard index < line.endIndex else { return nil }
-        if line[index] == "-" || line[index] == "*" || line[index] == "+" {
-            index = line.index(after: index)
-        } else if line[index].isNumber {
-            while index < line.endIndex, line[index].isNumber { index = line.index(after: index) }
-            guard index < line.endIndex, line[index] == "." || line[index] == ")" else { return nil }
-            index = line.index(after: index)
-        } else {
-            return nil
-        }
-        let beforeSpace = index
-        skipWhitespace()
-        guard index > beforeSpace else { return nil }
-        guard index < line.endIndex, line[index] == "[" else { return nil }
-        let open = index
-        let state = line.index(after: open)
-        guard state < line.endIndex else { return nil }
-        let close = line.index(after: state)
-        guard close < line.endIndex, line[close] == "]" else { return nil }
-        switch line[state] {
-        case " ":
-            return line.replacingCharacters(in: open...close, with: "[x]")
-        case "x", "X":
-            return line.replacingCharacters(in: open...close, with: "[ ]")
-        default:
-            return nil
-        }
     }
 }

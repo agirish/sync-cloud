@@ -237,7 +237,7 @@
 0.21	FileExplorerTests.EditorPDFMenuBarSeamsTests
 0.21	FileExplorerTests.RowCopyPathTests
 0.20	FileExplorerTests.TransferGlyphTests
-0.20	FileExplorerTests.MarkupPrefixLinesEquivalenceTests
+0.20	FileExplorerTests.MarkupPrefixLinesTests
 0.18	FileExplorerTests.DuplicateRowMenuTests
 0.18	FileExplorerTests.RevealGlyphTests
 0.18	FileExplorerTests.DuplicateMatchFilterTests
@@ -274,7 +274,7 @@
 0.07	FileExplorerTests.DifferenceRowMenuOrderScanTests
 0.07	FileExplorerTests.ChromeGlassWiringTests
 0.06	FileExplorerTests.BitmapDiffTests
-0.06	FileExplorerTests.MarkupWrapEquivalenceTests
+0.06	FileExplorerTests.MarkupTwoSpanTests
 0.06	FileExplorerTests.FileIconCacheTests
 0.06	FileExplorerTests.LayoutPumpWaitPollTests
 0.06	FileExplorerTests.PaneBackgroundDeselectTests

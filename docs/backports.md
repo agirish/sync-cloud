@@ -6650,8 +6650,9 @@ half, built from `MarkupVerb.menuOrder` with the heading group as one menu, lit 
 `prefixLines` — and pressed through `EditorDocumentSurface.applyMarkup`, the Markup menu's function.
 One deliberate verb change rides with it: Bold, Strikethrough and Inline Code no longer take a run
 holding their delimiter again for one span (`**Warning** read the **docs**` used to come out turned
-inside out); every other inline edit equals the old `wrap`, which `MarkupWrapEquivalenceTests` holds
-case by case, as `MarkupPrefixLinesEquivalenceTests` already does for the line verbs.
+inside out); every other inline edit equals the old `wrap`, which `MarkupWrapEquivalenceTests` held
+case by case, as `MarkupPrefixLinesEquivalenceTests` did for the line verbs (both retired 11-06,
+once a mutation run showed the named tests catch what they caught).
 Text ▸ Format Bar hides it (`editorShowsFormatBar`). The header stays at `LiquidGlass.headerHeight`.
 
 ```sh

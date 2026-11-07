@@ -408,4 +408,20 @@ import Foundation
         #expect(FileSyncManager.folder("/r", holds: "/h/Documents/x.md", links: table, linkTargets: ["/lib"]),
                 "a link to a folder above the container did not lead on to what the container links in")
     }
+
+    /// A path spelled through a real folder symlink, as a save panel can hand one over, is held by
+    /// the folder the link leads to: the second try resolves it on disk. Nothing is recorded or
+    /// tabled, so only that resolution can answer. It reads only what exists, so the path does.
+    @Test func aPathThroughARealFolderLinkIsHeldWhereItLeads() throws {
+        let fm = FileManager.default
+        let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("synccloud-holds-\(UUID().uuidString)")
+        defer { try? fm.removeItem(atPath: base) }
+        try fm.createDirectory(atPath: base + "/root", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: base + "/outside/deep", withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: base + "/root/link", withDestinationPath: base + "/outside")
+        #expect(FileSyncManager.folder(base + "/outside", holds: base + "/root/link/deep", links: [:]),
+                "a path through a real link was not resolved to where it leads")
+        #expect(!FileSyncManager.folder(base + "/outside", holds: base + "/root", links: [:]),
+                "a folder held the folder its link sits in")
+    }
 }

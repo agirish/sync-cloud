@@ -2,32 +2,13 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins the fast paths in `normalizedComponent` and `nearNameKey` against the slow paths they
-/// short-circuit, which they must match byte for byte. `legacyNormalizedComponent` and
-/// `legacyNearNameKey` are that slow path, and cases are also checked against written-out answers,
-/// since two implementations agreeing only proves they agree.
+/// The two properties the fast paths in `normalizedComponent` and `nearNameKey` rest on, checked
+/// against Foundation for every ASCII scalar, and the path predicate against the per-component one.
+/// What the paths answer is `ProviderNameRulesTests`' half.
 @Suite struct ProviderNameFastPathTests {
 
-    // MARK: - The pre-change implementations, verbatim
-
-    private func legacyNormalizedComponent(_ name: String) -> String {
-        let precomposed = name.precomposedStringWithCanonicalMapping
-        var trimmed = precomposed.trimmingCharacters(in: .whitespacesAndNewlines)
-        while trimmed.hasSuffix(".") { trimmed.removeLast() }
-        trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? precomposed : trimmed
-    }
-
-    private func legacyNearNameKey(_ path: String, foldCase: Bool) -> String {
-        let normalized = path
-            .split(separator: "/", omittingEmptySubsequences: false)
-            .map { legacyNormalizedComponent(String($0)) }
-            .joined(separator: "/")
-        return foldCase ? normalized.lowercased() : normalized
-    }
-
-    /// Names that must survive the fast path unchanged, and names that must fall off it. Shared by
-    /// several tests, so a case added here is covered by all of them.
+    /// Names that must survive the fast path unchanged, and names that must fall off it, swept as
+    /// paths of one component in `paths`.
     private static let names: [String] = [
         "", "a", "file.txt", "Some Folder", "a.b.c", "UPPER", "x y z", "a..b",
         "-", "_", "0", "~", "!@#$%^&()", "a\tb", "a\nb",              // interior control chars
@@ -44,25 +25,6 @@ import Testing
         " /x", "x/ ", "a/./b", "a/../b",
     ]
 
-    // MARK: - Equivalence with the slow path
-
-    @Test func normalizedComponentMatchesThePreChangeImplementation() {
-        for name in Self.names {
-            #expect(ProviderNameRules.normalizedComponent(name) == legacyNormalizedComponent(name),
-                    "normalizedComponent diverged for \(debugForm(name))")
-        }
-    }
-
-    @Test func nearNameKeyMatchesThePreChangeImplementation() {
-        for path in Self.paths {
-            for foldCase in [true, false] {
-                #expect(ProviderNameRules.nearNameKey(forRelativePath: path, foldCase: foldCase)
-                        == legacyNearNameKey(path, foldCase: foldCase),
-                        "nearNameKey(foldCase: \(foldCase)) diverged for \(debugForm(path))")
-            }
-        }
-    }
-
     // MARK: - The two properties the fast paths rest on
 
     /// The ASCII whitespace list is hard-coded in `ProviderNameRules`, so every ASCII scalar is
@@ -78,17 +40,12 @@ import Testing
             // A one-byte name trims to empty and comes back unchanged, which tells nothing, so probe
             // the byte at the edge of a name with a body, as the predicate is used.
             let probe = "a" + String(scalar)
-            let stripped = legacyNormalizedComponent(probe) != probe
-            #expect(foundationSaysWhitespace == stripped,
-                    "byte 0x\(String(byte, radix: 16)): Foundation says \(foundationSaysWhitespace), slow path stripped \(stripped)")
-            // And the predicate the fast path uses must agree with Foundation on every one.
             #expect(ProviderNameRules.hasNothingToNormalize(probe) == !foundationSaysWhitespace,
-                    "byte 0x\(String(byte, radix: 16)): fast-path predicate disagrees")
+                    "byte 0x\(String(byte, radix: 16)): Foundation says \(foundationSaysWhitespace), the fast-path predicate disagrees")
         }
-        // The trailing dot: stripped by the slow path, so the predicate must reject it, and it
-        // must not be classified as whitespace.
+        // The trailing dot: stripped, so the predicate must reject it, and it must not be
+        // classified as whitespace.
         #expect(!CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(dot)))
-        #expect(legacyNormalizedComponent("a.") == "a", "premise: the slow path strips a trailing dot")
         #expect(!ProviderNameRules.hasNothingToNormalize("a."), "the fast path must not claim \"a.\" is a no-op")
     }
 
@@ -116,19 +73,6 @@ import Testing
                 .allSatisfy { ProviderNameRules.hasNothingToNormalize(String($0)) }
             #expect(ProviderNameRules.pathHasNothingToNormalize(path) == perComponent,
                     "predicates disagree for \(debugForm(path))")
-        }
-    }
-
-    /// A name the fast path accepts must come back unchanged from the slow path, which is what
-    /// makes the short-circuit legal.
-    @Test func anythingTheFastPathAcceptsIsUnchangedByTheSlowPath() {
-        for name in Self.names where ProviderNameRules.hasNothingToNormalize(name) {
-            #expect(legacyNormalizedComponent(name) == name,
-                    "fast path accepted \(debugForm(name)) but the slow path would have changed it")
-        }
-        for path in Self.paths where ProviderNameRules.pathHasNothingToNormalize(path) {
-            #expect(legacyNearNameKey(path, foldCase: false) == path,
-                    "fast path accepted path \(debugForm(path)) but the slow path would have changed it")
         }
     }
 

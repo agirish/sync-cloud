@@ -59,18 +59,24 @@ private final class RevealBox: ObservableObject {
         #expect(caret.held, "the revealed field must hold the caret in Frosted too (gave up after \(caret.passes) passes)")
     }
 
-    // MARK: Behaviour-preservation of the extraction
+    // MARK: The field's layout
 
-    /// Compare's search field through the component must lay out like the inline original. The
-    /// risk is the accessories slot: chips and suggestions arrive through a ViewBuilder as a
-    /// nested `TupleView`, and if SwiftUI didn't flatten it, the 7pt spacing of the
-    /// `VStack(spacing: 7)` would change and Compare's header would shift. Measured in every
-    /// combination of chips and suggestions; equal heights mean the layout is preserved.
-    @Test(arguments: [(false, false), (true, false), (false, true), (true, true)])
-    func matchesThePreExtractionLayout(showsChips: Bool, showsSuggestions: Bool) {
-        let legacy = LegacyCompareField(showsChips: showsChips, showsSuggestions: showsSuggestions)
-        let adopted = AdoptedCompareField(showsChips: showsChips, showsSuggestions: showsSuggestions)
-        #expect(laidOutHeight(legacy, width: 480) == laidOutHeight(adopted, width: 480))
+    /// The field's own layout, which Compare's header is laid out against: 6pt above and below,
+    /// and each accessory row 7pt below the one above it. The rows are fixed-height blocks and the
+    /// trailing slot is the tallest thing in the field's row, so every height is known exactly.
+    /// The risk is the accessories slot: two rows arrive through a ViewBuilder as a nested
+    /// `TupleView`, and unless SwiftUI flattens it into the field's `VStack(spacing: 7)` they lose
+    /// the gap between them.
+    @Test(arguments: [(false, false, CGFloat(52)), (true, false, 69), (false, true, 79), (true, true, 96)])
+    func theFieldPadsItsRowAndSpacesItsAccessories(chips: Bool, suggestions: Bool, height: CGFloat) {
+        let field = ExpandingSearchField(
+            text: .constant(""), isExpanded: .constant(true), placeholder: "",
+            trailing: { Color.clear.frame(width: 1, height: 40) },
+            accessories: { _ in
+                if chips { Color.clear.frame(height: 10) }
+                if suggestions { Color.clear.frame(height: 20) }
+            })
+        #expect(laidOutHeight(field, width: 480) == height)
     }
 
     // MARK: Collapse semantics
@@ -201,85 +207,6 @@ private final class RevealBox: ObservableObject {
     private static func becomesEditingText(_ window: NSWindow,
                                            timeout: TimeInterval = 15) async -> (held: Bool, passes: Int) {
         await pumpUntil(window, timeout: timeout) { isEditingText(window) }
-    }
-}
-
-/// Stand-ins for Compare's accessories, shaped like the real ones (a chips capsule row and a
-/// one-tap suggestion row) so the two layouts below are measured with identical content.
-private struct AccessoryStubs {
-    @ViewBuilder
-    static var chips: some View {
-        HStack(spacing: 6) {
-            TokenChipsRow(items: [TokenChipsRow.Item(label: "kind: pdf", word: "kind:pdf", isActive: true)],
-                          tint: .blue, onRemove: { _ in })
-            Spacer(minLength: 0)
-        }
-    }
-
-    @ViewBuilder
-    static var suggestions: some View {
-        HStack(spacing: 6) {
-            Text("Add filter").font(.caption2).foregroundStyle(.tertiary).fixedSize()
-            Text("PDFs").font(.caption2).padding(.horizontal, 7).padding(.vertical, 2)
-                .background(Capsule().fill(.quaternary.opacity(0.6)))
-            Spacer(minLength: 0)
-        }
-    }
-
-    @ViewBuilder
-    static var trailing: some View {
-        Text("3 of 12").font(.caption).monospacedDigit().foregroundStyle(.secondary)
-    }
-}
-
-/// Compare's search field written inline, as `DifferencesView` had it before using the component:
-/// the reference the adoption is measured against.
-private struct LegacyCompareField: View {
-    let showsChips: Bool
-    let showsSuggestions: Bool
-    @State private var text = "kind:pdf"
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                TextField("Search — try kind:pdf, >10mb, only:left", text: $text)
-                    .textFieldStyle(.plain)
-                    .focused($focused)
-                if !text.isEmpty {
-                    Button { text = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                AccessoryStubs.trailing
-            }
-            if showsChips { AccessoryStubs.chips }
-            if showsSuggestions { AccessoryStubs.suggestions }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .searchFieldSurface()
-    }
-}
-
-/// The same field, expressed through the extracted component the way `DifferencesView` now does.
-private struct AdoptedCompareField: View {
-    let showsChips: Bool
-    let showsSuggestions: Bool
-    @State private var text = "kind:pdf"
-
-    var body: some View {
-        ExpandingSearchField(
-            text: $text,
-            isExpanded: .constant(true),
-            placeholder: "Search — try kind:pdf, >10mb, only:left",
-            trailing: { AccessoryStubs.trailing },
-            accessories: { _ in
-                if showsChips { AccessoryStubs.chips }
-                if showsSuggestions { AccessoryStubs.suggestions }
-            }
-        )
     }
 }
 

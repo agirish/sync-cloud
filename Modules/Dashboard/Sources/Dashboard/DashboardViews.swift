@@ -1272,7 +1272,7 @@ enum PaneNavMetrics {
 
     // No fixed cluster width: the bar's length is whatever someone arranged. The pill's painted
     // size is pinned by `PaneNavMetricsTests.glyphPillsAreIdentical`, and the rung a 250pt pane
-    // picks by `PaneBarLadderTests.theLadderRendersItsGolden`.
+    // picks by `PaneBarLadderTests.theBarStartsAtTheContentEdgeAndANarrowPaneTakesMiniPills`.
     //
     // Don't shrink the pill to buy width: the header's degradation ladder is not monotonic in it,
     // and a 250pt pane is already on the `.mini` rung, where `.small` sizes change nothing.

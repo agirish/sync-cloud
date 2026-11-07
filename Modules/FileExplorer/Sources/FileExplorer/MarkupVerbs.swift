@@ -625,8 +625,7 @@ extension MarkdownEdits {
     /// With `nests: false` (every inline verb but Italic), a run holding the delimiter is not one
     /// span. `**Warning** read the **docs**` selected whole starts and ends with `**`, but taking
     /// the outer pairs off would turn the formatting inside out. Such a run is "not wrapped", and
-    /// the press adds a pair instead of destroying two. `MarkupWrapEquivalenceTests` holds every
-    /// other case to the earlier `wrap`'s answer.
+    /// the press adds a pair instead of destroying two (`MarkupTwoSpanTests`).
     ///
     /// Italic is read by its runs of stars instead (``italicState(_:_:)``), because its delimiter
     /// is also half of Bold's: `neighbour` and `nests` say nothing for it.
@@ -1130,15 +1129,15 @@ extension MarkdownEdits {
         return firstMatch("^(?:[ \t]{0,3}>[ \t]?)*[ \t]*", in: line)?.length ?? 0
     }
 
-    /// Internal rather than private, so `MarkupPrefixLinesEquivalenceTests` can run the old
-    /// `prefixLines` algorithm beside the current one over the same helpers and show they agree.
-    static func stripping(_ prefix: LinePrefix, from line: String) -> String {
+    /// `line` with `prefix`'s own marker taken off its front, if it has one.
+    private static func stripping(_ prefix: LinePrefix, from line: String) -> String {
         guard let match = firstMatch(prefix.pattern, in: line) else { return line }
         return (line as NSString).replacingCharacters(in: match, with: "")
     }
 
-    /// Internal for the reason ``stripping(_:from:)`` is.
-    static func applying(_ prefix: LinePrefix, to line: String, at index: Int) -> String {
+    /// `line` with `prefix`'s marker for item `index` in front, in place of its own kind's and
+    /// any kind it replaces.
+    private static func applying(_ prefix: LinePrefix, to line: String, at index: Int) -> String {
         var body = line
         // Its own kind first, so re-applying at a different level replaces rather than stacks.
         body = stripping(prefix, from: body)
