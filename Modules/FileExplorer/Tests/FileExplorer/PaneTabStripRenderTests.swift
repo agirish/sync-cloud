@@ -178,7 +178,7 @@ import Design
     }
 
     func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        differingPixels(a, b, in: NSRect(x: 0, y: 0, width: a.pixelsWide, height: a.pixelsHigh))
+        PixelDiff.differingPixels(a, b, tolerance: 0.01)
     }
 
     // MARK: The positive control

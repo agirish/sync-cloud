@@ -285,7 +285,7 @@ import Testing
     /// `OrganizeScopeCallSiteTests`. `compareControl` must sit at the same indentation as the
     /// unconditional Reveal button beside it; any gate would indent it deeper.
     @Test func theCardOffersCompareToEveryGroupNotJustFolders() throws {
-        let source = try String(contentsOf: Self.cardSource, encoding: .utf8)
+        let source = try SourceText.fileExplorer("DuplicateGroupCard.swift")
         let lines = source.components(separatedBy: "\n")
         let compareIndex = try #require(lines.firstIndex {
             $0.trimmingCharacters(in: .whitespaces) == "compareControl"
@@ -296,14 +296,6 @@ import Testing
         func indent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
         #expect(indent(lines[compareIndex]) == indent(lines[revealIndex]),
                 "`compareControl` is nested deeper than the Reveal button beside it — something is gating it again")
-    }
-
-    private static var cardSource: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()        // FileExplorer (tests)
-            .deletingLastPathComponent()        // Tests
-            .deletingLastPathComponent()        // Modules/FileExplorer
-            .appendingPathComponent("Sources/FileExplorer/DuplicateGroupCard.swift")
     }
 
     // MARK: Verify's three outcomes

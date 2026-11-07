@@ -298,11 +298,7 @@ import Design
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, width: CGFloat) -> Int {
         let columns = min(Int(width * a.size.width == 0 ? 0 : CGFloat(a.pixelsWide) / a.size.width * width),
                           a.pixelsWide, b.pixelsWide)
-        var count = 0
-        for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
-            for x in 0..<columns where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { count += 1 }
-        }
-        return count
+        return PixelDiff.differingPixels(a, b, tolerance: 0, beforeX: columns)
     }
 
     /// The positive control: with room for everything, the whole name is drawn.

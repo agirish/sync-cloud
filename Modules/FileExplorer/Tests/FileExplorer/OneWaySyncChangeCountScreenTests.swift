@@ -98,25 +98,11 @@ import Sync
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return try #require(PixelDiff.render(subject, size: size))
     }
 
     func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        var count = 0
-        for x in 0..<min(a.pixelsWide, b.pixelsWide) {
-            for y in 0..<min(a.pixelsHigh, b.pixelsHigh) where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { count += 1 }
-        }
-        return count
+        PixelDiff.differingPixels(a, b, tolerance: 0)
     }
 
     /// The count draws in the app's accent, so Coral and Green differ; "Synced at" keeps its

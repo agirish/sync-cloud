@@ -17,16 +17,8 @@ import SwiftUI
 
     // MARK: Source scans
 
-    private static func modulesURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // …/Tests/FileExplorer
-            .deletingLastPathComponent()      // …/Tests
-            .deletingLastPathComponent()      // …/FileExplorer
-            .deletingLastPathComponent()      // …/Modules
-    }
-
     private static func source(_ file: String, module: String = "FileExplorer") throws -> String {
-        let url = modulesURL().appendingPathComponent("\(module)/Sources/\(module)/\(file)")
+        let url = SourceText.modules.appendingPathComponent("\(module)/Sources/\(module)/\(file)")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read \(file) — every scan here would be vacuous")
         try #require(text.count > 500, "\(file) read as \(text.count) characters — truncated?")
@@ -36,10 +28,7 @@ import SwiftUI
     /// The source with whole-line `//` comments dropped, so a comment quoting the old code cannot
     /// satisfy, or trip, a scan.
     private static func code(_ file: String, module: String = "FileExplorer") throws -> String {
-        try source(file, module: module)
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        SourceText.codeOnly(try source(file, module: module))
     }
 
     /// The `length` characters of `text` after the first `anchor`, or nil when it is absent.

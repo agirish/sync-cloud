@@ -49,14 +49,8 @@ import Combine
     }
 
     private func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/FileExplorer/\(file)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        try #require(text.count > 2_000, "\(file) read as \(text.count) characters — this scan would be vacuous")
         // Code only: a comment naming a call is not the call.
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        SourceText.codeOnly(try SourceText.fileExplorer(file, atLeast: 2_000))
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 

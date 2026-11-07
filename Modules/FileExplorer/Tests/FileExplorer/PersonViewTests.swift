@@ -93,15 +93,16 @@ import Design
                                  _ band: CGRect) -> Int {
         a.layoutSubtreeIfNeeded(); b.layoutSubtreeIfNeeded()
         guard let ra = a.bitmapImageRepForCachingDisplay(in: band),
-              let rb = b.bitmapImageRepForCachingDisplay(in: band) else { return 0 }
+              let rb = b.bitmapImageRepForCachingDisplay(in: band) else {
+            // Recorded rather than answered: callers check both `> 20` and `== 0`, so any count
+            // returned here would pass one of them without measuring.
+            Issue.record("no bitmap for the band \(band)")
+            return 0
+        }
         a.cacheDisplay(in: band, to: ra)
         b.cacheDisplay(in: band, to: rb)
         guard ra.pixelsWide == rb.pixelsWide, ra.pixelsHigh == rb.pixelsHigh else { return .max }
-        var n = 0
-        for y in 0..<ra.pixelsHigh {
-            for x in 0..<ra.pixelsWide where ra.colorAt(x: x, y: y) != rb.colorAt(x: x, y: y) { n += 1 }
-        }
-        return n
+        return PixelDiff.differingPixels(ra, rb, tolerance: 0)
     }
 
     @Test("Both groups reach the screen, in both themes", .machinePinned(.pixelSampling))

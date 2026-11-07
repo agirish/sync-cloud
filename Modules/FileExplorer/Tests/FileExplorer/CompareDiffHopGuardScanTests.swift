@@ -14,21 +14,10 @@ import Foundation
 /// are: the race needs a detached pass to finish after a page turn, which no hosted view arranges.
 @Suite struct CompareDiffHopGuardScanTests {
 
+    /// `refreshRasters`'s body, whole-line comments out: a comment quoting the guard is not the guard.
     private static func refreshRasters() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/CompareCopiesSheet.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read CompareCopiesSheet.swift — this check is vacuous")
-        let start = try #require(source.range(of: "private func refreshRasters() async {"),
-                                 "`refreshRasters` is gone or renamed — re-aim this scan")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n    private func ")?.lowerBound
-            ?? rest.range(of: "\n    func ")?.lowerBound ?? rest.endIndex
-        // Whole-line comments out: a comment quoting the guard is not the guard.
-        return rest[..<end].split(separator: "\n")
-            .filter { !$0.drop { $0 == " " }.hasPrefix("//") }
-            .joined(separator: "\n")
+        try SourceText.body(of: "private func refreshRasters() async {",
+                            in: SourceText.fileExplorer("CompareCopiesSheet.swift"))
     }
 
     @Test func theComparisonsResultIsGuardedBeforeItIsHeld() throws {

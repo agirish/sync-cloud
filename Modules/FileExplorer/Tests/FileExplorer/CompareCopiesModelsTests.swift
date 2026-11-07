@@ -320,11 +320,7 @@ import Sync
     // MARK: Where the wording is allowed to live
 
     /// This package's `Sources/FileExplorer`, from this file's own path.
-    private static let sourcesDir = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()   // …/Tests/FileExplorer
-        .deletingLastPathComponent()   // …/Tests
-        .deletingLastPathComponent()   // …/FileExplorer
-        .appendingPathComponent("Sources/FileExplorer")
+    private static let sourcesDir = SourceText.modules.appendingPathComponent("FileExplorer/Sources/FileExplorer")
 
     /// The trash button's age words may appear in one source file only, the home of
     /// `DuplicateComparePrompt`, whose tests hold them to the pair's dates. A `switch` in the view
