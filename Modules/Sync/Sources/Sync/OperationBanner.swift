@@ -34,6 +34,12 @@ public struct OperationBanner: Equatable, Sendable {
     /// and error, so each site says what its banner is to someone reading the log later.
     public enum LogLevel: Equatable, Sendable {
         case info, warn, error
+        /// The site logs its own WARN or ERROR line beside the banner, with more than the banner
+        /// says; the copy still goes to the log, at INFO, so what the user saw stays on record.
+        case loggedAtSite
+        /// No copy at all: only for a per-item reporter inside a loop, under a cap that writes a
+        /// line naming every item past it (C7), where a copy per item is the flood.
+        case notMirrored
 
         /// The level the mirror wrote before banners carried their own: the severity's. For a
         /// site whose severity is decided at run time.

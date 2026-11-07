@@ -1541,7 +1541,7 @@ extension FileSyncManager {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves a
         // file Verify All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing", log: .warn)
+            banner = .warning("Wait for Verify All to finish before filing", log: .info)
             return .failed
         }
         switch await performFiling(suggestion, to: destination) {
@@ -1607,7 +1607,7 @@ extension FileSyncManager {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves
         // files Verify All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing", log: .warn)
+            banner = .warning("Wait for Verify All to finish before filing", log: .info)
             return
         }
         let batch = scope.filter { $0.isBatchEligible }

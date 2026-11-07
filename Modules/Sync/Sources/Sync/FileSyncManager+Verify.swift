@@ -156,7 +156,7 @@ extension FileSyncManager {
         // banner, not a silent no-op.
         guard !isVerifyAllRunning, !isBulkSyncRunning,
               activeFileOperationsCount == 0, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before verifying", log: .warn)
+            banner = .warning("Wait for the current operation to finish before verifying", log: .info)
             return
         }
         isVerifyAllRunning = true
@@ -281,7 +281,7 @@ extension FileSyncManager {
         if differed > 0 { parts.append("\(differed) differed") }
         if skipped > 0 { parts.append("\(skipped) skipped") }
         if progress.isCancelled {
-            banner = .warning("Verify All canceled", log: .warn)
+            banner = .warning("Verify All canceled", log: .info)
         } else if parts.isEmpty {
             banner = nil
         } else {

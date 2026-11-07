@@ -417,7 +417,7 @@ extension FileSyncManager {
     public func applyAutomationFiling(rows: [AutomationDryRunRow]) async -> (filed: Int, failed: Int) {
         // Don't move files Verify All may be checksumming (same guard Filing uses).
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing", log: .warn)
+            banner = .warning("Wait for Verify All to finish before filing", log: .info)
             return (0, 0)
         }
         let fm = fileManager

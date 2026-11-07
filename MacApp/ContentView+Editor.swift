@@ -1103,7 +1103,7 @@ extension ContentView {
                                              from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource),
                                              whenUnavailable: { _ in })
         let note = OperationBanner.warning(opensOnArrival ? "Downloading “\(name)” — it opens here when it arrives."
-                                                          : "Downloading “\(name)”…", log: .warn)
+                                                          : "Downloading “\(name)”…", log: .info)
         syncManager.banner = note
         Task { @MainActor in
             // Ten minutes, not the external open's one: Download was asked for here, and a large
@@ -1114,7 +1114,7 @@ extension ContentView {
             if syncManager.banner?.id == note.id { syncManager.banner = nil }
             guard landed else {
                 Logger.shared.warning("[edit] \(path) did not arrive from the cloud within ten minutes")
-                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.", log: .error)
+                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.", log: .loggedAtSite)
                 return
             }
             guard editorOpenPath == path, editorOpenIsRefused else {
@@ -1138,7 +1138,7 @@ extension ContentView {
               MaterializationStatus.isCloudOnly(atPath: MaterializationStatus.linkTarget(of: path)) else { return }
         let name = ExternalOpen.name(path)
         Logger.shared.info("[open] \(path) is still in the cloud — fetching it before Edit can read it")
-        syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.", log: .warn)
+        syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.", log: .info)
         Task { @MainActor in
             let landed = await ExternalOpen.fetch(path)
             guard editorOpenPath == path, editorOpenIsRefused else {
@@ -1150,7 +1150,7 @@ extension ContentView {
                 openInEditor(path: path)
             } else {
                 Logger.shared.warning("[open] \(path) did not arrive from the cloud within a minute")
-                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.", log: .error)
+                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.", log: .loggedAtSite)
             }
         }
     }
@@ -1890,7 +1890,7 @@ extension ContentView {
             return .madeNow
         } catch {
             Logger.shared.error("[new-file] Couldn't make \(folder): \(error.localizedDescription)")
-            syncManager.banner = .error("Couldn’t make the Notes folder — \(error.localizedDescription)", log: .error)
+            syncManager.banner = .error("Couldn’t make the Notes folder — \(error.localizedDescription)", log: .loggedAtSite)
             return .couldNotMake
         }
     }

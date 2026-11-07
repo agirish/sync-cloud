@@ -204,7 +204,7 @@ extension FileSyncManager {
         // Verify All's write-exclusion guard, as in `normalizeNames`: a rename moves a file Verify
         // All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before renaming", log: .warn)
+            banner = .warning("Wait for Verify All to finish before renaming", log: .info)
             return
         }
         guard !plans.isEmpty, !isApplyingRenames else { return }

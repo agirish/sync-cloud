@@ -314,7 +314,7 @@ extension FileSyncManager {
         // Verify All's exclusion, as in syncFile: a transfer mid-verify could overwrite a file
         // as it's hashed.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before copying or moving items", log: .warn)
+            banner = .warning("Wait for Verify All to finish before copying or moving items", log: .info)
             return []
         }
         if isMove, let refusal = oneWaySyncRefusal?(nodes.map(\.id)) {
@@ -868,7 +868,7 @@ extension FileSyncManager {
         // Verify All's exclusion, as every write has: a rename mid-verify moves a file out from
         // under its hash.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before renaming", log: .warn)
+            banner = .warning("Wait for Verify All to finish before renaming", log: .info)
             return
         }
         if let refusal = oneWaySyncRefusal?([path]) {
@@ -933,7 +933,7 @@ extension FileSyncManager {
     /// Creates a new empty directory on disk.
     public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before making a folder", log: .warn)
+            banner = .warning("Wait for Verify All to finish before making a folder", log: .info)
             return
         }
         if let reason = Self.validateItemName(name) {
@@ -1286,7 +1286,7 @@ extension FileSyncManager {
         // Verify All's exclusion, as in syncFile: a delete mid-verify could remove a file as it's
         // hashed.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before deleting items", log: .warn)
+            banner = .warning("Wait for Verify All to finish before deleting items", log: .info)
             return DeleteOutcome()
         }
         if let refusal = oneWaySyncRefusal?(paths) {

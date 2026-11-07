@@ -2636,9 +2636,10 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard let banner, banner.id != oldValue?.id else { return }
             switch banner.log {
-            case .info: Logger.shared.info("[banner] \(banner.message)")
+            case .info, .loggedAtSite: Logger.shared.info("[banner] \(banner.message)")
             case .warn: Logger.shared.warning("[banner] \(banner.message)")
             case .error: Logger.shared.error("[banner] \(banner.message)")
+            case .notMirrored: break
             }
         }
     }
@@ -3477,7 +3478,7 @@ public class FileSyncManager: ObservableObject {
         // overwrite a file as it's hashed — the pair can read "identical" against bytes that
         // no longer exist, poisoning the copy-to-match-dates offer.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before syncing", log: .warn)
+            banner = .warning("Wait for Verify All to finish before syncing", log: .info)
             return false
         }
 
@@ -3489,7 +3490,7 @@ public class FileSyncManager: ObservableObject {
         // owns, and a syncFile parked at its prompt becomes invisible to Verify All's exclusion
         // guard.
         guard !isBulkSyncRunning else {
-            banner = .warning("Wait for the current operation to finish before syncing", log: .warn)
+            banner = .warning("Wait for the current operation to finish before syncing", log: .info)
             return false
         }
 

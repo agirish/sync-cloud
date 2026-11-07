@@ -452,7 +452,7 @@ extension FileSyncManager {
             Logger.shared.warning("Filing: refine ran on-device — Claude is switched on but the "
                 + "saved key could not be read, so nothing was sent or billed")
             banner = .warning("Couldn’t reach Claude — your saved API key couldn’t be read. "
-                              + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.", log: .warn)
+                              + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.", log: .loggedAtSite)
             return summary
         }
         // A declined charge is not a result. Nothing was sent or re-routed, so only cached answers

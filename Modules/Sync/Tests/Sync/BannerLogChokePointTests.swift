@@ -59,6 +59,20 @@ import Testing
         #expect(levels == ["INFO", "ERROR"], "the mirror read the banner's look, not its stated level")
     }
 
+    /// A banner whose site already logged the fault keeps its copy, at INFO; a per-item one under a
+    /// cap writes none.
+    @MainActor
+    @Test func aSiteLoggedBannerIsCopiedAtInfoAndAnUnmirroredOneNotAtAll() async throws {
+        let manager = FileSyncManager()
+        let marker = "choke-\(UUID().uuidString)"
+        let levels = try await bannerLevels(marker: marker) {
+            manager.banner = .warning(marker, log: .loggedAtSite)
+            manager.banner = .warning(marker, log: .notMirrored)
+            manager.banner = .error(marker, log: .loggedAtSite)
+        }
+        #expect(levels == ["INFO", "INFO"], "\(levels)")
+    }
+
     @MainActor
     @Test func dismissalLogsNothing() async throws {
         let manager = FileSyncManager()

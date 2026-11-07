@@ -204,7 +204,19 @@ public final class EditorPDFTools: ObservableObject {
     /// The run in flight, or `nil`; one at a time.
     @Published public private(set) var running: Running?
     @Published public var sheet: EditorPDFToolSheet?
-    @Published public var banner: EditorPDFToolBanner?
+    /// Copied to the log as it is shown, as `FileSyncManager.banner` is: what the reader saw is a
+    /// record of its own beside the tool's lines. A failure at WARN, anything else at INFO; only
+    /// the look of a banner is decided by its kind, so this copy never changes how it is drawn.
+    @Published public var banner: EditorPDFToolBanner? {
+        didSet {
+            guard let banner, banner.id != oldValue?.id else { return }
+            if case .failure = banner.kind {
+                Logger.shared.warning("[pdf banner] \(banner.message)")
+            } else {
+                Logger.shared.info("[pdf banner] \(banner.message)")
+            }
+        }
+    }
 
     /// "page N of M" from Compress, as it reached the main actor. Cleared when a run starts and left
     /// on the last page when it ends; shown only while ``running`` is set.
