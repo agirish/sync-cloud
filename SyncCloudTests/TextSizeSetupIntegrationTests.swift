@@ -4,9 +4,8 @@ import AppKit
 import Design
 @testable import SyncCloud
 
-/// The three seams between the text-size setting and the app that only the app target can see:
-/// the width the setup card gives its preset row, which tiles that row draws, and the launch call
-/// that migrates the stored value out of its old shape.
+/// The two seams between the text-size setting and the app that only the app target can see:
+/// the width the setup card gives its preset row, and which tiles that row draws.
 @Suite struct TextSizeSetupIntegrationTests {
 
     /// The You step's text-size row fits the card at every text size. `SetupSheetFitTests`
@@ -65,27 +64,6 @@ import Design
                 """)
     }
 
-    /// The app migrates the stored text size at launch. A source scan, because only the app target
-    /// compiles `SyncCloudApp.init`. Dropping the call is silent: `@AppStorage(FontSize.defaultsKey)
-    /// var percent: Int` cannot see the legacy `String` value, so a user who chose Small, Large or
-    /// Largest would open at 100% and the first write would make it permanent.
-    @Test func theAppMigratesTheStoredTextSizeAtLaunch() throws {
-        let source = try macAppFile("SyncCloudApp.swift")
-
-        #expect(source.contains("FontSize.migrateLegacyValue()"),
-                """
-                SyncCloudApp no longer calls FontSize.migrateLegacyValue() at launch — every user \
-                with a pre-percentage text size on disk silently reverts to 100%.
-                """)
-
-        // And that it runs at launch, before any read, which means `init`. Brace-matched, not
-        // compared by position: "later in the file than `init() {`" would also pass a call moved
-        // into an `onAppear` or any method declared below.
-        let body = try #require(Self.body(ofFirst: "init() {", in: source))
-        #expect(body.contains("FontSize.migrateLegacyValue()"),
-                "the migration call is no longer inside App.init — it must run before any read")
-    }
-
     /// The whole SwiftUI expression a call belongs to: its own line, plus the modifier lines
     /// chained under it. Not a fixed character window, which would run into the next control's
     /// modifiers or miss one of this call's.
@@ -103,23 +81,6 @@ import Design
         return collected.joined(separator: "\n")
     }
 
-    /// The body of the first declaration matching `opener`, by brace matching.
-    static func body(ofFirst opener: String, in source: String) -> String? {
-        guard let start = source.range(of: opener) else { return nil }
-        var depth = 0
-        var index = source.index(before: start.upperBound)   // the opener's own `{`
-        while index < source.endIndex {
-            let character = source[index]
-            if character == "{" { depth += 1 }
-            if character == "}" {
-                depth -= 1
-                if depth == 0 { return String(source[start.upperBound..<index]) }
-            }
-            index = source.index(after: index)
-        }
-        return nil
-    }
-
     @MainActor
     private static func idealWidth(_ view: some View, at size: FontSize) -> CGFloat {
         let host = NSHostingView(rootView: view.appFontSize(size))
@@ -128,7 +89,7 @@ import Design
     }
 }
 
-/// The two source-scan helpers, tested on fixtures: a helper that silently answers nothing turns
+/// The source-scan helper, tested on fixtures: a helper that silently answers nothing turns
 /// every scan built on it into a test that cannot fail.
 @Suite struct SourceScanHelperTests {
 
@@ -150,26 +111,5 @@ import Design
         #expect(expression?.contains("999") == false,
                 "the helper ran past the statement into the next view — the 220-character bug")
         #expect(TextSizeSetupIntegrationTests.expression(containing: "Missing(", in: source) == nil)
-    }
-
-    @Test func theBodyHelperMatchesBracesRatherThanPositions() {
-        let source = """
-        init() {
-            first()
-            if condition { nested() }
-        }
-
-        func later() {
-            afterTheInit()
-        }
-        """
-        let body = TextSizeSetupIntegrationTests.body(ofFirst: "init() {", in: source)
-
-        #expect(body?.contains("first()") == true)
-        #expect(body?.contains("nested()") == true, "it closed on the first inner brace")
-        // The reason for brace matching: this call is later in the file but not in init.
-        #expect(body?.contains("afterTheInit()") == false,
-                "the helper swallowed a declaration below init — the positional-compare bug")
-        #expect(TextSizeSetupIntegrationTests.body(ofFirst: "nope() {", in: source) == nil)
     }
 }

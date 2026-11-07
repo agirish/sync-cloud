@@ -209,8 +209,7 @@ public class SettingsManager: ObservableObject {
     }
 
     /// iCloud's root in older builds, `~/Documents`. `RootsMigration` maps old settings against
-    /// this rather than the current default, since a migration describes what was on disk then;
-    /// `moveICloudRoot` moves stored positions from here to the container.
+    /// this rather than the current default, since a migration describes what was on disk then.
     nonisolated public static var legacyICloudRoot: String {
         (NSString(string: "~/Documents")).expandingTildeInPath
     }

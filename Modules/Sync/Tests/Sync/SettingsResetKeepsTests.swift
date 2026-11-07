@@ -77,9 +77,9 @@ import Testing
     /// The marks that say which shape stored data is in. Without them the next launch migrates what
     /// the app wrote after the reset a second time.
     @Test func theMigrationMarksAreKept() {
-        for key in [FileSyncManager.filingRulesMigratedKey, OrganizeScopeDefaults.stampKey, "rootsModelStamp",
-                    "rootsModelHandledProviderIds", "iCloudRootMoveStamp", "paneBarArrangementMigration",
-                    "browseSidebarFavoritePlacesMigration", "paneColumnWidthFloorLifted", "infoPreviewMigrationDone"] {
+        for key in ["rootsModelStamp",
+                    "rootsModelHandledProviderIds", "paneBarArrangementMigration",
+                    "infoPreviewMigrationDone"] {
             #expect(SettingsResetKeeps.keeps(key), "\(key)")
         }
     }
@@ -90,23 +90,22 @@ import Testing
         #expect(SettingsResetKeeps.keeps("tidyFilingTotalBudgetUSD"))
     }
 
-    /// Automations, the legacy filing rules with their "migrated" flag, and the copies an
-    /// unreadable rule list is set aside under — read off the keys the rule store really writes.
+    /// Automations, the rejections, and the copies an unreadable rule list is set aside under —
+    /// read off the keys the rule store really writes.
     @MainActor
     @Test func everyKeyTheRuleStoresWriteIsKept() {
         let (defaults, name) = suite()
         let corrupt = Data("[{\"id\": \"x".utf8)
-        for key in [FileSyncManager.automationRulesDefaultsKey, FileSyncManager.rulesDefaultsKey,
+        for key in [FileSyncManager.automationRulesDefaultsKey,
                     FileSyncManager.rejectionsDefaultsKey, FileSyncManager.wordRejectionsDefaultsKey] {
             defaults.set(corrupt, forKey: key)
             _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key,
                                                      describing: "rules")
         }
-        defaults.set(true, forKey: FileSyncManager.filingRulesMigratedKey)
 
         let keys = storedKeys(name, defaults)
-        // Four stores, their set-aside copies, and the flag.
-        #expect(keys.count == 9, "\(keys.sorted())")
+        // Three stores and their set-aside copies.
+        #expect(keys.count == 6, "\(keys.sorted())")
         for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
     }
 

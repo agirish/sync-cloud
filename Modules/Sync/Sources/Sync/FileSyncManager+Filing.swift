@@ -303,13 +303,9 @@ extension FileSyncManager {
             if Task.isCancelled { return }
         }
 
-        // The user's rules steer the suggestions. Automations are the one rule system; the legacy
-        // remembered-rule store is consulted only until the one-time migration into Automations has
-        // run, so an un-migrated install (tests, CLI) behaves as before.
+        // The user's rules steer the suggestions. Automations are the one rule system.
         ensureAutomationRulesLoaded()
         let automations = automationRules
-        let rules = filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey)
-            ? [] : filingRules(under: providerRoot)
         let scanClock = Date()
 
         // Rules that read the file's text get it here, gated as the Automations preview gates it:
@@ -373,7 +369,7 @@ extension FileSyncManager {
         let rejections = rejectedByFile
         var suggestions = await Task.detached(priority: .userInitiated) {
             FilingEngine.suggest(looseFiles: looseFiles, learned: learned,
-                                 providerRoot: providerRootPath, rules: rules,
+                                 providerRoot: providerRootPath,
                                  automations: automations,
                                  registry: registry,
                                  identity: personIdentity,
@@ -469,7 +465,7 @@ extension FileSyncManager {
                     suggestions = await Task.detached(priority: .userInitiated) {
                         FilingEngine.suggest(looseFiles: looseFiles, learned: learned,
                                              providerRoot: providerRootPath, contentTokens: content,
-                                             rules: rules, automations: automations,
+                                             automations: automations,
                                              registry: registry,
                                              identity: personIdentity,
                                              providerName: providerName,
@@ -1093,37 +1089,6 @@ extension FileSyncManager {
 
     // MARK: Remembering rules (learned by example)
 
-    /// Where the legacy remembered filing rules persist (JSON, in `filingRuleDefaults`). Read for
-    /// the one-time migration into Automations, and by scans until it has run; never written to.
-    public nonisolated static let rulesDefaultsKey = "tidyFilingRules"
-
-    /// Set once ``migrateFilingRulesToAutomations(providerRoots:)`` has converted the legacy store;
-    /// scans then steer from automations alone.
-    public nonisolated static let filingRulesMigratedKey = "tidyFilingRulesMigratedToAutomations"
-
-    /// The legacy remembered rules. Kept readable for the migration and the pre-migration scan
-    /// path; the old data stays in defaults untouched afterwards as a backup.
-    public var filingRules: [FilingRule] {
-        get {
-            FileSyncManager.decodePersistedStore([FilingRule].self, from: filingRuleDefaults,
-                                                 key: Self.rulesDefaultsKey,
-                                                 describing: "remembered filing rules") ?? []
-        }
-        set {
-            FileSyncManager.writePersistedStore(newValue, to: filingRuleDefaults,
-                                                key: Self.rulesDefaultsKey,
-                                                describing: "remembered filing rules")
-        }
-    }
-
-    /// Legacy rules whose destination lives inside `providerRoot`: the only ones safe to apply to a
-    /// scan of that provider, since a rule's destination is an absolute path in one provider's tree.
-    func filingRules(under providerRoot: URL) -> [FilingRule] {
-        let root = providerRoot.path
-        // Disabled rules stay persisted and editable in the manager but are inert for scans.
-        return filingRules.filter { $0.enabled && PathBoundary.contains($0.destinationPath, under: root) }
-    }
-
     /// Learns an automation from a correction: "file <fileName> here" becomes a mentions-rule
     /// ("files that mention these words go here"), from the distinctive-anchor tokens remembered
     /// rules always used. The destination is the absolute path filed into, so a learned rule stays
@@ -1168,49 +1133,6 @@ extension FileSyncManager {
                                               evidence: evidence,
                                               modificationDate: modificationDate,
                                               now: now)
-    }
-
-    /// One-time migration: every legacy remembered rule becomes an automation with one
-    /// `mentionsAll` condition, the same tokens, absolute destination and enabled state, so the
-    /// rules the user taught keep steering Organize (scoped to the same provider) and become
-    /// editable in the Automations lens. Idempotent via ``filingRulesMigratedKey``; the legacy
-    /// store is left in place, unconsulted, as a backup.
-    public func migrateFilingRulesToAutomations() {
-        guard !filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey) else { return }
-        // Read through the three-way result, not the `?? []` getter: marking the migration done is
-        // one-way and the legacy store is never consulted again, so an unreadable store read as "no
-        // rules" would orphan every rule the user taught, permanently, on one failed decode. Stand
-        // down and retry next launch.
-        let legacyRead = FileSyncManager.readPersistedStore([FilingRule].self, from: filingRuleDefaults,
-                                                            key: Self.rulesDefaultsKey,
-                                                            describing: "remembered filing rules")
-        guard case .decoded(let legacy) = legacyRead else {
-            if case .unreadable = legacyRead {
-                Logger.shared.error(
-                    "Not migrating remembered filing rules: the saved rules could not be read. "
-                    + "Leaving them in place and will retry on the next launch.")
-            } else {
-                filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
-            }
-            return
-        }
-        guard !legacy.isEmpty else {
-            filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
-            return
-        }
-        ensureAutomationRulesLoaded()
-        var migrated = 0
-        for rule in legacy {
-            let condition = AutomationCondition.mentionsAll(rule.tokens)
-            guard !automationRules.contains(where: { $0.conditions == [condition] && $0.destinationTemplate == rule.destinationPath })
-            else { continue }
-            upsertAutomationRule(AutomationRule(name: rule.tokens.map(\.capitalized).joined(separator: " "),
-                                                enabled: rule.enabled, matchMode: .all,
-                                                conditions: [condition], destinationTemplate: rule.destinationPath))
-            migrated += 1
-        }
-        filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
-        Logger.shared.info("Migrated \(migrated) remembered filing rule(s) into Rules — manage them under Organize ▸ Rules")
     }
 
     // MARK: Rejections + "Try another" (negative feedback)

@@ -266,9 +266,9 @@ import Foundation
 }
 
 /// The Favorites defaults key is spelled twice, and this binds the two.
-/// `SidebarFavoritePlaces.storageKey` is what the launch migration reads; `ContentView`'s
-/// `@AppStorage` needs the literal at the property. If they drift, the migration silently rewrites
-/// a key nothing draws from.
+/// `SidebarFavoritePlaces.storageKey` is what Reset All Settings keeps and the salvage key derives
+/// from; `ContentView`'s `@AppStorage` needs the literal at the property. If they drift, Reset All
+/// resets the real list.
 @Suite struct FavoritePlacesKeyTests {
 
     @Test func favoritePlacesKeyMatchesTheAppStorageProperty() throws {
@@ -279,7 +279,7 @@ import Foundation
                                 "cannot read ContentView.swift — this scan would be vacuous")
         try #require(code.contains("@AppStorage("), "the file holds no @AppStorage — the scan is vacuous")
         #expect(code.contains("@AppStorage(\"\(SidebarFavoritePlaces.storageKey)\")"),
-                "ContentView reads a different key from the one SidebarFavoritePlaces.migrate writes")
+                "ContentView reads a different key from SidebarFavoritePlaces.storageKey")
     }
 
     /// The salvage key is derived from the storage key, so a rename can't leave it behind.

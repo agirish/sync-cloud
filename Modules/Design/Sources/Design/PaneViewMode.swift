@@ -154,24 +154,6 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         min(max(width, minimumColumnWidth), maximumColumnWidth)
     }
 
-    /// Marks that `liftColumnWidthOffTheFloor` has run, so it can only ever run once.
-    public static let columnWidthFloorLiftKey = "paneColumnWidthFloorLifted"
-
-    /// One-time repair for installs left pinned at `minimumColumnWidth`, a width once forced by a
-    /// preview that took its width from the columns' slack and too narrow to read.
-    ///
-    /// Deliberately narrow: it fires only on a width exactly at the floor (a deliberate 141 is left
-    /// alone), and it records that it ran, so someone who drags back to the minimum keeps it. A
-    /// stored preference shouldn't be rewritten twice.
-    public static func liftColumnWidthOffTheFloor(_ defaults: UserDefaults = .standard) {
-        guard !defaults.bool(forKey: columnWidthFloorLiftKey) else { return }
-        defaults.set(true, forKey: columnWidthFloorLiftKey)
-        guard defaults.object(forKey: columnWidthDefaultsKey) != nil,
-              CGFloat(defaults.double(forKey: columnWidthDefaultsKey)) <= minimumColumnWidth
-        else { return }
-        defaults.set(Double(defaultColumnWidth), forKey: columnWidthDefaultsKey)
-    }
-
     /// The width a divider drag has reached, from the width it started at and the gesture's
     /// translation.
     ///

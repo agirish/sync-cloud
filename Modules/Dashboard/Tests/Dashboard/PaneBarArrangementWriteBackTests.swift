@@ -44,7 +44,7 @@ import Foundation
         PaneBarMigration.apply(defaults: defaults)
 
         let rewritten = defaults.string(forKey: PaneBar.arrangementKey) ?? ""
-        #expect(rewritten.contains("search"), "the migration itself must still have happened")
+        #expect(rewritten.contains("typeFilter"), "the migration itself must still have happened")
         #expect(rewritten.contains("futureControl"),
                 "the migration's rewrite is a write like any other — it must not strip what it cannot name")
     }

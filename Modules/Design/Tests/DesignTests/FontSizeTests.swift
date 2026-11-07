@@ -99,47 +99,6 @@ import Testing
         #expect(FontSize(percent: 113).smaller?.percent == 110)
     }
 
-    // MARK: The stored value changed shape
-
-
-    @Test func migrationRewritesLegacyStringsOnceAndLeavesNumbersAlone() {
-        let defaults = ScratchDefaults("FontSizeTests.migrate")
-
-        defaults.set("extraLarge", forKey: FontSize.defaultsKey)
-        let migrated = FontSize.migrateLegacyValue(in: defaults)
-        #expect(migrated?.size == .extraLarge)
-        // The raw string is carried out for the launch log, so it names what was on disk, not the
-        // size's current label.
-        #expect(migrated?.raw == "extraLarge")
-        // What is on disk is now an Int, the only shape `@AppStorage(...) var percent: Int` can
-        // see. Checks what it wrote back, not that it decoded: a tolerant reader would pass
-        // without the store ever changing.
-        #expect(defaults.object(forKey: FontSize.defaultsKey) as? Int == 135)
-
-        // Idempotent: a second run has nothing to do, and must not re-examine its own output.
-        #expect(FontSize.migrateLegacyValue(in: defaults) == nil)
-        #expect(defaults.object(forKey: FontSize.defaultsKey) as? Int == 135)
-
-        // A fresh install has nothing to migrate, and must not be given a value.
-        let fresh = ScratchDefaults("FontSizeTests.migrateFresh")
-        #expect(FontSize.migrateLegacyValue(in: fresh) == nil)
-        #expect(fresh.object(forKey: FontSize.defaultsKey) == nil)
-
-        // An unrecognised string is left exactly where it is, for `resolved` to fall back on.
-        let junk = ScratchDefaults("FontSizeTests.migrateJunk")
-        junk.set("gigantic", forKey: FontSize.defaultsKey)
-        #expect(FontSize.migrateLegacyValue(in: junk) == nil)
-        #expect(junk.string(forKey: FontSize.defaultsKey) == "gigantic")
-    }
-
-    @Test func everyLegacyRawValueStillMapsToTheSizeItNamed() {
-        // Derived from the table rather than restated, so a key removed from `legacyRawValues`
-        // fails here instead of quietly resetting the users who still have it on disk.
-        #expect(Set(FontSize.legacyRawValues.keys)
-                == ["small", "medium", "large", "extraLarge"])
-        #expect(FontSize.legacyRawValues["medium"] == .medium)
-    }
-
     // MARK: Scale range
 
     @Test func mediumIsExactlyUnscaled() {

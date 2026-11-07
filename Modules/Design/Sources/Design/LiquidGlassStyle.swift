@@ -421,8 +421,7 @@ public extension LiquidGlass {
 
 /// How the content surfaces are shaped against the app's glass background: the other half of the
 /// Appearance model, orthogonal to `GlassLevel`. Stored via `LiquidGlass.surfaceStyleKey`. Shape
-/// only; an opaque look is `GlassLevel.solid`, and `LiquidGlass.migrateLegacyAppearance` moves a
-/// stored `solid` style across.
+/// only; an opaque look is `GlassLevel.solid`.
 public enum SurfaceStyle: String, CaseIterable, Identifiable {
     /// Everything under the toolbar is one outlined region, its areas divided by hairlines.
     case unified
@@ -525,10 +524,6 @@ public enum LiquidGlass {
     /// UserDefaults key for the selected `AppearanceMode` (raw value): light, dark or system.
     public static let appearanceModeKey = "appearanceMode"
 
-    /// UserDefaults key for the retired `liquidGlassIntensity` Double. Read only by
-    /// `migrateLegacyAppearance`, which clears it.
-    public static let intensityKey = "liquidGlassIntensity"
-
     /// UserDefaults key for the selected liquid glass hue (raw value of `LiquidGlassHue`).
     public static let hueKey = "liquidGlassHue"
 
@@ -551,26 +546,6 @@ public enum LiquidGlass {
 
     /// UserDefaults key for the accent-color tint strength applied to surfaces (Double, 0...1).
     public static let tintKey = "contentSurfaceTint"
-
-    /// Moves an install from before `GlassLevel` onto the two-control model. Idempotent: once
-    /// `levelKey` is set this is a no-op, so it runs on every launch.
-    ///
-    /// Every stored intensity maps to `.frosted` rather than being read as a number: the panes, the
-    /// dominant surface, rendered frosted at every intensity, so `.frosted` keeps what installs
-    /// looked like. A stored `SurfaceStyle.solid` was a material choice, so it becomes
-    /// `GlassLevel.solid` with the shape reset to `.unified`, which is what the opaque fill already
-    /// looked like.
-    public static func migrateLegacyAppearance(_ defaults: UserDefaults = .standard) {
-        guard defaults.string(forKey: levelKey) == nil else { return }
-
-        var level = GlassLevel.frosted
-        if defaults.string(forKey: surfaceStyleKey) == "solid" {
-            level = .solid
-            defaults.set(SurfaceStyle.unified.rawValue, forKey: surfaceStyleKey)
-        }
-        defaults.set(level.rawValue, forKey: levelKey)
-        defaults.removeObject(forKey: intensityKey)
-    }
 }
 
 // MARK: - View Extensions

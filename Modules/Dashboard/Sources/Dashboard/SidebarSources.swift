@@ -133,8 +133,7 @@ public enum SidebarSourceModel {
     /// The mounted-volume walk already builds its row, with its name (`Macintosh HD` or whatever
     /// the user renamed it) and its `internaldrive` glyph, so naming it here would go stale on a
     /// rename. It isn't in ``SidebarFavoritePlaces/standard``: it heads Locations' device band
-    /// (`orderedVolumes(_:)`). This path is what ``SidebarFavoritePlaces/migrate(defaults:)``
-    /// removes from an older stored list, and what a favorite of the disk is matched against.
+    /// (`orderedVolumes(_:)`). This path is what a favorite of the disk is matched against.
     ///
     /// `/` is the boot volume by definition, so this needs no lookup and can't fail to resolve.
     public static let startupDiskPath = "/"
@@ -457,73 +456,6 @@ public enum SidebarFavoritePlaces {
     /// offering. A menu item that would do nothing teaches nothing.
     public static func isMissingStandard(_ places: [String]) -> Bool {
         standard.contains { !places.contains($0) }
-    }
-
-    // MARK: - Bringing a stored list forward
-
-    /// How far a stored Favorites list has been brought forward; see ``migrate(defaults:)``.
-    public static let migrationKey = "browseSidebarFavoritePlacesMigration"
-
-    /// Bump this, and add a step in ``migrate(defaults:)``, whenever ``standard`` changes in a way
-    /// a stored list has to follow.
-    public static let currentVersion = 1
-
-    /// What ``migrate(defaults:)`` did, in the form the launch log line is built from.
-    public enum Outcome: Equatable, Sendable {
-        /// The stamp was already current, or there was nothing stored to bring forward.
-        case unchanged
-        /// The stored list was rewritten. `removed` names what came out, in the order it was in.
-        case rewritten(removed: [String])
-        /// The stored bytes couldn't be decoded, so they were left exactly as they are. Migrating
-        /// them would write ``standard`` over the user's real list, the loss ``isUnreadable(_:)``
-        /// exists to prevent.
-        case unreadable
-
-        public var logLine: String? {
-            switch self {
-            case .unchanged:
-                return nil
-            case .rewritten(let removed):
-                return "Sidebar: \(removed.joined(separator: ", ")) moved out of Favorites and back "
-                    + "into Locations, where the startup disk sits above any card and the Trash. "
-                    + "Add to Favorites on the row puts it back."
-            case .unreadable:
-                return "Sidebar: the stored Favorites places could not be read, so they were left "
-                    + "untouched rather than replaced by the standard set."
-            }
-        }
-    }
-
-    /// Brings an existing Favorites list forward when ``standard`` changes.
-    ///
-    /// A change to ``standard`` reaches only a first run: once the key has a value, the stored list
-    /// is the whole answer, and every install that has drawn the sidebar has one.
-    ///
-    /// Stamped, not conditional, as in `PaneBarMigration`: it runs once, so a place the user puts
-    /// back afterwards stays put. A list that keeps growing back overrules the user visibly.
-    /// Idempotent, so the repeat `App.init` calls the launch path makes are harmless.
-    public static func migrate(defaults: UserDefaults) -> Outcome {
-        let from = defaults.integer(forKey: migrationKey)   // 0 when never stamped
-        guard from < currentVersion else { return .unchanged }
-        defer { defaults.set(currentVersion, forKey: migrationKey) }
-
-        // No stored list: a first run already gets `standard`, and writing one here would turn an
-        // untouched key into a decision, the distinction `places(from:)` is shaped around.
-        let raw = defaults.string(forKey: storageKey) ?? ""
-        guard !raw.isEmpty else { return .unchanged }
-        guard !isUnreadable(raw) else { return .unreadable }
-
-        var places = places(from: raw)
-        let before = places
-        // Step 1: the startup disk goes back to Locations' device band, above any card and the Trash.
-        if from < 1 { places.removeAll { $0 == SidebarSourceModel.startupDiskPath } }
-
-        // Compared, not flagged: each step above only mutates `places`, so whatever a later step
-        // does reaches the defaults through this one write and is described by this one outcome,
-        // with no flag for a new step to forget to set.
-        guard places != before else { return .unchanged }
-        defaults.set(encoded(places), forKey: storageKey)
-        return .rewritten(removed: before.filter { !places.contains($0) })
     }
 }
 

@@ -205,7 +205,7 @@ import Sync
 
     /// A stored arrangement may lack the magnifier, and ⋯ offers only controls the bar places, so
     /// the customize sheet's palette must be able to give it back. Otherwise removing Search would
-    /// be a one-way door. `PaneBarMigration` keeps most stored bars from needing that trip.
+    /// be a one-way door.
     @Test("A stored arrangement without Search does not hide it in ⋯, and the palette can add it")
     func searchIsRecoverableFromAStoredBar() {
         let box = Box()

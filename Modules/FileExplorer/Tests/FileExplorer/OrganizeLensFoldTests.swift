@@ -2,17 +2,12 @@ import Testing
 @testable import FileExplorer
 
 /// What must hold with the Names lens retired. Its findings live in the Renames backlog, and it has
-/// no case: a stored "Names" is folded once, into the stored value, by
-/// `Workspace.migrateOrganizeLens`, so no lens exists that the rail can't draw.
-///
-/// The migration itself is pinned in `WorkspaceTests` (it lives in `MacApp`, which this module
-/// cannot import). What is pinned here is the half that makes the migration necessary.
+/// no case, so no lens exists that the rail can't draw. Builds 4.0 through 7.0 rewrote a stored
+/// "Names" to Renames at launch.
 @Suite struct OrganizeLensFoldTests {
 
-    /// A stored "Names" no longer decodes, which is why the launch migration exists. `@AppStorage`
-    /// takes its default when a raw value doesn't resolve, and this key's default is absent,
-    /// meaning the overview: without the migration, someone who left the app in the rename backlog
-    /// reopens it on the overview with nothing to explain the move.
+    /// A stored "Names" no longer decodes. `@AppStorage` takes its default when a raw value doesn't
+    /// resolve, and this key's default is absent, meaning the overview.
     @Test func theRetiredRawValueNoLongerDecodes() {
         #expect(OrganizeLens(rawValue: "Names") == nil)
         // The rest still do, so this is a statement about one retired case rather than about the

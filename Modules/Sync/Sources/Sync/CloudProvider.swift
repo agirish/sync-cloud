@@ -16,8 +16,8 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
     /// at `~/Documents` and `~/Desktop` and leaves hidden symlinks by those names in the container.
     /// `PathBoundary.LinkedFolders` lists them as the real folders, and root-relative paths compose
     /// through the link: `Documents/Family` here is `~/Documents/Family`, as stored paths spell it.
-    /// On a Mac without those links, a `root_override_` keeps the source at `~/Documents`
-    /// (`RootsMigration.moveICloudRoot`).
+    /// On a Mac without those links, builds 5.3 through 7.0 kept the source at `~/Documents` with a
+    /// `root_override_`.
     public var rootPath: String
     /// The folder panes open at by default, **relative to `rootPath`**; `""` is the root itself.
     ///

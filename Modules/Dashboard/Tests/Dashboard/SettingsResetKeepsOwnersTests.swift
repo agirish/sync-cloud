@@ -14,9 +14,7 @@ import Sync
     @MainActor
     @Test func everyKeyNamedByItsStringIsStillItsOwnersKey() {
         for key in [EditorPDFSignatureStore.key, RootsMigration.stampKey, RootsMigration.handledProviderIdsKey,
-                    RootsMigration.iCloudRootMoveStampKey, PaneBar.migrationKey,
-                    SidebarFavoritePlaces.migrationKey, PaneViewMode.columnWidthFloorLiftKey,
-                    SidebarFavoritePlaces.storageKey, SidebarFavoritePlaces.salvageKey,
+                    PaneBar.migrationKey, SidebarFavoritePlaces.storageKey, SidebarFavoritePlaces.salvageKey,
                     FolderJumpStore.pinnedKey, FolderJumpStore.salvageKey(for: FolderJumpStore.pinnedKey),
                     FolderJumpStore.favoriteOrderKey] {
             #expect(SettingsResetKeeps.keeps(key), "\(key)")

@@ -86,42 +86,9 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     /// tab, the setup form and every window root.
     ///
     /// The key name predates the percentage type and must stay: a new key would silently reset
-    /// every existing user's size. Old string values are converted by ``migrateLegacyValue(in:)``.
+    /// every existing user's size. It holds an `Int` percentage; builds 4.2 through 7.0
+    /// rewrote the old string values at launch.
     public static let defaultsKey = "fontSize"
-
-    /// The legacy string values of the four named sizes. Data rather than a `switch`, so
-    /// `everyLegacyRawValueStillMapsToTheSizeItNamed` derives its expectations from it.
-    static let legacyRawValues: [String: FontSize] = [
-        "small": .small, "medium": .medium, "large": .large, "extraLarge": .extraLarge
-    ]
-
-    /// What a migration did: the string that was on disk, and the size it now holds. The raw
-    /// string is carried so the launch log names what was on disk, not the size's current label.
-    public struct LegacyMigration: Equatable, Sendable {
-        public let raw: String
-        public let size: FontSize
-    }
-
-    /// Rewrites a legacy string value to its percentage, in place. Returns what it resolved to,
-    /// or nil when there was nothing to migrate.
-    ///
-    /// **This must run before anything reads the key**, so the app calls it at launch.
-    /// `@AppStorage(defaultsKey) var percent: Int` can't see a `String` on disk: it reports its own
-    /// default and the user's size is silently lost.
-    ///
-    /// The only path, on purpose: a tolerant reader in a view would have to use
-    /// `UserDefaults.standard` even when the view's store is a scratch suite.
-    /// `theAppMigratesTheStoredTextSizeAtLaunch` keeps this call at launch.
-    @discardableResult
-    public static func migrateLegacyValue(in defaults: UserDefaults = .standard) -> LegacyMigration? {
-        // An Int is the current shape: nothing to do. Checked first so a migrated value never
-        // reaches the string branch.
-        if defaults.object(forKey: defaultsKey) as? Int != nil { return nil }
-        guard let raw = defaults.string(forKey: defaultsKey),
-              let size = legacyRawValues[raw] else { return nil }
-        defaults.set(size.percent, forKey: defaultsKey)
-        return LegacyMigration(raw: raw, size: size)
-    }
 
     // MARK: - Identity and copy
 
@@ -270,11 +237,8 @@ public extension View {
 /// Bridges the `@AppStorage` value into the environment, observed once per window so the picker
 /// takes effect immediately.
 private struct PersistedAppFontSize: ViewModifier {
-    /// The default is a constant, deliberately. A tolerant read of a legacy `String` could only
-    /// read `UserDefaults.standard` (SwiftUI's `defaultAppStorage` isn't readable from the
-    /// environment), so a tree pointed at a scratch suite would pick up the developer's own size.
-    /// ``FontSize/migrateLegacyValue(in:)`` at launch covers the legacy case instead, pinned by
-    /// `theAppMigratesTheStoredTextSizeAtLaunch`.
+    /// The default is a constant, deliberately: a tree pointed at a scratch suite must not pick up
+    /// the developer's own size from `UserDefaults.standard`.
     @AppStorage(FontSize.defaultsKey) private var percent: Int = FontSize.medium.percent
 
     func body(content: Content) -> some View {

@@ -1125,7 +1125,7 @@ public struct PaneHeader: View {
             }
         case .search:
             // Reached only when the magnifier is on the bar and this rung folded it; ⋯ doesn't
-            // stand in for a bar that never carried it (`PaneBarMigration` puts it there). ⌘F is
+            // stand in for a bar that never carried it. ⌘F is
             // the real front door and works whether or not the pill is drawn.
             if let searchIsExpanded {
                 Button {

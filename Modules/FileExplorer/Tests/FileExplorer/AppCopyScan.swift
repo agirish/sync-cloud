@@ -158,7 +158,6 @@ enum AppCopyScan {
             .init(file: "Modules/Dashboard/Sources/Dashboard/DetailsSidebar.swift", contains: "Details: couldn't read", reason: logReason),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/MarkupVerbs.swift", contains: "not in a table's body", reason: logReason),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/PreviewEditorView.swift", contains: "[preview-edit]", reason: logReason),
-            .init(file: "Modules/Settings/Sources/Settings/RootsMigration.swift", contains: "iCloud root:", reason: logReason),
             .init(file: "Modules/Sync/Sources/Sync/FileSyncManager+Navigation.swift", contains: "pane's tree", reason: logReason),
             .init(file: "Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift", contains: #" at \(destination.path)"#, reason: logReason),
             .init(file: "Modules/Sync/Sources/Sync/FileSyncManager+Undo.swift", contains: #"\($0.path)"#, reason: logReason),

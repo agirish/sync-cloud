@@ -88,8 +88,7 @@ extension FileSyncManager {
     func savedRuleHome(_ live: FilingSuggestion, text: String, providerRoot root: String) -> FilingDestination? {
         ensureAutomationRulesLoaded()
         let rootURL = URL(fileURLWithPath: root)
-        let rules = filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey) ? [] : filingRules(under: rootURL)
-        guard !automationRules.isEmpty || !rules.isEmpty else { return nil }
+        guard !automationRules.isEmpty else { return nil }
         let existing = Set(filingLastExistingFolders.map { root + "/" + $0 }).union([root])
         let file = FileNode(id: live.filePath, name: live.fileName, isDirectory: false,
                             modificationDate: live.modificationDate, fileSize: live.size)
@@ -98,7 +97,7 @@ extension FileSyncManager {
         let suggested = FilingEngine.suggest(
             looseFiles: [file], learned: FilingEngine.LearnedTaxonomy(profiles: [], existingPaths: existing),
             providerRoot: root, contentTokens: filingTokensFromText.map { [live.filePath: $0(text)] } ?? [:],
-            rules: rules, automations: automationRules, registry: filingPersonRegistry, identity: filingPersonIdentity,
+            automations: automationRules, registry: filingPersonRegistry, identity: filingPersonIdentity,
             automationSnippets: [live.filePath: text], rejectedByFile: rejected.isEmpty ? [:] : [live.filePath: rejected])
         return suggested.first?.candidates.first { $0.remembered }
     }

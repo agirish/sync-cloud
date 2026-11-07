@@ -182,19 +182,6 @@ struct SyncCloudApp: App {
             UserDefaults.standard.register(
                 defaults: [DisplayCycleAssert.key: false])
 
-            // Rewrite the text size from its old case names to a percentage, before anything reads
-            // the key. Here, not at the first read: an `Int` `@AppStorage` cannot see a `String` on
-            // disk, so a chosen size would silently read as 100% and the next write would make
-            // that permanent. No tolerant reader exists beside this, because the only store it
-            // could reach is `UserDefaults.standard`, which tests would inherit.
-            //
-            // A no-op once an `Int` is present. Logged only when it rewrites, so "my text size
-            // reset" has an answer in the log.
-            if let migrated = FontSize.migrateLegacyValue() {
-                Logger.shared.info(
-                    "Text size migrated: \"\(migrated.raw)\" → \(migrated.size.percent)%")
-            }
-
             // The line reporting the crash guard's state is in `applicationDidFinishLaunching`,
             // like the "launched" breadcrumb, because SwiftUI can re-run App.init.
 
@@ -206,10 +193,6 @@ struct SyncCloudApp: App {
                     + " Clear it with: defaults delete com.abhishekgirish.SyncCloud \(WalkStall.defaultsKey)")
             }
 
-            // Move a pre-GlassLevel install onto the two-control Appearance model before any
-            // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init
-            // calls noted above are harmless.
-            LiquidGlass.migrateLegacyAppearance()
             // An accent no longer offered (Slate) moves to the one that replaced it, before any
             // @AppStorage reads it; read raw, it would fall back to Blue. Logged only when it does.
             if let moved = LiquidGlass.migrateRetiredHue() {
@@ -242,34 +225,9 @@ struct SyncCloudApp: App {
                 Logger.shared.info(line)
             }
 
-            // Carry the old `Compare | Tidy` + lens selection onto the workspace bar before any
-            // @AppStorage reads it; retired raw values would otherwise silently fall back to the
-            // default. Idempotent, so repeat App.init calls are harmless.
-            Workspace.migrateSelection(in: .standard)
-            // And the rail selection, whose `Names` case is retired. Separate, because the call
-            // above returns before the rail key whenever the stored workspace still resolves.
-            Workspace.migrateOrganizeLens(in: .standard)
-            // Fan the old `Tidy` pane override out across the lens workspaces.
-            if let migrated = TopPaneVisibility.migratingOverridesRaw(
-                UserDefaults.standard.string(forKey: TopPaneVisibility.overridesKey) ?? ""
-            ) {
-                UserDefaults.standard.set(migrated, forKey: TopPaneVisibility.overridesKey)
-            }
-            // Organize's scope is stamped like every other stored arrangement. At stamp 0 nothing of
-            // ours has written the key, so anything found there is cleared rather than trusted.
-            // Idempotent.
-            OrganizeScopeDefaults.migrate(defaults: .standard)
             // Decision JT retired Let Claude read files: on, it becomes the home folder shared
             // without asking, so nothing reaches Claude differently. Once, by its key.
             if let line = AskClaudePrivacy.retireReadsFiles(home: NSHomeDirectory(), in: .standard) {
-                Logger.shared.info(line)
-            }
-
-            // Puts the startup disk in Locations' device band on an existing stored list. A change
-            // to `SidebarFavoritePlaces.standard` reaches only a first run, because the stored
-            // list is the whole answer once the key has a value. Stamped, so a disk put back
-            // afterwards stays put.
-            if let line = SidebarFavoritePlaces.migrate(defaults: .standard).logLine {
                 Logger.shared.info(line)
             }
 
@@ -283,12 +241,6 @@ struct SyncCloudApp: App {
             if let line = RootsMigration.applyAtLaunch(defaults: .standard).logLine {
                 Logger.shared.info(line)
             }
-            // The second move: iCloud's root is the iCloud Drive container, not `~/Documents`, so
-            // its positions move down into `Documents`. After the first move, whose mapping leaves
-            // iCloud alone. Here and synchronous for the same readers; its own stamp.
-            if let line = RootsMigration.moveICloudRoot(defaults: .standard).logLine {
-                Logger.shared.info(line)
-            }
 
             // Main-thread hitch reporting, when the diagnostic flag is set. Installed here, not from
             // a view, so it covers the whole session including launch. Idempotent, and installs
@@ -298,10 +250,6 @@ struct SyncCloudApp: App {
             // main thread is stalled, and the stalls it is for happen in the installed app.
             MainThreadStallWatch.shared.start()
             MainThreadStallWatch.stallOnceIfAsked()
-
-            // Lift stored column widths off the floor an old preview sizing rule pushed them to.
-            // Idempotent by its own flag.
-            PaneViewMode.liftColumnWidthOffTheFloor()
 
             // Pin the app's light/dark theme before any window exists, so a pinned appearance is
             // what the first frame draws rather than a flash of the system one. Settings

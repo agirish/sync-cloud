@@ -351,20 +351,26 @@ import Testing
     }
 
     /// The strip opens on the workspace the app opens on, so the user lands somewhere they were
-    /// shown. Pinned against `WorkspaceSelection.default`, so moving the default fails here.
+    /// shown. Pinned against `ContentView.selectedWorkspace`'s `@AppStorage` default, read from
+    /// source, so moving the default fails here.
     @Test func theWelcomeStripOpensWhereTheAppDoes() throws {
-        #expect(WorkspaceSelection.default.workspace == .browse,
+        let firstRun = try WorkspaceTests.workspaceCase(
+            inFile: "ContentView.swift",
+            after: "@AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace =")
+        #expect(firstRun == "browse",
                 "if the default workspace moves, the leading panel should move with it")
         let leading = try #require(SetupFlow.panels.first)
         #expect(leading.art == .browse)
         #expect(leading.title == "Browse")
     }
 
-    /// No panel may describe a retired workspace as a workspace. Derived from
-    /// `Workspace.retiredWorkspaceRawValues`, because each time a workspace folds into an Organize
-    /// lens, prose written before the fold keeps calling it a workspace.
+    /// The workspaces that folded into Organize lenses. Each time one folds, prose written before
+    /// the fold keeps calling it a workspace.
+    static let retiredWorkspaces = ["Rename", "Duplicates", "Automations", "Storage"]
+
+    /// No panel may describe a retired workspace as a workspace.
     @Test func noPanelCallsARetiredWorkspaceAWorkspace() {
-        for retired in Workspace.retiredWorkspaceRawValues.keys {
+        for retired in Self.retiredWorkspaces {
             for panel in SetupFlow.panels {
                 #expect(!panel.blurb.localizedCaseInsensitiveContains("\(retired) workspace"),
                         "“\(panel.title)” calls \(retired) a workspace — it is an Organize lens")
@@ -373,7 +379,7 @@ import Testing
             }
         }
         for row in SetupFlow.outline {
-            for retired in Workspace.retiredWorkspaceRawValues.keys {
+            for retired in Self.retiredWorkspaces {
                 #expect(!row.detail.localizedCaseInsensitiveContains("\(retired) workspace"))
             }
         }
@@ -382,10 +388,10 @@ import Testing
     /// The positive control for the scan above, which asserts an absence and would pass on an empty
     /// table, empty copy or a matcher that never matches. This proves all three are live.
     @Test func theRetiredWorkspaceScanCanActuallyFail() {
-        #expect(!Workspace.retiredWorkspaceRawValues.isEmpty)
+        #expect(!Self.retiredWorkspaces.isEmpty)
         #expect(!SetupFlow.panels.isEmpty)
         let offender = "The Duplicates workspace finds duplicate files."
-        let caught = Workspace.retiredWorkspaceRawValues.keys.contains {
+        let caught = Self.retiredWorkspaces.contains {
             offender.localizedCaseInsensitiveContains("\($0) workspace")
         }
         #expect(caught, "the matcher no longer catches the phrasing this test exists to ban")

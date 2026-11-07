@@ -200,36 +200,6 @@ import Events
                 "a provider rooted at \(root) answered wrongly for \(path)")
     }
 
-    @MainActor @Test func anUnreadableLegacyStoreDoesNotBurnTheOneWayMigrationFlag() throws {
-        // The migration sets a permanent "already migrated" flag and never reads the legacy store
-        // again, so treating an unreadable store as "no rules" would orphan every taught rule.
-        let suiteName = "review-fixes-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { wipeDefaultsSuite(suiteName) }
-        defaults.set(Data("not json".utf8), forKey: FileSyncManager.rulesDefaultsKey)
-
-        let manager = FileSyncManager(fileManager: MockFileManager())
-        manager.filingRuleDefaults = defaults
-        manager.migrateFilingRulesToAutomations()
-
-        #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey) == false,
-                "an unreadable store must leave the migration to retry, not mark itself done")
-    }
-
-    @MainActor @Test func anAbsentLegacyStoreStillCompletesTheMigrationOnce() throws {
-        // The control: a genuinely empty legacy store is the ordinary case and must still settle,
-        // or every launch would re-run the migration forever.
-        let suiteName = "review-fixes-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { wipeDefaultsSuite(suiteName) }
-
-        let manager = FileSyncManager(fileManager: MockFileManager())
-        manager.filingRuleDefaults = defaults
-        manager.migrateFilingRulesToAutomations()
-
-        #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey) == true)
-    }
-
     @MainActor @Test func twoStoresSharingAKeyNameEachKeepTheirOwnBackup() throws {
         // The one-shot report gate must not key on the key name alone, or the first store read
         // silences, and skips the backup for, every other store holding that key.

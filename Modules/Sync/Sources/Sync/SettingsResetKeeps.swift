@@ -32,9 +32,6 @@ public enum SettingsResetKeeps {
         FilingSpendStore.lastKey,
         FileSyncManager.automationRulesDefaultsKey,
         FileSyncManager.automationRulesDefaultsKey + ".unreadable",
-        FileSyncManager.rulesDefaultsKey,
-        FileSyncManager.rulesDefaultsKey + ".unreadable",
-        FileSyncManager.filingRulesMigratedKey,
         FileSyncManager.rejectionsDefaultsKey,
         FileSyncManager.rejectionsDefaultsKey + ".unreadable",
         FileSyncManager.wordRejectionsDefaultsKey,
@@ -42,7 +39,6 @@ public enum SettingsResetKeeps {
         FileSyncManager.ignoreDefaultsKey,
         KeptNamesStore.defaultsKey,
         PersonVetoLog.defaultsKey,
-        OrganizeScopeDefaults.stampKey,
         // Keys of packages this one cannot see, by their strings; Dashboard's tests, which see them
         // all, pin that each still agrees with its owner.
         "editorPDFSavedSignatures",             // EditorPDFSignatureStore.key
@@ -53,10 +49,7 @@ public enum SettingsResetKeeps {
         "folderJumpFavoriteOrder",              // FolderJumpStore.favoriteOrderKey
         "rootsModelStamp",                      // RootsMigration.stampKey
         "rootsModelHandledProviderIds",         // RootsMigration.handledProviderIdsKey
-        "iCloudRootMoveStamp",                  // RootsMigration.iCloudRootMoveStampKey
         "paneBarArrangementMigration",          // PaneBar.migrationKey
-        "browseSidebarFavoritePlacesMigration", // SidebarFavoritePlaces.migrationKey
-        "paneColumnWidthFloorLifted",           // PaneViewMode.columnWidthFloorLiftKey
         // InfoPreviewMigration.doneKey (the app's): run again after a reset, it would read the
         // preview's reset keys as on and open Info. Pinned by the app's tests.
         "infoPreviewMigrationDone",

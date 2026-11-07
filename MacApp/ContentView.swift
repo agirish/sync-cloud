@@ -514,12 +514,11 @@ struct ContentView: View {
     }
 
     /// The selected workspace, persisted so a session resumes where it left off, stored by
-    /// ``Workspace`` raw value (pinned by `WorkspaceTests`; `Workspace.migrateSelection` carries
-    /// old selections forward). Internal for the toolbar's workspace bar.
+    /// ``Workspace`` raw value (pinned by `WorkspaceTests`). Internal for the toolbar's workspace
+    /// bar.
     ///
-    /// `.browse`, and it must stay equal to ``WorkspaceSelection/default``: this is where a first
-    /// run lands, that is where an unreadable stored value lands, and the two must agree
-    /// (`theFirstRunDefaultAgreesWithTheFallback`).
+    /// `.browse`: where a first run lands and where an unreadable stored value lands, one constant
+    /// for both. The welcome strip leads with Browse to match (`theWelcomeStripOpensWhereTheAppDoes`).
     @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .browse
     /// Which lens is showing inside Organize, or `nil` for its overview.
     ///
@@ -1491,10 +1490,6 @@ struct ContentView: View {
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()
-                        // One-time: convert the legacy remembered filing rules into automations.
-                        // Destinations stay absolute, the same provider scoping the legacy rules
-                        // had, so nothing needs the provider list; the flag makes re-runs no-ops.
-                        syncManager.migrateFilingRulesToAutomations()
                         applyProviderSelection(preferDistinctPair: true)
                         syncManager.ignoredItemsStore?.activate(
                             pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))

@@ -2,8 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins the `FilingRule` value type, in particular the `enabled` flag, whose persistence must stay
-/// compatible with rules written before the key existed.
+/// Pins the `FilingRule` value type, in particular the `enabled` flag.
 @Suite struct FilingRuleTests {
 
     @Test func newRuleDefaultsToEnabled() {
@@ -16,25 +15,6 @@ import Testing
         let data = try JSONEncoder().encode(disabled)
         let decoded = try JSONDecoder().decode(FilingRule.self, from: data)
         #expect(decoded == disabled)   // synthesized Equatable: enabled, tokens and path included
-    }
-
-    // A rule persisted without `enabled` must still decode, as enabled, or one legacy rule would
-    // fail the whole `[FilingRule]` decode and silently drop every rule the user taught.
-    @Test func decodesLegacyJSONWithoutEnabledAsEnabled() throws {
-        let legacy = #"{"tokens":["tesla"],"destinationPath":"/p/Vehicles/Tesla"}"#
-        let rule = try JSONDecoder().decode(FilingRule.self, from: Data(legacy.utf8))
-        #expect(rule.enabled)
-        #expect(rule.tokens == ["tesla"])
-        #expect(rule.destinationPath == "/p/Vehicles/Tesla")
-    }
-
-    // The realistic persisted shape is an array; a legacy array (no `enabled` on any element) must
-    // decode whole, every rule defaulting to enabled.
-    @Test func decodesLegacyArrayJSON() throws {
-        let legacy = #"[{"tokens":["a"],"destinationPath":"/x"},{"tokens":["b"],"destinationPath":"/y"}]"#
-        let rules = try JSONDecoder().decode([FilingRule].self, from: Data(legacy.utf8))
-        #expect(rules.count == 2)
-        #expect(rules.allSatisfy { $0.enabled })
     }
 
     // The stable id must not shift when a rule is disabled: forget and replace match on id.

@@ -90,18 +90,18 @@ import Foundation
     /// round-trip the remaining pair through the real properties and check they don't tread on
     /// each other in one `UserDefaults`.
     @MainActor
-    @Test func theFilingRuleSetterRoundTripsUnderItsOwnKey() throws {
+    @Test func theWordRejectionSetterRoundTripsUnderItsOwnKey() throws {
         let manager = FileSyncManager()
-        manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteRules")
-        let rules = [FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles"),
-                     FilingRule(tokens: ["acme"], destinationPath: "/root/Work", enabled: false)]
+        manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteWords")
+        let words = [FilingWordRejection(word: "india", path: "/root/Travel/India"),
+                     FilingWordRejection(word: "acme", path: "/root/Work")]
 
-        manager.filingRules = rules
+        manager.filingWordRejections = words
 
-        #expect(manager.filingRules == rules)
-        // Written under the rules key specifically, not whichever key was pasted last.
-        #expect(manager.filingRuleDefaults.data(forKey: FileSyncManager.rulesDefaultsKey) != nil)
-        #expect(manager.filingRejections.isEmpty, "rejections must not see the rules' payload")
+        #expect(manager.filingWordRejections == words)
+        // Written under the word-rejections key specifically, not whichever key was pasted last.
+        #expect(manager.filingRuleDefaults.data(forKey: FileSyncManager.wordRejectionsDefaultsKey) != nil)
+        #expect(manager.filingRejections.isEmpty, "rejections must not see the word rejections' payload")
     }
 
     @MainActor
@@ -115,7 +115,7 @@ import Foundation
 
         #expect(manager.filingRejections == rejections)
         #expect(manager.filingRuleDefaults.data(forKey: FileSyncManager.rejectionsDefaultsKey) != nil)
-        #expect(manager.filingRules.isEmpty, "rules must not see the rejections' payload")
+        #expect(manager.filingWordRejections.isEmpty, "word rejections must not see the rejections' payload")
     }
 
     /// Both stores live in ONE `UserDefaults`, so writing one must leave the other alone. A shared
@@ -124,13 +124,13 @@ import Foundation
     @Test func theTwoFilingStoresCoexistInOneDefaults() throws {
         let manager = FileSyncManager()
         manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteBoth")
-        let rules = [FilingRule(tokens: ["tesla"], destinationPath: "/root/Vehicles")]
+        let words = [FilingWordRejection(word: "tesla", path: "/root/Vehicles")]
         let rejections = [FilingRejection(tokens: ["tesla"], path: "/root/Wrong")]
 
-        manager.filingRules = rules
+        manager.filingWordRejections = words
         manager.filingRejections = rejections
 
-        #expect(manager.filingRules == rules)
+        #expect(manager.filingWordRejections == words)
         #expect(manager.filingRejections == rejections)
     }
 }

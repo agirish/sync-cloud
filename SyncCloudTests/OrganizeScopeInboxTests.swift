@@ -93,14 +93,4 @@ import Foundation
         #expect(source.contains("private func resolvedOrganizeScope(_ path: String?) -> OrganizeScope?"))
         #expect(source.contains("OrganizeScope(path: path, providerRoot: lensProviderRootExpanded)"))
     }
-
-    @Test func theScopeIsMigratedAtLaunch() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SyncCloudApp.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read MacApp/SyncCloudApp.swift")
-        #expect(source.contains("OrganizeScopeDefaults.migrate(defaults: .standard)"),
-                "the scope's stamped migration never runs, so a foreign stored value would be trusted")
-    }
 }

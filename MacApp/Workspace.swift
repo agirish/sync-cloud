@@ -129,8 +129,8 @@ enum Workspace: String, CaseIterable, Identifiable {
         guard let organizeLens = OrganizeLens(lens) else {
             // Unreachable today: every `WorkspaceLensKind` bridges to a rail item, but
             // `OrganizeLens.init(_:)` stays failable for one added without. Organize's overview is
-            // the answer for a lens the rail cannot name. Never `.default`, which would drop a
-            // pointed request into Browse.
+            // the answer for a lens the rail cannot name. Never Browse, which would drop a pointed
+            // request.
             return WorkspaceSelection(workspace: .filing, organizeLens: nil)
         }
         // Every case `OrganizeLens.init(_:)` can answer is a rail item — pinned by
@@ -147,155 +147,15 @@ enum Workspace: String, CaseIterable, Identifiable {
 struct WorkspaceSelection: Equatable {
     var workspace: Workspace
     var organizeLens: OrganizeLens?
-
-    /// Where a window with nothing it can use opens: Browse, and a file browser is a better place
-    /// to land than a comparison of two clouds nothing has scanned yet.
-    ///
-    /// "Nothing stored" and "unreadable" must agree, and that takes two constants. This one serves
-    /// a stored selection that no longer resolves (``migratedWorkspace(_:)``,
-    /// ``migrated(tab:lens:)``). A first run never reaches it: `migrateSelection(in:)` leaves the
-    /// keys unset, and `ContentView.selectedWorkspace`'s `@AppStorage` default answers.
-    /// `theFirstRunDefaultAgreesWithTheFallback` reads both from source, since no test can mount
-    /// `ContentView`.
-    static let `default` = WorkspaceSelection(workspace: .browse, organizeLens: nil)
 }
 
-// MARK: - Migration off the selections this replaces
+// MARK: - Storage
 
 extension Workspace {
 
     /// The defaults key holding the flat selection.
     static let defaultsKey = "selectedWorkspace"
     /// The defaults key holding the rail selection inside Organize. Absent means the overview.
-    /// Owned by ``OrganizeLens`` because `LensWorkspaceView` reads it directly; aliased here for
-    /// the migration below.
+    /// Owned by ``OrganizeLens`` because `LensWorkspaceView` reads it directly.
     static let organizeLensKey = OrganizeLens.defaultsKey
-    /// The two keys the flat bar replaced, read once by ``migrateSelection(in:)``.
-    static let legacyTabKey = "selectedBottomTab"
-    static let legacyLensKey = "selectedTidyLens"
-
-    /// Raw values that were once a workspace and no longer resolve, and the rail lens each became.
-    /// A stored value that does not resolve fails silently (`@AppStorage` takes its default), so
-    /// without this someone in Duplicates would reopen on the default workspace with no
-    /// explanation.
-    ///
-    /// Each lands on its own rail item, not just Organize; `Rename` lands on Renames, which hosts
-    /// the risky-name findings. A stored rail value of "Names" is a different key and table; see
-    /// ``retiredOrganizeLensRawValues``.
-    static let retiredWorkspaceRawValues: [String: OrganizeLens] = [
-        "Rename": .renames,
-        "Duplicates": .duplicates,
-        "Automations": .rules,
-        // `OrganizeLens.storage` is also `"Storage"`, so someone who quit on the Storage tab
-        // reopens on Organize with the Storage rail item selected.
-        "Storage": .storage,
-    ]
-
-    /// The raw value `Rename` persisted under, as both a Tidy lens and (briefly) a workspace.
-    ///
-    /// The migration does not read this; `Rename` resolves through ``retiredWorkspaceRawValues``.
-    /// Kept for `TopPaneVisibilityTests`, which asserts the retired key does not survive a
-    /// fanned-out override map without spelling the legacy string itself.
-    static let retiredRenameRawValue = "Rename"
-
-    /// Where a session that ended on the old two-level selection resumes.
-    ///
-    /// A tab that is not `Tidy` resolves to ``WorkspaceSelection/default``, Browse, so an
-    /// unreadable stored value and none at all land in the same place.
-    ///
-    /// The Tidy arms must not follow it there: they resolve to ``tidyDefault``, a lens, because
-    /// someone whose session ended in Tidy was in a lens, and a lens is the nearer answer.
-    ///
-    /// Reads the legacy pair only. `selectedBottomTab` only ever held `Differences` or `Tidy`, so
-    /// there is no `Rename` arm here; a retired workspace value is ``migratedWorkspace(_:)``'s job.
-    static func migrated(tab: String?, lens: String?) -> WorkspaceSelection {
-        guard tab == "Tidy" else { return .default }
-        // On Tidy the lens decided what you were looking at, so it is the destination. A missing
-        // or unrecognised lens takes Tidy's own former default.
-        guard let lens else { return tidyDefault }
-        if let retired = retiredWorkspaceRawValues[lens] {
-            return WorkspaceSelection(workspace: .filing, organizeLens: retired)
-        }
-        // One lens raw value is still a workspace: `Filing`. (`Storage` is caught by the
-        // ``retiredWorkspaceRawValues`` branch above.)
-        //
-        // An allow-list, not a deny-list: a deny-list widens with every new case, and would route
-        // a stored workspace value such as `"Editor"` into that workspace.
-        guard lens == Workspace.filing.rawValue else { return tidyDefault }
-        return WorkspaceSelection(workspace: .filing, organizeLens: .toFile)
-    }
-
-    /// Tidy's own former default lens, which was Duplicates — now Organize's duplicates rail item.
-    /// Someone whose stored lens no longer reads should land where Tidy used to open, not on
-    /// Compare: they were in a lens, so a lens is the nearer answer.
-    static let tidyDefault = WorkspaceSelection(workspace: .filing, organizeLens: .duplicates)
-
-    /// Where a stored `selectedWorkspace` that no longer resolves should land.
-    ///
-    /// The bar has retired cases of its own, so `selectedWorkspace` needs migrating as much as the
-    /// legacy pair does, though it looks like it must already be valid.
-    static func migratedWorkspace(_ raw: String) -> WorkspaceSelection {
-        if let retired = retiredWorkspaceRawValues[raw] {
-            return WorkspaceSelection(workspace: .filing, organizeLens: retired)
-        }
-        return .default
-    }
-
-    /// Runs the migration once, at launch, before any view reads the selection.
-    ///
-    /// Returns the resolved selection so a test can assert what a given stored state migrates to
-    /// without reaching back into defaults; nil when there was nothing to do.
-    @discardableResult
-    static func migrateSelection(in defaults: UserDefaults) -> WorkspaceSelection? {
-        if let stored = defaults.string(forKey: defaultsKey) {
-            // A stored value that still resolves is the truth; re-running would replace a choice
-            // with a stale legacy pair. The rail selection beside it is left alone too.
-            guard Workspace(rawValue: stored) == nil else { return nil }
-            let resolved = migratedWorkspace(stored)
-            write(resolved, to: defaults)
-            return resolved
-        }
-        // Nothing stored at all is a first run, not an upgrade — leave the keys unset so
-        // @AppStorage uses its own defaults rather than baking one in here.
-        guard defaults.string(forKey: legacyTabKey) != nil
-                || defaults.string(forKey: legacyLensKey) != nil else { return nil }
-
-        let resolved = migrated(tab: defaults.string(forKey: legacyTabKey),
-                                lens: defaults.string(forKey: legacyLensKey))
-        write(resolved, to: defaults)
-        return resolved
-    }
-
-    /// Rail-lens raw values whose case has been retired, and what each one is now.
-    ///
-    /// Separate from ``retiredWorkspaceRawValues`` because these were never workspaces — they are
-    /// values of ``OrganizeLens`` itself, stored under ``organizeLensKey``.
-    ///
-    /// `Names` was folded into Renames and its case is gone, so nothing can decode a stored
-    /// "Names". It is rewritten here once, at launch, into the stored value.
-    static let retiredOrganizeLensRawValues: [String: OrganizeLens] = ["Names": .renames]
-
-    /// Rewrites a stored rail selection whose case no longer exists.
-    ///
-    /// Its own function, called unconditionally: ``migrateSelection(in:)`` returns before reading
-    /// the rail key whenever the stored workspace still resolves, which it does for everyone this
-    /// helps. Without it, `@AppStorage` would fall back to the overview with no explanation.
-    static func migrateOrganizeLens(in defaults: UserDefaults) {
-        guard let stored = defaults.string(forKey: organizeLensKey),
-              let replacement = retiredOrganizeLensRawValues[stored] else { return }
-        defaults.set(replacement.rawValue, forKey: organizeLensKey)
-    }
-
-    /// Writes both halves of a resolved selection.
-    ///
-    /// The lens key is cleared when there is no lens, or a stale rail item would survive and a
-    /// later click on Organize would land on a lens nobody picked.
-    private static func write(_ selection: WorkspaceSelection, to defaults: UserDefaults) {
-        defaults.set(selection.workspace.rawValue, forKey: defaultsKey)
-        if let lens = selection.organizeLens {
-            defaults.set(lens.rawValue, forKey: organizeLensKey)
-        } else {
-            defaults.removeObject(forKey: organizeLensKey)
-        }
-    }
 }

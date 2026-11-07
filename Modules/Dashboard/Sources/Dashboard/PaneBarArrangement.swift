@@ -23,9 +23,10 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     // through `encoded`, so a maintenance-line build sharing these defaults keeps its button.
     case space
     case flexibleSpace
-    /// Appended last, per the rule above. A stored arrangement older than this case lacks it, which
-    /// `PaneBarMigration` corrects; ⋯ doesn't, since it carries only what a rung folded. ⌘F opens
-    /// the field either way, so a bar without it is missing a button, not an ability.
+    /// Appended last, per the rule above. A stored arrangement older than this case lacked it, which
+    /// `PaneBarMigration`'s step 1 corrected in builds 3.1 through 7.0; ⋯ doesn't, since it carries
+    /// only what a rung folded. ⌘F opens the field either way, so a bar without it is missing a
+    /// button, not an ability.
     case search
     /// Appended last, per the rule above, and deliberately not added to `PaneBarMigration`: pushing
     /// a destructive control onto a bar someone arranged is not what migration is for. A bar
@@ -746,19 +747,20 @@ public enum PaneBarMigration {
     // none of them; `everyControlTheMigrationClaimsToPlaceActuallyLands` keeps `migratedControls`
     // honest by running the migration rather than trusting the list.
 
-    /// Controls that shipped on the bar before this mechanism existed. Every stored arrangement
-    /// was written by a build that offered these, so a bar without one was arranged that way.
+    /// Controls on every bar a 6.x build could have stored: the ones that shipped before this
+    /// mechanism existed, and Search, whose step (version 1) every 6.x build ran and stamped. A 7.x
+    /// install upgrades only from 6.x, so a stored bar without one was arranged that way.
     ///
     /// Frozen, and it must never grow: a new control takes a migration step or declines one, and
     /// listing it here would claim a route it never had, which is why the test pins these by name.
     /// It only shrinks when a control is retired from the bar altogether.
     public static let baselineControls: Set<PaneBarItem> = [
-        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles
+        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .search
     ]
 
     /// Controls a step in `apply` puts onto a stored bar. A claim, not a mechanism, so the tests
     /// bind it to the steps by running the migration once per control.
-    public static let migratedControls: Set<PaneBarItem> = [.search, .typeFilter]
+    public static let migratedControls: Set<PaneBarItem> = [.typeFilter]
 
     /// Controls that ship on the default bar and deliberately decline a step.
     ///
@@ -825,11 +827,8 @@ public enum PaneBarMigration {
         guard let stored = defaults.string(forKey: PaneBar.arrangementKey) else { return .unchanged }
         var arrangement = PaneBarArrangement(encoded: stored)
         let before = arrangement.items
-        // Step 1: Search, at the trailing end, where the default carries it and where the ladder
-        // gives it up first.
-        if from < 1, !arrangement.items.contains(.search) {
-            arrangement.insert(.search, at: arrangement.items.count)
-        }
+        // Step 1 put Search at the trailing end. It shipped in 3.1 and every 6.x build stamped its
+        // bar past it, so it is no longer carried.
         // Step 2: Filter by Type, just before Search, where the default carries it, or at the
         // trailing end on a bar that has dropped Search.
         if from < 2, !arrangement.items.contains(.typeFilter) {

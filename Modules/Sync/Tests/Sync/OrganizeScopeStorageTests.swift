@@ -17,40 +17,10 @@ import Foundation
 
     static let root = "/Users/x/Documents"
 
-    // MARK: The migration
-
-    @Test func migratingFromStampZeroClearsAForeignStoredValue() {
-        Self.withSuite("stampZero") { d in
-            // No stamp, and a value under a key no released build has written: it came from
-            // somewhere this code doesn't know about.
-            d.set("/Users/x/Documents/SomethingElse", forKey: OrganizeScopeDefaults.pathKey)
-
-            #expect(OrganizeScopeDefaults.migrate(defaults: d))
-            #expect(d.string(forKey: OrganizeScopeDefaults.pathKey) == nil)
-            #expect(d.integer(forKey: OrganizeScopeDefaults.stampKey)
-                    == OrganizeScopeDefaults.currentStamp)
-        }
-    }
-
-    @Test func migrationIsIdempotentAndLeavesACurrentValueAlone() {
-        Self.withSuite("idempotent") { d in
-            // First run stamps it.
-            #expect(OrganizeScopeDefaults.migrate(defaults: d))
-            // A scope the user then sets, at the current stamp.
-            d.set("/Users/x/Documents/Legal", forKey: OrganizeScopeDefaults.pathKey)
-
-            // Second and third runs must not touch it — this is called on every launch.
-            #expect(!OrganizeScopeDefaults.migrate(defaults: d))
-            #expect(!OrganizeScopeDefaults.migrate(defaults: d))
-            #expect(d.string(forKey: OrganizeScopeDefaults.pathKey) == "/Users/x/Documents/Legal")
-        }
-    }
-
     // MARK: Reading a stored string back
 
     @Test func aStoredSubtreePathResolvesToThatScope() {
         Self.withSuite("storedSubtree") { d in
-            OrganizeScopeDefaults.migrate(defaults: d)
             d.set("/Users/x/Documents/Legal", forKey: OrganizeScopeDefaults.pathKey)
 
             let scope = OrganizeScopeDefaults.scope(

@@ -187,8 +187,7 @@ import FileExplorer
     /// "Organize ▸ Duplicates" supplies no scope; with `guard let scope` hoisted above
     /// `paletteRailLens = …`, ⌘K would land on Organize showing whichever lens was already selected.
     ///
-    /// The lens is stored as given: every `OrganizeLens` is a rail item, and
-    /// `Workspace.migrateOrganizeLens` resolves old stored lenses once, at launch.
+    /// The lens is stored as given: every `OrganizeLens` is a rail item.
     @Test func aLensWithoutAScopeStillMovesTheRail() throws {
         let host = try Self.host()
         // The shared comment-stripping reader, like every other body scan in this target.

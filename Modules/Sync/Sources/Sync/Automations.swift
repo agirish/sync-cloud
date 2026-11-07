@@ -419,8 +419,8 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
 /// nothing offers them back.) So this decoder loses at most the one value it can't read:
 ///
 /// - A key this build doesn't know is kept verbatim and written back on the next save.
-/// - A key it expects but doesn't find falls back to the initializer's default, as ``FilingRule``
-///   and ``PaneTabsStore/Entry`` do.
+/// - A key it expects but doesn't find falls back to the initializer's default, as
+///   ``PaneTabsStore/Entry`` does.
 /// - A `matchMode` it can't evaluate is preserved and the rule made inert: guessing `all` or `any`
 ///   would file by a rule the user never wrote.
 ///

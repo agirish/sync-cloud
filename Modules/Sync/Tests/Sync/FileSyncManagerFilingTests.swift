@@ -443,14 +443,8 @@ private final class SnippetBox: @unchecked Sendable {
 
     // MARK: Remembered rules (F3)
 
-    /// Points the manager's rule store at a throwaway suite so tests never touch standard defaults.
-    @MainActor private func manager(withRuleSuite suite: String) -> FileSyncManager {
-        let m = FileSyncManager()
-        m.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        return m
-    }
-
-    /// The same on a `ScratchDefaults` suite, wiped once the manager lets go of it.
+    /// Points the manager's rule store at a `ScratchDefaults` suite, wiped once the manager lets go
+    /// of it, so tests never touch standard defaults.
     @MainActor private func manager(withScratchRules prefix: String) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingRuleDefaults = ScratchDefaults(prefix)
@@ -475,10 +469,9 @@ private final class SnippetBox: @unchecked Sendable {
                                      confidence: .high, reasons: [], newSegments: [])
         _ = await manager.applyFilingSuggestion(s, to: dest, remember: true)
 
-        // An automation keyed on "tesla" now exists (nothing is written to the legacy rule store)…
+        // An automation keyed on "tesla" now exists…
         #expect(manager.automationRules.count == 1)
         #expect(manager.automationRules.first?.conditions == [.mentionsAll(["tesla"])])
-        #expect(manager.filingRules.isEmpty)
 
         // …and a fresh scan of another Tesla file files it into that same remembered folder,
         // high-confidence & batch-eligible, carrying the "remembered" flag.
@@ -491,28 +484,11 @@ private final class SnippetBox: @unchecked Sendable {
     }
 
     @MainActor
-    @Test func rulesAreScopedToTheProviderTheyPointInto() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/tesla thing.pdf"))
-
-        let suite = "FilingRules-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
-        // A rule whose destination lives in a DIFFERENT provider's tree must never fire here.
-        manager.filingRules = [FilingRule(tokens: ["tesla"], destinationPath: "/SomeOtherProvider/Cars")]
-
-        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
-        let s = manager.filingSuggestions.first { $0.fileName == "tesla thing.pdf" }
-        #expect(!(s?.candidates.contains { $0.remembered } ?? false))
-    }
-
-    @MainActor
     @Test func rememberingCreatesAMentionsAutomation() {
         let manager = manager(withScratchRules: "RememberAuto")
 
-        // A learned rule stores the ABSOLUTE folder it filed into — the same provider scoping the
-        // legacy remembered rules had, so it can never batch-file into another provider.
+        // A learned rule stores the ABSOLUTE folder it filed into, so it can never batch-file into
+        // another provider.
         let rule = manager.rememberAutomationRule(fileName: "Tesla Policy.pdf",
                                                   destinationPath: "/p/Vehicles/Tesla")
         #expect(rule?.conditions == [.mentionsAll(["tesla"])])
@@ -565,101 +541,6 @@ private final class SnippetBox: @unchecked Sendable {
         manager.setAutomationRule(id: rule.id, enabled: false)
         #expect(manager.automationRules.first?.enabled == false)
         #expect(await logCount(disabledLine) == baseline + 1)
-    }
-
-    @MainActor
-    @Test func legacyRulesMigrateIntoAutomations() {
-        let suite = "RuleMigration-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
-
-        manager.filingRules = [
-            FilingRule(tokens: ["tesla"], destinationPath: "/p/Cars/Tesla"),
-            FilingRule(tokens: ["geico"], destinationPath: "/p/Insurance/Geico", enabled: false),
-        ]
-
-        manager.migrateFilingRulesToAutomations()
-
-        let migrated = manager.automationRules
-        #expect(migrated.count == 2)
-        let tesla = migrated.first { $0.conditions == [.mentionsAll(["tesla"])] }
-        // The destination stays ABSOLUTE — the exact provider scoping the legacy rule had.
-        #expect(tesla?.destinationTemplate == "/p/Cars/Tesla")
-        #expect(tesla?.enabled == true)
-        #expect(tesla?.name == "Tesla")
-        // Disabled state survives the migration.
-        #expect(migrated.first { $0.conditions == [.mentionsAll(["geico"])] }?.enabled == false)
-        // The legacy store is left in place as a backup…
-        #expect(manager.filingRules.count == 2)
-        // …and the migration is one-shot: re-running adds nothing.
-        manager.migrateFilingRulesToAutomations()
-        #expect(manager.automationRules.count == 2)
-    }
-
-    /// Once the migration flag is set, the legacy store is truly unconsulted: a legacy rule whose
-    /// destination DIVERGES from its migrated automation must not add a second candidate.
-    @MainActor
-    @Test func legacyStoreIsUnconsultedAfterMigration() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Legacy/Tesla/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/tesla renewal.pdf"))
-
-        let suite = "PostFlag-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
-        manager.filingRules = [FilingRule(tokens: ["tesla"],
-                                          destinationPath: root.appendingPathComponent("Legacy/Tesla").path)]
-        manager.migrateFilingRulesToAutomations()
-        // Re-point the automation somewhere else; the legacy store still holds Legacy/Tesla.
-        var rule = manager.automationRules[0]
-        rule.destinationTemplate = root.appendingPathComponent("Archive/Tesla").path
-        manager.upsertAutomationRule(rule)
-
-        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
-        let s = manager.filingSuggestions.first { $0.fileName.hasPrefix("tesla") }
-        #expect(s?.best?.path == root.appendingPathComponent("Archive/Tesla").path)
-        // Legacy/Tesla may still surface as a plain taxonomy candidate (the folder exists and
-        // shares a token) — what must NOT happen is the legacy RULE steering it as remembered.
-        #expect(!(s?.candidates.contains { $0.remembered && $0.path.hasSuffix("Legacy/Tesla") } ?? true))
-    }
-
-    /// The provable-preservation pin for the unification: a legacy remembered rule and its migrated
-    /// automation steer the SAME suggestion — same destination, remembered flag, high confidence,
-    /// and batch eligibility — so teaching survives the migration without behavior drift.
-    @MainActor
-    @Test func migratedRuleSteersLikeTheLegacyRule() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/tesla renewal 2025.pdf"))
-
-        // Pass 1 — the legacy rule steers (pre-migration path).
-        let legacySuite = "SteerLegacy-\(UUID().uuidString)"
-        let legacyManager = manager(withRuleSuite: legacySuite)
-        defer { wipeDefaultsSuite(legacySuite) }
-        legacyManager.filingRules = [FilingRule(tokens: ["tesla"],
-                                                destinationPath: root.appendingPathComponent("Archive/Tesla").path)]
-        await legacyManager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
-        let fromLegacy = legacyManager.filingSuggestions.first { $0.fileName.hasPrefix("tesla renewal") }
-
-        // Pass 2 — the same rule after migration steers via the automation path.
-        let migratedSuite = "SteerMigrated-\(UUID().uuidString)"
-        let migratedManager = manager(withRuleSuite: migratedSuite)
-        defer { wipeDefaultsSuite(migratedSuite) }
-        migratedManager.filingRules = [FilingRule(tokens: ["tesla"],
-                                                  destinationPath: root.appendingPathComponent("Archive/Tesla").path)]
-        migratedManager.migrateFilingRulesToAutomations()
-        await migratedManager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
-        let fromMigrated = migratedManager.filingSuggestions.first { $0.fileName.hasPrefix("tesla renewal") }
-
-        #expect(fromLegacy?.best?.path == root.appendingPathComponent("Archive/Tesla").path)
-        #expect(fromMigrated?.best?.path == fromLegacy?.best?.path)
-        #expect(fromMigrated?.best?.remembered == true)
-        #expect(fromMigrated?.best?.confidence == fromLegacy?.best?.confidence)
-        #expect(fromMigrated?.isBatchEligible == fromLegacy?.isBatchEligible)
-        #expect(fromMigrated?.isBatchEligible == true)
     }
 
     /// An automation with an absolute destination pointing into a DIFFERENT provider must never

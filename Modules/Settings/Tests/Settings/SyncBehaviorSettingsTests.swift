@@ -132,8 +132,6 @@ import Sync
                              cacheCreationTokens: 0, estimatedCostUSD: 0.75),
             defaults: defaults)
         defaults.set(Data("[]".utf8), forKey: FileSyncManager.automationRulesDefaultsKey)
-        defaults.set(Data("[]".utf8), forKey: FileSyncManager.rulesDefaultsKey)
-        defaults.set(true, forKey: FileSyncManager.filingRulesMigratedKey)
         defaults.set(Data("[]".utf8), forKey: "editorPDFSavedSignatures")
         defaults.set("cursive", forKey: "editorPDFSignatureFace")
         defaults.set("claude-opus-4-1", forKey: "askClaudeModel")
@@ -143,15 +141,13 @@ import Sync
         defaults.set(Data("{}".utf8), forKey: "folderJumpRecentsByRoot")
         defaults.set(RootsMigration.currentStamp, forKey: RootsMigration.stampKey)
         defaults.set(["iCloud"], forKey: RootsMigration.handledProviderIdsKey)
-        defaults.set(RootsMigration.iCloudRootMoveStamp, forKey: RootsMigration.iCloudRootMoveStampKey)
         settings.dateToleranceSeconds = 60
         settings.setSourceOrder(["Dropbox", "iCloud"])
         let kept = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
             .filter(SettingsResetKeeps.keeps)
         // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last,
-        // both rule stores and their flag, the signatures, the rejections, the pins, and the three
-        // roots marks.
-        #expect(kept.count == 17, "\(kept.sorted())")
+        // the automations, the signatures, the rejections, the pins, and the two roots marks.
+        #expect(kept.count == 14, "\(kept.sorted())")
 
         // Key by key, so the hidden list is there at every change the reset makes and a reader on
         // another thread never sees it gone. Removing the domain and writing it back would not be.
@@ -182,7 +178,6 @@ import Sync
         #expect(FilingSpendStore.totals(defaults: defaults).costUSD == 0.75)
         #expect(AskClaudePrivacy.sharedFolders(in: defaults).isEmpty)
         #expect(defaults.data(forKey: FileSyncManager.automationRulesDefaultsKey) != nil)
-        #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey))
         #expect(defaults.data(forKey: "editorPDFSavedSignatures") != nil)
         #expect(defaults.string(forKey: "editorPDFSignatureFace") == nil)
         #expect(defaults.object(forKey: "folderJumpRecentsByRoot") == nil)

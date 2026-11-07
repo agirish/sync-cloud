@@ -226,13 +226,4 @@ import Foundation
         #expect(decoded.keys.sorted() == ["/Dropbox", "/iCloud"])
         #expect(decoded.values.allSatisfy { $0.allSatisfy { $0.visitedAt == nil } })
     }
-
-    /// The other direction, since the release lines share this defaults domain: an older decoder
-    /// meeting `visitedAt` must ignore the key, not fail the whole map.
-    @Test func anOlderDecoderIgnoresTheNewKey() throws {
-        struct PreV44: Codable, Equatable { let relativePath: String; let name: String }
-        let json = #"[{"relativePath":"Work","name":"Work","visitedAt":776000000}]"#
-        let back = try JSONDecoder().decode([PreV44].self, from: Data(json.utf8))
-        #expect(back == [PreV44(relativePath: "Work", name: "Work")])
-    }
 }

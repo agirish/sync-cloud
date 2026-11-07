@@ -1,9 +1,13 @@
 import Foundation
 
-/// A remembered filing rule: files whose tokens include all of `tokens` go into `destinationPath`.
-/// Learned when the user corrects a suggestion and opts to remember it, then consulted on every
-/// later scan. Matching is a subset test over filename and content tokens; rules stay small and
-/// distinctive (often one anchor like "tesla") so they generalize without firing on common words.
+/// A filing rule learned by example: files whose tokens include all of `tokens` go into
+/// `destinationPath`. `FilingEngine.rule(forFileNamed:contentTokens:filedInto:)` derives one from a
+/// correction, and `rememberAutomationRule` saves it as an automation. Matching is a subset test
+/// over filename and content tokens; rules stay small and distinctive (often one anchor like
+/// "tesla") so they generalize without firing on common words.
+///
+/// No longer stored: builds 2.1 through 7.0 converted the old `tidyFilingRules` store into
+/// automations at launch.
 public struct FilingRule: Sendable, Equatable, Codable, Identifiable, Hashable {
     /// The trigger tokens, canonical (lowercased, sorted). All must be present for a match.
     public let tokens: [String]
@@ -24,18 +28,5 @@ public struct FilingRule: Sendable, Equatable, Codable, Identifiable, Hashable {
         self.tokens = tokens
         self.destinationPath = destinationPath
         self.enabled = enabled
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case tokens, destinationPath, enabled
-    }
-
-    /// Tolerant decode: a rule saved without `enabled` decodes as enabled. Throwing instead would
-    /// fail the whole `[FilingRule]` decode and silently drop every rule the user taught.
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        tokens = try container.decode([String].self, forKey: .tokens)
-        destinationPath = try container.decode(String.self, forKey: .destinationPath)
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 }

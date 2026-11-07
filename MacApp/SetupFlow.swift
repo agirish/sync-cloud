@@ -285,11 +285,11 @@ enum SetupFlow {
     /// The four workspaces, one panel each.
     ///
     /// Order is a claim, not layout: Browse leads because a fresh install opens there.
-    /// `theWelcomeStripOpensWhereTheAppDoes` pins that against `WorkspaceSelection.default`.
+    /// `theWelcomeStripOpensWhereTheAppDoes` pins that against `ContentView.selectedWorkspace`'s
+    /// default.
     ///
-    /// Blurbs must describe what ships. `noPanelCallsARetiredWorkspaceAWorkspace` is derived from
-    /// ``Workspace/retiredWorkspaceRawValues``, so a workspace folded into an Organize lens can't
-    /// go on being called a workspace here.
+    /// Blurbs must describe what ships. `noPanelCallsARetiredWorkspaceAWorkspace` lists the
+    /// workspaces folded into Organize lenses, so none goes on being called a workspace here.
     static let panels: [Panel] = [
         Panel(art: .browse, title: "Browse", blurb: "One tree, full width."),
         Panel(art: .compare, title: "Compare", blurb: "Two folders side by side."),

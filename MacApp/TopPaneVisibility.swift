@@ -141,32 +141,6 @@ enum TopPaneVisibility {
 
     /// The defaults key holding the encoded override map.
     static let overridesKey = "topPaneOverridesByTab"
-    /// The raw value the single `Tidy` entry used, before the lenses became workspaces.
-    static let legacyTidyKey = "Tidy"
-
-    /// Fans the retired `Tidy` entry out across the workspaces that came out of it.
-    ///
-    /// Each lens workspace inherits Tidy's stored value unless it has its own, so a deliberate
-    /// choice made in Tidy is not lost. The spent key is dropped so this cannot re-run against a
-    /// later choice.
-    static func migratingOverrides(_ overrides: [String: Bool]) -> [String: Bool] {
-        guard let tidy = overrides[legacyTidyKey] else { return overrides }
-        var next = overrides
-        next.removeValue(forKey: legacyTidyKey)
-        for workspace in Workspace.lensWorkspaces where next[workspace.rawValue] == nil {
-            next[workspace.rawValue] = tidy
-        }
-        return next
-    }
-
-    /// Runs the override migration against a stored string, returning the new string, or `nil`
-    /// when nothing needed to change.
-    static func migratingOverridesRaw(_ raw: String) -> String? {
-        let decoded = decodeOverrides(raw)
-        let migrated = migratingOverrides(decoded)
-        guard migrated != decoded else { return nil }
-        return encodeOverrides(migrated)
-    }
 }
 
 /// What Expand put away, and so what leaving it gives back.

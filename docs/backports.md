@@ -14657,3 +14657,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The features where they were, or none (no One-Way Sync, sharing or paged Settings) | RECORDED — not owed (new rows, not a fix) |
+## Launch migrations for settings from 5.5 and older retired — main only
+
+2026-11-06, for v7.1. A 7.x install upgrades only from 6.x, so `main` drops the one-shot launch
+migrations every 6.x build has already run and stamped: the glass-level and text-size
+conversions, the column-width floor lift, the two-level workspace selection and the retired
+"Names" rail lens, the `Tidy` pane-override fan-out, the Organize scope stamp, the filing-rule →
+automation conversion, the startup disk out of Favorites, the pane bar's Search step (step 1;
+Filter by Type's step 2 stays), and the iCloud root move. Their stamps leave Reset All's keep-list.
+`RootsMigration.applyAtLaunch` stays: it is deferred per source and can still be pending on a 6.x
+install.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s app=%s\n' $l "$(git show origin/$l:MacApp/SyncCloudApp.swift | grep -cE 'migrateLegacyAppearance|FontSize.migrateLegacyValue|liftColumnWidthOffTheFloor|Workspace.migrateSelection|migratingOverridesRaw|OrganizeScopeDefaults.migrate|SidebarFavoritePlaces.migrate|moveICloudRoot')"; done
+# measured 2026-11-06, against origin, before this landed: v6.x 8, v5.x 8, v4.x 6, v3.x 4, v2.x 2 (main: 8)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The migrations each line's own upgrades need | CLOSED — doesn't apply (each line keeps its own upgrade path) |

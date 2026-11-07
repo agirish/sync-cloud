@@ -75,7 +75,8 @@ public struct OrganizeScope: Equatable, Sendable, Hashable {
 
 // MARK: - Where the scope is stored
 
-/// The scope's persistence: one key, one stamp, and the migration between them.
+/// The scope's persistence: one key. Builds 4.0 through 7.0 stamped it (`organizeScopePathStamp`)
+/// and cleared a value no build of theirs had written; every 6.x install carries that stamp.
 ///
 /// A stored value is not the in-memory default, and a test that only starts from `""` never
 /// sees what a real launch reads off disk, so ``OrganizeScopeStorageTests`` builds every fixture
@@ -85,27 +86,6 @@ public enum OrganizeScopeDefaults {
     /// The scope's absolute path. Empty (or absent) is the global view, the default; there is no
     /// separate "everything" value to migrate to or from.
     public static let pathKey = "organizeScopePath"
-
-    /// The format stamp. Absent means "never migrated".
-    public static let stampKey = "organizeScopePathStamp"
-
-    /// What ``pathKey`` currently holds: an absolute, tilde-expanded folder path.
-    public static let currentStamp = 1
-
-    /// Brings stored scope state up to ``currentStamp``, once.
-    ///
-    /// At stamp 0 this code has never written `pathKey`, so anything there is foreign and is
-    /// cleared rather than trusted: clearing costs one re-scope, trusting filters the lenses by a
-    /// path nobody chose. Idempotent and safe on every launch: once the stamp is current this
-    /// touches nothing.
-    @discardableResult
-    public static func migrate(defaults: UserDefaults = .standard) -> Bool {
-        let stamp = defaults.integer(forKey: stampKey)   // absent → 0
-        guard stamp < currentStamp else { return false }
-        if stamp == 0 { defaults.removeObject(forKey: pathKey) }
-        defaults.set(currentStamp, forKey: stampKey)
-        return true
-    }
 
     /// The scope a stored path resolves to under a given provider root: the read half of the round
     /// trip, kept beside the write so the two can't drift. Nil for an empty path (the global view),
