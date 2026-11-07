@@ -519,6 +519,7 @@ public enum SettingsCatalog {
           default: .string(LogLevel.info.rawValue), tier: .suggested),
         e("advanced.logShowInFinder", .advanced, "Log file", indexed: true, others: ["Show in Finder"],
           control: .button("Show in Finder"), tier: .suggested),
+        e("advanced.logCopyForSharing", .advanced, "Copy Log for Sharing", others: ["Copy Log for Sharing"], control: .button("Copy Log for Sharing"), tier: .suggested),
         e("advanced.logClear", .advanced, "Clear Log", others: ["Clear Log…"], control: .button("Clear Log…"),
           tier: .asksTwice),
         e("advanced.sweep", .advanced, "Sweep orphaned temporary files", indexed: true, others: ["Sweep Now"],

@@ -930,10 +930,11 @@ enum HelpBook {
                         "A message’s Undo in Recent works while its step is the newest one. After something newer, it says what to undo first; ⌘Z in the main window steps back through them.",
                         "Show in History narrows History to that run’s records; Show in Log narrows the log to the minutes around the message. Show All puts the whole list back.",
                         "In Log, filter by severity and copy lines straight from the window.",
+                        "Copy Log for Sharing, in Log’s bar and in the Advanced settings, copies the whole log with email addresses, your home folder and the names in your People lists masked. The log file itself keeps everything.",
                         "The full log is written to sync-cloud.log — Help ▸ Reveal Log File in Finder opens it.",
                         "The log keeps Info and above: every operation, what it did, and anything that went wrong. For per-click detail, set Log level to Debug in the Advanced settings; the “launched” line that opens each session says which level it kept.",
                     ]),
-                    .tip("Attaching the log file to a bug report is the fastest way to get a problem understood."),
+                    .tip("Copy Log for Sharing, pasted into a bug report, is the fastest way to get a problem understood."),
                 ],
                 related: ["sync-history", "staying-safe", "about"]
             )),

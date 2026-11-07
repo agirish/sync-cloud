@@ -69,6 +69,15 @@ Apply in this order; the first rule that applies wins.
 - **Copy rules apply to log text outside a `Logger` call:** a standalone literal needs curly
   apostrophes and US spelling, or a name the copy scan reads as a log line (`logLine`).
 
+## Sharing the log
+
+The file keeps paths, emails and names: they are what make it useful, and it never leaves the Mac
+on its own. **Copy Log for Sharing** (the Activity Log's bar, Settings ▸ Advanced) copies the whole
+file masked (`LogSharing`): emails (keeping a `GoogleDrive-` or `OneDrive-` prefix), the home
+folder and account name, and every name form of everyone in every profile's `people.json`, as
+`<person N>`. The copy's header says what it doesn't mask. A new kind of identifying text in a log
+line needs a masking step there, or a word in that header.
+
 ## Who reads the log
 
 | Reader | Depends on | Emitted at |

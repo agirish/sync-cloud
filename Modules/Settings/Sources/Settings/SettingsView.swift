@@ -4173,6 +4173,10 @@ struct AdvancedSettingsTab: View {
                         Button("Show in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
                         }
+                        Button(CopyLogForSharing.title) {
+                            Task { await CopyLogForSharing.copy() }
+                        }
+                        .help(CopyLogForSharing.help)
                         // Asks first, like the Activity Log's trash button: one gesture, one name.
                         Button("\(Logger.clearLogName)…") {
                             guard Logger.shared.clearIfConfirmed() else { return }

@@ -14774,3 +14774,19 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` | The silent removal after a cancelled tool, and its "nothing was written" banner | RECORDED — not owed |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tools in Edit | CLOSED — doesn't apply |
+
+## Copy Log for Sharing masks emails, the home folder and People names — main only
+
+2026-11-07, for v7.1. On `main`, the Activity Log's bar and Settings ▸ Advanced copy the whole log
+with email addresses, the home folder and account name, and every name in every profile's People
+list masked, under a header that says what isn't. New on `main`: no maintenance line has it.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s %s\n' $l "$(git ls-tree -r --name-only origin/$l | grep -c 'LogSharing.swift')"; done
+# measured 2026-11-07, against origin, before this landed: every line 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No masked copy; Help's tip says to attach the log file | RECORDED — not owed |

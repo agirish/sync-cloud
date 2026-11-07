@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Design
 import Events
+import Settings
 
 /// Dashboard's tint for a log level, from the shared semantic table, and the only place severity
 /// becomes colour. It lives here, not in Events, because Events is a leaf module that must not
@@ -483,6 +484,17 @@ public struct LogViewer: View {
                 .disabled(filtered.isEmpty && visibleHistory.isEmpty)
                 .help("Copy the \(shownCount) shown \(shownCount == 1 ? "entry" : "entries") to the clipboard")
                 .accessibilityLabel("Copy the shown entries")
+
+                // The whole file, masked, for a bug report (`CopyLogForSharing`): not the filtered
+                // slice, since a report wants the lines around the problem too.
+                Button(action: { Task { await CopyLogForSharing.copy(logger: logger) } }) {
+                    Image(systemName: "eye.slash")
+                }
+                .chromeGlassBorderedButtonStyle()
+                .controlSize(.small)
+                .chromeHover(tint: hueAccent)
+                .help(CopyLogForSharing.help)
+                .accessibilityLabel(CopyLogForSharing.title)
 
                 // The history reset rides the Logger's own notification, not this button, because
                 // Settings has its own Clear Log too, and either must drop the parsed history (and
