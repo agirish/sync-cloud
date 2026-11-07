@@ -660,8 +660,7 @@ extension FileSyncManager {
         let root = run.root
         let sameFolder = root.standardizedFileURL.resolvingSymlinksInPath().path
             == savingFolder.standardizedFileURL.resolvingSymlinksInPath().path
-        let pausedByPerson = await run.isPausedByUser
-        await run.stop()
+        let pausedByPerson = await run.stopReportingUserPause()
         // Checked again after the hop: a run that ended during it has already released its waiters.
         if documentSurveyRun === run {
             let id = UUID()

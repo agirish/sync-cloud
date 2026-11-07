@@ -14618,3 +14618,22 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` | The guard on Forward Delete only | RECORDED — not owed |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign overlay | CLOSED — doesn't apply |
+
+## A Save as the document survey starts stops it before it reads — main only
+
+2026-11-06, for v7.1. On `main`, `stopDocumentSurveyBeforeReplacingProfile` asked the run whether
+the person had paused it, then stopped it: two hops. A run that had not read yet could resume from
+its pause check between them and read a document into the profile the Save was replacing. Hosted
+CI caught it twice (`aSaveAsARunStartsFindsItBeforeItReads`). Now one call,
+`stopReportingUserPause()`, answers and stops together.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s twoHop=%s\n' $l "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+DocumentSurvey.swift 2>/dev/null | grep -c 'await run.isPausedByUser')"; done
+# measured 2026-11-06, against origin, before this landed: v6.x twoHop=2, v5.x–v2.x 0 (no document survey)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | The two-hop stop | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No document survey | CLOSED — doesn't apply |

@@ -223,6 +223,14 @@ public actor DocumentSurveyRun {
         stopRequested = true
     }
 
+    /// ``stop()``, answering whether the person's own Pause was holding the run. One call, not
+    /// ``isPausedByUser`` then ``stop()``: between two hops a run that had not read yet could
+    /// resume from its pause check and read a document before the stop landed.
+    public func stopReportingUserPause() -> Bool {
+        stopRequested = true
+        return userPaused
+    }
+
     /// Takes back a ``stop()`` the run has not yet reached — for a profile write that gave up
     /// waiting for it. A stop already acted on stays acted on.
     public func withdrawStop() {
