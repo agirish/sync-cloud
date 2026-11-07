@@ -51,9 +51,38 @@ public struct SettingsWriter {
     /// straight after its write still gives the old value.
     public static let appliedByDiscovery: Set<String> = ["sources.name", "sources.path", "sources.openAt"]
 
-    /// Writes `value` to the setting `id` (for `target`, when it belongs to one).
+    /// Who asked for a write, so the log says so: an Undo or a Revert of Claude's change goes
+    /// through this writer too, and is not Claude's doing.
+    public enum Cause: Sendable {
+        case askClaude, undo, revert
+
+        var words: String {
+            switch self {
+            case .askClaude: return "from Ask Claude"
+            case .undo: return "by Undo or Redo of an Ask Claude change"
+            case .revert: return "by Revert in Activity"
+            }
+        }
+    }
+
+    /// Writes `value` to the setting `id` (for `target`, when it belongs to one), and logs the
+    /// outcome: one line for a change, naming its cause, and one at INFO for a refusal, which
+    /// before left no trace.
     @discardableResult
-    public func write(_ id: String, _ value: SettingValue, target: String? = nil) -> Outcome {
+    public func write(_ id: String, _ value: SettingValue, target: String? = nil,
+                      cause: Cause = .askClaude) -> Outcome {
+        let outcome = apply(id, value, target: target)
+        switch outcome {
+        case .done:
+            let label = SettingsCatalog.entry(id)?.label ?? id
+            Logger.shared.info("Settings: \(label) set to \(value) \(cause.words)")
+        case .refused(let why):
+            Logger.shared.info("Settings: \(SettingsCatalog.entry(id)?.label ?? id) not changed \(cause.words) — \(why)")
+        }
+        return outcome
+    }
+
+    private func apply(_ id: String, _ value: SettingValue, target: String?) -> Outcome {
         guard let entry = SettingsCatalog.entry(id) else { return .refused("There’s no setting \(id).") }
         guard Self.accepts(entry, value) else {
             return .refused("\(value) isn’t one of \(entry.label)’s choices.")
@@ -169,7 +198,6 @@ public struct SettingsWriter {
             case .string(let x): defaults.set(x, forKey: key)
             }
         }
-        Logger.shared.info("Settings: \(entry.label) set to \(value) from Ask Claude")
         return .done
     }
 

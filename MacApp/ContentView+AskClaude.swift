@@ -1082,7 +1082,8 @@ extension ContentView {
         undo.write = { key, value in
             if key.id.hasPrefix("people.") { return people.set(key.id, target: key.target, value) == .done }
             if SettingsLists.ids.contains(key.id) { return lists.set(key.id, scoped: key.target ?? "", present: value == .bool(true)) == .done }
-            let done = SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target) == .done
+            let done = SettingsWriter(defaults: .standard, settings: settings).write(key.id, value, target: key.target,
+                                                                                     cause: .undo) == .done
             if done, SettingsWriter.appliedByDiscovery.contains(key.id) {
                 Task { @MainActor in
                     await settings.discoverProviders()

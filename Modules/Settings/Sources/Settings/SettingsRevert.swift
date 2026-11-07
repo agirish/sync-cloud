@@ -85,7 +85,7 @@ public enum SettingsRevert {
                                                  informativeText: "That raises Claude’s spending or access.", confirmTitle: confirmTitle)) {
             return .refused("Not changed: you chose Cancel.")
         }
-        let outcome = writer.write(entry.id, before, target: change.target)
+        let outcome = writer.write(entry.id, before, target: change.target, cause: .revert)
         guard outcome == .done else { return outcome }
         log.record(SettingsChange(setting: entry.id, target: change.target, name: change.name,
                                   from: after.stored, to: before.stored,

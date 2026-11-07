@@ -4,6 +4,7 @@ import Design
 import Events
 import Sync
 @testable import Settings
+import EventsTestSupport
 
 /// Pins how an Ask Claude card changes a setting: through its owner, with the
 /// side effect Settings' own control has, and only to a value the setting can hold.
@@ -32,6 +33,23 @@ import Sync
                        applyRunningLogLevel: { calls.logLevels.append($0) },
                        confirmReleasingColumnWidths: { calls.columnQuestions.append($0); return confirmColumns },
                        notificationsDenied: { calls.denied += 1 })
+    }
+
+    /// The log says who changed a setting: an Undo or a Revert of Claude's change goes through
+    /// this writer too and is not Claude's doing. A refused write leaves a line as well.
+    @Test func eachWriteIsLoggedWithItsCauseAndARefusalToo() async {
+        let (name, defaults) = scratch()
+        defer { UserDefaults().removePersistentDomain(forName: name) }
+        let w = writer(defaults, nil, Calls())
+        let log = LogCapture()
+        #expect(w.write("appearance.theme", .string(AppearanceMode.dark.rawValue), cause: .revert) == .done)
+        guard case .refused = w.write("appearance.theme", .string("purple-\(name)"), cause: .undo) else {
+            Issue.record("the bad value was accepted"); return
+        }
+        let lines = await log.entries.map(\.message).filter { $0.hasPrefix("Settings: ") }
+        #expect(lines.contains { $0.contains("by Revert in Activity") }, "\(lines)")
+        #expect(lines.contains { $0.contains("not changed by Undo or Redo of an Ask Claude change") && $0.contains("purple-\(name)") },
+                "\(lines)")
     }
 
     private func scratch(_ test: String = #function) -> (String, UserDefaults) {
