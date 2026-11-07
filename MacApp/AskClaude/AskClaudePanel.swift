@@ -32,6 +32,11 @@ struct AskClaudePanel: View {
     /// Cards, one flush area under a hairline in Unified.
     var pinned = false
     var surface: SurfaceStyle = .unified
+    /// Bumped to bring the text box the keyboard: opening the panel, pinning it, ⌘J, Ask Claude
+    /// About This. Only these move the keyboard into a pinned column.
+    var focusToken = 0
+    /// Whether a question is being spoken, for ⌘J, which does nothing while one is.
+    var onTalkingChange: (Bool) -> Void = { _ in }
     /// The shield's choice of what Claude gets from the folder on screen: ask each time, share
     /// without asking, or hide it.
     var onSetAccess: (AskClaudeFolderAccess) -> Void = { _ in }
@@ -236,15 +241,18 @@ struct AskClaudePanel: View {
         // meanwhile waits for the answer to end.
         .onChange(of: chat.isRunning) { _, running in
             guard !running else { return }
-            composerFocused = true
+            if mayTakeKeyboardBack { composerFocused = true }
             if case .assistant = chat.items.last(where: { if case .receipt = $0.kind { false } else { true } })?.kind {
                 AccessibilityNotification.Announcement("Claude answered").post()
             }
         }
         // Back to the box once a spoken question is sent or thrown away.
-        .onChange(of: voice.isActive) { _, active in if !active { composerFocused = true } }
+        .onChange(of: voice.isActive) { _, active in if !active, mayTakeKeyboardBack { composerFocused = true } }
         .onChange(of: draft) { _, typed in if !typed.isEmpty { voice.notice = nil } }
-        .background(AskClaudeTalkKeys(onKey: talkKey, onGone: { voice.cancel() }))
+        .background(AskClaudeTalkKeys(onKey: talkKey, onEscape: escapePinned, onGone: { voice.cancel() }))
+        .environment(\.askClaudePanelPinned, pinned)
+        .onChange(of: focusToken) { composerFocused = true }
+        .onChange(of: voice.isActive) { _, active in onTalkingChange(active) }
         // A question being spoken stops when the panel goes, but not when it only moves window:
         // the appearance that follows in the same turn says it was a move.
         .onDisappear {
@@ -858,6 +866,23 @@ struct AskClaudePanel: View {
         }
     }
 
+    /// Esc pinned, with nothing spoken: stops an edit, and does nothing else. It never closes the
+    /// panel, which a pinned panel's Close button, ⌘W and ⌘J do.
+    private func escapePinned() -> Bool {
+        guard chat.editing != nil else { return false }
+        chat.cancelEdit()
+        draft = draftBeforeEdit
+        composerFocused = true
+        return true
+    }
+
+    /// Whether the keyboard is the panel's to take back: always for a floating panel, which has
+    /// its own window, and for a pinned one only if it was already in the column. Without this an
+    /// answer finishing or voice stopping would pull the keyboard off the file list.
+    private var mayTakeKeyboardBack: Bool {
+        !pinned || AskClaudeColumnView.holder(in: NSApp.keyWindow) != nil
+    }
+
     private func talkKey(_ key: AskClaudeTalkKey) -> Bool {
         switch key {
         case .toggle(let isRepeat):
@@ -877,6 +902,19 @@ struct AskClaudePanel: View {
         spentText = limit > 0
             ? "\(AskClaudeSpend.format(spent)) of \(AskClaudeSpend.format(limit))"
             : AskClaudeSpend.format(spent)
+    }
+}
+
+private struct AskClaudePanelPinnedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Whether the panel is the main window's pinned column rather than a floating window of its
+    /// own, for the few views inside it whose keys would otherwise reach the whole window.
+    var askClaudePanelPinned: Bool {
+        get { self[AskClaudePanelPinnedKey.self] }
+        set { self[AskClaudePanelPinnedKey.self] = newValue }
     }
 }
 

@@ -2363,6 +2363,7 @@ struct SelectAllCommand: View {
             TextEditingChord.route(editorAction: { $0.selectAll(nil) },
                                    // The page on screen, not the whole PDF — see `EditorPDFReaderSelection`.
                                    readerAction: { EditorPDFReaderSelection.selectPagesOnScreen(in: $0) },
+                                   columnAction: { TextEditingChord.selectAllInColumn($0) },
                                    fileAction: { SelectAllScope.selectAll(pages: pages?.run, pane: selectAll) })
         }
         .keyboardShortcut(AppChord.selectAll.key, modifiers: AppChord.selectAll.modifiers)
@@ -2400,6 +2401,7 @@ struct CopyCommand: View {
             // A PDF's selected text, not the PDF: the reader's copy is the one ⌘C means there.
             TextEditingChord.route(editorAction: { $0.copy(nil) },
                                    readerAction: { $0.copy(nil) },
+                                   columnAction: { TextEditingChord.copyColumnSelection($0) },
                                    // Preview's selected words, then the file.
                                    fileAction: { TextEditingChord.copySelection(orElse: { clipboard?.copy?() }) })
         }
@@ -2449,7 +2451,13 @@ struct CloseTabCommand: View {
     ///
     /// Static and injectable so the rule can be tested without a key window. A `switch`, not
     /// `if let`, so a fourth state can't be added without the compiler asking what ⌘W does in it.
-    static func run(_ close: CloseTabAction?, closeWindow: () -> Void) {
+    static func run(_ close: CloseTabAction?, closeColumn: (() -> Void)? = nil, closeWindow: () -> Void) {
+        // The pinned Ask Claude column has the keyboard: ⌘W closes the panel, never a pane tab or
+        // the window. Decided now, not when the menu was drawn: the keyboard moves without a redraw.
+        if let closeColumn {
+            closeColumn()
+            return
+        }
         switch close {
         case .closeTab(let closeTab): closeTab()
         // An overlay owns the keyboard. Falling through to `closeWindow` would take the window an
@@ -2466,7 +2474,8 @@ struct CloseTabCommand: View {
         // The title stays "Close Tab" because the main window is where this is ever read; on an
         // auxiliary window the menu item is a chord, not a label anyone goes looking for.
         Button("Close Tab") {
-            Self.run(close) { NSApp.keyWindow?.performClose(nil) }
+            let column = AskClaudeColumnView.holder(in: NSApp.keyWindow)?.controller
+            Self.run(close, closeColumn: column.map { controller in { controller.closeColumn() } }) { NSApp.keyWindow?.performClose(nil) }
         }
         .keyboardShortcut(AppChord.closeTab.key, modifiers: AppChord.closeTab.modifiers)
         // `isSuspended`, never `close == nil`: a `nil` value is an auxiliary window and this

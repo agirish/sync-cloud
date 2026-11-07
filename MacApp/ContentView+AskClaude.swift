@@ -70,6 +70,8 @@ extension ContentView {
                               container: container,
                               pinned: askClaudePinnedShown,
                               surface: surfaceStyle,
+                              focusToken: askClaudeHolder.visibility.focusRequests,
+                              onTalkingChange: { askClaudeHolder.visibility.isTalking = $0 },
                               onSetAccess: { askClaudeSetCurrentFolderAccess($0) },
                               onGoToFolder: { askClaudeShowFolderPane() },
                               onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
@@ -112,7 +114,19 @@ extension ContentView {
         // Not under a sheet or overlay the panel would open beneath, out of sight, taking the keys.
         guard askClaudeStateBusy == nil else { return nil }
         let visibility = askClaudeHolder.visibility
-        return Binding(get: { visibility.isOpen }, set: { visibility.isOpen = $0 })
+        let pinned = askClaudePinnedShown
+        return Binding(get: { visibility.isOpen }, set: { wanted in
+            // Pinned, ⌘J closes only from inside the panel, and not while a question is spoken:
+            // from anywhere else it takes you to the text box, as the toolbar button cannot.
+            if !wanted, visibility.isOpen, pinned {
+                if visibility.isTalking { return }
+                if AskClaudeColumnView.holder(in: NSApp.keyWindow) == nil {
+                    visibility.focusRequests += 1
+                    return
+                }
+            }
+            visibility.isOpen = wanted
+        })
     }
 
     func askClaudeTools() -> AskClaudeBrowseTools {
@@ -699,6 +713,9 @@ extension ContentView {
         if showHelp { return "Help is open" }
         if showSetup || shouldAutoShowSetup { return "setup is open" }
         if syncManager.currentError != nil { return "an error message is open" }
+        // Pinned, the column is in the window these overlays cover, so it pauses under them; a
+        // floating panel has always sat over them.
+        if askClaudePinnedShown, compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
         return nil
     }
 

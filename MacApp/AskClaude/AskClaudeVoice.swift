@@ -409,23 +409,28 @@ struct AskClaudeLevelMeter: View {
 /// the panel that finds the window it is in.
 struct AskClaudeTalkKeys: NSViewRepresentable {
     let onKey: (AskClaudeTalkKey) -> Bool
+    /// Esc with nothing spoken, pinned: stops an edit; true when it did.
+    var onEscape: () -> Bool = { false }
     let onGone: () -> Void
 
     func makeNSView(context: Context) -> HookView {
         let view = HookView(frame: .zero)
         view.onKey = onKey
+        view.onEscape = onEscape
         view.onGone = onGone
         return view
     }
 
     func updateNSView(_ view: HookView, context: Context) {
         view.onKey = onKey
+        view.onEscape = onEscape
         view.onGone = onGone
         view.hook()
     }
 
     final class HookView: NSView {
         var onKey: (AskClaudeTalkKey) -> Bool = { _ in false }
+        var onEscape: () -> Bool = { false }
         var onGone: () -> Void = {}
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -436,9 +441,15 @@ struct AskClaudeTalkKeys: NSViewRepresentable {
         }
 
         func hook() {
-            guard let window = window as? AskClaudePanelWindow else { return }
-            window.onTalkKey = { [weak self] key in self?.onKey(key) ?? false }
-            window.onGone = { [weak self] in self?.onGone() }
+            if let window = window as? AskClaudePanelWindow {
+                window.onTalkKey = { [weak self] key in self?.onKey(key) ?? false }
+                window.onGone = { [weak self] in self?.onGone() }
+            } else if let column = AskClaudeColumnView.enclosing(self) {
+                // Pinned: the panel is in the main window's column, which takes the keys.
+                column.onTalkKey = { [weak self] key in self?.onKey(key) ?? false }
+                column.onEscape = { [weak self] in self?.onEscape() ?? false }
+                column.onGone = { [weak self] in self?.onGone() }
+            }
         }
     }
 }

@@ -28,6 +28,9 @@ final class AskClaudeVisibility: ObservableObject {
     @Published var isOpen = false
     /// Bumped to bring an open panel's text box the keyboard (a row's Ask Claude About This).
     @Published var focusRequests = 0
+    /// Whether a question is being spoken: ⌘J does not close a pinned panel meanwhile. Not
+    /// published: the window redraws for nothing that watches it.
+    var isTalking = false
 }
 
 @MainActor

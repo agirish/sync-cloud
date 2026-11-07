@@ -36,9 +36,16 @@ enum TextEditingChord {
                       editorAction: (NSTextView) -> Void,
                       readerAction: ((PDFView) -> Void)? = nil,
                       readerRefusal: () -> Void = { NSSound.beep() },
+                      columnAction: ((NSResponder?) -> Void)? = nil,
                       fileAction: () -> Void) {
         if belongsToTextEditor(responder), let editor = responder as? NSTextView {
             editorAction(editor)
+        } else if AskClaudeColumnView.enclosing(responder) != nil {
+            // The pinned Ask Claude column: its answers are SwiftUI text, neither an NSTextView nor
+            // a reader, and nothing typed there is ever about a file. ⌘C and ⌘A act on the selected
+            // words (`columnAction`); every other chord, ⌘X, ⌘V, ⌘⌫ and the transfers among them,
+            // is refused, never run on the pane's selection.
+            if let columnAction { columnAction(responder) } else { readerRefusal() }
         } else if let reader = enclosingReader(of: responder) {
             if let readerAction { readerAction(reader) } else { readerRefusal() }
         } else {
@@ -73,6 +80,23 @@ enum TextEditingChord {
 
     private static let copyAction = #selector(NSText.copy(_:))
 
+    /// The pinned column's ⌘C: the selected words, if there are any; nothing, with a beep, if not.
+    @MainActor
+    static func copyColumnSelection(_ responder: NSResponder?) {
+        if let view = selectionCopier(of: responder) {
+            NSApp.sendAction(copyAction, to: view, from: nil)
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    /// The pinned column's ⌘A: the words the keyboard is on, where it is on selectable text.
+    @MainActor
+    static func selectAllInColumn(_ responder: NSResponder?) {
+        guard let view = responder as? NSView, view.responds(to: #selector(NSText.selectAll(_:))) else { return NSSound.beep() }
+        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: view, from: nil)
+    }
+
     /// ⌘C's file half: the words selected in Preview if there are any, else `fileAction`.
     @MainActor
     static func copySelection(orElse fileAction: () -> Void) {
@@ -87,8 +111,9 @@ enum TextEditingChord {
     @MainActor
     static func route(editorAction: (NSTextView) -> Void,
                       readerAction: ((PDFView) -> Void)? = nil,
+                      columnAction: ((NSResponder?) -> Void)? = nil,
                       fileAction: () -> Void) {
         route(responder: NSApp.keyWindow?.firstResponder,
-              editorAction: editorAction, readerAction: readerAction, fileAction: fileAction)
+              editorAction: editorAction, readerAction: readerAction, columnAction: columnAction, fileAction: fileAction)
     }
 }

@@ -209,11 +209,16 @@ final class AskClaudeWindowController {
 
     var isShowing: Bool { window != nil || (isPinned && host != nil) }
 
+    /// What closes the panel, for ⌘W with the keyboard in the pinned column.
+    private var closePanel: () -> Void = {}
+    func closeColumn() { closePanel() }
+
     /// - Parameter activate: whether the panel takes the keyboard (false in tests, which must not
     ///   change the shared host's key window).
     func show(_ content: AnyView, over parent: NSWindow, activate: Bool = true, onClose: @escaping () -> Void = {}) {
         let root = AnyView(content.nativeControlAccent().appFontSizeFromSettings())
         self.parent = parent
+        closePanel = onClose
         if isPinned {
             let host = self.host ?? makeHost(root)
             host.rootView = root
@@ -339,6 +344,11 @@ final class AskClaudeWindowController {
 
     /// Makes an open panel the key window, so its text box takes the keyboard.
     func focus() {
+        // Pinned, the keyboard goes into the column, and the panel's own focus does the rest.
+        if isPinned {
+            if let column = columnView, let window = column.window, !isSuspended { window.makeFirstResponder(column) }
+            return
+        }
         guard let window, window.isVisible, !isSuspended else { return }
         window.makeKeyAndOrderFront(nil)
     }
@@ -399,38 +409,6 @@ final class AskClaudeWindowController {
             placed = true
             window.alphaValue = 1
         }
-    }
-}
-
-/// The pinned panel's place in the main window: it holds the hosting view, and answers no click
-/// while the window is busy (Settings, Help, a sheet), when it is also dimmed. A plain view, so
-/// the layout around it is SwiftUI's and the hosting view fills whatever it is given.
-final class AskClaudeColumnView: NSView {
-    weak var controller: AskClaudeWindowController?
-    /// The window is busy: the column stays in place and takes nothing.
-    var isPaused = false {
-        didSet {
-            guard isPaused != oldValue else { return }
-            alphaValue = isPaused ? 0.5 : 1
-            // The keyboard never stays in a column that is paused.
-            if isPaused, let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: self) {
-                window.makeFirstResponder(nil)
-            }
-        }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { isPaused ? nil : super.hitTest(point) }
-
-    /// Takes the hosting view in. `addSubview` removes it from wherever it was, as one move.
-    func adopt(_ host: NSView) {
-        guard host.superview !== self else { return }
-        addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: trailingAnchor),
-            host.topAnchor.constraint(equalTo: topAnchor),
-            host.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
     }
 }
 

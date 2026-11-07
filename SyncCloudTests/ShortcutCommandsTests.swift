@@ -459,7 +459,7 @@ import Foundation
             #expect(!body.contains(deadening),
                     "\(deadening) makes ⌘W dead on the auxiliary windows whose File ▸ Close this item replaced")
         }
-        #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
+        #expect(body.contains("Self.run(close,"), "the item does not go through the tested rule")
     }
 
     /// A refused ⌘W leaves a line, because a disabled item is one deleted modifier away. The

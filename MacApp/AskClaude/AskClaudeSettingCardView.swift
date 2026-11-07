@@ -866,6 +866,7 @@ private struct SettingsCardSlider: View {
 /// Settings' question, inside a card: Cancel first (Escape presses it), and the
 /// red button takes no key, as Settings' own alerts are built.
 struct AskClaudeSettingConfirmation: View {
+    @Environment(\.askClaudePanelPinned) private var pinned
     let prompt: RemovalPrompt
     let cancel: () -> Void
     let confirm: () -> Void
@@ -888,7 +889,9 @@ struct AskClaudeSettingConfirmation: View {
 
     @ViewBuilder private var buttons: some View {
         Button("Cancel", action: cancel)
-            .keyboardShortcut(.cancelAction)
+            // Esc, but not window-wide: pinned, the card lives in the main window, and a shortcut
+            // there would take Esc from the file list whenever a confirmation is up. A click then.
+            .keyboardShortcut(pinned ? nil : KeyboardShortcut.cancelAction)
             .controlSize(.small)
         Button(prompt.confirmTitle, role: .destructive, action: confirm)
             .controlSize(.small)

@@ -50,6 +50,8 @@ struct AskClaudeSettingsStep {
     let card: UUID
     let rows: [Int]
     var changes: [Change]
+    /// When it was made, so a pinned panel's ⌘Z takes the newest of this and typing first.
+    var recordedAt = Date()
     /// "Theme", or the card's title for several.
     let name: String
     /// Undoing it would raise Claude's spending or access, so only the card's own Undo — badged —
