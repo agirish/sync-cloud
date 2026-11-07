@@ -743,8 +743,7 @@ and in Unified and Cards (Settings ▸ Appearance ▸ Surface).
   and while talking it does nothing. ⌘Z undoes typing and settings changes, never a file move.
   ⌘A, ⌘C copy or select the answer text; ⌘X, ⌘V, ⌘⌫ beep and touch no file.
 - [ ] **Clicks keep the keyboard in the column.** Click an empty part of the thread and press Space,
-  an arrow or Delete: nothing happens to the files. The column shows a soft outline while it has the
-  keyboard.
+  an arrow or Delete: nothing happens to the files.
 - [ ] **Talking survives a pin.** Start a spoken question, press the pin: it keeps listening and
   sends as before. An answer arriving or voice stopping does not pull the keyboard off the file list.
 - [ ] **Busy.** Open Settings or Help: the column dims and takes no clicks or keys; close them and it

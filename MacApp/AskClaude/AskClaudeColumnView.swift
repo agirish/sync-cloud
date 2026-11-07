@@ -32,7 +32,7 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
     /// Takes the hosting view in. `addSubview` removes it from wherever it was, as one move.
     func adopt(_ host: NSView) {
         guard host.superview !== self else { return }
-        addSubview(host, positioned: .below, relativeTo: tint)
+        addSubview(host)
         NSLayoutConstraint.activate([
             host.leadingAnchor.constraint(equalTo: leadingAnchor),
             host.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -79,12 +79,9 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
     var holdsKeyboard: Bool { Self.enclosing(window?.firstResponder) === self }
 
     private var monitors: [Any] = []
-    private var observation: NSKeyValueObservation?
-    private let tint = AskClaudeColumnTint()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        addSubview(tint)
         NotificationCenter.default.addObserver(forName: .NSUndoManagerDidCloseUndoGroup, object: typingUndo, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.typingChangedAt = Date() }
         }
@@ -92,18 +89,11 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
 
     required init?(coder: NSCoder) { fatalError("not from a nib") }
 
-    override func layout() {
-        super.layout()
-        tint.frame = bounds
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         monitors.forEach { NSEvent.removeMonitor($0) }
         monitors = []
-        observation?.invalidate()
-        observation = nil
-        guard let window else { return }
+        guard window != nil else { return }
         // Keys first, for Esc and ⌥Space: caught ahead of the field editor, as the floating
         // window's `sendEvent` did, where ⌥Space types a non-breaking space and Esc does nothing.
         if let key = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
@@ -114,9 +104,6 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
             MainActor.assumeIsolated { self?.noteClick(event) }
             return event
         }) { monitors.append(click) }
-        observation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.tint.isShown = self?.holdsKeyboard == true }
-        }
     }
 
     deinit {
@@ -212,20 +199,5 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
         typingUndo.registerUndo(withTarget: self) { _ in }
         typingUndo.setActionName(name)
         typingUndo.endUndoGrouping()
-    }
-}
-
-/// A soft outline on the column while it holds the keyboard, so ⌘W and Esc are never a guess.
-private final class AskClaudeColumnTint: NSView {
-    var isShown = false { didSet { needsDisplay = true } }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func isAccessibilityElement() -> Bool { false }
-    override func draw(_ dirtyRect: NSRect) {
-        guard isShown else { return }
-        // The app's accent, never the system's.
-        NSColor(LiquidGlassHue.stored().accentColor).withAlphaComponent(0.28).setStroke()
-        let path = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
-        path.lineWidth = 2
-        path.stroke()
     }
 }
