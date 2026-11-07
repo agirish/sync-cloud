@@ -149,15 +149,22 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     /// A folder that merely *mentions* a person is a destination; only an exact roster name is a
     /// person bucket. The pair is the point — either fixture alone passes under either rule.
+    /// Person-folder names come from ``Person/nameForms``, the union the registry matches on.
+    /// Spelled out separately, a new form could match the person axis but not count as a bucket.
     @Test func personBucketNeedsTheWholeNameAndNothingElse() {
         let profile = build([dir("Granny", [file("a.pdf")]),
                              dir("Mom", [file("b.pdf")]),
                              dir("Credit 1892 (Granny)", [file("c.pdf")]),
-                             dir("Granny 2024", [file("d.pdf")])])
+                             dir("Granny 2024", [file("d.pdf")]),
+                             dir("Mother Maiden", [file("e.pdf")]),
+                             dir("Receipts", [file("f.pdf")])])
         #expect(profile.folders["Granny"]?.role == .personBucket)
         #expect(profile.folders["Mom"]?.role == .personBucket, "an alias is a name form too")
+        #expect(profile.folders["Mother Maiden"]?.role == .personBucket, "a full name is a form")
         #expect(profile.folders["Credit 1892 (Granny)"]?.role == .destination)
         #expect(profile.folders["Granny 2024"]?.role == .destination)
+        #expect(profile.folders["Receipts"]?.role == .destination,
+                "a folder naming nobody must not be a person bucket")
     }
 
     @Test func withoutARosterNothingIsAPersonBucket() {
@@ -382,15 +389,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(deep?.axes["year"] == "2016")
         #expect(deep?.axes["fiscalYear"] == "2016-2019",
                 "the ancestor's fiscal span was dropped — the hand-built profile keeps it")
-
-        // The control: with one style in the path only that key is set, so the above isn't passing
-        // by setting both everywhere.
-        let plain = build([dir("Finance", [dir("2023", [file("a.pdf")]),
-                                           dir("2013-2014", [file("b.pdf")])])])
-        #expect(plain.folders["Finance/2023"]?.axes["year"] == "2023")
-        #expect(plain.folders["Finance/2023"]?.axes["fiscalYear"] == nil)
-        #expect(plain.folders["Finance/2013-2014"]?.axes["fiscalYear"] == "2013-2014")
-        #expect(plain.folders["Finance/2013-2014"]?.axes["year"] == nil)
+        // The control, that with one style in the path only that key is set (so the above isn't
+        // passing by setting both everywhere), is `theYearAxisTakesABareYearAndTheFiscalAxisTakesASpan`.
     }
 
     /// The deeper of the two year components is the one the folder answers with. A fixed precedence
@@ -498,16 +498,5 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         // The tokens matched against this set are lowercased, so an uppercase entry would suppress
         // nothing.
         #expect(FolderSurveyBuilder.monthWords.allSatisfy { $0 == $0.lowercased() })
-    }
-
-    /// Person-folder names come from ``Person/nameForms``, the union the registry matches on.
-    /// Spelled out separately, a new form could match the person axis but not count as a bucket.
-    @Test func aPersonBucketIsRecognisedByEveryFormTheRegistryMatches() {
-        let profile = build([dir("Mother Maiden", [file("a.pdf")]), dir("Mom", [file("b.pdf")]),
-                             dir("Receipts", [file("c.pdf")])])
-        #expect(profile.folders["Mother Maiden"]?.role == .personBucket, "a full name is a form")
-        #expect(profile.folders["Mom"]?.role == .personBucket, "an alias is a form")
-        #expect(profile.folders["Receipts"]?.role == .destination,
-                "a folder naming nobody must not be a person bucket")
     }
 }

@@ -5,51 +5,6 @@ import Foundation
 @Suite struct FileSyncManagerTests {
 
     @MainActor
-    @Test func testPruneSelection() async throws {
-        let manager = FileSyncManager()
-        
-        // Setup initial trees
-        let node1 = FileNode(id: "/src/file1.txt", name: "file1.txt", isDirectory: false)
-        let node2 = FileNode(id: "/src/file2.txt", name: "file2.txt", isDirectory: false)
-        manager.leftTree = [node1, node2]
-        
-        // Select both
-        manager.selectedLeftPaths = ["/src/file1.txt", "/src/file2.txt"]
-        
-        // Simulate removal of file2.txt from tree
-        manager.leftTree = [node1]
-        
-        // Prune
-        manager.pruneSelection()
-        
-        // Verify file2.txt is removed from selection, but file1.txt remains
-        #expect(manager.selectedLeftPaths.count == 1)
-        #expect(manager.selectedLeftPaths.contains("/src/file1.txt"))
-        #expect(!manager.selectedLeftPaths.contains("/src/file2.txt"))
-    }
-    
-    @MainActor
-    @Test func testPruneSelectionRecursive() async throws {
-        let manager = FileSyncManager()
-        
-        let subNode = FileNode(id: "/src/folder/sub.txt", name: "sub.txt", isDirectory: false)
-        let folderNode = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [subNode])
-        manager.leftTree = [folderNode]
-        
-        manager.selectedLeftPaths = ["/src/folder", "/src/folder/sub.txt"]
-        
-        // Remove only the subfile
-        let emptyFolderNode = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [])
-        manager.leftTree = [emptyFolderNode]
-        
-        manager.pruneSelection()
-        
-        #expect(manager.selectedLeftPaths.count == 1)
-        #expect(manager.selectedLeftPaths.contains("/src/folder"))
-        #expect(!manager.selectedLeftPaths.contains("/src/folder/sub.txt"))
-    }
-    
-    @MainActor
     @Test func testLoadTreeCancellation() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
@@ -93,37 +48,6 @@ import Foundation
     }
     
     @MainActor
-    @Test func testCopyItemUndoStack() async throws {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        let mockFM = MockFileManager()
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/copy_me.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        let node = FileNode(id: "/src/copy_me.txt", name: "copy_me.txt", isDirectory: false)
-        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
-        
-        #expect(mockFM.virtualDisk["/dst/copy_me.txt"] != nil)
-        #expect(manager.undoManager?.canUndo == true)
-        
-        // Perform Undo -> should theoretically move the file to trash (removing it from dst)
-        manager.undoManager?.undo()
-
-        await waitUntil("undo removes the copied file") { mockFM.virtualDisk["/dst/copy_me.txt"] == nil }
-        // Removed from destination
-        #expect(mockFM.virtualDisk["/dst/copy_me.txt"] == nil)
-        // Kept in source
-        #expect(mockFM.virtualDisk["/src/copy_me.txt"] != nil)
-
-        // Perform Redo -> should put it back
-        manager.undoManager?.redo()
-        await waitUntil("redo restores the copied file") { mockFM.virtualDisk["/dst/copy_me.txt"] != nil }
-        #expect(mockFM.virtualDisk["/dst/copy_me.txt"] != nil)
-    }
-    
-    @MainActor
     @Test func testActiveOperationTracking() async throws {
         let manager = FileSyncManager()
         #expect(manager.activeFileOperationsCount == 0)
@@ -143,47 +67,6 @@ import Foundation
         release.signal()
         await operationTask.value
         #expect(manager.activeFileOperationsCount == 0)
-    }
-    
-    @MainActor
-    @Test func testRetargetPane() async throws {
-        let manager = FileSyncManager()
-        // Through `focusOn`, not by writing the published paths: a pane's relative path and its
-        // history are written together everywhere in production (`focusOn`, `applyTab`,
-        // `syncPathsFromHistory`), and `retargetPane` puts both panes' paths back in step with
-        // their histories on the way out. A fixture that set only the path would be measuring that
-        // re-sync rather than the retarget, and would read as the sibling being re-homed.
-        manager.focusOn(relativePath: "some/path", isLeft: true)
-        manager.focusOn(relativePath: "other/path", isLeft: false)
-
-        manager.retargetPane(isLeft: true, landing: "")
-
-        #expect(manager.leftRelativePath == "")
-        #expect(manager.rightRelativePath == "other/path")
-    }
-    
-    @MainActor
-    @Test func testRefreshTreesAndScanCancellation() async throws {
-        let manager = FileSyncManager()
-        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", rootPath: "/tmp/p1", type: .iCloud)
-        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", rootPath: "/tmp/p2", type: .iCloud)
-        
-        // Start a refresh
-        let task1 = Task {
-            await manager.refreshTreesAndScan(left: provider1, right: provider2)
-        }
-        
-        // Immediately start another one
-        let task2 = Task {
-            await manager.refreshTreesAndScan(left: provider1, right: provider2)
-        }
-        
-        await task1.value
-        await task2.value
-        
-        // If task1 was correctly cancelled, manager should be in a stable state.
-        // We mainly verify it doesn't hang or crash.
-        #expect(manager.activeRefreshTask != nil)
     }
     
     /// Every operation handed to `enqueueFileOperation` runs, runs alone, and unwinds the active
@@ -293,38 +176,6 @@ import Foundation
     }
     
     @MainActor
-    @Test func testSyncFileWithCopyAction() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        let diff = FileDifference(
-            id: UUID(),
-            relativePath: "test.txt",
-            leftItemPath: "/src/test.txt",
-            rightItemPath: "/dst/test.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing",
-            isSyncing: false
-        )
-        
-        // Add to manager so it can find it by ID and mark as syncing
-        manager.differences = [diff]
-        
-        // isMove is false by default
-        await manager.syncFile(diff, isMove: false, fileManager: mockFM)
-        
-        // Should exist in both places (Copied)
-        #expect(mockFM.virtualDisk["/src/test.txt"] != nil)
-        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
-    }
-    
-    @MainActor
     @Test func testSyncFileWithMoveAction() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
@@ -357,11 +208,8 @@ import Foundation
 
         #expect(manager.undoManager?.canUndo == true)
         manager.undoManager?.undo()
-        // The undo's file I/O runs on the detached operation queue; poll for its result rather
-        // than sleep a fixed time, which a loaded run outlasts.
-        for _ in 0..<100 where mockFM.virtualDisk["/src/test_move.txt"] == nil {
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
+        // The undo's file I/O runs on the detached operation queue.
+        await waitUntil("undo moves the file back") { mockFM.virtualDisk["/src/test_move.txt"] != nil }
 
         #expect(mockFM.virtualDisk["/src/test_move.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] == nil)

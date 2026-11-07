@@ -9,43 +9,26 @@ import Foundation
 
     // MARK: generateUniqueURL
 
-    @Test func testGenerateUniqueURLIncrementsPastExistingNumbered() throws {
+    /// Keep-both numbering:
+    /// - it increments past existing numbered copies;
+    /// - with no extension, " 2" is appended without a trailing dot;
+    /// - only the last path extension is split off, so the numbering lands before ".gz";
+    /// - a free name comes back unchanged.
+    @Test(arguments: [
+        (["report.pdf", "report 2.pdf", "report 3.pdf"], "report.pdf", "/dst/report 4.pdf"),
+        (["README"], "README", "/dst/README 2"),
+        (["archive.tar.gz"], "archive.tar.gz", "/dst/archive.tar 2.gz"),
+        ([], "fresh.txt", "/dst/fresh.txt"),
+    ])
+    func testGenerateUniqueURL(existing: [String], input: String, expected: String) throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/dst/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/report 2.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/report 3.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        for name in existing {
+            mockFM.virtualDisk["/dst/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
 
-        let unique = FileSyncManager.generateUniqueURL(for: URL(fileURLWithPath: "/dst/report.pdf"), fileManager: mockFM)
-        #expect(unique.path == "/dst/report 4.pdf")
-    }
-
-    @Test func testGenerateUniqueURLExtensionlessFile() throws {
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/dst/README"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-
-        // No extension -> " 2" is appended without a trailing dot.
-        let unique = FileSyncManager.generateUniqueURL(for: URL(fileURLWithPath: "/dst/README"), fileManager: mockFM)
-        #expect(unique.path == "/dst/README 2")
-    }
-
-    @Test func testGenerateUniqueURLPreservesFinalExtensionOnly() throws {
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/dst/archive.tar.gz"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-
-        // Only the last path extension is split off; the numbering lands before ".gz".
-        let unique = FileSyncManager.generateUniqueURL(for: URL(fileURLWithPath: "/dst/archive.tar.gz"), fileManager: mockFM)
-        #expect(unique.path == "/dst/archive.tar 2.gz")
-    }
-
-    @Test func testGenerateUniqueURLReturnsInputWhenFree() throws {
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-
-        let target = URL(fileURLWithPath: "/dst/fresh.txt")
-        #expect(FileSyncManager.generateUniqueURL(for: target, fileManager: mockFM).path == target.path)
+        let unique = FileSyncManager.generateUniqueURL(for: URL(fileURLWithPath: "/dst/\(input)"), fileManager: mockFM)
+        #expect(unique.path == expected)
     }
 
     // MARK: ensureParentDirectoryExists

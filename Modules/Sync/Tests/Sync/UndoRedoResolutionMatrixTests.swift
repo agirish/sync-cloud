@@ -23,17 +23,9 @@ import Foundation
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
-    private func file(_ size: Int) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
-    }
     private func node(_ path: String) -> FileNode {
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
     }
@@ -44,18 +36,22 @@ import Foundation
 
     // MARK: - Move
 
-    /// (a) All items succeed: undo moves both back, redo re-moves both.
+    /// (a) All items succeed: undo moves both back, redo re-moves both, and the redo registers a
+    /// fresh undo so the cycle can continue.
     @MainActor
     @Test func moveAllSucceedRedoReappliesFullBatch() async throws {
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = file(100)
-        mockFM.virtualDisk["/src/b.txt"] = file(200)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
 
         let moved = await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(moved.count == 2)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil && mockFM.virtualDisk["/dst/b.txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/a.txt"] == nil && mockFM.virtualDisk["/src/b.txt"] == nil)
+        #expect(manager.undoManager?.canUndo == true)
 
         manager.undoManager?.undo()
         await waitUntil("undo moves both back") {
@@ -63,6 +59,7 @@ import Foundation
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil && mockFM.virtualDisk["/dst/b.txt"] == nil)
+        #expect(manager.undoManager?.canRedo == true)
 
         manager.undoManager?.redo()
         await waitUntil("redo re-moves both") {
@@ -71,6 +68,7 @@ import Foundation
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(mockFM.virtualDisk["/src/a.txt"] == nil && mockFM.virtualDisk["/src/b.txt"] == nil)
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
+        #expect(manager.undoManager?.canUndo == true)
     }
 
     /// (b) One move-back refused (occupant at the source): the redo re-moves only the restored
@@ -82,14 +80,14 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = file(100)
-        mockFM.virtualDisk["/src/b.txt"] = file(200)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
 
         await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
 
         // An unrelated file Z occupies a.txt's original location before the undo.
-        mockFM.virtualDisk["/src/a.txt"] = file(55)
+        mockFM.virtualDisk["/src/a.txt"] = .file(55)
         manager.banner = nil
 
         manager.undoManager?.undo()   // a refused (occupied), b moved back
@@ -119,8 +117,8 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = file(100)
-        mockFM.virtualDisk["/src/b.txt"] = file(200)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
 
         // b.txt keeps the batch ≥2 effective items (see the suite comment); a.txt is duplicated.
         await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/a.txt"), node("/src/b.txt")],
@@ -156,8 +154,8 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = file(100)
-        mockFM.virtualDisk["/src/b.txt"] = file(200)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
 
         let copied = await manager.copyItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(copied.count == 2)
@@ -186,14 +184,14 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = file(100)
-        mockFM.virtualDisk["/src/b.txt"] = file(200)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
 
         await manager.copyItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
 
         // a.txt's copy is replaced by different content (size 777) before the undo.
-        mockFM.virtualDisk["/dst/a.txt"] = file(777)
+        mockFM.virtualDisk["/dst/a.txt"] = .file(777)
         manager.banner = nil
 
         manager.undoManager?.undo()   // a refused (drifted), b trashed
@@ -219,8 +217,8 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = file(100)
-        mockFM.virtualDisk["/src/b.txt"] = file(200)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
 
         let copied = await manager.copyItems(nodes: [node("/src/a.txt"), node("/src/a.txt"), node("/src/b.txt")],
                                              toPath: "/dst", fileManager: mockFM)
@@ -257,8 +255,8 @@ import Foundation
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/docs/a.txt"] = file(100)
-        mockFM.virtualDisk["/docs/b.txt"] = file(200)
+        mockFM.virtualDisk["/docs/a.txt"] = .file(100)
+        mockFM.virtualDisk["/docs/b.txt"] = .file(200)
 
         // a.txt listed twice: the return value counts each distinct file once.
         let removed = await manager.deleteItems(at: ["/docs/a.txt", "/docs/b.txt", "/docs/a.txt"], fileManager: mockFM).removed

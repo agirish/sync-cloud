@@ -8,13 +8,6 @@ import Testing
 @MainActor
 @Suite struct FolderWalkTests {
 
-    private static func scratch() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("walk-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
     /// A small tree with the shapes the builder reads: a container, an inbox, a person bucket.
     private static func tree(in root: URL) throws {
         for path in ["Finance", "Finance/Receipts", "Finance/TODO", "Family", "Family/Mother"] {
@@ -36,7 +29,7 @@ import Testing
     // MARK: - The happy path
 
     @Test func aWalkWritesAProfileAndBecomesActive() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
 
@@ -57,7 +50,7 @@ import Testing
     /// names is only about 83% right, and every miss is an invention, so the vocabulary is handed
     /// in; this checks the hand-in is honoured.
     @Test func onlyConfirmedPlacesBecomeJurisdictions() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         for path in ["Finance/US", "Finance/EMP", "Legal/US"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(path),
@@ -100,7 +93,7 @@ import Testing
     /// refuses over an existing id, so without a suffix pressing Learn again on a small tree would
     /// report "the profile could not be written".
     @Test func twoWalksInTheSameSecondBothLand() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
@@ -118,7 +111,7 @@ import Testing
     // MARK: - What it refuses
 
     @Test func aWalkWithNowhereToWriteFails() async throws {
-        let root = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root) }
         try Self.tree(in: root)
 
@@ -130,7 +123,7 @@ import Testing
     /// decodes fine, reads as a surveyed tree everywhere downstream, and answers every routing
     /// question with a confident, latched "no destination".
     @Test func anUnreadableRootIsRefusedRatherThanRecordedAsEmpty() async throws {
-        let profiles = try Self.scratch()
+        let profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: profiles) }
         let missing = URL(fileURLWithPath: "/private/tmp/does-not-exist-\(UUID().uuidString)")
 
@@ -146,7 +139,7 @@ import Testing
     /// profile it, but the empty profile would answer every routing question with "no destination"
     /// while telling the user their tree was learned.
     @Test func anEmptyFolderIsRefusedRatherThanProfiledAsNothing() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
 
         let result = await manager(profiles: profiles).deriveFolderProfile(root: root)
@@ -164,7 +157,7 @@ import Testing
 
     /// A file handed in where a folder was expected.
     @Test func aFileIsNotAFolderToLearn() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         let file = root.appendingPathComponent("note.txt")
         try "x".write(to: file, atomically: true, encoding: .utf8)
@@ -177,7 +170,7 @@ import Testing
     /// (`Error Domain=… UserInfo={…}`), since setup's Structure screen shows it under
     /// "Couldn’t save your folder profile".
     @Test func aRefusedWriteSaysWhyInASentence() async throws {
-        let root = try Self.scratch(), elsewhere = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), elsewhere = try makeCanonicalTempRoot(prefix: "walk")
         defer {
             try? FileManager.default.removeItem(at: root)
             try? FileManager.default.removeItem(at: elsewhere)
@@ -221,7 +214,7 @@ import Testing
     /// judgements a walk can't see, so the report must say it changed nothing you'll notice; a
     /// plain "learned 3,013 folders" would be true and misleading.
     @Test func aWalkBesideAHandBuiltProfileSaysItIsNotInUse() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
 
@@ -250,7 +243,7 @@ import Testing
     /// A second walk on a machine whose profile the app wrote does take over. Otherwise a survey
     /// would run to completion and be ignored, with nothing saying so.
     @Test func aSecondWalkSupersedesTheFirst() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
@@ -270,7 +263,7 @@ import Testing
     /// A Save while a reorganization lands is refused and says so: the landing's re-derive publishes
     /// its own profile when its replay ends, over whatever the walk wrote.
     @Test @MainActor func aWalkIsRefusedWhileALandingIsInProgress() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
@@ -307,7 +300,7 @@ import Testing
     /// roster, the verdicts and the ledger must move with it. Left in the old folder, the app would
     /// read an empty roster, lose the verdicts and the Undo, and a later refresh would delete them.
     @Test @MainActor func aSecondWalkCarriesWhatTheUserMade() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
@@ -333,7 +326,7 @@ import Testing
     /// A walk of a different folder still brings the roster, but not the Undo: the ledger's
     /// inverse is relative to the root, and Undo would replay it under the new one.
     @Test @MainActor func aWalkOfAnotherFolderDoesNotOfferTheOldUndo() async throws {
-        let root = try Self.scratch(), other = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), other = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer {
             for url in [root, other, profiles] { try? FileManager.default.removeItem(at: url) }
         }
@@ -357,7 +350,7 @@ import Testing
     /// curated file. With the copy gone from the active folder the old one is kept; once the
     /// active folder holds its own, the old one goes as it always did.
     @Test @MainActor func retiringNeverTakesTheOnlyCopyOfTheRoster() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
+        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)

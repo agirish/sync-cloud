@@ -11,8 +11,7 @@ import Combine
     /// Wraps `MockFileManager` and blocks copy, move and trash calls on a semaphore, so a test can
     /// hold an operation in flight at a deterministic point. Gates time out rather than hang the
     /// suite if a test forgets to signal.
-    private final class GatedFileManager: FileManaging, @unchecked Sendable {
-        private let inner: MockFileManager
+    private final class GatedFileManager: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         var copyGate: DispatchSemaphore?
         var moveGate: DispatchSemaphore?
         var trashGate: DispatchSemaphore?
@@ -34,43 +33,17 @@ import Combine
             }
         }
 
-        init(inner: MockFileManager) { self.inner = inner }
-
-        func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        override func copyItem(at srcURL: URL, to dstURL: URL) throws {
             park(copyGate)
             try inner.copyItem(at: srcURL, to: dstURL)
         }
-        func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
             park(moveGate)
             try inner.moveItem(at: srcURL, to: dstURL)
         }
-        func fileExists(atPath path: String) -> Bool {
-            inner.fileExists(atPath: path)
-        }
-        func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: path, isDirectory: isDirectory)
-        }
-        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-            try inner.attributesOfItem(atPath: path)
-        }
-        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
-            try inner.setAttributes(attributes, ofItemAtPath: path)
-        }
-        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
-        }
-        func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        override func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
             park(trashGate)
             try inner.trashItem(at: url, resultingItemURL: outResultingURL)
-        }
-        func removeItem(at URL: URL) throws {
-            try inner.removeItem(at: URL)
-        }
-        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
-            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
-        }
-        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
         }
     }
 

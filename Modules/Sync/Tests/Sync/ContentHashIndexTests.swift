@@ -20,25 +20,6 @@ import Testing
             : ContentHashKey(path: path, mtime: mtime, size: size)
     }
 
-    // MARK: Round trip
-
-    @Test func anEntryReloadsAndAnswersTheSameLookup() async throws {
-        let url = try indexURL("roundtrip")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
-        let writer = ContentHashCache()
-        await writer.enablePersistence(at: url)
-        await writer.store("abc123", for: key("/root/a.bin"))
-        await writer.save()
-        ContentHashIndexStore.waitForPendingWrites()
-
-        // A different instance, standing in for the next launch.
-        let reader = ContentHashCache()
-        let adopted = await reader.enablePersistence(at: url)
-        #expect(adopted == 1)
-        #expect(await reader.hash(for: key("/root/a.bin")) == "abc123")
-    }
-
     // MARK: Forgetting
 
     @Test func forgettingDropsTheFileAndTheSessionsOwnDigests() async throws {
@@ -101,13 +82,15 @@ import Testing
     }
 
     @Test func aSubMillisecondMtimeSurvivesTheRoundTrip() async throws {
-        // The reloaded key must equal one built from `attributesOfItem[.modificationDate]` at
-        // hashing time; any mtime drift makes every entry miss. Awkward fractions on purpose.
+        // A different instance, standing in for the next launch, answers the same lookups: the
+        // reloaded key must equal one built from `attributesOfItem[.modificationDate]` at hashing
+        // time; any mtime drift makes every entry miss. Awkward fractions on purpose.
         let url = try indexURL("mtime")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let mtimes: [TimeInterval] = [1_700_000_000.000_000_1, 1_700_000_000.999_999_9,
-                                      1_762_345_678.123_456_789, 0.1, 1_700_000_000]
+                                      1_762_345_678.123_456_789, 0.1, 1_700_000_000,
+                                      1_700_000_000.123_456_7]
         let writer = ContentHashCache()
         await writer.enablePersistence(at: url)
         for (i, m) in mtimes.enumerated() {
@@ -117,26 +100,14 @@ import Testing
         ContentHashIndexStore.waitForPendingWrites()
 
         let reader = ContentHashCache()
-        await reader.enablePersistence(at: url)
+        let adopted = await reader.enablePersistence(at: url)
+        #expect(adopted == mtimes.count)
         for (i, m) in mtimes.enumerated() {
             #expect(await reader.hash(for: key("/root/f\(i).bin", mtime: m)) == "hash-\(i)")
         }
-    }
-
-    @Test func aChangedFileDoesNotHitTheReloadedEntry() async throws {
-        let url = try indexURL("changed")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
-        let writer = ContentHashCache()
-        await writer.enablePersistence(at: url)
-        await writer.store("abc123", for: key("/root/a.bin", mtime: 1000, size: 4096))
-        await writer.save()
-        ContentHashIndexStore.waitForPendingWrites()
-
-        let reader = ContentHashCache()
-        await reader.enablePersistence(at: url)
-        #expect(await reader.hash(for: key("/root/a.bin", mtime: 2000, size: 4096)) == nil)  // edited
-        #expect(await reader.hash(for: key("/root/a.bin", mtime: 1000, size: 8192)) == nil)  // resized
+        // A changed file does not hit the reloaded entry.
+        #expect(await reader.hash(for: key("/root/f0.bin", mtime: mtimes[0] + 1000)) == nil)  // edited
+        #expect(await reader.hash(for: key("/root/f0.bin", mtime: mtimes[0], size: 8192)) == nil)  // resized
     }
 
     // MARK: Age cap
@@ -388,13 +359,6 @@ import Testing
         #expect(await reader.enablePersistence(at: url, now: hashed.addingTimeInterval(50 * Self.day)) == 1)
         #expect(await reader.hash(for: before, at: hashed) == "digest-of-A")   // kept alive by use
         #expect(await reader.hash(for: after, at: hashed) == nil)             // and still not trusted
-    }
-
-    @Test func bumpingTheFingerprintSchemeMeansDeletingTheFingerprintIndex() {
-        // A tripwire. An entry lives while it is used, so after a scheme bump an unchanged document
-        // keeps its old-scheme digest for good. If this fails, ship the deletion of
-        // `content-fingerprint-index.json` with the bump.
-        #expect(ContentFingerprint.scheme == "pdf-text-1")
     }
 
     // MARK: Failure modes

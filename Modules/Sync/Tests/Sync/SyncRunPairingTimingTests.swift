@@ -17,12 +17,8 @@ import Events
     private final class Marker { var undone = false }
 
     private func isolatedManager(fileManager: FileManaging = FileManager.default) -> FileSyncManager {
-        let manager = FileSyncManager(fileManager: fileManager)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "SyncRunPairingTiming")
-        let um = UndoManager()
-        um.groupsByEvent = false            // the bulk run groups explicitly; so do the steps here
-        manager.undoManager = um
-        return manager
+        // Manual grouping: the bulk run groups explicitly; so do the steps here.
+        FileSyncManager.forTests(fileManager: fileManager, manualUndoGrouping: true, historyPrefix: "SyncRunPairingTiming")
     }
 
     private func registerStep(_ manager: FileSyncManager, name: String, marker: Marker) {
@@ -35,46 +31,24 @@ import Events
 
     /// Parks the identity walk (the first off-main stat of the landed copy) so the run's tail
     /// stays open while the test acts on the undo stack.
-    private final class WalkGateDisk: FileManaging, @unchecked Sendable {
-        let inner: MockFileManager
+    private final class WalkGateDisk: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         let gatedPath: String
         let gate: ParkGate
         private let lock = NSLock()
         private var fired = false
 
         init(inner: MockFileManager, gatedPath: String, gate: ParkGate) {
-            self.inner = inner
             self.gatedPath = gatedPath
             self.gate = gate
+            super.init(inner: inner)
         }
 
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
+        override func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
             if p == gatedPath, !Thread.isMainThread, inner.fileExists(atPath: p) {
                 lock.lock(); let first = !fired; fired = true; lock.unlock()
                 if first { gate.park(timeout: 30) }
             }
             return try inner.attributesOfItem(atPath: p)
-        }
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-        }
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions,
-                        errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
         }
     }
 

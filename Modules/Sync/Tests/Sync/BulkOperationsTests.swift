@@ -31,28 +31,6 @@ import Foundation
         #expect(manager.currentError == nil)
     }
     
-    @MainActor
-    @Test func testBulkDeleteNestedPaths() async throws {
-        let manager = FileSyncManager()
-        let mockFM = MockFileManager()
-        
-        mockFM.virtualDisk["/src/parent"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["child.txt"])
-        mockFM.virtualDisk["/src/parent/child.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        // Select both parent and child for deletion
-        let pathsToDelete = ["/src/parent", "/src/parent/child.txt"]
-        
-        await manager.deleteItems(at: pathsToDelete, fileManager: mockFM)
-        
-        // Verify everything is gone
-        #expect(mockFM.virtualDisk["/src/parent"] == nil)
-        #expect(mockFM.virtualDisk["/src/parent/child.txt"] == nil)
-        
-        // Verify only one trash operation was attempted (for the parent)
-        #expect(mockFM.trashedPaths.count == 1)
-        #expect(mockFM.trashedPaths.first?.hasSuffix("/parent") == true)
-    }
-
     /// `deleteItems` returns the count actually removed, a pruned nested family counting once via
     /// its ancestor. Callers compare it with what they asked for to tell partial success from full,
     /// so double-counting a child would make a partial batch read as complete.
@@ -69,7 +47,11 @@ import Foundation
 
         #expect(removed == 2, "parent+child count once via the ancestor; solo counts on its own")
         #expect(mockFM.virtualDisk["/src/parent"] == nil)
+        #expect(mockFM.virtualDisk["/src/parent/child.txt"] == nil)
         #expect(mockFM.virtualDisk["/src/solo.txt"] == nil)
+        // One trash for the family (the parent), one for solo: the child is never trashed alone.
+        #expect(mockFM.trashedPaths.count == 2)
+        #expect(mockFM.trashedPaths.first?.hasSuffix("/parent") == true)
 
         // And a delete where nothing leaves the disk reports zero, not the request size.
         mockFM.shouldFailTrash = true                       // Trash-less volume…
@@ -98,72 +80,39 @@ import Foundation
     }
     
     @MainActor
-    @Test func testCollisionResolutionKeepBoth() async throws {
+    @Test(arguments: [CollisionResolution.keepBoth, .replace, .skip])
+    func testCollisionResolution(_ resolution: CollisionResolution) async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        mockFM.virtualDisk["/src/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil) // Already exists
-        
-        let node = FileNode(id: "/src/report.pdf", name: "report.pdf", isDirectory: false)
-        
-        // Mock resolver to always "Keep Both"
-        manager.collisionResolver = { _ in .keepBoth }
-        
-        await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
-        
-        // Verify both exist at destination (original and unique one)
-        #expect(mockFM.virtualDisk["/dst/report.pdf"] != nil)
-        #expect(mockFM.virtualDisk["/dst/report 2.pdf"] != nil)
-    }
-    
-    @MainActor
-    @Test func testCollisionResolutionReplace() async throws {
-        let manager = FileSyncManager()
-        let mockFM = MockFileManager()
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        mockFM.virtualDisk["/src/data.csv"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
-        mockFM.virtualDisk["/dst/data.csv"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 50], contents: nil)
-        
-        let node = FileNode(id: "/src/data.csv", name: "data.csv", isDirectory: false)
-        
-        // Mock resolver to "Replace"
-        manager.collisionResolver = { _ in .replace }
-        
-        await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
-        
-        // Verify replaced (size should match source)
-        let attrs = try mockFM.attributesOfItem(atPath: "/dst/data.csv")
-        #expect(attrs[.size] as? Int == 100)
-    }
 
-    @MainActor
-    @Test func testCollisionResolutionSkip() async throws {
-        let manager = FileSyncManager()
-        let mockFM = MockFileManager()
-        
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        mockFM.virtualDisk["/src/old.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/old.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.creationDate: Date.distantPast], contents: nil)
-        
-        let node = FileNode(id: "/src/old.txt", name: "old.txt", isDirectory: false)
-        
-        // Mock resolver to "Skip"
-        manager.collisionResolver = { _ in .skip }
-        
+
+        mockFM.virtualDisk["/src/data.csv"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/data.csv"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [FileAttributeKey.size: 50, FileAttributeKey.creationDate: Date.distantPast], contents: nil) // Already exists
+
+        let node = FileNode(id: "/src/data.csv", name: "data.csv", isDirectory: false)
+        manager.collisionResolver = { _ in resolution }
+
         await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
-        
-        // Verify original destination remains and nothing was copied
-        let attrs = try mockFM.attributesOfItem(atPath: "/dst/old.txt")
-        #expect(attrs[.creationDate] as? Date == Date.distantPast)
+
+        let attrs = try mockFM.attributesOfItem(atPath: "/dst/data.csv")
+        switch resolution {
+        case .keepBoth:
+            // Both exist at the destination: the original and a unique one.
+            #expect(mockFM.virtualDisk["/dst/data.csv"] != nil)
+            #expect(mockFM.virtualDisk["/dst/data 2.csv"] != nil)
+        case .replace:
+            // Replaced: the size matches the source.
+            #expect(attrs[.size] as? Int == 100)
+        case .skip:
+            // The original destination remains and nothing was copied or trashed.
+            #expect(attrs[.creationDate] as? Date == Date.distantPast)
+            #expect(mockFM.trashedPaths.isEmpty)
+        case .merge:
+            Issue.record("not a case of this test")
+        }
     }
 
     /// Two items in one bulk run never resolve to the same destination. `syncAll` resolves every
@@ -226,84 +175,7 @@ import Foundation
         
         #expect(manager.isScanning == false)
         #expect(manager.hasScanned == true)
-    }
-
-    @MainActor
-    @Test(.parksAThread) func testLatestQueuedScanWins() async throws {
-        let mockFM = MockFileManager()
-        // The first scan's walk parks here until released, so it holds the scan slot as long as
-        // the test needs. A delay gives only a window, which a loaded run can miss, and then the
-        // second request runs inline and the queue goes unexercised.
-        let gate = ParkGate()
-        mockFM.enumeratorGate = gate
-        let manager = FileSyncManager(fileManager: mockFM)
-
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src1"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst1"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src2"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst2"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src2/latest.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-
-        let source = CloudProvider(id: "src", displayName: "Source", imageName: "test", rootPath: "/", type: .iCloud)
-        let destination = CloudProvider(id: "dst", displayName: "Destination", imageName: "test", rootPath: "/", type: .iCloud)
-
-        let firstScan = Task {
-            await manager.scanDirectories(left: source, leftPath: "/src1", right: destination, rightPath: "/dst1")
-        }
-
-        // The second request must arrive while the first scan holds the slot. `executeScan` sets
-        // `isScanning` synchronously, before the walk parked at the gate, so this is asserted, not
-        // waited for. Without it the scans could run in sequence and every assertion still pass.
-        await awaitSignal(gate.entered, "the first scan never reached its walk — nothing held the slot")
-        #expect(manager.isScanning, "the first scan is parked in its walk but does not hold the scan slot")
-
-        // Queued, not run: `runOrQueueScan` returns without scanning, so no Task is needed and the
-        // pending request is visible at once. Asserted so a free slot can't turn this into a test
-        // of sequential scans.
-        await manager.scanDirectories(left: source, leftPath: "/src2", right: destination, rightPath: "/dst2")
-        #expect(manager.pendingScanRequest != nil, "the second request must queue behind the in-flight scan")
-
-        gate.release.signal()
-        await firstScan.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the first scan was never actually held in flight")
-
-        // The queued scan drains on a fresh task (so it can't inherit a superseded scan's
-        // cancellation), so wait for it to settle. All three clauses count: the drained scan is
-        // done only once nothing is left pending.
-        await waitUntil("the drained scan settles") {
-            manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil
-        }
-
-        #expect(manager.differences.count == 1)
-        #expect(manager.differences.first?.relativePath == "latest.txt")
-    }
-
-    @Test func testSafeMoveItemRollbackHardened() async throws {
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        let srcURL = URL(fileURLWithPath: "/src/data.bin")
-        let dstURL = URL(fileURLWithPath: "/dst/data.bin")
-        
-        // Force the fallback temp copy to fail during the final rename
-        mockFM.shouldFailMoveOnTempRename = true
-        // Force the moveItem to fail to trigger EXDEV fallback
-        mockFM.shouldFailMove = true
-        
-        do {
-            try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
-            Issue.record("Expected safeMoveItem to throw")
-        } catch {
-            // Expected
-        }
-        
-        // Rollback: the destination is restored and the source is left in place.
-        #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
-        #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
+        #expect(manager.activeRefreshTask != nil)
     }
 
     @MainActor

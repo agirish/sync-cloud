@@ -227,14 +227,7 @@ import Testing
     }
 
     /// Writes from another process, so FSEvents does not mark it as ours.
-    static func touch(_ paths: String...) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/touch")
-        process.arguments = paths
-        try process.run()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
-    }
+    static func touch(_ paths: String...) throws { try touch(contentsOf: paths) }
 
     static func historyRecords(for root: String) -> (key: String, deviceUUID: String)? {
         guard let real = FolderWatcher.resolve(root) else { return nil }

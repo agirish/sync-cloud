@@ -161,65 +161,43 @@ import Events
 
     // MARK: Regressions found reviewing the fixes above
 
-    @Test func aBroadProviderOverrideDoesNotRetypeEveryLocalFolder() {
-        // A provider's Location can be any folder. Pointed at home, a claim on every path under it
-        // would make `synccloud sync -L ~/scratch -R ~/scratch2`, two local folders, silently skip
-        // every name OneDrive forbids.
-        let overridden = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                        rootPath: "/Users/u", type: .oneDrive)]
-        #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: overridden) == nil)
-    }
-
-    @Test func aFolderNamedCloudStorageElsewhereIsNotAProviderAccount() {
-        // A bare "CloudStorage" component anywhere must not count, or a project folder of that name
-        // hands its siblings Dropbox's rules.
-        let providers = [CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
-                                       rootPath: "/Users/u/Projects/CloudStorage/notes/deep/root", type: .dropBox)]
-        #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/CloudStorage/notes/other",
-                                           among: providers) == nil)
-        // Its own root still claims, as before.
-        #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/CloudStorage/notes/deep/root/x",
-                                           among: providers) == .dropBox)
-    }
-
-    @Test func aProviderOnAVolumeRootStillClaimsItsOwnTree() {
-        // `/Volumes/<mount>` is an ordinary provider Location. A depth rule would make it claim
-        // nothing, not even its own tree, so a CLI root inside it would fall back to `.iCloud`'s
-        // empty rule set and lose the destination-name guard.
-        let providers = [CloudProvider(id: "GoogleDrive", displayName: "Google Drive", imageName: "googledrive",
-                                       rootPath: "/Volumes/GoogleDrive", type: .googleDrive)]
-        #expect(CloudProvider.inferredType(forPath: "/Volumes/GoogleDrive/Reports/q1.txt",
-                                           among: providers) == .googleDrive)
-        // A sibling volume is still nobody's business but its own.
-        #expect(CloudProvider.inferredType(forPath: "/Volumes/Backup/q1.txt", among: providers) == nil)
-    }
-
-    @Test func aProviderPointedAtASubfolderOfHomeClaimsOnlyThatSubfolder() {
-        // `~/Documents` is deep enough to pass a depth rule yet covers as much local ground as `~`.
-        // What matters is what the root contains, so it claims its own tree and nothing beside it.
-        let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                       rootPath: "/Users/u/Documents", type: .oneDrive)]
-        #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/deck.txt", among: providers) == .oneDrive)
-        #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: providers) == nil)
-    }
-
-    @Test func aProviderAtTheFilesystemRootClaimsNothing() {
-        // "/" and "/Users" are above every home directory; claiming one types the whole machine.
-        for broad in ["/", "/Users", "/Volumes"] {
-            let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                           rootPath: broad, type: .oneDrive)]
-            #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: providers) == nil,
-                    "a provider rooted at \(broad) must not type unrelated folders")
-        }
-    }
-
-    @Test func theRealAccountFolderStillClaimsItsSiblings() {
-        // The control: the case the widening exists for must keep working.
-        let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                       rootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents",
-                                       type: .oneDrive)]
-        #expect(CloudProvider.inferredType(forPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Photos",
-                                           among: providers) == .oneDrive)
+    /// Which local paths a provider's Location claims, by one provider of `type` rooted at `root`:
+    /// - a provider's Location can be any folder. Pointed at home, a claim on every path under it
+    ///   would make `synccloud sync -L ~/scratch -R ~/scratch2`, two local folders, silently skip
+    ///   every name OneDrive forbids;
+    /// - a bare "CloudStorage" component anywhere must not count, or a project folder of that name
+    ///   hands its siblings Dropbox's rules. Its own root still claims, as before;
+    /// - `/Volumes/<mount>` is an ordinary provider Location. A depth rule would make it claim
+    ///   nothing, not even its own tree, so a CLI root inside it would fall back to `.iCloud`'s empty
+    ///   rule set and lose the destination-name guard. A sibling volume is still nobody's business
+    ///   but its own;
+    /// - `~/Documents` is deep enough to pass a depth rule yet covers as much local ground as `~`.
+    ///   What matters is what the root contains, so it claims its own tree and nothing beside it;
+    /// - "/" and "/Users" are above every home directory; claiming one types the whole machine;
+    /// - the control: the real account folder still claims its siblings, the case the widening
+    ///   exists for.
+    @Test(arguments: [
+        ("OneDrive-Personal", CloudProvider.ProviderType.oneDrive, "/Users/u", "/Users/u/scratch", CloudProvider.ProviderType?.none),
+        ("Dropbox", .dropBox, "/Users/u/Projects/CloudStorage/notes/deep/root", "/Users/u/Projects/CloudStorage/notes/other", nil),
+        ("Dropbox", .dropBox, "/Users/u/Projects/CloudStorage/notes/deep/root", "/Users/u/Projects/CloudStorage/notes/deep/root/x", .dropBox),
+        ("GoogleDrive", .googleDrive, "/Volumes/GoogleDrive", "/Volumes/GoogleDrive/Reports/q1.txt", .googleDrive),
+        ("GoogleDrive", .googleDrive, "/Volumes/GoogleDrive", "/Volumes/Backup/q1.txt", nil),
+        ("OneDrive-Personal", .oneDrive, "/Users/u/Documents", "/Users/u/Documents/deck.txt", .oneDrive),
+        ("OneDrive-Personal", .oneDrive, "/Users/u/Documents", "/Users/u/scratch", nil),
+        ("OneDrive-Personal", .oneDrive, "/", "/Users/u/scratch", nil),
+        ("OneDrive-Personal", .oneDrive, "/Users", "/Users/u/scratch", nil),
+        ("OneDrive-Personal", .oneDrive, "/Volumes", "/Users/u/scratch", nil),
+        ("OneDrive-Personal", .oneDrive, "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents",
+         "/Users/u/Library/CloudStorage/OneDrive-Personal/Photos", .oneDrive),
+    ])
+    func aProviderClaimsOnlyWhatItsRootContains(id: String, type: CloudProvider.ProviderType, root: String,
+                                                path: String, expected: CloudProvider.ProviderType?) {
+        let names = ["OneDrive-Personal": ("OneDrive", "onedrive"), "Dropbox": ("Dropbox", "dropbox"),
+                     "GoogleDrive": ("Google Drive", "googledrive")]
+        let (displayName, imageName) = names[id]!
+        let providers = [CloudProvider(id: id, displayName: displayName, imageName: imageName, rootPath: root, type: type)]
+        #expect(CloudProvider.inferredType(forPath: path, among: providers) == expected,
+                "a provider rooted at \(root) answered wrongly for \(path)")
     }
 
     @MainActor @Test func anUnreadableLegacyStoreDoesNotBurnTheOneWayMigrationFlag() throws {

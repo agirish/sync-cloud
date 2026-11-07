@@ -13,38 +13,12 @@ import Foundation
 
     @MainActor
     private func makeFixture(fileManager: FileManaging = FileManager.default) throws -> (manager: FileSyncManager, identical: FileDifference, differed: FileDifference, cleanup: () -> Void) {
-        let fm = FileManager.default
-        let base = fm.temporaryDirectory.appendingPathComponent("AutoVerify-\(UUID().uuidString)")
-        let left = base.appendingPathComponent("left")
-        let right = base.appendingPathComponent("right")
-        try fm.createDirectory(at: left, withIntermediateDirectories: true)
-        try fm.createDirectory(at: right, withIntermediateDirectories: true)
-
-        try Data("identical".utf8).write(to: left.appendingPathComponent("same.txt"))
-        try Data("identical".utf8).write(to: right.appendingPathComponent("same.txt"))
-        try Data("aaaa".utf8).write(to: left.appendingPathComponent("diff.txt"))
-        try Data("bbbb".utf8).write(to: right.appendingPathComponent("diff.txt"))
-
-        func dateDiff(_ name: String, size: Int) -> FileDifference {
-            FileDifference(
-                relativePath: name,
-                leftItemPath: left.appendingPathComponent(name).path,
-                rightItemPath: right.appendingPathComponent(name).path,
-                type: .differentDates,
-                action: .copyToRight,
-                description: "Different dates",
-                leftFileSize: size,
-                rightFileSize: size
-            )
-        }
-        let identical = dateDiff("same.txt", size: 9)
-        let differed = dateDiff("diff.txt", size: 4)
-
+        let pair = try makeSameSizePairFixture(prefix: "AutoVerify")
         let manager = FileSyncManager(fileManager: fileManager)
         manager.autoVerifySameSizeDuringScan = true
-        manager.rawDifferences = [identical, differed]
-        manager.differences = [identical, differed]
-        return (manager, identical, differed, { try? fm.removeItem(at: base) })
+        manager.rawDifferences = [pair.identical, pair.differed]
+        manager.differences = [pair.identical, pair.differed]
+        return (manager, pair.identical, pair.differed, pair.cleanup)
     }
 
     @MainActor
@@ -120,29 +94,28 @@ import Foundation
         #expect(FileSyncManager.formatBytes(FileSyncManager.unaskedPassMaxFileBytes + 1_000_000) != "100 MB")
     }
 
+    /// What keeps a scan-time pass from publishing.
+    enum Spoiler: Sendable { case supersededScan, operationsInFlight, disabledToggle }
+
+    /// A superseded scan's pass publishes nothing, the pass skips while operations are in flight,
+    /// and the toggle off makes it a no-op.
     @MainActor
-    @Test func testSupersededScanPublishesNothing() async throws {
+    @Test(arguments: [Spoiler.supersededScan, .operationsInFlight, .disabledToggle])
+    func testASpoiledPassPublishesNothing(_ spoiler: Spoiler) async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        let staleGeneration = manager.scanRequestGeneration
-        manager.scanRequestGeneration += 1
-        await manager.autoVerifySameSizePairs(scanGeneration: staleGeneration)
+        let generation = manager.scanRequestGeneration
+        switch spoiler {
+        case .supersededScan: manager.scanRequestGeneration += 1   // `generation` is now stale
+        case .operationsInFlight: manager.activeFileOperationsCount = 1
+        case .disabledToggle: manager.autoVerifySameSizeDuringScan = false
+        }
+        await manager.autoVerifySameSizePairs(scanGeneration: generation)
 
         #expect(manager.verifiedSameDifferenceIds.isEmpty)
         #expect(manager.differences.count == 2)
-    }
-
-    @MainActor
-    @Test func testSkipsWhileOperationsAreInFlight() async throws {
-        let fixture = try makeFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        manager.activeFileOperationsCount = 1
-        await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
-        #expect(manager.verifiedSameDifferenceIds.isEmpty)
     }
 
     /// A file operation that starts, and even finishes, while the pass is hashing must void the
@@ -158,22 +131,18 @@ import Foundation
         let manager = fixture.manager
 
         // Start the pass; its first checksum stat parks on the gate.
-        let pass = Task { @MainActor in
+        let epochBefore = try await withParkedPass(gate, pass: {
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }) {
+            // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
+            // moves, and `scanRequestGeneration` has not been bumped yet.
+            let generationBefore = manager.scanRequestGeneration
+            let epochBefore = manager.fileOperationsEpoch
+            await manager.enqueueFileOperation { }
+            #expect(manager.activeFileOperationsCount == 0)
+            #expect(manager.scanRequestGeneration == generationBefore)
+            return epochBefore
         }
-        await awaitSignal(gate.entered)
-
-        // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
-        // moves, and `scanRequestGeneration` has not been bumped yet.
-        let generationBefore = manager.scanRequestGeneration
-        let epochBefore = manager.fileOperationsEpoch
-        await manager.enqueueFileOperation { }
-        #expect(manager.activeFileOperationsCount == 0)
-        #expect(manager.scanRequestGeneration == generationBefore)
-
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds.isEmpty, "verdicts hashed across a file operation must be discarded")
         #expect(manager.differences.count == 2)
@@ -190,14 +159,9 @@ import Foundation
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        let pass = Task { @MainActor in
+        let epochBefore = try await withParkedPass(gate, pass: {
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
-        }
-        await awaitSignal(gate.entered)
-        let epochBefore = manager.fileOperationsEpoch
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
+        }) { manager.fileOperationsEpoch }
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "the gated fixture must still hash and hide the identical pair")
@@ -223,26 +187,21 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let pass = Task { @MainActor in
+        try await withParkedPass(gate, pass: {
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }) {
+            // The user opens a copy and declines its confirmation while the hash is parked.
+            var prompted = false
+            manager.transferConfirmer = { _ in prompted = true; return false }
+            let copied = await manager.copyItems(
+                nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+                toPath: "/dst",
+                fileManager: mockFM
+            )
+            #expect(prompted, "the transfer must actually have reached the confirmation prompt")
+            #expect(copied.isEmpty)
+            #expect(manager.activeFileOperationsCount == 0)
         }
-        await awaitSignal(gate.entered)
-
-        // The user opens a copy and declines its confirmation while the hash is parked.
-        var prompted = false
-        manager.transferConfirmer = { _ in prompted = true; return false }
-        let copied = await manager.copyItems(
-            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
-            toPath: "/dst",
-            fileManager: mockFM
-        )
-        #expect(prompted, "the transfer must actually have reached the confirmation prompt")
-        #expect(copied.isEmpty)
-        #expect(manager.activeFileOperationsCount == 0)
-
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "a declined confirmation runs no I/O, so it must not discard the batch")
@@ -277,32 +236,27 @@ import Foundation
         manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name)
 
         // Start the pass; its first checksum stat parks on the gate.
-        let pass = Task { @MainActor in
+        try await withParkedPass(gate, pass: {
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }) {
+            let epochBefore = manager.fileOperationsEpoch
+            #expect(manager.sweepOrphanedTempArtifacts(), "the sweep must have been allowed to look")
+
+            // Bounded premise-wait: the removal is detached, and the test needs it inside the hash
+            // window. Required, or the assertions below could pass for the wrong reason.
+            var trashed = false
+            for _ in 0..<200 {
+                if !fm.fileExists(atPath: orphan.path) { trashed = true; break }
+                try await Task.sleep(nanoseconds: 25_000_000)
+            }
+            try #require(trashed, "the sweep must have trashed the artifact while the hash was parked")
+            #expect(trash.names == [orphan.lastPathComponent],
+                    "the artifact left the tree but never reached the test's own Trash")
+
+            // It took part in neither mechanism: not the epoch, not the operation queue.
+            #expect(manager.fileOperationsEpoch == epochBefore)
+            #expect(manager.activeFileOperationsCount == 0)
         }
-        await awaitSignal(gate.entered)
-
-        let epochBefore = manager.fileOperationsEpoch
-        #expect(manager.sweepOrphanedTempArtifacts(), "the sweep must have been allowed to look")
-
-        // Bounded premise-wait: the removal is detached, and the test needs it inside the hash
-        // window. Required, or the assertions below could pass for the wrong reason.
-        var trashed = false
-        for _ in 0..<200 {
-            if !fm.fileExists(atPath: orphan.path) { trashed = true; break }
-            try await Task.sleep(nanoseconds: 25_000_000)
-        }
-        try #require(trashed, "the sweep must have trashed the artifact while the hash was parked")
-        #expect(trash.names == [orphan.lastPathComponent],
-                "the artifact left the tree but never reached the test's own Trash")
-
-        // It took part in neither mechanism: not the epoch, not the operation queue.
-        #expect(manager.fileOperationsEpoch == epochBefore)
-        #expect(manager.activeFileOperationsCount == 0)
-
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "a removal-only sweep cannot falsify an identical verdict, so the batch must commit")
@@ -321,20 +275,15 @@ import Foundation
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        let pass = Task { @MainActor in
+        try await withParkedPass(gate, pass: {
             await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }) {
+            // The prompt goes up mid-hash and is still up at commit: counted, epoch unmoved.
+            let epochBefore = manager.fileOperationsEpoch
+            manager.preCountFileOperation()
+            #expect(manager.activeFileOperationsCount == 1)
+            #expect(manager.fileOperationsEpoch == epochBefore)
         }
-        await awaitSignal(gate.entered)
-
-        // The prompt goes up mid-hash and is still up at commit: counted, epoch unmoved.
-        let epochBefore = manager.fileOperationsEpoch
-        manager.preCountFileOperation()
-        #expect(manager.activeFileOperationsCount == 1)
-        #expect(manager.fileOperationsEpoch == epochBefore)
-
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         // The user declines after the pass committed; the batch must already be in place.
         manager.cancelPreCountedFileOperation()
@@ -355,34 +304,19 @@ import Foundation
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        let pass = Task { @MainActor in
-            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
-        }
-        await awaitSignal(gate.entered)
-
-        // syncAll latches the flag before its read-only prepare work; nothing written yet.
-        let epochBefore = manager.fileOperationsEpoch
-        manager.isBulkSyncRunning = true
+        // Lowered at the end of the test, after the commit has been read.
         defer { manager.isBulkSyncRunning = false }
-        #expect(manager.fileOperationsEpoch == epochBefore)
-
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
+        try await withParkedPass(gate, pass: {
+            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }) {
+            // syncAll latches the flag before its read-only prepare work; nothing written yet.
+            let epochBefore = manager.fileOperationsEpoch
+            manager.isBulkSyncRunning = true
+            #expect(manager.fileOperationsEpoch == epochBefore)
+        }
 
         #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
                 "the prepare phase has written nothing, so the batch must commit")
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
-    }
-
-    @MainActor
-    @Test func testDisabledToggleIsANoOp() async throws {
-        let fixture = try makeFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        manager.autoVerifySameSizeDuringScan = false
-        await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
-        #expect(manager.verifiedSameDifferenceIds.isEmpty)
     }
 }

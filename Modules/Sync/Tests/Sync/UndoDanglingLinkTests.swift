@@ -12,15 +12,7 @@ import Testing
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let m = FileSyncManager()
-        m.undoManager = UndoManager()
-        m.collisionResolver = { _ in .replace }
-        m.permanentDeleteConfirmer = { _ in false }
-        return m
-    }
-
-    private func entryExists(_ url: URL) -> Bool {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+        FileSyncManager.forTests(collision: .replace)
     }
 
     private func danglingLink(at url: URL, in base: URL) throws {
@@ -43,11 +35,11 @@ import Testing
         await m.deleteItems(at: [link.path, plain.path], fileManager: trash)
         try #require(!entryExists(link))
         m.undoManager?.undo()
-        await waitUntil("the undo restores the link") { self.entryExists(link) }
+        await waitUntil("the undo restores the link") { entryExists(link) }
         await waitUntil("undo op drains") { m.activeFileOperationsCount == 0 }
 
         m.undoManager?.redo()
-        await waitUntil("the redo trashes the link again") { !self.entryExists(link) }
+        await waitUntil("the redo trashes the link again") { !entryExists(link) }
         await waitUntil("redo op drains") { m.activeFileOperationsCount == 0 }
     }
 

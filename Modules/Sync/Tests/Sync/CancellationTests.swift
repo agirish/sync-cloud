@@ -13,9 +13,8 @@ import Foundation
 
     /// Blocks the first call to one chosen primitive, signalling `entered`, so a test can hold one
     /// item in flight, cancel the Progress, release it, and see that no further items ran.
-    private final class FirstOpGate: FileManaging, @unchecked Sendable {
+    private final class FirstOpGate: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         enum Op { case copy, move, trash }
-        private let inner: MockFileManager
         private let gatedOp: Op
         /// The park, which records a timeout rather than discarding it: an item that resumed on its
         /// own would pass every assertion as if it had been held. Tests
@@ -24,7 +23,7 @@ import Foundation
         private let lock = NSLock()
         private var gated = false
 
-        init(inner: MockFileManager, gate op: Op) { self.inner = inner; gatedOp = op }
+        init(inner: MockFileManager, gate op: Op) { gatedOp = op; super.init(inner: inner) }
 
         var entered: DispatchSemaphore { gate.entered }
         var release: DispatchSemaphore { gate.release }
@@ -37,26 +36,10 @@ import Foundation
             gate.park()
         }
 
-        func copyItem(at s: URL, to d: URL) throws { gateIfFirst(.copy); try inner.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { gateIfFirst(.move); try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        override func copyItem(at s: URL, to d: URL) throws { gateIfFirst(.copy); try inner.copyItem(at: s, to: d) }
+        override func moveItem(at s: URL, to d: URL) throws { gateIfFirst(.move); try inner.moveItem(at: s, to: d) }
+        override func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
             gateIfFirst(.trash); try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
         }
     }
 
@@ -66,34 +49,34 @@ import Foundation
 
     @MainActor
     private func manager() -> FileSyncManager {
-        let m = FileSyncManager()
-        m.collisionResolver = { _ in .replace }
-        m.bulkCollisionResolver = { _ in (.replace, false) }
-        m.permanentDeleteConfirmer = { _ in true }
-        return m
+        FileSyncManager.forTests(undo: false, collision: .replace, bulk: (.replace, false), confirmsPermanentDelete: true)
     }
 
     private func dstFileCount(_ inner: MockFileManager, _ dir: String) -> Int {
         inner.virtualDisk.keys.filter { $0.hasPrefix(dir + "/") && $0.hasSuffix(".txt") }.count
     }
 
-    // MARK: Cancel copy
+    // MARK: Cancel copy or move
 
     @MainActor
-    @Test(.parksAThread) func testCancelDuringCopyCompletesInFlightItemAndSkipsRest() async throws {
+    @Test(.parksAThread, arguments: [false, true])
+    func testCancelDuringTransferCompletesInFlightItemAndSkipsRest(isMove: Bool) async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         seedFiles(inner, in: "/src", ["a.txt", "b.txt", "c.txt"])
-        let fm = FirstOpGate(inner: inner, gate: .copy)
+        let fm = FirstOpGate(inner: inner, gate: isMove ? .move : .copy)
         let m = manager()
 
         let nodes = ["a.txt", "b.txt", "c.txt"].map { FileNode(id: "/src/\($0)", name: $0, isDirectory: false) }
-        let op = Task { await m.copyItems(nodes: nodes, toPath: "/dst", fileManager: fm) }
+        let op = Task {
+            isMove ? await m.moveItems(nodes: nodes, toPath: "/dst", fileManager: fm)
+                   : await m.copyItems(nodes: nodes, toPath: "/dst", fileManager: fm)
+        }
 
-        await awaitSignal(fm.entered, "the operation never reached the gated seam — nothing was in flight to cancel")   // first copy parked in flight
+        await awaitSignal(fm.entered, "the operation never reached the gated seam — nothing was in flight to cancel")   // first item parked in flight
         m.activeProgress?.cancel()      // cancel while it is parked
-        fm.release.signal()             // let the in-flight copy finish
+        fm.release.signal()             // let the in-flight item finish
         let transferred = await op.value
         try #require(!fm.releasedByTimeout, "the gate timed out: the item was never actually held in flight")
 
@@ -102,35 +85,8 @@ import Foundation
         #expect(dstFileCount(inner, "/dst") == 1)
         // No half-written staging file survives a cancel.
         #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
-        // Source is untouched by a copy.
-        #expect(dstFileCount(inner, "/src") == 3)
-    }
-
-    // MARK: Cancel move
-
-    @MainActor
-    @Test(.parksAThread) func testCancelDuringMoveCompletesInFlightItemAndSkipsRest() async throws {
-        let inner = MockFileManager()
-        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        seedFiles(inner, in: "/src", ["a.txt", "b.txt", "c.txt"])
-        let fm = FirstOpGate(inner: inner, gate: .move)
-        let m = manager()
-
-        let nodes = ["a.txt", "b.txt", "c.txt"].map { FileNode(id: "/src/\($0)", name: $0, isDirectory: false) }
-        let op = Task { await m.moveItems(nodes: nodes, toPath: "/dst", fileManager: fm) }
-
-        await awaitSignal(fm.entered, "the operation never reached the gated seam — nothing was in flight to cancel")
-        m.activeProgress?.cancel()
-        fm.release.signal()
-        let transferred = await op.value
-        try #require(!fm.releasedByTimeout, "the gate timed out: the item was never actually held in flight")
-
-        // One item moved (present at dest, gone from source); the remaining two stayed put.
-        #expect(transferred.count == 1)
-        #expect(dstFileCount(inner, "/dst") == 1)
-        #expect(dstFileCount(inner, "/src") == 2)
-        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+        // A copy leaves the source untouched; a move took the one item from it.
+        #expect(dstFileCount(inner, "/src") == (isMove ? 2 : 3))
     }
 
     // MARK: Cancel delete

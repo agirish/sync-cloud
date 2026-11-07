@@ -9,30 +9,21 @@ import Events
 /// an item that can't be read is refused. Each test drives the real undo through
 /// `FileSyncManager`: a rule proven only where it is defined is one revert from being unused.
 ///
-/// `.serialized` is load-bearing. `undoOfANestedNormalizePassReversesTheChildRenameToo` and
-/// `undoAfterARedoOfANestedNormalizePassStillReversesBothRenames` assert the byte-identical line
-/// `Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in
-/// place`, and both suspend at `waitUntil`, so in parallel either could pass on the other's line.
-/// Markers bound the window in time; only serializing keeps a sibling from writing inside it
-/// (`docs/flaky-tests.md`, "A log assertion reading a window that has already rolled"). CI runs
-/// this target in parallel, and serializing costs about half a second.
+/// `.serialized` stays. The two undo legs of `undoOfANestedNormalizePassReversesTheChildRenameToo`
+/// assert the byte-identical line `Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source,
+/// 0 restore failure(s), 0 left in place`; as two tests suspended at `waitUntil`, either could pass
+/// on the other's line. Markers bound the window in time; only serializing keeps a sibling from
+/// writing inside it (`docs/flaky-tests.md`, "A log assertion reading a window that has already
+/// rolled"). CI runs this target in parallel, and serializing costs about half a second.
 @Suite(.serialized) struct UndoDriftIdentityTests {
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
     private func file(_ size: Int, modified: Date = Date(timeIntervalSince1970: 1_000)) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false,
-                                 attributes: [FileAttributeKey.size: size,
-                                              FileAttributeKey.modificationDate: modified],
-                                 contents: nil)
+        .file(size, modified: modified)
     }
 
     // MARK: Reading the refusal LOG, not just the banner
@@ -238,26 +229,6 @@ import Events
         }, "a deliberate refusal is still being tallied as a failure; lines since the marker: \(lines)")
     }
 
-    /// An untouched move still undoes, or the guard is just an outage.
-    @MainActor
-    @Test func moveUndoOfAnUntouchedItemStillMovesItBack() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/doc.txt"] = file(100)
-
-        let node = FileNode(id: "/src/doc.txt", name: "doc.txt", isDirectory: false)
-        await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
-        #expect(mockFM.virtualDisk["/dst/doc.txt"] != nil)
-
-        manager.undoManager?.undo()
-        await waitUntil("the move is reversed") { mockFM.virtualDisk["/src/doc.txt"] != nil }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-
-        #expect(mockFM.virtualDisk["/dst/doc.txt"] == nil)
-    }
-
     /// The moved item is gone: the user deleted it between the move and the ⌘Z. That is not drift
     /// (nothing at the destination can be a stranger), as for the copy-undo and the move-redo, so
     /// it must not be reported as changed. And the original the move displaced comes back from the
@@ -356,86 +327,53 @@ import Events
     /// exists. Snapshotted there, it reads `.absent`, and once the undo restores the parent the
     /// child reads as changed and is left half-undone under a false drift banner.
     ///
+    /// Then ⌘⇧Z puts the normalized names back. The undo's params are shallowest-first, the wrong
+    /// order for re-applying: renaming the parent first leaves the child's recorded `from`
+    /// (`Photos␣/a␣.txt`) under a parent that has just vanished, and recreating it would leave an
+    /// empty folder carrying the very risky name the pass removed. The tree must end exactly
+    /// `["Photos", "Photos/a.txt"]`.
+    ///
+    /// The undo after that redo reverses both renames again. A stray `Photos␣` left by a
+    /// wrong-order redo would occupy the child's source, so this undo would reverse nothing. This
+    /// leg proves the redo's own snapshot reads a live path: each re-applied item is snapshotted
+    /// as it lands, before shallower moves rename its ancestors. `liveLocation` buys the same
+    /// guarantee for `registerMoveUndo(items:)`, which snapshots after the whole batch.
+    ///
     /// Real filesystem, not `MockFileManager`: the mock's `moveItem` of a directory drops keys not
     /// in its `contents` list, so a nested fixture would measure the double.
     @MainActor
     @Test func undoOfANestedNormalizePassReversesTheChildRenameToo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeUndo")
         defer { try? FileManager.default.removeItem(at: root) }
-
-        // Zero-width spaces: risky to every provider, and robust on APFS (distinct entries, not
-        // trimmed by URL handling), unlike trailing-space or trailing-dot names.
-        let riskyFolder = root.appendingPathComponent("Photos\u{200B}")
-        let riskyChild = riskyFolder.appendingPathComponent("a\u{200B}.txt")
-        try FileManager.default.createDirectory(at: riskyFolder, withIntermediateDirectories: true)
-        try Data("child payload".utf8).write(to: riskyChild)
-
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        await manager.scanNames(root: root, provider: .iCloud)
-        // The folder and the file: the fixture is about a nested batch.
-        #expect(manager.riskyNames.count == 2,
-                "expected both the folder and the file to be flagged, got \(manager.riskyNames.map(\.currentName))")
-
-        await manager.normalizeNames(manager.riskyNames)
-
-        let safeFolder = root.appendingPathComponent("Photos")
-        let safeChild = safeFolder.appendingPathComponent("a.txt")
-        #expect(FileManager.default.fileExists(atPath: safeChild.path), "the pass itself must land")
-        #expect(!FileManager.default.fileExists(atPath: riskyFolder.path))
-
-        manager.banner = nil
-        let marker = await plantLogMarker("nested-normalize-undo")
-
-        manager.undoManager?.undo()
-        await waitUntil("the nested undo puts the risky child back") {
-            FileManager.default.fileExists(atPath: riskyChild.path)
-        }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-
-        // Every one of the three paths is back, and nothing of the normalized pass survives.
-        #expect(FileManager.default.fileExists(atPath: riskyFolder.path))
-        #expect(FileManager.default.fileExists(atPath: riskyChild.path))
-        // `try?`: a throwing read would abort at the first missing file and skip the banner and
-        // log assertions below, the evidence a regression needs to report.
-        #expect((try? Data(contentsOf: riskyChild)) == Data("child payload".utf8),
-                "the child must be the same file moved back, not a fresh one")
-        #expect(!FileManager.default.fileExists(atPath: safeFolder.path),
-                "the normalized folder name must be gone")
-        #expect(!FileManager.default.fileExists(atPath: safeChild.path))
-        #expect(manager.banner == nil,
-                "a fully reversed pass raises no banner; got \(String(describing: manager.banner?.message))")
-
-        let lines = await logLines(since: marker)
-        #expect(lines.contains {
-            $0.contains("Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place")
-        }, "the undo did not reverse both renames; lines since the marker: \(lines)")
-        // Scoped to this fixture's temp root: a neighbour's refusal in the window isn't ours.
-        #expect(lines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("REFUSED") },
-                "nothing drifted, so nothing may be refused; lines since the marker: \(lines)")
-    }
-
-    /// ⌘⇧Z puts the normalized names back. The undo's params are shallowest-first, the wrong order
-    /// for re-applying: renaming the parent first leaves the child's recorded `from`
-    /// (`Photos␣/a␣.txt`) under a parent that has just vanished, and recreating it would leave an
-    /// empty folder carrying the very risky name the pass removed. The tree must end exactly
-    /// `["Photos", "Photos/a.txt"]`.
-    @MainActor
-    @Test func redoOfANestedNormalizePassReAppliesBothRenames() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeRedo")
-        defer { try? FileManager.default.removeItem(at: root) }
         let f = try await stageNestedNormalizePass(root: root)
+        let reversed = ["Photos<ZWSP>", "Photos<ZWSP>/a<ZWSP>.txt"]
 
+        // 1. Undo: every one of the three paths is back, and nothing of the normalized pass survives.
         f.manager.banner = nil
-        let marker = await plantLogMarker("nested-normalize-redo")
+        let undoMarker = await plantLogMarker("nested-normalize-undo")
         f.manager.undoManager?.undo()
         await waitUntil("the nested undo puts the risky child back") {
             FileManager.default.fileExists(atPath: f.riskyChild.path)
         }
         await waitUntil("undo op drains") { f.manager.activeFileOperationsCount == 0 }
-        #expect(f.manager.banner == nil,
-                "the undo leg must stay clean; got \(String(describing: f.manager.banner?.message))")
 
+        #expect(treeUnder(root) == reversed, "the undo must reverse the whole pass; tree is \(treeUnder(root))")
+        // `try?`: a throwing read would abort at the first missing file and skip the banner and
+        // log assertions below, the evidence a regression needs to report.
+        #expect((try? Data(contentsOf: f.riskyChild)) == Data("child payload".utf8),
+                "the child must be the same file moved back, not a fresh one")
+        #expect(f.manager.banner == nil,
+                "a fully reversed pass raises no banner; got \(String(describing: f.manager.banner?.message))")
+        let undoLines = await logLines(since: undoMarker)
+        #expect(undoLines.contains {
+            $0.contains("Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place")
+        }, "the undo did not reverse both renames; lines since the marker: \(undoLines)")
+        // Scoped to this fixture's temp root: a neighbour's refusal in the window isn't ours.
+        #expect(undoLines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("REFUSED") },
+                "nothing drifted, so nothing may be refused; lines since the marker: \(undoLines)")
+
+        // 2. Redo: the pass lands exactly again.
+        let redoMarker = await plantLogMarker("nested-normalize-redo")
         f.manager.undoManager?.redo()
         await waitUntil("the nested redo re-applies the child rename") {
             FileManager.default.fileExists(atPath: f.safeChild.path)
@@ -448,59 +386,33 @@ import Events
                 "the child must be the same file moved back, not a fresh one")
         #expect(f.manager.banner == nil,
                 "a fully re-applied pass raises no banner; got \(String(describing: f.manager.banner?.message))")
-
-        let lines = await logLines(since: marker)
-        #expect(lines.contains {
+        let redoLines = await logLines(since: redoMarker)
+        #expect(redoLines.contains {
             $0.contains("Redo (Normalize 2 Names): moved 2 of 2 item(s), 0 redo failure(s)")
-        }, "the redo did not re-apply both renames; lines since the marker: \(lines)")
-        #expect(lines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("FAILED to redo") },
-                "nothing was missing, so nothing may fail to redo; lines since the marker: \(lines)")
-    }
+        }, "the redo did not re-apply both renames; lines since the marker: \(redoLines)")
+        #expect(redoLines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("FAILED to redo") },
+                "nothing was missing, so nothing may fail to redo; lines since the marker: \(redoLines)")
 
-    /// The undo after that redo reverses both renames again. A stray `Photos␣` left by a
-    /// wrong-order redo would occupy the child's source, so this undo would reverse nothing.
-    ///
-    /// This leg proves the redo's own snapshot reads a live path: each re-applied item is
-    /// snapshotted as it lands, before shallower moves rename its ancestors. `liveLocation` buys
-    /// the same guarantee for `registerMoveUndo(items:)`, which snapshots after the whole batch.
-    @MainActor
-    @Test func undoAfterARedoOfANestedNormalizePassStillReversesBothRenames() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeRedoUndo")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let f = try await stageNestedNormalizePass(root: root)
-
-        f.manager.undoManager?.undo()
-        await waitUntil("the nested undo puts the risky child back") {
-            FileManager.default.fileExists(atPath: f.riskyChild.path)
-        }
-        await waitUntil("undo op drains") { f.manager.activeFileOperationsCount == 0 }
-
-        f.manager.undoManager?.redo()
-        await waitUntil("the nested redo re-applies the child rename") {
-            FileManager.default.fileExists(atPath: f.safeChild.path)
-        }
-        await waitUntil("redo op drains") { f.manager.activeFileOperationsCount == 0 }
-
+        // 3. The undo after the redo reverses the whole pass again.
         f.manager.banner = nil
-        let marker = await plantLogMarker("nested-normalize-redo-undo")
+        let againMarker = await plantLogMarker("nested-normalize-redo-undo")
         f.manager.undoManager?.undo()
         await waitUntil("the second undo puts the risky child back again") {
             FileManager.default.fileExists(atPath: f.riskyChild.path)
         }
         await waitUntil("second undo op drains") { f.manager.activeFileOperationsCount == 0 }
 
-        #expect(treeUnder(root) == ["Photos<ZWSP>", "Photos<ZWSP>/a<ZWSP>.txt"],
+        #expect(treeUnder(root) == reversed,
                 "the second undo must reverse the whole pass again; tree is \(treeUnder(root))")
         #expect((try? Data(contentsOf: f.riskyChild)) == Data("child payload".utf8))
         #expect(f.manager.banner == nil,
                 "a fully reversed pass raises no banner; got \(String(describing: f.manager.banner?.message))")
-
-        let lines = await logLines(since: marker)
-        #expect(lines.contains {
+        let againLines = await logLines(since: againMarker)
+        #expect(againLines.contains {
             $0.contains("Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place")
-        }, "the undo after the redo did not reverse both renames; lines since the marker: \(lines)")
-        #expect(lines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("REFUSED") },
-                "nothing drifted, so nothing may be refused; lines since the marker: \(lines)")
+        }, "the undo after the redo did not reverse both renames; lines since the marker: \(againLines)")
+        #expect(againLines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("REFUSED") },
+                "nothing drifted, so nothing may be refused; lines since the marker: \(againLines)")
     }
 
     /// A refused nested undo builds nothing. When the shallow item has drifted, the deeper item's
@@ -706,9 +618,11 @@ import Events
         await manager.moveItems(nodes: [node], toPath: "/redo-ok-dst", fileManager: mockFM)
         #expect(mockFM.virtualDisk["/redo-ok-dst/kept.txt"] != nil)
 
+        // An untouched move still undoes, or the guard is just an outage.
         manager.undoManager?.undo()
         await waitUntil("the move is reversed") { mockFM.virtualDisk["/redo-ok-src/kept.txt"] != nil }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        #expect(mockFM.virtualDisk["/redo-ok-dst/kept.txt"] == nil)
         manager.banner = nil
 
         manager.undoManager?.redo()

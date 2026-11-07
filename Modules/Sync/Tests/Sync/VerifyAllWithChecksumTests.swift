@@ -11,46 +11,22 @@ import Events
 
     @MainActor
     @Test func testVerifyAllClassifiesAndReportsResults() async throws {
-        let fm = FileManager.default
-        let base = fm.temporaryDirectory.appendingPathComponent("VerifyAllPin-\(UUID().uuidString)")
-        let left = base.appendingPathComponent("left")
-        let right = base.appendingPathComponent("right")
-        try fm.createDirectory(at: left, withIntermediateDirectories: true)
-        try fm.createDirectory(at: right, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: base) }
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        let identical = fixture.identical
 
-        // same.txt: identical content on both sides. diff.txt: same size, different bytes.
         // gone.txt: right side missing, so hashing fails and the item counts as skipped.
-        try Data("identical".utf8).write(to: left.appendingPathComponent("same.txt"))
-        try Data("identical".utf8).write(to: right.appendingPathComponent("same.txt"))
-        try Data("aaaa".utf8).write(to: left.appendingPathComponent("diff.txt"))
-        try Data("bbbb".utf8).write(to: right.appendingPathComponent("diff.txt"))
+        let left = URL(fileURLWithPath: identical.leftItemPath).deletingLastPathComponent()
+        let right = URL(fileURLWithPath: identical.rightItemPath).deletingLastPathComponent()
         try Data("orphan".utf8).write(to: left.appendingPathComponent("gone.txt"))
-
-        func dateDiff(_ name: String, size: Int) -> FileDifference {
-            FileDifference(
-                relativePath: name,
-                leftItemPath: left.appendingPathComponent(name).path,
-                rightItemPath: right.appendingPathComponent(name).path,
-                type: .differentDates,
-                action: .copyToRight,
-                description: "Different dates",
-                leftFileSize: size,
-                rightFileSize: size
-            )
-        }
-        let identical = dateDiff("same.txt", size: 9)
-        let differed = dateDiff("diff.txt", size: 4)
-        let skipped = dateDiff("gone.txt", size: 6)
-
-        let manager = FileSyncManager(fileManager: ScratchTrash(in: base))
-        // No collision or delete prompt can fire here, but the seams stay mocked so no NSAlert
-        // could ever appear if that changes.
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, true) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        manager.rawDifferences = [identical, differed, skipped]
-        manager.differences = [identical, differed, skipped]
+        let skipped = FileDifference(relativePath: "gone.txt",
+                                     leftItemPath: left.appendingPathComponent("gone.txt").path,
+                                     rightItemPath: right.appendingPathComponent("gone.txt").path,
+                                     type: .differentDates, action: .copyToRight, description: "Different dates",
+                                     leftFileSize: 6, rightFileSize: 6)
+        manager.rawDifferences.append(skipped)
+        manager.differences.append(skipped)
 
         await manager.verifyAllWithChecksum()
 
@@ -78,43 +54,17 @@ import Events
         rightIdenticalURL: URL,
         cleanup: () -> Void
     ) {
-        let fm = FileManager.default
-        let base = fm.temporaryDirectory.appendingPathComponent("VerifyAllRace-\(UUID().uuidString)")
-        let left = base.appendingPathComponent("left")
-        let right = base.appendingPathComponent("right")
-        try fm.createDirectory(at: left, withIntermediateDirectories: true)
-        try fm.createDirectory(at: right, withIntermediateDirectories: true)
-
-        try Data("identical".utf8).write(to: left.appendingPathComponent("same.txt"))
-        try Data("identical".utf8).write(to: right.appendingPathComponent("same.txt"))
-        try Data("aaaa".utf8).write(to: left.appendingPathComponent("diff.txt"))
-        try Data("bbbb".utf8).write(to: right.appendingPathComponent("diff.txt"))
-
-        func dateDiff(_ name: String, size: Int) -> FileDifference {
-            FileDifference(
-                relativePath: name,
-                leftItemPath: left.appendingPathComponent(name).path,
-                rightItemPath: right.appendingPathComponent(name).path,
-                type: .differentDates,
-                action: .copyToRight,
-                description: "Different dates",
-                leftFileSize: size,
-                rightFileSize: size
-            )
-        }
-        let identical = dateDiff("same.txt", size: 9)
-        let differed = dateDiff("diff.txt", size: 4)
-
+        let pair = try makeSameSizePairFixture(prefix: "VerifyAllRace")
         // Without a file manager of its own, the fixture's Trash is a folder inside it.
-        let manager = FileSyncManager(fileManager: fileManager ?? ScratchTrash(in: base))
+        let manager = FileSyncManager(fileManager: fileManager ?? ScratchTrash(in: pair.base))
         // No prompt can fire in these tests, but the seams stay mocked so no NSAlert could
         // ever appear if that changes.
         manager.collisionResolver = { _ in .replace }
         manager.bulkCollisionResolver = { _ in (.replace, true) }
         manager.permanentDeleteConfirmer = { _ in false }
-        manager.rawDifferences = [identical, differed]
-        manager.differences = [identical, differed]
-        return (manager, identical, differed, right.appendingPathComponent("same.txt"), { try? fm.removeItem(at: base) })
+        manager.rawDifferences = [pair.identical, pair.differed]
+        manager.differences = [pair.identical, pair.differed]
+        return (manager, pair.identical, pair.differed, pair.rightIdenticalURL, pair.cleanup)
     }
 
     /// A file operation that starts, and even finishes, while Verify All is hashing discards the
@@ -130,23 +80,16 @@ import Events
         let manager = fixture.manager
 
         // Start the manual pass; its first checksum stat parks on the gate.
-        let pass = Task { @MainActor in
-            await manager.verifyAllWithChecksum()
+        try await withParkedPass(gate, pass: { await manager.verifyAllWithChecksum() }) {
+            // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
+            // moves, and (the race) `scanRequestGeneration` has not been bumped yet.
+            let generationBefore = manager.scanRequestGeneration
+            let epochBefore = manager.fileOperationsEpoch
+            await manager.enqueueFileOperation { }
+            #expect(manager.activeFileOperationsCount == 0)
+            #expect(manager.scanRequestGeneration == generationBefore)
+            #expect(manager.fileOperationsEpoch > epochBefore, "the operation must have moved the epoch")
         }
-        await awaitSignal(gate.entered)
-
-        // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
-        // moves, and (the race) `scanRequestGeneration` has not been bumped yet.
-        let generationBefore = manager.scanRequestGeneration
-        let epochBefore = manager.fileOperationsEpoch
-        await manager.enqueueFileOperation { }
-        #expect(manager.activeFileOperationsCount == 0)
-        #expect(manager.scanRequestGeneration == generationBefore)
-        #expect(manager.fileOperationsEpoch > epochBefore, "the operation must have moved the epoch")
-
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedIdenticalForCopy == nil,
                 "verdicts hashed across a file operation must not become a bulk-copy offer")
@@ -163,15 +106,10 @@ import Events
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        let pass = Task { @MainActor in
-            await manager.verifyAllWithChecksum(subset: [fixture.identical])
+        try await withParkedPass(gate, pass: { await manager.verifyAllWithChecksum(subset: [fixture.identical]) }) {
+            try #require(manager.activeProgress != nil, "the pass published no progress to stop")
+            manager.activeProgress?.cancel()
         }
-        await awaitSignal(gate.entered)
-        try #require(manager.activeProgress != nil, "the pass published no progress to stop")
-        manager.activeProgress?.cancel()
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         for path in [fixture.identical.leftItemPath, fixture.identical.rightItemPath] {
             let attributes = try FileManager.default.attributesOfItem(atPath: path)
@@ -192,14 +130,9 @@ import Events
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        let pass = Task { @MainActor in
-            await manager.verifyAllWithChecksum()
+        let epochBefore = try await withParkedPass(gate, pass: { await manager.verifyAllWithChecksum() }) {
+            manager.fileOperationsEpoch
         }
-        await awaitSignal(gate.entered)
-        let epochBefore = manager.fileOperationsEpoch
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         #expect(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id],
                 "the gated fixture must still hash and offer the identical pair")
@@ -391,18 +324,13 @@ import Events
             differences: [fixture.identical], asOf: manager.fileOperationsEpoch
         )
 
-        let pass = Task { @MainActor in
-            await manager.verifyAllWithChecksum(subset: [fixture.identical])
+        let progress = try await withParkedPass(gate, pass: { await manager.verifyAllWithChecksum(subset: [fixture.identical]) }) {
+            // The user hits Cancel on the progress overlay while the pass is mid-hash.
+            let progress = try #require(manager.activeProgress)
+            try #require(progress.isCancellable, "the overlay only renders Cancel while this holds")
+            progress.cancel()
+            return progress
         }
-        await awaitSignal(gate.entered)
-
-        // The user hits Cancel on the progress overlay while the pass is mid-hash.
-        let progress = try #require(manager.activeProgress)
-        try #require(progress.isCancellable, "the overlay only renders Cancel while this holds")
-        progress.cancel()
-        gate.release.signal()
-        await pass.value
-        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
 
         // The pass did verify a pair before stopping: a partial result, not an empty one, so
         // this tests the cancellation term, not the empty-verdict retraction. (The parked item
@@ -438,39 +366,21 @@ import Events
                 "an untroubled dismissal must still hide the pair it verified identical")
     }
 
+    /// What lands on a verified pair while the offer's dialog is up.
+    enum Disturbance: Sendable { case fileOperation, pendingOperation, outOfAppWrite }
+
     /// Cancel must not hide rows the confirm path would refuse to trust. Hiding is a claim about
     /// the files, resting on the same verdicts as the copy, so an undo landing while the dialog is
     /// up stops the hide. The undo's rescan re-derives the row only if it completes and isn't
     /// superseded, so a wrong hide could last until a manual rescan.
+    ///
+    /// The count half of the same guard (`pendingOperation`): an operation pre-counted but not yet
+    /// enqueued. The epoch hasn't moved, so the stamp still matches and only the count can refuse
+    /// the hide. And an out-of-app write stops the hide too, or a refusal would resolve the row it
+    /// declined to act on.
     @MainActor
-    @Test func testDismissAfterAFileOperationHidesNothing() async throws {
-        let fixture = try makeRaceFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
-
-        // ⌘Z while the dialog is up: same size, different bytes, so the pair differs now.
-        let restored = Data("restored!".utf8)   // 9 bytes, like "identical"
-        let rightURL = fixture.rightIdenticalURL
-        await manager.enqueueFileOperation {
-            try? restored.write(to: rightURL)
-        }
-        try #require(manager.fileOperationsEpoch != manager.verifiedIdenticalForCopy?.asOf)
-
-        manager.dismissVerifiedCopyDialogWithoutCopy()
-
-        #expect(manager.verifiedIdenticalForCopy == nil)
-        #expect(manager.verifiedSameDifferenceIds.isEmpty,
-                "Cancel must not hide rows on verdicts the confirm path refuses to trust")
-        #expect(manager.differences.count == 2)
-    }
-
-    /// The count half of the same guard: an operation pre-counted but not yet enqueued. The epoch
-    /// hasn't moved, so the stamp still matches and only the count can refuse the hide.
-    @MainActor
-    @Test func testDismissWhileAnOperationIsPendingHidesNothing() async throws {
+    @Test(arguments: [Disturbance.fileOperation, .pendingOperation, .outOfAppWrite])
+    func testDismissAfterADisturbanceHidesNothing(_ disturbance: Disturbance) async throws {
         let fixture = try makeRaceFixture()
         defer { fixture.cleanup() }
         let manager = fixture.manager
@@ -479,18 +389,32 @@ import Events
         try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
         let stampedEpoch = manager.fileOperationsEpoch
 
-        manager.preCountFileOperation()
-        try #require(manager.activeFileOperationsCount == 1)
-        try #require(manager.fileOperationsEpoch == stampedEpoch,
-                     "the epoch must still be unmoved — only the count can refuse here")
+        switch disturbance {
+        case .fileOperation:
+            // ⌘Z while the dialog is up: same size, different bytes, so the pair differs now.
+            let restored = Data("restored!".utf8)   // 9 bytes, like "identical"
+            let rightURL = fixture.rightIdenticalURL
+            await manager.enqueueFileOperation {
+                try? restored.write(to: rightURL)
+            }
+            try #require(manager.fileOperationsEpoch != manager.verifiedIdenticalForCopy?.asOf)
+        case .pendingOperation:
+            manager.preCountFileOperation()
+            try #require(manager.activeFileOperationsCount == 1)
+            try #require(manager.fileOperationsEpoch == stampedEpoch,
+                         "the epoch must still be unmoved — only the count can refuse here")
+        case .outOfAppWrite:
+            try Data("cloud-new".utf8).write(to: fixture.rightIdenticalURL)
+        }
 
         manager.dismissVerifiedCopyDialogWithoutCopy()
 
         #expect(manager.verifiedIdenticalForCopy == nil)
         #expect(manager.verifiedSameDifferenceIds.isEmpty,
-                "a write already claimed may be about to change these very files")
+                "Cancel must not hide rows on verdicts the confirm path refuses to trust")
+        #expect(manager.differences.count == 2)
 
-        manager.cancelPreCountedFileOperation()
+        if disturbance == .pendingOperation { manager.cancelPreCountedFileOperation() }
     }
 
     /// The bulk run re-checks the stamp where the write is ordered, not where it was confirmed.
@@ -529,45 +453,19 @@ import Events
 
     // MARK: Out-of-app writes while the offer's dialog is open
 
+    /// Which end of a verified pair an out-of-app writer changes.
+    enum PairSide: Sendable { case right, left }
+
     /// The epoch, count and generation guards see only in-app writes. A cloud daemon syncing a
     /// new right-side version while the dialog is open moves none of them, so Confirm re-checks
     /// each pair's stamp and refuses rather than put the stale left copy over the new bytes.
     /// Driven with a plain `Data.write`, not `enqueueFileOperation`: an out-of-app writer is the
-    /// point.
+    /// point. The left side is what gets written, so a left file rewritten after the hash would
+    /// push unverified bytes onto the right, replacing a file the user was told was already the
+    /// same.
     @MainActor
-    @Test func testConfirmRefusesWhenTheRightSideChangedOutsideTheApp() async throws {
-        let fixture = try makeRaceFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
-        let stampedEpoch = manager.fileOperationsEpoch
-
-        // The daemon lands a new version: 9 bytes like "identical", different content, so a
-        // size-only check can't see it and a write over it shows.
-        let arrived = Data("cloud-new".utf8)
-        try #require(arrived.count == Data("identical".utf8).count)
-        try arrived.write(to: fixture.rightIdenticalURL)
-
-        try #require(manager.fileOperationsEpoch == stampedEpoch,
-                     "an out-of-app write moves no epoch — that is the hole being closed")
-        try #require(manager.activeFileOperationsCount == 0)
-
-        let task = manager.confirmVerifiedCopy()
-        await task?.value
-
-        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == arrived,
-                "the bulk copy must not overwrite bytes that arrived after the hash")
-        #expect(manager.verifiedIdenticalForCopy == nil)
-        #expect(manager.banner?.severity == .warning)
-    }
-
-    /// The other end of the pair. The left side is what gets written, so a left file rewritten
-    /// after the hash would push unverified bytes onto the right, replacing a file the user was
-    /// told was already the same.
-    @MainActor
-    @Test func testConfirmRefusesWhenTheLeftSideChangedOutsideTheApp() async throws {
+    @Test(arguments: [PairSide.right, .left])
+    func testConfirmRefusesWhenASideChangedOutsideTheApp(_ side: PairSide) async throws {
         let fixture = try makeRaceFixture()
         defer { fixture.cleanup() }
         let manager = fixture.manager
@@ -578,17 +476,26 @@ import Events
         try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
         let stampedEpoch = manager.fileOperationsEpoch
 
-        let arrived = Data("left-new!".utf8)
+        // The daemon lands a new version: 9 bytes like "identical", different content, so a
+        // size-only check can't see it and a write over it shows.
+        let arrived = Data((side == .right ? "cloud-new" : "left-new!").utf8)
         try #require(arrived.count == rightBefore.count)
-        try arrived.write(to: leftURL)
+        try arrived.write(to: side == .right ? fixture.rightIdenticalURL : leftURL)
 
-        try #require(manager.fileOperationsEpoch == stampedEpoch)
+        try #require(manager.fileOperationsEpoch == stampedEpoch,
+                     "an out-of-app write moves no epoch — that is the hole being closed")
+        try #require(manager.activeFileOperationsCount == 0)
 
         let task = manager.confirmVerifiedCopy()
         await task?.value
 
-        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == rightBefore,
-                "unverified left bytes must not reach the right side")
+        if side == .right {
+            #expect(try Data(contentsOf: fixture.rightIdenticalURL) == arrived,
+                    "the bulk copy must not overwrite bytes that arrived after the hash")
+        } else {
+            #expect(try Data(contentsOf: fixture.rightIdenticalURL) == rightBefore,
+                    "unverified left bytes must not reach the right side")
+        }
         #expect(manager.verifiedIdenticalForCopy == nil)
         #expect(manager.banner?.severity == .warning)
     }
@@ -823,26 +730,6 @@ import Events
         #expect(manager.differences.map(\.id).contains(fixture.identical.id), "the held row was resolved anyway")
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("left out") == true, "banner: \(manager.banner?.message ?? "nil")")
-    }
-
-    /// Cancel rests on the same verdicts (`testDismissAfterAFileOperationHidesNothing`), so an
-    /// out-of-app write stops the hide too, or a refusal would resolve the row it declined to act on.
-    @MainActor
-    @Test func testDismissAfterAnOutOfAppWriteHidesNothing() async throws {
-        let fixture = try makeRaceFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
-
-        try Data("cloud-new".utf8).write(to: fixture.rightIdenticalURL)
-
-        manager.dismissVerifiedCopyDialogWithoutCopy()
-
-        #expect(manager.verifiedIdenticalForCopy == nil)
-        #expect(manager.verifiedSameDifferenceIds.isEmpty,
-                "the pair no longer verifies identical, so it must not be hidden as if it did")
     }
 
     /// The size half of the stamp, which no same-size fixture reaches. A writer that restores the

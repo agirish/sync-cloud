@@ -56,12 +56,16 @@ import Foundation
     // MARK: - Eviction under sustained overflow
 
     /// Eviction advances an index instead of shifting the array, so FIFO order must survive the
-    /// compaction of the dead prefix, when every index moves. Runs several compactions, then checks
-    /// the survivors are exactly the newest `cap` keys.
-    @Test func testFifoOrderSurvivesRepeatedCompaction() async {
-        let cap = 4
+    /// compaction of the dead prefix, when every index moves, and the dead prefix must be
+    /// reclaimed or `insertionOrder` grows forever, a leak survivors can't show. Over several
+    /// compactions (4 of 200), 100x the cap (50 of 5000), and a cap of 1, where the index
+    /// arithmetic is likeliest to go wrong (every store evicts, so `evictedPrefix` reaches the
+    /// compaction threshold almost every call): the survivors are exactly the newest `cap` keys,
+    /// and order storage stays within the 2x-cap ceiling.
+    @Test(arguments: [(4, 200), (50, 5000), (1, 20)])
+    func testFifoOrderSurvivesRepeatedCompaction(cap: Int, stores: Int) async {
         let cache = ContentHashCache(maxEntries: cap)
-        let keys = (0..<200).map { ContentHashKey(path: "/f\($0)", mtime: 1, size: 1) }
+        let keys = (0..<stores).map { ContentHashKey(path: "/f\($0)", mtime: 1, size: 1) }
 
         for (i, key) in keys.enumerated() {
             await cache.store("h\(i)", for: key)
@@ -76,6 +80,8 @@ import Foundation
         for i in 0..<(keys.count - cap) {
             #expect(await cache.hash(for: keys[i]) == nil, "key \(i) should have been evicted")
         }
+        let slots = await cache.orderSlotsInUse
+        #expect(slots <= cap * 2, "order storage grew to \(slots) for a \(cap)-entry cache")
     }
 
     /// A key evicted and stored again comes back cleanly. It still sits in the dead prefix, so
@@ -176,33 +182,6 @@ import Foundation
         #expect(await rescanHits(workingSet: 2500, cap: 3000) == 2500)
     }
 
-    /// Eviction only advances an index, so the dead prefix must be reclaimed or `insertionOrder`
-    /// grows forever, a leak the other tests can't see because survivors stay correct either way.
-    /// Storing 100x the cap must stay within the 2x-cap ceiling.
-    @Test func testOrderStorageStaysBoundedUnderSustainedOverflow() async {
-        let cap = 50
-        let cache = ContentHashCache(maxEntries: cap)
-        for i in 0..<(cap * 100) {
-            await cache.store("h\(i)", for: ContentHashKey(path: "/f\(i)", mtime: 1, size: 1))
-        }
-        let slots = await cache.orderSlotsInUse
-        #expect(slots <= cap * 2, "order storage grew to \(slots) for a \(cap)-entry cache")
-        // And the cache is still holding exactly what it should.
-        #expect(await cache.hash(for: ContentHashKey(path: "/f\(cap * 100 - 1)", mtime: 1, size: 1)) != nil)
-        #expect(await cache.hash(for: ContentHashKey(path: "/f0", mtime: 1, size: 1)) == nil)
-    }
-
-    /// A cap of 1, where the index arithmetic is likeliest to go wrong: every store evicts, so
-    /// `evictedPrefix` reaches the compaction threshold almost every call.
-    @Test func testCapOfOneKeepsOnlyTheNewest() async {
-        let cache = ContentHashCache(maxEntries: 1)
-        let keys = (0..<20).map { ContentHashKey(path: "/k\($0)", mtime: 1, size: 1) }
-        for (i, key) in keys.enumerated() { await cache.store("h\(i)", for: key) }
-
-        #expect(await cache.hash(for: keys[19]) == "h19")
-        for i in 0..<19 { #expect(await cache.hash(for: keys[i]) == nil) }
-    }
-
     // MARK: - Behavioral proof: a hit serves the stored hash without re-reading bytes
 
     @Test func testAHitIsServedUnreadAndASameSizeEditUnderARestoredMtimeIsAMiss() async throws {
@@ -250,17 +229,5 @@ import Foundation
         // It equals a fresh uncached hash of the 7-byte content: a genuine re-hash.
         let grownTruth = await FileContentVerifier.sha256Hex(filePath: file.path)
         #expect(grown == grownTruth)
-    }
-
-    @Test func testNilCacheMatchesUncachedHashExactly() async throws {
-        // The no-cache path must be byte-identical to passing no cache at all.
-        let dir = try makeCanonicalTempRoot(prefix: "ContentHashCacheTest")
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let file = dir.appendingPathComponent("abc.txt")
-        try Data("abc".utf8).write(to: file)
-
-        let cached = await FileContentVerifier.sha256Hex(filePath: file.path, cache: ContentHashCache())
-        #expect(cached == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 }

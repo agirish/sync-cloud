@@ -3,8 +3,8 @@ import Foundation
 import Events
 @testable import Sync
 
-/// Integration coverage for Sync History recording: each op site (transfer copy/move, delete, bulk
-/// sync) appends `SyncHistoryRecord`s to the injected `SyncHistoryStore` with the right action,
+/// Integration coverage for Sync History recording: each op site (transfer copy/move, delete; bulk
+/// sync is in `FileSyncManagerStateTests`) appends `SyncHistoryRecord`s to the injected `SyncHistoryStore` with the right action,
 /// paths, direction and a per-run id. Recording is synchronous at the op sites, so the records are
 /// there the moment the awaited call returns; no polling needed.
 @MainActor
@@ -70,42 +70,6 @@ import Events
         #expect(record.action == .delete)
         #expect(record.sourcePath == "/dst/gone.txt")
         #expect(record.destPath == nil)
-    }
-
-    @Test func testSyncAllRecordsAllItemsUnderOneRunAndGroupsUndo() async throws {
-        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
-        defer { removeHistoryStoreFiles(store) }
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        manager.syncHistoryStore = store
-        manager.undoManager = UndoManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/one.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 10], contents: nil)
-        mockFM.virtualDisk["/src/two.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 20], contents: nil)
-
-        let d1 = FileDifference(relativePath: "one.txt", leftItemPath: "/src/one.txt", rightItemPath: "/dst/one.txt", type: .missingOnRight, action: .copyToRight, description: "missing", leftFileSize: 10)
-        let d2 = FileDifference(relativePath: "two.txt", leftItemPath: "/src/two.txt", rightItemPath: "/dst/two.txt", type: .missingOnRight, action: .copyToRight, description: "missing", leftFileSize: 20)
-        manager.rawDifferences = [d1, d2]
-        manager.differences = [d1, d2]
-
-        await manager.syncAll(direction: .copyToRight, confirmed: true)
-
-        // Both items recorded, sharing one run id, with size carried from the differences.
-        #expect(store.records.count == 2)
-        #expect(Set(store.records.map(\.runId)).count == 1)
-        #expect(store.records.allSatisfy { $0.action == .copy && $0.direction == "→ Right" })
-        #expect(Set(store.records.compactMap(\.sizeBytes)) == [10, 20])
-        #expect(store.recordsForRun(try #require(store.lastRunId)).count == 2)
-
-        // The whole run is one undo step: a single undo removes both copies.
-        #expect(mockFM.virtualDisk["/dst/one.txt"] != nil)
-        #expect(mockFM.virtualDisk["/dst/two.txt"] != nil)
-        #expect(manager.undoManager?.canUndo == true)
-        manager.undoManager?.undo()
-        await waitUntil("one undo reverses the whole bulk run") {
-            mockFM.virtualDisk["/dst/one.txt"] == nil && mockFM.virtualDisk["/dst/two.txt"] == nil
-        }
     }
 
     /// A row's Copy to … sent against its suggestion is recorded the way it went, and its undo gives

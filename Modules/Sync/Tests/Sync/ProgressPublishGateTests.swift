@@ -3,7 +3,7 @@ import Testing
 
 /// Pins `ProgressPublishGate`, which decides how often a bulk run may re-render the window. It must
 /// suppress, but never an update whose absence the user would see: the first report (the bar
-/// starts where the run is) and the last (it finishes full). Every test below is one of the two.
+/// starts where the run is) and the last (it finishes full).
 @Suite struct ProgressPublishGateTests {
 
     /// Runs `total` reports through a gate and returns the ones it let through.
@@ -12,12 +12,17 @@ import Testing
         return reports.filter { gate.admits(completed: $0, total: total) }
     }
 
+    /// The first report always lands, so the bar starts where the run does; the terminal report
+    /// always lands, so it finishes full: otherwise the bar ends on the last whole percent before
+    /// completion, visibly short of full.
     @Test("A large run is capped at about one update per percent, not one per file")
     func largeRunIsThrottled() {
         let admitted = published(total: 500, reports: Array(0...500))
         // 0…99 plus the terminal 100%: bounded by the percentage scale, not the file count.
         #expect(admitted.count == 101)
         #expect(admitted.count < 500)
+        #expect(admitted.first == 0)
+        #expect(admitted.last == 500)
     }
 
     @Test("A ten-thousand file run costs no more than a five-hundred file one")
@@ -33,22 +38,6 @@ import Testing
     func smallRunIsUnthrottled() {
         let admitted = published(total: 20, reports: Array(0...20))
         #expect(admitted == Array(0...20))
-    }
-
-    @Test("The first report always lands, so the bar starts where the run does")
-    func firstReportAlwaysPublishes() {
-        var gate = ProgressPublishGate()
-        let admitted = gate.admits(completed: 0, total: 500)
-        #expect(admitted)
-    }
-
-    /// Otherwise the bar ends on the last whole percent before completion, visibly short of full.
-    @Test("The terminal report always lands, so the bar finishes full")
-    func terminalReportAlwaysPublishes() {
-        var gate = ProgressPublishGate()
-        for i in 0..<500 { _ = gate.admits(completed: i, total: 500) }
-        let terminal = gate.admits(completed: 500, total: 500)
-        #expect(terminal)
     }
 
     /// A resumed or pre-credited run can report past its own total (the skip-credited bulk copy

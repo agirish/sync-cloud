@@ -20,19 +20,6 @@ import Testing
 
     // MARK: Which refusals are permission
 
-    @Test func aWriteNoPermissionErrorIsAPermissionRefusal() {
-        #expect(FileSyncManager.isPermissionRefusal(cocoa(NSFileWriteNoPermissionError)))
-    }
-
-    /// Foundation often wraps the POSIX cause in a Cocoa error, so the chain is walked, as
-    /// `isTransientTrashFailure` walks it.
-    @Test func aWrappedPosixDenialIsFoundThroughTheChain() {
-        #expect(FileSyncManager.isPermissionRefusal(
-            cocoa(NSFileWriteUnknownError, under: posix(EACCES))))
-        #expect(FileSyncManager.isPermissionRefusal(
-            cocoa(NSFileWriteUnknownError, under: posix(EPERM))))
-    }
-
     /// A busy file is not a denied one. `EBUSY` (a cloud daemon mid-write) is what a retry fixes;
     /// calling it a permission problem would send the user to fix something that isn't broken.
     @Test func aBusyItemIsNotAPermissionRefusal() {
@@ -43,9 +30,12 @@ import Testing
 
     /// A permission refusal stays transient, like a busy item, so it never reaches the
     /// permanent-delete confirmation: being refused the Trash is no reason to destroy the file.
+    /// Foundation often wraps the POSIX cause in a Cocoa error, so the chain is walked, as
+    /// `isTransientTrashFailure` walks it.
     @Test func everyPermissionRefusalIsStillTransient() {
         let refusals = [cocoa(NSFileWriteNoPermissionError),
                         cocoa(NSFileWriteUnknownError, under: posix(EACCES)),
+                        cocoa(NSFileWriteUnknownError, under: posix(EPERM)),
                         posix(EPERM)]
         for error in refusals {
             #expect(FileSyncManager.isPermissionRefusal(error), "\(error)")
@@ -115,13 +105,6 @@ import Testing
         #expect(!error.isRetryable)
         #expect(!error.alertActions(hasRetryHandler: true).contains(.retry))
         #expect(error.alertActions(hasRetryHandler: true).contains(.revealInFinder))
-    }
-
-    /// The generic delete failure is unchanged for everything that is not a permission refusal.
-    @Test func theGenericDeleteFailureStillExists() {
-        let error = SyncError.deleteFailed(reason: "busy")
-        #expect(error.title == "Delete Failed")
-        #expect(error.message == "Some items couldn’t be deleted.")
     }
 
     // MARK: The out-of-process fallback
@@ -263,22 +246,8 @@ import Testing
         #expect(outcome.isUndoable, "a re-registered trash must still offer ⌘Z")
         #expect(manager.currentError == nil, "a recovered trash still reported a failure")
         #expect(fm.virtualDisk["/docs/a.pdf"] == nil, "the item is still on disk")
-    }
-
-    /// The item is parked under a hidden sibling name only until it is moved back, so no
-    /// `.synccloud-trash-retry-…` may outlive the delete, in the folder or in the Trash.
-    @MainActor
-    @Test func theReregistrationLeavesNoParkedNameBehind() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashRefusedUntilMovedIn = true
-        manager.trashViaWorkspace = { _ in [:] }
-
-        _ = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
-
+        // The item is parked under a hidden sibling name only until it is moved back, so no
+        // `.synccloud-trash-retry-…` may outlive the delete, in the folder or in the Trash.
         let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
         #expect(parked.isEmpty, "a parked name survived the delete: \(parked)")
         #expect(fm.trashedPaths.allSatisfy { !$0.contains("synccloud-trash-retry") },
@@ -310,8 +279,10 @@ import Testing
         #expect(error.title == "Not Allowed to Move to the Trash")
     }
 
-    /// Re-registration is only for a permission refusal. A busy item gets the caller's retry and
-    /// is never renamed, even for a moment.
+    /// Re-registration is only for a permission refusal. A busy item (a cloud daemon mid-write,
+    /// not a Trash-less volume) gets the caller's retry: it is never renamed, even for a moment,
+    /// never sent to the system service, which would trade a retryable error for a silent one, and
+    /// never upgraded to an unrecoverable permanent delete.
     @MainActor
     @Test func aBusyItemIsNeverReregistered() async throws {
         let fm = MockFileManager()
@@ -320,68 +291,27 @@ import Testing
         fm.virtualDisk["/docs/c.pdf"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.size: 100], contents: nil)
         fm.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
-        manager.trashViaWorkspace = { _ in [:] }
+        let asked = Recorder()
+        manager.trashViaWorkspace = { urls in asked.urls = urls.map(\.path); return [:] }
+        var permanentDeleteOffered = false
+        manager.permanentDeleteConfirmer = { _ in permanentDeleteOffered = true; return true }
 
-        _ = await manager.deleteItems(at: ["/docs/c.pdf"], fileManager: fm)
+        let removed = await manager.deleteItems(at: ["/docs/c.pdf"], fileManager: fm).removed
 
+        #expect(removed == 0)
         #expect(fm.virtualDisk["/docs/c.pdf"] != nil)
         #expect(fm.movedInto.isEmpty, "a busy item was moved in an attempt to re-register it")
-    }
-
-    /// An ordinary trash never moves the item first: re-registration is a last resort, with a side
-    /// effect the other two attempts lack.
-    @MainActor
-    @Test func anOrdinaryTrashIsNeverReregistered() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/d.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-
-        let outcome = await manager.deleteItems(at: ["/docs/d.pdf"], fileManager: fm)
-
-        #expect(outcome.trashed == 1)
-        #expect(fm.movedInto.isEmpty, "a trash that succeeded still moved the item")
+        #expect(asked.urls.isEmpty, "a busy item was routed to the system service")
+        #expect(permanentDeleteOffered == false, "a busy item reached the permanent-delete prompt")
+        #expect(manager.currentError != nil, "a busy item must surface as a retryable error")
     }
 
     /// If the park succeeds and the move back fails, the item is intact under a dotted name in the
-    /// same folder, so the user must be told that path, not "the file is untouched". Needs
-    /// `failMoveToPathsOnce`: `shouldFailMove` clears on its first throw, so it fails the park.
+    /// same folder, so the user must be told that path, not "the file is untouched", and the log
+    /// gets a line naming both paths. Needs `failMoveToPathsOnce`: `shouldFailMove` clears on its
+    /// first throw, so it fails the park.
     @MainActor
     @Test func aParkedItemThatCannotBeRestoredIsReportedAtItsNewPath() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashRefusedUntilMovedIn = true
-        fm.failMoveToPathsOnce = ["/docs/a.pdf"]        // the park lands; the move back does not
-        manager.trashViaWorkspace = { _ in [:] }
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a parked item reached the permanent-delete prompt")
-            return false
-        }
-
-        let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
-
-        #expect(outcome.removed == 0, "nothing was deleted, so nothing may be counted as removed")
-        let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
-        #expect(parked.count == 1, "the item should be parked exactly once: \(parked)")
-        #expect(fm.virtualDisk["/docs/a.pdf"] == nil, "the fixture no longer models a strand")
-
-        let error = try #require(manager.currentError)
-        #expect(error.title == "Renamed, Not Deleted",
-                "the strand was reported as an ordinary refusal: \(error.title)")
-        #expect(error.path == parked.first,
-                "Reveal in Finder would open a path that no longer holds the item")
-        #expect(!error.message.contains("untouched"),
-                "the message claims the file is untouched, and it is not where it was")
-        #expect(error.message.contains("a.pdf"), "the message must name the original name to restore")
-    }
-
-    /// The strand leaves a file somewhere nobody asked for, so it logs a line naming both paths.
-    @MainActor
-    @Test func aStrandedParkIsLoggedWithBothNames() async throws {
         let fm = MockFileManager()
         let manager = FileSyncManager(fileManager: fm)
         manager.undoManager = UndoManager()
@@ -390,10 +320,28 @@ import Testing
         fm.virtualDisk["/docs/stranded-log.pdf"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.size: 100], contents: nil)
         fm.trashRefusedUntilMovedIn = true
-        fm.failMoveToPathsOnce = ["/docs/stranded-log.pdf"]
+        fm.failMoveToPathsOnce = ["/docs/stranded-log.pdf"]   // the park lands; the move back does not
         manager.trashViaWorkspace = { _ in [:] }
+        manager.permanentDeleteConfirmer = { _ in
+            Issue.record("a parked item reached the permanent-delete prompt")
+            return false
+        }
 
-        _ = await manager.deleteItems(at: ["/docs/stranded-log.pdf"], fileManager: fm)
+        let outcome = await manager.deleteItems(at: ["/docs/stranded-log.pdf"], fileManager: fm)
+
+        #expect(outcome.removed == 0, "nothing was deleted, so nothing may be counted as removed")
+        let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
+        #expect(parked.count == 1, "the item should be parked exactly once: \(parked)")
+        #expect(fm.virtualDisk["/docs/stranded-log.pdf"] == nil, "the fixture no longer models a strand")
+
+        let error = try #require(manager.currentError)
+        #expect(error.title == "Renamed, Not Deleted",
+                "the strand was reported as an ordinary refusal: \(error.title)")
+        #expect(error.path == parked.first,
+                "Reveal in Finder would open a path that no longer holds the item")
+        #expect(!error.message.contains("untouched"),
+                "the message claims the file is untouched, and it is not where it was")
+        #expect(error.message.contains("stranded-log.pdf"), "the message must name the original name to restore")
 
         let line = await loggedLineOnDisk(containing: "/docs/stranded-log.pdf was parked as")
         let logged = try #require(line, "the strand left nothing in the log")
@@ -417,26 +365,6 @@ import Testing
 
         #expect(outcome.trashed == 1, "a folder was not re-registered")
         #expect(fm.virtualDisk["/docs/folder"] == nil)
-    }
-
-    /// When re-registration runs and the Trash still refuses, the log records the third attempt,
-    /// so a reader can tell a retry that failed from one that never ran.
-    @MainActor
-    @Test func aRetryThatStillFailsLeavesItsOwnLineInTheLog() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/b.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
-                                      code: NSFileWriteNoPermissionError, userInfo: nil)
-        manager.trashViaWorkspace = { _ in [:] }
-
-        _ = await manager.deleteItems(at: ["/docs/b.pdf"], fileManager: fm)
-
-        #expect(await loggedLineOnDisk(containing: "STILL refused it") != nil,
-                "the third attempt ran and left no trace of having run")
-        #expect(fm.virtualDisk["/docs/b.pdf"] != nil, "the item must be back at its own path")
     }
 
     // MARK: The move primitives' unrecoverable fallback
@@ -525,7 +453,8 @@ import Testing
     }
 
     /// An ordinary trash never reaches the system service: the in-process path reports per-item
-    /// errors the service can't.
+    /// errors the service can't. Nor does it move the item first: re-registration is a last
+    /// resort, with a side effect the other two attempts lack.
     @MainActor
     @Test func anOrdinaryTrashNeverReachesTheSystemService() async throws {
         let fm = MockFileManager()
@@ -540,54 +469,7 @@ import Testing
 
         #expect(outcome.trashed == 1)
         #expect(asked.urls.isEmpty, "the system service was used for a trash that succeeded")
-    }
-
-    /// Nor does a busy item: the caller's retry serves it better, and the service would trade a
-    /// retryable error for a silent one.
-    @MainActor
-    @Test func aBusyItemIsNotSentToTheSystemService() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
-        let asked = Recorder()
-        manager.trashViaWorkspace = { urls in asked.urls = urls.map(\.path); return [:] }
-
-        _ = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
-
-        #expect(asked.urls.isEmpty, "a busy item was routed to the system service")
-        #expect(fm.virtualDisk["/docs/a.pdf"] != nil)
-    }
-
-    /// When the in-process trash, the system service and the re-registered retry are all refused,
-    /// the refusal stands with its own message, path and log line, and no parked name survives.
-    /// The mock refuses every `trashItem`, not just the first, so all three really are denied.
-    @MainActor
-    @Test func aServiceThatAlsoRefusesLeavesTheOriginalRefusalStanding() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/b.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
-                                      code: NSFileWriteNoPermissionError, userInfo: nil)
-        manager.trashViaWorkspace = { _ in [:] }
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a refusal reached the permanent-delete prompt")
-            return false
-        }
-
-        let outcome = await manager.deleteItems(at: ["/docs/b.pdf"], fileManager: fm)
-
-        #expect(outcome.removed == 0)
-        #expect(fm.virtualDisk["/docs/b.pdf"] != nil,
-                "the item was lost by the re-registration it could not benefit from")
-        let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
-        #expect(parked.isEmpty, "a parked name survived a delete that failed: \(parked)")
-        let error = try #require(manager.currentError)
-        #expect(error.title == "Not Allowed to Move to the Trash")
+        #expect(fm.movedInto.isEmpty, "a trash that succeeded still moved the item")
     }
 
     /// Records the URLs a stubbed `trashViaWorkspace` was asked to trash, so a test can tell
@@ -632,28 +514,8 @@ import Testing
         #expect(!gone, "the control never reached the Trash")
     }
 
-    /// The move path parks regardless, because its alternative destroys the file:
-    /// `retriedSourceCleanupTrash` returning false sends its callers to `removeItem`. A positive
-    /// control, on a fixture whose only way to the Trash is the park.
-    @Test func theMoveSourceCleanupParksEvenSoBecauseItsAlternativeIsPermanent() throws {
-        let fm = MockFileManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashRefusedUntilMovedIn = true
-        let refusal = NSError(domain: NSCocoaErrorDomain,
-                              code: NSFileWriteNoPermissionError, userInfo: nil)
-
-        let handled = FileSyncManager.retriedSourceCleanupTrash(
-            URL(fileURLWithPath: "/docs/a.pdf"), after: refusal, fileManager: fm,
-            context: "Cross-volume move")
-
-        #expect(handled, """
-                the move's source cleanup did not reach the Trash, so its caller falls through to                 removeItem and destroys the original outright
-                """)
-        #expect(fm.virtualDisk["/docs/a.pdf"] == nil, "the source never left its path")
-    }
-
-    /// The pin that can fail where the control above can't. As a `nonisolated static`,
+    /// The pin that can fail where `theSourceCleanupRetryStopsShortOfTheUnrecoverableFallback`
+    /// can't: the move path parks regardless, because its alternative destroys the file. As a `nonisolated static`,
     /// `retriedSourceCleanupTrash` can't reach the instance's `isMidCloudTransfer`, but nothing
     /// stops it calling the static probe directly, which would send an uploading source to
     /// `removeItem`. This path has no seam to inject a probe through, so a source scan checks it.
@@ -679,7 +541,11 @@ import Testing
     // MARK: End to end
 
     /// The whole path, from a denied `trashItem` to what the user reads: `deleteItems` routes a
-    /// denial into the refusal rather than flattening it back to Foundation's sentence.
+    /// denial into the refusal rather than flattening it back to Foundation's sentence. The mock
+    /// refuses every `trashItem`, so the in-process trash, the system service and the
+    /// re-registered retry are all denied: the refusal stands with its own message, path and log
+    /// lines (one for the third attempt, so a retry that failed reads apart from one that never
+    /// ran), and no parked name survives.
     @MainActor
     @Test func aDeniedTrashReachesTheUserAsTheRefusalAndLeavesTheFile() async throws {
         let fm = MockFileManager()
@@ -703,6 +569,8 @@ import Testing
 
         #expect(outcome.removed == 0)
         #expect(fm.virtualDisk["/docs/Lease Agreement.pdf"] != nil, "the file was removed anyway")
+        let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
+        #expect(parked.isEmpty, "a parked name survived a delete that failed: \(parked)")
         #expect(!askedToDestroy,
                 "a permission refusal was escalated to the permanent-delete prompt")
         let error = try #require(manager.currentError)
@@ -712,5 +580,8 @@ import Testing
         #expect(!error.isRetryable)
         #expect(await loggedLineOnDisk(containing: "refused to move /docs/Lease Agreement.pdf") != nil,
                 "the refusal left nothing in the log he audits")
+        #expect(await loggedLineOnDisk(containing:
+                    "/docs/Lease Agreement.pdf was re-registered by a move in place and the Trash STILL refused it") != nil,
+                "the third attempt ran and left no trace of having run")
     }
 }

@@ -11,22 +11,12 @@ import Testing
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "UndoFolderNoise")
-        return manager
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false), historyPrefix: "UndoFolderNoise")
     }
 
     private func folder(_ url: URL, holding name: String, _ text: String) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url.appendingPathComponent(name))
-    }
-
-    private func text(_ url: URL) -> String? {
-        (try? Data(contentsOf: url)).map { String(decoding: $0, as: UTF8.self) }
     }
 
     /// What Finder does to a folder it shows: a new `.DS_Store`, so the folder's child count moves
@@ -35,17 +25,32 @@ import Testing
         try Data("finder".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
     }
 
-    /// Copy or move a folder over `Shared/Photos` with Replace, ⌘Z (the original is back), open it
-    /// in Finder, ⌘⇧Z. The redo replaces it again: it is still the item the undo put back.
+    /// What sits in the original between the ⌘Z and the ⌘⇧Z.
+    enum OriginalNoise: Sendable { case openedInFinder, unreadableFolderInside }
+
+    /// Copy or move a folder over `Shared/Photos` with Replace, ⌘Z (the original is back), ⌘⇧Z. The
+    /// redo replaces it again: it is still the item the undo put back, whether the user opened it
+    /// in Finder after the ⌘Z, or it holds a folder that can't be read. A deep identity alone would
+    /// read that occupant as `.indeterminate`, and the redo would refuse it as "couldn’t be
+    /// checked" for as long as it lived.
     @MainActor
-    @Test(arguments: [false, true])
-    func aRedoStillReplacesAFolderOriginalTheUserOnlyOpened(isMove: Bool) async throws {
-        let base = try makeCanonicalTempRoot(prefix: "u2-\(isMove ? "move" : "copy")")
-        defer { try? FileManager.default.removeItem(at: base) }
+    @Test(arguments: [false, true], [OriginalNoise.openedInFinder, .unreadableFolderInside])
+    func aRedoStillReplacesAFolderOriginalOpenedOrPartlyUnreadable(isMove: Bool, noise: OriginalNoise) async throws {
+        let unreadable = noise == .unreadableFolderInside
+        let base = try makeCanonicalTempRoot(prefix: "\(unreadable ? "l1" : "u2")-\(isMove ? "move" : "copy")")
+        let locked = base.appendingPathComponent("Shared/Photos/private")
+        defer {
+            if unreadable { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+            try? FileManager.default.removeItem(at: base)
+        }
         let source = base.appendingPathComponent("src/Photos")
         let destination = base.appendingPathComponent("Shared/Photos")
         try folder(source, holding: "new.txt", "new")
         try folder(destination, holding: "old.txt", "old")
+        if unreadable {
+            try folder(locked, holding: "secret.txt", "s")
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        }
         let manager = makeManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let disk = ScratchTrash(in: base)
@@ -55,16 +60,16 @@ import Testing
         } else {
             await manager.copyItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
         }
-        try #require(text(destination.appendingPathComponent("new.txt")) == "new")
+        try #require(readText(destination.appendingPathComponent("new.txt")) == "new")
 
         manager.undoManager?.undo()
-        await waitUntil("the undo puts the original back") { self.text(destination.appendingPathComponent("old.txt")) == "old" }
+        await waitUntil("the undo puts the original back") { readText(destination.appendingPathComponent("old.txt")) == "old" }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        try openInFinder(destination)
+        if !unreadable { try openInFinder(destination) }
         manager.banner = nil
 
         manager.undoManager?.redo()
-        await waitUntil("the redo re-applies") { self.text(destination.appendingPathComponent("new.txt")) == "new" }
+        await waitUntil("the redo re-applies") { readText(destination.appendingPathComponent("new.txt")) == "new" }
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(manager.banner == nil, "got \(String(describing: manager.banner?.message))")
     }
@@ -86,7 +91,7 @@ import Testing
         let nodes = [a, b].map { FileNode(id: $0.path, name: "f", isDirectory: true) }
 
         await manager.moveItems(nodes: nodes, toPath: landing.path, fileManager: disk)
-        try #require(text(landing.appendingPathComponent("f/x.txt")) == "from B", "premise: the second move replaced the first")
+        try #require(readText(landing.appendingPathComponent("f/x.txt")) == "from B", "premise: the second move replaced the first")
         let slot = try #require(try FileManager.default.contentsOfDirectory(at: disk.folder, includingPropertiesForKeys: nil).first,
                                 "premise: the replaced item is not in the Trash")
         let inTrash = try #require(try FileManager.default.contentsOfDirectory(at: slot, includingPropertiesForKeys: nil).first)
@@ -95,48 +100,8 @@ import Testing
 
         manager.undoManager?.undo()
         await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
-        #expect(text(a.appendingPathComponent("x.txt")) == "from A", "banner: \(String(describing: manager.banner?.message))")
-        #expect(text(b.appendingPathComponent("x.txt")) == "from B")
-    }
-
-    /// As the first test, with a folder inside the original that can't be read: the redo still
-    /// replaces it. A deep identity alone would read the occupant as `.indeterminate`, and the redo
-    /// would refuse it as "couldn’t be checked" for as long as it lived.
-    @MainActor
-    @Test(arguments: [false, true])
-    func aRedoStillReplacesAnOriginalWithAnUnreadableFolderInside(isMove: Bool) async throws {
-        let base = try makeCanonicalTempRoot(prefix: "l1-\(isMove ? "move" : "copy")")
-        let locked = base.appendingPathComponent("Shared/Photos/private")
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
-            try? FileManager.default.removeItem(at: base)
-        }
-        let source = base.appendingPathComponent("src/Photos")
-        let destination = base.appendingPathComponent("Shared/Photos")
-        try folder(source, holding: "new.txt", "new")
-        try folder(destination, holding: "old.txt", "old")
-        try folder(locked, holding: "secret.txt", "s")
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
-        let manager = makeManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let disk = ScratchTrash(in: base)
-        let node = FileNode(id: source.path, name: "Photos", isDirectory: true)
-        if isMove {
-            await manager.moveItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
-        } else {
-            await manager.copyItems(nodes: [node], toPath: destination.deletingLastPathComponent().path, fileManager: disk)
-        }
-        try #require(text(destination.appendingPathComponent("new.txt")) == "new")
-
-        manager.undoManager?.undo()
-        await waitUntil("the undo puts the original back") { self.text(destination.appendingPathComponent("old.txt")) == "old" }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        manager.banner = nil
-
-        manager.undoManager?.redo()
-        await waitUntil("the redo re-applies") { self.text(destination.appendingPathComponent("new.txt")) == "new" }
-        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
-        #expect(manager.banner == nil, "got \(String(describing: manager.banner?.message))")
+        #expect(readText(a.appendingPathComponent("x.txt")) == "from A", "banner: \(String(describing: manager.banner?.message))")
+        #expect(readText(b.appendingPathComponent("x.txt")) == "from B")
     }
 
     /// The same batch, ⌘Z, ⌘⇧Z (the redo puts A's folder back in the Trash), a look at it there,
@@ -162,17 +127,17 @@ import Testing
         let inTrash = try #require(try FileManager.default.contentsOfDirectory(at: slot, includingPropertiesForKeys: nil).first)
         manager.undoManager?.undo()
         await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
-        try #require(text(a.appendingPathComponent("x.txt")) == "from A", "premise: the first undo")
+        try #require(readText(a.appendingPathComponent("x.txt")) == "from A", "premise: the first undo")
         manager.undoManager?.redo()
-        await waitUntil("the redo puts A's folder back in the Trash") { self.text(inTrash.appendingPathComponent("x.txt")) == "from A" }
+        await waitUntil("the redo puts A's folder back in the Trash") { readText(inTrash.appendingPathComponent("x.txt")) == "from A" }
         await waitUntil("the redo drains") { manager.activeFileOperationsCount == 0 }
         try openInFinder(inTrash)
         manager.banner = nil
 
         manager.undoManager?.undo()
         await waitUntil("the second undo drains") { manager.activeFileOperationsCount == 0 }
-        #expect(text(a.appendingPathComponent("x.txt")) == "from A", "banner: \(String(describing: manager.banner?.message))")
-        #expect(text(b.appendingPathComponent("x.txt")) == "from B")
+        #expect(readText(a.appendingPathComponent("x.txt")) == "from A", "banner: \(String(describing: manager.banner?.message))")
+        #expect(readText(b.appendingPathComponent("x.txt")) == "from B")
     }
 
     /// Move a folder, open it in Finder where it landed, ⌘Z: it goes back. Open it again there,
@@ -192,18 +157,18 @@ import Testing
 
         await manager.moveItems(nodes: [FileNode(id: source.path, name: "Photos", isDirectory: true)],
                                 toPath: landing.path, fileManager: disk)
-        try #require(text(moved.appendingPathComponent("a.txt")) == "a")
+        try #require(readText(moved.appendingPathComponent("a.txt")) == "a")
         try openInFinder(moved)
 
         manager.undoManager?.undo()
         await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
-        #expect(text(source.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
+        #expect(readText(source.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
         try openInFinder(source)
         manager.banner = nil
 
         manager.undoManager?.redo()
         await waitUntil("the redo drains") { manager.activeFileOperationsCount == 0 }
-        #expect(text(moved.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
+        #expect(readText(moved.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
     }
 
     /// Delete a folder, ⌘Z, open it in Finder, ⌘⇧Z: it goes to the Trash again.
@@ -225,7 +190,7 @@ import Testing
 
         manager.undoManager?.undo()
         await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
-        try #require(text(original.appendingPathComponent("a.txt")) == "a")
+        try #require(readText(original.appendingPathComponent("a.txt")) == "a")
         try openInFinder(original)
 
         manager.undoManager?.redo()

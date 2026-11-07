@@ -35,28 +35,25 @@ import Testing
 
     // MARK: - One rule at a time
 
-    /// An inbox is read as an inbox before anything else: it is the one role that changes what the
-    /// app will do with the folder.
-    @Test func anInboxSaysNothingWillBeFiledThere() {
-        let profile = Self.profile(folders: ["Finance/TODO", "Finance/Receipts"])
-        #expect(Self.read("Finance/TODO", of: profile) == "inbox: nothing will be filed here")
-    }
-
-    @Test func anArchiveSaysItIsLeftAlone() {
-        let profile = Self.profile(folders: ["Finance/Archive"])
-        #expect(Self.read("Finance/Archive", of: profile) == "archive: left as it is")
-    }
-
-    @Test func anEmptyFolderSaysSo() {
-        let profile = Self.profile(folders: ["Finance/Receipts"])
-        #expect(Self.read("Finance/Receipts", of: profile) == "empty")
-    }
-
-    /// A year bucket carries its anchors, because "a year" alone does not tell two of them apart.
-    @Test func aYearBucketNamesTheYearAndItsAnchors() {
-        let profile = Self.profile(folders: ["Finance/Income Tax/2024"],
-                                   files: ["Finance/Income Tax/2024/return.pdf"])
-        #expect(Self.read("Finance/Income Tax/2024", of: profile) == "a year · income, tax")
+    /// One folder's reading from a fixture with no registry and no countries:
+    /// - an inbox is read as an inbox before anything else: it is the one role that changes what
+    ///   the app will do with the folder;
+    /// - an archive is left alone, and an empty folder says so;
+    /// - a year bucket carries its anchors, because "a year" alone does not tell two of them apart;
+    /// - a destination is where filing lands, so the reading says that and then what it is about
+    ///   (the anchors are the profile's, parent words and all);
+    /// - a container with nothing to say about its levels still says what it is.
+    @Test(arguments: [
+        (["Finance/TODO", "Finance/Receipts"], [String](), "Finance/TODO", "inbox: nothing will be filed here"),
+        (["Finance/Archive"], [], "Finance/Archive", "archive: left as it is"),
+        (["Finance/Receipts"], [], "Finance/Receipts", "empty"),
+        (["Finance/Income Tax/2024"], ["Finance/Income Tax/2024/return.pdf"], "Finance/Income Tax/2024", "a year · income, tax"),
+        (["Finance/Banking"], ["Finance/Banking/statement.pdf"], "Finance/Banking", "files go here · finance, banking"),
+        (["Home/Utilities"], ["Home/Utilities/bill.pdf"], "Home", "holds folders only"),
+    ])
+    func aFolderReadsAsItsRole(folders: [String], files: [String], path: String, expected: String) {
+        let profile = Self.profile(folders: folders, files: files)
+        #expect(Self.read(path, of: profile) == expected)
     }
 
     /// Only the folder whose own name is the country reads as one; its children inherit the axis
@@ -77,14 +74,6 @@ import Testing
         #expect(Self.read("Family/Mother", of: profile) == "a person")
     }
 
-    /// A destination is where filing lands, so the reading says that and then what it is about.
-    @Test func aDestinationSaysFilesGoThere() {
-        let profile = Self.profile(folders: ["Finance/Banking"],
-                                   files: ["Finance/Banking/statement.pdf"])
-        #expect(Self.read("Finance/Banking", of: profile) == "files go here · finance, banking",
-                "the anchors are the profile's, parent words and all")
-    }
-
     /// A folder whose children are all people is described by naming them, the one case where the
     /// members are more use than the shape.
     @Test func aFolderOfPeopleNamesThem() {
@@ -96,13 +85,6 @@ import Testing
                                    files: ["Family/Mother/a.pdf", "Family/Father/b.pdf"],
                                    registry: registry)
         #expect(Self.read("Family", of: profile) == "a folder per person: Father, Mother")
-    }
-
-    /// A container with nothing to say about its levels still says what it is.
-    @Test func aContainerWithNoDiscernibleShapeSaysItHoldsFolders() {
-        let profile = Self.profile(folders: ["Home/Utilities"],
-                                   files: ["Home/Utilities/bill.pdf"])
-        #expect(Self.read("Home", of: profile) == "holds folders only")
     }
 
     // MARK: - The shape sentence

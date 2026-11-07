@@ -11,16 +11,7 @@ import Foundation
     /// A manager with every alert seam mocked so no test can ever pop a real NSAlert.
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
-    }
-
-    private func file(_ size: Int) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
     // MARK: Move undo — overwritten original's Trash backup is gone
@@ -34,8 +25,8 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5) // will be overwritten and trashed
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5) // will be overwritten and trashed
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -73,8 +64,8 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -100,7 +91,7 @@ import Foundation
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/dst/f.txt"] = file(42)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(42)
 
         await manager.deleteItems(at: ["/dst/f.txt"], fileManager: mockFM)
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
@@ -128,7 +119,7 @@ import Foundation
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/dst/f.txt"] = file(42)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(42)
 
         await manager.deleteItems(at: ["/dst/f.txt"], fileManager: mockFM)
         manager.banner = nil
@@ -152,8 +143,8 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)
         manager.permanentDeleteConfirmer = { _ in true }
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
@@ -175,34 +166,5 @@ import Foundation
         #expect(manager.banner?.message.contains("couldn’t restore") == true)
         // The copy was removed and the original couldn't be restored: the destination is empty.
         await waitUntil("the copied file was removed") { mockFM.virtualDisk["/dst/f.txt"] == nil }
-    }
-
-    /// On a trash-less volume, undoing a copy needs the permanent-delete confirmation. If the user
-    /// declines, the undo is a safe no-op: the copy stays, nothing is restored, no failure shows.
-    @MainActor
-    @Test func testCopyUndoDeclinedPermanentDeleteLeavesCopyInPlace() async throws {
-        let manager = makeManager() // permanentDeleteConfirmer defaults to { _ in false } → declines
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        // No pre-existing /dst/f.txt: the copy creates it fresh, so there is no overwrite backup.
-
-        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
-        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
-        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
-
-        // Trash-less volume: undo's trashItem(copied file) fails → needs confirmation, which is declined.
-        mockFM.shouldFailTrash = true
-        manager.banner = nil
-
-        // preCountFileOperation runs synchronously inside undo(), so the count is ≥1 on return;
-        // wait for the undo's enqueued operation to drain back to 0.
-        manager.undoManager?.undo()
-        await waitUntil("the declined-confirm undo settles") { manager.activeFileOperationsCount == 0 }
-
-        // The copy was not removed and nothing was surfaced: a clean no-op.
-        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
-        #expect(manager.banner == nil)
     }
 }

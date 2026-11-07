@@ -8,23 +8,18 @@ import Testing
 
     // MARK: The record
 
-    @Test func abbreviatedFoldsTheHomeDirectoryBackToTilde() {
-        let inside = (NSHomeDirectory() as NSString).appendingPathComponent("Projects")
-        #expect(FolderSource.abbreviated(inside) == "~/Projects")
-    }
-
+    /// `abbreviated` folds the home directory back to `~` and leaves paths outside home alone.
     /// NSOpenPanel hands back paths not in their simplest spelling (a trailing slash, sometimes the
     /// `/System/Volumes/Data` firmlink prefix). Unstandardized, one folder stores under two strings
     /// and the duplicate check below never fires.
-    @Test func abbreviatedStandardizesBeforeFolding() {
-        let trailing = (NSHomeDirectory() as NSString).appendingPathComponent("Projects/")
-        #expect(FolderSource.abbreviated(trailing) == "~/Projects")
-        let indirect = (NSHomeDirectory() as NSString).appendingPathComponent("Projects/../Projects")
-        #expect(FolderSource.abbreviated(indirect) == "~/Projects")
-    }
-
-    @Test func abbreviatedLeavesPathsOutsideHomeAlone() {
-        #expect(FolderSource.abbreviated("/Volumes/Backup") == "/Volumes/Backup")
+    @Test(arguments: [
+        ((NSHomeDirectory() as NSString).appendingPathComponent("Projects"), "~/Projects"),
+        ((NSHomeDirectory() as NSString).appendingPathComponent("Projects/"), "~/Projects"),
+        ((NSHomeDirectory() as NSString).appendingPathComponent("Projects/../Projects"), "~/Projects"),
+        ("/Volumes/Backup", "/Volumes/Backup"),
+    ])
+    func abbreviatedFoldsTheHomeDirectoryBackToTilde(path: String, expected: String) {
+        #expect(FolderSource.abbreviated(path) == expected)
     }
 
     /// The default macOS volume is case-insensitive: the two spellings are one folder, and adding
@@ -42,14 +37,11 @@ import Testing
         #expect(FolderSource.sameFolder("~/Doc", "~/Documents") == false)
     }
 
+    /// The home directory's last component is the account's short name, which reads as a person
+    /// rather than a place ("father" in a list of sources next to "Dropbox"), so it is "Home folder".
     @Test func defaultDisplayNameIsTheFoldersOwnName() {
         #expect(FolderSource(id: "folder:x", path: "~/Projects").defaultDisplayName == "Projects")
         #expect(FolderSource(id: "folder:x", path: "/Volumes/Backup").defaultDisplayName == "Backup")
-    }
-
-    /// The home directory's last component is the account's short name, which reads as a person
-    /// rather than a place ("father" in a list of sources next to "Dropbox").
-    @Test func defaultDisplayNameNamesTheHomeFolderAsAPlace() {
         #expect(FolderSource(id: "folder:x", path: "~").defaultDisplayName == "Home folder")
         #expect(FolderSource(id: "folder:x", path: NSHomeDirectory()).defaultDisplayName == "Home folder")
     }

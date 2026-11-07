@@ -49,8 +49,10 @@ import Foundation
         #expect(folder.title == "Couldn’t Create Folder")
         #expect(folder.path == "/parent")
 
+        // Unchanged for everything that is not a permission refusal.
         let del = SyncError.deleteFailed(reason: "busy")
         #expect(del.title == "Delete Failed")
+        #expect(del.message == "Some items couldn’t be deleted.")
         #expect(del.reason == "busy")
     }
 
@@ -67,47 +69,23 @@ import Foundation
 
     // MARK: - Which alert actions apply (pure decision)
 
-    @Test func testActionsWithPathRetryableAndHandler() {
-        let error = SyncError.syncFailed(item: "a", path: "/x/a", reason: "boom")
-        #expect(error.alertActions(hasRetryHandler: true) == [.retry, .revealInFinder, .dismiss])
-    }
-
-    @Test func testRetryHiddenWhenNoHandlerEvenIfRetryable() {
-        let error = SyncError.syncFailed(item: "a", path: "/x/a", reason: "boom")
-        #expect(error.alertActions(hasRetryHandler: false) == [.revealInFinder, .dismiss])
-    }
-
-    @Test func testRetryHiddenWhenNotRetryableEvenWithHandler() {
-        let error = SyncError.copyFailed(items: "the selected items", path: "/x/a", reason: "boom") // isRetryable == false
-        #expect(error.alertActions(hasRetryHandler: true) == [.revealInFinder, .dismiss])
-    }
-
-    @Test func testRetryableWithHandlerButNoPathOffersRetryAndDismissOnly() {
+    /// Every row's exact list ends in Dismiss, so Dismiss is always present.
+    @Test(arguments: [
+        (SyncError.syncFailed(item: "a", path: "/x/a", reason: "boom"), true, [SyncErrorAction.retry, .revealInFinder, .dismiss]),
+        // Retry is hidden with no handler, even when retryable.
+        (SyncError.syncFailed(item: "a", path: "/x/a", reason: "boom"), false, [.revealInFinder, .dismiss]),
+        // Retry is hidden when not retryable (copyFailed), even with a handler.
+        (SyncError.copyFailed(items: "the selected items", path: "/x/a", reason: "boom"), true, [.revealInFinder, .dismiss]),
+        (SyncError.copyFailed(items: "a", path: "/x/a", reason: "boom"), false, [.revealInFinder, .dismiss]),
         // No path hides Reveal but must not hide Retry, e.g. a bulk failure that kept no single
         // representative path.
-        let error = SyncError(title: "Sync Failed", message: "boom", isRetryable: true)
-        #expect(error.alertActions(hasRetryHandler: true) == [.retry, .dismiss])
-    }
-
-    @Test func testRevealHiddenWithoutPath() {
+        (SyncError(title: "Sync Failed", message: "boom", isRetryable: true), true, [.retry, .dismiss]),
+        (SyncError(title: "Sync Failed", message: "boom", isRetryable: true), false, [.dismiss]),
         // No path, not retryable: only Dismiss.
-        #expect(Self.bareError.alertActions(hasRetryHandler: true) == [.dismiss])
-    }
-
-    @Test func testRetryableWithoutHandlerAndWithoutPathIsDismissOnly() {
-        let error = SyncError(title: "Sync Failed", message: "boom", isRetryable: true)
-        #expect(error.alertActions(hasRetryHandler: false) == [.dismiss])
-    }
-
-    @Test func testNonRetryableWithPathAndNoHandlerOffersRevealAndDismiss() {
-        let error = SyncError.copyFailed(items: "a", path: "/x/a", reason: "boom")
-        #expect(error.alertActions(hasRetryHandler: false) == [.revealInFinder, .dismiss])
-    }
-
-    @Test func testDismissAlwaysPresent() {
-        for hasHandler in [true, false] {
-            #expect(Self.bareError.alertActions(hasRetryHandler: hasHandler).contains(.dismiss))
-            #expect(SyncError.syncFailed(item: "a", path: "/x/a", reason: "b").alertActions(hasRetryHandler: hasHandler).contains(.dismiss))
-        }
+        (Self.bareError, true, [.dismiss]),
+        (Self.bareError, false, [.dismiss]),
+    ])
+    func testAlertActions(error: SyncError, hasRetryHandler: Bool, expected: [SyncErrorAction]) {
+        #expect(error.alertActions(hasRetryHandler: hasRetryHandler) == expected)
     }
 }

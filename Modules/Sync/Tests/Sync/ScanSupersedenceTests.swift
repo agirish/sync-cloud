@@ -19,8 +19,10 @@ import Testing
     /// Refresh A is mid-walk when refresh B arrives: B cancels A's task and queues, since A still
     /// holds `isScanning`. A's walk drains B's request, and that drain must not inherit A's
     /// cancellation, or B's differences are dropped and the list keeps the previous folder's rows.
+    /// Uncancelled (`cancelA: false`), the latest queued request is the one that publishes.
     @MainActor
-    @Test(.parksAThread) func testScanQueuedFromCancelledPredecessorStillPublishes() async throws {
+    @Test(.parksAThread, arguments: [true, false])
+    func testScanQueuedFromCancelledPredecessorStillPublishes(cancelA: Bool) async throws {
         let mockFM = MockFileManager()
         // A's walk parks here until released, so A holds the scanning slot while B arrives. A
         // gate, not an enumerator delay: a delay only makes that window likely, and a loaded run
@@ -41,11 +43,11 @@ import Testing
             await manager.scanDirectories(left: Self.left, leftPath: "/oldL", right: Self.right, rightPath: "/oldR")
         }
         await awaitSignal(gate.entered, "scan A never reached its walk — nothing held the slot")
-        #expect(manager.isScanning)
+        #expect(manager.isScanning, "scan A is parked in its walk but does not hold the scan slot")
 
         // Refresh B: cancel A (as refreshTreesAndScan does), then request the new folders while
         // A's walk still holds the scanning slot — the request queues.
-        scanA.cancel()
+        if cancelA { scanA.cancel() }
         await manager.scanDirectories(left: Self.left, leftPath: "/newL", right: Self.right, rightPath: "/newR")
         #expect(manager.pendingScanRequest != nil)
 
@@ -84,12 +86,10 @@ import Testing
     /// the second until the test lets go, so the test cancels while the walk is certainly mid-walk
     /// and then counts how far it read on. Entries, not seconds, because the cancellation check runs
     /// once per entry (`docs/flaky-tests.md`, "Tests racing a real-time window").
-    private final class GatedWalkFileManager: FileManaging, @unchecked Sendable {
-        private let inner: MockFileManager
+    private final class GatedWalkFileManager: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         fileprivate let gate = ParkGate()
         private let lock = NSLock()
         private var count = 0
-        init(inner: MockFileManager) { self.inner = inner }
 
         /// How many entries the walks have been handed.
         var served: Int { lock.lock(); defer { lock.unlock() }; return count }
@@ -97,25 +97,6 @@ import Testing
         fileprivate func serve() {
             lock.lock(); count += 1; let n = count; lock.unlock()
             if n == 2 { gate.park() }
-        }
-
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
         }
 
         private final class GatedEnumerator: FileManager.DirectoryEnumerator {
@@ -132,7 +113,7 @@ import Testing
             }
         }
 
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        override func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
             GatedEnumerator(wrapping: inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h), disk: self)
         }
     }
@@ -175,35 +156,25 @@ import Testing
     /// scan. Driven against the task handle, not a slow filesystem: the rest of the chain is held by
     /// `testCancellingScanAbortsTheDiskWalkPromptly`, and a sleeping enumerator would starve the
     /// main actor this test has to poll from.
-    @MainActor
-    @Test func testCancelScanCancelsTheInFlightRefreshTask() async throws {
-        let manager = FileSyncManager(fileManager: MockFileManager())
-        let refresh = Task<Void, Never> { try? await Task.sleep(nanoseconds: 30_000_000_000) }
-        manager.activeRefreshTask = refresh
-        manager.activeRefreshKey = manager.makeRefreshKey(left: Self.left, right: Self.right)
-
-        manager.cancelScan()
-
-        #expect(refresh.isCancelled)
-        await refresh.value   // returns promptly precisely because the sleep was cancelled
-    }
-
-    /// The negative control for the test above: `activeRefreshTask` is only ever overwritten, never
+    ///
+    /// The negative control (`inFlight: false`): `activeRefreshTask` is only ever overwritten, never
     /// nilled, so a finished refresh leaves a stale handle. Liveness is the key (or a running scan),
     /// not the handle, or `cancelScan` would act long after the last scan ended.
     @MainActor
-    @Test func testCancelScanLeavesAFinishedRefreshAlone() async throws {
+    @Test(arguments: [true, false])
+    func testCancelScanCancelsOnlyAnInFlightRefreshTask(inFlight: Bool) async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         let refresh = Task<Void, Never> { try? await Task.sleep(nanoseconds: 30_000_000_000) }
-        manager.activeRefreshTask = refresh          // the stale handle a finished refresh leaves
-        manager.activeRefreshKey = nil               // ...and the released key that says it is done
+        manager.activeRefreshTask = refresh          // a finished refresh leaves this stale handle
+        // The live key of a refresh in flight, or the released key that says it is done.
+        manager.activeRefreshKey = inFlight ? manager.makeRefreshKey(left: Self.left, right: Self.right) : nil
         #expect(!manager.isScanning, "nothing may be running, or the guard passes for another reason")
 
         manager.cancelScan()
 
-        #expect(!refresh.isCancelled)
+        #expect(refresh.isCancelled == inFlight)
         refresh.cancel()
-        await refresh.value
+        await refresh.value   // returns promptly because the sleep was cancelled
     }
 
     /// A drained scan (queued behind a superseded one, run afterwards) is the one path into
@@ -227,30 +198,19 @@ import Testing
     /// Cancel must also drop a queued scan that hasn't started, or the drain at the end of
     /// `executeScan` starts it the instant the cancelled one unwinds and Cancel looks dead. Writes
     /// `pendingScanRequest` directly, as a superseding refresh leaves it, to avoid a timing fixture.
+    /// With no refresh in flight (`inFlight: false`), the same guard leaves a queued request alone.
     @MainActor
-    @Test func testCancelScanDropsAQueuedScan() async throws {
+    @Test(arguments: [true, false])
+    func testCancelScanDropsAQueuedScanOnlyWithARefreshInFlight(inFlight: Bool) async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         // Stand in for the in-flight refresh `cancelScan` guards on; without a live key it
-        // correctly declines to act, which would make the assertion below vacuous.
-        manager.activeRefreshKey = manager.makeRefreshKey(left: Self.left, right: Self.right)
+        // correctly declines to act.
+        if inFlight { manager.activeRefreshKey = manager.makeRefreshKey(left: Self.left, right: Self.right) }
         manager.pendingScanRequest = FileSyncManager.ScanRequest(
             left: Self.left, leftPath: "/left", right: Self.right, rightPath: "/right", generation: 7)
 
         manager.cancelScan()
 
-        #expect(manager.pendingScanRequest == nil)
-    }
-
-    /// ...and the same guard seen from the queue's side: with no refresh in flight, a queued
-    /// request is left alone.
-    @MainActor
-    @Test func testCancelScanIsANoOpWithNoRefreshInFlight() async throws {
-        let manager = FileSyncManager(fileManager: MockFileManager())
-        manager.pendingScanRequest = FileSyncManager.ScanRequest(
-            left: Self.left, leftPath: "/left", right: Self.right, rightPath: "/right", generation: 7)
-
-        manager.cancelScan()
-
-        #expect(manager.pendingScanRequest != nil)
+        #expect((manager.pendingScanRequest == nil) == inFlight)
     }
 }

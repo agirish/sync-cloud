@@ -63,16 +63,30 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
     }
 
-    /// The other direction: a bulk run refuses while a single row is in flight. Kept beside its
-    /// twin so an edit to one has to face both.
+    /// The other direction: a bulk run refuses while a single row is in flight (possibly parked at
+    /// its prompt), both confirmed (Copy Remaining, the review) and unconfirmed, before it asks.
+    /// Kept beside its twin so an edit to one has to face both.
     @MainActor
     @Test func bulkRunStillRefusedWhileASingleRowIsInFlight() async throws {
         let (manager, mockFM, diff) = try makeFixture()
+        manager.rawDifferences = [diff]
         manager.differences = [diff]
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
 
         manager.markSyncing(ids: [diff.id])
         await manager.syncAll(direction: .copyToRight, confirmed: true)
 
+        #expect(manager.banner?.message == "Wait for the current operation to finish before syncing")
+        #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
+
+        manager.banner = nil
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(prompts == 0)
         #expect(manager.banner?.message == "Wait for the current operation to finish before syncing")
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
     }

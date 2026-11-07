@@ -121,21 +121,26 @@ import Combine
 
     @MainActor
     @Test func testSyncAllCopyToRightOnlySyncsDirectionAndUndoesAll() async throws {
+        let store = makeTempHistoryStore(prefix: "FileSyncManagerStateTest")
+        defer { removeHistoryStoreFiles(store) }
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
+        manager.syncHistoryStore = store
         manager.undoManager = UndoManager()
 
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
         let names = ["a.txt", "b.txt", "c.txt"]
+        let sizes = ["a.txt": 10, "b.txt": 20, "c.txt": 30]
         for n in names {
-            mockFM.virtualDisk["/src/\(n)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            mockFM.virtualDisk["/src/\(n)"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: sizes[n]!], contents: nil)
         }
         // Three copyToRight diffs (collision-free destinations) plus one copyToLeft that must be ignored.
         var diffs = names.map { n in
             FileDifference(relativePath: n, leftItemPath: "/src/\(n)", rightItemPath: "/dst/\(n)",
-                           type: .missingOnRight, action: .copyToRight, description: "Missing on right")
+                           type: .missingOnRight, action: .copyToRight, description: "Missing on right",
+                           leftFileSize: sizes[n])
         }
         diffs.append(FileDifference(relativePath: "z.txt", leftItemPath: "/src/z.txt", rightItemPath: "/dst/z.txt",
                                     type: .missingOnLeft, action: .copyToLeft, description: "Missing on left"))
@@ -148,6 +153,14 @@ import Combine
         // The synced diffs are removed; the opposite-direction one is untouched.
         #expect(manager.differences.map(\.relativePath) == ["z.txt"])
         #expect(manager.undoManager?.canUndo == true)
+
+        // Every item is recorded in Sync History under one run id, with the size carried from the
+        // differences.
+        #expect(store.records.count == 3)
+        #expect(Set(store.records.map(\.runId)).count == 1)
+        #expect(store.records.allSatisfy { $0.action == .copy && $0.direction == "→ Right" })
+        #expect(Set(store.records.compactMap(\.sizeBytes)) == [10, 20, 30])
+        #expect(store.recordsForRun(try #require(store.lastRunId)).count == 3)
 
         // Undoing the bulk op must remove every copied destination (source stays; it was a copy).
         func remainingDst() -> Int { names.filter { mockFM.virtualDisk["/dst/\($0)"] != nil }.count }

@@ -93,8 +93,13 @@ import Testing
     /// record; the truncation shows only as `isUnexplored` marks, which an ordinary locked folder
     /// also wears. `prefetchedTreeWalkStopped` is what tells them apart. Premise-guarded on the
     /// branch: the warm branch lists no directories, so any listing means the cold one ran.
+    ///
+    /// The same warm pair without the walk-stopped bit is complete: the unexplored directory is
+    /// then an ordinary locked folder, whose rows `compare` already suppresses. The bit, not the
+    /// mark, changes the verdict.
     @MainActor
-    @Test func aWarmScanOverATruncatedCachedTreeBannersItsSide() async throws {
+    @Test(arguments: [(true, PartialComparison(left: true, right: false)), (false, PartialComparison.complete)])
+    func aWarmScanOverATruncatedCachedTreeBannersItsSide(walkStopped: Bool, coverage: PartialComparison) async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/l"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/r"), withIntermediateDirectories: true)
@@ -109,7 +114,11 @@ import Testing
         manager.prefetchedTrees["/r"] = [
             FileNode(id: "/r/other.txt", name: "other.txt", isDirectory: false),
         ]
-        manager.prefetchedTreeWalkStopped.insert("/l")
+        if walkStopped {
+            manager.prefetchedTreeWalkStopped.insert("/l")
+        } else {
+            try #require(manager.prefetchedTreeWalkStopped.isEmpty, "the fixture armed the bit it exists to leave down")
+        }
 
         let listings = LockedBox(0)
         mockFM.onEnumerate = { _ in listings.withLock { $0 += 1 } }
@@ -119,35 +128,9 @@ import Testing
 
         try #require(listings.withLock { $0 } == 0,
                      "the scan enumerated a directory — it took the cold branch, and this test is asserting nothing about the warm one")
-        #expect(manager.lastScanCoverage == PartialComparison(left: true, right: false),
-                "a warm scan of a truncated left tree published \(manager.lastScanCoverage) — the banner stays down over a comparison that is quietly a floor")
-    }
-
-    /// The same warm pair without the walk-stopped bit is complete: the unexplored directory is
-    /// then an ordinary locked folder, whose rows `compare` already suppresses. The bit, not the
-    /// mark, changes the verdict.
-    @MainActor
-    @Test func aWarmScanWithoutTheStoppedBitStaysComplete() async throws {
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/l"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/r"), withIntermediateDirectories: true)
-        let manager = FileSyncManager(fileManager: mockFM)
-        manager.prefetchedTrees["/l"] = [
-            FileNode(id: "/l/deep", name: "deep", isDirectory: true, children: [], isUnexplored: true),
-        ]
-        manager.prefetchedTrees["/r"] = [
-            FileNode(id: "/r/other.txt", name: "other.txt", isDirectory: false),
-        ]
-        try #require(manager.prefetchedTreeWalkStopped.isEmpty, "the fixture armed the bit it exists to leave down")
-
-        let listings = LockedBox(0)
-        mockFM.onEnumerate = { _ in listings.withLock { $0 += 1 } }
-        await manager.scanDirectories(left: leftProvider, leftPath: "/l",
-                                      right: rightProvider, rightPath: "/r")
-
-        try #require(listings.withLock { $0 } == 0, "the scan took the cold branch")
-        #expect(manager.lastScanCoverage == .complete,
-                "an ordinary locked folder bannered a warm scan — the warning people learn to stop reading")
+        #expect(manager.lastScanCoverage == coverage, walkStopped
+                ? "a warm scan of a truncated left tree published \(manager.lastScanCoverage) — the banner stays down over a comparison that is quietly a floor"
+                : "an ordinary locked folder bannered a warm scan — the warning people learn to stop reading")
     }
 
     /// One call drops the trees and their provenance. Every invalidation goes through

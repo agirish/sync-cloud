@@ -36,11 +36,22 @@ import Foundation
         return (manager, mockFM, diff)
     }
 
+    /// What a rescan does to `diff`: the same pending copy under a brand-new UUID, in both live lists.
+    @MainActor
+    private func reIdd(_ diff: FileDifference, in manager: FileSyncManager) {
+        let reIdd = FileDifference(relativePath: diff.relativePath, leftItemPath: diff.leftItemPath,
+                                   rightItemPath: diff.rightItemPath, type: diff.type,
+                                   action: diff.action, description: diff.description)
+        manager.rawDifferences = [reIdd]
+        manager.differences = [reIdd]
+    }
+
     @MainActor
     @Test func plainCopyReturnsTrue() async throws {
         let (manager, mockFM, diff) = try makeFixture()
         let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
         #expect(succeeded)
+        #expect(mockFM.virtualDisk["/src/test.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
         #expect(manager.differences.isEmpty)
     }
@@ -52,17 +63,6 @@ import Foundation
         #expect(succeeded)
         // The replace went through the trash-backup path.
         #expect(mockFM.trashedPaths.count == 1)
-    }
-
-    @MainActor
-    @Test func keepBothReturnsTrue() async throws {
-        let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
-        manager.collisionResolver = { _ in .keepBoth }
-        let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
-        #expect(succeeded)
-        // Original untouched; the copy landed at a unique sibling.
-        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
-        #expect(mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/test") && $0 != "/dst/test.txt" })
     }
 
     @MainActor
@@ -84,16 +84,7 @@ import Foundation
     @Test func staleIdSuccessStillRemovesTheMatchingLiveRow() async throws {
         let (manager, mockFM, diff) = try makeFixture()
         // Simulate the rescan: same pending copy, brand-new UUID, in both live lists.
-        let reIdd = FileDifference(
-            relativePath: diff.relativePath,
-            leftItemPath: diff.leftItemPath,
-            rightItemPath: diff.rightItemPath,
-            type: diff.type,
-            action: diff.action,
-            description: diff.description
-        )
-        manager.rawDifferences = [reIdd]
-        manager.differences = [reIdd]
+        reIdd(diff, in: manager)
 
         let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
         #expect(succeeded)
@@ -109,16 +100,7 @@ import Foundation
     @MainActor
     @Test func syncAllWithStaleSubsetStillClearsTheMatchingLiveRows() async throws {
         let (manager, mockFM, diff) = try makeFixture()
-        let reIdd = FileDifference(
-            relativePath: diff.relativePath,
-            leftItemPath: diff.leftItemPath,
-            rightItemPath: diff.rightItemPath,
-            type: diff.type,
-            action: diff.action,
-            description: diff.description
-        )
-        manager.rawDifferences = [reIdd]
-        manager.differences = [reIdd]
+        reIdd(diff, in: manager)
 
         await manager.syncAll(direction: .copyToRight, isMove: false, subset: [diff])
         #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
@@ -134,20 +116,13 @@ import Foundation
     @Test func keepBothWithStaleIdReturnsTrueAndRemovesTheRow() async throws {
         let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
         manager.collisionResolver = { _ in .keepBoth }
-        let reIdd = FileDifference(
-            relativePath: diff.relativePath,
-            leftItemPath: diff.leftItemPath,
-            rightItemPath: diff.rightItemPath,
-            type: diff.type,
-            action: diff.action,
-            description: diff.description
-        )
-        manager.rawDifferences = [reIdd]
-        manager.differences = [reIdd]
+        reIdd(diff, in: manager)
 
         let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
         #expect(succeeded)
         #expect(manager.differences.isEmpty)
+        // Original untouched; the copy landed at a unique sibling.
+        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
         #expect(mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/test") && $0 != "/dst/test.txt" })
     }
 

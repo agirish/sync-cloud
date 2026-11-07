@@ -26,8 +26,7 @@ import Events
     /// Only the `safeCopyItem` staging call is intercepted (`MockFileManager.moveItem` calls its
     /// own `copyItem` below this wrapper), so one arrival is one item. An arrival beyond `width`
     /// never waits, so a regression that keeps taking items fails the assertions, not by deadlock.
-    private final class BarrierCancelGate: FileManaging, @unchecked Sendable {
-        let inner: MockFileManager
+    private final class BarrierCancelGate: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         private let width: Int
         private let lock = NSLock()
         private var arrived = 0
@@ -46,7 +45,7 @@ import Events
 
         private func recordTimeout() { lock.lock(); timedOut = true; lock.unlock() }
 
-        init(inner: MockFileManager, width: Int) { self.inner = inner; self.width = width }
+        init(inner: MockFileManager, width: Int) { self.width = width; super.init(inner: inner) }
 
         /// Hands the gate the run's Progress once the run publishes one. The gate waits for it, so
         /// installing it late can't make the cancel land early.
@@ -61,7 +60,7 @@ import Events
             return nil
         }
 
-        func copyItem(at s: URL, to d: URL) throws {
+        override func copyItem(at s: URL, to d: URL) throws {
             lock.lock(); arrived += 1; let n = arrived; lock.unlock()
             if n < width {
                 if barrier.wait(timeout: .now() + 30) == .timedOut { recordTimeout() }
@@ -70,26 +69,6 @@ import Events
                 for _ in 0..<(width - 1) { barrier.signal() }
             }
             try inner.copyItem(at: s, to: d)
-        }
-        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
         }
     }
 

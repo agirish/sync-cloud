@@ -164,34 +164,18 @@ import Darwin
 
     /// Delegates to the real disk, but forces the byte path and presses Cancel on the operation's
     /// own Progress once the first bytes of the first item have moved: the button, not the observer.
-    private final class CancelOnFirstBytes: FileManaging, @unchecked Sendable {
-        let fm = FileManager.default
+    private final class CancelOnFirstBytes: ForwardingFileManaging<FileManager>, @unchecked Sendable {
         let cancel: @Sendable () -> Void
-        init(cancel: @escaping @Sendable () -> Void) { self.cancel = cancel }
+        init(cancel: @escaping @Sendable () -> Void) { self.cancel = cancel; super.init(inner: .default) }
 
-        func copyItem(at s: URL, to d: URL, observer: CopyObserver) throws {
+        override func copyItem(at s: URL, to d: URL, observer: CopyObserver) throws {
             let cancel = self.cancel
             let pressed = LockedBox(false)
             let pressing = CopyObserver(shouldContinue: observer.shouldContinue, bytesCopied: { bytes in
                 if pressed.withLock({ let first = !$0; $0 = true; return first }) { cancel() }
                 observer.bytesCopied(bytes)
             })
-            try fm.observedCopyItem(at: s, to: d, observer: pressing, allowClone: false)
-        }
-        func copyItem(at s: URL, to d: URL) throws { try fm.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { try fm.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws { try fm.trashItem(at: u, resultingItemURL: o) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? { try fm.replaceItem(at: d, withItemAt: s, backupItemName: n) }
-        func removeItem(at u: URL) throws { try fm.removeItem(at: u) }
-        func fileExists(atPath p: String) -> Bool { fm.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool { fm.fileExists(atPath: p, isDirectory: d) }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try fm.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try fm.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try fm.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            fm.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
+            try inner.observedCopyItem(at: s, to: d, observer: pressing, allowClone: false)
         }
     }
 
@@ -251,9 +235,8 @@ import Darwin
 /// operation's Progress first (so the abandonment is the button's), or throw `userCancelled` with
 /// no Cancel pressed (a provider's refusal, which must read as a failure). Every other call is the
 /// mock's own. Shared by the transfer and bulk-sync cancellation tests.
-final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
+final class ScriptedObservedCopy: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
     enum Script { case pressCancel, throwForeignCancellation }
-    let inner: MockFileManager
     private let trigger: String
     private let script: Script
     private let progressBox = LockedBox<Progress?>(nil)
@@ -264,12 +247,13 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
     var gaveUpWaitingForProgress: Bool { gaveUpBox.withLock { $0 } }
 
     init(inner: MockFileManager, trigger: String, script: Script) {
-        self.inner = inner; self.trigger = trigger; self.script = script
+        self.trigger = trigger; self.script = script
+        super.init(inner: inner)
     }
 
     func installProgress(_ progress: Progress) { progressBox.withLock { $0 = progress } }
 
-    func copyItem(at s: URL, to d: URL, observer: CopyObserver) throws {
+    override func copyItem(at s: URL, to d: URL, observer: CopyObserver) throws {
         guard s.lastPathComponent == trigger else { return try inner.copyItem(at: s, to: d) }
         switch script {
         case .pressCancel:
@@ -285,21 +269,6 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
         case .throwForeignCancellation:
             throw CocoaError(.userCancelled)
         }
-    }
-    func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-    func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-    func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws { try inner.trashItem(at: u, resultingItemURL: o) }
-    func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? { try inner.replaceItem(at: d, withItemAt: s, backupItemName: n) }
-    func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-    func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-    func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool { inner.fileExists(atPath: p, isDirectory: d) }
-    func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-    func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-    func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-        try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-    }
-    func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-        inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
     }
 }
 

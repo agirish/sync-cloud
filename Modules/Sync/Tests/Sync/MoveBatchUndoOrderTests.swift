@@ -10,27 +10,14 @@ import Testing
 /// Real disk with a `ScratchTrash`: the claim is about where the items end up.
 @Suite struct MoveBatchUndoOrderTests {
 
-    private func write(_ text: String, _ url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(text.utf8).write(to: url)
-    }
-
-    private func read(_ url: URL) -> String? {
-        (try? Data(contentsOf: url)).map { String(decoding: $0, as: UTF8.self) }
-    }
-
-    private func entryExists(_ url: URL) -> Bool {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
-    }
-
     @MainActor
     @Test func aBatchThatMergedIntoAFolderItAlsoMovedUndoesEachItemToItsOwnPlace() async throws {
         let root = try makeCanonicalTempRoot(prefix: "move-batch-undo-order")
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
         let a = root.appendingPathComponent("A/f"), b = root.appendingPathComponent("B/f")
-        try write("a", a.appendingPathComponent("a.txt"))
-        try write("y", b.appendingPathComponent("y.txt"))
+        try writeText("a", a.appendingPathComponent("a.txt"))
+        try writeText("y", b.appendingPathComponent("y.txt"))
         let landing = root.appendingPathComponent("D")
         try FileManager.default.createDirectory(at: landing, withIntermediateDirectories: true)
         let m = FileSyncManager()
@@ -43,23 +30,23 @@ import Testing
         let nodes = [a, b].map { FileNode(id: $0.path, name: "f", isDirectory: true) }
 
         _ = await m.moveItems(nodes: nodes, toPath: landing.path, fileManager: trash)
-        try #require(read(landing.appendingPathComponent("f/a.txt")) == "a")
-        try #require(read(landing.appendingPathComponent("f/y.txt")) == "y", "premise: the second item merged into the first")
+        try #require(readText(landing.appendingPathComponent("f/a.txt")) == "a")
+        try #require(readText(landing.appendingPathComponent("f/y.txt")) == "y", "premise: the second item merged into the first")
 
         m.undoManager?.undo()
         await waitUntil("the undo drains") { m.activeFileOperationsCount == 0 }
 
-        #expect(read(a.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(a.appendingPathComponent("a.txt")) == "a")
         #expect(!entryExists(a.appendingPathComponent("y.txt")), "B's child went home inside A's folder")
-        #expect(read(b.appendingPathComponent("y.txt")) == "y", "B's child is not back in B/f")
+        #expect(readText(b.appendingPathComponent("y.txt")) == "y", "B's child is not back in B/f")
         #expect(!entryExists(landing.appendingPathComponent("f")))
         #expect(m.banner == nil, "banner: \(String(describing: m.banner?.message))")
 
         // And ⌘⇧Z replays the batch as it was applied.
         m.undoManager?.redo()
         await waitUntil("the redo drains") { m.activeFileOperationsCount == 0 }
-        #expect(read(landing.appendingPathComponent("f/a.txt")) == "a")
-        #expect(read(landing.appendingPathComponent("f/y.txt")) == "y")
+        #expect(readText(landing.appendingPathComponent("f/a.txt")) == "a")
+        #expect(readText(landing.appendingPathComponent("f/y.txt")) == "y")
         #expect(!entryExists(a) && !entryExists(b))
         #expect(m.banner == nil, "banner: \(String(describing: m.banner?.message))")
     }

@@ -11,41 +11,21 @@ import Testing
 
     /// Records every `moveItem` and how often the copy's observer was consulted; everything else is
     /// the mock's. Its `moveItem` succeeds, as Foundation's does across volumes.
-    private final class MoveRecordingDisk: FileManaging, @unchecked Sendable {
-        let inner = MockFileManager()
+    private final class MoveRecordingDisk: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         private let lock = NSLock()
         private var moves: [(from: String, to: String)] = []
 
+        init() { super.init(inner: MockFileManager()) }
+
         var movedSources: [String] { lock.lock(); defer { lock.unlock() }; return moves.map(\.from) }
 
-        func moveItem(at s: URL, to d: URL) throws {
+        override func moveItem(at s: URL, to d: URL) throws {
             lock.lock(); moves.append((s.path, d.path)); lock.unlock()
             try inner.moveItem(at: s, to: d)
         }
-        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-        func copyItem(at s: URL, to d: URL, observer: CopyObserver) throws {
+        override func copyItem(at s: URL, to d: URL, observer: CopyObserver) throws {
             guard observer.shouldContinue() else { throw CocoaError(.userCancelled) }
             try inner.copyItem(at: s, to: d)
-        }
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-        }
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions,
-                        errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
         }
     }
 

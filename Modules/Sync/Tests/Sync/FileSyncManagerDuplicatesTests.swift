@@ -7,10 +7,9 @@ import Combine
 /// and the resolve path (mock disk, so we can assert what gets trashed without touching ~/.Trash).
 @Suite struct FileSyncManagerDuplicatesTests {
 
-
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
+    /// Plants a file of `size` bytes at each path.
+    private func plant(_ fm: MockFileManager, _ paths: [String], size: Int) {
+        for p in paths { fm.virtualDisk[p] = .file(size) }
     }
 
     @MainActor
@@ -20,10 +19,10 @@ import Combine
 
         // Two identical report.pdf files under different folders; distinct siblings keep the two
         // folders from themselves being reported as identical.
-        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
-        try write(root.appendingPathComponent("B/b-only.txt"), bytes: 12, fill: 0x62)
+        try writeBytes(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
+        try writeBytes(root.appendingPathComponent("B/b-only.txt"), bytes: 12, fill: 0x62)
 
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root)
@@ -41,8 +40,8 @@ import Combine
     @Test func findDuplicatesFindsNothingWhenTreeIsUnique() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("one.bin"), bytes: 5000, fill: 0x01)
-        try write(root.appendingPathComponent("two.bin"), bytes: 5000, fill: 0x02)  // same size, different bytes
+        try writeBytes(root.appendingPathComponent("one.bin"), bytes: 5000, fill: 0x01)
+        try writeBytes(root.appendingPathComponent("two.bin"), bytes: 5000, fill: 0x02)  // same size, different bytes
 
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root)
@@ -56,9 +55,7 @@ import Combine
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
 
-        let size: [FileAttributeKey: Any] = [.size: 8192]
-        mockFM.virtualDisk["/root/A/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        mockFM.virtualDisk["/root/B/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        plant(mockFM, ["/root/A/report.pdf", "/root/B/report.pdf"], size: 8192)
 
         let keeper = DuplicateCopy(id: "/root/A/report.pdf", name: "report.pdf", isDirectory: false,
                                    size: 8192, itemCount: 1, modificationDate: nil, uniqueItemCount: 0,
@@ -86,8 +83,8 @@ import Combine
         // Two byte-identical files flagged cloud-only: they are size-collision candidates, but
         // hashing skips both — so no group can form, and the scan must SAY so instead of silently
         // reporting "no duplicates".
-        try write(root.appendingPathComponent("A/movie.mp4"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/movie.mp4"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/movie.mp4"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/movie.mp4"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
         // `cache: nil` throughout: this scans the same files with two cloud-only answers, and a
@@ -104,6 +101,11 @@ import Combine
         await manager.findDuplicates(root: root, isCloudOnly: { _ in false }, cache: nil)
         #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
         #expect(manager.duplicateGroups.count == 1)
+        // clearDuplicates resets the results state: groups, root and the has-found flag.
+        manager.clearDuplicates()
+        #expect(manager.duplicateGroups.isEmpty)
+        #expect(manager.duplicateScanRoot == nil)
+        #expect(manager.hasFoundDuplicates == false)
 
         // clearDuplicates resets it alongside the rest of the results state.
         await manager.findDuplicates(root: root, isCloudOnly: { _ in true }, cache: nil)
@@ -118,10 +120,10 @@ import Combine
         defer { try? FileManager.default.removeItem(at: root) }
         // Two identical files "flagged" dataless via the injected seam (a real SF_DATALESS file
         // can't be fabricated), plus a genuinely local identical pair that must still group.
-        try write(root.appendingPathComponent("A/cloud.mov"), bytes: 6000, fill: 0x43)
-        try write(root.appendingPathComponent("B/cloud.mov"), bytes: 6000, fill: 0x43)
-        try write(root.appendingPathComponent("A/local.pdf"), bytes: 5000, fill: 0x4C)
-        try write(root.appendingPathComponent("B/local.pdf"), bytes: 5000, fill: 0x4C)
+        try writeBytes(root.appendingPathComponent("A/cloud.mov"), bytes: 6000, fill: 0x43)
+        try writeBytes(root.appendingPathComponent("B/cloud.mov"), bytes: 6000, fill: 0x43)
+        try writeBytes(root.appendingPathComponent("A/local.pdf"), bytes: 5000, fill: 0x4C)
+        try writeBytes(root.appendingPathComponent("B/local.pdf"), bytes: 5000, fill: 0x4C)
 
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root, isCloudOnly: { $0.hasSuffix("cloud.mov") })
@@ -146,6 +148,20 @@ import Combine
                        copies: [copy(keeper, keeper: true)] + redundant.map { copy($0, keeper: false) },
                        reclaimableBytes: reclaim)
     }
+    /// An overlapping folder group of keeper `k` and redundant `r`, each named for its last path
+    /// component, as the merge tests build them.
+    private func overlap(_ k: String, _ r: String, sizes: (Int, Int) = (5000, 5000), items: (Int, Int) = (1, 1),
+                         rUnique: Int = 1, depths: (Int, Int) = (1, 1), shared: Double = 0.5,
+                         reclaim: Int = 2500) -> DuplicateGroup {
+        let kName = (k as NSString).lastPathComponent
+        let keeper = DuplicateCopy(id: k, name: kName, isDirectory: true, size: sizes.0, itemCount: items.0,
+                                   modificationDate: nil, uniqueItemCount: 0, depth: depths.0, isRecommendedKeeper: true)
+        let redundant = DuplicateCopy(id: r, name: (r as NSString).lastPathComponent, isDirectory: true, size: sizes.1,
+                                      itemCount: items.1, modificationDate: nil, uniqueItemCount: rUnique,
+                                      depth: depths.1, isRecommendedKeeper: false)
+        return DuplicateGroup(matchType: .overlapping(sharedFraction: shared), name: kName,
+                              isDirectory: true, copies: [keeper, redundant], reclaimableBytes: reclaim)
+    }
 
     @MainActor
     @Test func summaryCountsOnlyBatchEligibleGroups() {
@@ -167,11 +183,8 @@ import Combine
     @Test func applyRecommendedTrashesIdenticalButNotVersionsOrOverlapping() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        let size: [FileAttributeKey: Any] = [.size: 1000]
         // Keepers must exist on disk too — resolve re-verifies them before trashing copies.
-        for p in ["/b/x", "/a/r.doc", "/b/Inv", "/a/x", "/a/r (1).doc", "/a/Inv"] {
-            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        }
+        plant(mockFM, ["/b/x", "/a/r.doc", "/b/Inv", "/a/x", "/a/r (1).doc", "/a/Inv"], size: 1000)
         manager.duplicateGroups = [
             grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000),
             grp(.versions, keeper: "/a/r (1).doc", redundant: ["/a/r.doc"], reclaim: 500),
@@ -193,8 +206,7 @@ import Combine
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true                                // no Trash on this volume
         let manager = FileSyncManager(fileManager: mockFM)           // permanentDeleteConfirmer defaults to false
-        mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
-        mockFM.virtualDisk["/a/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
+        plant(mockFM, ["/b/x", "/a/x"], size: 1000)
         let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)
         manager.duplicateGroups = [group]
 
@@ -234,11 +246,8 @@ import Combine
     @Test func applyRecommendedSkipsGroupsWhoseKeeperVanished() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        let size: [FileAttributeKey: Any] = [.size: 1000]
         // Group 1 intact (keeper + copy); group 2's keeper is gone from disk.
-        for p in ["/a/x", "/b/x", "/b/y"] {
-            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        }
+        plant(mockFM, ["/a/x", "/b/x", "/b/y"], size: 1000)
         manager.duplicateGroups = [
             grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000),
             grp(.identical, keeper: "/a/y", redundant: ["/b/y"], reclaim: 1000),
@@ -283,12 +292,9 @@ import Combine
     @Test func applyRecommendedSkipsGroupsWhoseRedundantCopyWasRewritten() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        let size: [FileAttributeKey: Any] = [.size: 1000]
-        for p in ["/a/x", "/b/x", "/a/y"] {
-            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        }
+        plant(mockFM, ["/a/x", "/b/x", "/a/y"], size: 1000)
         // Group 2's redundant copy was rewritten after the scan.
-        mockFM.virtualDisk["/b/y"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 77], contents: nil)
+        plant(mockFM, ["/b/y"], size: 77)
         manager.duplicateGroups = [
             grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000),
             grp(.identical, keeper: "/a/y", redundant: ["/b/y"], reclaim: 1000),
@@ -303,19 +309,45 @@ import Combine
         #expect(manager.banner?.severity == .warning, "a partial outcome must not read as full success")
     }
 
-    /// A folder's stat size is not its recursive content size, so the drift check compares
-    /// content and never the two sizes; one wrong line would refuse every folder group.
+    /// A folder group against the scan's recorded four files each, as the disk stands at resolve:
+    /// - a folder's stat size is not its recursive content size, so the drift check compares
+    ///   content and never the two sizes; one wrong line would refuse every folder group;
+    /// - a keeper that lost files since the scan refuses the group: trashing the backup would
+    ///   destroy the last intact copy of what left the keeper. A directory still existing at the
+    ///   path proves nothing about its contents;
+    /// - and the other end: the REDUNDANT copy gaining content nothing else has. Trashing it then
+    ///   destroys the only instance of that content, under a banner calling it redundant;
+    /// - a same-count swap under a new name is caught: the entry count is intact, but the
+    ///   per-entry baseline sees both the missing path and the extra one. Byte drift under an
+    ///   unchanged name is pinned by the real-tree rewrite test below, since the mock walk reads
+    ///   no sizes;
+    /// - a folder that cannot be listed completely counts as drifted, which refuses: a partial
+    ///   listing cannot prove a folder is still what it was.
     ///
     /// The mock fixtures here hand-build both the group and its recorded snapshot in the mock
     /// walk's convention (it reads no sizes or dates, so entries carry size 0 / nil mtime). They
     /// pin the count/kind semantics; the real-tree section below holds the scan's and the
     /// re-walk's conventions to each other.
     @MainActor
-    @Test func aFolderCopyIsNotRefusedForItsStatSize() async throws {
+    @Test(arguments: [
+        (4, 4, false, false, true, false),    // untouched: resolves
+        (3, 4, false, false, false, true),    // the keeper lost a file
+        (4, 5, false, false, false, false),   // the redundant copy gained one
+        (4, 4, true, false, false, false),    // the copy's p0 swapped for a newcomer
+        (4, 4, false, true, false, false),    // the keeper can't be listed
+    ])
+    func aFolderGroupResolvesOnlyWhileItsContentsMatchTheScan(keeperFiles: Int, redundantFiles: Int, swap: Bool,
+                                                               unlistable: Bool, resolves: Bool, warns: Bool) async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
-        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: keeperFiles, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: redundantFiles, bytesEach: 100_000)
+        if swap {
+            // Same count, different membership: p0 replaced by a newcomer after the scan.
+            mockFM.virtualDisk.removeValue(forKey: "/b/Photos/p0.jpg")
+            mockFM.virtualDisk["/b/Photos/new.jpg"] = .file(100_000)
+        }
+        if unlistable { mockFM.unlistableDirectories.insert("/a/Photos") }
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
                                      size: 400_000, itemCount: 4,
                                      snapshot: Self.mockFolderSnapshot(files: 4))
@@ -323,88 +355,10 @@ import Combine
 
         let ok = await manager.resolveDuplicateGroup(group)
 
-        #expect(ok == true, "a folder group was refused because a directory stat is not its content size")
-        #expect(mockFM.virtualDisk["/b/Photos"] == nil)
-    }
-
-    /// A keeper that lost files since the scan refuses the group: trashing the backup would
-    /// destroy the last intact copy of what left the keeper. A directory still existing at the
-    /// path proves nothing about its contents.
-    @MainActor
-    @Test func aFolderThatLostFilesSinceTheScanIsRefused() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        // The scan recorded four files each; the keeper has since lost one.
-        Self.plantFolder(mockFM, at: "/a/Photos", files: 3, bytesEach: 100_000)
-        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
-        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4,
-                                     snapshot: Self.mockFolderSnapshot(files: 4))
-        manager.duplicateGroups = [group]
-
-        let ok = await manager.resolveDuplicateGroup(group)
-
-        #expect(ok == false)
-        #expect(mockFM.virtualDisk["/b/Photos"] != nil,
-                "the backup was trashed while the keeper was missing 1,200 photos")
-        #expect(manager.banner?.severity == .warning)
-    }
-
-    /// And the other end: the REDUNDANT copy gaining content nothing else has. Trashing it then
-    /// destroys the only instance of that content, under a banner calling it redundant.
-    @MainActor
-    @Test func aRedundantFolderThatGainedFilesIsRefused() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
-        Self.plantFolder(mockFM, at: "/b/Photos", files: 5, bytesEach: 100_000)
-        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4,
-                                     snapshot: Self.mockFolderSnapshot(files: 4))
-        manager.duplicateGroups = [group]
-
-        #expect(await manager.resolveDuplicateGroup(group) == false)
-        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
-    }
-
-    /// A same-count swap under a new name is caught: the entry count is intact, but the per-entry
-    /// baseline sees both the missing path and the extra one. Byte drift under an unchanged name
-    /// is pinned by the real-tree rewrite test below, since the mock walk reads no sizes.
-    @MainActor
-    @Test func aFolderWhoseFileWasSwappedForAnotherNameIsRefused() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
-        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
-        // Same count, different membership: p0 replaced by a newcomer after the scan.
-        mockFM.virtualDisk.removeValue(forKey: "/b/Photos/p0.jpg")
-        mockFM.virtualDisk["/b/Photos/new.jpg"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100_000], contents: nil)
-        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4,
-                                     snapshot: Self.mockFolderSnapshot(files: 4))
-        manager.duplicateGroups = [group]
-
-        #expect(await manager.resolveDuplicateGroup(group) == false)
-        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
-    }
-
-    /// A folder that cannot be listed completely counts as drifted, which refuses — a partial
-    /// listing cannot prove a folder is still what it was.
-    @MainActor
-    @Test func anUnlistableFolderIsRefused() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
-        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
-        mockFM.unlistableDirectories.insert("/a/Photos")
-        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4,
-                                     snapshot: Self.mockFolderSnapshot(files: 4))
-        manager.duplicateGroups = [group]
-
-        #expect(await manager.resolveDuplicateGroup(group) == false)
-        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
+        #expect(ok == resolves, resolves ? "a folder group was refused because a directory stat is not its content size" : "")
+        #expect((mockFM.virtualDisk["/b/Photos"] == nil) == resolves,
+                "the backup was trashed while the keeper or the copy had drifted from the scan")
+        if warns { #expect(manager.banner?.severity == .warning) }
     }
 
     /// A folder copy with no baseline refuses too, with a banner saying the scan couldn't check
@@ -505,11 +459,8 @@ import Combine
     @Test func resolveStillTrashesWhenAnotherCopyMerelyVanished() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        let size: [FileAttributeKey: Any] = [.size: 1000]
         // "/c/x3" is absent from the virtual disk entirely — deleted externally after the scan.
-        for p in ["/a/x", "/b/x2"] {
-            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        }
+        plant(mockFM, ["/a/x", "/b/x2"], size: 1000)
         let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x2", "/c/x3"], reclaim: 2000)
         manager.duplicateGroups = [group]
 
@@ -525,10 +476,7 @@ import Combine
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true                                // no Trash on this volume
         let manager = FileSyncManager(fileManager: mockFM)           // permanent-delete confirm declines
-        let size: [FileAttributeKey: Any] = [.size: 1000]
-        for p in ["/a/x", "/b/x"] {
-            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        }
+        plant(mockFM, ["/a/x", "/b/x"], size: 1000)
         manager.duplicateGroups = [grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)]
 
         await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
@@ -547,12 +495,7 @@ import Combine
         mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
         mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
 
-        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        let group = overlap("/base/K", "/base/R")
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -563,6 +506,9 @@ import Combine
         #expect(mockFM.trashedPaths.isEmpty)
         #expect(manager.duplicateGroups.count == 1, "group stays until a rescan re-establishes a keeper")
         #expect(manager.banner?.severity == .warning)
+        // Even a merge that refuses early must not leave the group marked as merging: that would
+        // permanently disable its card.
+        #expect(manager.mergingGroupIDs.isEmpty)
     }
 
     /// The copy being folded away holds a folder its walk can't read. A flatten would read it as
@@ -580,12 +526,7 @@ import Combine
         }
         mockFM.unlistableDirectories = ["/base/R/Locked"]
 
-        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 10000, itemCount: 2,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = overlap("/base/K", "/base/R", sizes: (5000, 10000), items: (1, 2), reclaim: 5000)
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -601,12 +542,9 @@ import Combine
     @Test func resolveReportsPartialWhenOnlySomeCopiesLeftTheDisk() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)   // permanent-delete confirm declines
-        let size: [FileAttributeKey: Any] = [.size: 1000]
         // Distinct copy names (identical groups match by content, not name) so the mock's
         // name-keyed trash staging can't collide and make the outcome order-dependent.
-        for p in ["/a/x", "/b/x2", "/c/x3"] {
-            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
-        }
+        plant(mockFM, ["/a/x", "/b/x2", "/c/x3"], size: 1000)
         // /c/x3 refuses to leave the disk (its trash's remove step fails once); /b/x2 trashes fine.
         mockFM.failRemovePathsOnce = ["/c/x3"]
         let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x2", "/c/x3"], reclaim: 2000)
@@ -628,8 +566,8 @@ import Combine
     @Test func duplicateScanRootLabelsResultsNotTheInFlightScan() async throws {
         let rootA = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: rootA) }
-        try write(rootA.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
-        try write(rootA.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
+        try writeBytes(rootA.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
+        try writeBytes(rootA.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
         let rootB = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
 
@@ -647,45 +585,17 @@ import Combine
         #expect(manager.duplicateGroups.map(\.id) == groupsBefore)
     }
 
-    @MainActor
-    @Test func keepSeparatePersistsAcrossRescans() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
-        try write(root.appendingPathComponent("B/b-only.txt"), bytes: 12, fill: 0x62)
-
-        let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
-
-        await manager.findDuplicates(root: root)
-        #expect(manager.duplicateGroups.count == 1)
-        let group = try #require(manager.duplicateGroups.first)
-
-        manager.keepDuplicateGroupSeparate(group)
-        #expect(manager.duplicateGroups.isEmpty)
-
-        // Rescan — a kept-separate cluster must not reappear.
-        await manager.findDuplicates(root: root)
-        #expect(manager.duplicateGroups.isEmpty)
-    }
-
     /// Keep separate can be taken back: one ⌘Z step and an undoable banner. Undo puts the card
     /// back and forgets the key; redo hides it again.
     @MainActor
     @Test func keepSeparateCanBeUndoneAndRedone() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.duplicateIgnoreDefaults = ScratchDefaults("DuplicatesIgnoreTest")
         let undo = UndoManager()
         undo.groupsByEvent = false
         manager.undoManager = undo
@@ -718,17 +628,15 @@ import Combine
     @Test func undoingKeepSeparatePutsTheCardBackOnlyWhereItCameFrom() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
         let other = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: other) }
-        try write(other.appendingPathComponent("A/photo.jpg"), bytes: 6000, fill: 0x42)
-        try write(other.appendingPathComponent("B/photo.jpg"), bytes: 6000, fill: 0x42)
+        try writeBytes(other.appendingPathComponent("A/photo.jpg"), bytes: 6000, fill: 0x42)
+        try writeBytes(other.appendingPathComponent("B/photo.jpg"), bytes: 6000, fill: 0x42)
 
         let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.duplicateIgnoreDefaults = ScratchDefaults("DuplicatesIgnoreTest")
         let undo = UndoManager()
         undo.groupsByEvent = false
         manager.undoManager = undo
@@ -762,13 +670,11 @@ import Combine
     @Test func forgettingKeptSeparateGroupsFlagsThemAgain() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.duplicateIgnoreDefaults = ScratchDefaults("DuplicatesIgnoreTest")
 
         await manager.findDuplicates(root: root)
         manager.keepDuplicateGroupSeparate(try #require(manager.duplicateGroups.first))
@@ -781,6 +687,23 @@ import Combine
         #expect(manager.forgetKeptSeparateGroups(under: root.path) == 1)
         await manager.findDuplicates(root: root)
         #expect(manager.duplicateGroups.count == 1)
+
+        // A file group (distinct siblings keep the two folders from grouping) kept separate stays
+        // hidden across a rescan too.
+        let fileRoot = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: fileRoot) }
+        try writeBytes(fileRoot.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(fileRoot.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(fileRoot.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
+        try writeBytes(fileRoot.appendingPathComponent("B/b-only.txt"), bytes: 12, fill: 0x62)
+        await manager.findDuplicates(root: fileRoot)
+        #expect(manager.duplicateGroups.count == 1)
+        let fileGroup = try #require(manager.duplicateGroups.first)
+        #expect(fileGroup.isDirectory == false, "premise: the siblings make this a file group")
+        manager.keepDuplicateGroupSeparate(fileGroup)
+        #expect(manager.duplicateGroups.isEmpty)
+        await manager.findDuplicates(root: fileRoot)
+        #expect(manager.duplicateGroups.isEmpty)
     }
 
     /// Show them again counts and forgets only this folder's keys. The set holds every folder and
@@ -795,11 +718,9 @@ import Combine
         let all = ["Documents/a.pdf", "Documents/b/a.pdf", "Documents/c/n.txt", "Documents/d/n.txt",
                    "Pictures/p.jpg", "Pictures/q/p.jpg", "Documents/s.pdf", "Desktop/s.pdf",
                    "DocumentsOld/a.pdf", "DocumentsOld/b/a.pdf"]
-        for path in all { try write(base.appendingPathComponent(path), bytes: 10, fill: 0x41) }
+        for path in all { try writeBytes(base.appendingPathComponent(path), bytes: 10, fill: 0x41) }
         let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.duplicateIgnoreDefaults = ScratchDefaults("DuplicatesIgnoreTest")
         let here = "\(x)/Documents/a.pdf\n\(x)/Documents/b/a.pdf"
         let alsoHere = "\(x)/Documents/c/n.txt\n\(x)/Documents/d/n.txt"
         let elsewhere = "\(x)/Pictures/p.jpg\n\(x)/Pictures/q/p.jpg"
@@ -831,12 +752,10 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let x = base.path
         for path in ["a/report.pdf", "b/report.pdf", "c/n.txt"] {
-            try write(base.appendingPathComponent(path), bytes: 5000, fill: 0x41)
+            try writeBytes(base.appendingPathComponent(path), bytes: 5000, fill: 0x41)
         }
         let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.duplicateIgnoreDefaults = ScratchDefaults("DuplicatesIgnoreTest")
         let live = "\(x)/a/report.pdf\n\(x)/b/report.pdf"
         let oneGone = "\(x)/c/n.txt\n\(x)/d/n.txt"   // d/n.txt was never written
         let allGone = "\(x)/e/m.txt\n\(x)/f/m.txt"
@@ -885,13 +804,11 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let disk = base.path + "/Documents"
         for path in ["Legal/a.pdf", "Legal/b/a.pdf", "Taxes/t.pdf", "Taxes/u/t.pdf"] {
-            try write(URL(fileURLWithPath: disk + "/" + path), bytes: 10, fill: 0x41)
+            try writeBytes(URL(fileURLWithPath: disk + "/" + path), bytes: 10, fill: 0x41)
         }
         let diskLegal = try #require(OrganizeScope(path: disk + "/Legal", providerRoot: disk))
         let manager = FileSyncManager()
-        let suite = "DuplicatesIgnoreTest-\(UUID().uuidString)"
-        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.duplicateIgnoreDefaults = ScratchDefaults("DuplicatesIgnoreTest")
         let inScope = "\(disk)/Legal/a.pdf\n\(disk)/Legal/b/a.pdf"
         let outsideScope = "\(disk)/Taxes/t.pdf\n\(disk)/Taxes/u/t.pdf"
         manager.ignoredDuplicateKeys = [inScope, outsideScope]
@@ -908,10 +825,10 @@ import Combine
     @Test func startFindDuplicatesRunsToCompletionViaTask() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("A/a.txt"), bytes: 8, fill: 0x61)
-        try write(root.appendingPathComponent("B/b.txt"), bytes: 9, fill: 0x62)
+        try writeBytes(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/a.txt"), bytes: 8, fill: 0x61)
+        try writeBytes(root.appendingPathComponent("B/b.txt"), bytes: 9, fill: 0x62)
 
         let manager = FileSyncManager()
         manager.startFindDuplicates(root: root)
@@ -940,7 +857,7 @@ import Combine
         // hash candidate, so the every-50 progress cadence fires mid-scan (50, 100) as well
         // as the final done == total update.
         for i in 0..<120 {
-            try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
+            try writeBytes(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
         }
 
         let manager = FileSyncManager()
@@ -981,7 +898,7 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<8 {
-            try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
+            try writeBytes(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
         }
 
         let manager = FileSyncManager()
@@ -1007,7 +924,7 @@ import Combine
         defer { try? FileManager.default.removeItem(at: root) }
         // Same-size, pairwise-distinct files: every one is a hash candidate, so total == 120.
         for i in 0..<120 {
-            try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
+            try writeBytes(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
         }
 
         // Names sort Finder-style (numeric-aware), so hashing schedules f0…f119 in order and
@@ -1051,10 +968,10 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)   // same content as keeper's
-        try write(redundant.appendingPathComponent("sub/unique.txt"), bytes: 5000, fill: 0x52)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)   // same content as keeper's
+        try writeBytes(redundant.appendingPathComponent("sub/unique.txt"), bytes: 5000, fill: 0x52)
 
         let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
         let srcNames = plan.steps.map { $0.src.lastPathComponent }
@@ -1073,52 +990,69 @@ import Combine
         #expect(plan.sourceSnapshot["shared.txt"]?.modificationDate != nil)
     }
 
-    @Test func planMergeRetrySkipsCollisionUniquifiedContentAlreadyInTheFolder() async throws {
-        // Retry idempotence: run 1 collided at Keeper/a.txt (different content held the name) and
-        // landed at "a 2.txt". A retry re-plans from scratch and must see the content already in
-        // that folder and skip, not mint "a 3.txt" each time (the cancel banner promises "a retry
-        // skips what landed").
+    /// Where a source file's name is taken, and whether its bytes already sit in the keeper folder,
+    /// decides whether the fold copies it (all files 5,000 bytes; a fill byte stands for content):
+    /// - retry idempotence: run 1 collided at Keeper/a.txt (different content held the name) and
+    ///   landed at "a 2.txt". A retry re-plans from scratch and must see the content already in
+    ///   that folder and skip, not mint "a 3.txt" each time (the cancel banner promises "a retry
+    ///   skips what landed");
+    /// - the complement: the name is taken by different content and the source's bytes are NOT
+    ///   yet anywhere in that folder, so the fold must still copy (landing uniquified);
+    /// - name-preserving: the destination name is free but the bytes already live in that folder
+    ///   under the user's own name, so copy anyway. Losing a meaningfully named file is the worse
+    ///   surprise; a later duplicates scan reconciles the bytes. The retry skip applies only when
+    ///   the name is taken, where the fold could never have kept it;
+    /// - on a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name. Exact-case
+    ///   keys would miss the collision, copy byte-identical content to a junk "a 2.txt", and mint
+    ///   more on each retry. Folded keys treat it as the same-location duplicate it is;
+    /// - the retry shape of the case fold: run 1 collided "a.txt" against keeper "A.txt"
+    ///   (different content) and landed "a 2.txt"; the retry must see the folded name as taken
+    ///   AND the bytes as present, and plan nothing;
+    /// - APFS/HFS+ name lookups are normalization-insensitive on EVERY volume (providers mix NFC
+    ///   and NFD forms — the diff engine's nearNameKey precomposes for the same reason), so an NFD
+    ///   keeper name and an NFC source rel are one on-disk name: byte-identical content must hit
+    ///   the same-location skip, not copy-and-uniquify a junk sibling;
+    /// - the default (case-sensitive) path is untouched: "A.txt" and "a.txt" are distinct names
+    ///   there, so the byte-identical source still copies under its own name;
+    /// - the "name taken" gate must trigger on what the COPY loop's fileExists collides with: any
+    ///   on-disk entry, including a directory (which the hash maps can never hold). Run 1: source
+    ///   file "sub" collided with keeper DIRECTORY "sub", landed uniquified as "sub 2". The retry
+    ///   must skip, not mint "sub 3".
+    @Test(arguments: Self.planMergeCases)
+    func planMergeCopiesOnlyWhatTheKeeperFolderLacks(_ c: PlanMergeCase) async throws {
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)     // different content holds the name
-        try write(keeper.appendingPathComponent("a 2.txt"), bytes: 5000, fill: 0x59)   // run 1's uniquified landing
-        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)  // same content, still in the source
+        for (name, fill) in c.keeper { try writeBytes(keeper.appendingPathComponent(name), bytes: 5000, fill: fill) }
+        for (name, fill) in c.source { try writeBytes(redundant.appendingPathComponent(name), bytes: 5000, fill: fill) }
 
-        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.isEmpty)   // the content already landed — nothing left to copy
+        let plan = await FileSyncManager.planMerge(
+            from: redundant, into: keeper, caseSensitiveVolume: c.caseSensitive, fileManager: FileManager.default)
+        #expect(plan.steps.map { $0.src.lastPathComponent } == c.expected)
     }
 
-    @Test func planMergeStillCopiesOnAFreshCollision() async throws {
-        // The complement: the name is taken by different content and the source's bytes are
-        // NOT yet anywhere in that folder — the fold must still copy (landing uniquified).
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
-        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
-
-        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
+    /// Files planted in the keeper and the source (name, fill byte), the volume's case rule, and
+    /// the source names the plan must copy.
+    struct PlanMergeCase: Sendable {
+        let keeper: [(String, UInt8)]
+        let source: [(String, UInt8)]
+        let caseSensitive: Bool
+        let expected: [String]
     }
 
-    @Test func planMergeCopiesWhenNameIsFreeEvenIfBytesExistUnderAnotherName() async throws {
-        // Name-preserving: the destination name is free but the bytes already live in that folder
-        // under the user's own name, so copy anyway. Losing a meaningfully named file is the worse
-        // surprise; a later duplicates scan reconciles the bytes. The retry skip applies only when
-        // the name is taken, where the fold could never have kept it.
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x59)     // same bytes, user's own name
-        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)  // name free in keeper
-
-        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
-    }
+    static let planMergeCases: [PlanMergeCase] = [
+        PlanMergeCase(keeper: [("a.txt", 0x41), ("a 2.txt", 0x59)], source: [("a.txt", 0x59)], caseSensitive: true, expected: []),
+        PlanMergeCase(keeper: [("a.txt", 0x41)], source: [("a.txt", 0x59)], caseSensitive: true, expected: ["a.txt"]),
+        PlanMergeCase(keeper: [("b.txt", 0x59)], source: [("a.txt", 0x59)], caseSensitive: true, expected: ["a.txt"]),
+        PlanMergeCase(keeper: [("A.txt", 0x59)], source: [("a.txt", 0x59)], caseSensitive: false, expected: []),
+        PlanMergeCase(keeper: [("A.txt", 0x41), ("a 2.txt", 0x59)], source: [("a.txt", 0x59)], caseSensitive: false, expected: []),
+        // NFD keeper name, NFC source name.
+        PlanMergeCase(keeper: [("cafe\u{0301}.txt", 0x59)], source: [("caf\u{E9}.txt", 0x59)], caseSensitive: true, expected: []),
+        PlanMergeCase(keeper: [("A.txt", 0x59)], source: [("a.txt", 0x59)], caseSensitive: true, expected: ["a.txt"]),
+        // A DIRECTORY holds the name.
+        PlanMergeCase(keeper: [("sub/inner.txt", 0x49), ("sub 2", 0x59)], source: [("sub", 0x59)], caseSensitive: true, expected: []),
+    ]
 
     @MainActor
     @Test func uniqueSizeHardLinksNeverEnterVersionsGroups() async throws {
@@ -1130,10 +1064,10 @@ import Combine
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let root = base.appendingPathComponent("Root")
-        try write(root.appendingPathComponent("Docs/report.pdf"), bytes: 9_000, fill: 0x41)
-        try write(root.appendingPathComponent("Docs/report copy.pdf"), bytes: 9_000, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("Docs/report.pdf"), bytes: 9_000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Docs/report copy.pdf"), bytes: 9_000, fill: 0x42)
         let outside = base.appendingPathComponent("outside-v2.bin")
-        try write(outside, bytes: 9_050, fill: 0x43)                      // unique size
+        try writeBytes(outside, bytes: 9_050, fill: 0x43)                      // unique size
         try FileManager.default.linkItem(at: outside, to: root.appendingPathComponent("Docs/report v2.pdf"))
 
         let manager = FileSyncManager()
@@ -1150,97 +1084,21 @@ import Combine
     }
 
     @Test func realHardLinksAreDetectedByLinkCountAndNeverGroup() throws {
-        // End-to-end on a real volume: link(2) entries carry linkCount 2, land in
-        // multiLinkPaths, and the finder drops them — no group, zero phantom reclaimable.
+        // End-to-end on a real volume: link(2) entries carry linkCount 2 and land in
+        // multiLinkPaths (the finder's drop of them is
+        // `DuplicateFinderTests.hardLinkedEntriesLeaveDuplicateCandidacyEntirely`).
         // A singly-linked file is NOT flagged (the negative control).
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let a = base.appendingPathComponent("Docs/a.bin")
         let b = base.appendingPathComponent("Docs/b.bin")
         let c = base.appendingPathComponent("Docs/c.bin")
-        try write(a, bytes: 5000, fill: 0x41)
+        try writeBytes(a, bytes: 5000, fill: 0x41)
         try FileManager.default.linkItem(at: a, to: b)
-        try write(c, bytes: 5000, fill: 0x41)
+        try writeBytes(c, bytes: 5000, fill: 0x41)
 
         let flagged = FileSyncManager.multiLinkPaths(among: [a.path, b.path, c.path])
         #expect(flagged == [a.path, b.path])   // both link entries; the real file stays
-
-        let tree = [FileNode(id: base.appendingPathComponent("Docs").path, name: "Docs", isDirectory: true,
-                             children: [
-                                FileNode(id: a.path, name: "a.bin", isDirectory: false, children: nil,
-                                         modificationDate: Date(), fileSize: 5000),
-                                FileNode(id: b.path, name: "b.bin", isDirectory: false, children: nil,
-                                         modificationDate: Date(), fileSize: 5000),
-                                FileNode(id: c.path, name: "c.bin", isDirectory: false, children: nil,
-                                         modificationDate: Date(), fileSize: 5000),
-                             ], modificationDate: Date(), fileSize: nil)]
-        let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: [a.path: "H", b.path: "H", c.path: "H"], multiLinkPaths: flagged)
-        #expect(!groups.contains { $0.matchType == .identical })
-    }
-
-    @Test func planMergeFoldsCaseOnInsensitiveKeeperVolumes() async throws {
-        // On a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name. Exact-case
-        // keys would miss the collision, copy byte-identical content to a junk "a 2.txt", and mint
-        // more on each retry. Folded keys treat it as the same-location duplicate it is.
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("A.txt"), bytes: 5000, fill: 0x59)
-        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
-
-        let plan = await FileSyncManager.planMerge(
-            from: redundant, into: keeper, caseSensitiveVolume: false, fileManager: FileManager.default)
-        #expect(plan.steps.isEmpty)   // same location modulo case, same bytes — nothing to copy
-    }
-
-    @Test func planMergeRetrySkipHonorsCaseFoldedCollisions() async throws {
-        // The retry shape of the case fold: run 1 collided "a.txt" against keeper "A.txt"
-        // (different content) and landed "a 2.txt"; the retry must see the folded name as
-        // taken AND the bytes as present, and plan nothing.
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("A.txt"), bytes: 5000, fill: 0x41)
-        try write(keeper.appendingPathComponent("a 2.txt"), bytes: 5000, fill: 0x59)
-        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
-
-        let plan = await FileSyncManager.planMerge(
-            from: redundant, into: keeper, caseSensitiveVolume: false, fileManager: FileManager.default)
-        #expect(plan.steps.isEmpty)
-    }
-
-    @Test func planMergeFoldsUnicodeNormalizationVariants() async throws {
-        // APFS/HFS+ name lookups are normalization-insensitive on EVERY volume (providers mix
-        // NFC and NFD forms — the diff engine's nearNameKey precomposes for the same reason),
-        // so an NFD keeper name and an NFC source rel are one on-disk name: byte-identical
-        // content must hit the same-location skip, not copy-and-uniquify a junk sibling.
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("cafe\u{0301}.txt"), bytes: 5000, fill: 0x59)   // NFD é
-        try write(redundant.appendingPathComponent("caf\u{E9}.txt"), bytes: 5000, fill: 0x59)   // NFC é
-
-        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.isEmpty)
-    }
-
-    @Test func planMergeKeepsExactCaseSemanticsOnSensitiveVolumes() async throws {
-        // The default (case-sensitive) path is untouched: "A.txt" and "a.txt" are distinct
-        // names there, so the byte-identical source still copies under its own name.
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("A.txt"), bytes: 5000, fill: 0x59)
-        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
-
-        let plan = await FileSyncManager.planMerge(
-            from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
     }
 
     @MainActor
@@ -1254,19 +1112,14 @@ import Combine
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
         let elsewhere = base.appendingPathComponent("Elsewhere")
-        try write(keeper.appendingPathComponent("own.txt"), bytes: 5000, fill: 0x4B)
-        try write(redundant.appendingPathComponent("sub/y.txt"), bytes: 5000, fill: 0x59)
+        try writeBytes(keeper.appendingPathComponent("own.txt"), bytes: 5000, fill: 0x4B)
+        try writeBytes(redundant.appendingPathComponent("sub/y.txt"), bytes: 5000, fill: 0x59)
         try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: keeper.appendingPathComponent("sub"),
                                                    withDestinationURL: elsewhere)
 
         let manager = FileSyncManager()
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: "Redundant", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = overlap(keeper.path, redundant.path, depths: (0, 0), reclaim: 5000)
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -1290,8 +1143,8 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("own.txt"), bytes: 5000, fill: 0x4B)
-        try write(redundant.appendingPathComponent("sub/f.txt"), bytes: 5000, fill: 0x59)  // only real copy
+        try writeBytes(keeper.appendingPathComponent("own.txt"), bytes: 5000, fill: 0x4B)
+        try writeBytes(redundant.appendingPathComponent("sub/f.txt"), bytes: 5000, fill: 0x59)  // only real copy
         try FileManager.default.createSymbolicLink(
             at: keeper.appendingPathComponent("sub"),
             withDestinationURL: redundant.appendingPathComponent("sub"))
@@ -1310,8 +1163,8 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x5A)      // name-holder, content Z
-        try write(redundant.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x59)   // content Y — only real copy
+        try writeBytes(keeper.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x5A)      // name-holder, content Z
+        try writeBytes(redundant.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x59)   // content Y — only real copy
         try FileManager.default.createSymbolicLink(
             at: keeper.appendingPathComponent("alias.txt"),
             withDestinationURL: redundant.appendingPathComponent("b.txt"))
@@ -1320,23 +1173,6 @@ import Combine
         // Y must still be copied: the link's hash (Y, via the target) may not count as
         // "already in the folder".
         #expect(plan.steps.map { $0.src.lastPathComponent } == ["b.txt"])
-    }
-
-    @Test func planMergeRetrySkipSeesDirectoryAndUnhashedNameHolders() async throws {
-        // The "name taken" gate must trigger on what the COPY loop's fileExists collides
-        // with — any on-disk entry, including a directory (which the hash maps can never
-        // hold). Run 1: source file "sub" collided with keeper DIRECTORY "sub", landed
-        // uniquified as "sub 2". The retry must skip, not mint "sub 3".
-        let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let keeper = base.appendingPathComponent("Keeper")
-        let redundant = base.appendingPathComponent("Redundant")
-        try write(keeper.appendingPathComponent("sub/inner.txt"), bytes: 5000, fill: 0x49)  // DIR holds the name
-        try write(keeper.appendingPathComponent("sub 2"), bytes: 5000, fill: 0x59)          // run 1's landing
-        try write(redundant.appendingPathComponent("sub"), bytes: 5000, fill: 0x59)         // same content, still in source
-
-        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.isEmpty)
     }
 
     @Test func mergeSourceDriftedFlagsNewAndChangedFilesButNotRemovals() {
@@ -1376,9 +1212,9 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Changing")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("unique.txt"), bytes: 5000, fill: 0x52)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("unique.txt"), bytes: 5000, fill: 0x52)
 
         // Simulates external activity: the merge's first copy also drops a new file into the
         // redundant folder, after the plan's snapshot and before the trash step. Re-verifying only
@@ -1388,12 +1224,7 @@ import Combine
             bytes: Data(repeating: 0x21, count: 4096))
         let manager = FileSyncManager(fileManager: fm)
 
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 10000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: "Changing", isDirectory: true, size: 10000, itemCount: 2,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = overlap(keeper.path, redundant.path, sizes: (10000, 10000), items: (1, 2), depths: (0, 0), reclaim: 5000)
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -1416,18 +1247,13 @@ import Combine
         let keeper = base.appendingPathComponent("Keeper")
         let rName = "Folded-\(UUID().uuidString)"
         let redundant = base.appendingPathComponent(rName)
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
         let trash = ScratchTrash(in: base)
         let manager = FileSyncManager(fileManager: trash)
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 10000, itemCount: 2,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 10000, itemCount: 2,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = overlap(keeper.path, redundant.path, sizes: (10000, 10000), items: (2, 2), depths: (0, 0), reclaim: 5000)
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -1452,12 +1278,7 @@ import Combine
         mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
         mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
 
-        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        let group = overlap("/base/K", "/base/R")
         manager.duplicateGroups = [group]
         manager.mergingGroupIDs.insert(group.id)   // simulate the in-flight first merge
 
@@ -1479,17 +1300,12 @@ import Combine
         let keeper = base.appendingPathComponent("Keeper")
         let rName = "Folded-\(UUID().uuidString)"
         let redundant = base.appendingPathComponent(rName)
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
         let trash = ScratchTrash(in: base)
         let manager = FileSyncManager(fileManager: trash)
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 10000, itemCount: 2,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = overlap(keeper.path, redundant.path, sizes: (5000, 10000), items: (1, 2), depths: (0, 0), reclaim: 5000)
         manager.duplicateGroups = [group]
 
         async let first = manager.mergeDuplicateGroup(group)
@@ -1505,26 +1321,6 @@ import Combine
     }
 
     @MainActor
-    @Test func mergeClearsInFlightMarkerOnEveryRefusalPath() async throws {
-        // Even a merge that refuses early (vanished keeper) must not leave the group marked
-        // as merging — that would permanently disable its card.
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
-        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
-        manager.duplicateGroups = [group]
-
-        _ = await manager.mergeDuplicateGroup(group)
-
-        #expect(manager.mergingGroupIDs.isEmpty)
-    }
-
-    @MainActor
     @Test func mergeKeepsGroupAndAvoidsFalseSuccessWhenTrashFails() async throws {
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true                        // Trash-less volume
@@ -1534,12 +1330,7 @@ import Combine
         mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
         mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
 
-        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        let group = overlap("/base/K", "/base/R")
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -1556,16 +1347,11 @@ import Combine
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Data")
         let nested = keeper.appendingPathComponent("old/Data")   // inside the keeper
-        try write(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
-        try write(nested.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
+        try writeBytes(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
+        try writeBytes(nested.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
-        let k = DuplicateCopy(id: keeper.path, name: "Data", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: nested.path, name: "Data", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 1.0), name: "Data",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = overlap(keeper.path, nested.path, rUnique: 0, depths: (0, 2), shared: 1.0, reclaim: 5000)
         manager.duplicateGroups = [group]
 
         let ok = await manager.mergeDuplicateGroup(group)
@@ -1579,8 +1365,8 @@ import Combine
     @Test func clearDuplicatesCancelsAnInFlightScan() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
         manager.startFindDuplicates(root: root)
@@ -1601,20 +1387,6 @@ import Combine
         #expect(manager.duplicateGroups.count == 1)   // untouched
     }
 
-    @MainActor
-    @Test func clearDuplicatesResetsScanState() {
-        let manager = FileSyncManager()
-        manager.duplicateGroups = [grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1)]
-        manager.duplicateScanRoot = "/a"
-        manager.hasFoundDuplicates = true
-
-        manager.clearDuplicates()
-
-        #expect(manager.duplicateGroups.isEmpty)
-        #expect(manager.duplicateScanRoot == nil)
-        #expect(manager.hasFoundDuplicates == false)
-    }
-
     // MARK: Folder drift, end to end on a real tree
     //
     // The mock-backed tests above write down both sides of the comparison, so they can never
@@ -1632,9 +1404,9 @@ import Combine
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
-            try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
-            try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
-            try write(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 800, fill: 0x44)
+            try writeBytes(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
+            try writeBytes(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
+            try writeBytes(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 800, fill: 0x44)
         }
 
         let manager = FileSyncManager(fileManager: trash)
@@ -1656,15 +1428,22 @@ import Combine
     /// fixed-width text, one 5,000-byte export replaced by another), so a count+bytes check would
     /// trash the only copy of the new content. Like the file-level check, the folder check
     /// compares size and mtime, per file.
+    ///
+    /// The keeper side of the same gate (`rewriteKeeper`): a rewrite inside the folder being kept
+    /// makes the "redundant" copy the last intact instance of the scanned content. Count,
+    /// membership and byte totals are unchanged, so only the per-entry mtime half of
+    /// `folderContentsMatchScan` catches it, and only because `driftedFolderInGroup` checks the
+    /// keeper too.
     @MainActor
-    @Test func aSameLengthRewriteInsideAFolderCopyIsRefused() async throws {
+    @Test(arguments: [false, true])
+    func aSameLengthRewriteInsideAFolderOfTheGroupIsRefused(rewriteKeeper: Bool) async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
-            try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
-            try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
+            try writeBytes(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
+            try writeBytes(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
         }
 
         let manager = FileSyncManager(fileManager: trash)
@@ -1672,55 +1451,19 @@ import Combine
         let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
         let redundantPath = try #require(group.recommendedRemovalPaths.first)
 
-        // Rewrite one file inside the copy about to be trashed: same byte count, different
-        // content. The mtime moves on its own; pinned explicitly so the drift is deterministic
-        // rather than riding on filesystem timestamp granularity.
-        let rewritten = (redundantPath as NSString).appendingPathComponent("f1.txt")
+        // Rewrite one file inside the copy about to be trashed, or inside the keeper: same byte
+        // count, different content. The mtime moves on its own; pinned explicitly so the drift is
+        // deterministic rather than riding on filesystem timestamp granularity.
+        let rewritten = ((rewriteKeeper ? group.keeper.path : redundantPath) as NSString).appendingPathComponent("f1.txt")
         try Data(repeating: 0x5A, count: 5000).write(to: URL(fileURLWithPath: rewritten))
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(500)],
                                               ofItemAtPath: rewritten)
 
         let ok = await manager.resolveDuplicateGroup(group)
 
-        #expect(ok == false, "a same-length rewrite left count and bytes unchanged and the only copy of the edit was trashed")
+        #expect(ok == false, "a same-length rewrite left count and bytes unchanged, yet the group resolved")
         #expect(FileManager.default.fileExists(atPath: redundantPath),
-                "the rewritten copy holds content nothing else has — it must stay on disk")
-        #expect(manager.banner?.severity == .warning)
-    }
-
-    /// The keeper side of the same gate: a rewrite inside the folder being kept makes the
-    /// "redundant" copy the last intact instance of the scanned content. Count, membership and
-    /// byte totals are unchanged, so only the per-entry mtime half of `folderContentsMatchScan`
-    /// catches it, and only because `driftedFolderInGroup` checks the keeper too.
-    @MainActor
-    @Test func aSameLengthRewriteInsideTheKeeperFolderIsRefused() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = ScratchTrash(in: root)
-        for folder in [aName, bName] {
-            try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
-            try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
-        }
-
-        let manager = FileSyncManager(fileManager: trash)
-        await manager.findDuplicates(root: root)
-        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
-        let redundantPath = try #require(group.recommendedRemovalPaths.first)
-
-        // Rewrite one file inside the KEEPER: same byte count, different content. The mtime is
-        // pinned explicitly for the same reason as above — deterministic drift, not filesystem
-        // timestamp granularity.
-        let rewritten = (group.keeper.path as NSString).appendingPathComponent("f1.txt")
-        try Data(repeating: 0x5A, count: 5000).write(to: URL(fileURLWithPath: rewritten))
-        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(500)],
-                                              ofItemAtPath: rewritten)
-
-        let ok = await manager.resolveDuplicateGroup(group)
-
-        #expect(ok == false, "the keeper drifted, so its copies are no longer provably redundant")
-        #expect(FileManager.default.fileExists(atPath: redundantPath),
-                "the copy is the last intact instance of the scanned content — it must stay on disk")
+                "the copy holds content nothing else has — it must stay on disk")
         #expect(manager.banner?.severity == .warning)
     }
 
@@ -1734,7 +1477,7 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         for folder in ["A", "B"] {
-            try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
+            try writeBytes(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
         }
 
         let manager = FileSyncManager()
@@ -1745,7 +1488,7 @@ import Combine
                 "the baseline was recorded before any ignored name existed")
 
         // Finder visits the folder after the scan.
-        try write(URL(fileURLWithPath: group.keeper.path).appendingPathComponent(".DS_Store"),
+        try writeBytes(URL(fileURLWithPath: group.keeper.path).appendingPathComponent(".DS_Store"),
                   bytes: 700, fill: 0x44)
 
         #expect(await FileSyncManager.folderContentsMatchScan(
@@ -1754,7 +1497,7 @@ import Combine
 
         // Control: a NON-ignored arrival through the same re-walk still reads as drift, so the
         // pin above cannot pass by the comparison being inert.
-        try write(URL(fileURLWithPath: group.keeper.path).appendingPathComponent("new.txt"),
+        try writeBytes(URL(fileURLWithPath: group.keeper.path).appendingPathComponent("new.txt"),
                   bytes: 700, fill: 0x45)
         #expect(await FileSyncManager.folderContentsMatchScan(
             path: group.keeper.path, snapshot: snapshot, fileManager: FileManager.default) == false)
@@ -1771,11 +1514,11 @@ import Combine
         let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
             for i in 1...4 {
-                try write(root.appendingPathComponent("\(folder)/f\(i).txt"), bytes: 5000, fill: 0x41)
+                try writeBytes(root.appendingPathComponent("\(folder)/f\(i).txt"), bytes: 5000, fill: 0x41)
             }
         }
         // Only the B copy holds the ignored name, sized exactly like the file it will "replace".
-        try write(root.appendingPathComponent("\(bName)/.DS_Store"), bytes: 5000, fill: 0x44)
+        try writeBytes(root.appendingPathComponent("\(bName)/.DS_Store"), bytes: 5000, fill: 0x44)
 
         let manager = FileSyncManager(fileManager: trash)
         await manager.findDuplicates(root: root)
@@ -1804,7 +1547,7 @@ import Combine
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
         for folder in [aName, bName] {
-            try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
+            try writeBytes(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
             try FileManager.default.createSymbolicLink(
                 atPath: root.appendingPathComponent("\(folder)/link.txt").path,
                 withDestinationPath: "f.txt")
@@ -1833,8 +1576,8 @@ import Combine
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         for folder in ["A", "B"] {
-            try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
-            try write(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 700, fill: 0x44)
+            try writeBytes(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
+            try writeBytes(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 700, fill: 0x44)
             try FileManager.default.createSymbolicLink(
                 atPath: root.appendingPathComponent("\(folder)/link.txt").path,
                 withDestinationPath: "f.txt")

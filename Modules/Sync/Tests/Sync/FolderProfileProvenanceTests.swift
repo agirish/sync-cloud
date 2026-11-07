@@ -9,13 +9,6 @@ import Testing
 /// green. Every test here keeps those two cases apart.
 @Suite struct FolderProfileProvenanceTests {
 
-    private static func directory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("provenance-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
     private static func profile(_ id: String) -> FolderProfile {
         FolderProfile(profileId: id, root: "~/Documents",
                       folders: ["Finance": FolderProfileEntry(path: "Finance", role: nil, naming: nil, anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0, axes: [:])],
@@ -41,7 +34,7 @@ import Testing
 
     /// A profile the app wrote reads as its own work.
     @Test func aProfileTheAppWroteReadsAsDerived() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         _ = try FilingProfileStore.writeProfile(Self.profile("fresh"), in: dir)
 
@@ -51,47 +44,33 @@ import Testing
                 "the header the store stamps must be the one provenance recognises")
     }
 
-    /// A profile with no `builtBy` at all is hand-built, the safe default: the only profiles
-    /// without the header predate the app writing any, and those are the hand-built ones.
-    @Test func aProfileWithNoHeaderReadsAsHandBuilt() throws {
-        let dir = try Self.directory()
+    /// A profile the app did not stamp is hand-built:
+    /// - one with no `builtBy` at all, the safe default: the only profiles without the header
+    ///   predate the app writing any, and those are the hand-built ones;
+    /// - somebody else's builder;
+    /// - a hand-edited header, which costs the file its provenance, never its contents. Reading it
+    ///   as hand-built is the cautious answer (it stops being replaceable), and it keeps its folders.
+    @Test(arguments: [
+        (#"{"schemaVersion": 1, "profileId": "old", "root": "~/Documents", "folders": []}"#, "old", 0, true),
+        (#"{"schemaVersion": 1, "profileId": "py", "root": "~/Documents", "builtBy": "build_profile.py", "folders": []}"#, "py", 0, false),
+        (#"{"schemaVersion": 1, "profileId": "odd", "root": "~/Documents", "builtBy": 42, "folders": [{"path": "Finance", "fileCount": 3, "subfolderCount": 0, "anchors": [], "axes": {}}]}"#,
+         "odd", 1, true),
+    ])
+    func aProfileTheAppDidNotStampReadsAsHandBuilt(json: String, id: String, folderCount: Int, builtByIsNil: Bool) throws {
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.writeRaw(#"{"schemaVersion": 1, "profileId": "old", "root": "~/Documents", "folders": []}"#,
-                          id: "old", in: dir)
+        try Self.writeRaw(json, id: id, in: dir)
 
-        let read = try #require(FilingProfileStore.profile(id: "old", in: dir))
-        #expect(read.builtBy == nil)
+        let read = try #require(FilingProfileStore.profile(id: id, in: dir))
+        #expect((read.builtBy == nil) == builtByIsNil)
         #expect(read.provenance == .handBuilt)
-    }
-
-    /// Somebody else's builder is hand-built too.
-    @Test func aForeignBuilderReadsAsHandBuilt() throws {
-        let dir = try Self.directory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.writeRaw(#"{"schemaVersion": 1, "profileId": "py", "root": "~/Documents", "builtBy": "build_profile.py", "folders": []}"#,
-                          id: "py", in: dir)
-
-        let read = try #require(FilingProfileStore.profile(id: "py", in: dir))
-        #expect(read.provenance == .handBuilt)
-    }
-
-    /// A hand-edited header costs the file its provenance, never its contents. Reading it as
-    /// hand-built is the cautious answer (it stops being replaceable), and it keeps its folders.
-    @Test func aMistypedHeaderCostsProvenanceAndNothingElse() throws {
-        let dir = try Self.directory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.writeRaw(#"{"schemaVersion": 1, "profileId": "odd", "root": "~/Documents", "builtBy": 42, "folders": [{"path": "Finance", "fileCount": 3, "subfolderCount": 0, "anchors": [], "axes": {}}]}"#,
-                          id: "odd", in: dir)
-
-        let read = try #require(FilingProfileStore.profile(id: "odd", in: dir))
-        #expect(read.provenance == .handBuilt)
-        #expect(read.folders.count == 1, "a bad header took the folders with it")
+        #expect(read.folders.count == folderCount, "a bad header took the folders with it")
     }
 
     // MARK: - What may be re-pointed
 
     @Test func nothingActiveMeansTheNewProfileTakesOver() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         _ = try FilingProfileStore.writeProfile(Self.profile("first"), in: dir)
         #expect(FilingProfileStore.activeProfileId(in: dir) == "first")
@@ -101,7 +80,7 @@ import Testing
     /// profile under a fresh id and nothing reads it, because `profiles.json` still names the old
     /// one, and no message says so.
     @Test func aDerivedProfileMayBeSuperseded() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         _ = try FilingProfileStore.writeProfile(Self.profile("run-1"), in: dir)
         #expect(FilingProfileStore.activeProfileId(in: dir) == "run-1")
@@ -116,7 +95,7 @@ import Testing
 
     /// A hand-built profile is never re-pointed away from.
     @Test func aHandBuiltProfileIsNeverSuperseded() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.writeRaw(#"{"schemaVersion": 1, "profileId": "father", "root": "~/Documents", "folders": []}"#,
                           id: "father", in: dir)
@@ -134,7 +113,7 @@ import Testing
     /// the user where they were; the alternative treats an unparseable file as the app's own and
     /// points everything away from it.
     @Test func anUnreadableActiveProfileIsNotSuperseded() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.writeRaw("{ not json at all", id: "broken", in: dir)
         try Self.writeIndex(active: "broken", in: dir)
@@ -149,7 +128,7 @@ import Testing
     /// leave the bootstrap dead while reporting success. So provenance only decides the case where
     /// the file is there: hand-built (refuse), derived (replace), or unreadable (refuse, above).
     @Test func anActiveIdWithNoProfileBehindItIsSuperseded() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.writeIndex(active: "ghost", in: dir)
 
@@ -162,7 +141,7 @@ import Testing
     /// what may be re-pointed, never what may be overwritten; a profile is always written under a
     /// fresh id, so this refusal is what stops one being clobbered in place.
     @Test func writingOverAnExistingIdIsStillRefused() throws {
-        let dir = try Self.directory()
+        let dir = try makeCanonicalTempRoot(prefix: "provenance")
         defer { try? FileManager.default.removeItem(at: dir) }
         _ = try FilingProfileStore.writeProfile(Self.profile("same"), in: dir)
 

@@ -47,10 +47,13 @@ import Testing
         }
     }
 
+    /// One scan cycle per lens: mid-scan the running flag and status publish, `endScan` clears
+    /// both, and a completed reading carries its root and timestamp and is not restored.
     @MainActor
-    @Test func midScanReadingPublishesRunningFlagAndStatus() {
+    @Test func aScanCycleReadsTheSameForEveryLens() {
         let manager = FileSyncManager()
-        for lens in Self.lenses {
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        for (index, lens) in Self.lenses.enumerated() {
             let epoch = manager.beginScan(lens.path, status: "PIN mid-scan \(lens.name)")
             #expect(manager[keyPath: lens.path].isRunning, "\(lens.name): running after beginScan")
             #expect(manager[keyPath: lens.path].status == "PIN mid-scan \(lens.name)",
@@ -62,25 +65,11 @@ import Testing
                     "\(lens.name): updated status shows through")
             // Mid-scan, completion labels are untouched.
             #expect(manager[keyPath: lens.path].hasCompleted == false, "\(lens.name): mid-scan hasCompleted")
-        }
-    }
 
-    @MainActor
-    @Test func endScanClearsRunningStateAndStatusForEveryLens() {
-        let manager = FileSyncManager()
-        for lens in Self.lenses {
-            manager.beginScan(lens.path, status: "PIN \(lens.name)")
             manager.endScan(lens.path)
             #expect(manager[keyPath: lens.path].isRunning == false, "\(lens.name): endScan clears running")
             #expect(manager[keyPath: lens.path].status == nil, "\(lens.name): endScan clears status to nil")
-        }
-    }
 
-    @MainActor
-    @Test func completedReadingCarriesRootAndTimestampNotRestored() {
-        let manager = FileSyncManager()
-        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
-        for (index, lens) in Self.lenses.enumerated() {
             let root = URL(fileURLWithPath: "/pin/\(lens.name)")
             manager.beginScan(lens.path, status: "PIN \(lens.name)")
             manager.completeScan(lens.path, root: root, at: stamp.addingTimeInterval(Double(index)))
@@ -188,7 +177,8 @@ import Testing
     // MARK: Surviving forwarders
 
     /// The running/has-completed forwarders follow their own lifecycle across the whole cycle,
-    /// including back to idle, which the mid-scan snapshot below never observes.
+    /// including back to idle, and the per-lens forwarders still read and write their lifecycle's
+    /// fields exactly.
     @MainActor
     @Test func keptForwardersFollowTheirOwnLifecycleBackToIdle() {
         let manager = FileSyncManager()
@@ -229,34 +219,17 @@ import Testing
         #expect(manager.hasScannedNames, "names: completion shows through the forwarder")
         #expect(!manager.hasFoundDuplicates && !manager.hasSuggestedFiling,
                 "and shows through that lens's forwarder ONLY")
-    }
+        #expect(manager.nameScanRoot == URL(fileURLWithPath: "/pin/names"))
 
-    /// The per-lens forwarders still read and write their lifecycle's fields exactly.
-    @MainActor
-    @Test func survivingForwardersMirrorTheirLifecycleFields() {
-        let manager = FileSyncManager()
-
-        manager.beginScan(\.duplicateScanLifecycle, status: "PIN dup")
-        #expect(manager.isFindingDuplicates)
         manager.completeScan(\.duplicateScanLifecycle, root: URL(fileURLWithPath: "/pin/dup"))
         #expect(manager.hasFoundDuplicates)
         #expect(manager.duplicateScanRoot == "/pin/dup")
         manager.duplicateScanRoot = "/pin/dup2"
         #expect(manager.duplicateScanLifecycle.root == URL(fileURLWithPath: "/pin/dup2"))
 
-        manager.beginScan(\.storageLensLifecycle, status: "PIN storage")
-        #expect(manager.isBuildingStorageLens)
         manager.completeScan(\.storageLensLifecycle, root: URL(fileURLWithPath: "/pin/storage"))
         #expect(manager.storageLensRoot == URL(fileURLWithPath: "/pin/storage"))
 
-        manager.beginScan(\.nameScanLifecycle, status: "PIN names")
-        #expect(manager.isScanningNames)
-        manager.completeScan(\.nameScanLifecycle, root: URL(fileURLWithPath: "/pin/names"))
-        #expect(manager.hasScannedNames)
-        #expect(manager.nameScanRoot == URL(fileURLWithPath: "/pin/names"))
-
-        manager.beginScan(\.filingScanLifecycle, status: "PIN filing")
-        #expect(manager.isSuggestingFiles)
         manager.completeScan(\.filingScanLifecycle, root: URL(fileURLWithPath: "/pin/filing"))
         #expect(manager.hasSuggestedFiling)
         #expect(manager.filingScanFolder == "/pin/filing")

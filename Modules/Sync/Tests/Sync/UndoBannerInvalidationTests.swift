@@ -10,10 +10,7 @@ import Foundation
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
+        FileSyncManager.forTests()
     }
 
     @MainActor

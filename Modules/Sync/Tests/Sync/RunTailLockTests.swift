@@ -99,31 +99,13 @@ import EventsTestSupport
         try Data(repeating: fill, count: bytes).write(to: url)
     }
 
-    /// The overlapping pair a merge folds: one shared file, one unique to the redundant copy.
-    /// Named per case: `LogCapture` sees every case's lines.
-    private func makePair(_ base: URL, name: String) throws -> (keeper: URL, redundant: URL, group: DuplicateGroup) {
-        let keeper = base.appendingPathComponent("Keeper-\(name)")
-        let redundant = base.appendingPathComponent("Redundant-\(name)")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        try write(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x55)
-        let k = DuplicateCopy(id: keeper.path, name: keeper.lastPathComponent, isDirectory: true, size: 4000,
-                              itemCount: 1, modificationDate: nil, uniqueItemCount: 0, depth: 0,
-                              isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: redundant.lastPathComponent, isDirectory: true, size: 8000,
-                              itemCount: 2, modificationDate: nil, uniqueItemCount: 1, depth: 0,
-                              isRecommendedKeeper: false)
-        return (keeper, redundant, DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: name,
-                                                  isDirectory: true, copies: [k, r], reclaimableBytes: 4000))
-    }
-
     /// Sampled inside the merge's identity walk, after its trash: the merge's own lock is still up,
     /// and only cleared once the merge returns.
     @MainActor
     @Test(.parksAThread) func aMergeKeepsTheRunLockUntilItReturns() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeTailLock")
         defer { try? FileManager.default.removeItem(at: base) }
-        let pair = try makePair(base, name: "Lock-\(UUID().uuidString)")
+        let pair = try makeGroup(base, name: "Lock-\(UUID().uuidString)", count: 1)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: pair.keeper.path, armedFromStart: false)
         let manager = FileSyncManager(fileManager: fm)
         manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeTailLock")
@@ -138,7 +120,7 @@ import EventsTestSupport
         let ok = await manager.mergeDuplicateGroup(pair.group)
 
         #expect(ok == true, "the merge did not complete, so the samples below describe nothing")
-        #expect(fm.trash.names == [pair.redundant.lastPathComponent], "premise: the merge trashed its copy")
+        #expect(fm.trash.names == [pair.redundant[0].lastPathComponent], "premise: the merge trashed its copy")
         let trashedAt = try #require(fm.trashedAt.withLock { $0 })
         #expect(fm.rendezvousExpired.withLock { $0 } == false, "a main-actor sample never ran inside the walk")
         // A read can land while the trash's own progress is still up — an identity walk started
@@ -221,7 +203,7 @@ import EventsTestSupport
         let base = try makeCanonicalTempRoot(prefix: "MergeNoLocation")
         defer { try? FileManager.default.removeItem(at: base) }
         let name = "NoLocation-\(UUID().uuidString)"
-        let pair = try makePair(base, name: name)
+        let pair = try makeGroup(base, name: name, count: 1)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: "/nowhere", armedFromStart: false,
                              trashReportsNoLocation: true)
         let manager = FileSyncManager(fileManager: fm)
@@ -234,7 +216,7 @@ import EventsTestSupport
         let ok = await manager.mergeDuplicateGroup(pair.group)
 
         #expect(ok == true)
-        #expect(fm.trash.names == [pair.redundant.lastPathComponent], "premise: the copy is in the Trash")
+        #expect(fm.trash.names == [pair.redundant[0].lastPathComponent], "premise: the copy is in the Trash")
         #expect(undo.canUndo == false, "the fold's undo was registered with no restore for its copy")
         let lines = await log.entries.map(\.message).filter { $0.contains("“\(name)”") }
         #expect(!lines.contains { $0.contains("deleted permanently") },
@@ -287,7 +269,9 @@ import EventsTestSupport
         #expect(manager.lastFinishedRun?.title == "Syncing 1 file", "\(String(describing: manager.lastFinishedRun?.title))")
     }
 
-    /// A group of `count` redundant copies, each holding one file of its own, so each one folds.
+    /// A group of `count` redundant copies, each holding one file of its own, so each one folds:
+    /// with one, the overlapping pair a merge folds. Named per case: `LogCapture` sees every case's
+    /// lines.
     private func makeGroup(_ base: URL, name: String, count: Int) throws -> (keeper: URL, redundant: [URL], group: DuplicateGroup) {
         let keeper = base.appendingPathComponent("Keeper-\(name)")
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)

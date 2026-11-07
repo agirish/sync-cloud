@@ -15,12 +15,8 @@ import EventsTestSupport
     private final class Marker { var undone = false }
 
     private func isolatedManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "SyncRunUndoGuardTest")
-        let um = UndoManager()
-        um.groupsByEvent = false            // deterministic manual grouping + synchronous undo()
-        manager.undoManager = um
-        return manager
+        // Manual grouping: deterministic groups and a synchronous undo().
+        FileSyncManager.forTests(manualUndoGrouping: true, historyPrefix: "SyncRunUndoGuardTest")
     }
 
     private func record(_ action: SyncAction = .move, run: UUID) -> SyncHistoryRecord {
@@ -38,24 +34,6 @@ import EventsTestSupport
     }
 
     // MARK: gate — positive
-
-    @Test func previewPresentAndUndoFiresWhenRecordedRunIsOnTop() {
-        let manager = isolatedManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let run = UUID()
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
-        manager.recordSyncHistory([record(run: run)])       // captures top name = "Sync run"
-
-        let preview = manager.lastSyncRunUndoPreview
-        #expect(preview != nil)
-        #expect(preview?.actionName == "Sync run")
-        #expect(preview?.operationCount == 1)
-
-        #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in true }) == nil)
-        #expect(marker.undone == true)                       // the recorded run was reversed
-        #expect(manager.lastSyncRunUndoPreview == nil)       // consumed — can't reverse it twice
-    }
 
     @Test func manualUndoOfASameNamedRunClosesTheGate() {
         // Every bulk run registers under the same name ("Sync run"), so the name gate alone can't
@@ -83,15 +61,18 @@ import EventsTestSupport
     }
 
     @Test func manualRedoAlsoClosesTheGate() {
-        // ⇧⌘Z re-registers the run's group under a fresh registration the pairing knows nothing
-        // about, so the gate stays closed after a redo, as after an undo.
+        // ⌘Z between the recorded run and the window button: the stack's top no longer matches, so
+        // the button won't blindly reverse whatever is on top now. Then ⇧⌘Z re-registers the run's
+        // group under a fresh registration the pairing knows nothing about, so the gate stays
+        // closed after a redo, as after an undo.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
         registerRun(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
 
-        manager.undoManager!.undo()
+        manager.undoManager!.undo()                          // user reverses it manually
+        #expect(manager.lastSyncRunUndoPreview == nil)       // canUndo is now false → no preview
         manager.undoManager!.redo()
         #expect(manager.lastSyncRunUndoPreview == nil)
     }
@@ -201,20 +182,6 @@ import EventsTestSupport
         #expect(manager.lastSyncRunUndoPreview == nil)
     }
 
-    // MARK: gate — negative (the bug this fixes)
-
-    @Test func previewGoneAfterAManualUndoChangesTheTop() {
-        // ⌘Z between the recorded run and the window button: the stack's top no longer matches,
-        // so the button won't blindly reverse whatever is on top now.
-        let manager = isolatedManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
-        manager.recordSyncHistory([record(run: UUID())])
-        manager.undoManager?.undo()                          // user reverses it manually
-        #expect(manager.lastSyncRunUndoPreview == nil)       // canUndo is now false → no preview
-    }
-
     // MARK: the Sync History window's entry point
 
     /// After a relaunch the undo stack is empty while Sync History still lists records. The
@@ -282,8 +249,11 @@ import EventsTestSupport
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
         registerRun(manager, name: "Sync run", marker: marker)
-        manager.recordSyncHistory([record(run: UUID())])
+        manager.recordSyncHistory([record(run: UUID())])     // captures top name = "Sync run"
         #expect(manager.lastSyncRunUndoRefusal == nil)       // it would act, so there is no reason
+        let preview = manager.lastSyncRunUndoPreview
+        #expect(preview?.actionName == "Sync run")
+        #expect(preview?.operationCount == 1)
 
         var askedAbout: String?
         #expect(manager.undoLastSyncRunAskingFirst(confirm: { askedAbout = $0.actionName; return false }) == nil)

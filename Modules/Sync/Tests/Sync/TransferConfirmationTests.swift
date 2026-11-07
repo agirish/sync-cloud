@@ -39,54 +39,55 @@ import Foundation
 
     // MARK: - Declined confirmations leave the disk untouched
 
-    /// A declined copy transfers nothing, runs no primitive and reports no error: cancelling is a
-    /// user choice, not a failure.
+    /// A declined copy or move transfers nothing, runs no primitive, leaves the sources in place
+    /// and reports no error: cancelling is a user choice, not a failure.
+    ///
+    /// While the confirmation is up, the pending operation must already be counted: the scan-time
+    /// auto-verify pass isn't blocked by a modal and its guard reads `activeFileOperationsCount`,
+    /// so an uncounted prompt would let it hash the very files this transfer overwrites. A decline
+    /// reverts the count.
     @MainActor
-    @Test func testDeclinedCopyItemsTransfersNothing() async throws {
+    @Test(arguments: [false, true])
+    func testDeclinedTransferMovesNothing(isMove: Bool) async throws {
         let (manager, mockFM) = try makeTransferFixture()
-        manager.transferConfirmer = { _ in false }
+        var countDuringPrompt: Int?
+        manager.transferConfirmer = { [weak manager] _ in
+            countDuringPrompt = manager?.activeFileOperationsCount
+            return false
+        }
 
-        let copied = await manager.copyItems(
-            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
-            toPath: "/dst",
-            fileManager: mockFM
-        )
+        let nodes = [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)]
+        let landed = isMove
+            ? await manager.moveItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
+            : await manager.copyItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
 
-        #expect(copied.isEmpty)
+        #expect(landed.isEmpty)
         #expect(mockFM.calledCopyItem == false)
-        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
-        #expect(manager.currentError == nil)
-    }
-
-    /// A declined move leaves the sources in place.
-    @MainActor
-    @Test func testDeclinedMoveItemsLeavesSourcesInPlace() async throws {
-        let (manager, mockFM) = try makeTransferFixture()
-        manager.transferConfirmer = { _ in false }
-
-        let moved = await manager.moveItems(
-            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
-            toPath: "/dst",
-            fileManager: mockFM
-        )
-
-        #expect(moved.isEmpty)
         #expect(mockFM.virtualDisk["/src/a.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
         #expect(manager.currentError == nil)
+        #expect(countDuringPrompt == 1)
+        #expect(manager.activeFileOperationsCount == 0)
     }
 
-    /// A declined single-row sync returns false, copies nothing and leaves no in-flight mark. (The
-    /// row is marked during the prompt, as
-    /// testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline pins, but a decline clears it.)
+    /// A declined single-row sync returns false, copies nothing and leaves no in-flight mark.
+    ///
+    /// While the confirmation is up, the row must already be marked syncing: Verify All's guard
+    /// relies on `syncingDifferenceIds` covering a syncFile parked at a prompt. A decline clears
+    /// the mark.
     @MainActor
     @Test func testDeclinedSyncFileReturnsFalseAndCopiesNothing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
-        manager.transferConfirmer = { _ in false }
+        var markedDuringPrompt: Bool?
+        manager.transferConfirmer = { [weak manager] _ in
+            markedDuringPrompt = manager?.syncingDifferenceIds.contains(diff.id)
+            return false
+        }
 
         let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
 
         #expect(ran == false)
+        #expect(markedDuringPrompt == true)
         #expect(mockFM.calledCopyItem == false)
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
         #expect(manager.syncingDifferenceIds.isEmpty)
@@ -95,13 +96,23 @@ import Foundation
 
     /// A declined bulk sync runs nothing and releases the bulk-sync flag so a later
     /// (confirmed) run can start.
+    ///
+    /// While the confirmation is up, `isBulkSyncRunning` must already be latched: the prompt's
+    /// modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard reads the
+    /// flag) would otherwise pass its exclusion check mid-prompt.
     @MainActor
     @Test func testDeclinedSyncAllRunsNothingAndAllowsLaterRun() async throws {
         let (manager, mockFM, _) = try makeDifferenceFixture()
-        manager.transferConfirmer = { _ in false }
+        var flagDuringPrompt: Bool?
+        manager.transferConfirmer = { [weak manager] _ in
+            flagDuringPrompt = manager?.isBulkSyncRunning
+            return false
+        }
 
         await manager.syncAll(direction: .copyToRight)
 
+        #expect(flagDuringPrompt == true)
+        #expect(manager.isBulkSyncRunning == false)
         #expect(mockFM.calledCopyItem == false)
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
         #expect(manager.differences.count == 1)
@@ -135,6 +146,9 @@ import Foundation
         )
 
         #expect(copied.count == 2)
+        // The pre-count is handed to `enqueueFileOperation(alreadyCounted:)`, whose completion
+        // decrements exactly once.
+        #expect(manager.activeFileOperationsCount == 0)
         #expect(summaries.count == 1)
         #expect(summaries.first?.isMove == false)
         #expect(summaries.first?.itemCount == 2)
@@ -215,83 +229,6 @@ import Foundation
 
     // MARK: - Prompts run behind the exclusion latches (not before them)
 
-    /// While the syncAll confirmation is up, `isBulkSyncRunning` must already be latched: the
-    /// prompt's modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard
-    /// reads the flag) would otherwise pass its exclusion check mid-prompt. A decline releases it.
-    @MainActor
-    @Test func testBulkSyncFlagIsLatchedDuringConfirmPromptAndReleasedOnDecline() async throws {
-        let (manager, _, _) = try makeDifferenceFixture()
-        var flagDuringPrompt: Bool?
-        manager.transferConfirmer = { [weak manager] _ in
-            flagDuringPrompt = manager?.isBulkSyncRunning
-            return false
-        }
-
-        await manager.syncAll(direction: .copyToRight)
-
-        #expect(flagDuringPrompt == true)
-        #expect(manager.isBulkSyncRunning == false)
-    }
-
-    /// While the syncFile confirmation is up, the row must already be marked syncing: Verify All's
-    /// guard relies on `syncingDifferenceIds` covering a syncFile parked at a prompt. A decline
-    /// clears the mark.
-    @MainActor
-    @Test func testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline() async throws {
-        let (manager, mockFM, diff) = try makeDifferenceFixture()
-        var markedDuringPrompt: Bool?
-        manager.transferConfirmer = { [weak manager] _ in
-            markedDuringPrompt = manager?.syncingDifferenceIds.contains(diff.id)
-            return false
-        }
-
-        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
-
-        #expect(ran == false)
-        #expect(markedDuringPrompt == true)
-        #expect(manager.syncingDifferenceIds.isEmpty)
-    }
-
-    /// While the transferItems confirmation is up, the pending operation must already be counted:
-    /// the scan-time auto-verify pass isn't blocked by a modal and its guard reads
-    /// `activeFileOperationsCount`, so an uncounted prompt would let it hash the very files this
-    /// transfer overwrites. A decline reverts the count.
-    @MainActor
-    @Test func testOperationIsCountedDuringTransferPromptAndUncountedOnDecline() async throws {
-        let (manager, mockFM) = try makeTransferFixture()
-        var countDuringPrompt: Int?
-        manager.transferConfirmer = { [weak manager] _ in
-            countDuringPrompt = manager?.activeFileOperationsCount
-            return false
-        }
-
-        await manager.copyItems(
-            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
-            toPath: "/dst",
-            fileManager: mockFM
-        )
-
-        #expect(countDuringPrompt == 1)
-        #expect(manager.activeFileOperationsCount == 0)
-    }
-
-    /// A confirmed transfer must not be double-counted: the pre-count is handed to
-    /// `enqueueFileOperation(alreadyCounted:)`, whose completion decrements exactly once.
-    @MainActor
-    @Test func testConfirmedTransferCountReturnsToZeroAfterCompletion() async throws {
-        let (manager, mockFM) = try makeTransferFixture()
-        manager.transferConfirmer = { _ in true }
-
-        let copied = await manager.copyItems(
-            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
-            toPath: "/dst",
-            fileManager: mockFM
-        )
-
-        #expect(copied.count == 1)
-        #expect(manager.activeFileOperationsCount == 0)
-    }
-
     /// A row already marked in-flight refuses a second syncFile outright: a queued twin running
     /// during the first's prompt would stack a second prompt, and its exit would clear the shared
     /// syncing mark the first call still owns.
@@ -312,25 +249,6 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
         // The refused call must not have cleared the owner's mark.
         #expect(manager.syncingDifferenceIds.contains(diff.id))
-    }
-
-    /// A bulk sync refuses to start while any single-row sync is in flight (possibly parked at its
-    /// prompt): both could target the same difference. Mirrors Verify All.
-    @MainActor
-    @Test func testSyncAllRefusesWhileARowIsMarkedSyncing() async throws {
-        let (manager, mockFM, diff) = try makeDifferenceFixture()
-        var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
-        manager.markSyncing(ids: [diff.id])
-
-        await manager.syncAll(direction: .copyToRight)
-
-        #expect(prompts == 0)
-        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
-        #expect(manager.banner != nil)
     }
 
     /// The Verify-copy bulk path refuses under the same condition: its defer clears syncing ids
@@ -684,12 +602,14 @@ import Foundation
         )
         #expect(prompts == 1)
         #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(manager.undoManager?.canUndo == true)
 
         // Undo (removes the copy) and redo (re-copies) must not prompt again. Both are
         // asynchronous under the hood; poll for their observable effect.
         manager.undoManager?.undo()
         await waitUntil("undo removes the copy") { mockFM.virtualDisk["/dst/a.txt"] == nil }
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
+        #expect(mockFM.virtualDisk["/src/a.txt"] != nil)
 
         manager.undoManager?.redo()
         await waitUntil("redo restores the copy") { mockFM.virtualDisk["/dst/a.txt"] != nil }
@@ -753,53 +673,31 @@ import Foundation
 
     // MARK: - Container derivation
 
-    /// `transferContainers` strips the shared root-relative suffix from both sides, in the
-    /// action's direction, so a deep item still names the two compared folders.
-    @Test func testTransferContainersStripRelativePath() {
+    /// `transferContainers` names the two compared folders in the action's direction:
+    /// - a deep item strips the shared root-relative suffix from both sides;
+    /// - a pane rooted at the filesystem root yields "/" (the naive strip of "/a.txt" minus
+    ///   "a.txt" would leave "" and blank From/To lines in the prompt);
+    /// - an item path that does not end in relativePath (never true for engine-built differences,
+    ///   but constructible by hand) falls back to the immediate parent.
+    @Test(arguments: [
+        ("sub/deep.txt", "/left/root/sub/deep.txt", "/right/root/sub/deep.txt", FileDifference.SyncAction.copyToLeft, "/right/root", "/left/root"),
+        ("a.txt", "/a.txt", "/backup/a.txt", FileDifference.SyncAction.copyToRight, "/", "/backup"),
+        ("unrelated/suffix.txt", "/left/root/deep/item.txt", "/right/root/deep/item.txt", FileDifference.SyncAction.copyToRight,
+         "/left/root/deep", "/right/root/deep"),
+    ])
+    func testTransferContainers(relativePath: String, left: String, right: String, action: FileDifference.SyncAction,
+                                from: String, to: String) {
         let diff = FileDifference(
-            relativePath: "sub/deep.txt",
-            leftItemPath: "/left/root/sub/deep.txt",
-            rightItemPath: "/right/root/sub/deep.txt",
-            type: .missingOnLeft,
-            action: .copyToLeft,
-            description: "Missing on left"
+            relativePath: relativePath,
+            leftItemPath: left,
+            rightItemPath: right,
+            type: action == .copyToLeft ? .missingOnLeft : .missingOnRight,
+            action: action,
+            description: "Missing"
         )
         let containers = diff.transferContainers
-        #expect(containers.from == "/right/root")
-        #expect(containers.to == "/left/root")
-    }
-
-    /// A pane rooted at the filesystem root must yield "/": the naive suffix strip of "/a.txt"
-    /// minus "a.txt" would leave "" and blank From/To lines in the prompt.
-    @Test func testTransferContainersAtFilesystemRootYieldSlash() {
-        let diff = FileDifference(
-            relativePath: "a.txt",
-            leftItemPath: "/a.txt",
-            rightItemPath: "/backup/a.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
-        let containers = diff.transferContainers
-        #expect(containers.from == "/")
-        #expect(containers.to == "/backup")
-    }
-
-    /// An item path that does not end in relativePath (never true for engine-built
-    /// differences, but constructible by hand) falls back to the immediate parent instead
-    /// of producing garbage from the suffix arithmetic.
-    @Test func testTransferContainersFallBackToImmediateParent() {
-        let diff = FileDifference(
-            relativePath: "unrelated/suffix.txt",
-            leftItemPath: "/left/root/deep/item.txt",
-            rightItemPath: "/right/root/deep/item.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
-        let containers = diff.transferContainers
-        #expect(containers.from == "/left/root/deep")
-        #expect(containers.to == "/right/root/deep")
+        #expect(containers.from == from)
+        #expect(containers.to == to)
     }
 
     // MARK: - The prompt names the landing folder, not the destination root
@@ -829,44 +727,13 @@ import Foundation
         #expect(summary?.destinationDirectory == "/dst/Reports/2025")
         // The landing path itself is unchanged; only the wording follows it.
         #expect(mockFM.virtualDisk["/dst/Reports/2025/Q3.xlsx"] != nil)
-    }
 
-    /// An item at the pane root still names the root.
-    @MainActor
-    @Test func testCrossPaneSummaryAtRootStillNamesTheRoot() async throws {
-        let (manager, mockFM) = try makeTransferFixture()
-        var summary: TransferSummary?
-        manager.transferConfirmer = { s in
-            summary = s
-            return true
-        }
-
+        // An item at the pane root still names the root.
         await manager.copyItems(
             nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
             fromLeft: true, leftRoot: "/src", rightRoot: "/dst",
             fileManager: mockFM
         )
-
-        #expect(summary?.destinationDirectory == "/dst")
-    }
-
-    /// The drop and paste routes derive `<dir>/<name>`, whose parent is the directory they were
-    /// handed, so they report that directory.
-    @MainActor
-    @Test func testToPathSummaryStillNamesTheGivenDirectory() async throws {
-        let (manager, mockFM) = try makeTransferFixture()
-        var summary: TransferSummary?
-        manager.transferConfirmer = { s in
-            summary = s
-            return true
-        }
-
-        await manager.copyItems(
-            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
-            toPath: "/dst",
-            fileManager: mockFM
-        )
-
         #expect(summary?.destinationDirectory == "/dst")
     }
 

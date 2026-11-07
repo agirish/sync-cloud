@@ -17,26 +17,7 @@ import Foundation
 
     @MainActor
     private func manager() -> FileSyncManager {
-        let m = FileSyncManager()
-        m.undoManager = UndoManager()
-        m.collisionResolver = { _ in .replace }
-        m.bulkCollisionResolver = { _ in (.replace, false) }
-        m.permanentDeleteConfirmer = { _ in false }
-        return m
-    }
-
-    private func write(_ text: String, _ url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(text.utf8).write(to: url)
-    }
-
-    private func read(_ url: URL) -> String? {
-        (try? Data(contentsOf: url)).flatMap { String(data: $0, encoding: .utf8) }
-    }
-
-    /// Whether any entry, a dangling link included, is at `url`.
-    private func entryExists(_ url: URL) -> Bool {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
     /// Puts a different item at a Trash backup's path, as emptying the Trash and then trashing
@@ -55,49 +36,35 @@ import Foundation
     // MARK: FR27
 
     /// A delete's ⌘Z restores only the item the delete put in the Trash. A stranger at its Trash
-    /// path stays there, nothing lands at the original path, and the banner says why.
+    /// path stays there, nothing lands at the original path, and the banner says why. The control
+    /// (`strangerInTrash: false`): the same delete, untouched in the Trash, comes back.
     @MainActor
-    @Test func aDeleteUndoLeavesAStrangerAtItsTrashPathInTheTrash() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-delete")
+    @Test(arguments: [true, false])
+    func aDeleteUndoLeavesAStrangerAtItsTrashPathInTheTrash(strangerInTrash: Bool) async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-delete\(strangerInTrash ? "" : "-control")")
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
         let original = root.appendingPathComponent("folder/report.txt")
-        try write("the report", original)
+        try writeText("the report", original)
         var trashedURL: NSURL?
         try trash.trashItem(at: original, resultingItemURL: &trashedURL)
         let backup = try #require(trashedURL as URL?)
 
         let m = manager()
         await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
-        try replaceInTrash(backup)
+        if strangerInTrash { try replaceInTrash(backup) }
 
         await undoAndDrain(m)
 
-        #expect(!entryExists(original), "the undo restored an item the delete never put in the Trash")
-        #expect(read(backup) == "an unrelated file the user trashed later")
-        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
-                "banner: \(m.banner?.message ?? "nil")")
-    }
-
-    /// The control: the same delete, untouched in the Trash, comes back.
-    @MainActor
-    @Test func aDeleteUndoStillRestoresItsOwnItem() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-delete-control")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = ScratchTrash(in: root)
-        let original = root.appendingPathComponent("folder/report.txt")
-        try write("the report", original)
-        var trashedURL: NSURL?
-        try trash.trashItem(at: original, resultingItemURL: &trashedURL)
-        let backup = try #require(trashedURL as URL?)
-
-        let m = manager()
-        await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
-
-        await undoAndDrain(m)
-
-        #expect(read(original) == "the report")
-        #expect(!entryExists(backup))
+        if strangerInTrash {
+            #expect(!entryExists(original), "the undo restored an item the delete never put in the Trash")
+            #expect(readText(backup) == "an unrelated file the user trashed later")
+            #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
+                    "banner: \(m.banner?.message ?? "nil")")
+        } else {
+            #expect(readText(original) == "the report")
+            #expect(!entryExists(backup))
+        }
     }
 
     /// A deleted folder that Finder wrote a `.DS_Store` into while it sat in the Trash (the user
@@ -111,8 +78,8 @@ import Foundation
 
         func deleteFolder(_ name: String) throws -> (original: URL, backup: URL) {
             let original = root.appendingPathComponent("docs/\(name)")
-            try write("one", original.appendingPathComponent("one.txt"))
-            try write("two", original.appendingPathComponent("sub/two.txt"))
+            try writeText("one", original.appendingPathComponent("one.txt"))
+            try writeText("two", original.appendingPathComponent("sub/two.txt"))
             var trashedURL: NSURL?
             try trash.trashItem(at: original, resultingItemURL: &trashedURL)
             return (original, try #require(trashedURL as URL?))
@@ -122,9 +89,9 @@ import Foundation
         let m = manager()
         await m.registerRestoreItems(urls: [browsed.original], trashedItems: [browsed.backup],
                                      actionName: "Delete 1 Item", fileManager: trash).value
-        try write("finder view state", browsed.backup.appendingPathComponent(".DS_Store"))
+        try writeText("finder view state", browsed.backup.appendingPathComponent(".DS_Store"))
         await undoAndDrain(m)
-        #expect(read(browsed.original.appendingPathComponent("sub/two.txt")) == "two",
+        #expect(readText(browsed.original.appendingPathComponent("sub/two.txt")) == "two",
                 "a folder Finder merely opened in the Trash was refused as a stranger")
 
         let swapped = try deleteFolder("Swapped")
@@ -132,59 +99,41 @@ import Foundation
         await m2.registerRestoreItems(urls: [swapped.original], trashedItems: [swapped.backup],
                                       actionName: "Delete 1 Item", fileManager: trash).value
         try FileManager.default.removeItem(at: swapped.backup)
-        try write("someone else's", swapped.backup.appendingPathComponent("other.txt"))
+        try writeText("someone else's", swapped.backup.appendingPathComponent("other.txt"))
         await undoAndDrain(m2)
         #expect(!entryExists(swapped.original), "a different folder of the same name was restored")
-        #expect(read(swapped.backup.appendingPathComponent("other.txt")) == "someone else's")
+        #expect(readText(swapped.backup.appendingPathComponent("other.txt")) == "someone else's")
     }
 
-    /// A move that replaced a file: ⌘Z moves the file back, and puts back only the file the move
-    /// sent to the Trash, not one that has taken its name there since.
+    /// A move or copy that replaced a file: ⌘Z moves the file back (or removes the copy), and puts
+    /// back only the file the transfer sent to the Trash, not one that has taken its name there since.
     @MainActor
-    @Test func aMoveUndoDoesNotPutAStrangerFromTheTrashInPlaceOfTheReplacedFile() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-move")
+    @Test(arguments: [true, false])
+    func aTransferUndoDoesNotPutAStrangerFromTheTrashInPlaceOfTheReplacedFile(isMove: Bool) async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-\(isMove ? "move" : "copy")")
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
         let from = root.appendingPathComponent("src/f.txt")
         let to = root.appendingPathComponent("dst/f.txt")
-        try write("moved", from)
-        try write("replaced", to)
-        let backup = try #require(try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: trash))
-
+        try writeText(isMove ? "moved" : "copied", from)
+        try writeText("replaced", to)
         let m = manager()
-        await m.registerMoveUndo(items: [(from: from, to: to, overwritten: backup)], actionName: "Move 1 Item", fileManager: trash).value
+        let backup: URL
+        if isMove {
+            backup = try #require(try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: trash))
+            await m.registerMoveUndo(items: [(from: from, to: to, overwritten: backup)], actionName: "Move 1 Item", fileManager: trash).value
+        } else {
+            backup = try #require(try FileSyncManager.safeCopyItem(at: from, to: to, fileManager: trash))
+            await m.registerCopyUndo(items: [(source: from, destination: to, overwritten: backup)],
+                                     actionName: "Copy 1 Item", fileManager: trash).value
+        }
         try replaceInTrash(backup)
 
         await undoAndDrain(m)
 
-        #expect(read(from) == "moved", "the move itself was not undone")
-        #expect(!entryExists(to), "a file the move never displaced was put at its destination")
-        #expect(read(backup) == "an unrelated file the user trashed later")
-        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
-                "banner: \(m.banner?.message ?? "nil")")
-    }
-
-    /// The copy-undo's twin: the copy goes, and a stranger in the Trash is not put in its place.
-    @MainActor
-    @Test func aCopyUndoDoesNotPutAStrangerFromTheTrashInPlaceOfTheReplacedFile() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-copy")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = ScratchTrash(in: root)
-        let source = root.appendingPathComponent("src/f.txt")
-        let destination = root.appendingPathComponent("dst/f.txt")
-        try write("copied", source)
-        try write("replaced", destination)
-        let backup = try #require(try FileSyncManager.safeCopyItem(at: source, to: destination, fileManager: trash))
-
-        let m = manager()
-        await m.registerCopyUndo(items: [(source: source, destination: destination, overwritten: backup)],
-                                 actionName: "Copy 1 Item", fileManager: trash).value
-        try replaceInTrash(backup)
-
-        await undoAndDrain(m)
-
-        #expect(!entryExists(destination), "a file the copy never displaced was put at its destination")
-        #expect(read(backup) == "an unrelated file the user trashed later")
+        if isMove { #expect(readText(from) == "moved", "the move itself was not undone") }
+        #expect(!entryExists(to), "a file the transfer never displaced was put at its destination")
+        #expect(readText(backup) == "an unrelated file the user trashed later")
         #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
                 "banner: \(m.banner?.message ?? "nil")")
     }
@@ -204,8 +153,8 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unrecorded")
         let trash = ScratchTrash(in: root)
         let original = root.appendingPathComponent("docs/Project")
-        try write("one", original.appendingPathComponent("one.txt"))
-        try write("secret", original.appendingPathComponent("private/s.txt"))
+        try writeText("one", original.appendingPathComponent("one.txt"))
+        try writeText("secret", original.appendingPathComponent("private/s.txt"))
         let unlockOriginal = try lock(original.appendingPathComponent("private"))
         var trashedURL: NSURL?
         try trash.trashItem(at: original, resultingItemURL: &trashedURL)
@@ -223,7 +172,7 @@ import Foundation
         await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
         await undoAndDrain(m)
 
-        #expect(read(original.appendingPathComponent("one.txt")) == "one",
+        #expect(readText(original.appendingPathComponent("one.txt")) == "one",
                 "the undo refused the folder this delete put in the Trash: \(m.banner?.message ?? "nil")")
         #expect(!entryExists(backup))
     }
@@ -236,8 +185,8 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unread-stranger")
         let trash = ScratchTrash(in: root)
         let original = root.appendingPathComponent("docs/Project")
-        try write("one", original.appendingPathComponent("one.txt"))
-        try write("secret", original.appendingPathComponent("private/s.txt"))
+        try writeText("one", original.appendingPathComponent("one.txt"))
+        try writeText("secret", original.appendingPathComponent("private/s.txt"))
         let unlockOriginal = try lock(original.appendingPathComponent("private"))
         var trashedURL: NSURL?
         try trash.trashItem(at: original, resultingItemURL: &trashedURL)
@@ -255,15 +204,15 @@ import Foundation
         try FileManager.default.setAttributes([.posixPermissions: 0o755],
                                               ofItemAtPath: backup.appendingPathComponent("private").path)
         try FileManager.default.removeItem(at: backup)
-        try write("one", backup.appendingPathComponent("one.txt"))
-        try write("secret", backup.appendingPathComponent("private/s.txt"))
+        try writeText("one", backup.appendingPathComponent("one.txt"))
+        try writeText("secret", backup.appendingPathComponent("private/s.txt"))
         let unlockStranger = try lock(backup.appendingPathComponent("private"))
         defer { unlockStranger() }
 
         await undoAndDrain(m)
 
         #expect(!entryExists(original), "the undo restored a folder the delete never put in the Trash")
-        #expect(read(backup.appendingPathComponent("one.txt")) == "one")
+        #expect(readText(backup.appendingPathComponent("one.txt")) == "one")
         #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
                 "banner: \(m.banner?.message ?? "nil")")
     }
@@ -275,8 +224,8 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unreadable-now")
         let trash = ScratchTrash(in: root)
         let original = root.appendingPathComponent("docs/Project")
-        try write("one", original.appendingPathComponent("one.txt"))
-        try write("secret", original.appendingPathComponent("private/s.txt"))
+        try writeText("one", original.appendingPathComponent("one.txt"))
+        try writeText("secret", original.appendingPathComponent("private/s.txt"))
         var trashedURL: NSURL?
         try trash.trashItem(at: original, resultingItemURL: &trashedURL)
         let backup = try #require(trashedURL as URL?)
@@ -288,7 +237,7 @@ import Foundation
         await undoAndDrain(m)
 
         #expect(!entryExists(original))
-        #expect(read(backup.appendingPathComponent("one.txt")) == "one")
+        #expect(readText(backup.appendingPathComponent("one.txt")) == "one")
         #expect(m.banner?.message == "Undo didn’t restore “Project” — the item in the Trash under that name couldn’t be read",
                 "banner: \(m.banner?.message ?? "nil")")
     }
@@ -299,9 +248,9 @@ import Foundation
                                by transfer: (URL, URL) throws -> URL?) throws -> (src: URL, dst: URL, backup: URL) {
         let src = root.appendingPathComponent("src/Project")
         let dst = root.appendingPathComponent("dst/Project")
-        try write("new", src.appendingPathComponent("new.txt"))
-        try write("old", dst.appendingPathComponent("old.txt"))
-        try write("old private", dst.appendingPathComponent("private/p.txt"))
+        try writeText("new", src.appendingPathComponent("new.txt"))
+        try writeText("old", dst.appendingPathComponent("old.txt"))
+        try writeText("old private", dst.appendingPathComponent("private/p.txt"))
         let backup = try #require(try transfer(src, dst))
         return (src, dst, backup)
     }
@@ -309,48 +258,36 @@ import Foundation
     /// A copy-undo whose backup was recorded but can't be read at undo time refuses before it
     /// trashes the copy, which would leave the destination empty and the original stranded. Both
     /// stay recoverable, and the banner says the backup couldn't be read, not that it is a stranger.
-    @MainActor
-    @Test func aCopyUndoWhoseBackupCannotBeReadLeavesTheCopyInPlace() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-copy-unreadable")
-        let trash = ScratchTrash(in: root)
-        let (src, dst, backup) = try replaceFolder(in: root, trash: trash) {
-            try FileSyncManager.safeCopyItem(at: $0, to: $1, fileManager: trash)
-        }
-        let m = manager()
-        await m.registerCopyUndo(items: [(source: src, destination: dst, overwritten: backup)],
-                                 actionName: "Copy 1 Item", fileManager: trash).value
-        let unlock = try lock(backup.appendingPathComponent("private"))
-        defer { unlock(); try? FileManager.default.removeItem(at: root) }
-
-        await undoAndDrain(m)
-
-        #expect(read(dst.appendingPathComponent("new.txt")) == "new", "the copy was removed though its backup could not be put back")
-        #expect(read(backup.appendingPathComponent("old.txt")) == "old")
-        #expect(m.banner?.message.contains("couldn’t be read") == true, "banner: \(m.banner?.message ?? "nil")")
-        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == false)
-    }
-
     /// The move-undo's twin: the moved folder is not moved back while the backup it would restore
     /// in its place can't be read.
     @MainActor
-    @Test func aMoveUndoWhoseBackupCannotBeReadLeavesTheMovedItemInPlace() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-move-unreadable")
+    @Test(arguments: [false, true])
+    func aTransferUndoWhoseBackupCannotBeReadLeavesTheItemInPlace(isMove: Bool) async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-\(isMove ? "move" : "copy")-unreadable")
         let trash = ScratchTrash(in: root)
         let (src, dst, backup) = try replaceFolder(in: root, trash: trash) {
-            try FileSyncManager.safeMoveItem(at: $0, to: $1, fileManager: trash)
+            isMove ? try FileSyncManager.safeMoveItem(at: $0, to: $1, fileManager: trash)
+                   : try FileSyncManager.safeCopyItem(at: $0, to: $1, fileManager: trash)
         }
         let m = manager()
-        await m.registerMoveUndo(items: [(from: src, to: dst, overwritten: backup)],
-                                 actionName: "Move 1 Item", fileManager: trash).value
+        if isMove {
+            await m.registerMoveUndo(items: [(from: src, to: dst, overwritten: backup)],
+                                     actionName: "Move 1 Item", fileManager: trash).value
+        } else {
+            await m.registerCopyUndo(items: [(source: src, destination: dst, overwritten: backup)],
+                                     actionName: "Copy 1 Item", fileManager: trash).value
+        }
         let unlock = try lock(backup.appendingPathComponent("private"))
         defer { unlock(); try? FileManager.default.removeItem(at: root) }
 
         await undoAndDrain(m)
 
-        #expect(read(dst.appendingPathComponent("new.txt")) == "new", "the moved item went back though its backup could not be put back")
-        #expect(!entryExists(src))
-        #expect(read(backup.appendingPathComponent("old.txt")) == "old")
+        #expect(readText(dst.appendingPathComponent("new.txt")) == "new",
+                "the item was undone though its backup could not be put back")
+        #expect(entryExists(src) == !isMove)
+        #expect(readText(backup.appendingPathComponent("old.txt")) == "old")
         #expect(m.banner?.message.contains("couldn’t be read") == true, "banner: \(m.banner?.message ?? "nil")")
+        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == false)
     }
 
     // MARK: FR28
@@ -364,7 +301,7 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let from = root.appendingPathComponent("src/link")
         let to = root.appendingPathComponent("dst/link")
-        try write("target", root.appendingPathComponent("src/target.txt"))
+        try writeText("target", root.appendingPathComponent("src/target.txt"))
         try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: from.path, withDestinationPath: "target.txt")
         _ = try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: trash)
@@ -417,7 +354,7 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let source = root.appendingPathComponent("src/link")
         let destination = root.appendingPathComponent("dst/link")
-        try write("target", root.appendingPathComponent("src/target.txt"))
+        try writeText("target", root.appendingPathComponent("src/target.txt"))
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: source.path, withDestinationPath: "target.txt")
         _ = try FileSyncManager.safeCopyItem(at: source, to: destination, fileManager: trash)
@@ -446,20 +383,14 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("a", src.appendingPathComponent("a.txt"))
-        try write("c", src.appendingPathComponent("sub/c.txt"))
-        try write("kept", dst.appendingPathComponent("kept.txt"))
-        try write("other c", dst.appendingPathComponent("sub/other.txt"))
+        try writeText("a", src.appendingPathComponent("a.txt"))
+        try writeText("c", src.appendingPathComponent("sub/c.txt"))
+        try writeText("kept", dst.appendingPathComponent("kept.txt"))
+        try writeText("other c", dst.appendingPathComponent("sub/other.txt"))
         // Marks on both folders a merge empties, standing in for tags, icon and dates.
-        let mark = "com.synccloud.test.fr35"
         for folder in [src, src.appendingPathComponent("sub")] {
             let value = Array(folder.lastPathComponent.utf8)
-            #expect(setxattr(folder.path, mark, value, value.count, 0, 0) == 0)
-        }
-        func markOn(_ folder: URL) -> String? {
-            var buffer = [UInt8](repeating: 0, count: 64)
-            let n = getxattr(folder.path, mark, &buffer, buffer.count, 0, 0)
-            return n > 0 ? String(decoding: buffer.prefix(n), as: UTF8.self) : nil
+            #expect(setxattr(folder.path, Self.mark, value, value.count, 0, 0) == 0)
         }
 
         let m = manager()
@@ -472,14 +403,14 @@ import Foundation
 
         await undoAndDrain(m)
 
-        #expect(read(src.appendingPathComponent("a.txt")) == "a")
-        #expect(read(src.appendingPathComponent("sub/c.txt")) == "c")
+        #expect(readText(src.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(src.appendingPathComponent("sub/c.txt")) == "c")
         #expect(markOn(src) == "Reports", "the source folder is a new one, not the original")
         #expect(markOn(src.appendingPathComponent("sub")) == "sub", "the nested folder is a new one, not the original")
         #expect(!trash.names.contains("Reports") && !trash.names.contains("sub"),
                 "the original folders are still in the Trash: \(trash.names)")
-        #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
-        #expect(read(dst.appendingPathComponent("sub/other.txt")) == "other c")
+        #expect(readText(dst.appendingPathComponent("kept.txt")) == "kept")
+        #expect(readText(dst.appendingPathComponent("sub/other.txt")) == "other c")
     }
 
     /// A merge that moved nothing out still has an undo. Its source held only a `.DS_Store`, so no
@@ -491,23 +422,23 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("finder", src.appendingPathComponent(".DS_Store"))
-        try write("kept", dst.appendingPathComponent("kept.txt"))
+        try writeText("finder", src.appendingPathComponent(".DS_Store"))
+        try writeText("kept", dst.appendingPathComponent("kept.txt"))
         // The destination keeps its own `.DS_Store`, so the source's is skipped, not moved.
-        try write("its own", dst.appendingPathComponent(".DS_Store"))
+        try writeText("its own", dst.appendingPathComponent(".DS_Store"))
         let m = manager()
         m.collisionResolver = { _ in .merge }
         _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
                               toPath: dst.deletingLastPathComponent().path, fileManager: trash)
         try #require(!entryExists(src), "premise: the merge did not trash its emptied source")
-        try #require(read(dst.appendingPathComponent(".DS_Store")) == "its own", "premise: a child landed")
+        try #require(readText(dst.appendingPathComponent(".DS_Store")) == "its own", "premise: a child landed")
         #expect(m.undoManager?.canUndo == true, "nothing was registered to bring the folder back")
 
         await undoAndDrain(m)
 
         #expect(entryExists(src))
         #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
-        #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
+        #expect(readText(dst.appendingPathComponent("kept.txt")) == "kept")
     }
 
     /// Moves `src/Reports` (holding `a.txt`) into a `dst` that already has a `Reports`, with Merge,
@@ -516,16 +447,16 @@ import Foundation
     private func mergeMoveAndUndo(in root: URL, trash: ScratchTrash) async throws -> (m: FileSyncManager, src: URL, dst: URL) {
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("a", src.appendingPathComponent("a.txt"))
-        try write("kept", dst.appendingPathComponent("kept.txt"))
+        try writeText("a", src.appendingPathComponent("a.txt"))
+        try writeText("kept", dst.appendingPathComponent("kept.txt"))
         let m = manager()
         m.collisionResolver = { _ in .merge }
         _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
                               toPath: dst.deletingLastPathComponent().path, fileManager: trash)
-        #expect(read(dst.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(dst.appendingPathComponent("a.txt")) == "a")
         #expect(!entryExists(src))
         await undoAndDrain(m)
-        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(src.appendingPathComponent("a.txt")) == "a")
         #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
         return (m, src, dst)
     }
@@ -556,7 +487,7 @@ import Foundation
 
         await redoAndDrain(m)
 
-        #expect(read(src.appendingPathComponent("a.txt")) == "a edited",
+        #expect(readText(src.appendingPathComponent("a.txt")) == "a edited",
                 "the refused child left its folder; trash: \(trash.names)")
         #expect(!trash.names.contains("Reports"), "the folder went to the Trash: \(trash.names)")
         #expect(!entryExists(dst.appendingPathComponent("a.txt")))
@@ -575,7 +506,7 @@ import Foundation
 
         await redoAndDrain(m)
 
-        #expect(read(dst.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(dst.appendingPathComponent("a.txt")) == "a")
         #expect(!entryExists(src), "the emptied folder was left behind")
         #expect(trash.names.contains("Reports"), "trash: \(trash.names)")
     }
@@ -589,7 +520,7 @@ import Foundation
                                    "trash: \(trash.names)")
         #expect(try FileManager.default.contentsOfDirectory(atPath: trashed.path).isEmpty,
                 "the premise: the merge left the folder empty")
-        try write("finder view state", trashed.appendingPathComponent(".DS_Store"))
+        try writeText("finder view state", trashed.appendingPathComponent(".DS_Store"))
     }
 
     private static let mark = "com.synccloud.test.fr35"
@@ -605,29 +536,49 @@ import Foundation
         return n > 0 ? String(decoding: buffer.prefix(n), as: UTF8.self) : nil
     }
 
-    /// The source folder a merge trashed is held to the rule of every other Trash backup: deep, OS
-    /// noise ignored. Finder writes a `.DS_Store` into a folder the user merely opens in the Trash,
-    /// moving its date and child count; a ⌘Z after a look must still put that folder back.
+    /// Moves `src/Reports` (holding `a.txt`, marked "original") into a `dst` that already has a
+    /// `Reports`, with Merge. `afterRedo` then undoes and redoes it, so the record the next ⌘Z reads
+    /// is the redo's. Returns the moment the move (or redo) does: the callers tamper with the
+    /// Trash on the next line (`docs/flaky-tests.md`, entry 41).
     @MainActor
-    @Test func aMergeMoveUndoRestoresTheSourceFolderFinderBrowsedInTheTrash() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = ScratchTrash(in: root)
+    private func mergeMove(in root: URL, trash: ScratchTrash, afterRedo: Bool) async throws -> (m: FileSyncManager, src: URL, dst: URL) {
+        if afterRedo {
+            let (m, src, dst) = try await mergeMoveAndUndo(in: root, trash: trash)
+            setMark(src)
+            await redoAndDrain(m)
+            return (m, src, dst)
+        }
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("a", src.appendingPathComponent("a.txt"))
-        try write("kept", dst.appendingPathComponent("kept.txt"))
+        try writeText("a", src.appendingPathComponent("a.txt"))
+        try writeText("kept", dst.appendingPathComponent("kept.txt"))
         setMark(src)
-
         let m = manager()
         m.collisionResolver = { _ in .merge }
         _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
                               toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        return (m, src, dst)
+    }
+
+    /// The source folder a merge trashed is held to the rule of every other Trash backup: deep, OS
+    /// noise ignored. Finder writes a `.DS_Store` into a folder the user merely opens in the Trash,
+    /// moving its date and child count; a ⌘Z after a look must still put that folder back. The same
+    /// after a redo: the redo's record of the folder it put back in the Trash follows the same rule.
+    @MainActor
+    @Test(arguments: [false, true])
+    func aMergeMoveUndoRestoresTheSourceFolderFinderBrowsedInTheTrash(afterRedo: Bool) async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source\(afterRedo ? "-redo" : "")")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let (m, src, _) = try await mergeMove(in: root, trash: trash, afterRedo: afterRedo)
+        if afterRedo {
+            #expect(!entryExists(src) && trash.names.contains("Reports"), "the redo did not trash the emptied folder: \(trash.names)")
+        }
         try browseTrashedReports(trash)
         await undoAndDrain(m)
 
         #expect(markOn(src) == "original", "the folder Finder browsed in the Trash was refused; banner: \(m.banner?.message ?? "nil")")
-        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(src.appendingPathComponent("a.txt")) == "a")
         #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
     }
 
@@ -635,49 +586,23 @@ import Foundation
     /// merge-emptied folder has the same contents digest, so another empty `Reports` trashed into
     /// the freed name would match; the folder's own file number tells them apart, and a
     /// `.DS_Store` doesn't change it. The stranger stays in the Trash, its mark with it, and the
-    /// child goes back into a folder made for it.
+    /// child goes back into a folder made for it. The same after a redo, whose record of the folder
+    /// it put back in the Trash is the one the next ⌘Z reads.
     @MainActor
-    @Test func aMergeMoveUndoLeavesAnEmptyStrangerFolderAtTheSourceFoldersTrashPathInTheTrash() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source")
+    @Test(arguments: [false, true])
+    func aMergeMoveUndoLeavesAnEmptyStrangerFolderAtTheSourceFoldersTrashPathInTheTrash(afterRedo: Bool) async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source\(afterRedo ? "-redo" : "")")
         defer { try? FileManager.default.removeItem(at: root) }
         let trash = ScratchTrash(in: root)
-        let src = root.appendingPathComponent("src/Reports")
-        let dst = root.appendingPathComponent("dst/Reports")
-        try write("a", src.appendingPathComponent("a.txt"))
-        try write("kept", dst.appendingPathComponent("kept.txt"))
-        setMark(src)
-
-        let m = manager()
-        m.collisionResolver = { _ in .merge }
-        _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
-                              toPath: dst.deletingLastPathComponent().path, fileManager: trash)
+        let (m, src, dst) = try await mergeMove(in: root, trash: trash, afterRedo: afterRedo)
         let trashed = try swapTrashedReportsForAnEmptyStranger(trash)
 
         await undoAndDrain(m)
 
         #expect(markOn(trashed) == "stranger", "the stranger left the Trash; src mark: \(markOn(src) ?? "nil")")
         #expect(markOn(src) == nil, "the stranger was put back as the source folder")
-        #expect(read(src.appendingPathComponent("a.txt")) == "a")
-        #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
-    }
-
-    /// The same after a redo, whose record of the folder it put back in the Trash is the one the
-    /// next ⌘Z reads.
-    @MainActor
-    @Test func aMergeMoveUndoAfterARedoLeavesAnEmptyStrangerFolderInTheTrash() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source-redo")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = ScratchTrash(in: root)
-        let (m, src, _) = try await mergeMoveAndUndo(in: root, trash: trash)
-        setMark(src)
-
-        await redoAndDrain(m)
-        let trashed = try swapTrashedReportsForAnEmptyStranger(trash)
-        await undoAndDrain(m)
-
-        #expect(markOn(trashed) == "stranger", "the stranger left the Trash; src mark: \(markOn(src) ?? "nil")")
-        #expect(markOn(src) == nil, "the stranger was put back as the source folder")
-        #expect(read(src.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(src.appendingPathComponent("a.txt")) == "a")
+        #expect(readText(dst.appendingPathComponent("kept.txt")) == "kept")
     }
 
     /// Empties the `Reports` folder out of the Trash and puts another empty `Reports`, marked
@@ -693,25 +618,5 @@ import Foundation
         let value = Array("stranger".utf8)
         #expect(setxattr(trashed.path, Self.mark, value, value.count, 0, 0) == 0)
         return trashed
-    }
-
-    /// The same after a redo: the redo's record of the folder it put back in the Trash follows the
-    /// same rule, so the next ⌘Z after a look in the Trash still restores it.
-    @MainActor
-    @Test func aMergeMoveUndoAfterARedoRestoresTheSourceFolderFinderBrowsedInTheTrash() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source-redo")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let trash = ScratchTrash(in: root)
-        let (m, src, _) = try await mergeMoveAndUndo(in: root, trash: trash)
-        setMark(src)
-
-        await redoAndDrain(m)
-        #expect(!entryExists(src) && trash.names.contains("Reports"), "the redo did not trash the emptied folder: \(trash.names)")
-        try browseTrashedReports(trash)
-        await undoAndDrain(m)
-
-        #expect(markOn(src) == "original", "the folder Finder browsed in the Trash was refused; banner: \(m.banner?.message ?? "nil")")
-        #expect(read(src.appendingPathComponent("a.txt")) == "a")
-        #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
     }
 }

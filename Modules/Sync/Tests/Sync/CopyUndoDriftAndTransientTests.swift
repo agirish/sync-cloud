@@ -16,16 +16,7 @@ import EventsTestSupport
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
-    }
-
-    private func file(_ size: Int) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
     private static func transientBusyError() -> Error {
@@ -43,8 +34,8 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5) // will be overwritten (collision .replace) and trashed
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5) // will be overwritten (collision .replace) and trashed
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -53,7 +44,7 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk[backupPath] != nil)
 
         // A different item (size 777) takes the copy's place before the undo.
-        mockFM.virtualDisk["/dst/f.txt"] = file(777)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(777)
         manager.banner = nil
 
         manager.undoManager?.undo()
@@ -83,8 +74,8 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -111,9 +102,9 @@ import EventsTestSupport
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/srcA"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/srcB"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/srcA/f.txt"] = file(100)
-        mockFM.virtualDisk["/srcB/f.txt"] = file(200)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)      // the pre-batch original
+        mockFM.virtualDisk["/srcA/f.txt"] = .file(100)
+        mockFM.virtualDisk["/srcB/f.txt"] = .file(200)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)      // the pre-batch original
 
         // Installed BEFORE the copy: the undo registration captures the confirmer.
         var promptedPaths: [String] = []
@@ -145,9 +136,9 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/F.txt"] = file(100)
-        mockFM.virtualDisk["/src/f.txt"] = file(200)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)       // displaced by the second copy → its backup
+        mockFM.virtualDisk["/src/F.txt"] = .file(100)
+        mockFM.virtualDisk["/src/f.txt"] = .file(200)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)       // displaced by the second copy → its backup
 
         await manager.copyItems(nodes: [FileNode(id: "/src/F.txt", name: "F.txt", isDirectory: false),
                                         FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)],
@@ -176,7 +167,7 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folder"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/folder/inner.txt"] = file(50)
+        mockFM.virtualDisk["/src/folder/inner.txt"] = .file(50)
 
         var promptFired = false
         manager.permanentDeleteConfirmer = { _ in promptFired = true; return true }
@@ -202,8 +193,8 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)           // will be displaced into the backup
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)           // will be displaced into the backup
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -227,7 +218,7 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
 
         // The prompt must never fire for a transient failure, even one that would answer yes.
         // Installed before the copy so the undo registration captures it.
@@ -255,34 +246,6 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
         #expect(!mockFM.attemptedRemovePaths.contains("/dst/f.txt"))
         #expect(promptFired == false)
-    }
-
-    /// A genuinely Trash-less volume (ENOTSUP) still escalates to the permanent-delete
-    /// confirmation.
-    @MainActor
-    @Test func copyUndoNonTransientTrashFailureStillEscalates() async throws {
-        let manager = makeManager()
-        var promptFired = false
-        manager.permanentDeleteConfirmer = { _ in
-            promptFired = true
-            return false
-        }
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
-
-        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
-        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
-
-        mockFM.shouldFailTrash = true // ENOTSUP — non-transient
-        manager.banner = nil
-
-        manager.undoManager?.undo()
-        await waitUntil("the declined-confirm undo settles") { manager.activeFileOperationsCount == 0 }
-        #expect(promptFired, "a Trash-less volume did not offer the permanent delete")
-        // Declined permanent delete: the copy stays.
-        #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
     }
 
     // MARK: Create-folder undo
@@ -494,28 +457,6 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
         #expect(await log.entries.contains {
             $0.level == .error && $0.message.contains("Undo (New Folder): FAILED to permanently delete")
-        })
-    }
-
-    /// The user declines the permanent delete, so the folder stays. Legitimate, but it is logged,
-    /// or "User triggered Undo: New Folder" followed by nothing reads as a completed undo.
-    @MainActor
-    @Test func createFolderUndoRecordsThatTheUserDeclinedThePermanentDelete() async throws {
-        let log = LogCapture()
-        let manager = makeManager()   // confirmer declines
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/New Folder"), withIntermediateDirectories: true)
-
-        manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/dst/New Folder"), fileManager: mockFM)
-        mockFM.shouldFailTrash = true
-
-        manager.undoManager?.undo()
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-
-        #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
-        #expect(await log.entries.contains {
-            $0.message.contains("Undo (New Folder)") && $0.message.contains("declined")
         })
     }
 }

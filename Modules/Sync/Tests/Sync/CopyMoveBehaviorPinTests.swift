@@ -24,12 +24,7 @@ import EventsTestSupport
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, true) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, true))
     }
 
     // MARK: - Where a pane transfer lands (FR37, FR38)
@@ -167,87 +162,63 @@ import EventsTestSupport
 
     // MARK: - Same-URL handling (source == derived target)
 
-    /// Copying onto itself (both panes rooted at the same directory) keeps both: the copy lands
-    /// under a uniquified name, is undoable as a Copy, and counts as fully copied.
+    /// Which entry point a same-URL transfer goes through.
+    enum Route: Sendable { case pane, path }
+
+    /// Copying onto itself (both panes rooted at the same directory, or copy-to-path onto the
+    /// source directory) keeps both: the copy lands under a uniquified name, is undoable as a
+    /// Copy, and counts as fully copied.
     @MainActor
-    @Test func testCopyItemsFromLeftOntoItselfKeepsBoth() async throws {
+    @Test(arguments: [Route.pane, .path])
+    func testCopyItemsOntoItselfKeepsBoth(route: Route) async throws {
         let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/pinSameCopyPane.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let node = FileNode(id: "/src/pinSameCopyPane.txt", name: "pinSameCopyPane.txt", isDirectory: false)
+        let name = route == .pane ? "pinSameCopyPane" : "pinSameCopyPath"
+        mockFM.virtualDisk["/src/\(name).txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/\(name).txt", name: "\(name).txt", isDirectory: false)
 
-        let copied = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/src", fileManager: mockFM)
+        let copied = route == .pane
+            ? await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/src", fileManager: mockFM)
+            : await manager.copyItems(nodes: [node], toPath: "/src", fileManager: mockFM)
 
-        #expect(mockFM.virtualDisk["/src/pinSameCopyPane.txt"] != nil)
-        #expect(mockFM.virtualDisk["/src/pinSameCopyPane 2.txt"] != nil)
-        #expect(copied.map(\.id) == ["/src/pinSameCopyPane.txt"])
+        #expect(mockFM.virtualDisk["/src/\(name).txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/\(name) 2.txt"] != nil)
+        #expect(copied.map(\.id) == ["/src/\(name).txt"])
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Item")
-        #expect(await loggerContains(log, "Copied 1 item(s) between panes"))
+        #expect(await loggerContains(log, route == .pane ? "Copied 1 item(s) between panes" : "Copied 1 item(s) to /src"))
     }
 
-    /// Moving onto itself is skipped (with a debug trace), returns no moved nodes, and registers
-    /// no undo; the final log reports the partial count 0 of 1.
+    /// Moving onto itself is skipped: nothing moves, it returns no moved nodes, and registers no
+    /// undo. The pane variant leaves a debug trace, and its final log reports the partial count
+    /// 0 of 1.
     @MainActor
-    @Test func testMoveItemsFromLeftOntoItselfSkips() async throws {
+    @Test(arguments: [Route.pane, .path])
+    func testMoveItemsOntoItselfSkips(route: Route) async throws {
         let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/pinSameMovePane.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let node = FileNode(id: "/src/pinSameMovePane.txt", name: "pinSameMovePane.txt", isDirectory: false)
+        let name = route == .pane ? "pinSameMovePane" : "pinSameMovePath"
+        mockFM.virtualDisk["/src/\(name).txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/\(name).txt", name: "\(name).txt", isDirectory: false)
 
-        let moved = await manager.moveItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/src", fileManager: mockFM)
-
-        #expect(moved.isEmpty)
-        #expect(mockFM.virtualDisk["/src/pinSameMovePane.txt"] != nil)
-        #expect(mockFM.virtualDisk["/src/pinSameMovePane 2.txt"] == nil)
-        #expect(manager.currentError == nil)
-        #expect(manager.undoManager?.canUndo == false)
-        #expect(await loggerContains(log, "Skipping move of \"pinSameMovePane.txt\": source and destination are the same location."))
-        #expect(await loggerContains(log, "Moved 0 of 1 item(s) between panes"))
-    }
-
-    /// Copy-to-path onto the source directory keeps both, same as the pane variant.
-    @MainActor
-    @Test func testCopyItemsToPathOntoItselfKeepsBoth() async throws {
-        let log = LogCapture()
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/pinSameCopyPath.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let node = FileNode(id: "/src/pinSameCopyPath.txt", name: "pinSameCopyPath.txt", isDirectory: false)
-
-        let copied = await manager.copyItems(nodes: [node], toPath: "/src", fileManager: mockFM)
-
-        #expect(mockFM.virtualDisk["/src/pinSameCopyPath.txt"] != nil)
-        #expect(mockFM.virtualDisk["/src/pinSameCopyPath 2.txt"] != nil)
-        #expect(copied.map(\.id) == ["/src/pinSameCopyPath.txt"])
-        #expect(manager.currentError == nil)
-        #expect(manager.undoManager?.canUndo == true)
-        #expect(manager.undoManager?.undoActionName == "Copy 1 Item")
-        #expect(await loggerContains(log, "Copied 1 item(s) to /src"))
-    }
-
-    /// Move-to-path onto the source directory is skipped: nothing moves, nothing to undo.
-    @MainActor
-    @Test func testMoveItemsToPathOntoItselfSkips() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/pinSameMovePath.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let node = FileNode(id: "/src/pinSameMovePath.txt", name: "pinSameMovePath.txt", isDirectory: false)
-
-        let moved = await manager.moveItems(nodes: [node], toPath: "/src", fileManager: mockFM)
+        let moved = route == .pane
+            ? await manager.moveItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/src", fileManager: mockFM)
+            : await manager.moveItems(nodes: [node], toPath: "/src", fileManager: mockFM)
 
         #expect(moved.isEmpty)
-        #expect(mockFM.virtualDisk["/src/pinSameMovePath.txt"] != nil)
-        #expect(mockFM.virtualDisk["/src/pinSameMovePath 2.txt"] == nil)
+        #expect(mockFM.virtualDisk["/src/\(name).txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/\(name) 2.txt"] == nil)
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == false)
+        if route == .pane {
+            #expect(await loggerContains(log, "Skipping move of \"\(name).txt\": source and destination are the same location."))
+            #expect(await loggerContains(log, "Moved 0 of 1 item(s) between panes"))
+        }
     }
 
     // MARK: - Partial counts, returned order, and undo registrars
@@ -319,56 +290,36 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/dst/pmA.txt"] == nil)
     }
 
-    /// Copy-to-path sibling of the partial-count pin.
+    /// The to-path siblings of the partial-count pin: `copyItems(toPath:)` and `moveItems(toPath:)`
+    /// log the transferred count, not the selection count, in the "N of M" form: a partial
+    /// transfer logs "1 of 2".
     @MainActor
-    @Test func testCopyItemsToPathPartialSkipReportsPartialCount() async throws {
+    @Test(arguments: [false, true])
+    func testTransferItemsToPathPartialSkipReportsPartialCount(isMove: Bool) async throws {
         let log = LogCapture()
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        for name in ["ptA.txt", "ptBB.txt"] {
+        let names = isMove ? ["pdA.txt", "pdBB.txt"] : ["ptA.txt", "ptBB.txt"]
+        for name in names {
             mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         }
-        mockFM.virtualDisk["/dst/ptBB.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let nodes = ["ptA.txt", "ptBB.txt"].map {
+        mockFM.virtualDisk["/dst/\(names[1])"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let nodes = names.map {
             FileNode(id: "/src/\($0)", name: $0, isDirectory: false)
         }
         manager.collisionResolver = { _ in .skip }
 
-        let copied = await manager.copyItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
+        let landed = isMove
+            ? await manager.moveItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
+            : await manager.copyItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
 
-        #expect(copied.map(\.name) == ["ptA.txt"])
-        #expect(mockFM.virtualDisk["/dst/ptA.txt"] != nil)
-        #expect(manager.undoManager?.undoActionName == "Copy 1 Item")
-        #expect(await loggerContains(log, "Copied 1 of 2 item(s) to /dst"))
-    }
-
-    /// `moveItems(toPath:)` logs the moved count, not the selection count, in the "N of M" form
-    /// like its three siblings: a partial move logs "1 of 2".
-    @MainActor
-    @Test func testMoveItemsToPathPartialSkipLogsMovedCount() async throws {
-        let log = LogCapture()
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        for name in ["pdA.txt", "pdBB.txt"] {
-            mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
-        mockFM.virtualDisk["/dst/pdBB.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let nodes = ["pdA.txt", "pdBB.txt"].map {
-            FileNode(id: "/src/\($0)", name: $0, isDirectory: false)
-        }
-        manager.collisionResolver = { _ in .skip }
-
-        let moved = await manager.moveItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
-
-        #expect(moved.map(\.name) == ["pdA.txt"])
-        #expect(mockFM.virtualDisk["/dst/pdA.txt"] != nil)
-        #expect(mockFM.virtualDisk["/src/pdBB.txt"] != nil)
-        #expect(manager.undoManager?.undoActionName == "Move 1 Item")
-        #expect(await loggerContains(log, "Moved 1 of 2 item(s) to /dst"))
+        #expect(landed.map(\.name) == [names[0]])
+        #expect(mockFM.virtualDisk["/dst/\(names[0])"] != nil)
+        if isMove { #expect(mockFM.virtualDisk["/src/\(names[1])"] != nil) }
+        #expect(manager.undoManager?.undoActionName == (isMove ? "Move 1 Item" : "Copy 1 Item"))
+        #expect(await loggerContains(log, isMove ? "Moved 1 of 2 item(s) to /dst" : "Copied 1 of 2 item(s) to /dst"))
     }
 
     /// Full-count happy-path logs for the two move variants (the copy ones are pinned above).
@@ -395,33 +346,23 @@ import EventsTestSupport
 
     // MARK: - Error messages per family
 
-    /// A nesting violation surfaces as "Copy Failed" for the copy family…
+    /// A nesting violation surfaces as "Copy Failed" for the copy family and as "Move Failed" for
+    /// the move family.
     @MainActor
-    @Test func testCopyItemsErrorMessageUsesCopyingWording() async throws {
+    @Test(arguments: [false, true])
+    func testTransferItemsErrorMessageUsesItsFamilysWording(isMove: Bool) async throws {
         let manager = makeManager()
         let mockFM = MockFileManager()
-        mockFM.virtualDisk["/src/errCopyDir"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
-        let node = FileNode(id: "/src/errCopyDir", name: "errCopyDir", isDirectory: true)
+        let dir = isMove ? "/src/errMoveDir" : "/src/errCopyDir"
+        mockFM.virtualDisk[dir] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
+        let node = FileNode(id: dir, name: (dir as NSString).lastPathComponent, isDirectory: true)
 
-        let copied = await manager.copyItems(nodes: [node], toPath: "/src/errCopyDir", fileManager: mockFM)
+        let landed = isMove
+            ? await manager.moveItems(nodes: [node], toPath: dir, fileManager: mockFM)
+            : await manager.copyItems(nodes: [node], toPath: dir, fileManager: mockFM)
 
-        #expect(copied.isEmpty)
-        #expect(manager.currentError?.title == "Copy Failed")
-        #expect(manager.currentError?.reason == "Cannot move or copy a directory into itself or its subdirectories.")
-    }
-
-    /// …and as "Move Failed" for the move family.
-    @MainActor
-    @Test func testMoveItemsErrorMessageUsesMovingWording() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        mockFM.virtualDisk["/src/errMoveDir"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
-        let node = FileNode(id: "/src/errMoveDir", name: "errMoveDir", isDirectory: true)
-
-        let moved = await manager.moveItems(nodes: [node], toPath: "/src/errMoveDir", fileManager: mockFM)
-
-        #expect(moved.isEmpty)
-        #expect(manager.currentError?.title == "Move Failed")
+        #expect(landed.isEmpty)
+        #expect(manager.currentError?.title == (isMove ? "Move Failed" : "Copy Failed"))
         #expect(manager.currentError?.reason == "Cannot move or copy a directory into itself or its subdirectories.")
     }
 

@@ -34,16 +34,12 @@ import Testing
         #expect(subDir.isDirectory)
         // Capped directories are present but unexplored: empty children, not nil.
         #expect(subDir.children == [])
-    }
 
-    @Test func testUncappedBuildStillWalksTheWholeTree() async throws {
-        let mockFM = try makeDisk()
-
+        // Uncapped, the build still walks the whole tree.
         let deep = await FileSyncManager.buildTree(
             url: URL(fileURLWithPath: "/src"), sortOption: .name, fileManager: mockFM)
-
-        let subDir = try #require(deep.first { $0.name == "subDir" })
-        #expect(subDir.children?.map(\.name) == ["file2.txt"])
+        let deepSubDir = try #require(deep.first { $0.name == "subDir" })
+        #expect(deepSubDir.children?.map(\.name) == ["file2.txt"])
     }
 
     // MARK: Cache-served navigation

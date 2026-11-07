@@ -170,6 +170,9 @@ import Testing
         let pinned = ExtractedDocument(pages: ["Account statement, amount due 124.50 on 2026-03-14"],
                                        formFieldValues: ["name=Elder"],
                                        pageCount: 2, pageBoxes: ["612x792"])
+        // Also a tripwire. An entry lives while it is used, so after a scheme bump an unchanged
+        // document keeps its old-scheme digest for good. If this fails, ship the deletion of
+        // `content-fingerprint-index.json` with the bump.
         #expect(ContentFingerprint.scheme == "pdf-text-1")
         // A change to this golden needs a new scheme, unless only the pinned input changed.
         #expect(ContentFingerprint.digest(of: pinned)

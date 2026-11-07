@@ -277,7 +277,8 @@ bug (does the assertion still fire, and does the wait land before the damage is 
 the second alone is what a vacuous wait looks like.
 
 **A sleep that sets up an interleaving is guessing at a PRECONDITION — wait for that, and assert
-it.** The sweep's last instance, `BulkOperationsTests.testLatestQueuedScanWins`, slept 10ms between
+it.** The sweep's last instance, `BulkOperationsTests.testLatestQueuedScanWins` (now the
+`cancelA: false` case of `ScanSupersedenceTests.testScanQueuedFromCancelledPredecessorStillPublishes`), slept 10ms between
 starting one scan and issuing a second so the second would be *queued* rather than run. Unlike the
 cases above, that sleep bridged a real gap — but losing the guess did not fail the test. The two
 scans simply ran in sequence, the outcome assertions (one difference, `latest.txt`) held anyway,
@@ -1594,7 +1595,9 @@ engaging" is a change every suite would go green under. Mutation-tested rather t
 
 - **A gate that engages but does not HOLD survives 6 of its 7 consumers.** `entered` is still
   signalled, so `awaitSignal` passes; `releasedByTimeout` is false, so the `#require` passes; only
-  `testCancelDuringMoveCompletesInFlightItemAndSkipsRest` actually depends on the hold. That is
+  `testCancelDuringMoveCompletesInFlightItemAndSkipsRest` (now the `isMove: true` case of
+  `CancellationTests.testCancelDuringTransferCompletesInFlightItemAndSkipsRest`) actually depends
+  on the hold. That is
   pre-existing and was not introduced here, but it means the honesty this section credits to
   `releasedByTimeout` really comes from `awaitSignal(gate.entered)` catching a gate that never
   engages *at all*. `ParkBudgetTests` is what covers the weaker mutant now.

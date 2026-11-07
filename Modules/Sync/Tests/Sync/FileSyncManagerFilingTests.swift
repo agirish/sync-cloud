@@ -97,6 +97,30 @@ private final class SnippetBox: @unchecked Sendable {
         try Data(repeating: fill, count: bytes).write(to: url)
     }
 
+    /// A manager for a "Try another" re-ask: its settings and rules on `defaults` (a scratch suite
+    /// by default), and the provider-scoped cache naming `/p` with the `Docs` taxonomy.
+    @MainActor private func reaskManager(defaults: UserDefaults = ScratchDefaults("FilingAI")) -> FileSyncManager {
+        let manager = FileSyncManager()
+        manager.filingContentDefaults = defaults
+        manager.filingRuleDefaults = defaults
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        return manager
+    }
+
+    /// A card for `/p/Downloads/<name>` whose one candidate is `/p/Docs/A`.
+    private func reaskCard(_ name: String) -> FilingSuggestion {
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        return FilingSuggestion(filePath: "/p/Downloads/\(name)", fileName: name,
+                                size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+    }
+
+    /// A classifier answer filing every file into a new `Docs/Fresh`.
+    private static func freshVerdicts(_ files: [FilingCandidateFile]) -> [String: FilingVerdict] {
+        Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+            FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+    }
+
     @MainActor
     @Test func findFilingSuggestionsFindsHomesInYourFolders() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
@@ -163,113 +187,62 @@ private final class SnippetBox: @unchecked Sendable {
         #expect(manager.filingSuggestions.first?.fileName == "zxqw9.bin")
     }
 
+    /// How a destination can name the file's own folder.
+    enum OwnFolderSpelling: Sendable { case same, caseVariant, link }
+
+    /// The case-variant spelling only where the volume folds case: on a case-SENSITIVE volume
+    /// these really are two folders, and filing into the second is a real move, not a no-op.
+    static let ownFolderSpellings: [OwnFolderSpelling] =
+        FileSyncManager.volumeSupportsCaseSensitiveNames(for: FileManager.default.temporaryDirectory)
+            ? [.same, .link] : [.same, .caseVariant, .link]
+
+    /// Filing into the file's own folder is a no-op success, not a move or a rename.
+    ///
+    /// Reached through a destination whose case differs from the folder on disk: automation
+    /// destination templates match case-insensitively by design, so a rule destination typed
+    /// "downloads" for the on-disk "Downloads" is expected input. Compared exactly, it reads as a
+    /// different folder on the default case-insensitive volume: the move finds the file itself,
+    /// the unique-name helper steps around it, and the file is renamed in place to
+    /// "report 2.pdf" under a "Filed" banner.
+    ///
+    /// Reached through a symbolic link: `namesSameDirectory` folds case but resolves no links, so
+    /// unresolved, `Filing` → `Downloads` reads as a different folder, with the same rename.
     @MainActor
-    @Test func contentExtractorUpgradesFilesWithNoHomeFromTheName() async throws {
+    @Test(arguments: Self.ownFolderSpellings)
+    func applyingToTheFilesOwnFolderIsANoOpNotARename(_ spelling: OwnFolderSpelling) async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
-
-        let manager = FileSyncManager()
-        // Simulate on-device extraction finding the entities inside the uninformatively-named scan.
-        manager.filingContentExtractor = { path in
-            path.hasSuffix("scan0012.pdf") ? ["tesla", "policy", "geico"] : []
+        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
+        try write(srcPath)
+        let destination: URL
+        switch spelling {
+        case .same: destination = root.appendingPathComponent("Downloads")
+        case .caseVariant: destination = root.appendingPathComponent("downloads")
+        case .link:
+            destination = root.appendingPathComponent("Filing")
+            try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: root.appendingPathComponent("Downloads"))
         }
 
-        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
-
-        let scan = manager.filingSuggestions.first { $0.fileName == "scan0012.pdf" }
-        #expect(scan?.best?.path.hasSuffix("Documents/Vehicles/Tesla/Insurance") == true)
-        #expect(scan?.best?.reasons.first?.contains("read from the file") == true)
-    }
-
-    @MainActor
-    @Test func applyingToTheFilesOwnFolderIsANoOpNotARename() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
-        try write(srcPath)
-
         let manager = FileSyncManager()
         let s = FilingSuggestion(filePath: srcPath.path, fileName: "report.pdf", size: 5000,
                                  modificationDate: nil, candidates: [])
         manager.filingSuggestions = [s]
-        let dest = FilingDestination(path: root.appendingPathComponent("Downloads").path,
-                                     confidence: .high, reasons: [], newSegments: [])
-
-        let ok = await manager.applyFilingSuggestion(s, to: dest)
-
-        #expect(ok == .notNeeded)   // filing into its own folder is a no-op success, not a move
-        #expect(FileManager.default.fileExists(atPath: srcPath.path))                                   // unchanged
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/report 2.pdf").path))
-        #expect(manager.filingSuggestions.isEmpty)                                                      // dropped from list
-    }
-
-    /// The same no-op, reached through a destination whose case differs from the folder on disk.
-    ///
-    /// Automation destination templates match case-insensitively by design, so a rule destination
-    /// typed "downloads" for the on-disk "Downloads" is expected input. Compared exactly, it reads
-    /// as a different folder on the default case-insensitive volume: the move finds the file
-    /// itself, the unique-name helper steps around it, and the file is renamed in place to
-    /// "report 2.pdf" under a "Filed" banner.
-    @MainActor
-    @Test func applyingToACaseVariantOfTheFilesOwnFolderIsAlsoANoOp() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
-        try write(srcPath)
-
-        // Skip where the answer would legitimately differ: on a case-SENSITIVE volume these really
-        // are two folders, and filing into the second is a real move, not a no-op.
-        guard !FileSyncManager.volumeSupportsCaseSensitiveNames(for: root) else { return }
-
-        let manager = FileSyncManager()
-        let s = FilingSuggestion(filePath: srcPath.path, fileName: "report.pdf", size: 5000,
-                                 modificationDate: nil, candidates: [])
-        manager.filingSuggestions = [s]
-        let dest = FilingDestination(path: root.appendingPathComponent("downloads").path,
-                                     confidence: .high, reasons: [], newSegments: [])
+        let dest = FilingDestination(path: destination.path, confidence: .high, reasons: [], newSegments: [])
 
         let ok = await manager.applyFilingSuggestion(s, to: dest)
 
         #expect(ok == .notNeeded)
         #expect(FileManager.default.fileExists(atPath: srcPath.path))
-        // The rename this guard exists to prevent.
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/report 2.pdf").path))
-        #expect(manager.filingSuggestions.isEmpty)
-    }
-
-    /// The same no-op, reached through a symbolic link to the file's own folder.
-    ///
-    /// `namesSameDirectory` folds case but resolves no links, so unresolved, `Filing` → `Downloads`
-    /// reads as a different folder: the move finds the file itself through the link and renames it
-    /// in place to "report 2.pdf" under a "Filed" banner.
-    @MainActor
-    @Test func applyingToALinkToTheFilesOwnFolderIsAlsoANoOp() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
-        try write(srcPath)
-        let link = root.appendingPathComponent("Filing")
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root.appendingPathComponent("Downloads"))
-
-        let manager = FileSyncManager()
-        let s = FilingSuggestion(filePath: srcPath.path, fileName: "report.pdf", size: 5000,
-                                 modificationDate: nil, candidates: [])
-        manager.filingSuggestions = [s]
-        let dest = FilingDestination(path: link.path, confidence: .high, reasons: [], newSegments: [])
-
-        let ok = await manager.applyFilingSuggestion(s, to: dest)
-
-        #expect(ok == .notNeeded)
-        #expect(FileManager.default.fileExists(atPath: srcPath.path))
+        // The rename this guard exists to prevent: no "report 2.pdf" beside it.
         let names = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Downloads").path)
         #expect(names == ["report.pdf"], "the file was renamed in place: \(names)")
-        #expect(manager.filingSuggestions.isEmpty)
-        // And it says so: the card goes, and without a word that looks like a click that did
-        // nothing, or a file that went somewhere.
-        let banner = try #require(manager.banner, "the card vanished without a word")
-        #expect(banner.message == "“report.pdf” is already in that folder — nothing to move.")
+        #expect(manager.filingSuggestions.isEmpty)                                                      // dropped from list
+        if spelling == .link {
+            // And it says so: the card goes, and without a word that looks like a click that did
+            // nothing, or a file that went somewhere.
+            let banner = try #require(manager.banner, "the card vanished without a word")
+            #expect(banner.message == "“report.pdf” is already in that folder — nothing to move.")
+        }
     }
 
     /// The batch counts the files already in their folders. A suggestion naming a link to the
@@ -394,11 +367,14 @@ private final class SnippetBox: @unchecked Sendable {
         try write(srcPath)
 
         let manager = FileSyncManager()
-        manager.filingContentExtractor = { $0.hasSuffix("scan0012.pdf") ? ["tesla", "policy"] : [] }
+        // Simulate on-device extraction finding the entities inside the uninformatively-named scan.
+        manager.filingContentExtractor = { $0.hasSuffix("scan0012.pdf") ? ["tesla", "policy", "geico"] : [] }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
         let scan = manager.filingSuggestions.first { $0.fileName == "scan0012.pdf" }
         #expect(scan?.hasConfidentHome == true)     // content gave it a home
+        #expect(scan?.best?.path.hasSuffix("Documents/Vehicles/Tesla/Insurance") == true)
+        #expect(scan?.best?.reasons.first?.contains("read from the file") == true)
         #expect(scan?.isBatchEligible == false)     // but content-derived → not batch-eligible
 
         await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
@@ -413,9 +389,7 @@ private final class SnippetBox: @unchecked Sendable {
         try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
 
         let manager = FileSyncManager()
-        let suite = "FilingToggle-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.filingContentDefaults = ScratchDefaults("FilingToggle")
         manager.filingContentDefaults.set(false, forKey: FileSyncManager.readContentsDefaultsKey)
         // An extractor that WOULD give a home — proving it isn't consulted when the toggle is off.
         manager.filingContentExtractor = { _ in ["tesla", "policy"] }
@@ -476,6 +450,13 @@ private final class SnippetBox: @unchecked Sendable {
         return m
     }
 
+    /// The same on a `ScratchDefaults` suite, wiped once the manager lets go of it.
+    @MainActor private func manager(withScratchRules prefix: String) -> FileSyncManager {
+        let m = FileSyncManager()
+        m.filingRuleDefaults = ScratchDefaults(prefix)
+        return m
+    }
+
     @MainActor
     @Test func applyingWithRememberPersistsAReusableRule() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
@@ -484,9 +465,7 @@ private final class SnippetBox: @unchecked Sendable {
         let srcPath = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
         try write(srcPath)
 
-        let suite = "FilingRules-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
+        let manager = manager(withScratchRules: "FilingRules")
 
         // File it into Archive/Tesla and ask Filing to remember the correction.
         let s = FilingSuggestion(filePath: srcPath.path, fileName: "Tesla Policy.pdf", size: 5000,
@@ -530,9 +509,7 @@ private final class SnippetBox: @unchecked Sendable {
 
     @MainActor
     @Test func rememberingCreatesAMentionsAutomation() {
-        let suite = "RememberAuto-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
+        let manager = manager(withScratchRules: "RememberAuto")
 
         // A learned rule stores the ABSOLUTE folder it filed into — the same provider scoping the
         // legacy remembered rules had, so it can never batch-file into another provider.
@@ -565,9 +542,7 @@ private final class SnippetBox: @unchecked Sendable {
     @MainActor
     @Test func settingAnUnchangedEnabledStateDoesNotDoubleLog() async {
         let log = LogCapture()
-        let suite = "SetRuleNoOp-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
+        let manager = manager(withScratchRules: "SetRuleNoOp")
 
         let rule = AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
                                   destinationTemplate: "Cars/Tesla")
@@ -695,9 +670,7 @@ private final class SnippetBox: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/tesla thing.pdf"))
 
-        let suite = "AutoScope-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
+        let manager = manager(withScratchRules: "AutoScope")
         manager.upsertAutomationRule(AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
                                                     destinationTemplate: "/SomeOtherProvider/Cars"))
 
@@ -784,9 +757,7 @@ private final class SnippetBox: @unchecked Sendable {
         try write(root.appendingPathComponent("Inbox/scan0001.pdf"))
         try write(root.appendingPathComponent("Inbox/tesla-note.pdf"))
 
-        let suite = "SnippetParity-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)
-        defer { wipeDefaultsSuite(suite) }
+        let manager = manager(withScratchRules: "SnippetParity")
         manager.upsertAutomationRule(AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
                                                     destinationTemplate: root.appendingPathComponent("Home/Lease").path))
 
@@ -809,9 +780,7 @@ private final class SnippetBox: @unchecked Sendable {
 
     @MainActor
     @Test func rejectionsPersistMatchAndClear() {
-        let suite = "FilingRej-\(UUID().uuidString)"
-        let manager = manager(withRuleSuite: suite)   // rejections share filingRuleDefaults
-        defer { wipeDefaultsSuite(suite) }
+        let manager = manager(withScratchRules: "FilingRej")   // rejections share filingRuleDefaults
 
         #expect(manager.rememberFilingRejection(fileName: "Tesla Policy.pdf", destinationPath: "/p/Archive/Old"))
         #expect(manager.filingRejections.count == 1)
@@ -890,9 +859,7 @@ private final class SnippetBox: @unchecked Sendable {
         try write(root.appendingPathComponent("Downloads/mystery.pdf"))
 
         let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        manager.filingContentDefaults = ScratchDefaults("FilingAI")
         manager.filingContentDefaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
         // A classifier that WOULD give a home — proving it isn't consulted when AI is off.
         let consulted = Flag()
@@ -915,14 +882,11 @@ private final class SnippetBox: @unchecked Sendable {
     /// against it would move the file into the wrong provider's tree.
     @MainActor
     @Test func tryAnotherFolderIgnoresAnotherProvidersCachedTaxonomy() async throws {
-        let manager = FileSyncManager()
+        let manager = reaskManager()
         let consulted = Flag()
         manager.filingClassifier = { _, _, _ in consulted.value = true; return [:] }
         manager.filingLastProviderRoot = "/other"          // stale: another provider's scan
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0008.HEIC", fileName: "IMG_0008.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("IMG_0008.HEIC")
         manager.filingSuggestions = [s]
 
         await manager.tryAnotherFolder(for: s)
@@ -933,19 +897,9 @@ private final class SnippetBox: @unchecked Sendable {
 
     @MainActor
     @Test func tryAnotherFolderReasksBackendWhenCacheMatchesProvider() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
-        manager.filingClassifier = { _, files, _ in
-            Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
-        }
-        manager.filingLastProviderRoot = "/p"              // cache belongs to this provider
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0009.HEIC", fileName: "IMG_0009.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let manager = reaskManager()                       // the cache belongs to this provider
+        manager.filingClassifier = { _, files, _ in Self.freshVerdicts(files) }
+        let s = reaskCard("IMG_0009.HEIC")
         manager.filingSuggestions = [s]
 
         await manager.tryAnotherFolder(for: s)
@@ -962,11 +916,7 @@ private final class SnippetBox: @unchecked Sendable {
     /// new folders." lies. Label against the sets snapshotted where the provider root was validated.
     @MainActor
     @Test func tryAnotherFolderLabelsVerdictAgainstPreAwaitSnapshot() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let manager = reaskManager()
         manager.filingClassifier = { _, files, _ in
             // Another provider's scan lands while the classifier is out: it overwrites every
             // cached set (clearFiling would empty them — same failure shape).
@@ -975,16 +925,11 @@ private final class SnippetBox: @unchecked Sendable {
                 manager.filingLastTaxonomyFolders = ["Zebra"]
                 manager.filingLastExistingFolders = ["Zebra"]
             }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+            return Self.freshVerdicts(files)
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
         // "Docs/Fresh" already exists (captured beyond the classifier cap) — nothing to create.
         manager.filingLastExistingFolders = ["Docs", "Docs/Fresh"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0010.HEIC", fileName: "IMG_0010.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("IMG_0010.HEIC")
         manager.filingSuggestions = [s]
 
         await manager.tryAnotherFolder(for: s)
@@ -1000,28 +945,20 @@ private final class SnippetBox: @unchecked Sendable {
     /// if the fallback reads `filingLastTaxonomyFolders` live.
     @MainActor
     @Test func tryAnotherFolderFallsBackToTheSnapshottedTaxonomyList() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let manager = reaskManager()
         manager.filingClassifier = { _, files, _ in
             // Another provider's scan lands mid-round-trip and swaps the taxonomy list.
             await MainActor.run {
                 manager.filingLastProviderRoot = "/other"
                 manager.filingLastTaxonomyFolders = ["Zebra"]
             }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+            return Self.freshVerdicts(files)
         }
-        manager.filingLastProviderRoot = "/p"
         // Both folders already exist, and only the taxonomy list knows it — the full set was
         // never captured, which is exactly what puts the fallback arm in play.
         manager.filingLastTaxonomyFolders = ["Docs", "Docs/Fresh"]
         manager.filingLastExistingFolders = []
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0012.HEIC", fileName: "IMG_0012.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("IMG_0012.HEIC")
         manager.filingSuggestions = [s]
 
         await manager.tryAnotherFolder(for: s)
@@ -1041,24 +978,14 @@ private final class SnippetBox: @unchecked Sendable {
     /// it anyway for the person veto.
     @MainActor
     @Test func tryAnotherFolderSendsThePageTheScanAlreadyRead() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let manager = reaskManager()
 
         let seen = SnippetBox()
         manager.filingClassifier = { _, files, tier in
             seen.record(tier: tier, snippet: files.first?.contentSnippet)
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai",
-                              proposesNewFolder: true)) })
+            return Self.freshVerdicts(files)
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("Scan.pdf")
         manager.publishFilingSuggestions([s])
         manager.filingPageSamples["/p/Downloads/Scan.pdf"] =
             "eOCI Card | Government of India | Bureau of Immigration"
@@ -1075,22 +1002,14 @@ private final class SnippetBox: @unchecked Sendable {
     /// not invent an excerpt to avoid one.
     @MainActor
     @Test func tryAnotherFolderSendsNilForAFileWithNoPageSample() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let manager = reaskManager()
 
         let seen = SnippetBox()
         manager.filingClassifier = { _, files, tier in
             seen.record(tier: tier, snippet: files.first?.contentSnippet)
             return [:]
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0023.HEIC", fileName: "IMG_0023.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("IMG_0023.HEIC")
         manager.publishFilingSuggestions([s])
 
         await manager.tryAnotherFolder(for: s)
@@ -1099,6 +1018,30 @@ private final class SnippetBox: @unchecked Sendable {
 
     // MARK: - The re-ask is billable, so it answers to the caps
 
+    /// Clicks "Try another" on `Scan.pdf` with the cloud backend on `model`, and `cap` as the
+    /// lifetime budget when given. Returns the manager and what the classifier was handed.
+    @MainActor
+    private func cloudReask(_ prefix: String, model: String, cap: Double? = nil) async -> (FileSyncManager, SnippetBox) {
+        let defaults = ScratchDefaults(prefix)
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        defaults.set(model, forKey: FileSyncManager.cloudModelDefaultsKey)
+        if let cap { defaults.set(cap, forKey: FileSyncManager.totalBudgetCapKey) }
+
+        let manager = reaskManager(defaults: defaults)
+        manager.filingBackendIdentity = { _ in "cloud:\(model)" }
+
+        let seen = SnippetBox()
+        manager.filingClassifier = { _, files, tier in
+            seen.record(tier: tier, snippet: files.first?.contentSnippet)
+            return [:]
+        }
+        let s = reaskCard("Scan.pdf")
+        manager.publishFilingSuggestions([s])
+
+        await manager.tryAnotherFolder(for: s)
+        return (manager, seen)
+    }
+
     /// A re-ask is billable, so it passes the spend gate. A cap breach refuses, logs the specifics,
     /// puts the remedy in a banner, and the click keeps the free on-device suggestion it had. No
     /// modal per card click; the refine pass keeps its dialog. The banner is asserted, not just the
@@ -1106,32 +1049,10 @@ private final class SnippetBox: @unchecked Sendable {
     /// checks only that the classifier wasn't reached.
     @MainActor
     @Test func tryAnotherFolderStandsDownWhenACapWouldBePassed() async throws {
-        let defaults = ScratchDefaults("reaskCap-\(UUID().uuidString)")
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        defaults.set(CloudFilingProtocol.defaultModel, forKey: FileSyncManager.cloudModelDefaultsKey)
         // A cap below the cost of any real call, so one priced file breaches it. Seeding spend
         // just under the shipped $5 wouldn't: a one-file Haiku estimate is a fraction of a cent.
         // This makes the estimate matter without depending on a model's price.
-        defaults.set(0.0001, forKey: FileSyncManager.totalBudgetCapKey)
-
-        let manager = FileSyncManager()
-        manager.filingContentDefaults = defaults
-        manager.filingRuleDefaults = defaults
-        manager.filingBackendIdentity = { _ in "cloud:\(CloudFilingProtocol.defaultModel)" }
-
-        let seen = SnippetBox()
-        manager.filingClassifier = { _, files, tier in
-            seen.record(tier: tier, snippet: files.first?.contentSnippet)
-            return [:]
-        }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
-        manager.publishFilingSuggestions([s])
-
-        await manager.tryAnotherFolder(for: s)
+        let (manager, seen) = await cloudReask("reaskCap", model: CloudFilingProtocol.defaultModel, cap: 0.0001)
 
         #expect(seen.tier == nil, "the re-ask reached the paid classifier with the lifetime cap already passed")
         let banner = try #require(manager.banner, "the refused re-ask left the user no sign at all")
@@ -1148,29 +1069,8 @@ private final class SnippetBox: @unchecked Sendable {
     /// send the user to a control that changes nothing.
     @MainActor
     @Test func tryAnotherFolderSaysWhyWhenTheModelHasNoKnownPrice() async throws {
-        let defaults = ScratchDefaults("reaskUnpriced-\(UUID().uuidString)")
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         // A model name no price table knows, which is exactly the state the gate blocks on.
-        defaults.set("claude-not-a-real-model", forKey: FileSyncManager.cloudModelDefaultsKey)
-
-        let manager = FileSyncManager()
-        manager.filingContentDefaults = defaults
-        manager.filingRuleDefaults = defaults
-        manager.filingBackendIdentity = { _ in "cloud:claude-not-a-real-model" }
-
-        let seen = SnippetBox()
-        manager.filingClassifier = { _, files, tier in
-            seen.record(tier: tier, snippet: files.first?.contentSnippet)
-            return [:]
-        }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
-        manager.publishFilingSuggestions([s])
-
-        await manager.tryAnotherFolder(for: s)
+        let (manager, seen) = await cloudReask("reaskUnpriced", model: "claude-not-a-real-model")
 
         #expect(seen.tier == nil, "the re-ask reached a classifier whose call could not be priced")
         let banner = try #require(manager.banner, "the refused re-ask left the user no sign at all")
@@ -1184,28 +1084,7 @@ private final class SnippetBox: @unchecked Sendable {
     /// fixture with no recorded spend, so the same click goes through to the paid tier.
     @MainActor
     @Test func tryAnotherFolderStillRunsWhenTheCapsHaveRoom() async throws {
-        let defaults = ScratchDefaults("reaskRoom-\(UUID().uuidString)")
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        defaults.set(CloudFilingProtocol.defaultModel, forKey: FileSyncManager.cloudModelDefaultsKey)
-
-        let manager = FileSyncManager()
-        manager.filingContentDefaults = defaults
-        manager.filingRuleDefaults = defaults
-        manager.filingBackendIdentity = { _ in "cloud:\(CloudFilingProtocol.defaultModel)" }
-
-        let seen = SnippetBox()
-        manager.filingClassifier = { _, files, tier in
-            seen.record(tier: tier, snippet: files.first?.contentSnippet)
-            return [:]
-        }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
-        manager.publishFilingSuggestions([s])
-
-        await manager.tryAnotherFolder(for: s)
+        let (manager, seen) = await cloudReask("reaskRoom", model: CloudFilingProtocol.defaultModel)
 
         #expect(seen.tier == .refine, "a re-ask with budget left was refused")
         // And the banner must stay OUT of the ordinary path: a warning on every successful re-ask
@@ -1218,39 +1097,21 @@ private final class SnippetBox: @unchecked Sendable {
     /// A second call while the first is parked at the classifier must be a no-op.
     @MainActor
     @Test func tryAnotherFolderIgnoresReentrantCallForSameSuggestion() async throws {
-        final class Counter: @unchecked Sendable {
-            private let lock = NSLock()
-            private var count = 0
-            var value: Int { lock.lock(); defer { lock.unlock() }; return count }
-            func increment() { lock.lock(); count += 1; lock.unlock() }
-        }
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let manager = reaskManager()
 
-        let calls = Counter()
+        let calls = CallCounter()
         let released = Flag()
         let parkTimedOut = Flag()
         manager.filingClassifier = { _, files, _ in
             // Only the first round-trip parks: a second one (what this test forbids) returns at
             // once, so a regression fails the call-count check below instead of deadlocking the
             // suite on a release that never comes.
-            if calls.value == 0 {
-                calls.increment()
+            if calls.next() == 1 {
                 await parkUntilReleased(released, timedOut: parkTimedOut)
-            } else {
-                calls.increment()
             }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+            return Self.freshVerdicts(files)
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0011.HEIC", fileName: "IMG_0011.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("IMG_0011.HEIC")
         manager.filingSuggestions = [s]
 
         let first = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
@@ -1298,11 +1159,7 @@ private final class SnippetBox: @unchecked Sendable {
     /// third click would run beside B. A stale invocation may release only its own entry.
     @MainActor
     @Test func staleTryAnotherDeferMustNotReleaseTheNewRoundTripsGuard() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let manager = reaskManager()
 
         let calls = CallCounter()
         let releaseA = Flag()
@@ -1318,14 +1175,9 @@ private final class SnippetBox: @unchecked Sendable {
             case 2: await parkUntilReleased(releaseB, timedOut: parkBTimedOut)
             default: break
             }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+            return Self.freshVerdicts(files)
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0020.HEIC", fileName: "IMG_0020.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        let s = reaskCard("IMG_0020.HEIC")
         manager.filingSuggestions = [s]
 
         // Round-trip A reaches the classifier and parks there (wedged — no timeout exists).
@@ -1369,67 +1221,36 @@ private final class SnippetBox: @unchecked Sendable {
                 "the CURRENT round-trip's verdict still lands")
     }
 
-    /// The other half of the same hole: A's late RESULT. Its verdict was computed against the
-    /// pre-clear taxonomy and rejections, but `replaceFilingSuggestion` keys on the suggestion id
-    /// — the stable file path — so after clearFiling + rescan recreate the card, A's stale write
+    /// What moves the filing state on while round-trip A is parked at the classifier.
+    enum MidReaskChange: Sendable { case clearAndRecreate, completedRescan, cancelledRescan }
+
+    /// A late "Try another" RESULT lands only in the cards it was computed against.
+    ///
+    /// `clearAndRecreate`, the other half of the hole above: A's verdict was computed against the
+    /// pre-clear taxonomy and rejections, but `replaceFilingSuggestion` keys on the suggestion id —
+    /// the stable file path — so after clearFiling + rescan recreate the card, A's stale write
     /// lands in the NEW session's card. A verdict from an invocation that no longer owns its
     /// in-flight entry must be dropped.
-    @MainActor
-    @Test func staleTryAnotherResultMustNotOverwriteTheRecreatedCard() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
-
-        let calls = CallCounter()
-        let releaseA = Flag()
-        let parkTimedOut = Flag()
-        manager.filingClassifier = { _, files, _ in
-            if calls.next() == 1 {
-                await parkUntilReleased(releaseA, timedOut: parkTimedOut)
-            }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
-        }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0021.HEIC", fileName: "IMG_0021.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
-        manager.filingSuggestions = [s]
-
-        let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
-        #expect(calls.value == 1, "round-trip A must reach the classifier")
-
-        // Provider switch releases A's entry; the rescan recreates the card — same id, fresh
-        // session state.
-        manager.clearFiling()
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        manager.publishFilingSuggestions([s])
-
-        releaseA.value = true
-        await a.value
-        #expect(!parkTimedOut.value,
-                "the park timed out: A's verdict landed before clearFiling + the rescan recreated the card, so the ownership guard was never exercised")
-        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
-                "a verdict computed against the pre-clear session must not land in the recreated card")
-    }
-
-    /// A Filing rescan is the third way the state moves on mid-round-trip: it assigns
+    ///
+    /// `completedRescan`, the third way the state moves on mid-round-trip: a Filing rescan assigns
     /// `filingSuggestions` directly WITHOUT touching `filingTryAnotherInFlight`, so the stale
-    /// invocation still owns its entry and an ownership check alone lets its write through. What
-    /// a COMPLETED rescan does move is `filingSuggestionsGeneration`, bumped with the publish
-    /// itself — that is the currency that must gate the result write.
+    /// invocation still owns its entry and an ownership check alone lets its write through. What a
+    /// COMPLETED rescan does move is `filingSuggestionsGeneration`, bumped with the publish itself
+    /// — that is the currency that must gate the result write.
+    ///
+    /// `cancelledRescan`, the other side of that guard: drop a verdict only when the list really
+    /// was republished, not merely when a scan ran. `endScan` runs in the scan body's `defer` and
+    /// bumps the epoch however the scan ended, so a cancelled rescan bumps it twice without
+    /// publishing, and `cancelFindFilingSuggestions` leaves the old cards standing. Gating on the
+    /// epoch would throw away a verdict computed against exactly the state on screen, and the card
+    /// would silently keep the folder the user just rejected. This is a POSITIVE control — it
+    /// asserts a verdict DOES land — so a park that gave up on its own is invisible without the
+    /// timeout check: A would complete before begin/endScan ever moved the epoch, and the
+    /// assertion would pass having never put the guard in front of a bumped epoch at all.
     @MainActor
-    @Test func tryAnotherResultIsDroppedWhenARescanSupersedesItMidRoundTrip() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+    @Test(arguments: [MidReaskChange.clearAndRecreate, .completedRescan, .cancelledRescan])
+    func aLateTryAnotherResultLandsOnlyInTheCardsItWasComputedAgainst(_ change: MidReaskChange) async throws {
+        let manager = reaskManager()
 
         let calls = CallCounter()
         let releaseA = Flag()
@@ -1438,89 +1259,65 @@ private final class SnippetBox: @unchecked Sendable {
             if calls.next() == 1 {
                 await parkUntilReleased(releaseA, timedOut: parkTimedOut)
             }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+            return Self.freshVerdicts(files)
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0022.HEIC", fileName: "IMG_0022.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
-        manager.filingSuggestions = [s]
+        let names: [MidReaskChange: String] = [.clearAndRecreate: "IMG_0021.HEIC", .completedRescan: "IMG_0022.HEIC",
+                                               .cancelledRescan: "IMG_0023.HEIC"]
+        let s = reaskCard(names[change]!)
+        if change == .cancelledRescan {
+            manager.publishFilingSuggestions([s])
+        } else {
+            manager.filingSuggestions = [s]
+        }
 
         let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
         await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
         #expect(calls.value == 1, "round-trip A must reach the classifier")
 
-        // A rescan runs to COMPLETION while A is parked — the real state machine: begin, the
-        // single publish that recreates the card (same id, new session state), then the `defer`'s
-        // end.
-        manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
-        manager.publishFilingSuggestions([s])
-        manager.endScan(\.filingScanLifecycle)
-
-        releaseA.value = true
-        await a.value
-        #expect(!parkTimedOut.value,
-                "the park timed out: A's verdict landed before the rescan republished, so the generation guard never saw a moved generation")
-        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
-                "a verdict from before the rescan must not land in the rescanned card")
-        #expect(manager.filingTryAnotherInFlight.isEmpty,
-                "no clearFiling ran, so A still owned its entry and its defer must release it")
-    }
-
-    /// The other side of that guard: drop a verdict only when the list really was republished, not
-    /// merely when a scan ran. `endScan` runs in the scan body's `defer` and bumps the epoch however
-    /// the scan ended, so a cancelled rescan bumps it twice without publishing, and
-    /// `cancelFindFilingSuggestions` leaves the old cards standing. Gating on the epoch would throw
-    /// away a verdict computed against exactly the state on screen, and the card would silently
-    /// keep the folder the user just rejected.
-    @MainActor
-    @Test func tryAnotherResultStillLandsWhenACancelledRescanOnlyBumpsTheEpoch() async throws {
-        let manager = FileSyncManager()
-        let suite = "FilingAI-\(UUID().uuidString)"
-        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
-
-        let calls = CallCounter()
-        let releaseA = Flag()
-        let parkTimedOut = Flag()
-        manager.filingClassifier = { _, files, _ in
-            if calls.next() == 1 {
-                await parkUntilReleased(releaseA, timedOut: parkTimedOut)
-            }
-            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
-                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai", proposesNewFolder: true)) })
+        switch change {
+        case .clearAndRecreate:
+            // Provider switch releases A's entry; the rescan recreates the card — same id, fresh
+            // session state.
+            manager.clearFiling()
+            manager.filingLastProviderRoot = "/p"
+            manager.filingLastTaxonomyFolders = ["Docs"]
+            manager.publishFilingSuggestions([s])
+        case .completedRescan:
+            // A rescan runs to COMPLETION while A is parked — the real state machine: begin, the
+            // single publish that recreates the card (same id, new session state), then the
+            // `defer`'s end.
+            manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
+            manager.publishFilingSuggestions([s])
+            manager.endScan(\.filingScanLifecycle)
+        case .cancelledRescan:
+            // A rescan starts and is CANCELLED while A is parked: `beginScan` bumps the epoch, the
+            // scan body's `defer` runs `endScan` and bumps it again, and the publish at the end of
+            // `findFilingSuggestions` is never reached — every `Task.isCancelled` return is above
+            // it. The cards on screen are still A's.
+            manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
+            manager.endScan(\.filingScanLifecycle)
         }
-        manager.filingLastProviderRoot = "/p"
-        manager.filingLastTaxonomyFolders = ["Docs"]
-        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
-        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0023.HEIC", fileName: "IMG_0023.HEIC",
-                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
-        manager.publishFilingSuggestions([s])
-
-        let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        await awaitArrival("round-trip A must reach the classifier") { calls.value != 0 }
-        #expect(calls.value == 1, "round-trip A must reach the classifier")
-
-        // A rescan starts and is CANCELLED while A is parked: `beginScan` bumps the epoch, the
-        // scan body's `defer` runs `endScan` and bumps it again, and the publish at the end of
-        // `findFilingSuggestions` is never reached — every `Task.isCancelled` return is above it.
-        // The cards on screen are still A's.
-        manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
-        manager.endScan(\.filingScanLifecycle)
 
         releaseA.value = true
         await a.value
-        // This is a POSITIVE control — it asserts a verdict DOES land — so a park that gave up on
-        // its own is invisible without this check: A would complete before begin/endScan ever
-        // moved the epoch, and the assertion below would pass having never put the guard in front
-        // of a bumped epoch at all.
-        #expect(!parkTimedOut.value,
-                "the park timed out: A's verdict landed before the cancelled rescan bumped the epoch, so this control ran ungated and proves nothing")
-        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
-                "the cancelled rescan left the cards alone, so A's verdict is still about them")
+        switch change {
+        case .clearAndRecreate:
+            #expect(!parkTimedOut.value,
+                    "the park timed out: A's verdict landed before clearFiling + the rescan recreated the card, so the ownership guard was never exercised")
+            #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
+                    "a verdict computed against the pre-clear session must not land in the recreated card")
+        case .completedRescan:
+            #expect(!parkTimedOut.value,
+                    "the park timed out: A's verdict landed before the rescan republished, so the generation guard never saw a moved generation")
+            #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
+                    "a verdict from before the rescan must not land in the rescanned card")
+        case .cancelledRescan:
+            #expect(!parkTimedOut.value,
+                    "the park timed out: A's verdict landed before the cancelled rescan bumped the epoch, so this control ran ungated and proves nothing")
+            #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
+                    "the cancelled rescan left the cards alone, so A's verdict is still about them")
+        }
+        // A no longer owns an entry after clearFiling, and otherwise its own defer releases it.
         #expect(manager.filingTryAnotherInFlight.isEmpty, "A's defer must release its own entry")
     }
 

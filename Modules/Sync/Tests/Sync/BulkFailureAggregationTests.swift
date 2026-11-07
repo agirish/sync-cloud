@@ -43,32 +43,19 @@ import EventsTestSupport
         #expect(error.path == "/src/a.txt" || error.path == "/src/b.txt")
         #expect(error.reason?.isEmpty == false)
         #expect(error.isRetryable == false)
+
+        // The call site, not the rule (`recordTransferFailures` has its own tests): the run
+        // records its failed rows for the Failed filter, and they are still listed for it to
+        // select; otherwise it shows an empty table.
+        #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)))
+        #expect(Set(manager.differences.map(\.id)) == Set(diffs.map(\.id)))
     }
 
+    /// A bulk run's single failure keeps its per-item error, and still reaches the persistent log,
+    /// not just the alert. That branch logs nothing itself and relies on `present()`, so this fails
+    /// if either the branch stops calling `present()` or `present()` stops logging.
     @MainActor
     @Test func testSyncAllWithSingleFailureKeepsPerItemError() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-
-        let diff = makeMissingSourceDiff("only.txt")
-        manager.rawDifferences = [diff]
-        manager.differences = [diff]
-
-        await manager.syncAll(direction: .copyToRight)
-
-        let error = try #require(manager.currentError)
-        #expect(error.title == "Sync Failed")
-        #expect(error.message == "Couldn’t sync “only.txt”.")
-        #expect(error.path == "/src/only.txt")
-    }
-
-    /// A bulk run's single failure still reaches the persistent log, not just the alert. That
-    /// branch logs nothing itself and relies on `present()`, so this fails if either the branch
-    /// stops calling `present()` or `present()` stops logging.
-    @MainActor
-    @Test func testSyncAllSingleFailureIsLoggedAsError() async throws {
         let log = LogCapture()
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
@@ -81,6 +68,10 @@ import EventsTestSupport
 
         await manager.syncAll(direction: .copyToRight)
 
+        let error = try #require(manager.currentError)
+        #expect(error.title == "Sync Failed")
+        #expect(error.message == "Couldn’t sync “onlySyncLog.txt”.")
+        #expect(error.path == "/src/onlySyncLog.txt")
         #expect(await loggerHasError(log, containing: "onlySyncLog.txt"))
     }
 
@@ -108,26 +99,6 @@ import EventsTestSupport
     }
 
     // MARK: The failed rows, recorded where the table can find them
-
-    /// The call site, not the rule (`recordTransferFailures` has its own tests): a real `syncAll`
-    /// whose copies all fail records its failed rows.
-    @MainActor
-    @Test func testSyncAllRecordsItsFailedRowsForTheFailedFilter() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-
-        let diffs = [makeMissingSourceDiff("a.txt"), makeMissingSourceDiff("b.txt")]
-        manager.rawDifferences = diffs
-        manager.differences = diffs
-
-        await manager.syncAll(direction: .copyToRight)
-
-        #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)))
-        // The rows are still listed for the filter to select; otherwise it shows an empty table.
-        #expect(Set(manager.differences.map(\.id)) == Set(diffs.map(\.id)))
-    }
 
     /// A run with nothing to report clears the record, or the Failed filter keeps offering the
     /// previous run's rows after they went through.

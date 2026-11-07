@@ -10,11 +10,8 @@ import Foundation
         #expect(ConflictPolicy.keepBoth.autoResolution(isDirectory: false) == .keepBoth)
         #expect(ConflictPolicy.replace.autoResolution(isDirectory: false) == .replace)
         #expect(ConflictPolicy.skip.autoResolution(isDirectory: false) == .skip)
-    }
-
-    @Test func testAskAlwaysPrompts() {
+        // `.ask` always prompts (its folder case is in the next test).
         #expect(ConflictPolicy.ask.autoResolution(isDirectory: false) == nil)
-        #expect(ConflictPolicy.ask.autoResolution(isDirectory: true) == nil)
     }
 
     @Test func testFolderCollisionsAlwaysPromptRegardlessOfPolicy() {

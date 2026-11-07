@@ -54,16 +54,23 @@ import Foundation
     }
 
     @MainActor
-    @Test func copyItemsRefusedWhileVerifyAllInFlight() async throws {
+    @Test(arguments: [false, true])
+    func transferItemsRefusedWhileVerifyAllInFlight(isMove: Bool) async throws {
         let (manager, mockFM) = try makeFixture()
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        func transfer() async -> [FileNode] {
+            isMove ? await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+                   : await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        }
 
         manager.isVerifyAllRunning = true
-        let transferred = await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        let transferred = await transfer()
 
         #expect(transferred.isEmpty)
         #expect(manager.banner?.message == "Wait for Verify All to finish before copying or moving items")
         #expect(manager.banner?.severity == .warning)
+        // A refused transfer must leave the source exactly where it was.
+        #expect(mockFM.virtualDisk["/src/f.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
         // The guard fires before the operation pre-count latches: a refusal must not leave a
         // phantom in-flight operation that would refuse every later Verify All.
@@ -73,27 +80,9 @@ import Foundation
         // With the verify run finished, the identical call goes through.
         manager.isVerifyAllRunning = false
         manager.banner = nil
-        let transferredAfter = await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        let transferredAfter = await transfer()
         #expect(transferredAfter.count == 1)
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
-    }
-
-    @MainActor
-    @Test func moveItemsRefusedWhileVerifyAllInFlight() async throws {
-        let (manager, mockFM) = try makeFixture()
-        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
-
-        manager.isVerifyAllRunning = true
-        let transferred = await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
-
-        #expect(transferred.isEmpty)
-        #expect(manager.banner?.message == "Wait for Verify All to finish before copying or moving items")
-        #expect(manager.banner?.severity == .warning)
-        // A refused move must leave the source exactly where it was.
-        #expect(mockFM.virtualDisk["/src/f.txt"] != nil)
-        #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
-        #expect(manager.activeFileOperationsCount == 0)
-        manager.isVerifyAllRunning = false
     }
 
     @MainActor
