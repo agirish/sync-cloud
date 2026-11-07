@@ -428,6 +428,8 @@ extension FileSyncManager {
         var moves: [MoveItemState] = []
         var records: [SyncHistoryRecord] = []
         var filedPaths: Set<String> = []
+        // Each file, where it landed and which rule sent it, for the log (`FilingBatchLog`).
+        var filed: [FilingBatchLog.Filed] = []
         var failures = 0
         var rootUnavailable = 0
         var refusedChanged = 0
@@ -487,6 +489,9 @@ extension FileSyncManager {
                     sizeBytes: size, checksum: nil, backupPath: overwritten?.path, direction: nil
                 ))
                 filedPaths.insert(row.id)
+                filed.append(FilingBatchLog.Filed(fileName: name, landedAs: moved.lastPathComponent,
+                                                  folder: moved.deletingLastPathComponent().path,
+                                                  source: "rule “\(row.ruleName)”"))
             case .failed(let wasRootUnavailable):
                 failures += 1
                 if wasRootUnavailable { rootUnavailable += 1 }
@@ -535,8 +540,11 @@ extension FileSyncManager {
         }
 
         let n = moves.count
-        logger.info("Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")"
-                    + (refusedChanged > 0 ? ", \(refusedChanged) refused as changed since the preview" : ""))
+        let summary = "Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")"
+            + (refusedChanged > 0 ? ", \(refusedChanged) refused as changed since the preview" : "")
+        for line in FilingBatchLog.lines(operation: "Automation filing", filed: filed, summary: summary) {
+            logger.info(line)
+        }
         banner = failures > 0 || refusedChanged > 0
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s")."
                        + (failures > 0 ? " \(failures) couldn’t be filed." : "")

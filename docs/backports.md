@@ -14717,3 +14717,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Some of the same dead code, harmless | RECORDED — not owed (no behaviour change) |
+
+## A filing batch's summary no longer folds into the cards around it — owed nowhere
+
+2026-11-07, for v7.1. On `main`, the "File recommended" batch logs one line per destination folder
+naming every file it filed there and what chose the home, then a summary that no longer starts with
+`Filing: filed `. That prefix is the Activity Log's fold key for one card filed by hand, so the old
+summary folded into the neighbouring cards and the header counted lines, not files ("Filed 2 files"
+for a batch of 40). Every maintenance line writes the old summary and folds on the same prefix.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s summary=%s fold=%s\n' $l \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift | grep -cF 'Filing: filed \(n) file(s)')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/LogGrouping.swift | grep -cF '"Filing: filed "')"; done
+# measured 2026-11-07, against origin, before this landed: every line summary=1 fold=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The folding summary, and no per-file record of a batch | RECORDED — not owed |

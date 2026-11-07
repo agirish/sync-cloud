@@ -1630,6 +1630,9 @@ extension FileSyncManager {
         filingBatchInFlight.insert(ObjectIdentifier(self))
         defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
         var moves: [MoveItemState] = []
+        // What the log names: each file, the folder it landed in and what chose it. Batch filing
+        // writes no per-file line, so these are the only record of where each one went.
+        var filed: [FilingBatchLog.Filed] = []
         var failures = 0
         // Counted, not dropped: its card leaves the list like a filed one, so a banner leaving it
         // out would count fewer files than went.
@@ -1637,7 +1640,11 @@ extension FileSyncManager {
         for s in batch {
             guard let dest = s.best else { continue }
             switch await performFiling(s, to: dest) {
-            case .moved(let move): moves.append(move)
+            case .moved(let move):
+                moves.append(move)
+                filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
+                                                  folder: move.to.deletingLastPathComponent().path,
+                                                  source: FilingBatchLog.source(of: dest)))
             case .noMoveNeeded: alreadyHome += 1
             case .failed: failures += 1
             }
@@ -1645,6 +1652,11 @@ extension FileSyncManager {
         let home = alreadyHome == 0 ? ""
             : "\(alreadyHome) \(alreadyHome == 1 ? "was" : "were") already in \(alreadyHome == 1 ? "its folder" : "their folders")"
         guard !moves.isEmpty else {
+            // Still one summary line: a batch that moved nothing is otherwise only a banner.
+            if failures > 0 || alreadyHome > 0 {
+                Logger.shared.info(FilingBatchLog.recommendedSummary(filed: [], failures: failures,
+                                                                     alreadyHome: alreadyHome))
+            }
             if failures > 0 {
                 banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s")\(home.isEmpty ? "" : "; \(home)").")
             } else if alreadyHome > 0 {
@@ -1656,11 +1668,15 @@ extension FileSyncManager {
         // One undo action reverts the whole batch, so ⌘Z is honest.
         registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
         let n = moves.count
-        Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")\(alreadyHome > 0 ? ", \(alreadyHome) already in place" : "")")
-        let filed = "Filed \(n) file\(n == 1 ? "" : "s")" + (home.isEmpty ? "" : "; \(home)")
+        for line in FilingBatchLog.lines(operation: "Filing batch", filed: filed,
+                                         summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
+                                                                                    alreadyHome: alreadyHome)) {
+            Logger.shared.info(line)
+        }
+        let filedText = "Filed \(n) file\(n == 1 ? "" : "s")" + (home.isEmpty ? "" : "; \(home)")
         banner = failures > 0
-            ? .warning("\(filed); \(failures) couldn’t be filed", undoable: true)
-            : .success(filed, undoable: true)
+            ? .warning("\(filedText); \(failures) couldn’t be filed", undoable: true)
+            : .success(filedText, undoable: true)
     }
 
     /// Removes a suggestion without moving anything ("Not here" / leave it).
@@ -1862,3 +1878,73 @@ extension FileSyncManager {
 /// `@MainActor` because `FileSyncManager` is: the read, insert and `defer` remove each happen in
 /// one main-actor turn, which is what makes this a latch.
 @MainActor private var filingBatchInFlight: Set<ObjectIdentifier> = []
+
+/// The lines a filing batch writes to the log: one per destination folder naming every file filed
+/// there and what chose its home, sorted, at most ``namesPerLine`` names a line, then the summary.
+///
+/// **None may start with `"Filing: filed "`.** That prefix is the Activity Log's fold key for one
+/// card filed by hand (`LogGrouping.Kind.filed`); a batch summary that matched it folded in with the
+/// cards filed just before and after, and the header counted lines, not files: "Filed 2 files" for a
+/// batch of 40. Pure and public so `LogGroupingTests` folds this real output, not a typed copy.
+public enum FilingBatchLog {
+    /// One file a batch moved.
+    public struct Filed: Sendable, Equatable {
+        public let fileName: String
+        /// The name it landed under: a convention rename or a kept-both clash can change it.
+        public let landedAs: String
+        /// The absolute path of the folder it landed in.
+        public let folder: String
+        /// What chose the home, in the log's words (``source(of:)``).
+        public let source: String
+
+        public init(fileName: String, landedAs: String, folder: String, source: String) {
+            self.fileName = fileName
+            self.landedAs = landedAs
+            self.folder = folder
+            self.source = source
+        }
+    }
+
+    /// Names per line: a line stays one physical line a reader can scan, and a group of thousands is
+    /// split rather than written as one line the Activity Log renders whole.
+    public static let namesPerLine = 200
+
+    /// What chose a recommended-batch home. Only two answers are possible: the blind batch takes
+    /// filename-derived homes alone (`FilingSuggestion.isBatchEligible` excludes content and AI
+    /// homes), and a filename home records only whether a rule or Automation taught it, not whether
+    /// the folder survey or the keyword engine found it.
+    public static func source(of destination: FilingDestination) -> String {
+        destination.remembered ? "a rule you taught" : "its name"
+    }
+
+    public static func lines(operation: String, filed: [Filed], summary: String) -> [String] {
+        // Sorted, folders and names both, so two runs over the same files read the same.
+        let byFolder = Dictionary(grouping: filed, by: \.folder)
+        var out: [String] = []
+        for folder in byFolder.keys.sorted() {
+            let names = (byFolder[folder] ?? []).sorted { $0.fileName < $1.fileName }.map { file in
+                (file.landedAs == file.fileName ? "“\(file.fileName)”" : "“\(file.fileName)” as “\(file.landedAs)”")
+                    + " (\(file.source))"
+            }
+            guard names.count > namesPerLine else {
+                out.append("\(operation) → \(folder): \(names.count) file(s): \(names.joined(separator: ", "))")
+                continue
+            }
+            for start in stride(from: 0, to: names.count, by: namesPerLine) {
+                let end = min(start + namesPerLine, names.count)
+                out.append("\(operation) → \(folder): names \(start + 1)–\(end) of \(names.count): "
+                           + names[start..<end].joined(separator: ", "))
+            }
+        }
+        out.append(summary)
+        return out
+    }
+
+    /// The "File recommended" batch's closing line.
+    public static func recommendedSummary(filed: [Filed], failures: Int, alreadyHome: Int) -> String {
+        let folders = Set(filed.map(\.folder)).count
+        return "Filing batch: \(filed.count) file(s) filed into \(folders) folder(s)"
+            + (failures > 0 ? ", \(failures) couldn’t be filed" : "")
+            + (alreadyHome > 0 ? ", \(alreadyHome) already in place" : "")
+    }
+}

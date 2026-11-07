@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Events
+import Sync
 @testable import Dashboard
 
 /// Coverage for LogGrouping, the operation-run folding and day bucketing behind the Activity Log's
@@ -95,6 +96,30 @@ import Events
         let items = LogGrouping.fold(entries)
         guard case .group(let g) = items[0] else { Issue.record("expected a group"); return }
         #expect(g.level == .error)
+    }
+
+    /// A batch's real lines never fold with the cards filed by hand around it. Its summary once
+    /// read "Filing: filed 40 file(s)", the per-card prefix, so it joined the neighbouring cards'
+    /// run and the header said "Filed 2 files" for 40 plus one. Fed `FilingBatchLog`'s own output,
+    /// not a typed copy, so a reworded summary that takes the prefix again fails here.
+    @Test func aFilingBatchsLinesNeverFoldWithTheCardsAroundIt() {
+        let batch = FilingBatchLog.lines(
+            operation: "Filing batch",
+            filed: (1...40).map { FilingBatchLog.Filed(fileName: "f\($0).pdf", landedAs: "f\($0).pdf",
+                                                       folder: "/r/Bills", source: "its name") },
+            summary: FilingBatchLog.recommendedSummary(
+                filed: (1...40).map { FilingBatchLog.Filed(fileName: "f\($0).pdf", landedAs: "f\($0).pdf",
+                                                           folder: "/r/Bills", source: "its name") },
+                failures: 0, alreadyHome: 0))
+        let entries = [LogEntry(level: .info, message: "Filing: filed “card.pdf” → Bills")]
+            + batch.map { LogEntry(level: .info, message: $0) }
+            + [LogEntry(level: .info, message: "Filing: filed “other.pdf” → Tax")]
+        let groups = LogGrouping.fold(entries).compactMap { item -> LogGrouping.OperationGroup? in
+            if case .group(let g) = item { return g }
+            return nil
+        }
+        #expect(groups.isEmpty, "the batch folded as \(groups.map(\.title)) — its header counts lines, not files")
+        #expect(batch.allSatisfy { LogGrouping.Kind.classify($0) == nil })
     }
 
     // MARK: Day bucketing
