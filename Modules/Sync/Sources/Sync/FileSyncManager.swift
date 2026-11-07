@@ -2635,9 +2635,9 @@ public class FileSyncManager: ObservableObject {
     @Published public var banner: OperationBanner? = nil {
         didSet {
             guard let banner, banner.id != oldValue?.id else { return }
-            switch banner.severity {
-            case .success: Logger.shared.info("[banner] \(banner.message)")
-            case .warning: Logger.shared.warning("[banner] \(banner.message)")
+            switch banner.log {
+            case .info: Logger.shared.info("[banner] \(banner.message)")
+            case .warn: Logger.shared.warning("[banner] \(banner.message)")
             case .error: Logger.shared.error("[banner] \(banner.message)")
             }
         }
@@ -3468,7 +3468,7 @@ public class FileSyncManager: ObservableObject {
         // `HeldBack` cases this one is refused here too, not only in bulk.
         if difference.heldBack == .sourceIsSymbolicLink {
             Logger.shared.info("Sync of \(difference.relativePath) refused: \(fromURL.path) is a symbolic link")
-            banner = .warning("“\(fromURL.lastPathComponent)” is a link, so a copy would be a link too, not what it points to — nothing was \(isMove ? "moved" : "copied")")
+            banner = .warning("“\(fromURL.lastPathComponent)” is a link, so a copy would be a link too, not what it points to — nothing was \(isMove ? "moved" : "copied")", log: .warn)
             return false
         }
 
@@ -3477,7 +3477,7 @@ public class FileSyncManager: ObservableObject {
         // overwrite a file as it's hashed — the pair can read "identical" against bytes that
         // no longer exist, poisoning the copy-to-match-dates offer.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before syncing")
+            banner = .warning("Wait for Verify All to finish before syncing", log: .warn)
             return false
         }
 
@@ -3489,7 +3489,7 @@ public class FileSyncManager: ObservableObject {
         // owns, and a syncFile parked at its prompt becomes invisible to Verify All's exclusion
         // guard.
         guard !isBulkSyncRunning else {
-            banner = .warning("Wait for the current operation to finish before syncing")
+            banner = .warning("Wait for the current operation to finish before syncing", log: .warn)
             return false
         }
 

@@ -76,7 +76,7 @@ extension ContentView {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         let started = DocumentPrinting.prepare(job) { operation in
             guard let operation else {
-                syncManager.banner = .error("Couldn’t prepare “\(job.name)” for printing.")
+                syncManager.banner = .error("Couldn’t prepare “\(job.name)” for printing.", log: .error)
                 Logger.shared.warning("Editor print produced no pages for \(job.name)")
                 return
             }
@@ -99,7 +99,7 @@ extension ContentView {
     /// exception for drawing.
     func printEditorPDF() {
         guard let operation = editorPDF.printOperation() else {
-            syncManager.banner = .error("Couldn’t prepare “\(editorPDF.name)” for printing.")
+            syncManager.banner = .error("Couldn’t prepare “\(editorPDF.name)” for printing.", log: .error)
             Logger.shared.warning("Editor print produced no operation for \(editorPDF.path ?? "") (PDF)")
             return
         }
@@ -131,7 +131,7 @@ extension ContentView {
         // render takes seconds.
         guard let data = DocumentPDF.data(for: job,
                                           geometry: .from(NSPrintInfo.shared)) else {
-            syncManager.banner = .error("Couldn’t render “\(job.name)” as a PDF.")
+            syncManager.banner = .error("Couldn’t render “\(job.name)” as a PDF.", log: .error)
             Logger.shared.warning("Editor PDF export produced no pages for \(job.name)")
             return
         }
@@ -147,7 +147,7 @@ extension ContentView {
             // A banner, not just a log line: a requested write that silently did nothing is a
             // failure the user won't notice until it matters.
             syncManager.banner = .error(
-                "Couldn’t export “\(url.lastPathComponent)” — \(error.localizedDescription)")
+                "Couldn’t export “\(url.lastPathComponent)” — \(error.localizedDescription)", log: .error)
         }
     }
 }

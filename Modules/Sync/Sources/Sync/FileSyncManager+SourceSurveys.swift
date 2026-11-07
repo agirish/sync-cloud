@@ -338,10 +338,10 @@ extension FileSyncManager {
         let result = await runDocumentSurvey(plan: plan)
         switch result {
         case .success(let report):
-            banner = report.isComplete ? .success(report.summary) : .warning(report.summary)
+            banner = report.isComplete ? .success(report.summary) : .warning(report.summary, log: .warn)
         case .failure(let refusal):
             Logger.shared.info("Document survey: not started — \(refusal.sentence)")
-            banner = .warning(refusal.sentence)
+            banner = .warning(refusal.sentence, log: .warn)
         }
         return result
     }

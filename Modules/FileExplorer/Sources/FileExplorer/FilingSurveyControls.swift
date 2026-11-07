@@ -89,7 +89,7 @@ struct PendingSourceReading: Identifiable {
     static func count(_ manager: FileSyncManager, root: String, sourceName: String) async -> PendingSourceReading? {
         switch await manager.planSourceDocumentSurvey(sourceRoot: root) {
         case .failure(let refusal):
-            manager.banner = .warning(refusal.sentence)
+            manager.banner = .warning(refusal.sentence, log: .warn)
             return nil
         case .success(let plan):
             guard plan.total > 0 else {

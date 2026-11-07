@@ -314,11 +314,11 @@ extension FileSyncManager {
         // Verify All's exclusion, as in syncFile: a transfer mid-verify could overwrite a file
         // as it's hashed.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before copying or moving items")
+            banner = .warning("Wait for Verify All to finish before copying or moving items", log: .warn)
             return []
         }
         if isMove, let refusal = oneWaySyncRefusal?(nodes.map(\.id)) {
-            banner = .warning(refusal)
+            banner = .warning(refusal, log: .warn)
             return []
         }
         let prunedNodes = nodes.pruneNestedNodes()
@@ -846,7 +846,7 @@ extension FileSyncManager {
                 let folder = (leaf.isEmpty || leaf == "/") ? parent : leaf
                 banner = .warning(prunedNodes.count == 1
                     ? "“\(first.name)” is already in \(folder)"
-                    : "All \(prunedNodes.count) items are already in \(folder)")
+                    : "All \(prunedNodes.count) items are already in \(folder)", log: .warn)
             }
         }
 
@@ -868,11 +868,11 @@ extension FileSyncManager {
         // Verify All's exclusion, as every write has: a rename mid-verify moves a file out from
         // under its hash.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before renaming")
+            banner = .warning("Wait for Verify All to finish before renaming", log: .warn)
             return
         }
         if let refusal = oneWaySyncRefusal?([path]) {
-            banner = .warning(refusal)
+            banner = .warning(refusal, log: .warn)
             return
         }
         if let reason = Self.validateItemName(newName) {
@@ -933,7 +933,7 @@ extension FileSyncManager {
     /// Creates a new empty directory on disk.
     public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before making a folder")
+            banner = .warning("Wait for Verify All to finish before making a folder", log: .warn)
             return
         }
         if let reason = Self.validateItemName(name) {
@@ -1286,11 +1286,11 @@ extension FileSyncManager {
         // Verify All's exclusion, as in syncFile: a delete mid-verify could remove a file as it's
         // hashed.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before deleting items")
+            banner = .warning("Wait for Verify All to finish before deleting items", log: .warn)
             return DeleteOutcome()
         }
         if let refusal = oneWaySyncRefusal?(paths) {
-            banner = .warning(refusal)
+            banner = .warning(refusal, log: .warn)
             return DeleteOutcome()
         }
         let confirmPermanentDelete = permanentDeleteConfirmer
@@ -1574,7 +1574,7 @@ extension FileSyncManager {
             Logger.shared.info("Delete: kept \(result.declined) item(s) that could not be moved to the Trash — the permanent delete was declined")
             banner = .warning(result.declined == 1
                 ? "Kept that item — it can’t be moved to the Trash, and you chose not to delete it permanently"
-                : "Kept those \(result.declined) items — they can’t be moved to the Trash, and you chose not to delete them permanently")
+                : "Kept those \(result.declined) items — they can’t be moved to the Trash, and you chose not to delete them permanently", log: .warn)
         } else if reportsNothingToDo, items.isEmpty, result.refused == 0, !prunedPaths.isEmpty, progress?.isCancelled != true {
             // Everything selected had already left the disk since the tree was walked. Say so, or
             // the delete looks ignored. Not when the gate refused (`result.refused == 0`): those
@@ -1583,7 +1583,7 @@ extension FileSyncManager {
             // `.warning`: nothing failed, but nothing happened either.
             banner = .warning(prunedPaths.count == 1
                 ? "That item was already gone"
-                : "Those \(prunedPaths.count) items were already gone")
+                : "Those \(prunedPaths.count) items were already gone", log: .warn)
         }
 
         // Sync History: one `.delete` record per removed item, sharing this run id. Size comes

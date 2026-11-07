@@ -156,7 +156,7 @@ extension FileSyncManager {
         // banner, not a silent no-op.
         guard !isVerifyAllRunning, !isBulkSyncRunning,
               activeFileOperationsCount == 0, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before verifying")
+            banner = .warning("Wait for the current operation to finish before verifying", log: .warn)
             return
         }
         isVerifyAllRunning = true
@@ -281,13 +281,13 @@ extension FileSyncManager {
         if differed > 0 { parts.append("\(differed) differed") }
         if skipped > 0 { parts.append("\(skipped) skipped") }
         if progress.isCancelled {
-            banner = .warning("Verify All canceled")
+            banner = .warning("Verify All canceled", log: .warn)
         } else if parts.isEmpty {
             banner = nil
         } else {
             let message = "Verify All: " + parts.joined(separator: "; ")
             // Anything that differed or couldn't be verified needs the user's attention.
-            banner = (differed > 0 || skipped > 0) ? .warning(message) : .success(message)
+            banner = (differed > 0 || skipped > 0) ? .warning(message, log: .warn) : .success(message)
         }
     }
 
@@ -352,7 +352,7 @@ extension FileSyncManager {
         // verified file was touched.
         guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else {
             verifiedIdenticalForCopy = nil
-            banner = .warning("A file operation ran or is pending — run Verify All again")
+            banner = .warning("A file operation ran or is pending — run Verify All again", log: .warn)
             return nil
         }
         // The epoch and count can't see writers outside this app, and the dialog can stay open
@@ -366,9 +366,9 @@ extension FileSyncManager {
             switch staleness {
             case .changed(_, let side):
                 let end = side == .right ? "on the right" : "on the left"
-                banner = .warning("“\(name)” changed \(end) since it was verified — run Verify All again")
+                banner = .warning("“\(name)” changed \(end) since it was verified — run Verify All again", log: .warn)
             case .unstamped:
-                banner = .warning("“\(name)” cannot be re-checked against its verification — run Verify All again")
+                banner = .warning("“\(name)” cannot be re-checked against its verification — run Verify All again", log: .warn)
             }
             return nil
         }

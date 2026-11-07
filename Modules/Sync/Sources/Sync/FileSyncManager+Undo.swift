@@ -80,7 +80,7 @@ extension FileSyncManager {
         let logMessage = "Undo/Redo (\(actionName)): FAILED to restore \"\(name)\" at \(destination.path) from backup \(backup.path) — destination may now be empty (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn’t restore the original of “\(name)” — it may have been removed from the Trash")
+            target.banner = .warning("Undo couldn’t restore the original of “\(name)” — it may have been removed from the Trash", log: .warn)
         }
     }
 
@@ -99,7 +99,7 @@ extension FileSyncManager {
         let logMessage = "\(step) (\(actionName)): moved \"\(name)\" to \(restored.path) whole, but what it moved from at \(leftover.path) could not be fully removed — part of it is still there"
         await MainActor.run {
             Logger.shared.warning(logMessage)
-            target.banner = .warning("\(step) moved “\(name)” \(isRedo ? "again" : "back"), but the copy where it was couldn’t be fully removed")
+            target.banner = .warning("\(step) moved “\(name)” \(isRedo ? "again" : "back"), but the copy where it was couldn’t be fully removed", log: .warn)
         }
     }
 
@@ -118,7 +118,7 @@ extension FileSyncManager {
         let logMessage = "Undo/Redo (\(actionName)): FAILED to redo \"\(name)\" at \(destination.path) — item left out of the next undo state (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Redo couldn’t re-apply “\(name)” — its source may no longer exist")
+            target.banner = .warning("Redo couldn’t re-apply “\(name)” — its source may no longer exist", log: .warn)
         }
     }
 
@@ -135,7 +135,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): FAILED to permanently delete \"\(name)\" at \(destination.path) — the item remains on disk (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn’t remove “\(name)” — it is still on disk")
+            target.banner = .warning("Undo couldn’t remove “\(name)” — it is still on disk", log: .warn)
         }
     }
 
@@ -188,7 +188,7 @@ extension FileSyncManager {
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning(bannerMessage)
+            target.banner = .warning(bannerMessage, log: .warn)
         }
     }
 
@@ -205,7 +205,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): REFUSED to move \"\(name)\" back to its original location — nothing was recorded at \(destination.path) when this undo was registered, so there is no item to move back; leaving the disk exactly as it is"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo left “\(name)” in place — there was nothing to move back")
+            target.banner = .warning("Undo left “\(name)” in place — there was nothing to move back", log: .warn)
         }
     }
 
@@ -238,7 +238,7 @@ extension FileSyncManager {
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning(bannerMessage)
+            target.banner = .warning(bannerMessage, log: .warn)
         }
     }
 
@@ -283,7 +283,7 @@ extension FileSyncManager {
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning(bannerMessage)
+            target.banner = .warning(bannerMessage, log: .warn)
         }
     }
 
@@ -298,7 +298,7 @@ extension FileSyncManager {
         let logMessage = "Redo (\(actionName)): left \"\(name)\" at \(folder.path) in place rather than move it to the Trash — the merge trashed it only once it was empty, and it still holds items this redo did not move"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Redo left “\(name)” in place — it still holds items the redo didn’t move")
+            target.banner = .warning("Redo left “\(name)” in place — it still holds items the redo didn’t move", log: .warn)
         }
     }
 
@@ -330,7 +330,7 @@ extension FileSyncManager {
         }
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning(bannerMessage)
+            target.banner = .warning(bannerMessage, log: .warn)
         }
     }
 
@@ -345,7 +345,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — it is locked, and the lock was not one the copy carried from its original, so this undo does not lift it; leaving it in place"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo left “\(name)” in place — it’s locked. Unlock it in Get Info, then undo again")
+            target.banner = .warning("Undo left “\(name)” in place — it’s locked. Unlock it in Get Info, then undo again", log: .warn)
         }
     }
 
@@ -396,7 +396,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): couldn't move \"\(name)\" at \(destination.path) to the Trash — transient failure, left in place for a retry instead of escalating to a permanent delete (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn’t remove “\(name)” — it looks busy; try again")
+            target.banner = .warning("Undo couldn’t remove “\(name)” — it looks busy; try again", log: .warn)
         }
     }
 
@@ -553,7 +553,7 @@ extension FileSyncManager {
             : "Undo didn’t restore “\(name)” — the item in the Trash under that name isn’t the one SyncCloud put there"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning(bannerMessage)
+            target.banner = .warning(bannerMessage, log: .warn)
         }
     }
 
@@ -570,7 +570,7 @@ extension FileSyncManager {
         let logMessage = "Undo (\(actionName)): REFUSED to undo \"\(name)\" at \(destination.path) — the original it would restore from \(backup.path) could not be read, so it cannot be confirmed as the item this operation put in the Trash; leaving both as they are"
         await MainActor.run {
             Logger.shared.error(logMessage)
-            target.banner = .warning("Undo left “\(name)” in place — the original in the Trash couldn’t be read")
+            target.banner = .warning("Undo left “\(name)” in place — the original in the Trash couldn’t be read", log: .warn)
         }
     }
 
@@ -1457,7 +1457,7 @@ extension FileSyncManager {
                             : "Undo (New Folder): left \(url.path) in place — it holds files or folders the undo did not put there")
                         target.banner = .warning(unread
                             ? "Undo left “\(name)” in place — its contents couldn’t be read"
-                            : "Undo left “\(name)” in place — it isn’t empty")
+                            : "Undo left “\(name)” in place — it isn’t empty", log: .warn)
                     }
                     return
                 }

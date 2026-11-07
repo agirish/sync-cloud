@@ -33,7 +33,7 @@ extension FileSyncManager {
         guard filingRouterIndex != nil, let root = filingLastProviderRoot,
               targets.allSatisfy({ $0.providerRoot == root }) else {
             Logger.shared.info("Filing: Download and Read refused — the cached index is from another scan (\(filingLastProviderRoot ?? "none"))")
-            banner = .warning("Couldn’t read these files — this list is from an earlier scan. Scan this folder again to read them.")
+            banner = .warning("Couldn’t read these files — this list is from an earlier scan. Scan this folder again to read them.", log: .warn)
             return 0
         }
         isDownloadingFilingFiles = true
@@ -147,15 +147,15 @@ extension FileSyncManager {
         func files(_ n: Int) -> String { "\(n) file\(n == 1 ? "" : "s")" }
         guard landed > 0 else {
             if stillDownloading > 0 {
-                return .warning("\(files(stillDownloading)) still downloading — try Download and Read again in a moment.")
+                return .warning("\(files(stillDownloading)) still downloading — try Download and Read again in a moment.", log: .warn)
             }
-            return .warning("Couldn’t download \(files(refused)) — open \(refused == 1 ? "it" : "them") in Finder to download.")
+            return .warning("Couldn’t download \(files(refused)) — open \(refused == 1 ? "it" : "them") in Finder to download.", log: .warn)
         }
         var text = "Downloaded and read \(files(landed))"
         text += homed == 0 ? "; none matched a folder" : "; \(homed) \(homed == 1 ? "has" : "have") a home from the page"
         if stillDownloading > 0 { text += "; \(stillDownloading) still downloading — try again in a moment" }
         if refused > 0 { text += "; \(refused) couldn’t be downloaded" }
         text += "."
-        return stillDownloading + refused == 0 ? .success(text) : .warning(text)
+        return stillDownloading + refused == 0 ? .success(text) : .warning(text, log: .warn)
     }
 }

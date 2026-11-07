@@ -261,7 +261,7 @@ extension FileSyncManager {
         // match nothing".
         if let only, let rule = automationRules.first(where: { $0.id == only }), isInert(rule) {
             let name = rule.name.isEmpty ? "This rule" : "“\(rule.name)”"
-            banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can’t act here.")
+            banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can’t act here.", log: .warn)
             Logger.shared.info("Rules preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
             return
         }
@@ -417,7 +417,7 @@ extension FileSyncManager {
     public func applyAutomationFiling(rows: [AutomationDryRunRow]) async -> (filed: Int, failed: Int) {
         // Don't move files Verify All may be checksumming (same guard Filing uses).
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing")
+            banner = .warning("Wait for Verify All to finish before filing", log: .warn)
             return (0, 0)
         }
         let fm = fileManager
@@ -517,8 +517,8 @@ extension FileSyncManager {
                 banner = rootUnavailable > 0
                     ? .warning(couldnt + " "
                                + FileOperationError.destinationRootUnavailable.localizedDescription
-                               + changedNote)
-                    : .warning(couldnt + changedNote)
+                               + changedNote, log: .warn)
+                    : .warning(couldnt + changedNote, log: .warn)
             }
             return (0, failures)
         }
@@ -549,7 +549,7 @@ extension FileSyncManager {
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s")."
                        + (failures > 0 ? " \(failures) couldn’t be filed." : "")
                        + (rootUnavailable > 0 ? " " + FileOperationError.destinationRootUnavailable.localizedDescription : "")
-                       + changedNote, undoable: true)
+                       + changedNote, undoable: true, log: .warn)
             : .success("Filed \(n) file\(n == 1 ? "" : "s")", undoable: true)
         return (n, failures)
     }

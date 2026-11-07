@@ -286,7 +286,7 @@ extension ContentView {
         guard let doors = paneToolResultDoors, doors.banner.id == syncManager.banner?.id else { return }
         func here(_ paths: [String]) -> [String]? {
             let here = PaneToolResult.stillThere(paths)
-            if here.isEmpty { syncManager.banner = .warning(PaneToolResult.goneMessage(paths)) }
+            if here.isEmpty { syncManager.banner = .warning(PaneToolResult.goneMessage(paths), log: .warn) }
             return here.isEmpty ? nil : here
         }
         switch followUp {

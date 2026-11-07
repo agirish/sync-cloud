@@ -124,7 +124,7 @@ private final class ManualSleeper: @unchecked Sendable {
         let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
         var dismissCount = 0
 
-        scheduler.bannerChanged(to: .warning("3 copied; 2 failed")) { dismissCount += 1 }
+        scheduler.bannerChanged(to: .warning("3 copied; 2 failed", log: .warn)) { dismissCount += 1 }
         await waitUntil("the warning timer starts") { clock.pendingCount == 1 }
 
         // Asserted directly rather than inferred from elapsed time: the window asked for is the
@@ -145,12 +145,12 @@ private final class ManualSleeper: @unchecked Sendable {
 
         scheduler.bannerChanged(to: .success("Moved “Untitled.md” to the Trash"), inCapsule: true) { dismissCount += 1 }
         await waitUntil("the success timer starts") { clock.requestedDelays.count == 1 }
-        scheduler.bannerChanged(to: .warning("3 copied; 2 failed"), inCapsule: true) { dismissCount += 1 }
+        scheduler.bannerChanged(to: .warning("3 copied; 2 failed", log: .warn), inCapsule: true) { dismissCount += 1 }
         await waitUntil("the warning timer starts") { clock.requestedDelays.count == 2 }
         #expect(clock.requestedDelays == [Self.capsuleDelay, Self.capsuleDelay])
 
         // Sticky in the capsule as anywhere: no timer at all.
-        scheduler.bannerChanged(to: .error("Copy failed"), inCapsule: true) { dismissCount += 1 }
+        scheduler.bannerChanged(to: .error("Copy failed", log: .error), inCapsule: true) { dismissCount += 1 }
         #expect(scheduler.currentTimerTask == nil)
 
         // The standard windows: the capsule's outlasts a pane's success, and is no shorter than its warning.
@@ -169,7 +169,7 @@ private final class ManualSleeper: @unchecked Sendable {
         let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
         var dismissCount = 0
 
-        scheduler.bannerChanged(to: .error("Copy failed")) { dismissCount += 1 }
+        scheduler.bannerChanged(to: .error("Copy failed", log: .error)) { dismissCount += 1 }
 
         // Sticky means no timer is started at all. Asserted on the task handle, which `startTimer`
         // assigns synchronously; `requestedDelays` alone can't say it, since a delay is recorded

@@ -15,10 +15,10 @@ import Sync
 @Suite(.serialized) struct ResultMessageLayoutTests {
 
     private static let deleted = OperationBanner(
-        message: "Deleted “Quarterly statement — October 2026 (final).pdf”", severity: .success,
+        message: "Deleted “Quarterly statement — October 2026 (final).pdf”", severity: .success, log: .info,
         isUndoable: true)
     private static let wrote = OperationBanner(
-        message: "Rotated “Lease 2026.pdf” — saved a copy", severity: .success,
+        message: "Rotated “Lease 2026.pdf” — saved a copy", severity: .success, log: .info,
         followUps: [.openInEdit("/x/Lease 2026 (rotated).pdf"), .revealInBrowse(["/x/Lease 2026 (rotated).pdf"])])
 
     private func view(_ banner: OperationBanner) -> some View {

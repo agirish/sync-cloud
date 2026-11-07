@@ -28,6 +28,27 @@ public struct OperationBanner: Equatable, Sendable {
     /// Undo. Pure data like the rest: the UI names the buttons and performs them.
     public var followUps: [FollowUp]
 
+    /// The level the banner's copy in the log is written at (`FileSyncManager.banner`'s mirror).
+    /// Separate from `severity`, which sets the banner's icon, tint and how long it stays: a busy
+    /// guard looks like a warning on screen and is no fault in the log. Required on every warning
+    /// and error, so each site says what its banner is to someone reading the log later.
+    public enum LogLevel: Equatable, Sendable {
+        case info, warn, error
+
+        /// The level the mirror wrote before banners carried their own: the severity's. For a
+        /// site whose severity is decided at run time.
+        public init(mirroring severity: Severity) {
+            switch severity {
+            case .success: self = .info
+            case .warning: self = .warn
+            case .error: self = .error
+            }
+        }
+    }
+
+    /// See ``LogLevel``.
+    public var log: LogLevel
+
     /// A door out of a finished result.
     public enum FollowUp: Equatable, Sendable {
         /// "Open in Edit" — the file just written.
@@ -38,25 +59,27 @@ public struct OperationBanner: Equatable, Sendable {
         case download(String)
     }
 
-    public init(message: String, severity: Severity, isUndoable: Bool = false,
+    public init(message: String, severity: Severity, log: LogLevel, isUndoable: Bool = false,
                 detail: String? = nil, followUps: [FollowUp] = [], id: UUID = UUID()) {
         self.id = id
         self.message = message
         self.severity = severity
+        self.log = log
         self.isUndoable = isUndoable
         self.detail = detail
         self.followUps = followUps
     }
 
-    public static func success(_ message: String, undoable: Bool = false) -> OperationBanner {
-        OperationBanner(message: message, severity: .success, isUndoable: undoable)
+    /// A finished operation: logged at INFO unless a site says otherwise.
+    public static func success(_ message: String, undoable: Bool = false, log: LogLevel = .info) -> OperationBanner {
+        OperationBanner(message: message, severity: .success, log: log, isUndoable: undoable)
     }
 
-    public static func warning(_ message: String, undoable: Bool = false) -> OperationBanner {
-        OperationBanner(message: message, severity: .warning, isUndoable: undoable)
+    public static func warning(_ message: String, undoable: Bool = false, log: LogLevel) -> OperationBanner {
+        OperationBanner(message: message, severity: .warning, log: log, isUndoable: undoable)
     }
 
-    public static func error(_ message: String) -> OperationBanner {
-        OperationBanner(message: message, severity: .error)
+    public static func error(_ message: String, log: LogLevel) -> OperationBanner {
+        OperationBanner(message: message, severity: .error, log: log)
     }
 }

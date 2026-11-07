@@ -16,22 +16,22 @@ struct OperationBannerTests {
     }
 
     @Test func equalityHoldsForTheSameValue() {
-        let banner = OperationBanner.warning("Partially copied")
+        let banner = OperationBanner.warning("Partially copied", log: .warn)
         let copy = banner
         #expect(banner == copy)
     }
 
     @Test func factoriesSetSeverity() {
         #expect(OperationBanner.success("s").severity == .success)
-        #expect(OperationBanner.warning("w").severity == .warning)
-        #expect(OperationBanner.error("e").severity == .error)
+        #expect(OperationBanner.warning("w", log: .warn).severity == .warning)
+        #expect(OperationBanner.error("e", log: .error).severity == .error)
     }
 
     @Test func undoableFactoryFlagsTheBanner() {
         // Default is not undoable; the flag opts a grouped-undo outcome into the Undo button.
         #expect(OperationBanner.success("s").isUndoable == false)
         #expect(OperationBanner.success("s", undoable: true).isUndoable == true)
-        #expect(OperationBanner.warning("w", undoable: true).isUndoable == true)
-        #expect(OperationBanner.error("e").isUndoable == false)
+        #expect(OperationBanner.warning("w", undoable: true, log: .warn).isUndoable == true)
+        #expect(OperationBanner.error("e", log: .error).isUndoable == false)
     }
 }

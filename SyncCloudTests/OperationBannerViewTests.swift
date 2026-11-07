@@ -11,7 +11,7 @@ import Sync
 
     private func view(isUndoable: Bool, canUndo: Bool) -> OperationBannerView {
         OperationBannerView(
-            banner: OperationBanner(message: "Moved 2 items", severity: .success, isUndoable: isUndoable),
+            banner: OperationBanner(message: "Moved 2 items", severity: .success, log: .info, isUndoable: isUndoable),
             glassLevel: .frosted,
             canUndo: canUndo,
             onUndo: {}, onClose: {}, onHover: { _ in })
@@ -37,7 +37,7 @@ import Sync
                 "Reduce Motion must suppress the animated bar")
 
         let sticky = OperationBannerView(
-            banner: OperationBanner(message: "x", severity: .error),
+            banner: OperationBanner(message: "x", severity: .error, log: .error),
             glassLevel: .frosted, canUndo: false,
             onUndo: {}, onClose: {}, onHover: { _ in }).autoDismissSeconds
         #expect(sticky == nil, "error banners are sticky — no window, no bar")
@@ -52,7 +52,7 @@ import Sync
                 == "Deleted “Test3.md”. Undo available, Command Z")
         #expect(OperationBannerView.announcement(for: deleted, offersUndo: false) == "Deleted “Test3.md”",
                 "Undo announced with no button to take it")
-        let sentence = OperationBanner.warning("Reclaimed 4 KB from 1 of 2 groups — the rest stay listed.", undoable: true)
+        let sentence = OperationBanner.warning("Reclaimed 4 KB from 1 of 2 groups — the rest stay listed.", undoable: true, log: .warn)
         #expect(OperationBannerView.announcement(for: sentence, offersUndo: true)
                 == "Reclaimed 4 KB from 1 of 2 groups — the rest stay listed. Undo available, Command Z")
         // The window posts it on every new message, with the button's Undo rule, and no Undo while

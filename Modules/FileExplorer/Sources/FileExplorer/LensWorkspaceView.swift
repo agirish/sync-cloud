@@ -2948,7 +2948,7 @@ public struct LensWorkspaceView: View {
                             Task { @MainActor in
                                 let outcome = await syncManager.applyScaffold(for: finding)
                                 if let refusal = outcome.refusal {
-                                    syncManager.banner = .warning(refusal)
+                                    syncManager.banner = .warning(refusal, log: .warn)
                                 } else {
                                     handOffToToFile(finding)
                                 }
@@ -2993,7 +2993,7 @@ public struct LensWorkspaceView: View {
                                 let outcome = await syncManager.refreshDerivedProfile()
                                 syncManager.banner = outcome.refusal == nil
                                     ? .success(outcome.sentence)
-                                    : .warning(outcome.sentence)
+                                    : .warning(outcome.sentence, log: .warn)
                             }
                         },
                         // The engine's own guard, as the enabled state, so a running landing
@@ -3245,12 +3245,12 @@ public struct LensWorkspaceView: View {
         case .run(let resolved):
             finding = resolved
         case .refuse(let sentence):
-            syncManager.banner = .warning(sentence)
+            syncManager.banner = .warning(sentence, log: .warn)
             return
         case .unavailable:
             syncManager.banner = .warning(
                 "There is no longer a finding for that folder — the survey may have been "
-                + "updated since the menu was opened.")
+                + "updated since the menu was opened.", log: .warn)
             return
         }
         // A deliberate arrival: the user asked about this folder, so the reveal card would charge
@@ -3263,7 +3263,7 @@ public struct LensWorkspaceView: View {
             Task { @MainActor in
                 let outcome = await syncManager.applyScaffold(for: finding)
                 if let refusal = outcome.refusal {
-                    syncManager.banner = .warning(refusal)
+                    syncManager.banner = .warning(refusal, log: .warn)
                 } else {
                     handOffToToFile(finding)
                 }

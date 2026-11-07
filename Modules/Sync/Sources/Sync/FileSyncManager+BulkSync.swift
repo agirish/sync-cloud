@@ -33,7 +33,7 @@ extension FileSyncManager {
         }
         if toCopy.isEmpty, !held.isEmpty {
             banner = .warning((["No dates were matched"] + Self.leftOutPhrases(held, linkOnEitherSide: true))
-                .joined(separator: "; "))
+                .joined(separator: "; "), log: .warn)
             return
         }
         let total = toCopy.count
@@ -43,7 +43,7 @@ extension FileSyncManager {
         // syncFile (perhaps parked at its prompt) may target one of these rows, and this run's
         // defer would clear its syncing mark. Refuse visibly.
         guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before copying")
+            banner = .warning("Wait for the current operation to finish before copying", log: .warn)
             return
         }
         isBulkSyncRunning = true
@@ -79,7 +79,7 @@ extension FileSyncManager {
         // `preCountFileOperation()` but bumps the epoch only once confirmed, so a pending one
         // shows in the count alone.
         guard fileOperationsEpoch == asOf, activeFileOperationsCount == 0 else {
-            banner = .warning("A file operation ran or is pending — run Verify All again")
+            banner = .warning("A file operation ran or is pending — run Verify All again", log: .warn)
             return
         }
 
@@ -158,7 +158,7 @@ extension FileSyncManager {
             if !outcome.failures.isEmpty { parts.append("\(outcome.failures.count) failed") }
             parts += Self.leftOutPhrases(held, linkOnEitherSide: true)
             // The dates it did match are one undo step all the same, so the banner keeps its Undo.
-            banner = .warning(parts.joined(separator: "; "), undoable: !outcome.matched.isEmpty)
+            banner = .warning(parts.joined(separator: "; "), undoable: !outcome.matched.isEmpty, log: .warn)
         } else {
             banner = .success("\(CountedNoun.phrase(outcome.matched.count, "file")) now match — dates set, nothing copied",
                               undoable: true)
@@ -256,7 +256,7 @@ extension FileSyncManager {
                 case (0, _): reason = leftAlone == 1 ? "it couldn’t be re-dated" : "they couldn’t be re-dated"
                 default: reason = "\(changed) changed since, \(unwritable) couldn’t be re-dated"
                 }
-                target.banner = .warning("\(verb) left \(files) alone — \(reason)")
+                target.banner = .warning("\(verb) left \(files) alone — \(reason)", log: .warn)
             }
         }
         undoManager?.setActionName(actionName)
@@ -365,7 +365,7 @@ extension FileSyncManager {
         guard total > 0 else {
             if !heldBack.isEmpty { Logger.shared.info(BulkRunLog.allHeld(isMove: isMove, held: heldBack.count)) }
             if !heldBack.isEmpty, postBanner {
-                banner = .warning("Nothing was \(isMove ? "moved" : "copied")" + heldNote)
+                banner = .warning("Nothing was \(isMove ? "moved" : "copied")" + heldNote, log: .warn)
             }
             return []
         }
@@ -374,13 +374,13 @@ extension FileSyncManager {
         // A Verify All in flight is hashing the files this run would overwrite, and would read
         // them half-written. Tell the user rather than drop silently.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for the current operation to finish before syncing")
+            banner = .warning("Wait for the current operation to finish before syncing", log: .warn)
             return []
         }
         // A single-row syncFile in flight (perhaps parked at its prompt) may target these rows,
         // and two flows could write one difference twice. Mirrors Verify All's guard.
         guard syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before syncing")
+            banner = .warning("Wait for the current operation to finish before syncing", log: .warn)
             return []
         }
         // Latch the flag before the confirmation prompt: its modal spins the run loop, and a
@@ -705,7 +705,7 @@ extension FileSyncManager {
         // syncAll's own guards, up front: a refusal inside it would read here as "nothing
         // copied", and this banner would hide the reason.
         guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before syncing")
+            banner = .warning("Wait for the current operation to finish before syncing", log: .warn)
             return nil
         }
         let held = remaining.filter { $0.heldBack != nil }
@@ -725,7 +725,7 @@ extension FileSyncManager {
         let message = ([head] + Self.leftOutPhrases(held)).joined(separator: "; ")
         if resolved.count < toCopy.count || resolved.isEmpty {
             // A row that did not land has told the user already, in its own alert.
-            banner = .warning(message)
+            banner = .warning(message, log: .warn)
         } else {
             banner = .success(message, undoable: directions.count == 1)
         }

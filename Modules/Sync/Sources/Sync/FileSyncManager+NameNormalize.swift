@@ -125,7 +125,7 @@ extension FileSyncManager {
         // Verify All's write exclusion, as in syncFile and Filing: a rename moves an item Verify
         // All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before normalizing names")
+            banner = .warning("Wait for Verify All to finish before normalizing names", log: .warn)
             return
         }
         guard !selected.isEmpty, !isNormalizingNames else { return }
@@ -170,7 +170,7 @@ extension FileSyncManager {
 
         guard !result.moves.isEmpty else {
             if result.failed > 0 {
-                banner = .warning("Couldn’t normalize \(result.failed) name\(result.failed == 1 ? "" : "s").")
+                banner = .warning("Couldn’t normalize \(result.failed) name\(result.failed == 1 ? "" : "s").", log: .warn)
             }
             return
         }
@@ -192,7 +192,7 @@ extension FileSyncManager {
         // registered on this path.
         banner = result.failed > 0
             ? .warning("Normalized \(n) name\(n == 1 ? "" : "s"); \(result.failed) couldn’t be fixed",
-                       undoable: true)
+                       undoable: true, log: .warn)
             : .success("Normalized \(n) name\(n == 1 ? "" : "s")", undoable: true)
     }
 

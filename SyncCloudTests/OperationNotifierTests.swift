@@ -23,7 +23,7 @@ import Sync
     @Test func postIfEnabledBuildsTheRequestFromTheBanner() {
         let test = TestDefaults()
         test.defaults.set(true, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
-        let banner = OperationBanner(message: "Copied 3 items", severity: .warning)
+        let banner = OperationBanner(message: "Copied 3 items", severity: .warning, log: .warn)
 
         var posted: [UNNotificationRequest] = []
         OperationNotifier.postIfEnabled(for: banner, defaults: test.defaults,
@@ -42,7 +42,7 @@ import Sync
     @Test func aRunsEndingIsTitledWithTheRunAndNamesItsRow() {
         let test = TestDefaults()
         test.defaults.set(true, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
-        let banner = OperationBanner(message: "Merged “Photos”", severity: .warning, detail: "Skipped IMG_3120.jpg")
+        let banner = OperationBanner(message: "Merged “Photos”", severity: .warning, log: .warn, detail: "Skipped IMG_3120.jpg")
         var posted: [UNNotificationRequest] = []
         OperationNotifier.postIfEnabled(for: banner, runTitle: "Merging “Photos”", defaults: test.defaults,
                                         appIsActive: false, post: { posted.append($0) })
@@ -72,7 +72,7 @@ import Sync
         test.defaults.set(enabled, forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
 
         var postCount = 0
-        OperationNotifier.postIfEnabled(for: OperationBanner(message: "x", severity: .success),
+        OperationNotifier.postIfEnabled(for: OperationBanner(message: "x", severity: .success, log: .info),
                                         defaults: test.defaults, appIsActive: active,
                                         post: { _ in postCount += 1 })
         #expect(postCount == 0)
@@ -83,7 +83,7 @@ import Sync
     @Test func anUnsetPreferenceMeansNo() {
         let test = TestDefaults()
         var postCount = 0
-        OperationNotifier.postIfEnabled(for: OperationBanner(message: "x", severity: .success),
+        OperationNotifier.postIfEnabled(for: OperationBanner(message: "x", severity: .success, log: .info),
                                         defaults: test.defaults, appIsActive: false,
                                         post: { _ in postCount += 1 })
         #expect(postCount == 0)

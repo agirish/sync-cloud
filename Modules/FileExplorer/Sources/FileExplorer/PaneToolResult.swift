@@ -45,6 +45,7 @@ public struct PaneToolResult {
         }
         if let path = result.download { followUps.append(.download(path)) }
         self.init(banner: OperationBanner(message: result.message, severity: severity,
+                                          log: .init(mirroring: severity),
                                           detail: result.detail, followUps: followUps),
                   open: host.open, reveal: host.reveal, download: host.download)
     }
@@ -64,6 +65,7 @@ public struct PaneToolResult {
         case .failure: (severity, followUps) = (.error, [])
         }
         self.init(banner: OperationBanner(message: result.message, severity: severity,
+                                          log: .init(mirroring: severity),
                                           detail: result.detail, followUps: followUps),
                   source: .saveAsPDF, open: host.open, reveal: host.reveal)
     }

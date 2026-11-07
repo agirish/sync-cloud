@@ -31,17 +31,17 @@ public enum ReorganisationUndo {
 
     /// The banner an undo leaves — success included.
     static func banner(after outcome: FileSyncManager.RestructureApplyOutcome) -> OperationBanner {
-        if let refusal = outcome.refusal { return .warning(refusal) }
-        if let failure = outcome.surveyRefreshFailure { return .warning(failure) }
+        if let refusal = outcome.refusal { return .warning(refusal, log: .warn) }
+        if let failure = outcome.surveyRefreshFailure { return .warning(failure, log: .warn) }
         if !outcome.skipped.isEmpty || !outcome.verifierMismatches.isEmpty {
             return .warning("Reorganization undone — \(outcome.summary). The log names what "
-                            + "could not be moved back.")
+                            + "could not be moved back.", log: .warn)
         }
         // A file edited — or a document saved over one — since the landing goes back too, and
         // is named here: the undo cannot tell the two apart, so the person checks it.
         if !outcome.changedSince.isEmpty {
             return .warning("Reorganization undone — \(outcome.summary). "
-                            + changedSentence(outcome.changedSince))
+                            + changedSentence(outcome.changedSince), log: .warn)
         }
         return .success("Reorganization undone — \(outcome.summary).")
     }
@@ -66,7 +66,7 @@ public enum ReorganisationUndo {
         }
     ) async {
         if let refusal = manager.restructureLandingBlocker {
-            manager.banner = .warning(refusal)
+            manager.banner = .warning(refusal, log: .warn)
             return
         }
         if let record = manager.restructureStore?.applied

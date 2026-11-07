@@ -841,7 +841,7 @@ extension FileSyncManager {
             // specifics; this says the sentence the user needs.
             banner = .warning("Couldn’t ask Claude for another folder — the chosen model has no "
                               + "known price, so the cost can’t be checked. Keeping the on-device "
-                              + "suggestion; pick one of the offered models in Settings ▸ Organize.")
+                              + "suggestion; pick one of the offered models in Settings ▸ Organize.", log: .warn)
             return false
         case .billable(let preflight):
             guard preflight.wouldExceedCap else { return true }
@@ -853,7 +853,7 @@ extension FileSyncManager {
             // As for `.blocked` above, with a different remedy, so a different sentence.
             banner = .warning("Couldn’t ask Claude for another folder — it would pass a budget "
                               + "cap. Keeping the on-device suggestion; raise the cap in "
-                              + "Settings ▸ Ask Claude to keep using Claude.")
+                              + "Settings ▸ Ask Claude to keep using Claude.", log: .warn)
             return false
         }
     }
@@ -1302,7 +1302,7 @@ extension FileSyncManager {
         let hidden = filingRoutesToCloud(.refine) ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
         if hidden.isHidden(suggestion.filePath) {
             banner = .warning("“\(suggestion.fileName)” is hidden from Claude, so it wasn’t asked "
-                              + "for another folder. Choose one instead.")
+                              + "for another folder. Choose one instead.", log: .warn)
             replaceFilingSuggestion(suggestion.id, candidates: [])
             return
         }
@@ -1541,7 +1541,7 @@ extension FileSyncManager {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves a
         // file Verify All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing")
+            banner = .warning("Wait for Verify All to finish before filing", log: .warn)
             return .failed
         }
         switch await performFiling(suggestion, to: destination) {
@@ -1607,7 +1607,7 @@ extension FileSyncManager {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves
         // files Verify All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing")
+            banner = .warning("Wait for Verify All to finish before filing", log: .warn)
             return
         }
         let batch = scope.filter { $0.isBatchEligible }
@@ -1658,7 +1658,7 @@ extension FileSyncManager {
                                                                      alreadyHome: alreadyHome))
             }
             if failures > 0 {
-                banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s")\(home.isEmpty ? "" : "; \(home)").")
+                banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s")\(home.isEmpty ? "" : "; \(home)").", log: .warn)
             } else if alreadyHome > 0 {
                 banner = .success("\(alreadyHome) file\(alreadyHome == 1 ? " was" : "s were") already in "
                     + "\(alreadyHome == 1 ? "its folder" : "their folders") — nothing to move.")
@@ -1675,7 +1675,7 @@ extension FileSyncManager {
         }
         let filedText = "Filed \(n) file\(n == 1 ? "" : "s")" + (home.isEmpty ? "" : "; \(home)")
         banner = failures > 0
-            ? .warning("\(filedText); \(failures) couldn’t be filed", undoable: true)
+            ? .warning("\(filedText); \(failures) couldn’t be filed", undoable: true, log: .warn)
             : .success(filedText, undoable: true)
     }
 

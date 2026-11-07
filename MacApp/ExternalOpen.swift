@@ -216,7 +216,7 @@ enum ExternalOpen {
         }
         guard !sentences.isEmpty else { return nil }
         let text = sentences.joined(separator: " ")
-        return unplaced.isEmpty && plan.folders.isEmpty ? .success(text) : .warning(text)
+        return unplaced.isEmpty && plan.folders.isEmpty ? .success(text) : .warning(text, log: .warn)
     }
 
     /// The act for one batch, in order (plan, log, hand off, banner), as one function a test can

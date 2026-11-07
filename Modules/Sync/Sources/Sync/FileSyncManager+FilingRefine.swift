@@ -156,7 +156,7 @@ extension FileSyncManager {
         guard !eligible.isEmpty else {
             if hiddenCount > 0 {
                 banner = .warning("Nothing was sent — "
-                    + (hiddenCount == 1 ? "that file is" : "those files are") + " hidden from Claude.")
+                    + (hiddenCount == 1 ? "that file is" : "those files are") + " hidden from Claude.", log: .warn)
             }
             return nil
         }
@@ -452,7 +452,7 @@ extension FileSyncManager {
             Logger.shared.warning("Filing: refine ran on-device — Claude is switched on but the "
                 + "saved key could not be read, so nothing was sent or billed")
             banner = .warning("Couldn’t reach Claude — your saved API key couldn’t be read. "
-                              + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.")
+                              + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.", log: .warn)
             return summary
         }
         // A declined charge is not a result. Nothing was sent or re-routed, so only cached answers
@@ -473,7 +473,7 @@ extension FileSyncManager {
                     ? ", and no home changed."
                     : ", moving \(changed) home\(changed == 1 ? "" : "s")."
             }
-            banner = .warning(text + hiddenNote)
+            banner = .warning(text + hiddenNote, log: .warn)
             return summary
         }
         // Success in both directions: "no better homes found" is a complete, correct answer to

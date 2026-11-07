@@ -267,7 +267,7 @@ import Sync
                 "the item no longer re-checks the live row when it fires")
         // A refusal is logged and said, not a silent return.
         #expect(fire.contains("Logger.shared.info(\"Row copy from its menu did nothing: \\(refusal)\")")
-                && fire.contains("syncManager.banner = .warning(refusal)"),
+                && fire.contains("syncManager.banner = .warning(refusal, log: .warn)"),
                 "a Copy to … item that finds nothing to do returns silently again")
         #expect(fire.contains("sendRowCopy(live, direction: direction)"), "the item no longer sends the checked row")
         let send = try SourceText.block(opening: "private func sendRowCopy(", in: source)
@@ -300,7 +300,7 @@ import Sync
         let fire = try SourceText.block(opening: "private func copyReviewRowFromMenu(", in: source)
         #expect(fire.contains("let found = session.pending.first { $0.id == id }"))
         #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)")
-                && fire.contains("syncManager.banner = .warning(refusal)"))
+                && fire.contains("syncManager.banner = .warning(refusal, log: .warn)"))
         #expect(fire.contains("let copy = sendRowCopy(item, direction: direction)"),
                 "the Review item no longer copies the way the Compare row's does")
         #expect(fire.contains("guard await copy.value else { return }")

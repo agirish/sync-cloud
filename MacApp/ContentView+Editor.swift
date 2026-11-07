@@ -1103,7 +1103,7 @@ extension ContentView {
                                              from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource),
                                              whenUnavailable: { _ in })
         let note = OperationBanner.warning(opensOnArrival ? "Downloading “\(name)” — it opens here when it arrives."
-                                                          : "Downloading “\(name)”…")
+                                                          : "Downloading “\(name)”…", log: .warn)
         syncManager.banner = note
         Task { @MainActor in
             // Ten minutes, not the external open's one: Download was asked for here, and a large
@@ -1114,7 +1114,7 @@ extension ContentView {
             if syncManager.banner?.id == note.id { syncManager.banner = nil }
             guard landed else {
                 Logger.shared.warning("[edit] \(path) did not arrive from the cloud within ten minutes")
-                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.")
+                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.", log: .error)
                 return
             }
             guard editorOpenPath == path, editorOpenIsRefused else {
@@ -1138,7 +1138,7 @@ extension ContentView {
               MaterializationStatus.isCloudOnly(atPath: MaterializationStatus.linkTarget(of: path)) else { return }
         let name = ExternalOpen.name(path)
         Logger.shared.info("[open] \(path) is still in the cloud — fetching it before Edit can read it")
-        syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.")
+        syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.", log: .warn)
         Task { @MainActor in
             let landed = await ExternalOpen.fetch(path)
             guard editorOpenPath == path, editorOpenIsRefused else {
@@ -1150,7 +1150,7 @@ extension ContentView {
                 openInEditor(path: path)
             } else {
                 Logger.shared.warning("[open] \(path) did not arrive from the cloud within a minute")
-                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.")
+                syncManager.banner = .error("Couldn’t download “\(name)”. Download it in Finder, then open it again.", log: .error)
             }
         }
     }
@@ -1772,7 +1772,7 @@ extension ContentView {
         case .notMissing:
             return false
         case .failed(let why):
-            syncManager.banner = .error("Couldn’t save “\(editorDocument.name)” — \(why)")
+            syncManager.banner = .error("Couldn’t save “\(editorDocument.name)” — \(why)", log: .error)
             return false
         }
     }
@@ -1781,7 +1781,7 @@ extension ContentView {
     /// large or not text. Nothing changed; the banner stays, and says so.
     private func reportDisksVersionUnreadable() {
         Logger.shared.info("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")
-        syncManager.banner = .error("Couldn’t read the version of “\(editorDocument.name)” on disk — your text is unchanged.")
+        syncManager.banner = .error("Couldn’t read the version of “\(editorDocument.name)” on disk — your text is unchanged.", log: .error)
     }
 
     /// After one of the app's own file operations (`refreshSubject`'s epilogue): Edit's rail
@@ -1890,7 +1890,7 @@ extension ContentView {
             return .madeNow
         } catch {
             Logger.shared.error("[new-file] Couldn't make \(folder): \(error.localizedDescription)")
-            syncManager.banner = .error("Couldn’t make the Notes folder — \(error.localizedDescription)")
+            syncManager.banner = .error("Couldn’t make the Notes folder — \(error.localizedDescription)", log: .error)
             return .couldNotMake
         }
     }
@@ -1923,7 +1923,7 @@ extension ContentView {
             showCreatedFileInPane(path)
             return true
         } catch {
-            syncManager.banner = .error("Couldn’t create the file — \(error.localizedDescription)")
+            syncManager.banner = .error("Couldn’t create the file — \(error.localizedDescription)", log: .error)
             return false
         }
     }
@@ -1939,7 +1939,7 @@ extension ContentView {
         switch report {
         case .refused(let reason):
             Logger.shared.info("[edit] Image not added: \(reason)")
-            syncManager.banner = .error(reason)
+            syncManager.banner = .error(reason, log: .error)
         case .wrote(let files, let madeFolder, let linked, let failed):
             if linked.isEmpty {
                 // Nothing linked, but a folder it made could not be taken away again.
@@ -1950,7 +1950,7 @@ extension ContentView {
                     + (failed.map { "; then stopped: \($0)" } ?? ""))
             }
             // Nothing written is past what Preview draws: an import over it is refused whole.
-            if let failed { syncManager.banner = .error(failed) }
+            if let failed { syncManager.banner = .error(failed, log: .error) }
             if let reread = madeFolder ?? files.first { rereadPanesAfterEditorWrite(reread) }
             // The rail lists the note's folder, and an image, or the folder it went in, is a new
             // entry there.

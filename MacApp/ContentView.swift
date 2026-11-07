@@ -609,7 +609,7 @@ struct ContentView: View {
     /// live — refused with the reason in the banner, as `FileActionHandler` does for its own.
     func refusedWhileRunLocked() -> Bool {
         guard let reason = runWriteLockReason else { return false }
-        syncManager.banner = .warning(reason)
+        syncManager.banner = .warning(reason, log: .warn)
         return true
     }
     /// What is typed in the toolbar's Go-to field. Held here rather than in the panel's state so
@@ -4142,7 +4142,7 @@ struct ContentView: View {
             gate.fileStack = { [weak manager = syncManager] in manager?.undoManager }
             gate.refuse = { [weak manager = syncManager] reason in
                 Logger.shared.info("Undo refused while a run is going — \(reason)")
-                manager?.banner = .warning(reason)
+                manager?.banner = .warning(reason, log: .warn)
             }
         }
         // "Save as rule…"'s offer holds its message open while it is up — see `holdChanged`.

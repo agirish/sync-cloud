@@ -57,7 +57,7 @@ import Sync
     @Test func landingReleasesTheDotAndFlashesTheRow() {
         let center = ActivityCenter()
         let landing = CapsuleFlightLanding()
-        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash")
+        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash", log: .warn)
         center.record(warning, run: nil, finishedRun: nil, seen: false, dotWaits: true)
 
         landing.takeOff(warning.id)
@@ -79,7 +79,7 @@ import Sync
     @Test func eachHeldDotWaitsOnlyForItsOwnMessage() {
         let center = ActivityCenter()
         let landing = CapsuleFlightLanding()
-        let flying = OperationBanner.warning("Moved 2 of 3 items to the Trash")
+        let flying = OperationBanner.warning("Moved 2 of 3 items to the Trash", log: .warn)
         center.record(flying, run: nil, finishedRun: nil, seen: false, dotWaits: true)
         landing.takeOff(flying.id)
         landing.messageLeft(flying.id, in: center)
@@ -91,7 +91,7 @@ import Sync
         // problem's.
         let quiet = ActivityCenter()
         let done = OperationBanner.success("Moved “Untitled.md” to the Trash")
-        let problem = OperationBanner.warning("Skipped 2 items")
+        let problem = OperationBanner.warning("Skipped 2 items", log: .warn)
         quiet.record(done, run: nil, finishedRun: nil, seen: true)
         landing.takeOff(done.id)
         quiet.record(problem, run: nil, finishedRun: nil, seen: false, dotWaits: true)
@@ -109,7 +109,7 @@ import Sync
     @Test func callingOffAFlightShowsItsHeldDot() {
         let center = ActivityCenter()
         let landing = CapsuleFlightLanding()
-        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash")
+        let warning = OperationBanner.warning("Moved 2 of 3 items to the Trash", log: .warn)
         center.record(warning, run: nil, finishedRun: nil, seen: false, dotWaits: true)
         landing.takeOff(warning.id)
         landing.messageLeft(warning.id, in: center)

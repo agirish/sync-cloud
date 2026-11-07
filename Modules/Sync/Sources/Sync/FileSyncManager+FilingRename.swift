@@ -204,7 +204,7 @@ extension FileSyncManager {
         // Verify All's write-exclusion guard, as in `normalizeNames`: a rename moves a file Verify
         // All may be hashing.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before renaming")
+            banner = .warning("Wait for Verify All to finish before renaming", log: .warn)
             return
         }
         guard !plans.isEmpty, !isApplyingRenames else { return }
@@ -382,7 +382,7 @@ extension FileSyncManager {
                 banner = .warning(Self.renameOutcome(renamed: 0, stale: result.stale,
                                                      failed: result.failed,
                                                      abandoned: result.abandoned,
-                                                     stranded: result.stranded))
+                                                     stranded: result.stranded), log: .warn)
             }
             return
         }
@@ -407,7 +407,7 @@ extension FileSyncManager {
         // undoability are separate: a pass that renamed some files and left others is a warning
         // and undoable. The `renamed: 0` branch above stays unflagged.
         banner = (result.failed > 0 || result.stale > 0 || result.abandoned > 0)
-            ? .warning(message, undoable: true) : .success(message, undoable: true)
+            ? .warning(message, undoable: true, log: .warn) : .success(message, undoable: true)
     }
 
     /// The banner sentence for a finished pass. Pure and static so the wording, including what it

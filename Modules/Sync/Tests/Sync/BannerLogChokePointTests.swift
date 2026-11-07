@@ -37,12 +37,26 @@ import Testing
 
         let levels = try await bannerLevels(marker: marker) {
             manager.banner = .success(marker)
-            manager.banner = .warning(marker)
-            manager.banner = .error(marker)
+            manager.banner = .warning(marker, log: .warn)
+            manager.banner = .error(marker, log: .error)
         }
 
         #expect(levels == ["INFO", "WARN", "ERROR"],
                 "each banner must reach the log at the severity it wears, in the order shown")
+    }
+
+    /// The copy's level is the banner's `log`, not its severity: a warning-style banner that says
+    /// it is INFO in the log is written at INFO, and an INFO-looking one stated as ERROR at ERROR.
+    /// Severity still sets how the banner looks; it no longer decides the log.
+    @MainActor
+    @Test func theCopyIsWrittenAtTheLevelTheBannerStatesNotItsLook() async throws {
+        let manager = FileSyncManager()
+        let marker = "choke-\(UUID().uuidString)"
+        let levels = try await bannerLevels(marker: marker) {
+            manager.banner = .warning(marker, log: .info)
+            manager.banner = .success(marker, log: .error)
+        }
+        #expect(levels == ["INFO", "ERROR"], "the mirror read the banner's look, not its stated level")
     }
 
     @MainActor
@@ -51,7 +65,7 @@ import Testing
         let marker = "choke-\(UUID().uuidString)"
 
         let levels = try await bannerLevels(marker: marker) {
-            manager.banner = .warning(marker)
+            manager.banner = .warning(marker, log: .warn)
             manager.banner = nil
         }
 
@@ -64,7 +78,7 @@ import Testing
     @Test func reassigningTheSameBannerLogsOnce() async throws {
         let manager = FileSyncManager()
         let marker = "choke-\(UUID().uuidString)"
-        let banner = OperationBanner.warning(marker)
+        let banner = OperationBanner.warning(marker, log: .warn)
 
         let levels = try await bannerLevels(marker: marker) {
             manager.banner = banner
@@ -82,8 +96,8 @@ import Testing
         let marker = "choke-\(UUID().uuidString)"
 
         let levels = try await bannerLevels(marker: marker) {
-            manager.banner = .warning(marker)
-            manager.banner = .warning(marker)
+            manager.banner = .warning(marker, log: .warn)
+            manager.banner = .warning(marker, log: .warn)
         }
 
         #expect(levels == ["WARN", "WARN"])
