@@ -987,7 +987,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
         if let line = LaunchTiming.report() { Logger.shared.info(line) }
 
-        // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live .
+        // The Go menu's ⌃⇥ / ⌃⇧⇥ twins: hidden behind their ⇧⌘ items, keys live.
         GoMenuDuplicates.install()
         // Where a right-click menu stood, so a Close Tab chosen from it keeps the strip.
         PaneMenuOrigin.shared.install()

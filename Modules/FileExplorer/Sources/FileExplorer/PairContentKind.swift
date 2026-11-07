@@ -100,6 +100,10 @@ enum PairContentKind: String, Equatable, CaseIterable {
     /// guard never fires. Tests pass a listing that does.
     ///
     /// - Parameters:
+    ///   - listing: the identifiers a decoder is claimed for, matched by name first.
+    ///   - resolved: the same listing as concrete types, for a type ImageIO lists only under a
+    ///     broader one it declares (some RAW families). Built once by the caller, because this runs
+    ///     from a `body` (see ``decodableImageUTTypes``).
     static func canDecode(_ type: UTType, listing: Set<String>, resolved: [UTType]) -> Bool {
         if listing.contains(type.identifier) { return true }
         return resolved.contains { type.conforms(to: $0) }

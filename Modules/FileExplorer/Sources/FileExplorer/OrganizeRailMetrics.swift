@@ -145,6 +145,9 @@ enum OrganizeRailMetrics {
     /// Width of the rail with every label spelled out.
     ///
     /// - Parameters:
+    ///   - scale: the app's type scale, so the width is right at every text size.
+    ///   - state: each lens's rail state. A closure over the enum, so a new lens is counted the day
+    ///     it is added. The rail is widest when every lens is reporting, and must still fit then.
     @MainActor
     static func fullWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         let items = OrganizeLens.railItems.reduce(CGFloat.zero) {

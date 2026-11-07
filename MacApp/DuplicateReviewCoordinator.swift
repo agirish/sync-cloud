@@ -581,7 +581,7 @@ struct DuplicateReviewCoordinator {
             guard outcome.removed > 0 else { return }
             // Log which way it went: on a Trash-less volume (exFAT, most SMB shares) the copy was
             // deleted permanently, and "Trashed" would send a reader to an empty Trash. The
-            // permanent count decides, as in `resolveDuplicatePair`, because a copy trashed without
+            // permanent count decides, as in `resolveDuplicateCopy`, because a copy trashed without
             // a location is in neither `trashed` nor `permanentlyDeleted`.
             Logger.shared.info(outcome.permanentlyDeleted == 0
                                ? "Trashed the right duplicate copy \(review.deletePath)"

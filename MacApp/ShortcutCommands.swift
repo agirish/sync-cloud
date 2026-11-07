@@ -1515,9 +1515,10 @@ extension ContentView {
     ///
     /// The gate is the workspace, not `layoutMode`, asked through `FolderSidebarModel.appliesTo` so
     /// the menu item, the toolbar button and the column agree on where a sidebar is possible.
-    /// Every workspace supports one (the lens rail's width is clamped by
-    /// `PaneLogic.lensSidebarWidth`), so in practice the live `nil` is collapsed panes, outside
-    /// Edit, whose sidebar outlives a collapsed pane (`Workspace.folderSidebarOutlivesPaneCollapse`).
+    /// Every workspace supports one (in a lens workspace `PaneLogic.lensSidebarWidth` clamps the
+    /// sidebar to leave the rail its room), so in practice the live `nil` is collapsed panes,
+    /// outside Edit, whose sidebar outlives a collapsed pane
+    /// (`Workspace.folderSidebarOutlivesPaneCollapse`).
     var shortcutFolderSidebar: Binding<Bool>? {
         // `appliesTo`, not `isShowing`: the item is live with the column switched off, because
         // the item is how it gets switched on.
@@ -1790,8 +1791,8 @@ extension ContentView {
         guard node.isDirectory,
               let root = syncManager.filingFolderProfile?.root,
               // Availability is the workspace's own answer: the store gate, the routing and the
-              // already-scaffolded check all live in `resolve`, so the handler never refuses an
-              // item that was enabled.
+              // already-scaffolded check all live in `resolve`, so an item is enabled only where
+              // the handler would run it.
               case .run = RestructureVerbResolver.resolve(
                   verb, folder: node.id, root: root,
                   in: syncManager.visibleStructureFindings,

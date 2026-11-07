@@ -20,6 +20,10 @@ public enum PaletteRowMetrics {
     /// What the title and detail actually have to lay out in.
     ///
     /// - Parameters:
+    ///   - listWidth: the panel's width, between `GoToFieldMetrics`' `floorWidth` and
+    ///     `ceilingWidth`. The floor decides whether a line fits.
+    ///   - trailing: the width after the spacer: the selected row's `↩`, an unavailable reason, or
+    ///     zero. Measure the selected row, the narrower case.
     public static func textOpening(listWidth: CGFloat, trailing: CGFloat) -> CGFloat {
         // Two paddings, the symbol, the gaps between every pair in the HStack (one more when
         // something trails), the spacer's own floor, and the trailing item itself.

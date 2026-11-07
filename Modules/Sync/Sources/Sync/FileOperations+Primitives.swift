@@ -472,8 +472,9 @@ extension FileSyncManager {
 
         // A locked original is refused before anything is written. A move must rename or trash
         // the original, and the kernel refuses both (EPERM) for an item locked in Finder (`uchg` or
-        // `uappnd`); the copy fallback would land a copy it then can't clean up. The lock is the
-        // user's, and this app never lifts it from their item.
+        // `uappnd`). The copy fallback would land a copy, fail to clear the original, then revert
+        // or, with the copy locked too, leave both. The lock is the user's, and this app never
+        // lifts it from their item.
         if isLocked(sourceURL, fileManager: fileManager) {
             throw FileOperationError.itemIsLocked(name: sourceURL.lastPathComponent)
         }
