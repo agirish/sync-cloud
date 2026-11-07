@@ -71,6 +71,13 @@ extension ContentView {
         askClaudeHolder.visibility.focusRequests += 1
     }
 
+    /// The pin went on without the 📌 (Settings): the same as pinning from the panel, minus the
+    /// keyboard, which Settings has.
+    func askClaudePinnedOn() {
+        guard showInspector, askClaudePinState.fits else { return }
+        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { showInspector = false }
+    }
+
     /// How far in from the window's right edge a floating panel stays, so it never covers Info: Info's
     /// width while Info is why the pin is floating. The saved place does not change.
     var askClaudeInfoInset: CGFloat {
@@ -171,6 +178,7 @@ extension ContentView {
         AskClaudeHost(visibility: askClaudeHolder.visibility, controller: askClaudeHolder.windowController,
                       isPinned: askClaudePinnedShown, pinInput: askClaudePinInput,
                       onPinInput: { askClaudePinInputChanged($0) }, onLiveResize: { askClaudeWindowResizing = $0 },
+                      isPinOn: askClaudePinned, onPinnedOn: { askClaudePinnedOn() },
                       pinToggle: askClaudePinBinding,
                       isBusy: askClaudeStateBusy != nil,
                       panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding,
@@ -1568,6 +1576,9 @@ struct AskClaudeHost: ViewModifier {
     let pinInput: PaneLogic.PinRoomInput
     let onPinInput: (PaneLogic.PinRoomInput) -> Void
     let onLiveResize: (Bool) -> Void
+    /// The pin's setting, and what to do when it is turned on from outside the panel.
+    let isPinOn: Bool
+    let onPinnedOn: () -> Void
     /// View ▸ Pin Ask Claude.
     let pinToggle: Binding<Bool>
     /// Settings, Help, setup, a destination pick or a question is up: the panel steps aside.
@@ -1584,6 +1595,8 @@ struct AskClaudeHost: ViewModifier {
             .focusedSceneValue(\.askClaude, toggle)
             .focusedSceneValue(\.askClaudePin, pinToggle)
             .onChange(of: pinInput, initial: true) { _, input in onPinInput(input) }
+            // Turned on from Settings: Info, which would take the edge, closes if there is room.
+            .onChange(of: isPinOn) { _, on in if on { onPinnedOn() } }
             // The window's own edge: nothing switches while it is dragged, and what it left is
             // decided the moment it is let go.
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.willStartLiveResizeNotification)) { _ in onLiveResize(true) }

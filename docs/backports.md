@@ -14678,3 +14678,19 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The migrations each line's own upgrades need | CLOSED — doesn't apply (each line keeps its own upgrade path) |
+
+## Ask Claude pins to the window's right edge, and starts bottom left (TE334) — main only
+
+2026-11-07, for v7.1. On `main`, the Ask Claude panel can be pinned as the window's last column
+(the pin in its header, View ▸ Pin Ask Claude, or Settings ▸ Ask Claude), and an unmoved panel starts
+at the bottom left, half the window high. The maintenance lines have no Ask Claude at all.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s askclaude files=%s\n' $l "$(git ls-tree -r --name-only origin/$l | grep -c 'MacApp/AskClaude/')"; done
+# measured 2026-11-07, against origin, before this landed: every line 0 (main: 20+)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude panel, so nothing to pin | CLOSED — doesn't apply |

@@ -645,10 +645,10 @@ struct ContentView: View {
     /// private: its toggle sits in the window toolbar (ContentView+Toolbar.swift).
     @AppStorage("showCompareInspector") var showInspector: Bool = false
     /// Ask Claude pinned as the window's right-hand column, and its width. Both are the pin's own
-    /// settings, apart from the floating panel's place and width. Not on any screen yet: the room
-    /// rules and the pin button come next, so for now `defaults write … askClaudePanelPinned -bool YES`.
-    @AppStorage("askClaudePanelPinned") var askClaudePinned: Bool = false
-    @AppStorage("askClaudePinnedWidth") var askClaudePinnedWidth: Double = 372
+    /// settings, apart from the floating panel's place and width. The 📌, View ▸ Pin Ask Claude and
+    /// Settings ▸ Ask Claude turn it on.
+    @AppStorage(AskClaudePanelSettings.pinnedKey) var askClaudePinned: Bool = false
+    @AppStorage(AskClaudePanelSettings.pinnedWidthKey) var askClaudePinnedWidth: Double = 372
     @State var askClaudePinnedDragWidth: Double?
     /// The width the workspace and the pinned column share, measured, and whether the column
     /// fits in it (`PaneLogic.pinRoom`). Floating until the first measure.

@@ -61,6 +61,9 @@ you ask.
   own spending or access but never raise it. Every change is listed in History, most with Revert.
 - **Type or talk**: click the mic or press ⌥Space; speech becomes text on this Mac. Up brings back
   your last 10 questions.
+- **Float or pin**: it floats over the window, starting at the bottom left. Pin it, from its header,
+  View ▸ Pin Ask Claude or Settings, and it becomes the window's right-hand column, with the content
+  making room; in a window too narrow it floats until there is room.
 - Pick Sonnet, Opus or Haiku from the chat; every answer says what it sent and what it cost,
   against a monthly limit ($25 to start).
 

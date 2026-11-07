@@ -114,6 +114,7 @@ import Testing
         // Real keys of the domain, and the month prefix without its dot: only `askClaudeSpend.<month>`
         // may ride the prefix.
         for key in ["askClaudeModel", "askClaudeSharedFolders", "askClaudePanelWidth", "askClaudeAnswers",
+                    "askClaudePanelPlacement", "askClaudePanelPinned", "askClaudePinnedWidth",
                     "tidyFilingUseCloud", "tidyFilingCloudModel", "tidyFilingReadContents",
                     "folderJumpRecentsByRoot", "folderJumpStaysByRoot", "editorRecentFiles",
                     "ignoredItems_v1_iCloud", "editorPDFSignatureFace", "editorPDFSignaturePen",
