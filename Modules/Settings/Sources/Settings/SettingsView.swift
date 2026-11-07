@@ -436,11 +436,13 @@ struct SettingsSubTabStrip: View {
                 pageButton(page)
             }
         }
+        // The lens first, then the track behind it: a track applied inside the host is drawn over
+        // the lens, and its grey wash took the accent out of the chosen page.
+        .selectionLensHost(Self.lensChannel(tab), selected: selection,
+                           style: .fill(.roundedRect(Radius.chip), color: hue.accentFillColor))
         .padding(2)
         .background(RoundedRectangle(cornerRadius: Radius.chip + 2, style: .continuous)
             .fill(Color.primary.opacity(0.06)))
-        .selectionLensHost(Self.lensChannel(tab), selected: selection,
-                           style: .fill(.roundedRect(Radius.chip), color: hue.accentFillColor))
         .fixedSize()
         .frame(maxWidth: .infinity)
         .frame(height: SettingsSheetMetrics.subTabStripHeight * scale)
