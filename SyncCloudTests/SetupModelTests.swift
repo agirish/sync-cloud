@@ -157,7 +157,7 @@ import Testing
     /// Structure's three states, and the one thing that must never be true: a button that writes
     /// nothing while saying Save.
     @Test func structureOffersToWriteOnlyWhenThereIsSomethingToWrite() async throws {
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
 
         // A walk in hand: it writes.
@@ -212,7 +212,7 @@ import Testing
                                                     withIntermediateDirectories: true)
         }
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
 
         let model = await self.model(syncManager: engine)
@@ -244,7 +244,7 @@ import Testing
         }
         try Data("x".utf8).write(to: documents.appendingPathComponent("loose.pdf"))
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
 
         let early = await self.model(syncManager: engine)
@@ -282,7 +282,7 @@ import Testing
                                                     withIntermediateDirectories: true)
         }
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
 
         let model = await self.model(syncManager: engine)
@@ -313,7 +313,7 @@ import Testing
                                                     withIntermediateDirectories: true)
         }
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
 
         // The test holds the main actor, so neither reading can land before the next step.
@@ -413,7 +413,7 @@ import Testing
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let draftURL = root.appendingPathComponent("setup-draft.json")
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
                                hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
@@ -489,7 +489,7 @@ import Testing
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
@@ -522,7 +522,7 @@ import Testing
         // A regular file where the profiles folder's parent should be: nothing can be written.
         let blocker = root.appendingPathComponent("blocker")
         try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
@@ -561,7 +561,7 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let blocker = root.appendingPathComponent("blocker")
         try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
@@ -623,7 +623,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
@@ -657,7 +657,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let blocker = root.appendingPathComponent("blocker")
         try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
@@ -682,7 +682,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
@@ -710,7 +710,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         var started: [URL] = []
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
@@ -748,7 +748,7 @@ import Testing
     /// While the reading runs, Structure's button is Skip Saving; once it lands, Save. Continue
     /// never waits, so Structure can open before a big tree's reading lands.
     @Test func structuresButtonSaysSkipSavingUntilTheReadingLands() async throws {
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         let model = await self.model(syncManager: engine)
         model.screen = .structure
@@ -777,7 +777,7 @@ import Testing
     /// On a re-run, a reading in progress is not passed off as the profile already here. With no
     /// reading in hand Structure shows this Mac's profile, read-only; while one runs it says so.
     @Test func aReadingInProgressHidesTheProfileAlreadyHere() async throws {
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         engine.filingFolderProfile = FileSyncManager.previewProfile(
             walk: Self.walk(folders: ["Finance/US"]), registry: nil, jurisdictionValues: [])
@@ -799,7 +799,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = await self.model(syncManager: engine)
         model.screen = .structure
@@ -820,7 +820,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
@@ -842,7 +842,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         var started: [URL] = []
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
@@ -878,7 +878,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
                                hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
@@ -910,7 +910,7 @@ import Testing
 
     /// On a re-run, a failed reading is said rather than passing this Mac's profile off as it.
     @Test func aFailedReadingHidesTheProfileAlreadyHere() async throws {
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         engine.filingFolderProfile = FileSyncManager.previewProfile(
             walk: Self.walk(folders: ["Finance/US"]), registry: nil, jurisdictionValues: [])
@@ -927,7 +927,7 @@ import Testing
     /// counts, and no "Read documents" switch for a Save the screen can't make yet. The people are
     /// the roster's either way, so they stay.
     @Test func whileTheReadingRunsStructureCountsNothingAndTheSwitchWaits() async throws {
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
@@ -952,7 +952,7 @@ import Testing
     /// Over a finished reading, Learn's primary is Continue, and it keeps the reading. A re-read
     /// would reset the Countries ticks to the rule's picks, and Skip throws the reading away.
     @Test func continueOverAFinishedReadingKeepsIt() async throws {
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         let fresh = await self.model(syncManager: engine)
         #expect(fresh.learnPrimaryTitle == "Learn")
@@ -980,7 +980,7 @@ import Testing
         try FileManager.default.createDirectory(at: documents.appendingPathComponent("Finance/US"),
                                                 withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US"]), syncManager: engine)
@@ -1014,7 +1014,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine)
@@ -1060,7 +1060,7 @@ import Testing
                               personTokens: []),
                 in: profiles, builtBy: "hand — setup-read fixture")
         }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let walk = Self.walk(folders: ["Finance/US", "Family/Mother"])
         var started: [URL] = []
@@ -1105,7 +1105,7 @@ import Testing
                                                     withIntermediateDirectories: true)
         }
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
         let model = await self.model(syncManager: engine)
         model.changeWalkRoot(to: documents)
@@ -1164,7 +1164,7 @@ import Testing
         let profiles = root.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
                                hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),

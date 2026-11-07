@@ -169,7 +169,7 @@ import FileExplorer
     /// The folder name: the pane goes to the folder, and the file is selected there through the
     /// pane's own selection write, which the test stands in for.
     @Test func theFolderNameShowsTheFileInThePane() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         var selected: [String] = []
         var logged: [String] = []
         let doors = EditorLocationDoors(syncManager: manager, drawsColumns: true,
@@ -184,7 +184,7 @@ import FileExplorer
     /// A crumb re-points the pane and selects nothing: in Columns a browse move inside the pane's
     /// scope, in Tree a re-root, as the pane's own crumb for that level would.
     @Test func aCrumbMovesThePaneAndSelectsNothing() {
-        let columns = FileSyncManager()
+        let columns = FileSyncManager.scratch()
         var selected: [String] = []
         var logged: [String] = []
         EditorLocationDoors(syncManager: columns, drawsColumns: true,
@@ -193,7 +193,7 @@ import FileExplorer
         #expect(columns.combinedRelativePath(isLeft: true) == "Documents")
         #expect(columns.leftRelativePath == "", "a crumb inside the scope re-rooted the Columns pane")
 
-        let tree = FileSyncManager()
+        let tree = FileSyncManager.scratch()
         EditorLocationDoors(syncManager: tree, drawsColumns: false,
                             log: { logged.append($0) }, selectInPane: { selected.append($0) })
             .open(.goTo("Documents"), documentPath: "/c/Documents/Finance/Test.md", location: Self.finance)
@@ -211,7 +211,7 @@ import FileExplorer
     /// session's ignores, so it says so), or nothing, including the root crumb. Fails on the
     /// re-root and no-op lines if `describe` always answers "browsed".
     @Test func everyPressLeavesOneLineSayingWhatItDid() {
-        let tree = FileSyncManager()
+        let tree = FileSyncManager.scratch()
         var logged: [String] = []
         let doors = EditorLocationDoors(syncManager: tree, drawsColumns: false,
                                         log: { logged.append($0) }, selectInPane: { _ in })
@@ -276,12 +276,12 @@ import FileExplorer
     /// Tree), and its log line names where it came from.
     @Test func aPickInTheRailsMenuMovesThePaneByTheCrumbsRoute() {
         var logged: [String] = []
-        let columns = FileSyncManager()
+        let columns = FileSyncManager.scratch()
         EditorLocationDoors(syncManager: columns, drawsColumns: true,
                             log: { logged.append($0) }, selectInPane: { _ in })
             .goTo("Documents/Family", from: "Edit rail folder menu")
         #expect(columns.combinedRelativePath(isLeft: true) == "Documents/Family")
-        let tree = FileSyncManager()
+        let tree = FileSyncManager.scratch()
         EditorLocationDoors(syncManager: tree, drawsColumns: false,
                             log: { logged.append($0) }, selectInPane: { _ in })
             .goTo("Documents", from: "Edit rail folder menu")
@@ -296,7 +296,7 @@ import FileExplorer
     /// pressed with no document open (its closure is built during a render and can fire after a
     /// close).
     @Test func aFolderOutsideTheSourceOpensNoDoor() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         var selected: [String] = []
         var logged: [String] = []
         let outside = EditorDocumentLocation(segments: [.init(name: "Scratch", target: nil)],

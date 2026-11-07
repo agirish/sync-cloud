@@ -64,7 +64,7 @@ import Sync
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
         let stamp = Date(timeIntervalSince1970: 1_790_000_000)
         let calls = Calls()
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
 
         let attached = FilingArtifacts.attach(to: manager, profilesDirectory: profiles,
                                               readSurveyedAt: { id, dir in
@@ -87,7 +87,7 @@ import Sync
         let profiles = try scratchProfiles()
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
         let gate = DispatchSemaphore(value: 0)
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
 
         FilingArtifacts.attach(to: manager, profilesDirectory: profiles, readSurveyedAt: { _, _ in
             _ = gate.wait(timeout: .now() + 10)   // bounded: a failing test must not hang
@@ -107,7 +107,7 @@ import Sync
     @Test func onlyTheLatestAttachPublishesItsDate() async throws {
         let profiles = try scratchProfiles()
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let first = GatedRead(Date(timeIntervalSince1970: 1_000))
         let last = GatedRead(Date(timeIntervalSince1970: 3_000))
 
@@ -135,7 +135,7 @@ import Sync
             try? FileManager.default.removeItem(at: a.deletingLastPathComponent())
             try? FileManager.default.removeItem(at: b.deletingLastPathComponent())
         }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         FilingArtifacts.attach(to: manager, profilesDirectory: a,
                                readSurveyedAt: { _, _ in Date(timeIntervalSince1970: 1_000) })
         await FilingArtifacts.surveyDateRead(for: manager)?.value
@@ -153,7 +153,7 @@ import Sync
     @Test func aReadForAProfileSinceLeftIsDropped() async throws {
         let profiles = try scratchProfiles()
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let slow = GatedRead(Date(timeIntervalSince1970: 1_000))
         FilingArtifacts.attach(to: manager, profilesDirectory: profiles, readSurveyedAt: slow.read)
         manager.filingProfileDirectoryId = "elsewhere"

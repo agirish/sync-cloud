@@ -239,7 +239,7 @@ import Testing
             // (`enqueueFileOperation` runs in `Task.detached`). Both its tests declare
             // `.parksAThread`; the test-side wait is `awaitSignal`, under TestSupport.swift above.
             "RestructureApplyGuardTests.swift": [
-                "if fire { entered.signal(); release.wait() }",
+                "if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {",
             ],
             "MergeUndoPromiseTests.swift": ["if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {"],
             "BulkSyncCancellationAndReservationTests.swift": [

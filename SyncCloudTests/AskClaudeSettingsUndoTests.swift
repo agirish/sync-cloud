@@ -177,7 +177,7 @@ import Sync
     @Test func newChatClearsTheStepsAndKeepsTheChanges() {
         let d = UserDefaults(suiteName: "AskClaudeSettingsUndoTests.newChat")!
         defer { wipeDefaultsSuite("AskClaudeSettingsUndoTests.newChat") }
-        let chat = AskClaudeChat(defaults: d, readKey: { "k" })
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(defaults: d) }, readKey: { "k" })
         let store = Store(); store.values["appearance.theme"] = .string("system")
         chat.settingsUndo.read = { store.values[$0.id] }
         chat.settingsUndo.write = { key, value in store.values[key.id] = value; return true }

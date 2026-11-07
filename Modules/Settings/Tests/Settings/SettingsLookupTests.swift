@@ -14,7 +14,7 @@ import Sync
     private func lookup(_ suite: String, keySaved: Bool = false, hidden: Int = 0,
                         loginOn: Bool = false) -> (SettingsLookup, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
-        let manager = SettingsManager(userDefaults: defaults)
+        let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
         let lookup = SettingsLookup(defaults: defaults, settings: manager,
                                     keyIsSaved: { keySaved }, hiddenCount: { hidden },
                                     isHidden: { _ in false }, loginItemIsOn: { loginOn })

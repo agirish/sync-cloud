@@ -20,6 +20,7 @@ import Settings
 
     private func handler(_ manager: FileSyncManager, asked: Asked) -> FileActionHandler {
         FileActionHandler(syncManager: manager, settings: scratchSettings(),
+                          defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard(),
                           renamePrompter: { _, _ in asked.count += 1; return nil },
                           newFolderPrompter: { _ in asked.count += 1; return nil },
                           deleteConfirmer: { _, _ in asked.count += 1; return false })

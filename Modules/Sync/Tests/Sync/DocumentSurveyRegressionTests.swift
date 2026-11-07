@@ -102,17 +102,23 @@ import Testing
                 """)
     }
 
-    /// The driver reads the checkpoint's salt before minting one: the other half of the rule.
-    @Test func thePlanPrefersAResumableCheckpointsSalt() throws {
-        let file = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Sync/FileSyncManager+DocumentSurvey.swift")
-        let source = try #require(try? String(contentsOf: file, encoding: .utf8))
-        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-        #expect(code.contains("resumableSalt"),
-                """
+    /// The driver reads the checkpoint's salt before minting one: the other half of the rule. A
+    /// first survey (`makeTree` has no corpus and no memory) planned beside an unfinished one for
+    /// the same folder carries that run's salt; without the checkpoint it mints its own, so the
+    /// salt below can only have come from the file.
+    @MainActor @Test func thePlanPrefersAResumableCheckpointsSalt() async throws {
+        let (manager, docs, profiles, _, root) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fresh = try await manager.planDocumentSurvey(root: docs).get()
+        #expect(fresh.salt != "SALT-RESUME")
+
+        try DocumentSurveyCheckpointStore.write(
+            DocumentSurveyCheckpoint(profileId: "t", rootPath: fresh.root.path, salt: "SALT-RESUME",
+                                     plan: fresh.paths, nextIndex: 1, read: [:],
+                                     startedAt: Date(), updatedAt: Date()),
+            id: "t", in: profiles)
+        let resumed = try await manager.planDocumentSurvey(root: docs).get()
+        #expect(resumed.salt == "SALT-RESUME", """
                 the plan no longer consults the checkpoint's salt, so a first survey on a fresh \
                 machine mints a new one every time and can never be resumed
                 """)

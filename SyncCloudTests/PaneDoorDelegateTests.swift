@@ -55,7 +55,7 @@ import Sync
     /// password tools one file at a time, whatever the menu did.
     @Test func thePDFToolsDoorSurvivesTheExistentialAndGuardsItsHandler() {
         var asked: [(PDFToolRequest, [String])] = []
-        var concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
+        var concrete = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         concrete.onPDFTool = { asked.append(($0, $1)) }
         let existential: FileActionDelegate = concrete
         #expect(existential.canRunPDFTools,
@@ -72,7 +72,7 @@ import Sync
     /// A real pane does offer Find Duplicates and Organize, so the stub test above can't pass by
     /// the items being gated off everywhere.
     @Test func aRealPaneOffersTheDuplicatesDoor() {
-        let d = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
+        let d = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         #expect(d.canFindDuplicates)
         #expect(d.canOrganizeFolder)
     }
@@ -82,7 +82,7 @@ import Sync
     /// statically to the default and the conformer's override is never reached; the menu just
     /// never draws the item. This keeps the member a protocol requirement.
     @Test func theOrganizeDoorSurvivesTheExistential() {
-        let concrete = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
+        let concrete = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         let existential: FileActionDelegate = concrete
         #expect(existential.canOrganizeFolder,
                 "the real pane's answer did not survive the existential — the member is extension-only and dispatching to the default")
@@ -93,7 +93,7 @@ import Sync
     /// with the action, and in both directions, or the guard proves nothing.
     @Test func theOrganizeHandoffIgnoresFiles() {
         var asked: [String] = []
-        let base = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
+        let base = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         let d = PaneActionDelegate(
             handler: nil, syncManager: base.syncManager, settings: base.settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
@@ -115,7 +115,7 @@ import Sync
     /// Asserted on the handler, not only the menu, so the guarantee travels with the action.
     @Test func theDuplicatesHandoffIgnoresFolders() {
         var asked: [String] = []
-        var d = delegate(syncManager: FileSyncManager(), settings: SettingsManager())
+        var d = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         d = PaneActionDelegate(
             handler: nil, syncManager: d.syncManager, settings: d.settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,

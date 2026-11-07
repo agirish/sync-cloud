@@ -29,8 +29,8 @@ import Sync
     /// A pair: the first case proves the token is compared, the second that the comparison isn't
     /// always false, which would defeat the `Equatable` boundary's optimization.
     @Test func keepingANameMakesTheDelegateCompareUnequal() {
-        let manager = FileSyncManager()
-        let settings = SettingsManager()
+        let manager = FileSyncManager.scratch()
+        let settings = SettingsManager.scratch()
 
         let before = delegate(syncManager: manager, settings: settings, keptNames: [])
         let after = delegate(syncManager: manager, settings: settings, keptNames: ["Q3: final.pdf"])
@@ -45,8 +45,8 @@ import Sync
     /// Withdrawing one keep while adding another leaves the count unchanged, which is why the token
     /// is the set and not a number.
     @Test func swappingOneKeepForAnotherIsNoticed() {
-        let manager = FileSyncManager()
-        let settings = SettingsManager()
+        let manager = FileSyncManager.scratch()
+        let settings = SettingsManager.scratch()
         let a = delegate(syncManager: manager, settings: settings, keptNames: ["one "])
         let b = delegate(syncManager: manager, settings: settings, keptNames: ["two "])
         #expect(a.isEquivalent(to: b) == false)
@@ -57,12 +57,12 @@ import Sync
     @Test func aKeptNameIsSilencedAndItsNeighbourIsNot() {
         let defaults = ScratchDefaults("PaneKept")
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("kept name ")
         manager.keptNamesStore = store
 
-        let d = delegate(syncManager: manager, settings: SettingsManager())
+        let d = delegate(syncManager: manager, settings: SettingsManager.scratch())
         // No provider resolves for "left", so the delegate falls back to OneDrive, the strictest
         // (as `paneProviderType` documents), which is what makes a trailing space risky here.
         #expect(d.riskyNameReason(forName: "kept name ", isDirectory: false) == nil)
@@ -77,12 +77,12 @@ import Sync
     @Test func theMenuStillOffersToFixAKeptName() {
         let defaults = ScratchDefaults("PaneKeptMenu")
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("meant it ")
         manager.keptNamesStore = store
 
-        let d = delegate(syncManager: manager, settings: SettingsManager())
+        let d = delegate(syncManager: manager, settings: SettingsManager.scratch())
         let node = FileNode(id: "/root/meant it ", name: "meant it ", isDirectory: false, children: nil)
         #expect(d.riskyNameReason(forName: node.name, isDirectory: false) == nil, "badge is silenced")
         #expect(d.riskyName(for: node) != nil, "but the raw verdict, and so the menu item, remains")

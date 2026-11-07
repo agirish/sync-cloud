@@ -21,7 +21,7 @@ import FileExplorer
     /// A comparison scoped to `Documents`, with one row set aside for the session and a refresh
     /// counter: the state a Compare user is in when they right-click a difference.
     @MainActor final class Scene {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         var refreshes: [FileSyncManager.PaneReloadScope] = []
         var bag: AnyCancellable?
         var log: [String] = []
@@ -142,7 +142,7 @@ import FileExplorer
         let undoStore = EditorUndoStore()
         var log: [String] = []
         EditorHandOffRun.run(
-            path, pane: .staysPut, syncManager: FileSyncManager(), paneRoot: dir.path,
+            path, pane: .staysPut, syncManager: FileSyncManager.scratch(), paneRoot: dir.path,
             openDocument: nil, isRefused: false, paneFolder: { dir.path }, settle: { true },
             endNaming: {}, showEdit: {},
             // The real act `loadIntoEditor` performs, not a transcription of it.
@@ -373,7 +373,7 @@ import FileExplorer
         // Edit, with its pane (Tree) on Documents and a document open there; a set in the right
         // pane. `loadTree` takes the source's root and walks the pane's folder under it, as the
         // app's refresh does.
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.focusOn(relativePath: "Documents", isLeft: true)
         var paneFolder: String { PaneLogic.fullPath(root: root, relativePath: manager.leftRelativePath) }
         await manager.loadTree(path: root, isLeft: true)

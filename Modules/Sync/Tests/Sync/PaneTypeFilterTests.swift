@@ -370,7 +370,7 @@ import Foundation
 
     /// A filter left on is never saved: the stored strip brings the tab back without it.
     @Test func aTabsFilterDoesNotSurviveARelaunch() throws {
-        let defaults = try #require(UserDefaults(suiteName: "PaneTypeFilterManagerTests-\(UUID().uuidString)"))
+        let defaults = ScratchDefaults("PaneTypeFilterManagerTests")
         let tab = PaneTab(providerId: "icloud", relativePath: "Downloads", typeFilter: PaneTypeFilter(families: [.pdfs]))
         PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
         let stored = try #require(PaneTabsStore.load(isLeft: true, from: defaults))

@@ -35,7 +35,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.filingProfilesDirectory = profiles
         #expect(manager.filingPeopleStore == nil, "the fixture already had a roster — this proves nothing")
 
@@ -62,7 +62,7 @@ import Testing
         draft.yourFullNames = ["Father Elder"]
         draft.others = [SetupDraft.DraftPerson(displayName: "Mother", relationship: "wife")]
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.filingProfilesDirectory = profiles
         let report = try #require(try? (await manager.deriveFolderProfile(root: root)).get())
 
@@ -87,7 +87,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.filingProfilesDirectory = profiles
 
         // What the form holds before any profile exists.
@@ -193,7 +193,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.filingProfilesDirectory = profiles
         let report = try #require(try? (await manager.deriveFolderProfile(root: root)).get())
         let written = try #require(FilingProfileStore.profile(id: report.profileId, in: profiles))

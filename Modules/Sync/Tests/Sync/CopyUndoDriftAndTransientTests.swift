@@ -261,7 +261,12 @@ import EventsTestSupport
     /// confirmation.
     @MainActor
     @Test func copyUndoNonTransientTrashFailureStillEscalates() async throws {
-        let manager = makeManager() // confirmer declines
+        let manager = makeManager()
+        var promptFired = false
+        manager.permanentDeleteConfirmer = { _ in
+            promptFired = true
+            return false
+        }
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -275,6 +280,7 @@ import EventsTestSupport
 
         manager.undoManager?.undo()
         await waitUntil("the declined-confirm undo settles") { manager.activeFileOperationsCount == 0 }
+        #expect(promptFired, "a Trash-less volume did not offer the permanent delete")
         // Declined permanent delete: the copy stays.
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
     }

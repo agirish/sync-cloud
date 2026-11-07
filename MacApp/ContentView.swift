@@ -1423,7 +1423,8 @@ struct ContentView: View {
                     // a state no user can be in.
                     paletteOnLaunchArmed = UserDefaults.standard.bool(forKey: "openCommandPaletteOnLaunch")
                 case .createActionHandler:
-                    actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
+                    actionHandler = FileActionHandler(syncManager: syncManager, settings: settings,
+                                                      defaults: .standard, pasteboard: .general)
                     // The pane → source mapping is this view's state, and linked navigation and the
                     // durable ignore store both need it to tell whether the two panes are in the
                     // same place. A closure rather than two stored strings, so it is read at the

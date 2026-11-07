@@ -138,6 +138,29 @@ import Testing
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
     }
 
+    /// And for a model's answer: one the router matches in confidence gives way to it, as only a
+    /// weaker one is kept (`aLowMarginRouteDoesNotDemoteAConfidentModelAnswer`). The word match in
+    /// the test above takes the branch every guess takes, whatever the confidence, so it cannot
+    /// tell `>=` from `>` here.
+    @Test func anEquallyConfidentRouteReplacesAModelAnswer() {
+        let tied = FilingRouterTests.index(memoryDocs: [
+            "Home/Utilities/PG&E/2023": ["statement"],
+            "Home/Utilities/AT&T/2023": ["statement"],
+        ])
+        let snippets = ["\(Self.root)/TODO/ambiguous.pdf": "statement"]
+        let ranking = FilingRouter.rank(fileName: "ambiguous.pdf", contentSnippet: "statement", index: tied)
+        #expect(ranking.confidence == .low, "the fixture no longer ties — the confidences below are not equal")
+
+        let model = FilingDestination(path: "\(Self.root)/Finance/US/Income Tax/2023", confidence: .low,
+                                      reasons: ["Chosen by Claude"], newSegments: [], fromAI: true)
+        let (out, routed, _) = FileSyncManager.applyRoutes(
+            [Self.suggestion("ambiguous.pdf", best: model)], index: tied,
+            snippets: snippets, providerRoot: Self.root)
+        #expect(routed == 1, "an equally confident route did not replace the model's answer")
+        #expect(out[0].best?.path.hasPrefix("\(Self.root)/Home/Utilities/") == true)
+        #expect(out[0].best?.confidence == .low)
+    }
+
     /// Rejections are recorded as absolute paths, the form the scan builds (they become relative
     /// only for a backend). A relative path here would pass without the conversion inside
     /// `applyRoutes`.

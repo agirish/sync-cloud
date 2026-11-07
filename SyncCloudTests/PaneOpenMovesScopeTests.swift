@@ -20,7 +20,7 @@ import Sync
                           ownsOrganizeScope: Bool? = nil,
                           scoped: @escaping (FileNode) -> Void) -> PaneActionDelegate {
         PaneActionDelegate(
-            handler: nil, syncManager: FileSyncManager(), settings: SettingsManager(),
+            handler: nil, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch(),
             isLeft: true, leftProviderId: "left", rightProviderId: "right",
             isSingleSource: isSingleSource,
             // Defaults to `isSingleSource`; the two Browse and diagonal cases pass it explicitly.
@@ -93,7 +93,7 @@ import Sync
         var scanned: [String] = []
         var scoped: [String] = []
         let d = PaneActionDelegate(
-            handler: nil, syncManager: FileSyncManager(), settings: SettingsManager(),
+            handler: nil, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch(),
             isLeft: true, leftProviderId: "left", rightProviderId: "right", isSingleSource: true, ownsOrganizeScope: true, servesEditor: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [],

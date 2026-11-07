@@ -273,7 +273,7 @@ import FileExplorer
                                    log: { log.append($0) })
         }
         // The hand-off.
-        EditorHandOffRun.run(path, pane: .followsTheFile, syncManager: FileSyncManager(),
+        EditorHandOffRun.run(path, pane: .followsTheFile, syncManager: FileSyncManager.scratch(),
                              paneRoot: dir.path, openDocument: document.path,
                              isRefused: document.refusal != nil, paneFolder: { dir.path },
                              settle: { settles += 1; return true }, endNaming: {}, showEdit: {}, load: load,
@@ -289,7 +289,7 @@ import FileExplorer
             return
         }
         // The app's write, as `settleOwedPaneSelection` makes it.
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         var paid: String?
         PaneLogic.payOwedSelection(owed, state: manager, markPaid: { paid = $0 }, markRightCleared: {})
         // The selection change reaches the pane's one-click open (`openSelectedPaneFileInEditor`
@@ -328,7 +328,7 @@ import FileExplorer
     /// document. On a real manager: the left pane is selected; the surface, focused pane, scope, tree
     /// and history are untouched. The Compare-with half is held by `EditorNewFilePaneWiringTests`.
     @Test func theAppsWriteSelectsAndClaimsNothingElse() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.focusOn(relativePath: "Documents", isLeft: true)
         manager.ignoredPaths = ["Finance/old.md"]
         manager.lastSelectionSurface = .differences
@@ -403,7 +403,7 @@ import FileExplorer
         #expect(!ContentView.treeIsCurrent(readAt: "\(home)/Docs/Finance", paneFolder: "\(home)/Docs"))
         #expect(ContentView.treeIsCurrent(readAt: "\(home)/Docs", paneFolder: "\(home)/Docs"))
         #expect(ContentView.treeIsCurrent(readAt: "\(home)/Docs", paneFolder: "~/Docs/"))
-        #expect(FileSyncManager().paneTreeFolder(isLeft: true) == nil)
+        #expect(FileSyncManager.scratch().paneTreeFolder(isLeft: true) == nil)
     }
 
     /// iCloud's linked Documents: on the iCloud source, `Documents/Finance` composes through the

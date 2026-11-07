@@ -43,7 +43,7 @@ import Testing
         let root: URL
         let documents: URL
         let profiles: URL
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         let machine = Machine()
         let reads = Reads()
         var starts: [Task<DocumentSurveyStarter.Outcome, Never>] = []

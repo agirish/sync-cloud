@@ -27,8 +27,8 @@ import FileExplorer
     /// The same rows against both delegates: only (Edit, a file, a kind Edit doesn't open)
     /// answers. Edit opens PDFs, so they stay bright.
     @Test func onlyTheEditorsDelegateRefusesAnything() {
-        let manager = FileSyncManager()
-        let settings = SettingsManager()
+        let manager = FileSyncManager.scratch()
+        let settings = SettingsManager.scratch()
         let browse = delegate(servesEditor: false, syncManager: manager, settings: settings)
         let edit = delegate(servesEditor: true, syncManager: manager, settings: settings)
 
@@ -47,7 +47,7 @@ import FileExplorer
     /// drift. Checked against the static, not a literal, because its number is
     /// `BoundedTextRead.maxBytes`, which this target can't see.
     @Test func aTooLargeTextFileIsRefusedInTheRailsWords() {
-        let edit = delegate(servesEditor: true, syncManager: FileSyncManager(), settings: SettingsManager())
+        let edit = delegate(servesEditor: true, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         let huge = 64 * 1024 * 1024
         let expected = EditorRailEntry.tooLargeReason(size: huge)
         #expect(expected != nil, "the fixture is not over the limit, so the test below proves nothing")
@@ -63,8 +63,8 @@ import FileExplorer
     /// of it means switching into Edit doesn't re-render the pane, and rows stay bright until
     /// something unrelated moves.
     @Test func servesEditorTakesPartInEquivalence() {
-        let manager = FileSyncManager()
-        let settings = SettingsManager()
+        let manager = FileSyncManager.scratch()
+        let settings = SettingsManager.scratch()
         let browse = delegate(servesEditor: false, syncManager: manager, settings: settings)
         let edit = delegate(servesEditor: true, syncManager: manager, settings: settings)
         let browseAgain = delegate(servesEditor: false, syncManager: manager, settings: settings)

@@ -84,7 +84,7 @@ import Sync
     /// putting back a hidden folder's unhide asks first.
     @Test func aListEditIsRevertedWhileItStillApplies() {
         let rig = Rig(#function); defer { rig.done() }
-        let settings = SettingsManager(userDefaults: rig.defaults)
+        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, cloudStorageLister: { .read([]) })
         let lists = SettingsLists(settings: settings, sync: nil, defaults: rig.defaults)
         #expect(lists.add("sync.ignorePatterns", "~$*") == .done)
         let added = SettingsChange(setting: "sync.ignorePatterns", target: "~$*", name: "Ignored name patterns",

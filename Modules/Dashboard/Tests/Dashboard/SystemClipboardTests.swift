@@ -252,7 +252,8 @@ import Settings
 
         let pasteboard = board("out")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "report.pdf", isDirectory: false)],
                                       isCut: false)
 
@@ -271,7 +272,8 @@ import Settings
 
         let pasteboard = board("cut")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "moved.txt", isDirectory: false)],
                                       isCut: true)
 
@@ -297,7 +299,8 @@ import Settings
         SystemClipboard.write(paths: [file.path], to: pasteboard)
 
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         #expect(manager.clipboardNodes.isEmpty, "the fixture must exercise the system branch")
 
         handler.pasteClipboard(toPath: destination.path)
@@ -325,7 +328,8 @@ import Settings
 
         let pasteboard = board("own-dst")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "cut-me.txt", isDirectory: false)],
                                       isCut: true)
         handler.pasteClipboard(toPath: destination.path)
@@ -352,7 +356,8 @@ import Settings
         let before = pasteboard.changeCount
 
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([], isCut: false)
 
         #expect(pasteboard.changeCount == before, "an empty copy wrote to the pasteboard")
@@ -375,7 +380,8 @@ import Settings
 
         let pasteboard = board("stale-dst")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "gone.txt", isDirectory: false)],
                                       isCut: true)
         handler.pasteClipboard(toPath: destination.path)
@@ -415,7 +421,8 @@ import Settings
 
         let pasteboard = board("owned-theirs")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "mine.txt", isDirectory: false)],
                                       isCut: true)
         // Somebody else copies, so the app no longer owns the board, but the in-app list still
@@ -445,7 +452,8 @@ import Settings
 
         let pasteboard = board("text-dst")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "not-this.txt", isDirectory: false)],
                                       isCut: false)
         // Somebody else copies text.

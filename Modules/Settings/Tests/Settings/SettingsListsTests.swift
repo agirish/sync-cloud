@@ -18,7 +18,7 @@ import Sync
         init(_ test: String) {
             name = "SettingsListsTests.\(test).\(UUID().uuidString)"
             defaults = UserDefaults(suiteName: name)!
-            settings = SettingsManager(userDefaults: defaults)
+            settings = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
             sync = FileSyncManager()
             sync.ignoredItemsStore = IgnoredItemsStore(userDefaults: defaults)
             sync.keptNamesStore = KeptNamesStore(userDefaults: defaults)

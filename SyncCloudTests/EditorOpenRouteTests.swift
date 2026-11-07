@@ -97,7 +97,7 @@ import FileExplorer
         let document = EditorDocument(), store = EditorUndoStore()
         let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
         let outcome = EditorHandOffRun.run(
-            file, pane: .staysPut, syncManager: FileSyncManager(), paneRoot: folder,
+            file, pane: .staysPut, syncManager: FileSyncManager.scratch(), paneRoot: folder,
             openDocument: nil, isRefused: false,
             paneFolder: { self.folder }, settle: { true }, endNaming: {}, showEdit: {},
             load: { _ = self.route($0, document, store, pdf) }, log: { _ in })
@@ -122,7 +122,7 @@ import FileExplorer
 
         var steps: [String] = []
         EditorHandOffRun.run(
-            file, pane: .staysPut, syncManager: FileSyncManager(), paneRoot: folder,
+            file, pane: .staysPut, syncManager: FileSyncManager.scratch(), paneRoot: folder,
             openDocument: EditorOpenRoute.openPath(document: document, pdf: pdf),
             isRefused: EditorOpenRoute.isRefused(document: document, pdf: pdf),
             paneFolder: { self.folder },

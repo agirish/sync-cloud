@@ -99,7 +99,7 @@ import Testing
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(atPath: folder)
-            UserDefaults.standard.removePersistentDomain(forName: suite)
+            wipeDefaultsSuite(suite)
         }
         let file = (folder as NSString).appendingPathComponent("Lease.pdf")
         var box = CGRect(x: 0, y: 0, width: 612, height: 792)
@@ -169,7 +169,7 @@ import Testing
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(atPath: folder)
-            UserDefaults.standard.removePersistentDomain(forName: suite)
+            wipeDefaultsSuite(suite)
         }
         let file = (folder as NSString).appendingPathComponent("Lease.pdf")
         var box = CGRect(x: 0, y: 0, width: 612, height: 792)

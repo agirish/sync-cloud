@@ -1020,7 +1020,7 @@ import Sync
     /// pane, press ⌘W, and `closeTab`'s last-tab branch closes the window. On `FileSyncManager` the
     /// flip fails here; the call site is pinned above.
     @Test func theFocusedSideFollowsThePaneAVerbWasAimedAt() {
-        let manager = FileSyncManager(fileManager: FileManager.default)
+        let manager = FileSyncManager.scratch(fileManager: FileManager.default)
         manager.noteFocusedPane(isLeft: true, because: "a test aimed at the left pane")
         #expect(manager.focusedPaneSide == .left,
                 "a verb aimed at the LEFT pane pointed the pane-scoped chords at the right one")
@@ -1573,7 +1573,7 @@ import Sync
     /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window. The move's own
     /// line keeps the silent half honest: a capture that saw nothing fails the count.
     @Test func aFocusMoveIsLoggedWithItsCauseAndANoOpIsNot() async {
-        let manager = FileSyncManager(fileManager: FileManager.default)
+        let manager = FileSyncManager.scratch(fileManager: FileManager.default)
         let token = String(UUID().uuidString.prefix(8))
 
         let log = LogCapture()

@@ -308,9 +308,7 @@ import Testing
 
     /// The panel with one question answered with `text`.
     private func panel(answering text: String) async throws -> NSBitmapImageRep {
-        let name = "AskClaudeAnswerPaintTests"
-        let d = try #require(UserDefaults(suiteName: name))
-        d.removePersistentDomain(forName: name)
+        let d = ScratchDefaults("AskClaudeAnswerPaintTests")
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: Answering(text: text), defaults: d) },
                                  readKey: { "k" })
         chat.ask("Which?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents", sort: "Name",

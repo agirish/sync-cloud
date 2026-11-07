@@ -86,17 +86,22 @@ import Testing
         return (dir, dir.appendingPathComponent("prompts.json"))
     }
 
+    /// A chat keeping its typed questions in `file`, on scratch defaults and with no key.
+    private func keepingChat(_ file: URL) -> AskClaudeChat {
+        AskClaudeChat(defaults: ScratchDefaults("AskClaudePromptHistoryTests"), readKey: { nil }, historyURL: file)
+    }
+
     /// Kept across a relaunch, and through the chat's own fresh starts (an hour away, a hidden
     /// folder, a changed setting), which come as a question is sent.
     @Test func theChatKeepsTypedQuestionsAcrossLaunchesAndItsOwnFreshStarts() throws {
         let (dir, file) = historyFile()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let first = AskClaudeChat(historyURL: file)
+        let first = keepingChat(file)
         for n in 1...11 { first.rememberSent("question \(n)") }
         first.startOver()
         #expect(first.recallOlder(than: "") == "question 11")
 
-        let again = AskClaudeChat(historyURL: file)
+        let again = keepingChat(file)
         var seen: [String] = []
         var shown = "unsent"
         while let older = again.recallOlder(than: shown) { seen.append(older); shown = older }
@@ -109,15 +114,15 @@ import Testing
     @Test func newChatClearsTheTypedQuestions() throws {
         let (dir, file) = historyFile()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let chat = AskClaudeChat(historyURL: file)
+        let chat = keepingChat(file)
         chat.rememberSent("which are big?")
         #expect(FileManager.default.fileExists(atPath: file.path))
         chat.newChat()
         #expect(chat.recallOlder(than: "typing") == nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))
-        #expect(AskClaudeChat(historyURL: file).recallOlder(than: "") == nil)
+        #expect(keepingChat(file).recallOlder(than: "") == nil)
         chat.rememberSent("open the receipts")
-        #expect(AskClaudeChat(historyURL: file).recallOlder(than: "") == "open the receipts")
+        #expect(keepingChat(file).recallOlder(than: "") == "open the receipts")
     }
 
     // MARK: Where the caret is
@@ -233,7 +238,7 @@ import Testing
     /// The arrows reach the panel's handler past the field editor, which would otherwise take them
     /// as caret moves.
     @Test func theArrowsInThePanelsBoxRecallAndComeBackToTheDraft() async throws {
-        let chat = AskClaudeChat(readKey: { nil })
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         chat.rememberSent("which are big?")
         chat.rememberSent("open the receipts")
         let box = try Box(chat)
@@ -252,7 +257,7 @@ import Testing
     /// Up leaves the caret at a recalled question's start and Down at its end, so pressing on goes
     /// to the next question; turning back walks this one's lines first, as in any text.
     @Test func throughQuestionsOfSeveralLinesTheSameKeyGoesOn() async throws {
-        let chat = AskClaudeChat(readKey: { nil })
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         chat.rememberSent("one\ntwo\nthree")
         chat.rememberSent("alpha\nbeta")
         let box = try Box(chat)

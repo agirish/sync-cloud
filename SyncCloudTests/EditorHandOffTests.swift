@@ -112,7 +112,7 @@ import FileExplorer
         let box = Box()
         func delegate(isLeft: Bool) -> PaneActionDelegate {
             PaneActionDelegate(
-                handler: nil, syncManager: FileSyncManager(), settings: SettingsManager(),
+                handler: nil, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch(),
                 isLeft: isLeft, leftProviderId: "left", rightProviderId: "right",
                 isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
                 forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },

@@ -452,18 +452,28 @@ import Testing
         let url = try indexURL("merge")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
+        // Three keys on disk and a cap of two, so the cap has something to refuse.
         ContentHashIndexStore.saveInBackground(
             [ContentHashRecord(path: "/root/a.bin", mtime: 1000, size: 4096,
-                               hex: "from-disk", storedAt: now)],
+                               hex: "from-disk", storedAt: now),
+             ContentHashRecord(path: "/root/b.bin", mtime: 1000, size: 4096,
+                               hex: "older", storedAt: now.addingTimeInterval(-120)),
+             ContentHashRecord(path: "/root/c.bin", mtime: 1000, size: 4096,
+                               hex: "newer", storedAt: now.addingTimeInterval(-60))],
             to: url)
         ContentHashIndexStore.waitForPendingWrites()
 
         // A digest from this session is newer than the file's, so the load must not overwrite it.
+        // Keys without a disk identity, as the records carry none: with one, the memory key and
+        // the file's would be two keys and nothing would be overwritten either way.
         let cache = ContentHashCache(maxEntries: 2)
-        await cache.store("from-memory", for: key("/root/a.bin", mtime: 1000), at: now)
+        await cache.store("from-memory", for: key("/root/a.bin", mtime: 1000, identity: false), at: now)
         await cache.enablePersistence(at: url, now: now)
-        #expect(await cache.hash(for: key("/root/a.bin", mtime: 1000)) == "from-memory")
-        #expect(await cache.count <= 2)
+        #expect(await cache.hash(for: key("/root/a.bin", mtime: 1000, identity: false)) == "from-memory")
+        #expect(await cache.count == 2, "the load kept more than the cap")
+        // The trim drops the stalest adopted key, never this session's.
+        #expect(await cache.hash(for: key("/root/b.bin", mtime: 1000, identity: false)) == nil)
+        #expect(await cache.hash(for: key("/root/c.bin", mtime: 1000, identity: false)) == "newer")
     }
 
     // MARK: A load landing mid-scan

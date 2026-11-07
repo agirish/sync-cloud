@@ -310,7 +310,16 @@ public class FileSyncManager: ObservableObject {
     public init(fileManager: FileManaging = FileManager.default) {
         self.fileManager = fileManager
     }
-    
+
+    /// A manager whose settings stores (Keep separate, Filing's settings and rules) are `defaults`
+    /// instead of `.standard`. For tests the app hosts, where `.standard` is the user's live domain.
+    public convenience init(fileManager: FileManaging = FileManager.default, defaults: UserDefaults) {
+        self.init(fileManager: fileManager)
+        duplicateIgnoreDefaults = defaults
+        filingContentDefaults = defaults
+        filingRuleDefaults = defaults
+    }
+
     /// Cached differences from the latest scan before applying hidden/ignored filters.
     internal var rawDifferences: [FileDifference] = [] {
         didSet { rawDifferencesVersion += 1 }

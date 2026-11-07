@@ -152,7 +152,7 @@ import Sync
         let suite = "SettingsCatalogTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        let manager = SettingsManager(userDefaults: defaults)
+        let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
         let read: [String: SettingValue] = [
             "general.sortPanesBy": .string(manager.defaultSortOption.rawValue),
             "sources.folderNameRule": .string(manager.folderNameRule.rawValue),

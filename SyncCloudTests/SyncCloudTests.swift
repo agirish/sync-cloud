@@ -64,8 +64,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         defer { SyncCloudAppDelegate.sharedSyncManager = hostManager }
         SyncCloudAppDelegate.sharedSyncManager = nil
         let delegate = SyncCloudAppDelegate()
-        let liveManager = FileSyncManager()
-        let orphan = FileSyncManager()
+        let liveManager = FileSyncManager.scratch()
+        let orphan = FileSyncManager.scratch()
 
         delegate.adoptSyncManager(liveManager)
         delegate.adoptSyncManager(orphan) // a re-run App.init offers its throwaway manager
@@ -76,7 +76,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     @MainActor
     @Test func testProviderSwitchResetsOnlyTheSwitchedPane() async throws {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
 
         // 1. Both panes navigated, both holding a selection. The app never selects in two panes at
         //    once, but this fixture tells "cleared the switched pane" from "cleared whichever".
@@ -322,7 +322,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         } else {
             defaults.removeObject(forKey: ConflictPolicy.defaultsKey)
         }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         SyncCloudApp.wireCollisionResolvers(into: manager, defaults: defaults,
                                             prompt: spy.single, bulkPrompt: spy.bulk)
         return manager
@@ -423,7 +423,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         settings.ignorePatterns = ["*.tmp"]
         settings.conflictPolicy = .replace
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.ignoredPaths = ["Documents/private.pdf"]
 
         // Recorded rather than applied: the live `Logger.shared` gate is process-wide, and raising

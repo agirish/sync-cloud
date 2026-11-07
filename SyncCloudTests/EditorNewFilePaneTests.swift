@@ -124,7 +124,7 @@ import Sync
         try Data("x".utf8).write(to: t.appendingPathComponent("sub/x.txt"))
         try fm.createSymbolicLink(at: r.appendingPathComponent("link"), withDestinationURL: t)
 
-        let m = FileSyncManager()
+        let m = FileSyncManager.scratch()
         await m.refreshTreesAndScan(
             left: CloudProvider(id: "L", displayName: "L", imageName: "folder", rootPath: r.path, type: .localFolder),
             right: CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: other.path, type: .localFolder),

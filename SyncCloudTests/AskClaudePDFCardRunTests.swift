@@ -112,7 +112,7 @@ import Sync
         let statement = realPDF("Statement.pdf", pages: 3)
         let original = try Data(contentsOf: URL(fileURLWithPath: statement))
         let chat = chat("delete", calling: #"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#)
-        let sync = FileSyncManager()
+        let sync = FileSyncManager.scratch()
         let undo = undoStack()
         sync.undoManager = undo
         let window = Window()
@@ -161,7 +161,7 @@ import Sync
     @Test func editUndoTakesAnExtractCardBack() async throws {
         let statement = realPDF("Statement.pdf", pages: 5)
         let chat = chat("extract", calling: #"{\"action\":\"extract\",\"handles\":[\"r1\"],\"pages\":\"2-3\"}"#)
-        let sync = FileSyncManager()
+        let sync = FileSyncManager.scratch()
         let undo = undoStack()
         sync.undoManager = undo
         let cards = cards(chat, sync, Window())
@@ -189,7 +189,7 @@ import Sync
     @Test func aFileChangedSinceTheCardReadItIsNotRun() async throws {
         let statement = realPDF("Statement.pdf", pages: 3)
         let chat = chat("changed", calling: #"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"2\"}"#)
-        let cards = cards(chat, FileSyncManager(), Window())
+        let cards = cards(chat, FileSyncManager.scratch(), Window())
         chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
         await ask(chat, "delete page 2", about: statement)
@@ -210,7 +210,7 @@ import Sync
     @Test func aCardWaitsOutAHeldPDFReaderThenFillsIn() async throws {
         let scan = realPDF("Scan.pdf", pages: 2)
         let chat = chat("held", calling: #"{\"action\":\"compress\",\"handles\":[\"r1\"]}"#)
-        let cards = cards(chat, FileSyncManager(), Window())
+        let cards = cards(chat, FileSyncManager.scratch(), Window())
         chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
         // The holder's turn first, as a long scan's would be.
@@ -249,7 +249,7 @@ import Sync
         let statement = realPDF("Statement.pdf", pages: 3)
         let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#], holding: 3)
         let chat = chat("answering", transport: transport)
-        let cards = cards(chat, FileSyncManager(), Window())
+        let cards = cards(chat, FileSyncManager.scratch(), Window())
         chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
         await ask(chat, "delete the first page", about: statement)
@@ -281,7 +281,7 @@ import Sync
         let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#,
                                                   #"{\"action\":\"extract\",\"handles\":[\"r3\"],\"pages\":\"2-3\"}"#])
         let chat = chat("two", transport: transport)
-        let sync = FileSyncManager()
+        let sync = FileSyncManager.scratch()
         let undo = undoStack()
         sync.undoManager = undo
         let cards = cards(chat, sync, Window())
@@ -324,7 +324,7 @@ import Sync
         let store = URL(fileURLWithPath: (folder as NSString).appendingPathComponent("chat.json"))
         let chat = chat("protect", transport: PDFCallTransport(inputs: [#"{\"action\":\"protect\",\"handles\":[\"r1\"]}"#]),
                         store: store)
-        let cards = cards(chat, FileSyncManager(), Window())
+        let cards = cards(chat, FileSyncManager.scratch(), Window())
         chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
         let log = LogCapture()
         let secret = "card-secret-\(UUID().uuidString)"

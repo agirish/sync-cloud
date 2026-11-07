@@ -11,11 +11,11 @@ import Design
 public class FileActionHandler {
     private let syncManager: FileSyncManager
     private let settings: SettingsManager
-    /// Read for the "Confirm before deleting" and "Link both panes" flags; injectable so tests don't
-    /// mutate `.standard`.
+    /// Read for the "Confirm before deleting" and "Link both panes" flags. No default, so a test
+    /// can't fall back to `.standard`, the user's live settings when the app hosts it.
     private let defaults: UserDefaults
-    /// The system pasteboard this handler copies to and pastes from. Injected for the same reason
-    /// as `defaults`: a test using the real one would clobber the developer's clipboard, and could
+    /// The system pasteboard this handler copies to and pastes from. No default, for the same
+    /// reason as `defaults`: a test on the real one would clobber the user's clipboard, and could
     /// paste whatever happens to be on it.
     public let pasteboard: NSPasteboard
     /// Runs an AppleScript source, returning the error dictionary on failure (nil on success).
@@ -30,8 +30,8 @@ public class FileActionHandler {
     public init(
         syncManager: FileSyncManager,
         settings: SettingsManager,
-        defaults: UserDefaults = .standard,
-        pasteboard: NSPasteboard = .general,
+        defaults: UserDefaults,
+        pasteboard: NSPasteboard,
         appleScriptRunner: ((String) -> NSDictionary?)? = nil,
         renamePrompter: @escaping (_ currentName: String, _ validate: (String) -> String?) -> String? =
             { NativeAlerts.promptForRename(currentName: $0, validate: $1) },

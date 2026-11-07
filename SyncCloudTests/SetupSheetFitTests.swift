@@ -291,7 +291,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let blocker = root.appendingPathComponent("blocker")
         try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager()
+        let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
         let settings = await manager(providerCount: Self.realisticProviderCount)
         func model() -> SetupModel {

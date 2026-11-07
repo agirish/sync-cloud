@@ -15,7 +15,7 @@ import Sync
     private func delegate(syncManager: FileSyncManager, isLeft: Bool = true,
                           onOpenInNewTab: @escaping (FileNode) -> Void = { _ in }) -> PaneActionDelegate {
         PaneActionDelegate(
-            handler: nil, syncManager: syncManager, settings: SettingsManager(), isLeft: isLeft,
+            handler: nil, syncManager: syncManager, settings: SettingsManager.scratch(), isLeft: isLeft,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [],
@@ -30,7 +30,7 @@ import Sync
 
     /// At one tab the answer is no; past a second it is yes.
     @Test func closeTabIsOfferedOnlyPastASecondTab() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let d = delegate(syncManager: manager)
         #expect(!d.canCloseTab,
                 "the background menu offers Close Tab on a lone tab, where the verb closes the window")
@@ -43,7 +43,7 @@ import Sync
     /// The test above already catches a count snapshotted at construction; what only this covers is
     /// closing back down to one tab, the state where the wrong answer closes the window.
     @Test func theAnswerFollowsTheStripRatherThanTheRenderItWasBuiltIn() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let d = delegate(syncManager: manager)
         manager.openTab(tab("Second"), isLeft: true, currentProviderId: "iCloud")
         #expect(d.canCloseTab)
@@ -57,7 +57,7 @@ import Sync
 
     /// The pane it was built for, not always the left one.
     @Test func eachPaneAnswersForItsOwnStrip() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         let left = delegate(syncManager: manager, isLeft: true)
         let right = delegate(syncManager: manager, isLeft: false)
         manager.openTab(tab("Second"), isLeft: true, currentProviderId: "iCloud")
@@ -71,7 +71,7 @@ import Sync
     /// guarantee travels with the handler, not with its one careful caller.
     @Test func openInNewTabRefusesAFile() {
         var opened: [String] = []
-        let d = delegate(syncManager: FileSyncManager(), onOpenInNewTab: { opened.append($0.id) })
+        let d = delegate(syncManager: FileSyncManager.scratch(), onOpenInNewTab: { opened.append($0.id) })
 
         d.handleOpenInNewTab(FileNode(id: "/r/Notes.txt", name: "Notes.txt", isDirectory: false))
         #expect(opened.isEmpty, "a file was opened as a tab — a tab is a location")

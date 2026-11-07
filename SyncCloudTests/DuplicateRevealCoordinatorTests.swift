@@ -115,7 +115,7 @@ import Sync
     /// The switch and the request. A switch that hands over no request drops the user on whatever
     /// Duplicates was already showing, which reads as the answer to a question they didn't ask.
     @Test func theHandoffSwitchesWorkspaceAndNamesTheFile() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.duplicateScanRoot = "/Users/u/Projects"
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
         expectLandsOnDuplicates(result)
@@ -128,7 +128,7 @@ import Sync
     /// case a new user meets.
     @Test func aScanIsStartedAndTheRequestStillStands() {
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"),
-                             manager: FileSyncManager())
+                             manager: FileSyncManager.scratch())
         expectLandsOnDuplicates(result)
         #expect(result.request?.path == "/Users/u/Projects/a.txt")
         #expect(result.scanned.map(\.path) == ["/Users/u/Projects"])
@@ -141,7 +141,7 @@ import Sync
     /// The stale root travels on the request when one exists, so `outcome` can tell "my scan has
     /// not landed" from "no scan is running" during the start window.
     @Test func aScanStartingRequestSnapshotsTheStaleRoot() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.duplicateScanRoot = "/Users/u/Elsewhere"
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
         #expect(result.scanned.map(\.path) == ["/Users/u/Projects"])
@@ -151,7 +151,7 @@ import Sync
     /// A request answered from the results on screen starts no scan, and must not carry a
     /// snapshot, or it would wait for a completion that never comes.
     @Test func aNoScanRequestCarriesNoSnapshot() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.duplicateScanRoot = "/Users/u/Projects"
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
         #expect(result.scanned.isEmpty)
@@ -168,7 +168,7 @@ import Sync
         var request: DuplicateRevealRequest?
         var scanned: [URL] = []
         let coordinator = DuplicateRevealCoordinator(
-            syncManager: FileSyncManager(),
+            syncManager: FileSyncManager.scratch(),
             selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
             organizeLens: Binding(get: { lens }, set: { lens = $0 }),
             revealRequest: Binding(get: { request }, set: { request = $0 }),
@@ -185,7 +185,7 @@ import Sync
     @Test func aFolderChangesNothing() {
         let folder = FileNode(id: "/Users/u/Projects", name: "Projects",
                               isDirectory: true, children: [])
-        let result = handoff(node: folder, manager: FileSyncManager())
+        let result = handoff(node: folder, manager: FileSyncManager.scratch())
         #expect(result.workspace == .compare, "a folder switched the workspace")
         #expect(result.request == nil)
         #expect(result.scanned.isEmpty)
@@ -200,7 +200,7 @@ import Sync
         var lens: OrganizeLens? = .toFile
         var request: DuplicateRevealRequest?
         let coordinator = DuplicateRevealCoordinator(
-            syncManager: FileSyncManager(),
+            syncManager: FileSyncManager.scratch(),
             selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
             organizeLens: Binding(get: { lens }, set: { lens = $0 }),
             revealRequest: Binding(get: { request }, set: { request = $0 }),

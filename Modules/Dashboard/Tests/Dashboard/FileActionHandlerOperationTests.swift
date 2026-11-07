@@ -87,6 +87,7 @@ import Settings
     @Test func testHandleCopyToClipboardStoresNodesAndCutFlag() {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testHandleCopyToClipboardStoresNodesAndCutFlag"))
         let node = FileNode(id: "/tmp/a.txt", name: "a.txt", isDirectory: false)
 
@@ -105,6 +106,7 @@ import Settings
     @Test func testPasteItemsToDirectoryNodeCopiesIntoIt() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testPasteItemsToDirectoryNodeCopiesIntoIt"))
         let src = try makeTempDir("paste-src")
         let dst = try makeTempDir("paste-dst")
@@ -137,6 +139,7 @@ import Settings
     @Test func testPasteItemsToFileNodeCopiesIntoItsParentDirectory() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testPasteItemsToFileNodeCopiesIntoItsParentDirectory"))
         let src = try makeTempDir("pastefile-src")
         let dst = try makeTempDir("pastefile-dst")
@@ -164,6 +167,7 @@ import Settings
     @Test func testPasteClipboardToNodeWithEmptyClipboardDoesNothing() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testPasteClipboardToNodeWithEmptyClipboardDoesNothing"))
         let dst = try makeTempDir("emptypaste")
         defer { try? FileManager.default.removeItem(at: dst) }
@@ -180,6 +184,7 @@ import Settings
     @Test func testPasteClipboardToPathWithEmptyClipboardDoesNothing() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testPasteClipboardToPathWithEmptyClipboardDoesNothing"))
         let dst = try makeTempDir("emptypaste-path")
         defer { try? FileManager.default.removeItem(at: dst) }
@@ -197,6 +202,7 @@ import Settings
     @Test func testPasteClipboardToNodeCopiesAndRetainsClipboard() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testPasteClipboardToNodeCopiesAndRetainsClipboard"))
         let src = try makeTempDir("clip-src")
         let dst = try makeTempDir("clip-dst")
@@ -227,6 +233,7 @@ import Settings
     @Test func testPasteClipboardToPathCutMovesAndClearsClipboardAfterSuccess() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testPasteClipboardToPathCutMovesAndClearsClipboardAfterSuccess"))
         let src = try makeTempDir("clipcut-src")
         let dst = try makeTempDir("clipcut-dst")
@@ -272,6 +279,7 @@ import Settings
             CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("runPaneMove-\(fromLeft)"))
 
         let sourceDir = fromLeft ? left : right
@@ -318,6 +326,7 @@ import Settings
             CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testCopyItemsFromLeftCopiesToRightPane"))
         let file = try makeFile(in: left, named: "copy-me.txt")
         let node = FileNode(id: file.path, name: "copy-me.txt", isDirectory: false)
@@ -348,6 +357,7 @@ import Settings
             CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", rootPath: left.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testMoveItemsWithUnknownDestinationProviderPresentsErrorForDestinationSide"))
         let file = try makeFile(in: left, named: "keep-me.txt")
         let node = FileNode(id: file.path, name: "keep-me.txt", isDirectory: false)
@@ -366,6 +376,7 @@ import Settings
     @Test func testMoveItemsWithUnknownProviderReturnsEmptyAndPresentsError() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testMoveItemsWithUnknownProviderReturnsEmptyAndPresentsError"))
         let src = try makeTempDir("move-guard")
         defer { try? FileManager.default.removeItem(at: src) }
@@ -396,6 +407,7 @@ import Settings
             CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("testMoveItemsWithMissingSourceFileShowsNoSuccessBanner"))
         let node = FileNode(id: left.appendingPathComponent("ghost.txt").path, name: "ghost.txt", isDirectory: false)
 
@@ -420,7 +432,8 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: ScratchDefaults("FAH-del-cancel"), // unset key → confirm (default true)
+            defaults: ScratchDefaults("FAH-del-cancel"),
+                pasteboard: Self.scratchPasteboard(#function), // unset key → confirm (default true)
             deleteConfirmer: { names, _ in
                 promptedNames = names
                 return false
@@ -492,7 +505,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: ScratchDefaults("FAH-del-confirm"),
+            defaults: ScratchDefaults("FAH-del-confirm"), pasteboard: Self.scratchPasteboard(#function),
             deleteConfirmer: { _, _ in true }
         )
 
@@ -527,7 +540,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: defaults,
+            defaults: defaults, pasteboard: Self.scratchPasteboard(#function),
             deleteConfirmer: { _, _ in
                 confirmerCalls += 1
                 return false // would cancel — must never be consulted
@@ -571,7 +584,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: defaults,
+            defaults: defaults, pasteboard: Self.scratchPasteboard(#function),
             deleteConfirmer: { _, _ in false }
         )
 
@@ -601,7 +614,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: defaults,
+            defaults: defaults, pasteboard: Self.scratchPasteboard(#function),
             deleteConfirmer: { names, _ in
                 promptedNames = names
                 return false
@@ -631,6 +644,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             renamePrompter: { currentName, validate in
                 promptedCurrentName = currentName
                 // The prompt is wired to the engine's name validation (rejects "/" like Finder).
@@ -659,6 +673,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             renamePrompter: { currentName, _ in currentName }
         )
 
@@ -679,6 +694,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             renamePrompter: { _, _ in "after.txt" }
         )
 
@@ -706,6 +722,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             newFolderPrompter: { validate in
                 validateSeen = validate("bad:name") != nil // engine validation is wired through
                 return nil // user cancelled
@@ -728,6 +745,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             newFolderPrompter: { _ in "Fresh Folder" }
         )
 
@@ -805,6 +823,7 @@ import Settings
             try? FileManager.default.removeItem(at: panes.right)
         }
         let handler = FileActionHandler(syncManager: manager, settings: panes.settings,
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("aPaneCopyRunsOnTheManagersFileManager"))
         let file = try makeFile(in: panes.left, named: "pane-copy.txt")
 
@@ -825,6 +844,7 @@ import Settings
             try? FileManager.default.removeItem(at: panes.right)
         }
         let handler = FileActionHandler(syncManager: manager, settings: panes.settings,
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("aPaneMoveRunsOnTheManagersFileManager"))
         let file = try makeFile(in: panes.left, named: "pane-move.txt")
 
@@ -846,6 +866,7 @@ import Settings
             try? FileManager.default.removeItem(at: dst)
         }
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("aDropMoveRunsOnTheManagersFileManager"))
         let file = try makeFile(in: src, named: "dropped.txt")
 
@@ -865,6 +886,7 @@ import Settings
             try? FileManager.default.removeItem(at: dst)
         }
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("aCutPasteRunsOnTheManagersFileManager"))
         let file = try makeFile(in: src, named: "cut-paste.txt")
 
@@ -885,6 +907,7 @@ import Settings
             try? FileManager.default.removeItem(at: dst)
         }
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"),
                                         pasteboard: Self.scratchPasteboard("aCopyPasteRunsOnTheManagersFileManager"))
         let file = try makeFile(in: src, named: "copy-paste.txt")
 
@@ -902,6 +925,7 @@ import Settings
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = try makeFile(in: dir, named: "old-name.txt")
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
                                         renamePrompter: { _, _ in "new-name.txt" })
 
         handler.beginRename(FileNode(id: file.path, name: "old-name.txt", isDirectory: false))
@@ -916,6 +940,7 @@ import Settings
         let dir = try makeTempDir("fm-newfolder")
         defer { try? FileManager.default.removeItem(at: dir) }
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
                                         newFolderPrompter: { _ in "Recorded Folder" })
 
         handler.beginCreateFolder(in: dir.path)
@@ -931,6 +956,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: FileSyncManager(),
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             appleScriptRunner: { script in
                 capturedScript = script
                 return nil // success
@@ -954,6 +980,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
+                defaults: ScratchDefaults("FileActionHandler"), pasteboard: Self.scratchPasteboard(#function),
             appleScriptRunner: { _ in
                 runnerCalls += 1
                 return ["NSAppleScriptErrorMessage": "Finder got an error"] as NSDictionary

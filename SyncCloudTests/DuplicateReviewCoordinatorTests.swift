@@ -24,7 +24,7 @@ private final class Harness {
     /// `fileManager:` explicitly, the removal itself, so a double that fails `trashItem` drives the
     /// permanent-delete branch for real (see `DuplicateReviewLogHonestyTests`).
     init(fileManager: FileManaging = FileManager.default) {
-        syncManager = FileSyncManager(fileManager: fileManager)
+        syncManager = FileSyncManager.scratch(fileManager: fileManager)
     }
 
     var duplicateReview: DuplicateCompareContext?

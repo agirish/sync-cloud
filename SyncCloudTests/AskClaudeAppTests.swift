@@ -103,7 +103,9 @@ import FileExplorer
         let defaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
         defaults.set(AppearanceMode.dark.rawValue, forKey: LiquidGlass.appearanceModeKey)
-        let lookup = SettingsLookup(defaults: defaults, settings: SettingsManager(userDefaults: defaults),
+        let lookup = SettingsLookup(defaults: defaults,
+                                    settings: SettingsManager(autoDiscover: false, userDefaults: defaults,
+                                                              cloudStorageLister: { .read([]) }),
                                     keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
                                     loginItemIsOn: { false })
         let runner = tools(settingsLookup: lookup)
@@ -127,7 +129,7 @@ import FileExplorer
         let suite = "AskClaudeSettingsSet.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        let manager = SettingsManager(userDefaults: defaults)
+        let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
         let lookup = SettingsLookup(defaults: defaults, settings: manager,
                                     keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
                                     loginItemIsOn: { false })
@@ -190,7 +192,9 @@ import FileExplorer
         let suite = "AskClaudeSettingsShow.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { wipeDefaultsSuite(suite) }
-        let lookup = SettingsLookup(defaults: defaults, settings: SettingsManager(userDefaults: defaults),
+        let lookup = SettingsLookup(defaults: defaults,
+                                    settings: SettingsManager(autoDiscover: false, userDefaults: defaults,
+                                                              cloudStorageLister: { .read([]) }),
                                     keyIsSaved: { false }, hiddenCount: { 0 }, isHidden: { _ in false },
                                     loginItemIsOn: { false }, people: { [Person(id: "jane", displayName: "Jane")] })
         let runner = tools(settingsLookup: lookup)
@@ -1761,13 +1765,9 @@ private final class NoTools: AskClaudeToolRunning {
 @MainActor
 @Suite struct AskClaudeChatTests {
 
-    /// One domain per test, named for it and emptied first, so runs reuse it rather than leaving
-    /// a new preferences file behind every time.
+    /// A scratch domain per test, named for it and wiped with its last holder.
     private func defaults(_ test: String = #function) -> UserDefaults {
-        let name = "AskClaudeChatTests." + test.prefix { $0 != "(" }
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
-        return d
+        ScratchDefaults("AskClaudeChatTests." + test.prefix { $0 != "(" })
     }
 
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents", sort: "Name",
@@ -2642,9 +2642,7 @@ private final class Counter: @unchecked Sendable {
     @Test func aChatSurvivesQuittingWithinTheHourAndNotAfter() async throws {
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeStore-\(UUID().uuidString)/chat.json")
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
-        let name = "AskClaudeChatStoreTests.aChatSurvivesQuitting"
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
+        let d = ScratchDefaults("AskClaudeChatStoreTests.aChatSurvivesQuitting")
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
         let first = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
                                   readKey: { "k" }, now: { clock }, storeURL: store)
@@ -2667,9 +2665,7 @@ private final class Counter: @unchecked Sendable {
     @Test func aCardThisBuildCantReadBecomesANoteAndTheChatComesBack() async throws {
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeStore-\(UUID().uuidString)/chat.json")
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
-        let name = "AskClaudeChatStoreTests.aCardThisBuildCantRead"
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
+        let d = ScratchDefaults("AskClaudeChatStoreTests.aCardThisBuildCantRead")
         let clock = Date(timeIntervalSince1970: 1_792_000_000)
         let first = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
                                   readKey: { "k" }, now: { clock }, storeURL: store)
@@ -2824,7 +2820,7 @@ private final class Counter: @unchecked Sendable {
     }
 
     @Test func eachHandleTakesTheMouseAtItsEdge() throws {
-        let chat = AskClaudeChat(readKey: { nil })
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
                                    onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container,
@@ -2851,7 +2847,7 @@ private final class Counter: @unchecked Sendable {
     }
 
     @Test func aClickOnTheComposerReachesItsField() throws {
-        let chat = AskClaudeChat(readKey: { nil })
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
                                    onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container,
@@ -2925,7 +2921,7 @@ private final class Counter: @unchecked Sendable {
     private func threadColor(hue: LiquidGlassHue, tint: Double, level: GlassLevel) throws -> (r: CGFloat, g: CGFloat, b: CGFloat) {
         let container = CGSize(width: 1000, height: 800)
         let host = NSHostingView(rootView: AskClaudePanel(
-            chat: AskClaudeChat(readKey: { nil }), place: AskClaudePanelHandleTests.place,
+            chat: AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil }), place: AskClaudePanelHandleTests.place,
             accent: hue.accentColor, accentFill: hue.accentFillColor, onAccent: hue.onAccentLabelColor,
             hue: hue, tint: tint, level: level,
             onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container, settingsBridge: .keySaved)
@@ -2995,7 +2991,7 @@ private final class Counter: @unchecked Sendable {
     @Test func theContentFillsTheWindowAfterOpeningAndAfterNewChat() async throws {
         let parent = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 760),
                               styleMask: [.borderless], backing: .buffered, defer: true)
-        let chat = AskClaudeChat(readKey: { nil })
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         for i in 0..<40 { chat.addNote("Note \(i), long enough to take a line of the thread.") }
         let controller = AskClaudeWindowController()
         controller.container = NSRect(x: -30_000, y: -30_000, width: 1000, height: 720)
@@ -3211,9 +3207,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 @Suite struct AskClaudeDownloadCardTests {
 
     private func chatWithACard(_ test: String = #function) async -> (AskClaudeChat, UUID) {
-        let name = "AskClaudeDownloadCardTests." + test.prefix { $0 != "(" }
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
+        let d = ScratchDefaults("AskClaudeDownloadCardTests." + test.prefix { $0 != "(" })
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
                                  readKey: { "k" })
         chat.ask("What’s the rent?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
@@ -3289,9 +3283,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 @Suite struct AskClaudeAttachmentTests {
 
     @Test func chipsAddOnceComeOffAndAreTakenBySend() {
-        let name = "AskClaudeAttachmentTests.chips"
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
+        let d = ScratchDefaults("AskClaudeAttachmentTests.chips")
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
                                  readKey: { "k" })
         typealias A = AskClaudeChat.Attachment
@@ -3308,8 +3300,8 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 
     @Test func theRowMenusHideOrShowLabelFollowsTheList() {
-        let manager = FileSyncManager()
-        let settings = SettingsManager()
+        let manager = FileSyncManager.scratch()
+        let settings = SettingsManager.scratch()
         func delegate(_ token: [String], asks: Bool = true) -> PaneActionDelegate {
             var d = PaneActionDelegate(
                 handler: nil, syncManager: manager, settings: settings, isLeft: true,
@@ -3479,7 +3471,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             "W-2 2025.pdf": [s("Taxes/2025", .medium), s("Work", .medium)], "Statement.pdf": [s("Bank/Chase", .high)],
             "scan0042.pdf": [s("Health", .low), s("Insurance", .low)], "plan.pdf": [s("Travel/Trips", .high)],
         ].merging(extra) { _, new in new }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         return AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
                 inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,
@@ -3638,7 +3630,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(made.allSatisfy { $0.change.path.hasPrefix(dir + "/Documents/Travel/2026") || !$0.ticked },
                 "a folder no ticked move needs is unticked")
         #expect(plan.title == "File 7 Loose Files", "new folders aren't counted as files")
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         manager.undoManager = UndoManager()
         let applied = await manager.applyPlan(plan.runnable.map { (id: $0.id, change: $0.change) }, actionName: plan.title,
                                               isHidden: { _ in false }, protected: [])
@@ -3686,7 +3678,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     private func runner() -> AskClaudeBrowseTools {
         let dir = self.dir
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         return AskClaudeBrowseTools(context: {
             var ctx = AskClaudeBrowseTools.Context(
                 inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,

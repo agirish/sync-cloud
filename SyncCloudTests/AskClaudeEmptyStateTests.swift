@@ -22,7 +22,7 @@ import Testing
     private func host(_ key: KeyState, chat: AskClaudeChat? = nil,
                       onAsk: @escaping (String) -> Void = { _ in },
                       saveSetupKey: @escaping (String) -> String? = { _ in nil }) -> (NSWindow, NSHostingView<some View>) {
-        let chat = chat ?? AskClaudeChat(readKey: { nil })
+        let chat = chat ?? AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         var bridge = AskClaudeSettingsBridge()
         bridge.keyIsSaved = { key.saved }
         bridge.saveSetupKey = saveSetupKey
@@ -158,7 +158,7 @@ import Testing
     /// A click sends the question as typed: to the same send, into the remembered questions, and
     /// what's being typed stays in the box.
     @Test func aStarterSendsItsQuestionExactlyAsTyped() async throws {
-        let chat = AskClaudeChat(readKey: { nil })
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         chat.draft = "half a question"
         var asked: [String] = []
         let (window, host) = host(KeyState(true), chat: chat, onAsk: { asked.append($0) })

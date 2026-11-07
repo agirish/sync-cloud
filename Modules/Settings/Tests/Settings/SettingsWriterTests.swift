@@ -18,6 +18,12 @@ import Sync
         var columnQuestions: [Int] = []
     }
 
+    /// A manager on `defaults` that discovers nothing: discovery would list the real
+    /// `~/Library/CloudStorage` and write what it found after the suite is wiped.
+    private func manager(on defaults: UserDefaults) -> SettingsManager {
+        SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
+    }
+
     private func writer(_ defaults: UserDefaults, _ manager: SettingsManager?, _ calls: Calls,
                         permissionDenied: Bool = false, confirmColumns: Bool = false) -> SettingsWriter {
         SettingsWriter(defaults: defaults, settings: manager,
@@ -35,7 +41,7 @@ import Sync
 
     @Test func aManagedSettingIsSetOnTheManager() {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
-        let manager = SettingsManager(userDefaults: defaults)
+        let manager = self.manager(on: defaults)
         let outcome = writer(defaults, manager, Calls()).write("sync.dateTolerance", .double(0))
         #expect(outcome == .done)
         #expect(manager.dateToleranceSeconds == 0)
@@ -175,7 +181,7 @@ import Sync
         for entry in SettingsCatalog.all where SettingsWriter.canWrite(entry) {
             guard case .appStorage = entry.storage, let base = entry.defaultValue else { continue }
             let (name, defaults) = scratch("\(#function).\(entry.id)"); defer { wipeDefaultsSuite(name) }
-            let outcome = writer(defaults, SettingsManager(userDefaults: defaults), Calls()).write(entry.id, base)
+            let outcome = writer(defaults, manager(on: defaults), Calls()).write(entry.id, base)
             if case .refused(let why) = outcome { #expect(!why.contains("can’t be changed from a card"), "\(entry.id): \(why)") }
         }
     }
@@ -198,7 +204,7 @@ import Sync
 
     @Test func aSourceThatIsntThereIsRefused() {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
-        let w = writer(defaults, SettingsManager(userDefaults: defaults), Calls())
+        let w = writer(defaults, manager(on: defaults), Calls())
         #expect(w.write("sources.enabled", .bool(false), target: "nope") == .refused("There’s no source nope."))
         #expect(w.write("sources.enabled", .bool(false)) == .refused("Say which source."))
     }

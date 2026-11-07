@@ -12,7 +12,8 @@ import Settings
     @Test func testFocusFolderDerivesRelativePathFromProviderRoot() {
         let manager = FileSyncManager()
         let settings = scratchSettings() // seeded iCloud provider only
-        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let handler = FileActionHandler(syncManager: manager, settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
@@ -28,7 +29,8 @@ import Settings
         let defaults = ScratchDefaults("FileActionHandlerHelperTests")
         let manager = FileSyncManager()
         let settings = scratchSettings()
-        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
+        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults,
+                                        pasteboard: scratchPasteboard())
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
@@ -48,7 +50,8 @@ import Settings
         defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
         let settings = scratchSettings()
-        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
+        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults,
+                                        pasteboard: scratchPasteboard())
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
@@ -67,7 +70,8 @@ import Settings
         defaults.set(true, forKey: PaneLinkPreference.defaultsKey)
         let manager = FileSyncManager()
         let settings = scratchSettings()
-        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults)
+        let handler = FileActionHandler(syncManager: manager, settings: settings, defaults: defaults,
+                                        pasteboard: scratchPasteboard())
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
@@ -81,7 +85,8 @@ import Settings
     @Test func testFocusFolderOnRootYieldsEmptyRelativePath() {
         let manager = FileSyncManager()
         let settings = scratchSettings()
-        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let handler = FileActionHandler(syncManager: manager, settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
 
         let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: root, name: "root", isDirectory: true)
@@ -93,7 +98,8 @@ import Settings
     @MainActor
     @Test func testProviderDisplayNameMatchesRootAndRespectsBoundary() {
         let settings = scratchSettings()
-        let handler = FileActionHandler(syncManager: FileSyncManager(), settings: settings)
+        let handler = FileActionHandler(syncManager: FileSyncManager(), settings: settings,
+                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
         let root = settings.rootPath(for: "iCloud")
 
         // Exact root and a real subpath resolve to the provider.

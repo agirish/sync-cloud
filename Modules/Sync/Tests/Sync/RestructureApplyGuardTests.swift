@@ -254,6 +254,15 @@ import Testing
         private let lock = NSLock()
         private var tripped = false
         private var armed = true
+        private var timedOut = false
+
+        /// True if the parked probe gave up waiting instead of being released: bounded, like
+        /// `ParkGate`, so a mis-wired test fails instead of holding a pool thread for good. The
+        /// tests `try #require(!gate.releasedByTimeout)` once the pass has finished.
+        var releasedByTimeout: Bool {
+            lock.lock(); defer { lock.unlock() }
+            return timedOut
+        }
 
         /// Arm (or disarm) the park — a test that must land FIRST and park a LATER pass
         /// disarms for the landing, then re-arms; re-arming resets the once-only trip.
@@ -273,7 +282,11 @@ import Testing
             let fire = armed && !tripped
             if fire { tripped = true }
             lock.unlock()
-            if fire { entered.signal(); release.wait() }
+            guard fire else { return }
+            entered.signal()
+            if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
+                lock.lock(); timedOut = true; lock.unlock()
+            }
         }
 
         func fileExists(atPath path: String) -> Bool {
@@ -372,6 +385,7 @@ import Testing
 
         gate.release.signal()
         _ = await first.value
+        try #require(!gate.releasedByTimeout, "the landing was never held — it timed out of the gate")
         #expect(manager.restructureLandingInProgress == false,
                 "the defer must clear the flag on the way out")
     }
@@ -564,6 +578,7 @@ import Testing
         manager.filingProfileDirectoryId = "walk-fresh"
         gate.release.signal()
         let outcome = await undoTask.value
+        try #require(!gate.releasedByTimeout, "the inverse was never held — it timed out of the gate")
 
         #expect(outcome.refusal == nil, "the inverse itself ran; the re-point is what stops")
         #expect(outcome.surveyRefreshFailure?.contains("active profile changed") == true)

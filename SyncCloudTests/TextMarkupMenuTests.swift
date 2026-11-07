@@ -272,37 +272,28 @@ import Testing
 
     /// A menu item's action runs inside the dispatch of the event that fired it, the premise
     /// `InspectorOrItalic.firedByKey` rests on, since it reads `NSApp.currentEvent` from inside the
-    /// action. Proved on a real item: View ▸ Text Size's action is sent through `sendAction`, and
-    /// the stored size has moved when the call returns. Were SwiftUI to defer actions by a turn,
-    /// this would read the old value, and `currentEvent` inside the action would be whatever came
-    /// next.
+    /// action. Proved on View ▸ Text Size's own content: its Bigger item is sent through
+    /// `sendAction`, and the stored size has moved when the call returns. Were SwiftUI to defer
+    /// actions by a turn, this would read the old value, and `currentEvent` inside the action would
+    /// be whatever came next.
     ///
-    /// The live preference is written and put back exactly: the test host inherits the user's
-    /// defaults, so a leaked step would resize the app under them.
+    /// Not the bar's copy, which writes the live preference (the test host is the app, so a crash
+    /// mid-test would leave him at another text size, and his running app follows the change).
+    /// The same `TextSizeCommands` is hosted in an `NSHostingMenu` on a scratch store, after
+    /// checking the bar's submenu shows the same items.
     @Test func aMenuItemsActionRunsSynchronously() throws {
-        let submenu = try #require(try Self.item("Text Size", in: "View").submenu)
-        let defaults = UserDefaults.standard
-        let stored = defaults.object(forKey: FontSize.defaultsKey)
-        defer { defaults.set(stored, forKey: FontSize.defaultsKey) }
-
-        // Read, never seeded: the item's `@AppStorage` holds what it observed at its last render,
-        // and a `defaults.set` here is not observed until SwiftUI's next turn, so a seeded value
-        // would be ignored. The expected value derives from the live one, and the direction keeps
-        // the item off the end of its range, where it does nothing.
-        let before = FontSize(percent: defaults.object(forKey: FontSize.defaultsKey) as? Int
-                                  ?? FontSize.medium.percent)
-        let title: String
-        let expected: FontSize
-        if let up = before.bigger {
-            title = "Bigger"; expected = up
-        } else {
-            title = "Smaller"; expected = try #require(before.smaller, "a size with neither neighbour — the range is one stop wide")
-        }
-        let item = try #require(submenu.items.first { $0.title == title })
+        let bar = try #require(try Self.item("Text Size", in: "View").submenu)
+        let defaults = ScratchDefaults("TextMarkupMenuTests-sync")
+        // Seeded before the first render, which is when `@AppStorage` reads it.
+        defaults.set(FontSize.medium.percent, forKey: FontSize.defaultsKey)
+        let expected = try #require(FontSize.medium.bigger, "medium is the top stop — the item would do nothing")
+        let menu = NSHostingMenu(rootView: TextSizeCommands().defaultAppStorage(defaults))
+        menu.update()
+        #expect(Self.titles(menu) == Self.titles(bar), "the hosted content is not the bar's: \(Self.titles(menu)) vs \(Self.titles(bar))")
+        let item = try #require(menu.items.first { $0.title == "Bigger" }, "no Bigger in \(Self.titles(menu))")
 
         // Straight through the item's target/action, which is what a key equivalent or a click
-        // ends in. Enabled-ness is not consulted on this path, so it runs in a host whose menu has
-        // no key window behind it.
+        // ends in.
         let sent = NSApp.sendAction(try #require(item.action), to: item.target, from: item)
         #expect(sent, "AppKit found no responder for the item's action — the premise cannot be measured")
         #expect(defaults.integer(forKey: FontSize.defaultsKey) == expected.percent,

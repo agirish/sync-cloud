@@ -26,7 +26,7 @@ import Testing
 
     deinit {
         try? FileManager.default.removeItem(atPath: folder)
-        UserDefaults.standard.removePersistentDomain(forName: suite)
+        wipeDefaultsSuite(suite)
     }
 
     /// A record of what the verbs were asked to do.

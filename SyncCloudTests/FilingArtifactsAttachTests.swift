@@ -12,23 +12,29 @@ import Sync
 
     /// The engine is told where profiles live even when there is no profile to attach; otherwise
     /// setup's Learn fails with `no profiles directory was configured` before reading a folder.
-    @Test func aMachineWithNoProfileStillLearnsWhereProfilesLive() {
-        let manager = FileSyncManager()
+    ///
+    /// An empty folder of its own stands in for the fresh Mac: the default directory holds the
+    /// user's own profile on his Mac, which would take the other path and attach his data.
+    @Test func aMachineWithNoProfileStillLearnsWhereProfilesLive() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FilingArtifactsAttachTests-\(UUID().uuidString)")
+        let profiles = root.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = FileSyncManager.scratch()
         #expect(manager.filingProfilesDirectory == nil, "the fixture was already configured")
 
-        let attached = FilingArtifacts.attach(to: manager)
+        let attached = FilingArtifacts.attach(to: manager, profilesDirectory: profiles)
 
-        #expect(manager.filingProfilesDirectory != nil,
+        #expect(!attached, "the empty folder held a profile — this is not the fresh-install path")
+        #expect(manager.filingProfilesDirectory?.path == profiles.path,
                 "a Mac with no profile cannot write its first one — this is the fresh-install path")
-        #expect(manager.contentIndexDirectory != nil)
-        // Whether anything was attached depends on the machine, and isn't the point: the directory
-        // has to arrive either way.
-        _ = attached
+        #expect(manager.contentIndexDirectory?.standardizedFileURL.path == root.standardizedFileURL.path)
     }
 
     /// The directory is the default one, not something invented.
     @Test func theDirectoryIsTheStoresOwnDefault() {
-        let manager = FileSyncManager()
+        let manager = FileSyncManager.scratch()
         FilingArtifacts.attach(to: manager)
         #expect(manager.filingProfilesDirectory == FilingProfileStore.defaultDirectory())
     }
