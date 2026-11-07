@@ -1311,6 +1311,7 @@ extension FileSyncManager {
     /// own eligibility and keeper checks still apply, so a caller can't pass an ineligible group
     /// through.
     public func applyRecommendedDuplicates(_ scope: [DuplicateGroup]) async {
+        let elapsed = Elapsed()
         let eligible = scope.filter { $0.isRecommendedForBatch }
         // The batch has two phases, and the shape is load-bearing.
         //
@@ -1455,7 +1456,7 @@ extension FileSyncManager {
         // something else is left out of the total.
         let credited = done.filter { !Set($0.recommendedRemovalPaths).isDisjoint(with: presentBefore) }
         let bytes = credited.reduce(0) { $0 + $1.reclaimableBytes }
-        Logger.shared.info("Duplicates: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
+        Logger.shared.info("Duplicates: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes)) (\(elapsed.text))")
         // The batch stopping short of what was on disk is a state the log must account for — a
         // declined permanent delete, a cancelled dialog, a gate refusal or a failure all leave
         // copies behind that the scan said were removable.

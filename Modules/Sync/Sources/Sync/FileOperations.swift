@@ -361,6 +361,8 @@ extension FileSyncManager {
                 return []
             }
         }
+        // From here the operation runs, so its finish line carries the time it took.
+        let elapsed = Elapsed()
 
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
@@ -829,9 +831,9 @@ extension FileSyncManager {
             let verb = isMove ? "Moved" : "Copied"
             // .info, not .debug: a copy or move changes data and belongs in the normal audit trail.
             if transferredNodes.count == prunedNodes.count {
-                Logger.shared.info("\(verb) \(transferredNodes.count) item(s) \(destinationDescription)")
+                Logger.shared.info("\(verb) \(transferredNodes.count) item(s) \(destinationDescription) (\(elapsed.text))")
             } else {
-                Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) item(s) \(destinationDescription)")
+                Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) item(s) \(destinationDescription) (\(elapsed.text))")
             }
             // Every item was skipped for already being at its target (both panes on one provider
             // at the same path, say). Say so, or it looks like a dropped click. Only for this
@@ -1294,6 +1296,7 @@ extension FileSyncManager {
         let confirmPermanentDelete = permanentDeleteConfirmer
         let recycle = trashViaWorkspace
         let midTransfer = isMidCloudTransfer
+        let elapsed = Elapsed()
 
         // Prune nested paths: a trashed parent takes its children with it.
         //
@@ -1533,13 +1536,13 @@ extension FileSyncManager {
                 Logger.shared.warning("Moved \(trashedWithoutLocation.count) item(s) to Trash, but the system reported no Trash location, so Undo cannot restore them (recover them from the Trash): \(names)")
             }
             if permanentlyDeleted.isEmpty {
-                Logger.shared.info("Moved \(items.count) item(s) to Trash")
+                Logger.shared.info("Moved \(items.count) item(s) to Trash (\(elapsed.text))")
             } else {
                 let names = permanentlyDeleted.map { $0.original.lastPathComponent }.joined(separator: ", ")
                 Logger.shared.warning("Permanently deleted \(permanentlyDeleted.count) item(s) that could not be moved to Trash (unrecoverable): \(names)")
                 let trashedCount = items.count - permanentlyDeleted.count
                 if trashedCount > 0 {
-                    Logger.shared.info("Moved \(trashedCount) other item(s) to Trash")
+                    Logger.shared.info("Moved \(trashedCount) other item(s) to Trash (\(elapsed.text))")
                 }
             }
             let name = items.first?.original.lastPathComponent ?? "item"

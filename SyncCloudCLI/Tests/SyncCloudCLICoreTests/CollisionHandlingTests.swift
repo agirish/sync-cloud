@@ -182,4 +182,30 @@ import Testing
         ])
         #expect(s.exitNonzero)
     }
+
+    /// The CLI sync's finish lines for the app log: the counts, then every skipped path by reason,
+    /// sorted, at most 200 a line, none dropped.
+    @Test func theLogLinesCountTheRunAndNameEverySkippedPath() {
+        var tally = SyncTally()
+        tally.recordCopied(replacedExisting: true)
+        tally.recordCopied()
+        tally.recordFailed()
+        tally.recordSkipped(relativePath: "b.txt", reason: .collision)
+        tally.recordSkipped(relativePath: "a.txt", reason: .collision)
+        tally.recordSkipped(relativePath: "Odd:name", reason: .nameViolation)
+        #expect(tally.logLines(differences: 6) == [
+            "synccloud sync finished: 6 difference(s), 2 copied (1 replaced, previous versions in the Trash), 1 failed, 3 skipped",
+            "synccloud sync skipped already there (--strategy skip): a.txt, b.txt",
+            "synccloud sync skipped names the provider rejects: Odd:name",
+        ])
+    }
+
+    @Test func aLongSkipListIsSplitNotCut() {
+        var tally = SyncTally()
+        for n in 1...450 { tally.recordSkipped(relativePath: String(format: "f%03d", n), reason: .changedSincePlan) }
+        let lines = tally.logLines(differences: 450)
+        #expect(lines.count == 4)
+        #expect(lines[1].hasPrefix("synccloud sync skipped changed since the plan 1–200 of 450: f001, "))
+        #expect(lines[3].hasSuffix("f450"))
+    }
 }

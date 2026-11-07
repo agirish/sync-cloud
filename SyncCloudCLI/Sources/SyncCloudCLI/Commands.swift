@@ -93,7 +93,8 @@ func adoptAppLogLevel(verb: String) {
 private func makeRunner() -> CommandRunner {
     CommandRunner(environment: .init(
         discoverSnapshot: discoverProviderSnapshot,
-        logError: { message in await MainActor.run { _ = Logger.shared.error(message) } }
+        logError: { message in await MainActor.run { _ = Logger.shared.error(message) } },
+        logInfo: { message in _ = Logger.shared.info(message) }
     ))
 }
 

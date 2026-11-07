@@ -36,7 +36,11 @@ import Sync
         #expect(LogGrouping.Kind.classify("Synced file: Reports/q3.pdf") == .synced)
         #expect(LogGrouping.Kind.classify("Filing: filed “notes.md” → Documents") == .filed)
         #expect(LogGrouping.Kind.classify("Scan completed: found 7 differences.") == nil)
-        #expect(LogGrouping.Kind.classify("Copied 12 item(s) in bulk") == nil)
+        // The bulk run's real finish line, not a typed copy of one.
+        #expect(LogGrouping.Kind.classify(BulkRunLog.finish(runId: UUID(), isMove: false,
+                                                            counts: .init(done: 12), elapsed: "1.0 s")) == nil)
+        #expect(LogGrouping.Kind.classify(BulkRunLog.start(runId: UUID(), isMove: false, items: 12, bytes: nil,
+                                                           from: "/L", to: "/R")) == nil)
     }
 
     // MARK: Fold

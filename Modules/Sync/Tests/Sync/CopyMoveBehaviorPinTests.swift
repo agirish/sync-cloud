@@ -15,11 +15,30 @@ import EventsTestSupport
 /// safe (skip, don't delete), which `UnwiredManagerSafeDefaultsTests` pins.
 @Suite struct CopyMoveBehaviorPinTests {
 
-    /// True when `log` captured an entry with exactly `message`. A capture, not the shared buffer,
-    /// which other suites can evict.
+    /// True when `log` captured an entry that is exactly `message`, or exactly `message` followed
+    /// by an operation's elapsed time (" (12.3 ms)", " (1.23 s)"), which the finish lines carry.
+    /// Anchored at both ends, so a reworded or lengthened line still fails. A capture, not the
+    /// shared buffer, which other suites can evict.
     @MainActor
     private func loggerContains(_ log: LogCapture, _ message: String) async -> Bool {
-        await log.entries.contains { $0.message == message }
+        await log.entries.contains { Self.isLine($0.message, message) }
+    }
+
+    nonisolated static func isLine(_ line: String, _ message: String) -> Bool {
+        if line == message { return true }
+        guard line.hasPrefix(message + " (") else { return false }
+        let tail = line.dropFirst(message.count)
+        return tail.range(of: #"^ \([0-9]+(\.[0-9]+)? (ms|s)( \+ [0-9]+(\.[0-9]+)? (ms|s) asleep)?\)$"#,
+                          options: .regularExpression) != nil
+    }
+
+    /// The helper itself: the line, bare or timed, matches; a longer one doesn't.
+    @Test func theLineMatcherAcceptsOnlyTheMessageAndItsTime() {
+        #expect(Self.isLine("Copied 1 item(s) to /src (12.3 ms)", "Copied 1 item(s) to /src"))
+        #expect(Self.isLine("Copied 1 item(s) to /src (1.23 s)", "Copied 1 item(s) to /src"))
+        #expect(Self.isLine("Copied 1 item(s) to /src", "Copied 1 item(s) to /src"))
+        #expect(!Self.isLine("Copied 1 item(s) to /src/x (12.3 ms)", "Copied 1 item(s) to /src"))
+        #expect(!Self.isLine("Copied 1 item(s) to /src (12.3 ms) extra", "Copied 1 item(s) to /src"))
     }
 
     @MainActor

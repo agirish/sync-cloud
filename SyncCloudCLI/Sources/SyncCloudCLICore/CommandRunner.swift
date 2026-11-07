@@ -47,6 +47,9 @@ public struct CommandRunner {
         public var discoverSnapshot: () async -> AppSettingsSnapshot
         /// Logs one failed-copy message to the app log (the shell flushes it to disk).
         public var logError: (String) async -> Void
+        /// The run's finish lines to the app log. Defaulted, so a test that builds the runner
+        /// without it logs nothing extra.
+        public var logInfo: (String) async -> Void
         /// Raw stdout writer — no newline appended (the sync prompt prints without one).
         public var writeOut: (String) -> Void
         /// Raw stderr writer — no newline appended.
@@ -63,6 +66,7 @@ public struct CommandRunner {
         public init(
             discoverSnapshot: @escaping () async -> AppSettingsSnapshot,
             logError: @escaping (String) async -> Void,
+            logInfo: @escaping (String) async -> Void = { _ in },
             writeOut: @escaping (String) -> Void = { print($0, terminator: "") },
             writeErr: @escaping (String) -> Void = { fputs($0, stderr) },
             readConfirmationLine: @escaping () -> String? = { readLine() },
@@ -77,6 +81,7 @@ public struct CommandRunner {
         ) {
             self.discoverSnapshot = discoverSnapshot
             self.logError = logError
+            self.logInfo = logInfo
             self.writeOut = writeOut
             self.writeErr = writeErr
             self.readConfirmationLine = readConfirmationLine
@@ -195,6 +200,7 @@ public struct CommandRunner {
             direction: direction, showHidden: showHidden, ignore: ignore,
             ignoreGoogleDriveNewerDateOnly: ignoreDriveDateNoise
         )
+        await env.logInfo("synccloud scan finished: \(diffs.count) difference(s) between \(leftURL.path) and \(rightURL.path)")
 
         if json {
             let payload = diffs.map {
@@ -316,6 +322,7 @@ public struct CommandRunner {
             let summary = syncSummary(tally: tally, strategy: strategy)
             for line in summary.stdoutLines { printOut(line) }
             for line in summary.stderrLines { env.writeErr(line + "\n") }
+            for line in tally.logLines(differences: heldRows.count) { await env.logInfo(line) }
             if summary.exitNonzero { throw CLISyncFailuresError() }
             return
         }
@@ -438,6 +445,7 @@ public struct CommandRunner {
         let summary = syncSummary(tally: tally, strategy: strategy)
         for line in summary.stdoutLines { printOut(line) }
         for line in summary.stderrLines { env.writeErr(line + "\n") }
+        for line in tally.logLines(differences: diffs.count + heldRows.count) { await env.logInfo(line) }
         // Partial failures and skips must be visible to scripts, not just in the summary. Thrown
         // after the summary so the counts still print; the shell's `flushingLogToDisk` flushes
         // on this path too. `--fail-fast` aborts above, before the summary.

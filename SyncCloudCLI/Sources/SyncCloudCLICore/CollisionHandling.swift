@@ -86,6 +86,31 @@ public struct SyncTally: Equatable, Sendable {
 
     public init() {}
 
+    /// The CLI sync's finish lines for `~/sync-cloud.log`: the counts, then every skipped path by
+    /// reason, at most ``namesPerLine`` a line. The stdout summary goes to a terminal that may be
+    /// gone by morning; these stay with the app's own lines.
+    public func logLines(differences: Int) -> [String] {
+        var out = ["synccloud sync finished: \(differences) difference(s), \(copied) copied"
+                   + (replaced > 0 ? " (\(replaced) replaced, previous versions in the Trash)" : "")
+                   + ", \(failed) failed, \(skipped) skipped"]
+        let reasons: [(SkipReason, String)] = [(.collision, "already there (--strategy skip)"),
+                                               (.nameViolation, "names the provider rejects"),
+                                               (.changedSincePlan, "changed since the plan"),
+                                               (.needsDecision, "need a decision")]
+        for (reason, words) in reasons {
+            let names = skippedItems.filter { $0.reason == reason }.map(\.relativePath).sorted()
+            guard !names.isEmpty else { continue }
+            for start in stride(from: 0, to: names.count, by: Self.namesPerLine) {
+                let end = min(start + Self.namesPerLine, names.count)
+                let range = names.count > Self.namesPerLine ? " \(start + 1)–\(end) of \(names.count)" : ""
+                out.append("synccloud sync skipped \(words)\(range): " + names[start..<end].joined(separator: ", "))
+            }
+        }
+        return out
+    }
+
+    public static let namesPerLine = 200
+
     public mutating func recordCopied(replacedExisting: Bool = false) {
         copied += 1
         if replacedExisting { replaced += 1 }

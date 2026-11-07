@@ -363,6 +363,7 @@ extension FileSyncManager {
         let heldNote = leftOut.map { "; " + $0 }.joined()
         let total = toSync.count
         guard total > 0 else {
+            if !heldBack.isEmpty { Logger.shared.info(BulkRunLog.allHeld(isMove: isMove, held: heldBack.count)) }
             if !heldBack.isEmpty, postBanner {
                 banner = .warning("Nothing was \(isMove ? "moved" : "copied")" + heldNote)
             }
@@ -405,6 +406,17 @@ extension FileSyncManager {
                 Logger.shared.info("Bulk \(isMove ? "move" : "sync") of \(total) item(s) cancelled at the confirmation prompt")
                 return []
             }
+        }
+        // The run starts here, past its guards and its confirmation: one start line, and the finish
+        // line below on every exit that follows, under the run ID its Sync History records carry.
+        let runId = UUID()
+        let elapsed = Elapsed()
+        let bytes = toSync.reduce(Int64(0)) { sum, row in
+            sum + Int64((row.action == .copyToRight ? row.leftFileSize : row.rightFileSize) ?? 0)
+        }
+        if let containers = toSync.first?.transferContainers {
+            Logger.shared.info(BulkRunLog.start(runId: runId, isMove: isMove, items: total, bytes: bytes,
+                                                from: containers.from, to: containers.to))
         }
         let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
@@ -584,7 +596,6 @@ extension FileSyncManager {
 
         // Group the run's per-file undos into one "Sync run" step, so ⌘Z and Undo Last Run reverse
         // the whole bulk sync through the existing per-file reversal. An empty run opens no group.
-        let runId = UUID()
         var historyRecords: [SyncHistoryRecord] = []
         // Each copy's identity walk started in `performBulkSyncIO` as its copy landed. The
         // registrations' tasks are awaited after the group closes, so nothing can slip into the
@@ -670,11 +681,14 @@ extension FileSyncManager {
                 : "\(pastTense) \(result.successes.count) items") + heldNote, undoable: true)
         }
 
-        // Summary log line, matching the single-file "Synced file:" line.
-        if !result.successes.isEmpty {
-            let verb = isMove ? "Moved" : "Synced"
-            Logger.shared.info("\(verb) \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
-        }
+        // The run's finish line, written whatever came of it, so an all-failed or cancelled run
+        // still ends in the log. Rows the loop never reached were left by a cancel.
+        let reached = result.successes.count + result.failures.count + skipped
+        Logger.shared.info(BulkRunLog.finish(
+            runId: runId, isMove: isMove,
+            counts: .init(done: result.successes.count, failed: result.failures.count, held: heldBack.count,
+                          skipped: skipped, canceled: max(0, total - reached)),
+            elapsed: elapsed.text))
         return Set(result.successes.map { $0.0.id })
     }
 

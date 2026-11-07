@@ -146,6 +146,7 @@ extension FileSyncManager {
     /// one grouped ⌘Z → profile re-derivation → key replay → one log line.
     public func applyPlan(_ manifest: RestructureManifest, now: Date = Date()) async
         -> RestructureApplyOutcome {
+        let elapsed = Elapsed()
         var outcome = RestructureApplyOutcome()
         if let refusal = restructureLandingRefusal() {
             outcome.refusal = refusal
@@ -331,7 +332,7 @@ extension FileSyncManager {
             + "\(outcome.summary); verifier "
             + (outcome.verifierMismatches.isEmpty ? "OK"
                : "MISMATCH (\(outcome.verifierMismatches.count))")
-            + "; profile \(oldDirectoryId) → \(newId)")
+            + "; profile \(oldDirectoryId) → \(newId) (\(elapsed.text))")
         return outcome
     }
 

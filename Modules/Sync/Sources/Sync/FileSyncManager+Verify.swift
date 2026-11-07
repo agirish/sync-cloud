@@ -177,6 +177,7 @@ extension FileSyncManager {
         // The banner reports how the pass ended; this records that it began, so a hang or a
         // force-quit mid-hash leaves a trace.
         Logger.shared.info("Verify All: hashing \(toVerify.count) same-size pair(s)")
+        let elapsed = Elapsed()
 
         // A rescan can complete during the hash and replace `differences`, and an offer
         // published then would point at a superseded set. Re-checked before publishing, as in
@@ -245,6 +246,11 @@ extension FileSyncManager {
         await ContentHashCache.shared.save()
 
         let (verifiedIdentical, stamps, differed, skipped) = await collector.get()
+        // Its own finish line, whatever the outcome: the banner is a separate record of what was
+        // shown, and a cancel's counts are only here.
+        Logger.shared.info(VerifyAllLog.finish(identical: verifiedIdentical.count, differed: differed,
+                                               skipped: skipped, of: toVerify.count,
+                                               canceled: progress.isCancelled, elapsed: elapsed.text))
         if progress.isCancelled || verifiedIdentical.isEmpty {
             // Nothing this pass stands behind, so retract any offer a previous pass left. Kept,
             // its old list and stamp would pass `confirmVerifiedCopy`'s guards, since verify
