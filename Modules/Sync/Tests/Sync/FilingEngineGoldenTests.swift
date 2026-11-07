@@ -20,17 +20,9 @@ import Testing
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
     }
 
-    private func confLabel(_ c: FilingConfidence) -> String {
-        switch c {
-        case .high: return "high"
-        case .medium: return "medium"
-        case .low: return "low"
-        }
-    }
-
     private func line(_ s: FilingSuggestion) -> String {
         guard let b = s.best else { return "\(s.fileName) -> (no confident home)" }
-        var flags = [confLabel(b.confidence)]
+        var flags = [b.confidence.rawValue]
         if b.fromAI { flags.append("ai") }
         if b.fromContent { flags.append("content") }
         if s.isBatchEligible { flags.append("batch") }

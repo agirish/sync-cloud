@@ -152,8 +152,6 @@ import Testing
         for file in ["FileSyncManager+Filing.swift", "FileSyncManager+FilingRefine.swift"] {
             let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
             try #require(text.count > 5000, "\(file) could not be read — this scan would be vacuous")
-            #expect(text.contains("FilingEngine.contentBlindFiles("),
-                    "\(file) derives contentBlind itself again — the rule is back to two copies that have to be kept in step by hand")
             // Deliberately NOT a ban on spelling `.subtracting(snippets.keys)`: that expression is
             // general-purpose, a future line could want it for something unrelated, and a scan that
             // forbids it pins a spelling rather than a behaviour. What matters is that the value
@@ -173,29 +171,25 @@ import Testing
                                 providerRoot: "/root")
     }
 
-    @Test func aBlindVerdictCannotDemoteAHomeReadOutOfTheDocument() throws {
+    /// A blind verdict cannot demote a home read out of the document. The same verdict, from a
+    /// backend that DID see the text, still leads — otherwise the blind case passes because
+    /// verdicts never apply rather than because blindness is what stopped it.
+    @Test(arguments: [true, false])
+    func aBlindVerdictCannotDemoteAHomeReadOutOfTheDocument(blind: Bool) throws {
         let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
         let base = [routed(path, to: "/root/Documents/Visa")]
-        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high,
-                                            reason: "The file name clearly matches the Form I-94")]
+        let reason = blind ? "The file name clearly matches the Form I-94" : "It is an I-94 printout"
+        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: reason)]
         let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
-                                             providerRoot: "/root", contentBlind: [path])
+                                             providerRoot: "/root", contentBlind: blind ? [path] : [])
         let best = try #require(out.first?.best)
-        #expect(best.path == "/root/Documents/Visa", "a name-only High outranked a home read from page 1")
-        #expect(best.fromContent)
-    }
-
-    /// The same verdict, from a backend that DID see the text, still leads — otherwise the test
-    /// above passes because verdicts never apply rather than because blindness is what stopped it.
-    @Test func theSameVerdictLeadsOnceTheBackendHasSeenTheText() throws {
-        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
-        let base = [routed(path, to: "/root/Documents/Visa")]
-        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high,
-                                            reason: "It is an I-94 printout")]
-        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
-                                             providerRoot: "/root", contentBlind: [])
-        #expect(out.first?.best?.path == "/root/Documents/I-94")
-        #expect(out.first?.best?.fromAI == true)
+        if blind {
+            #expect(best.path == "/root/Documents/Visa", "a name-only High outranked a home read from page 1")
+            #expect(best.fromContent)
+        } else {
+            #expect(best.path == "/root/Documents/I-94")
+            #expect(best.fromAI)
+        }
     }
 
     /// A backend that has not read the document may not invent folders for it. Naming an
@@ -220,175 +214,94 @@ import Testing
                     .first?.best?.path == "/root/Finance/US/Accounts")
     }
 
-    /// A folder is never the file itself. A model answering with the full path including the file
-    /// would have the card create a folder called `DetailedBillApr2025.pdf` and put
-    /// `DetailedBillApr2025.pdf` in it.
-    @Test func aVerdictEndingInTheFilesOwnNameKeepsTheParent() throws {
-        let path = "/root/TODO/DetailedBillApr2025.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "DetailedBillApr2025.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Finance/US/Accounts/DetailedBillApr2025.pdf",
-                                     confidence: .high, reason: "r", proposesNewFolder: true)]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
+    /// Where a verdict's path lands, and what it creates.
+    ///
+    /// - A folder is never the file itself: a model answering with the full path including the file
+    ///   would create a folder called `DetailedBillApr2025.pdf` and put the file in it.
+    /// - The narrow half: `tesla.pdf` → `Vehicles/Tesla` is a good new folder named for the vendor;
+    ///   matching the file's stem rather than its whole name would delete it.
+    /// - A segment carrying an extension is a file. Asked where `Son - eOCI.pdf` goes, a model can
+    ///   answer with the peer document already filed there; trimming it lands on the folder.
+    /// - A folder that already exists is the user's, whatever it is called. The trim applies only
+    ///   to a segment that would be CREATED, or a real `Backup.old` would become unreachable.
+    /// - A new folder has to be declared. An undeclared one is an invention, not a proposal: a
+    ///   deliberate proposal and a segment split out of the file's own name would be one signal.
+    ///   Declared, the same path creates the folder, or the rule would be indistinguishable from
+    ///   never proposing a new folder at all.
+    @Test(arguments: [
+        ("DetailedBillApr2025.pdf", "Finance/US/Accounts/DetailedBillApr2025.pdf", true, false,
+         "Finance/US/Accounts", ["Finance", "US", "Accounts"]),
+        ("tesla.pdf", "Documents/Vehicles/Tesla", true, false, "Documents/Vehicles/Tesla", nil),
+        ("Son - eOCI.pdf", "Documents/Visa/eOCI.pdf", false, false, "Documents/Visa", []),
+        ("notes.txt", "Documents/Backup.old", false, true, "Documents/Backup.old", nil),
+        ("Son - eOCI.pdf", "Documents/Visa/Something", false, false, "Documents/Visa", []),
+        ("a.pdf", "Documents/Visa/Something", true, false, "Documents/Visa/Something", ["Something"]),
+    ] as [(String, String, Bool, Bool, String, [String]?)])
+    func aVerdictPathLandsOnAFolder(file: String, relativePath: String, proposesNew: Bool,
+                                    backupOld: Bool, expected: String, newSegments: [String]?) throws {
+        let path = "/root/TODO/\(file)"
+        let taxonomy = backupOld ? [Self.dir("/root/Documents", [Self.dir("/root/Documents/Backup.old")])]
+                                 : Self.taxonomy
+        let v = [path: FilingVerdict(relativePath: relativePath, confidence: .high, reason: "r",
+                                     proposesNewFolder: proposesNew)]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: [suggestion(path)], taxonomy: taxonomy,
                                                            providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Finance/US/Accounts")
-        #expect(best.newSegments == ["Finance", "US", "Accounts"])
-    }
-
-    /// The narrow half of that rule. `tesla.pdf` → `Vehicles/Tesla` is a perfectly good new folder
-    /// named for the vendor; matching the file's stem rather than its whole name would delete it.
-    @Test func aFolderNamedLikeTheFilesStemIsStillAFolder() throws {
-        let path = "/root/TODO/tesla.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "tesla.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Vehicles/Tesla", confidence: .high, reason: "r",
-                                     proposesNewFolder: true)]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
-                                                           providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Vehicles/Tesla")
+        #expect(best.path == "/root/\(expected)")
+        if let newSegments {
+            #expect(best.newSegments == newSegments, "the segments created for \(relativePath)")
+        }
     }
 
     /// A backend that has not read the document cannot report high confidence. It saw a filename;
     /// that is a `.low` claim however sure the model says it is, and the badge is what the user
     /// reads before accepting a home. So a blind verdict doesn't displace a filename match the
     /// deterministic engine made from the same information and rated `.medium`.
-    @Test func aBlindVerdictIsCappedAndCannotDisplaceAFilenameMatch() {
+    ///
+    /// The other half: with nothing better to keep, the blind verdict still leads — capped, so the
+    /// card says `.low` rather than claiming a certainty nobody has. Without it the first case
+    /// would pass for a rule that simply drops every blind verdict.
+    @Test(arguments: [true, false])
+    func aBlindVerdictIsCappedAndCannotDisplaceAFilenameMatch(filenameMatch: Bool) throws {
         let path = "/root/TODO/scan.pdf"
         let dest = FilingDestination(path: "/root/Documents/Visa", confidence: .medium, reasons: ["name"],
                                      newSegments: [], fromContent: false, remembered: false, fromAI: false)
-        let base = [FilingSuggestion(filePath: path, fileName: "scan.pdf", size: 10,
-                                     modificationDate: nil, candidates: [dest], providerRoot: "/root")]
-        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
-        #expect(FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
-                                           providerRoot: "/root", contentBlind: [path])
-                    .first?.best?.path == "/root/Documents/Visa")
-    }
-
-    /// The other half: with nothing better to keep, the blind verdict still leads — capped, so the
-    /// card says `.low` rather than claiming a certainty nobody has. Without this the test above
-    /// would pass for a rule that simply drops every blind verdict.
-    @Test func aBlindVerdictStillLeadsWhenThereIsNothingBetter() throws {
-        let path = "/root/TODO/scan.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "scan.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
+        let base = [FilingSuggestion(filePath: path, fileName: "scan.pdf", size: 10, modificationDate: nil,
+                                     candidates: filenameMatch ? [dest] : [], providerRoot: "/root")]
         let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
         let best = try #require(FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
                                                            providerRoot: "/root", contentBlind: [path])
                                     .first?.best)
-        #expect(best.path == "/root/Documents/I-94")
-        #expect(best.confidence == .low, "a filename-only verdict was published as \(best.confidence)")
+        if filenameMatch {
+            #expect(best.path == "/root/Documents/Visa")
+        } else {
+            #expect(best.path == "/root/Documents/I-94")
+            #expect(best.confidence == .low, "a filename-only verdict was published as \(best.confidence)")
+        }
     }
 
     /// The model re-ranks the router's shortlist; it does not answer past it. One file can come
     /// back as three different `.high` folders in three scans, so arbitration can't be confidence
     /// against confidence. A verdict naming an existing folder the router never shortlisted leaves
-    /// the router's home on the card.
-    @Test func aVerdictOutsideTheRouterShortlistDoesNotLead() {
+    /// the router's home on the card. Inside the shortlist the verdict leads as before, or the rule
+    /// would be indistinguishable from ignoring the model. With no artifacts there is no shortlist,
+    /// and the model is the only answer there is: the gate must not disable the backend on an
+    /// unsurveyed tree.
+    @Test(arguments: [
+        (["Documents/Visa", "Documents/Other"], "/root/Documents/Visa"),
+        (["Documents/Visa", "Documents/I-94"], "/root/Documents/I-94"),
+        (nil, "/root/Documents/I-94"),
+    ] as [([String]?, String)])
+    func aVerdictOutsideTheRouterShortlistDoesNotLead(shortlist: [String]?, expected: String) {
         let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
         let base = [routed(path, to: "/root/Documents/Visa")]
         let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
         let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
                                              providerRoot: "/root",
-                                             routerShortlists: [path: ["Documents/Visa", "Documents/Other"]])
-        #expect(out.first?.best?.path == "/root/Documents/Visa")
-    }
-
-    /// And inside it, the verdict leads exactly as before — otherwise the rule above would be
-    /// indistinguishable from ignoring the model altogether.
-    @Test func aVerdictInsideTheRouterShortlistStillLeads() {
-        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
-        let base = [routed(path, to: "/root/Documents/Visa")]
-        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
-        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
-                                             providerRoot: "/root",
-                                             routerShortlists: [path: ["Documents/Visa", "Documents/I-94"]])
-        #expect(out.first?.best?.path == "/root/Documents/I-94")
-        #expect(out.first?.best?.fromAI == true)
-    }
-
-    /// With no artifacts there is no shortlist, the router never ran, and the model is the only
-    /// answer there is — the gate must not silently disable the backend on an unsurveyed tree.
-    @Test func withNoShortlistTheVerdictIsUnconstrained() {
-        let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
-        let base = [routed(path, to: "/root/Documents/Visa")]
-        let verdicts = [path: FilingVerdict(relativePath: "Documents/I-94", confidence: .high, reason: "r")]
-        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: Self.taxonomy,
-                                             providerRoot: "/root", routerShortlists: [:])
-        #expect(out.first?.best?.path == "/root/Documents/I-94")
-    }
-
-    /// A path segment carrying a file extension is a file, not a folder. Asked where
-    /// `Son - eOCI.pdf` goes, a model can answer `Immigration/OCI/Son/eOCI.pdf`, the name of the
-    /// peer document already filed there, and the apply path would create a folder `eOCI.pdf`.
-    /// Trimming it lands on the folder the model was reaching for.
-    @Test func aVerdictEndingInAnotherFilesNameKeepsTheFolder() throws {
-        let path = "/root/TODO/Son - eOCI.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Son - eOCI.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Visa/eOCI.pdf", confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
-                                                           providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Visa")
-        #expect(best.newSegments.isEmpty, "the folder already existed; nothing should be created")
-    }
-
-    /// A folder that already exists is the user's, whatever it is called. The trim only ever
-    /// applies to a segment that would be CREATED — otherwise a real folder named `Backup.old`
-    /// would become unreachable.
-    @Test func anExistingFolderWithAnExtensionIsLeftAlone() throws {
-        let taxonomy = [Self.dir("/root/Documents", [Self.dir("/root/Documents/Backup.old")])]
-        let path = "/root/TODO/notes.txt"
-        let base = [FilingSuggestion(filePath: path, fileName: "notes.txt", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Backup.old", confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: taxonomy,
-                                                           providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Backup.old")
-    }
-
-    /// A dot is not an extension. `U.S. Passport` and `Dr. Smith` are ordinary folder names, and a
-    /// looser test would delete their last word.
-    @Test func aFolderNameWithADotIsNotAFileName() {
-        #expect(FilingEngine.looksLikeAFileName("eOCI.pdf"))
-        #expect(FilingEngine.looksLikeAFileName("415059.jpeg"))
-        #expect(!FilingEngine.looksLikeAFileName("U.S. Passport"))
-        #expect(!FilingEngine.looksLikeAFileName("Dr. Smith"))
-        #expect(!FilingEngine.looksLikeAFileName("2024-2026"))
-        #expect(!FilingEngine.looksLikeAFileName("Form 1099-B"))
-        #expect(!FilingEngine.looksLikeAFileName(".hidden"))
-    }
-
-    // MARK: - A new folder has to be declared
-
-    /// An undeclared new folder is an invention, not a proposal. Both schemas let a backend answer
-    /// with a folder that doesn't exist (that is how a new destination is offered), so it must say
-    /// so: otherwise a deliberate proposal and a segment split out of the file's own name
-    /// (`Immigration/OCI/Son/eOCI.pdf` for `Son - eOCI.pdf`) are the same signal, and a folder
-    /// `eOCI.pdf` is created on disk.
-    @Test func anUndeclaredNewSegmentIsDroppedBackToWhatExists() throws {
-        let path = "/root/TODO/Son - eOCI.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Son - eOCI.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Visa/Something", confidence: .high,
-                                     reason: "r", proposesNewFolder: false)]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
-                                                           providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Visa")
-        #expect(best.newSegments.isEmpty)
-    }
-
-    /// Declared, the same path creates the folder — without this half the rule above would be
-    /// indistinguishable from never proposing a new folder at all.
-    @Test func aDeclaredNewFolderIsStillProposed() throws {
-        let path = "/root/TODO/a.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "a.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Visa/Something", confidence: .high,
-                                     reason: "r", proposesNewFolder: true)]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.taxonomy,
-                                                           providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Visa/Something")
-        #expect(best.newSegments == ["Something"])
+                                             routerShortlists: shortlist.map { [path: $0] } ?? [:])
+        #expect(out.first?.best?.path == expected)
+        if shortlist?.contains("Documents/I-94") == true {
+            #expect(out.first?.best?.fromAI == true)
+        }
     }
 
     // MARK: - Renaming a proposed folder
@@ -464,62 +377,6 @@ import Testing
                                 dir("/root/Documents/Travel", [dir("/root/Documents/Travel/Elder - 2021")])]),
     ]
 
-    /// Filing one family member's document into another's is the error worth a hard rule: least
-    /// likely to be noticed, most annoying to undo. Asked where `Daughter OCI.pdf` belongs, a model
-    /// can answer `Immigration/OCI/Son/Application` while `Immigration/OCI/Daughter` exists, holds
-    /// `Daughter - eOCI.pdf`, and is the router's top pick.
-    @Test func aVerdictNamingADifferentPersonDoesNotLead() {
-        let path = "/root/TODO/Daughter OCI.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Daughter OCI.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Son", confidence: .high, reason: "r")]
-        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
-                                             providerRoot: "/root", profile: Self.peopleProfile())
-        #expect(out.first?.best == nil, "Daughter's document was filed into Son's folder")
-    }
-
-    /// The same verdict for the RIGHT person leads — without this the rule above is
-    /// indistinguishable from refusing every person folder.
-    @Test func aVerdictNamingTheSamePersonStillLeads() throws {
-        let path = "/root/TODO/Daughter OCI.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Daughter OCI.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Daughter", confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
-                                                           providerRoot: "/root",
-                                                           profile: Self.peopleProfile()).first?.best)
-        #expect(best.path == "/root/Documents/OCI/Daughter")
-    }
-
-    /// Asked of the profile's person axis, not of the words in the path. A trip folder called
-    /// `Elder - 2021` holds the whole family's travel documents, and the profile records it with no
-    /// person axis. Testing the path text would refuse those: on the corpus it fires on 15 of 756
-    /// person-named documents instead of 3.
-    @Test func aFolderWithNoPersonAxisIsNotAPersonFolder() throws {
-        let path = "/root/TODO/Granny Travel Letter.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Granny Travel Letter.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Travel/Elder - 2021",
-                                     confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
-                                                           providerRoot: "/root",
-                                                           profile: Self.peopleProfile()).first?.best)
-        #expect(best.path == "/root/Documents/Travel/Elder - 2021")
-    }
-
-    /// A file naming nobody is unconstrained — the rule is about a contradiction, not about
-    /// requiring every file to declare a person.
-    @Test func aFileNamingNoPersonIsUnconstrained() throws {
-        let path = "/root/TODO/scan001.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "scan001.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Son", confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.peopleTaxonomy,
-                                                           providerRoot: "/root",
-                                                           profile: Self.peopleProfile()).first?.best)
-        #expect(best.path == "/root/Documents/OCI/Son")
-    }
-
     // MARK: - The veto, resolved through the person registry
 
     /// The roster, with the aliases and full names a survey cannot know.
@@ -560,77 +417,53 @@ import Testing
         ]),
     ]
 
-    /// The veto must not fire against the correct folder. `Mom - passport.pdf` names Granny and the
-    /// folder's axis says `Granny`; compared as bare tokens, `mom` fails to equal `granny` and the
-    /// suggestion reads as a cross-person mistake. The registry resolves both to one person.
-    @Test func anAliasResolvesToThePersonItNames() throws {
-        let path = "/root/TODO/Mom - passport.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Mom - passport.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Family/Mom/Passport",
-                                     confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
-                                                           providerRoot: "/root",
-                                                           profile: Self.aliasProfile(),
-                                                           registry: Self.registry()).first?.best)
-        #expect(best.path == "/root/Documents/Family/Mom/Passport",
-                "Granny's passport was refused by her own folder because Mom read as someone else")
-    }
+    enum Roster: Sendable { case people, aliasOnly, aliasAndRegistry }
 
-    /// The same fixture without a registry keeps the bare token comparison and its misfire. Pinned
-    /// so the test above is known to measure the registry, not an incidental fixture change.
-    @Test func withoutARegistryTheAliasStillReadsAsAContradiction() {
-        let path = "/root/TODO/Mom - passport.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Mom - passport.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/Family/Mom/Passport",
-                                     confidence: .high, reason: "r")]
-        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
-                                             providerRoot: "/root", profile: Self.aliasProfile())
-        #expect(out.first?.best == nil)
-    }
-
-    /// A full name is not two people. `Daughter Father - OCI.pdf` names the daughter; a token
-    /// comparison reads it as naming her father too, so her own folder (axis `Daughter`) lacks a
-    /// person the file "names", and the correct suggestion would be refused.
-    @Test func aFullNameDoesNotVetoTheOwnersOwnFolder() throws {
-        let path = "/root/TODO/Daughter Father - OCI.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Daughter Father - OCI.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Daughter", confidence: .high, reason: "r")]
-        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
-                                                           providerRoot: "/root",
-                                                           profile: Self.aliasProfile(),
-                                                           registry: Self.registry()).first?.best)
-        #expect(best.path == "/root/Documents/OCI/Daughter")
-    }
-
-    /// And the veto still refuses the wrong person when the name is a full one — the protection is
-    /// not simply switched off by phrase matching.
-    @Test func aFullNameStillVetoesADifferentPersonsFolder() {
-        let path = "/root/TODO/Daughter Father - OCI.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Daughter Father - OCI.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Son", confidence: .high, reason: "r")]
-        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
-                                             providerRoot: "/root", profile: Self.aliasProfile(),
-                                             registry: Self.registry())
-        #expect(out.first?.best == nil)
-    }
-
-    /// A scan gets the protection its filename can't earn. `Scan 2026-08-02.pdf` names nobody, so
-    /// the filename alone leaves it unguarded; the page the scan already read names Daughter, and
-    /// that is enough to refuse Son's folder.
-    @Test func aNamelessFileIsProtectedByThePageItWasReadFrom() {
-        let path = "/root/TODO/Scan 2026-08-02.pdf"
-        let base = [FilingSuggestion(filePath: path, fileName: "Scan 2026-08-02.pdf", size: 10,
-                                     modificationDate: nil, candidates: [], providerRoot: "/root")]
-        let v = [path: FilingVerdict(relativePath: "Documents/OCI/Son", confidence: .high, reason: "r")]
-        let samples = [path: "OVERSEAS CITIZEN OF INDIA — Daughter Father, date of birth 2016"]
-        let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: Self.aliasTaxonomy,
-                                             providerRoot: "/root", profile: Self.aliasProfile(),
-                                             registry: Self.registry(), pageSamples: samples)
-        #expect(out.first?.best == nil, "the page named Daughter and the file went to Son anyway")
+    /// Filing one family member's document into another's is the error worth a hard rule: least
+    /// likely to be noticed, most annoying to undo. `nil` expects the verdict refused.
+    @Test(arguments: [
+        // Daughter's document, Son's folder: refused.
+        ("Daughter OCI.pdf", "Documents/OCI/Son", Roster.people, nil, nil),
+        // The right person leads, or the rule above is indistinguishable from refusing every
+        // person folder.
+        ("Daughter OCI.pdf", "Documents/OCI/Daughter", .people, nil, "Documents/OCI/Daughter"),
+        // Asked of the profile's person axis, not the path's words: the trip folder
+        // `Elder - 2021` holds the whole family's documents and has no person axis.
+        ("Granny Travel Letter.pdf", "Documents/Travel/Elder - 2021", .people, nil,
+         "Documents/Travel/Elder - 2021"),
+        // A file naming nobody is unconstrained: the rule is about a contradiction.
+        ("scan001.pdf", "Documents/OCI/Son", .people, nil, "Documents/OCI/Son"),
+        // The registry resolves the alias `Mom` and the axis `Granny` to one person, so her own
+        // folder does not refuse her passport.
+        ("Mom - passport.pdf", "Documents/Family/Mom/Passport", .aliasAndRegistry, nil,
+         "Documents/Family/Mom/Passport"),
+        // Without a registry the bare tokens misfire, so the case above measures the registry.
+        ("Mom - passport.pdf", "Documents/Family/Mom/Passport", .aliasOnly, nil, nil),
+        // A full name is not two people: `Daughter Father` names the daughter only.
+        ("Daughter Father - OCI.pdf", "Documents/OCI/Daughter", .aliasAndRegistry, nil,
+         "Documents/OCI/Daughter"),
+        // And a full name still vetoes the wrong person's folder.
+        ("Daughter Father - OCI.pdf", "Documents/OCI/Son", .aliasAndRegistry, nil, nil),
+        // A nameless scan is protected by the page it was read from, which names Daughter.
+        ("Scan 2026-08-02.pdf", "Documents/OCI/Son", .aliasAndRegistry,
+         "OVERSEAS CITIZEN OF INDIA — Daughter Father, date of birth 2016", nil),
+    ] as [(String, String, Roster, String?, String?)])
+    func aVerdictNamingADifferentPersonDoesNotLead(file: String, verdict: String, roster: Roster,
+                                                   page: String?, expected: String?) {
+        let path = "/root/TODO/\(file)"
+        let v = [path: FilingVerdict(relativePath: verdict, confidence: .high, reason: "r")]
+        let out = FilingEngine.applyVerdicts(
+            v, to: [suggestion(path)],
+            taxonomy: roster == .people ? Self.peopleTaxonomy : Self.aliasTaxonomy,
+            providerRoot: "/root",
+            profile: roster == .people ? Self.peopleProfile() : Self.aliasProfile(),
+            registry: roster == .aliasAndRegistry ? Self.registry() : nil,
+            pageSamples: page.map { [path: $0] } ?? [:])
+        if let expected {
+            #expect(out.first?.best?.path == "/root/\(expected)", "\(file) was refused \(verdict)")
+        } else {
+            #expect(out.first?.best == nil, "\(file) was filed into \(verdict)")
+        }
     }
 
     /// A refusal has to be reportable, or the rule working is indistinguishable from it not

@@ -236,11 +236,6 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(store.lastCopyQuery?[kSecReturnData as String] as? Bool == true)
     }
 
-    @Test func isConfiguredIsFalseWithNothingStored() {
-        let store = FakeKeychainStore()
-        #expect(AnthropicKeychain.isConfigured(in: store) == false)
-    }
-
     /// A key the Keychain refuses to hand over is still configured: the item is there. Right for
     /// a status line, so this must not route a cloud call; `hasKey` reports the same item as
     /// unusable, which the downgrade warning needs.

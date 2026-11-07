@@ -84,85 +84,24 @@ import Testing
 @MainActor
 @Suite struct FilingAlreadyFiledScanTests {
 
-    static func write(_ url: URL, _ bytes: Data) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try bytes.write(to: url)
-    }
-
-    /// A loose file whose bytes the tree already holds elsewhere comes back marked, and therefore
-    /// out of the blind batch.
-    @Test func theScanMarksALooseFileTheTreeAlreadyHolds() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledScan")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
-
-        // The same bytes in two places: filed under Work, and loose in the inbox.
-        let payload = Data(repeating: 0x50, count: 4096)
-        let filed = root.appendingPathComponent("Work/Pay/payslip-june.jpg")
-        let loose = root.appendingPathComponent("Downloads/Payslip.jpg")
-        try Self.write(filed, payload)
-        try Self.write(loose, payload)
-
-        // The content index as a duplicates scan leaves it — the filed copy, by byte hash.
-        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
-                                                  cache: nil)[filed.path] ?? ""
-        try #require(!hex.isEmpty, "the fixture could not hash its own file")
-        let records = [ContentHashRecord(path: filed.path, mtime: 0, size: payload.count,
-                                         hex: hex, storedAt: Date())]
-        ContentHashIndexStore.saveInBackground(records,
-                                               to: indexDir.appendingPathComponent("content-hash-index.json"))
-        ContentHashIndexStore.waitForPendingWrites()
-
-        let m = FileSyncManager()
-        m.contentIndexDirectory = indexDir      // the seam no test set
-
-        let marked = await m.markingAlreadyFiled([
-            FilingSuggestion(filePath: loose.path, fileName: "Payslip.jpg", size: payload.count,
-                             modificationDate: nil,
-                             candidates: [FilingDestination(path: root.appendingPathComponent("Work/Pay").path,
-                                                            confidence: .high, reasons: ["r"],
-                                                            newSegments: [])],
-                             providerRoot: root.path)
-        ], providerRoot: root.path)
-
-        let card = try #require(marked.first)
-        #expect(card.isAlreadyFiled, "the tree already holds these bytes and the card does not say so")
-        #expect(card.isBatchEligible == false,
-                "a document the tree already holds must not be filed by the blind batch")
-    }
-
     /// A loose file one byte over `unaskedPassMaxFileBytes` is not read, even when its suggestion
     /// records its size as 0 — what a walk that could not size it leaves. The filing scan runs
     /// unasked on every pass, and a 10 GB download in the inbox would otherwise be read whole.
     /// The session cache is the witness (a byte hash stores its digest there), and a small loose
     /// file in the same pass, also recorded as 0, is the control: it is read, and cached.
     @Test func aLooseFileOverTheUnaskedLimitIsNotReadWhateverItsRecordedSize() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledScanLarge")
+        let (root, indexDir, _, _) = try await indexedTree(prefix: "AlreadyFiledScanLarge",
+                                                           filed: "Work/Pay/payslip-june.jpg")
         defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
-
-        let payload = Data(repeating: 0x50, count: 4096)
-        let filed = root.appendingPathComponent("Work/Pay/payslip-june.jpg")
-        try Self.write(filed, payload)
-        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
-                                                  cache: nil)[filed.path] ?? ""
-        try #require(!hex.isEmpty, "the fixture could not hash its own file")
-        ContentHashIndexStore.saveInBackground(
-            [ContentHashRecord(path: filed.path, mtime: 0, size: payload.count, hex: hex, storedAt: Date())],
-            to: indexDir.appendingPathComponent("content-hash-index.json"))
-        ContentHashIndexStore.waitForPendingWrites()
 
         // A sparse file: over the limit on disk, holding no blocks.
         let large = root.appendingPathComponent("Downloads/Installer.dmg")
-        try Self.write(large, Data())
+        try writeFilingFile(large, Data())
         let handle = try FileHandle(forWritingTo: large)
         try handle.truncate(atOffset: UInt64(FileSyncManager.unaskedPassMaxFileBytes + 1))
         try handle.close()
         let small = root.appendingPathComponent("Downloads/Note.jpg")
-        try Self.write(small, Data(repeating: 0x51, count: 2048))
+        try writeFilingFile(small, bytes: 2048, fill: 0x51)
 
         func suggestion(_ url: URL) -> FilingSuggestion {
             FilingSuggestion(filePath: url.path, fileName: url.lastPathComponent, size: 0, modificationDate: nil,
@@ -192,21 +131,11 @@ import Testing
     /// stale digest and its bytes match nothing; once the file appears, the cached index is rebuilt,
     /// not served.
     @Test func aDigestTheTextlessStoreOutdatesIsNotTheFilesIdentity() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledTextless")
+        let (root, indexDir, filed, _) = try await indexedTree(
+            prefix: "AlreadyFiledTextless", filed: "Work/Pay/scan.jpg", loose: "Downloads/Scan.jpg",
+            bytes: Data(repeating: 0x51, count: 4096))
         defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
-        let payload = Data(repeating: 0x51, count: 4096)
-        let filed = root.appendingPathComponent("Work/Pay/scan.jpg")
         let loose = root.appendingPathComponent("Downloads/Scan.jpg")
-        try Self.write(filed, payload)
-        try Self.write(loose, payload)
-        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
-                                                  cache: nil)[filed.path] ?? ""
-        try #require(!hex.isEmpty, "the fixture could not hash its own file")
-        ContentHashIndexStore.saveInBackground(
-            [ContentHashRecord(path: filed.path, mtime: 0, size: 4096, hex: hex, storedAt: Date())],
-            to: indexDir.appendingPathComponent("content-hash-index.json"))
         ContentHashIndexStore.saveInBackground(
             [ContentHashRecord(path: filed.path, mtime: 100, size: 9, hex: "a-digest-of-text-now-gone",
                                storedAt: Date(timeIntervalSince1970: 1_000))],
@@ -240,21 +169,12 @@ import Testing
     /// The other direction, so the test above cannot pass by marking everything: bytes the index
     /// has never seen come back unmarked and batch-eligible.
     @Test func aFileTheTreeDoesNotHoldIsLeftAlone() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledScanNeg")
+        let (root, indexDir, _, hex) = try await indexedTree(prefix: "AlreadyFiledScanNeg",
+                                                             filed: "Work/Pay/other.jpg",
+                                                             bytes: Data(repeating: 0x41, count: 4096))
         defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
-
-        let filed = root.appendingPathComponent("Work/Pay/other.jpg")
         let loose = root.appendingPathComponent("Downloads/Fresh.jpg")
-        try Self.write(filed, Data(repeating: 0x41, count: 4096))
-        try Self.write(loose, Data(repeating: 0x42, count: 4096))
-        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
-                                                  cache: nil)[filed.path] ?? ""
-        ContentHashIndexStore.saveInBackground(
-            [ContentHashRecord(path: filed.path, mtime: 0, size: 4096, hex: hex, storedAt: Date())],
-            to: indexDir.appendingPathComponent("content-hash-index.json"))
-        ContentHashIndexStore.waitForPendingWrites()
+        try writeFilingFile(loose, bytes: 4096, fill: 0x42)
 
         let m = FileSyncManager()
         m.contentIndexDirectory = indexDir
@@ -277,30 +197,15 @@ import Testing
         #expect(marked.first?.isBatchEligible == true)
     }
 
-    /// The scan's own call. The three tests above drive the phase directly, so deleting the call in
+    /// The scan's own call. The tests above drive the phase directly, so deleting the call in
     /// `filingScan` would still pass them; this runs the real scan end to end and asserts the
     /// published card carries the marker.
     @Test func theScanItselfMarksTheCard() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledWiring")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
-
         // The tree already holds these bytes under Work; the same bytes sit loose in Downloads.
-        let payload = Data(repeating: 0x50, count: 4096)
-        let filed = root.appendingPathComponent("Work/Pay/payslip-june.jpg")
-        let loose = root.appendingPathComponent("Downloads/Payslip.jpg")
-        try Self.write(filed, payload)
-        try Self.write(loose, payload)
-
-        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default,
-                                                  cache: nil)[filed.path] ?? ""
-        try #require(!hex.isEmpty)
-        ContentHashIndexStore.saveInBackground(
-            [ContentHashRecord(path: filed.path, mtime: 0, size: payload.count, hex: hex,
-                               storedAt: Date())],
-            to: indexDir.appendingPathComponent("content-hash-index.json"))
-        ContentHashIndexStore.waitForPendingWrites()
+        let (root, indexDir, _, _) = try await indexedTree(prefix: "AlreadyFiledWiring",
+                                                           filed: "Work/Pay/payslip-june.jpg",
+                                                           loose: "Downloads/Payslip.jpg")
+        defer { try? FileManager.default.removeItem(at: root) }
 
         let m = FileSyncManager()
         m.contentIndexDirectory = indexDir
@@ -321,10 +226,10 @@ import Testing
     /// one in the fingerprint index anyway, the worst case. Driven twice: the second time the
     /// loose scan's own negative is served from the cache rather than read.
     @Test func aTextlessScanIsNotAlreadyFiledBesideAnother() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledTextless")
+        // One real byte-hash record, so the phase gets past its "the index holds nothing" exit.
+        let (root, indexDir, _, _) = try await indexedTree(prefix: "AlreadyFiledTextless",
+                                                           filed: "Work/Pay/payslip.jpg")
         defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
 
         func writeScan(_ url: URL) throws {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -345,16 +250,7 @@ import Testing
         #expect(await PDFTextExtractor.reading(atPath: loose.path, isAvailable: { _ in true }) == .tooLittleText,
                 "the fixture stopped being a textless scan")
 
-        // The filed scan's negative, in the fingerprint index. And
-        // one real byte-hash record, so the phase gets past its "the index holds nothing" exit.
-        let other = root.appendingPathComponent("Work/Pay/payslip.jpg")
-        try Self.write(other, Data(repeating: 0x50, count: 4096))
-        let hex = await FileSyncManager.hashFiles([other.path], fileManager: FileManager.default,
-                                                  cache: nil)[other.path] ?? ""
-        try #require(!hex.isEmpty)
-        ContentHashIndexStore.saveInBackground(
-            [ContentHashRecord(path: other.path, mtime: 0, size: 4096, hex: hex, storedAt: Date())],
-            to: indexDir.appendingPathComponent("content-hash-index.json"))
+        // The filed scan's negative, in the fingerprint index.
         ContentHashIndexStore.saveInBackground(
             [ContentHashRecord(path: filed.path, mtime: 0, size: 1, hex: ContentFingerprint.tooLittleTextMarker,
                                storedAt: Date())],

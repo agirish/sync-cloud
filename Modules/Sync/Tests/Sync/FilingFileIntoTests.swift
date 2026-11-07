@@ -100,10 +100,10 @@ import Testing
     static func makeScan(lands: Bool = true, refuses: Bool = false, rule: AutomationRule? = nil) async throws
         -> (FileSyncManager, URL, Cloud, String) {
         let root = try makeCanonicalTempRoot(prefix: "FilingDownloadRead")
-        try FilingScanRouterWiringTests.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
         let ticket = root.appendingPathComponent("Downloads/rental agreement.pdf").path
-        try FilingScanRouterWiringTests.write(URL(fileURLWithPath: ticket))
-        try FilingScanRouterWiringTests.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+        try writeFilingFile(URL(fileURLWithPath: ticket))
+        try writeFilingFile(root.appendingPathComponent("Downloads/scanned.pdf"))
         let cloud = Cloud([ticket], lands: lands)
         let m = FileSyncManager()
         m.filingRuleDefaults = ScratchDefaults("FilingDownloadRead-\(UUID().uuidString)")
@@ -238,8 +238,8 @@ import Testing
     @Test func aScanIntoAnotherTreeReportsNoNamesFromIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTreeFindings")
         defer { try? FileManager.default.removeItem(at: root) }
-        try FilingScanRouterWiringTests.write(root.appendingPathComponent("Documents/Notes*2026/.keep"), bytes: 1)
-        try FilingScanRouterWiringTests.write(root.appendingPathComponent("Downloads/a.txt"))
+        try writeFilingFile(root.appendingPathComponent("Documents/Notes*2026/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/a.txt"))
         func scan(_ reports: Bool) async -> FileSyncManager {
             let m = FileSyncManager()
             m.filingClassifier = { _, _, _ in [:] }

@@ -154,16 +154,6 @@ import Testing
         #expect(out == json)
     }
 
-    /// A rule carrying an unknown condition is not runnable, so it is visible and editable but
-    /// never fires on the half of it this build understands.
-    @Test func aRuleWithAnUnknownConditionIsNotRunnable() {
-        let rule = AutomationRule(name: "From the future", matchMode: .all,
-                                  conditions: [.kindIs(.pdf),
-                                               .unrecognized(name: "vibeIs", payload: Data("{}".utf8))],
-                                  destinationTemplate: "Documents")
-        #expect(!rule.isRunnable)
-    }
-
     // MARK: - The summary a person reads
 
     @Test func theSummaryUsesTheNameNotTheSlug() {

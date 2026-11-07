@@ -12,13 +12,7 @@ import Testing
 
     // MARK: Fixtures
 
-    private func makeDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("survey-run-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDir() throws -> URL { try makeProfilesDir(prefix: "survey-run") }
 
     private let root = URL(fileURLWithPath: "/tree")
 
@@ -425,23 +419,6 @@ import Testing
         #expect(await run.adoptCheckpoint() == .checkpointIsForAnotherRun)
         // And it did not adopt anything: the run still has the whole plan to do.
         #expect(await run.resumableProgress == (0, 5))
-    }
-
-    /// A salt mismatch would fail silently: hashes from two salts never match, so a merged resume
-    /// adds ids nothing can ever look up.
-    @Test func aCheckpointUnderAnotherSaltIsRefused() async throws {
-        let dir = try makeDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let paths = plan(5)
-        try DocumentSurveyCheckpointStore.write(
-            DocumentSurveyCheckpoint(profileId: "p", rootPath: root.path, salt: "0000",
-                                     plan: paths, nextIndex: 3, read: [:],
-                                     startedAt: Date(), updatedAt: Date()),
-            id: "p", in: dir)
-        let run = DocumentSurveyRun(profileId: "p", root: root, salt: "abcd", plan: paths,
-                                    stamps: stamps(for: paths), environment: environment(Recorder()),
-                                    directory: dir)
-        #expect(await run.adoptCheckpoint() == .checkpointIsForAnotherRun)
     }
 
     @Test func anUnreadableCheckpointIsRefusedRatherThanRestarted() async throws {

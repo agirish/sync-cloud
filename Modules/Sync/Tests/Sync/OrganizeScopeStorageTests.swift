@@ -61,43 +61,24 @@ import Foundation
         }
     }
 
-    @Test func aStoredEMPTYStringIsTheGlobalView() {
-        Self.withSuite("storedEmpty") { d in
-            d.set("", forKey: OrganizeScopeDefaults.pathKey)
+    /// Each reads back as the one global view: a stored EMPTY string; an ABSENT key; a stored
+    /// PROVIDER ROOT (the normalization rule, read from disk rather than through the setter, must
+    /// not make a second global view); and a scope stored FOR ANOTHER PROVIDER (set while iCloud
+    /// was showing, reopened on a Dropbox pane: filtering every lens to nothing would look broken,
+    /// and the whole tree is the honest answer).
+    @Test(arguments: [
+        ("storedEmpty", "", "/Users/x/Documents"),
+        ("absent", nil, "/Users/x/Documents"),
+        ("storedRoot", "/Users/x/Documents", "/Users/x/Documents"),
+        ("otherProvider", "/Users/x/Documents/Legal", "/Users/x/Dropbox"),
+    ] as [(String, String?, String)])
+    func aStoredValueReadsAsTheGlobalView(suite: String, stored: String?, providerRoot: String) {
+        Self.withSuite(suite) { d in
+            if let stored { d.set(stored, forKey: OrganizeScopeDefaults.pathKey) }
+            #expect(d.string(forKey: OrganizeScopeDefaults.pathKey) == stored)
             #expect(OrganizeScopeDefaults.scope(
                 fromStored: d.string(forKey: OrganizeScopeDefaults.pathKey),
-                providerRoot: Self.root) == nil)
-        }
-    }
-
-    @Test func anABSENTKeyIsTheGlobalView() {
-        Self.withSuite("absent") { d in
-            #expect(d.string(forKey: OrganizeScopeDefaults.pathKey) == nil)
-            #expect(OrganizeScopeDefaults.scope(
-                fromStored: d.string(forKey: OrganizeScopeDefaults.pathKey),
-                providerRoot: Self.root) == nil)
-        }
-    }
-
-    @Test func aStoredPROVIDERROOTIsTheGlobalView() {
-        Self.withSuite("storedRoot") { d in
-            // The normalization rule, read from disk rather than through the setter: a stored root
-            // must still read back as the one global view, not a second one.
-            d.set(Self.root, forKey: OrganizeScopeDefaults.pathKey)
-            #expect(OrganizeScopeDefaults.scope(
-                fromStored: d.string(forKey: OrganizeScopeDefaults.pathKey),
-                providerRoot: Self.root) == nil)
-        }
-    }
-
-    @Test func aScopeStoredFORANOTHERPROVIDERDegradesToGlobal() {
-        Self.withSuite("otherProvider") { d in
-            // Set while iCloud was showing, reopened on a Dropbox pane. Filtering every lens to
-            // nothing would look broken; falling back to the whole tree is the honest answer.
-            d.set("/Users/x/Documents/Legal", forKey: OrganizeScopeDefaults.pathKey)
-            #expect(OrganizeScopeDefaults.scope(
-                fromStored: d.string(forKey: OrganizeScopeDefaults.pathKey),
-                providerRoot: "/Users/x/Dropbox") == nil)
+                providerRoot: providerRoot) == nil)
         }
     }
 

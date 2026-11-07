@@ -46,7 +46,12 @@ import Testing
     }
 
     /// In one run: the launch digest is real, an edit lands, and the digest must still name the
-    /// folder the roster was written into.
+    /// folder the roster was written into. This is also the guard on the call site: the refresh
+    /// follows `$savedRevision`, and a refresh moved to `$people` (which publishes before the save)
+    /// would hash the previous roster and leave the digest at `atLaunch`.
+    ///
+    /// The sharp half: whatever else the refresh does, it must never leave `""`, a perfectly
+    /// recurring digest that keeps the cache ON while naming an empty artifact set.
     @Test func aRosterEditRefreshesTheDigestUnderTheFolderItWasWrittenTo() throws {
         let dir = try makeSplitProfiles()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -54,6 +59,9 @@ import Testing
 
         let atLaunch = manager.filingArtifactFingerprint
         #expect(atLaunch?.isEmpty == false, "fixture: the launch digest must be real")
+        // The premise, measured: looking under the field inside the file finds nothing at all.
+        #expect(FilingProfileStore.fingerprint(id: "father", in: dir) == "",
+                "fixture: the wrong id no longer yields the empty digest")
 
         manager.filingPeopleStore?.add(displayName: "Granny")
 
@@ -64,26 +72,13 @@ import Testing
                 "the refresh digested a different folder than the roster was written to")
         #expect(manager.filingArtifactFingerprint != atLaunch,
                 "the digest did not move when the roster did")
-    }
-
-    /// The sharp half, stated on its own so the assertion above cannot pass by luck: whatever else
-    /// the refresh does, it must never leave `""` — a perfectly recurring digest that keeps the
-    /// cache ON while naming an empty artifact set.
-    @Test func theRefreshNeverLeavesTheDigestEmpty() throws {
-        let dir = try makeSplitProfiles()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let manager = try makeManager(dir)
-
-        // The premise, measured: looking under the field inside the file finds nothing at all.
-        #expect(FilingProfileStore.fingerprint(id: "father", in: dir) == "",
-                "fixture: the wrong id no longer yields the empty digest")
-
-        manager.filingPeopleStore?.add(displayName: "Granny")
         #expect(manager.filingArtifactFingerprint != "",
                 """
                 the session's verdicts are now recorded under `artifacts: ""` — billed, and \
                 unreachable at the next launch
                 """)
+        #expect(manager.filingPersonRegistry?.people.contains { $0.displayName == "Granny" } == true,
+                "the registry is no longer recompiled when the roster changes")
     }
 
     /// And when the profile goes away the previous digest must not stay behind with the cache

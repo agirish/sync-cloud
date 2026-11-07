@@ -143,20 +143,15 @@ import Testing
 /// The two paths that put a home on a card without a backend verdict anywhere near it.
 @Suite @MainActor struct FilingCrossPersonSweepCallSiteTests {
 
-    static func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     /// A tree with Son's OCI folder and a loose document named for Daughter. No classifier is
     /// injected, so `applyVerdicts` never runs: the ordinary state on a machine without Apple
     /// Intelligence.
     static func makeTree() throws -> (FileSyncManager, URL) {
         let root = try makeCanonicalTempRoot(prefix: "CrossPersonSweep")
-        try write(root.appendingPathComponent("Documents/Immigration/OCI/Son/Son - eOCI.pdf"))
-        try write(root.appendingPathComponent("Documents/Immigration/OCI/Son/OCI Application.pdf"))
-        try write(root.appendingPathComponent("Downloads/Daughter OCI.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Documents/Immigration/OCI/Son/Son - eOCI.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Documents/Immigration/OCI/Son/OCI Application.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/Daughter OCI.pdf"))
         let m = FileSyncManager()
         let entries = [
             FolderProfileEntry(path: "Documents/Immigration/OCI/Son", role: .destination,
@@ -209,7 +204,7 @@ import Testing
         let log = PersonVetoLog(userDefaults: ScratchDefaults("sweep"))
         m.filingPersonVetoLog = log
         // A nameless scan, whose page names Daughter only after 400 characters of filler.
-        try Self.write(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
         let filler = String(repeating: "oci application overseas citizen india ", count: 40)
         try #require(filler.count > FilingRouter.contentSampleChars)
         m.filingSnippetExtractor = { _ in filler + " Daughter Father" }
@@ -247,7 +242,7 @@ import Testing
         ])
         // The card the user clicks "read this scan" on: a nameless scan with no home yet.
         let scanPath = root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf").path
-        try Self.write(URL(fileURLWithPath: scanPath))
+        try writeFilingFile(URL(fileURLWithPath: scanPath))
         m.filingLastProviderRoot = root.path
         m.prepareFilingRouter(destinations: ["Documents/Immigration/OCI/Son"],
                               providerRoot: root.path)

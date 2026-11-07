@@ -17,22 +17,17 @@ import Foundation
 /// in place" about files that were filed.
 @Suite @MainActor struct FilingBatchReentrancyTests {
 
-    private func write(_ url: URL, bytes: Int = 4096) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     /// Two loose files, each with a high-confidence filename-derived home — the only kind the
     /// blind batch touches. Built by hand rather than scanned so eligibility is a property of the
     /// fixture and not of the router's current scoring.
     private func fixture(_ name: String) throws -> (root: URL, suggestions: [FilingSuggestion]) {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchReentrancy-\(name)")
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         var suggestions: [FilingSuggestion] = []
         for file in ["Tesla Policy.pdf", "Tesla Registration.pdf"] {
             let src = root.appendingPathComponent("Downloads/\(file)")
-            try write(src)
+            try writeFilingFile(src, bytes: 4096)
             let dest = FilingDestination(
                 path: root.appendingPathComponent("Documents/Vehicles/Tesla").path,
                 confidence: .high, reasons: ["name"], newSegments: ["Tesla"])

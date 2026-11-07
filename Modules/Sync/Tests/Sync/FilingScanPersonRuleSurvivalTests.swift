@@ -25,11 +25,6 @@ import Testing
         func record(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
     }
 
-    static func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     /// A scan holding two loose files: one the rule answers, one nothing answers. The second leaves
     /// an "unsure" file, which makes phase 2 read contents and re-suggest; without it there is no
@@ -38,12 +33,13 @@ import Testing
     /// - Parameter destinationTemplate: the rule's destination, so the same fixture exercises both
     ///   the `personIs` condition and the `{person}` token.
     static func makeScan(destinationTemplate: String,
+                         conditions: [AutomationCondition] = [.personIs("granny")],
                          reads: Reads = Reads()) throws -> (FileSyncManager, URL, Reads) {
         let root = try makeCanonicalTempRoot(prefix: "FilingPersonRule")
-        try write(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Archive/Granny/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
-        try write(root.appendingPathComponent("Downloads/9829custbill.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Archive/Granny/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/9829custbill.pdf"))
 
         let m = FileSyncManager()
         // Contents-reading on (the default) with an extractor that yields tokens, so phase 2 runs
@@ -54,7 +50,7 @@ import Testing
         // the persisted (empty) set at scan start.
         m.didLoadAutomationRules = true
         m.automationRules = [
-            AutomationRule(name: "Mum's paperwork", conditions: [.personIs("granny")],
+            AutomationRule(name: "Mum's paperwork", conditions: conditions,
                            destinationTemplate: destinationTemplate),
         ]
         return (m, root, reads)
@@ -106,20 +102,9 @@ import Testing
     /// Negative control, so the two above measure attribution rather than "any rule survives": a
     /// rule naming the other person must not claim the file.
     @Test func theRuleStillRefusesTheOtherPersonsDocument() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingPersonRuleNeg")
+        let (m, root, _) = try Self.makeScan(destinationTemplate: "Archive/Records",
+                                             conditions: [.personIs("son")])
         defer { try? FileManager.default.removeItem(at: root) }
-        try Self.write(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
-        try Self.write(root.appendingPathComponent("Downloads/9829custbill.pdf"))
-
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in ["utility", "statement"] }
-        m.filingPersonRegistry = Self.household
-        m.didLoadAutomationRules = true
-        m.automationRules = [
-            AutomationRule(name: "Son's paperwork", conditions: [.personIs("son")],
-                           destinationTemplate: "Archive/Records"),
-        ]
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
                                       providerRoot: root)
 

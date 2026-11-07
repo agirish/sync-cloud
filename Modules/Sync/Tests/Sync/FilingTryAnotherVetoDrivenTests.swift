@@ -6,7 +6,7 @@ import Testing
 /// Another clicked until the card is re-asked, and Refine. Claude answers another person's folder
 /// and the card is read, with the refusal in the veto log.
 ///
-/// `FilingTryAnotherVetoTests` tests the rule and counts its call sites. Each control here is the
+/// `FilingTryAnotherVetoTests` tests the rule; these are its call sites. Each control here is the
 /// same pass without the profile, where that answer lands, so the refusal is the rule's and not the
 /// harness's.
 @MainActor

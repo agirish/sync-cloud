@@ -36,17 +36,37 @@ import Testing
         ])
     }
 
-    static func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
+    /// Records what the classifier was handed: the folder menu and each file's snippet.
+    final class Seen: @unchecked Sendable {
+        var menu: [String] = []
+        var snippets: [String?] = []
+    }
+
+    /// A scan whose survey lists `folders` under `root`, with `anchors` learned for `learned`. With
+    /// a `vocabulary` every page reads as it; without one no page has text. Entity tokens come
+    /// from the text, and the classifier records what it is handed and answers nothing.
+    static func scanManager(root: URL, folders: [String], learned: String, anchors: [String],
+                            vocabulary: String?) -> (FileSyncManager, Seen) {
+        let m = FileSyncManager()
+        let seen = Seen()
+        m.filingContentExtractor = { _ in vocabulary.map { Set(FilingRouter.tokenize($0)) } ?? [] }
+        m.filingSnippetExtractor = { _ in vocabulary }
+        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        m.filingFolderProfile = profile(folders, root: root.path)
+        m.filingMemory = memory(learned, anchors)
+        m.filingClassifier = { context, files, _ in
+            seen.menu = context.taxonomyFolders
+            seen.snippets = files.map(\.contentSnippet)
+            return [:]
+        }
+        return (m, seen)
     }
 
     /// `filingReadsContents` defaults to true, which is what this exercises.
     static func makeScan(_ reads: Reads, withRouter: Bool) throws -> (FileSyncManager, URL) {
         let root = try makeCanonicalTempRoot(prefix: "FilingWiring")
-        try write(root.appendingPathComponent("Documents/Home/Utilities/PG&E/2023/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/9829custbill.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Documents/Home/Utilities/PG&E/2023/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/9829custbill.pdf"))
         let m = FileSyncManager()
         m.filingContentExtractor = { p in reads.token(p); return ["pge"] }
         m.filingSnippetExtractor = { p in reads.snippet(p); return "PG&E gas and electric 2023" }
@@ -123,31 +143,18 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingMenu")
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<300 {
-            try Self.write(root.appendingPathComponent("Documents/Decoy\(String(format: "%03d", i))/.keep"),
+            try writeFilingFile(root.appendingPathComponent("Documents/Decoy\(String(format: "%03d", i))/.keep"),
                            bytes: 1)
         }
         let target = "Documents/Records/Consular/Issuance"
-        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Downloads/H1B Visa - Nov 2026.pdf"))
+        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/H1B Visa - Nov 2026.pdf"))
 
         let vocabulary = "consulate foil annotation nonimmigrant issuance reciprocity"
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
-        m.filingSnippetExtractor = { _ in vocabulary }
-        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
-        m.filingFolderProfile = Self.profile([target, "Documents/Records/Consular"], root: root.path)
-        m.filingMemory = Self.memory("Documents/Records/Consular", vocabulary.split(separator: " ").map(String.init))
-
-        final class Seen: @unchecked Sendable {
-            var menu: [String] = []
-            var snippets: [String?] = []
-        }
-        let seen = Seen()
-        m.filingClassifier = { context, files, _ in
-            seen.menu = context.taxonomyFolders
-            seen.snippets = files.map(\.contentSnippet)
-            return [:]
-        }
+        let (m, seen) = Self.scanManager(root: root, folders: [target, "Documents/Records/Consular"],
+                                         learned: "Documents/Records/Consular",
+                                         anchors: vocabulary.split(separator: " ").map(String.init),
+                                         vocabulary: vocabulary)
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
         // For contrast, the depth-ordered list the scan caches: 250 folders, without the target, so
@@ -168,10 +175,10 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingCost")
         defer { try? FileManager.default.removeItem(at: root) }
         let target = "Documents/Home/Utilities/T-Mobile/2025"
-        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
         // One file the keyword engine can place, one it cannot.
-        try Self.write(root.appendingPathComponent("Downloads/Tax Statement 2025.pdf"))
-        try Self.write(root.appendingPathComponent("Downloads/9f2a1c.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/Tax Statement 2025.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/9f2a1c.pdf"))
 
         let vocabulary = "autopay unlimited talk voice appreciation paperless"
         final class Counts: @unchecked Sendable {
@@ -181,13 +188,11 @@ import Testing
             func token() { lock.lock(); tokenized += 1; lock.unlock() }
         }
         let counts = Counts()
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
+        let (m, _) = Self.scanManager(root: root, folders: [target], learned: target,
+                                      anchors: vocabulary.split(separator: " ").map(String.init),
+                                      vocabulary: vocabulary)
         m.filingSnippetExtractor = { _ in counts.snippet(); return vocabulary }
         m.filingTokensFromText = { counts.token(); return Set(FilingRouter.tokenize($0)) }
-        m.filingFolderProfile = Self.profile([target], root: root.path)
-        m.filingMemory = Self.memory(target, vocabulary.split(separator: " ").map(String.init))
-        m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
         // Counted at phase 2: routing later places the homeless file, so by the end both have homes
@@ -205,34 +210,20 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingHomed")
         defer { try? FileManager.default.removeItem(at: root) }
         let target = "Documents/Home/Utilities/T-Mobile/2025"
-        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Documents/Finance/US/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Downloads/Tax Statement 2025.pdf"))
+        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Documents/Finance/US/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/Tax Statement 2025.pdf"))
         // The target must be out of reach of the structural fallback, or `menu.contains(target)`
         // passes on a tree small enough to list whole.
         for i in 0..<300 {
-            try Self.write(root.appendingPathComponent("Documents/Decoy\(String(format: "%03d", i))/.keep"),
+            try writeFilingFile(root.appendingPathComponent("Documents/Decoy\(String(format: "%03d", i))/.keep"),
                            bytes: 1)
         }
 
         let vocabulary = "autopay unlimited talk voice appreciation paperless"
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in Set(FilingRouter.tokenize(vocabulary)) }
-        m.filingSnippetExtractor = { _ in vocabulary }
-        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
-        m.filingFolderProfile = Self.profile([target], root: root.path)
-        m.filingMemory = Self.memory(target, vocabulary.split(separator: " ").map(String.init))
-
-        final class Seen: @unchecked Sendable {
-            var menu: [String] = []
-            var snippets: [String?] = []
-        }
-        let seen = Seen()
-        m.filingClassifier = { context, files, _ in
-            seen.menu = context.taxonomyFolders
-            seen.snippets = files.map(\.contentSnippet)
-            return [:]
-        }
+        let (m, seen) = Self.scanManager(root: root, folders: [target], learned: target,
+                                         anchors: vocabulary.split(separator: " ").map(String.init),
+                                         vocabulary: vocabulary)
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
         let s = try #require(m.filingSuggestions.first)
@@ -250,9 +241,9 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingScan")
         defer { try? FileManager.default.removeItem(at: root) }
         let target = "Documents/Home/Leases"
-        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
-        try Self.write(root.appendingPathComponent("Downloads/readable.pdf"))
+        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/scanned.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/readable.pdf"))
 
         final class Calls: @unchecked Sendable {
             private let lock = NSLock()
@@ -260,15 +251,11 @@ import Testing
             func ocr(_ p: String) { lock.lock(); ocr.append(p); lock.unlock() }
         }
         let calls = Calls()
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in [] }
+        let (m, _) = Self.scanManager(root: root, folders: [target], learned: target,
+                                      anchors: ["lease", "tenancy", "landlord"], vocabulary: nil)
         // The scanned one reads as nothing; the other has a text layer.
         m.filingSnippetExtractor = { p in p.hasSuffix("scanned.pdf") ? nil : "lease tenancy landlord" }
-        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
         m.filingOCRExtractor = { p in calls.ocr(p); return "WILSON PROPERTY MANAGEMENT lease tenancy" }
-        m.filingFolderProfile = Self.profile([target], root: root.path)
-        m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
-        m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
         #expect(m.filingUnreadableScans.contains(root.appendingPathComponent("Downloads/scanned.pdf").path))
@@ -281,8 +268,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingScanRead")
         defer { try? FileManager.default.removeItem(at: root) }
         let target = "Documents/Home/Leases"
-        try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/scanned.pdf"))
 
         final class Calls: @unchecked Sendable {
             private let lock = NSLock()
@@ -290,14 +277,9 @@ import Testing
             func hit() { lock.lock(); count += 1; lock.unlock() }
         }
         let calls = Calls()
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in [] }
-        m.filingSnippetExtractor = { _ in nil }
-        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        let (m, _) = Self.scanManager(root: root, folders: [target], learned: target,
+                                      anchors: ["lease", "tenancy", "landlord"], vocabulary: nil)
         m.filingOCRExtractor = { _ in calls.hit(); return "lease tenancy landlord rent" }
-        m.filingFolderProfile = Self.profile([target], root: root.path)
-        m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
-        m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
         let s = try #require(m.filingSuggestions.first)
@@ -318,16 +300,11 @@ import Testing
     @Test func aScanThatOcrsToNothingStopsBeingOffered() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingScanEmpty")
         defer { try? FileManager.default.removeItem(at: root) }
-        try Self.write(root.appendingPathComponent("Documents/Home/Leases/.keep"), bytes: 1)
-        try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in [] }
-        m.filingSnippetExtractor = { _ in nil }
-        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
+        try writeFilingFile(root.appendingPathComponent("Documents/Home/Leases/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/scanned.pdf"))
+        let (m, _) = Self.scanManager(root: root, folders: ["Documents/Home/Leases"],
+                                      learned: "Documents/Home/Leases", anchors: ["lease"], vocabulary: nil)
         m.filingOCRExtractor = { _ in nil }
-        m.filingFolderProfile = Self.profile(["Documents/Home/Leases"], root: root.path)
-        m.filingMemory = Self.memory("Documents/Home/Leases", ["lease"])
-        m.filingClassifier = { _, _, _ in [:] }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let s = try #require(m.filingSuggestions.first)
         #expect(await m.readScan(for: s) == false)
@@ -347,18 +324,14 @@ import Testing
         }
         let target = "Documents/Home/Leases"
         for root in [rootA, rootB] {
-            try Self.write(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
-            try Self.write(root.appendingPathComponent("Downloads/scanned.pdf"))
+            try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+            try writeFilingFile(root.appendingPathComponent("Downloads/scanned.pdf"))
         }
-        let m = FileSyncManager()
-        m.filingContentExtractor = { _ in [] }
-        m.filingSnippetExtractor = { _ in nil }
-        m.filingTokensFromText = { Set(FilingRouter.tokenize($0)) }
-        m.filingOCRExtractor = { _ in "lease tenancy landlord rent" }
         // Surveyed in A; B copies A's layout, so it borrows A's survey and builds an index.
-        m.filingFolderProfile = Self.profile(["Documents", "Documents/Home", target], root: rootA.path)
-        m.filingMemory = Self.memory(target, ["lease", "tenancy", "landlord"])
-        m.filingClassifier = { _, _, _ in [:] }
+        let (m, _) = Self.scanManager(root: rootA, folders: ["Documents", "Documents/Home", target],
+                                      learned: target, anchors: ["lease", "tenancy", "landlord"],
+                                      vocabulary: nil)
+        m.filingOCRExtractor = { _ in "lease tenancy landlord rent" }
 
         // Provider B's cache, captured; then provider A's cards on screen.
         await m.findFilingSuggestions(folder: rootB.appendingPathComponent("Downloads"), providerRoot: rootB)

@@ -16,13 +16,7 @@ import Testing
 /// and an atomic write then replaces the link itself.
 @Suite struct FilingCorpusReadTests {
 
-    private func makeDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("corpusread-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDir() throws -> URL { try makeProfilesDir(prefix: "corpusread", id: "t") }
 
     /// chmod 000 is a no-op for root, so the fixture below distinguishes nothing there. Recorded as
     /// an issue rather than silently returning, which would report a vacuous PASS.

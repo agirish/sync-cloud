@@ -9,11 +9,6 @@ import Events
 /// outside the inbox.
 @Suite struct FilingNameFindingTests {
 
-    private func write(_ url: URL, bytes: Int = 500) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     @MainActor
     @Test func theFilingScanReportsRiskyNamesFromTheWholeProviderNotJustTheInbox() async throws {
@@ -21,9 +16,9 @@ import Events
         defer { try? FileManager.default.removeItem(at: root) }
         // Names ending in a space, which macOS will create: one in the scanned inbox, one three
         // levels away. A depth-1 detector finds only the first.
-        try write(root.appendingPathComponent("Downloads/inbox tail "))
-        try write(root.appendingPathComponent("Documents/Archive/deep tail "))
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/inbox tail "), bytes: 500)
+        try writeFilingFile(root.appendingPathComponent("Documents/Archive/deep tail "), bytes: 500)
+        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -39,8 +34,8 @@ import Events
         // The chip should be absent on the common day, so a clean tree must give an empty finding.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesClean")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/Statement.pdf"))
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/Statement.pdf"), bytes: 500)
+        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -55,7 +50,7 @@ import Events
         // risky names", so the previous finding stays and the chip doesn't vanish.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesOptOut")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/tail "))
+        try writeFilingFile(root.appendingPathComponent("Downloads/tail "), bytes: 500)
 
         let manager = FileSyncManager()
         manager.riskyNames = [RiskyName(id: "/pre/existing", relativePath: "existing",
@@ -76,7 +71,7 @@ import Events
         // so the two rulesets must differ here.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesRuleset")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/Q3: report.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/Q3: report.pdf"), bytes: 500)
 
         let strict = FileSyncManager()
         await strict.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -91,26 +86,6 @@ import Events
                                             providerRoot: root, nameProvider: .iCloud)
         #expect(!lenient.riskyNames.contains { $0.currentName == "Q3: report.pdf" },
                 "iCloud allows it — flagging it here would propose a rename nobody needs")
-    }
-
-    @MainActor
-    @Test func aScanThatOptsOutOfTheNameCheckLeavesTheFindingAlone() async throws {
-        // A caller that doesn't ask for the name check leaves the previous finding as it was. An
-        // empty list would read as "nothing is wrong" and take the chip off screen.
-        let root = try makeCanonicalTempRoot(prefix: "FilingNamesPairing")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/a.pdf"))
-
-        let manager = FileSyncManager()
-        // Stand in for a completed OneDrive scan's results.
-        manager.riskyNames = [RiskyName(id: "/prev/tail ", relativePath: "tail ",
-                                        currentName: "tail ", sanitizedName: "tail",
-                                        reason: "a trailing space", isDirectory: false)]
-
-        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
-                                            providerRoot: root)
-
-        #expect(manager.riskyNames.count == 1)
     }
 
     @MainActor

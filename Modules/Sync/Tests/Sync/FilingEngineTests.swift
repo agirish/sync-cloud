@@ -262,10 +262,14 @@ import Testing
         let loose = [file("/root/Downloads/scan.pdf", modified: y2024)]
         let content = ["/root/Downloads/scan.pdf": Set(["invoices", "acme"])]
 
-        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                     providerRoot: "/root", contentTokens: content).first?.best)
+        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                  providerRoot: "/root", contentTokens: content).first)
+        let best = try #require(s.best)
         #expect(best.path == "/root/Documents/Invoices")
         #expect(best.confidence == .medium)   // content-derived matches are capped to medium
+        #expect(s.hasConfidentHome)            // still offers a per-file "File here"
+        #expect(s.isBatchEligible == false)    // but never auto-filed by the batch
+        #expect(best.fromContent == true)
         #expect(best.reasons.first?.contains("read from the file") == true)
         #expect(best.evidenceToken == "Invoices")   // G4: the read-from-content word is surfaced for highlighting
         #expect(best.neighborMatches == 0)          // the target has no files, so no neighbor corroboration
@@ -314,18 +318,6 @@ import Testing
         let loose = [file("/root/Downloads/Tesla Policy 2024.pdf", modified: y2024)]
         let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first)
         #expect(s.providerRoot == "/root")   // the UI strips this to render "Root › …" instead of the home prefix
-    }
-
-    @Test func contentDerivedMatchIsMediumAndNotBatchEligible() throws {
-        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Invoices", [])])]
-        let loose = [file("/root/Downloads/scan.pdf", modified: y2024)]
-        let content = ["/root/Downloads/scan.pdf": Set(["invoices"])]
-        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                  providerRoot: "/root", contentTokens: content).first)
-        #expect(s.best?.confidence == .medium)
-        #expect(s.hasConfidentHome)            // still offers a per-file "File here"
-        #expect(s.isBatchEligible == false)    // but never auto-filed by the batch
-        #expect(s.best?.fromContent == true)
     }
 
     @Test func reasonIsNotContentWhenTokenIsAlsoInTheName() throws {
@@ -427,38 +419,17 @@ import Testing
         #expect(hit.first?.best?.path == "/root/Insurance/Geico")
     }
 
-    @Test func rememberedRuleRecreatesAMissingFolder() throws {
-        let taxonomy = [dir("/root/Documents", [])]   // the remembered folder no longer exists
-        let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]
-        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles/Tesla")
-        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                     providerRoot: "/root", rules: [rule]).first?.best)
-        #expect(best.newSegments == ["Vehicles", "Tesla"])   // Documents exists; the tail is recreated on apply
-        #expect(best.isNew)
-    }
-
-    @Test func rememberedRuleMissingTailIsRelativeToARealMultiSegmentRoot() throws {
-        // A realistic root ("/Users/x/Dropbox") whose own ancestors are never in the walked
-        // taxonomy: only the tail past the deepest existing folder is NEW, not the whole path.
-        let root = "/Users/x/Dropbox"
-        let taxonomy = [dir("\(root)/Documents", [])]
+    /// Only the tail past the deepest existing folder is NEW, under a bare root and under a
+    /// realistic one ("/Users/x/Dropbox") whose own ancestors are never in the walked taxonomy.
+    @Test(arguments: ["/root", "/Users/x/Dropbox"])
+    func rememberedRuleRecreatesAMissingFolder(root: String) throws {
+        let taxonomy = [dir("\(root)/Documents", [])]   // the remembered folder no longer exists
         let loose = [file("\(root)/Downloads/tesla.pdf", modified: y2024)]
         let rule = FilingRule(tokens: ["tesla"], destinationPath: "\(root)/Documents/Vehicles/Tesla")
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                                      providerRoot: root, rules: [rule]).first?.best)
-        #expect(best.newSegments == ["Vehicles", "Tesla"])
-    }
-
-    @Test func contentOnlyRuleMatchIsCappedToMedium() throws {
-        let taxonomy = [dir("/root/Documents", [])]
-        let loose = [file("/root/Downloads/scan0007.pdf", modified: y2024)]   // name says nothing
-        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Vehicles/Tesla")
-        let content = ["/root/Downloads/scan0007.pdf": Set(["tesla"])]        // only content carries "tesla"
-        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                  providerRoot: "/root", contentTokens: content, rules: [rule]).first)
-        #expect(s.best?.remembered == true)
-        #expect(s.best?.confidence == .medium)       // content-only → capped
-        #expect(s.isBatchEligible == false)          // …and kept out of the blind batch
+        #expect(best.newSegments == ["Vehicles", "Tesla"])   // Documents exists; the tail is recreated on apply
+        #expect(best.isNew)
     }
 
     // MARK: Rule construction

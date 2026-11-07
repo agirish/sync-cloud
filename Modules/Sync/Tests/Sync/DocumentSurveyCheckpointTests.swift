@@ -10,13 +10,7 @@ import Testing
 /// directory are never taken for each other.
 @Suite struct DocumentSurveyCheckpointTests {
 
-    private func makeDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("survey-checkpoint-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDir() throws -> URL { try makeProfilesDir(prefix: "survey-checkpoint", id: "t") }
 
     private func sample(profileId: String = "t", rootPath: String = "/tmp/tree",
                         salt: String = "abcd", nextIndex: Int = 2) -> DocumentSurveyCheckpoint {

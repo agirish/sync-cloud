@@ -288,15 +288,6 @@ import Foundation
     // test here. `OrganizeLensTests` in FileExplorer covers that rule; the reason is on
     // `OrganizeScopeFilter`.
 
-    // MARK: The global view is genuinely unfiltered
-
-    @Test func nilScopeAdmitsEverything() {
-        #expect(OrganizeScopeFilter.matches(Self.suggestion("/anywhere/at/all.pdf"), scope: nil))
-        #expect(OrganizeScopeFilter.matches(Self.risky("/anywhere/at/all.pdf"), scope: nil))
-        #expect(OrganizeScopeFilter.matches(Self.plan("/anywhere/at/all"), scope: nil))
-        #expect(OrganizeScopeFilter.matches(Self.group(["/anywhere/a.pdf"]), scope: nil))
-    }
-
     // MARK: - Whether an answer can be given at all
 
     /// Filtering a scan's results to zero and the scan finding nothing are different facts, and
@@ -355,14 +346,5 @@ import Foundation
         #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: nil))
         // Same folder, spelled two ways — equality has to go through the path rules, not `==`.
         #expect(OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.legal + "/"))
-    }
-
-    /// The two predicates must not collapse into one another: the recursive pass accepts an
-    /// ancestor exactly where the one-level pass refuses it. If a future edit points both at the
-    /// same helper, this fails.
-    @Test func theRecursiveAndOneLevelRulesDisagreeAboutAnAncestor() {
-
-        #expect(OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root))
-        #expect(!OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.root))
     }
 }

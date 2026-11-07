@@ -99,12 +99,6 @@ import Testing
 @MainActor
 @Suite struct AlreadyFiledIndexCacheTests {
 
-    static func write(_ url: URL, _ bytes: Data) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try bytes.write(to: url)
-    }
-
     static func card(_ loose: URL, _ root: URL) -> FilingSuggestion {
         FilingSuggestion(filePath: loose.path, fileName: loose.lastPathComponent, size: 4096,
                          modificationDate: nil,
@@ -118,21 +112,11 @@ import Testing
     /// lookup: the index files don't change when a filed copy is deleted, so an index with the
     /// check built in would keep citing a folder that no longer holds it.
     @Test func aCachedIndexStillSeesAFiledCopyDeleted() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledCache")
+        let (root, indexDir, filed, hex) = try await indexedTree(prefix: "AlreadyFiledCache",
+                                                                 filed: "Work/Pay/payslip.jpg",
+                                                                 loose: "Downloads/Payslip.jpg")
         defer { try? FileManager.default.removeItem(at: root) }
-        let indexDir = root.appendingPathComponent("index")
-        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
-        let payload = Data(repeating: 0x50, count: 4096)
-        let filed = root.appendingPathComponent("Work/Pay/payslip.jpg")
         let loose = root.appendingPathComponent("Downloads/Payslip.jpg")
-        try Self.write(filed, payload)
-        try Self.write(loose, payload)
-        let hex = await FileSyncManager.hashFiles([filed.path], fileManager: FileManager.default, cache: nil)[filed.path] ?? ""
-        try #require(!hex.isEmpty)
-        ContentHashIndexStore.saveInBackground([ContentHashRecord(path: filed.path, mtime: 0, size: 4096, hex: hex,
-                                                                  storedAt: Date())],
-                                               to: indexDir.appendingPathComponent("content-hash-index.json"))
-        ContentHashIndexStore.waitForPendingWrites()
 
         let m = FileSyncManager()
         m.contentIndexDirectory = indexDir
@@ -148,7 +132,7 @@ import Testing
 
         // And a changed index file is read again: the copy, filed somewhere new.
         let refiled = root.appendingPathComponent("Work/Payslips/payslip.jpg")
-        try Self.write(refiled, payload)
+        try writeFilingFile(refiled, bytes: 4096, fill: 0x50)
         ContentHashIndexStore.saveInBackground([ContentHashRecord(path: refiled.path, mtime: 0, size: 4096,
                                                                   hex: hex, storedAt: Date()),
                                                 ContentHashRecord(path: filed.path, mtime: 0, size: 4096,

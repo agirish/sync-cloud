@@ -139,21 +139,19 @@ import Testing
                                         reasons: ["Matches “india, medical”"], newSegments: [])
         let card = FilingSuggestion(filePath: "/Inbox/scan.pdf", fileName: "scan.pdf", size: 1,
                                     modificationDate: nil, candidates: [keyword], providerRoot: Self.root)
-        let routed = FileSyncManager.route(card, index: index, snippets: ["/Inbox/scan.pdf": page],
-                                           providerRoot: Self.root, rejectedByFile: [:]).suggestion
+        let outcome = FileSyncManager.route(card, index: index, snippets: ["/Inbox/scan.pdf": page],
+                                            providerRoot: Self.root, rejectedByFile: [:])
+        let routed = outcome.suggestion
+        #expect(outcome.routed)
         #expect(routed.best?.path == Self.root + "/" + routerBest.relativePath)
         #expect(routed.best?.confidence == .low)
         #expect(!routed.isBatchEligible)
+        #expect(routed.candidates.contains(keyword), "the word match stays as a second choice")
     }
 
-    @Test func aTaughtHomeAndAnAgreeingHighAreLeftAlone() throws {
+    /// A taught home is left alone too: `FilingRouteOverlayTests.arememberedHomeIsNeverReplaced`.
+    @Test func anAgreeingHighIsLeftAlone() throws {
         let snippets = ["/Inbox/FedEx invoice - India courier .pdf": Self.invoicePage]
-        let taught = FilingDestination(path: Self.root + "/Health/Medical/India", base: .high, evidence: .name,
-                                       reasons: ["Remembered"], newSegments: [], remembered: true)
-        let kept = FileSyncManager.route(Self.keywordCard(taught), index: Self.customsIndex, snippets: snippets,
-                                         providerRoot: Self.root, rejectedByFile: [:])
-        #expect(kept.suggestion.best == taught, "a rule the user taught outranks the survey")
-
         let agreeing = FilingDestination(path: Self.root + "/Immigration/Customs/USA", base: .high, evidence: .name,
                                          reasons: ["Matches “customs, usa”"], newSegments: [])
         let same = FileSyncManager.route(Self.keywordCard(agreeing), index: Self.customsIndex, snippets: snippets,
@@ -240,10 +238,6 @@ import Testing
 
 @Suite @MainActor struct FilingSuggestionLearningDiskTests {
 
-    static func write(_ url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: 5000).write(to: url)
-    }
 
     static func manager(_ root: URL, folders: [String]) -> FileSyncManager {
         let m = FileSyncManager()
@@ -267,8 +261,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingGV")
         defer { try? FileManager.default.removeItem(at: root) }
         let m = Self.manager(root, folders: ["Health/Medical/India", "Purchases/US"])
-        try Self.write(root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf"))
-        try Self.write(root.appendingPathComponent("TODO/Mint Order - 2026.pdf"))
+        try writeFilingFile(root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf"))
+        try writeFilingFile(root.appendingPathComponent("TODO/Mint Order - 2026.pdf"))
         // The picker makes a new folder before it files into it, as he did for both.
         for made in ["Immigration/Customs/USA/Shipments", "Purchases/US/US Mint", "Health/Medical/India"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(made),
@@ -300,7 +294,7 @@ import Testing
         let folders = ["Health/Medical/India", "Immigration/Customs/USA", shipments]
         let m = Self.manager(root, folders: folders)
         let first = root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf")
-        try Self.write(first)
+        try writeFilingFile(first)
         for folder in folders {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(folder),
                                                     withIntermediateDirectories: true)
@@ -347,7 +341,7 @@ import Testing
         let shipments = root.appendingPathComponent("Immigration/Customs/USA/Shipments")
         try FileManager.default.createDirectory(at: shipments, withIntermediateDirectories: true)
         let file = root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf")
-        try Self.write(file)
+        try writeFilingFile(file)
         let folder = root.appendingPathComponent("TODO/Old Trip")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let m = Self.manager(root, folders: ["Immigration/Customs/USA/Shipments"])

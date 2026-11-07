@@ -22,19 +22,8 @@ import Testing
         }
     }
 
-    private func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
-    private func fixture(_ name: String) throws -> URL {
-        let root = try makeCanonicalTempRoot(prefix: "RefineHidden-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
-        for i in 0..<2 { try write(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
-        return root
-    }
+    private func fixture(_ name: String) throws -> URL { try refineFixture(prefix: "RefineHidden-\(name)") }
 
     /// The scan answers Documents/Family, Refine answers Archive/2026, so a refined home is visible.
     /// `hidden` is the Hidden from Claude list, as absolute paths.

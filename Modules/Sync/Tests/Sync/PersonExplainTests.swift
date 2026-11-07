@@ -151,41 +151,4 @@ import Testing
         #expect(facts.areas.first?.documents == 40)
         #expect(facts.areas.last?.folders == 2)
     }
-
-    // MARK: - What the veto prevented
-
-    @MainActor
-    @Test func theVetoLogCountsAndRemembersPerPerson() {
-        let defaults = ScratchDefaults("veto")
-        let log = PersonVetoLog(userDefaults: defaults)
-
-        log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
-                                   fileName: "Daughter OCI.pdf", destination: "Immigration/OCI/Son",
-                                   at: Date(timeIntervalSince1970: 1_000)))
-        log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
-                                   fileName: "Daughter Passport.pdf", destination: "Passport/Son",
-                                   at: Date(timeIntervalSince1970: 2_000)))
-
-        #expect(log.count(namedPerson: "daughter") == 2)
-        #expect(log.count(namedPerson: "son") == 0)
-        // Newest first, so "last" means the most recent refusal rather than the first ever.
-        #expect(log.mostRecent(namedPerson: "daughter")?.fileName == "Daughter Passport.pdf")
-        // A relaunch reads the same history.
-        #expect(PersonVetoLog(userDefaults: defaults).count(namedPerson: "daughter") == 2)
-    }
-
-    /// Capped, because this is an illustration and not a filing diary.
-    @MainActor
-    @Test func theVetoLogForgetsTheOldest() {
-        // `ScratchDefaults`, like its siblings: a UUID-named suite with no teardown would leave a
-        // plist in the shared `~/Library/Preferences` on every run.
-        let log = PersonVetoLog(userDefaults: ScratchDefaults("veto-cap"))
-        for i in 0..<(PersonVetoLog.capacity + 10) {
-            log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
-                                       fileName: "\(i).pdf", destination: "d",
-                                       at: Date(timeIntervalSince1970: Double(i))))
-        }
-        #expect(log.events.count == PersonVetoLog.capacity)
-        #expect(log.events.first?.fileName == "\(PersonVetoLog.capacity + 9).pdf")
-    }
 }

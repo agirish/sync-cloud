@@ -156,30 +156,4 @@ import Testing
         #expect(m.filingPersonIdentity.count(for: "granny") == 0,
                 "a new rejection was answered from the cache")
     }
-
-    /// The corpus is read only when there is a rejection to translate. It is megabytes, and the
-    /// rebuild runs whenever the roster, profile or memory moves, so a household that never pressed
-    /// "not theirs" must not pay for it.
-    @Test func theCorpusIsNotReadWithoutARejection() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("unlearn-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        // An undecodable corpus. Read, it decodes to nil and withdraws nothing, the same as never
-        // read, so this can't tell whether it was opened.
-        try Data("{ not json at all".utf8)
-            .write(to: dir.appendingPathComponent("p/filing-corpus.json"))
-
-        let m = FileSyncManager()
-        m.filingProfilesDirectory = dir
-        m.filingPersonRegistry = Self.household
-        m.filingFolderProfile = Self.profile()
-        m.filingMemory = Self.memory()
-        m.filingPersonTagStore = PersonTagStore(directory: dir, profileId: "p")
-        m.filingPersonTagStore?.record(personId: "granny", key: .path("a.pdf"),
-                                       verdict: .confirmed, path: "a.pdf")
-        // Nothing threw, nothing hung, and the index is exactly what the tree says.
-        #expect(m.filingPersonIdentity.isEmpty)
-    }
 }

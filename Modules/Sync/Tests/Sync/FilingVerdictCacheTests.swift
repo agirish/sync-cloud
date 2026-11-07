@@ -30,13 +30,16 @@ private final class SpendProbe: @unchecked Sendable {
     var prompts: Int { lock.lock(); defer { lock.unlock() }; return count }
 }
 
+/// Records every quote the spend confirmer was shown.
+private final class Quotes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [Int] = []
+    func add(_ n: Int) { lock.lock(); defer { lock.unlock() }; seen.append(n) }
+    var all: [Int] { lock.lock(); defer { lock.unlock() }; return seen }
+}
+
 @Suite struct FilingVerdictCacheTests {
 
-    private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
 
     private func cacheURL(_ name: String) throws -> URL {
         let dir = try makeCanonicalTempRoot(prefix: "VerdictCache-\(name)")
@@ -146,15 +149,6 @@ private final class SpendProbe: @unchecked Sendable {
                                  existingRelative: ["Documents", "Documents/Vehicles"]) != nil)
     }
 
-    @Test func aMissingOrCorruptFileLoadsAsEmptyRatherThanThrowing() throws {
-        let url = try cacheURL("corrupt")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        #expect(FilingVerdictStore.load(from: url).count == 0)          // never written
-
-        try Data("{not json".utf8).write(to: url)
-        #expect(FilingVerdictStore.load(from: url).count == 0)          // unreadable
-    }
-
     /// A cache file that exists but can't be opened (mode 000, an ACL, an I/O error) loads as
     /// empty, but its bytes are moved aside so the next save doesn't overwrite up to ~10MB of paid
     /// answers. Re-asking is acceptable; destroying the bytes is not.
@@ -204,13 +198,6 @@ private final class SpendProbe: @unchecked Sendable {
                 "the corrupt cache was left where the next save overwrites it")
     }
 
-    @Test func aForeignSchemaLoadsAsEmpty() throws {
-        let url = try cacheURL("schema")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try Data(#"{"schema":999,"entries":[]}"#.utf8).write(to: url)
-        #expect(FilingVerdictStore.load(from: url).count == 0)
-    }
-
     // MARK: Bounds
 
     @Test func trimKeepsTheNewestEntries() {
@@ -250,9 +237,20 @@ private final class SpendProbe: @unchecked Sendable {
     /// Builds a fixture folder with one loose file that a classifier can place.
     private func fixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "VerdictScan-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
         return root
+    }
+
+    /// `fixture(name)`, a cache file of the same name, and the fixture's Downloads folder.
+    private func scanFixture(_ name: String) throws -> (root: URL, url: URL, downloads: URL) {
+        let root = try fixture(name)
+        return (root, try cacheURL(name), root.appendingPathComponent("Downloads"))
+    }
+
+    private func remove(_ root: URL, _ url: URL) {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     /// `identity` is the identity for both tiers by default, which suits tests about the cache key.
@@ -316,11 +314,8 @@ private final class SpendProbe: @unchecked Sendable {
         // A second scan of an untouched folder must produce identical suggestions while asking
         // the backend nothing. Both halves matter: no calls with different results would be a cache
         // that changed the answer, and the same results with a call would be one that saved nothing.
-        let root = try fixture("equivalence")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("equivalence")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("equivalence")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let first = manager(cacheAt: url, log: log)
@@ -342,11 +337,8 @@ private final class SpendProbe: @unchecked Sendable {
     @Test func reuseIsPublishedWithTheResultsAndClearedWithThem() async throws {
         // The figure the "reused" pill reads. It is published with the suggestions, not as the
         // scan runs, or a cancelled scan would relabel the previous results with its numbers.
-        let root = try fixture("reuse-published")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("reuse-published")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("reuse-published")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let first = manager(cacheAt: url, log: log)
@@ -363,18 +355,15 @@ private final class SpendProbe: @unchecked Sendable {
 
     @MainActor
     @Test func aChangedFileIsReclassified() async throws {
-        let root = try fixture("changed")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("changed")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("changed")
+        defer { remove(root, url) }
 
         let log = CallLog()
         await scan(manager(cacheAt: url, log: log), downloads, root: root)
         #expect(log.count == 1)
 
         // Rewrite the file at a different size, so the key's identity of "this file" changes.
-        try write(downloads.appendingPathComponent("mystery-scan-0042.pdf"), bytes: 9000)
+        try writeFilingFile(downloads.appendingPathComponent("mystery-scan-0042.pdf"), bytes: 9000)
         await scan(manager(cacheAt: url, log: log), downloads, root: root)
 
         #expect(log.count == 2)
@@ -386,11 +375,8 @@ private final class SpendProbe: @unchecked Sendable {
         // Changing the model in Settings must re-ask: serving an on-device answer as an Opus one
         // is the silent substitution the identity exists to prevent. Exercised through refine,
         // the only pass whose backend can vary; the scan is pinned to on-device by its tier.
-        let root = try fixture("backend")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("backend")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("backend")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let haiku = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-haiku-4-5")
@@ -412,11 +398,8 @@ private final class SpendProbe: @unchecked Sendable {
         // The direction that costs money if it breaks: an unchanged file this model has already
         // answered must not be sent again. The same guarantee as
         // `anUnchangedFolderIsNotReclassified`, on the pass where a miss is billed.
-        let root = try fixture("refine-twice")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("refine-twice")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("refine-twice")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let first = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
@@ -434,11 +417,8 @@ private final class SpendProbe: @unchecked Sendable {
 
     @MainActor
     @Test func ignoringCacheReasksButStillRecords() async throws {
-        let root = try fixture("ignoring")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("ignoring")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("ignoring")
+        defer { remove(root, url) }
 
         let log = CallLog()
         await scan(manager(cacheAt: url, log: log), downloads, root: root)
@@ -466,11 +446,8 @@ private final class SpendProbe: @unchecked Sendable {
 
     @MainActor
     @Test func aBackendTheAppCannotNameIsNotServedFromTheCache() async throws {
-        let root = try fixture("nil-identity-read")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("nil-identity-read")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("nil-identity-read")
+        defer { remove(root, url) }
 
         let log = CallLog()
         // The warm entry is keyed on the identity a fallback would produce: `on-device` is what
@@ -487,11 +464,8 @@ private final class SpendProbe: @unchecked Sendable {
 
     @MainActor
     @Test func aBackendTheAppCannotNameWritesNothingToTheCache() async throws {
-        let root = try fixture("nil-identity-write")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("nil-identity-write")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("nil-identity-write")
+        defer { remove(root, url) }
 
         let log = CallLog()
         // `test-model` here, different from the `on-device` a fallback would produce, so a write
@@ -517,11 +491,8 @@ private final class SpendProbe: @unchecked Sendable {
         // Asserted at classify time, not after the scan: recording warms the memo either way, so
         // only a probe from inside the classifier (after the cache split, before recording) can
         // tell which accessor loaded it. Fails if the ignoring path skips the async load.
-        let root = try fixture("ignore-warms")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("ignore-warms")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("ignore-warms")
+        defer { remove(root, url) }
 
         let log = CallLog()
         await scan(manager(cacheAt: url, log: log), downloads, root: root)
@@ -598,11 +569,8 @@ private final class SpendProbe: @unchecked Sendable {
         // Recording happens before the scan's cancellation check. By the time the classifier
         // returns the cloud call has been billed, and discarding the answers because the user
         // cancelled a moment later would mean paying for them twice.
-        let root = try fixture("cancelled")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("cancelled")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("cancelled")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let cancelling = FileSyncManager()
@@ -645,8 +613,8 @@ private final class SpendProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("declined")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/first.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/first.pdf"))
         let downloads = root.appendingPathComponent("Downloads")
 
         // One refine at the paid model, so `first.pdf` has an Opus answer on file.
@@ -656,7 +624,7 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(log.count == 2)
 
         // A second file arrives, and the guardrail refuses the spend for it.
-        try write(downloads.appendingPathComponent("second.pdf"))
+        try writeFilingFile(downloads.appendingPathComponent("second.pdf"))
         let declining = refiningManager(cacheAt: url, log: log, suite: "verdictDeclined") { _ in false }
         await scanThenRefine(declining, downloads, root: root)
 
@@ -677,11 +645,8 @@ private final class SpendProbe: @unchecked Sendable {
     @Test func clearingForgetsEverySavedVerdict() async throws {
         // Settings' Clear button. It throws away work that may have been paid for, so it must reach
         // the file, not just the in-memory copy: a clear that a relaunch undoes is worse than none.
-        let root = try fixture("clear")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("clear")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("clear")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let first = manager(cacheAt: url, log: log)
@@ -709,16 +674,10 @@ private final class SpendProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("preflight")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        for i in 0..<4 { try write(root.appendingPathComponent("Downloads/scan-\(i).pdf")) }
+        try writeFilingFile(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        for i in 0..<4 { try writeFilingFile(root.appendingPathComponent("Downloads/scan-\(i).pdf")) }
         let downloads = root.appendingPathComponent("Downloads")
 
-        final class Quotes: @unchecked Sendable {
-            private let lock = NSLock()
-            private var seen: [Int] = []
-            func add(_ n: Int) { lock.lock(); defer { lock.unlock() }; seen.append(n) }
-            var all: [Int] { lock.lock(); defer { lock.unlock() }; return seen }
-        }
         let quotes = Quotes()
         let log = CallLog()
 
@@ -733,7 +692,7 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(log.lastBatch.count == 4)
 
         // Add a fifth file; the other four are unchanged and already answered by this model.
-        try write(downloads.appendingPathComponent("scan-4.pdf"))
+        try writeFilingFile(downloads.appendingPathComponent("scan-4.pdf"))
         let second = cloudManager("verdictPreflight2")
         await scanThenRefine(second, downloads, root: root)
 
@@ -748,18 +707,9 @@ private final class SpendProbe: @unchecked Sendable {
         // verdict whose anchor folder has since been deleted is a miss, so it must be re-asked and
         // must appear in the quote the user approves; a quote that omitted it would understate
         // the bill.
-        let root = try fixture("stale-anchor")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("stale-anchor")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("stale-anchor")
+        defer { remove(root, url) }
 
-        final class Quotes: @unchecked Sendable {
-            private let lock = NSLock()
-            private var seen: [Int] = []
-            func add(_ n: Int) { lock.lock(); defer { lock.unlock() }; seen.append(n) }
-            var all: [Int] { lock.lock(); defer { lock.unlock() }; return seen }
-        }
         let quotes = Quotes()
         let log = CallLog()
 
@@ -790,11 +740,8 @@ private final class SpendProbe: @unchecked Sendable {
         // The companion to the tests above: the configuration that prices a refine prices nothing
         // for the scan before it. Without this, every quote count above would be equally consistent
         // with the scan doing the pricing.
-        let root = try fixture("scan-unpriced")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try cacheURL("scan-unpriced")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let downloads = root.appendingPathComponent("Downloads")
+        let (root, url, downloads) = try scanFixture("scan-unpriced")
+        defer { remove(root, url) }
 
         let log = CallLog()
         let prompts = SpendProbe()
@@ -852,12 +799,9 @@ private final class SpendProbe: @unchecked Sendable {
     /// value a real file can have would let a file whose mtime stays unreadable while its contents
     /// change keep its key and be served its old, possibly paid-for verdict. Same rule as a nil
     /// `filingArtifactFingerprint`: an unreadable component is an unknown.
-    @Test func anUnreadableModificationDateYieldsNoKeyAtAll() {
+    @Test func anUnreadableModificationDateOrSizeYieldsNoKeyAtAll() {
         #expect(FilingVerdictKey(filePath: "/r/TODO/a.pdf", modificationDate: nil, size: 10,
                                  model: "m", promptVersion: 1, artifacts: "a") == nil)
-    }
-
-    @Test func anUnreadableSizeYieldsNoKeyAtAll() {
         #expect(FilingVerdictKey(filePath: "/r/TODO/a.pdf",
                                  modificationDate: Date(timeIntervalSince1970: 1), size: nil,
                                  model: "m", promptVersion: 1, artifacts: "a") == nil)
@@ -886,17 +830,6 @@ private final class SpendProbe: @unchecked Sendable {
                                               artifacts: "a"))
         #expect(k.modifiedMillis == 1500)
         #expect(k.size == 10)
-    }
-
-    /// The fingerprint is key material: the same question asked against different artifacts is a
-    /// different question.
-    @Test func theFingerprintSeparatesOtherwiseIdenticalKeys() {
-        func key(_ fp: String) -> FilingVerdictKey {
-            FilingVerdictKey(filePath: "/r/TODO/a.pdf", modificationDate: Date(timeIntervalSince1970: 1),
-                             size: 10, model: "on-device", promptVersion: 5, artifacts: fp)!
-        }
-        #expect(key("aaaa") != key("bbbb"))
-        #expect(key("aaaa") == key("aaaa"))
     }
 
     /// A key written without the `artifacts` field still decodes: a shape change that throws

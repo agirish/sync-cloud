@@ -17,17 +17,15 @@ import Testing
                         destination: destination, at: at)
     }
 
-    /// A store on its own defaults suite, wiped after.
-    static func store(_ suite: String) -> PersonVetoLog {
-        PersonVetoLog(userDefaults: UserDefaults(suiteName: suite)!)
+    /// A store on its own defaults suite, wiped once nothing holds it.
+    static func store(_ defaults: UserDefaults = ScratchDefaults("PersonVetoLogTests")) -> PersonVetoLog {
+        PersonVetoLog(userDefaults: defaults)
     }
 
     // MARK: - Recording
 
     @Test func aRefusalIsRecordedNewestFirst() {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let log = Self.store(suite)
+        let log = Self.store()
 
         log.record(Self.event(named: "granny", file: "First.pdf"))
         log.record(Self.event(named: "granny", file: "Second.pdf"))
@@ -38,9 +36,7 @@ import Testing
     /// The count is for the named person, whose document was headed into somebody else's folder.
     /// Counting by `proposedPerson` would make the opposite claim.
     @Test func theCountIsForThePersonTheDocumentNames() {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let log = Self.store(suite)
+        let log = Self.store()
 
         log.record(Self.event(named: "granny", proposed: "daughter"))
         log.record(Self.event(named: "granny", proposed: "father"))
@@ -52,9 +48,7 @@ import Testing
     }
 
     @Test func theMostRecentRefusalIsTheOneJustRecorded() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let log = Self.store(suite)
+        let log = Self.store()
 
         log.record(Self.event(named: "granny", file: "Older.pdf"))
         log.record(Self.event(named: "daughter", file: "Someone else's.pdf"))
@@ -67,9 +61,7 @@ import Testing
     /// Capped and lossy on purpose: an illustration, not an audit trail. The oldest fall off, so
     /// what remains is the newest `capacity`.
     @Test func theOldestEventsFallOffTheEnd() {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let log = Self.store(suite)
+        let log = Self.store()
 
         for i in 0..<(PersonVetoLog.capacity + 10) {
             log.record(Self.event(named: "granny", file: "\(i).pdf"))
@@ -85,13 +77,12 @@ import Testing
 
     /// A count survives the process: a second store over the same suite, as the next launch makes.
     @Test func aRecordedRefusalSurvivesTheNextLaunch() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("PersonVetoLogTests")
 
-        let first = Self.store(suite)
+        let first = Self.store(defaults)
         first.record(Self.event(named: "granny", file: "Passport.pdf", destination: "School/Daughter"))
 
-        let relaunched = Self.store(suite)
+        let relaunched = Self.store(defaults)
         #expect(relaunched.count(namedPerson: "granny") == 1)
         let event = try #require(relaunched.mostRecent(namedPerson: "granny"))
         #expect(event.fileName == "Passport.pdf")
@@ -104,9 +95,7 @@ import Testing
     /// must keep satisfying. A renamed `PersonVetoEvent` field fails here instead of silently
     /// emptying the log at the next launch.
     @Test func aStoredLogDecodesFieldForField() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = ScratchDefaults("PersonVetoLogTests")
         let stored = """
             [{"namedPerson":"granny","proposedPerson":"daughter","fileName":"Granny Elder Passport.pdf",\
             "destination":"School/Daughter","at":747248400}]
@@ -127,24 +116,21 @@ import Testing
     /// A stored value this build can't read shows an empty log rather than taking the launch with
     /// it; "nothing refused yet" is the honest thing to show.
     @Test func anUnreadableStoredLogStartsEmpty() {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = ScratchDefaults("PersonVetoLogTests")
         defaults.set(Data("not a log at all".utf8), forKey: PersonVetoLog.defaultsKey)
 
         #expect(PersonVetoLog(userDefaults: defaults).events.isEmpty)
     }
 
     @Test func clearingRemovesTheStoredRecordToo() {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let log = Self.store(suite)
+        let defaults = ScratchDefaults("PersonVetoLogTests")
+        let log = Self.store(defaults)
         log.record(Self.event(named: "granny"))
 
         log.clear()
 
         #expect(log.events.isEmpty)
-        #expect(Self.store(suite).events.isEmpty, "the cleared log came back at the next launch")
+        #expect(Self.store(defaults).events.isEmpty, "the cleared log came back at the next launch")
     }
 
     // MARK: - Absent, unreadable, and the write that used to collapse them
@@ -154,9 +140,7 @@ import Testing
     /// `PersonVetoEvent` produces this. Asserted on the stored bytes, since `events` is empty
     /// either way.
     @Test func anUnreadableStoredLogIsNotOverwrittenByANewRefusal() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = ScratchDefaults("PersonVetoLogTests")
         let theirs = Data("{\"schema\":2,\"events\":[]}".utf8)   // valid JSON, not our shape
         defaults.set(theirs, forKey: PersonVetoLog.defaultsKey)
 
@@ -172,9 +156,7 @@ import Testing
     /// The session still works: the refusal is visible now, just not persisted over something
     /// unreadable. A guard that also stopped recording would trade data loss for a dead feature.
     @Test func anUnreadableStoredLogStillShowsThisSessionsRefusals() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = ScratchDefaults("PersonVetoLogTests")
         defaults.set(Data("not our shape at all".utf8), forKey: PersonVetoLog.defaultsKey)
 
         let log = PersonVetoLog(userDefaults: defaults)
@@ -187,9 +169,7 @@ import Testing
     /// The other direction, so the guard can't become "never persist": with nothing stored, the
     /// ordinary state, a refusal is written.
     @Test func anAbsentLogIsStillWrittenToOnFirstRefusal() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = ScratchDefaults("PersonVetoLogTests")
         #expect(defaults.data(forKey: PersonVetoLog.defaultsKey) == nil, "fixture: nothing stored")
 
         let log = PersonVetoLog(userDefaults: defaults)
@@ -204,9 +184,7 @@ import Testing
     /// A readable log keeps being appended to across launches: the flag comes from the decode, not
     /// from "there were bytes".
     @Test func aReadableLogIsStillAppendedToAfterARelaunch() throws {
-        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(suite) }
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = ScratchDefaults("PersonVetoLogTests")
 
         let first = PersonVetoLog(userDefaults: defaults)
         first.record(Self.event(named: "granny", file: "First.pdf"))

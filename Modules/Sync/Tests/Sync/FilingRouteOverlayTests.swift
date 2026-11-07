@@ -92,9 +92,11 @@ import Testing
         #expect(out[0].best == taught)
     }
 
-    /// A weaker router answer must not displace a strong model answer, but does displace a word
-    /// match, carrying its own Low onto the card. The fixture must produce a real low-margin
-    /// candidate: with none, the overlay returns before the guard and the test can't fail.
+    /// A weaker router answer must not displace a strong model answer. (It does displace a word
+    /// match, carrying its own Low onto the card:
+    /// `FilingSuggestionLearningTests.anUnsureSurveyHomeStillLeadsOverAWordMatch`.) The fixture must
+    /// produce a real low-margin candidate: with none, the overlay returns before the guard and the
+    /// test can't fail.
     @Test func aLowMarginRouteDoesNotDemoteAConfidentModelAnswer() {
         // Both folders carry the same single anchor, so the margin collapses and the router reports
         // `.low`.
@@ -115,15 +117,6 @@ import Testing
             snippets: snippets, providerRoot: Self.root)
         #expect(routed == 0)
         #expect(out[0].best == strong)
-
-        // A word match is a guess the survey outranks at any confidence.
-        let word = Self.destination("Finance/US/Income Tax/2023", .high)
-        let (led, ledCount, _) = FileSyncManager.applyRoutes(
-            [Self.suggestion("ambiguous.pdf", best: word)], index: tied,
-            snippets: snippets, providerRoot: Self.root)
-        #expect(ledCount == 1)
-        #expect(led[0].best?.confidence == .low)
-        #expect(led[0].candidates.contains(word), "the word match stays as a second choice")
     }
 
     /// The other half: an equally confident router home does lead, or the guard above would look
@@ -163,27 +156,22 @@ import Testing
 
     /// Rejections are recorded as absolute paths, the form the scan builds (they become relative
     /// only for a backend). A relative path here would pass without the conversion inside
-    /// `applyRoutes`.
+    /// `applyRoutes`. The other half: an unrelated rejection must not suppress a good home.
     @Test func aRejectedDestinationIsNotReoffered() {
         let s = [Self.suggestion("scan001.pdf", best: nil)]
+        let snippets = ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"]
         let rejected = ["\(Self.root)/TODO/scan001.pdf":
                             Set(["\(Self.root)/Health/Medical/Kaiser/Surgery"])]
         let (out, routed, _) = FileSyncManager.applyRoutes(
-            s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"],
-            providerRoot: Self.root, rejectedByFile: rejected)
+            s, index: Self.index, snippets: snippets, providerRoot: Self.root, rejectedByFile: rejected)
         #expect(routed == 0)
         #expect(out[0].best == nil)
-    }
 
-    /// The other half: an unrelated rejection must not suppress a good home.
-    @Test func anUnrelatedRejectionDoesNotBlockRouting() {
-        let s = [Self.suggestion("scan001.pdf", best: nil)]
-        let rejected = ["\(Self.root)/TODO/scan001.pdf": Set(["\(Self.root)/Finance/US/Income Tax/2023"])]
-        let (out, routed, _) = FileSyncManager.applyRoutes(
-            s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"],
-            providerRoot: Self.root, rejectedByFile: rejected)
-        #expect(routed == 1)
-        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
+        let unrelated = ["\(Self.root)/TODO/scan001.pdf": Set(["\(Self.root)/Finance/US/Income Tax/2023"])]
+        let (kept, keptCount, _) = FileSyncManager.applyRoutes(
+            s, index: Self.index, snippets: snippets, providerRoot: Self.root, rejectedByFile: unrelated)
+        #expect(keptCount == 1)
+        #expect(kept[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
     }
 
     /// With nothing extracted the router still has the filename, and must not invent a home from
@@ -198,11 +186,11 @@ import Testing
 
     /// A confident word match gives way to the survey: on real filed documents a keyword High was
     /// right 4% of the time against the router's 42% (`FilingCardReplayTests`). The file leaves the
-    /// batch, which is right for a home read out of the document.
+    /// batch, which is right for a home read out of the document, and is still ranked for the menu.
     @Test func aConfidentWordMatchGivesWayToTheSurvey() {
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
         let s = [Self.suggestion("op.pdf", best: strong)]
-        let (out, routed, _) = FileSyncManager.applyRoutes(
+        let (out, routed, shortlist) = FileSyncManager.applyRoutes(
             s, index: Self.index,
             snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
             providerRoot: Self.root)
@@ -210,6 +198,7 @@ import Testing
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
         #expect(out[0].candidates.contains(strong))
         #expect(!out[0].isBatchEligible, "a home read out of the document is never moved unseen")
+        #expect(shortlist["\(Self.root)/TODO/op.pdf"]?.isEmpty == false, "it must still be ranked for the menu")
     }
 
     /// Routing is gated on artifacts existing. An empty index leaves every suggestion identical, so
@@ -246,22 +235,6 @@ import Testing
         #expect(routed == 1)
         #expect(out.first?.best?.newSegments.isEmpty == true, "swapped one new folder for another")
         #expect(out.first?.best?.path != "/prov/Purchases/2025")
-    }
-
-    /// The other half: a confident rule home naming an existing folder gives way too, since the
-    /// survey outranks every untaught guess.
-    @Test func aRouterHomeAlsoReplacesAnExistingKeywordHome() {
-        let existing = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
-                                         reasons: ["Receipt or invoice — filed by year"],
-                                         newSegments: [], fromContent: false,
-                                         remembered: false, fromAI: false)
-        let s = FilingRouteOverlayTests.suggestion("bill.pdf", best: existing)
-        let (out, routed, shortlist) = FileSyncManager.applyRoutes(
-            [s], index: FilingRouteOverlayTests.index, snippets: ["/prov/TODO/bill.pdf": "perioperative anesthesia stoll"],
-            providerRoot: "/prov")
-        #expect(routed == 1)
-        #expect(out.first?.best?.path != "/prov/Purchases/2025")
-        #expect(shortlist["/prov/TODO/bill.pdf"]?.isEmpty == false, "it must still be ranked for the menu")
     }
 
     @Test func yieldingAgreesWithTheOnePassHelper() async {
@@ -316,11 +289,6 @@ import Testing
                 "the refine pass ranks raw again, so its menu can disagree with the scan's")
         #expect(source.contains("peerNameLookup()"),
                 "the rerank is called without the lookup that makes it do anything")
-        // Both consumers reach the rerank; neither is allowed to be the only one.
-        let route = try #require(try? String(contentsOf: url.deletingLastPathComponent()
-                                                .appendingPathComponent("FileSyncManager+FilingRoute.swift"),
-                                             encoding: .utf8))
-        #expect(route.contains("FilingRouter.rerankedByPeerNames("),
-                "the scan no longer reranks — this pair is what has to agree")
+        // The scan's half is behavioural: `theRouterAppliesThePeerNameRerankItIsGiven`.
     }
 }

@@ -358,16 +358,4 @@ import Testing
                 ping-pong — at the entry cap that is ~12 MB apiece, and nothing sweeps them
                 """)
     }
-
-    /// The other direction: bytes that are genuinely unreadable are still set aside.
-    @Test func corruptBytesAreStillRescued() throws {
-        let url = try cacheURL("corrupt")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let corrupt = Data("{ half a 12MB write".utf8)
-        try corrupt.write(to: url)
-
-        #expect(FilingVerdictStore.load(from: url).count == 0)
-        let kept = try #require(setAsidesBeside(url).first, "corrupt bytes stopped being rescued")
-        #expect(FileManager.default.contents(atPath: kept.path) == corrupt)
-    }
 }

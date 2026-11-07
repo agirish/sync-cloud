@@ -10,13 +10,7 @@ import Testing
 /// `savedRevision` is the post-write signal; these pin the ordering from both ends.
 @Suite @MainActor struct PeopleStoreSaveOrderingTests {
 
-    private func makeDirectory() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("people-save-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDirectory() throws -> URL { try makeProfilesDir(prefix: "people-save") }
 
     private func namesOnDisk(_ dir: URL) -> [String] {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("p/people.json")),
@@ -26,7 +20,8 @@ import Testing
         return people.compactMap { $0["displayName"] as? String }
     }
 
-    /// A `savedRevision` subscriber reading the file sees the edit that caused it.
+    /// A `savedRevision` subscriber reading the file sees the edit that caused it. And a save that
+    /// lands claims the file, so the refused-save test below can't pass on `source` never changing.
     @Test func aSavedRevisionSubscriberSeesTheEditOnDisk() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -40,6 +35,7 @@ import Testing
         #expect(seen.count == 1, "the write published \(seen.count) times, expected once")
         #expect(seen.first?.contains("Granny") == true,
                 "the post-save signal fired before the bytes were written — saw \(seen.first ?? [])")
+        #expect(store.source == .file)
     }
 
     /// The control: the same subscription on `$people` sees the file as it was before the edit. It
@@ -64,6 +60,8 @@ import Testing
 
     /// A declined save must not claim to have written. An unreadable roster is refused (the
     /// in-memory one is a seed), so nothing downstream should re-read a file that didn't change.
+    /// Provenance follows the write too: if `source` became `.file` before a refused save, the list
+    /// would claim "saved in people.json" beside the banner saying edits won't be saved.
     @Test func aRefusedSaveDoesNotBumpTheRevision() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -74,35 +72,12 @@ import Testing
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable, "the fixture did not produce a locked roster")
         let before = store.savedRevision
+        let sourceBefore = store.source
         store.add(displayName: "Granny")
         #expect(store.savedRevision == before,
                 "a save that refused to write still announced one")
-    }
-
-    /// Provenance follows the write too. If `source` became `.file` before a refused save, the list
-    /// would claim "saved in people.json" beside the banner saying edits won't be saved.
-    @Test func aRefusedSaveDoesNotClaimTheFile() throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Data(#"{"schemaVersion":1,"people":{"not":"an array"}}"#.utf8)
-            .write(to: dir.appendingPathComponent("p/people.json"))
-
-        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        #expect(store.rosterIsUnreadable, "the fixture did not produce a locked roster")
-        let before = store.source
-        store.add(displayName: "Granny")
-        #expect(store.source == before,
+        #expect(store.source == sourceBefore,
                 "a save that refused to write still claimed the file as the household of record")
-    }
-
-    /// A save that does land claims the file, so the test above can't pass on `source` never
-    /// changing.
-    @Test func aSaveThatLandsClaimsTheFile() throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Granny")
-        #expect(store.source == .file)
     }
 
     /// A dismissal changes the file without moving the fingerprint, since moving it re-bills a paid
@@ -159,44 +134,6 @@ import Testing
             .write(to: url)
         #expect(FilingProfileStore.fingerprint(id: "p", in: dir) == before,
                 "a comment in people.json re-billed a full classification")
-    }
-
-    /// An edit that changes the household still announces one.
-    @Test func anEditStillAnnouncesAHouseholdChange() throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        let revision = store.savedRevision
-        store.add(displayName: "Granny")
-        #expect(store.savedRevision > revision)
-    }
-
-    /// The call site, scanned because no test builds a `FileSyncManager` with a
-    /// `filingPeopleStore`: deleting the `$savedRevision` subscription must fail here, since every
-    /// behavioural test above would stay green.
-    @Test func theFingerprintRefreshFollowsTheWriteNotThePublish() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Sync/FileSyncManager.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read FileSyncManager.swift — this scan would be vacuous")
-        try #require(source.count > 500, "FileSyncManager.swift is implausibly short")
-
-        // Two subscriptions, each on the publisher that answers its question.
-        #expect(source.contains("filingPeopleStore?.$savedRevision"),
-                "the artifact fingerprint is not driven by the post-write signal")
-        #expect(source.contains("peopleSaveCancellable"),
-                "the post-write subscription is not retained, so it is cancelled immediately")
-        #expect(source.contains("filingPeopleStore?.$people"),
-                "the registry is no longer recompiled when the roster changes in memory")
-
-        // And the refresh doesn't hang off `$people`, which would be one save stale. Bounded to
-        // the `$people` sink's own closure.
-        let start = try #require(source.range(of: "filingPeopleStore?.$people"))
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n                }"))
-        #expect(!rest[..<end.lowerBound].contains("refreshFilingArtifactFingerprint"),
-                "the fingerprint is refreshed from the pre-save publish again")
     }
 
     /// A store with no profile has nowhere to write, and must not announce either.

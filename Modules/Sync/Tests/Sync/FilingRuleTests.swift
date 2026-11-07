@@ -15,10 +15,7 @@ import Testing
         let disabled = FilingRule(tokens: ["invoice", "acme"], destinationPath: "/p/Docs/Invoices", enabled: false)
         let data = try JSONEncoder().encode(disabled)
         let decoded = try JSONDecoder().decode(FilingRule.self, from: data)
-        #expect(decoded == disabled)
-        #expect(decoded.enabled == false)
-        #expect(decoded.tokens == ["invoice", "acme"])
-        #expect(decoded.destinationPath == "/p/Docs/Invoices")
+        #expect(decoded == disabled)   // synthesized Equatable: enabled, tokens and path included
     }
 
     // A rule persisted without `enabled` must still decode, as enabled, or one legacy rule would

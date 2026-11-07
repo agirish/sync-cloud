@@ -10,11 +10,6 @@ import EventsTestSupport
 /// claim re-derived against the disk at apply time.
 @Suite struct FilingRenamePassTests {
 
-    private func write(_ url: URL, bytes: Int = 8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     /// A profile marking `rel` as an `ordinal-month` year bucket.
     private func profile(root: String, rel: String, year: String) -> FolderProfile {
@@ -31,6 +26,34 @@ import EventsTestSupport
             .filter { !$0.hasPrefix(".") }.sorted()
     }
 
+    /// The plan the pass derives for the year bucket `rel`, holding `files`, at `folder`.
+    @MainActor
+    private func plan(_ rel: String, _ files: [String], _ folder: String,
+                      _ manager: FileSyncManager) -> RenamePlan {
+        RenamePlanner.plan(folderPath: folder, relativePath: rel,
+                           files: files.map { FolderFile(path: "\(folder)/\($0)", name: $0) },
+                           entry: manager.filingFolderProfile?.folders[rel])
+    }
+
+    /// A file stub with its size and date stated: an attribute-less stub is synthesized as size 0
+    /// with no date, so bare stubs would be indistinguishable.
+    private static func stub(_ size: Int = 12) -> MockFileManager.FileStub {
+        MockFileManager.FileStub(isDirectory: false,
+                                 attributes: [.size: NSNumber(value: size),
+                                              .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+                                 contents: nil)
+    }
+
+    /// A mock disk holding `/prov` and `folder`, with `names` in it.
+    private func mockBucket(_ folder: String, _ names: [String]) throws -> MockFileManager {
+        let fm = MockFileManager()
+        for dir in ["/prov", folder] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        for name in names { fm.virtualDisk["\(folder)/\(name)"] = Self.stub() }
+        return fm
+    }
+
     // MARK: Scan
 
     @MainActor
@@ -39,9 +62,9 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("Utilities/PGE/2021")
         for (n, m) in [(1, "Mar"), (2, "Apr"), (10, "Dec")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
-        try write(root.appendingPathComponent("Inbox/.keep"))
+        try writeFilingFile(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
@@ -60,9 +83,9 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("Utilities/PGE/2021")
         for (n, m) in [("01", "Mar"), ("02", "Apr")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
-        try write(root.appendingPathComponent("Inbox/.keep"))
+        try writeFilingFile(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
@@ -79,17 +102,14 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("2021")
         for (n, m) in [(1, "Mar"), (2, "Apr"), (3, "May")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
 
         let manager = FileSyncManager()
         let undo = UndoManager()
         manager.undoManager = undo
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: bucket.path, relativePath: "2021",
-            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
         #expect(plan.steps.count == 3)
 
         await manager.applyRenamePlans([plan])
@@ -117,14 +137,11 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("2021")
         for (n, m) in [(1, "Mar"), (2, "Apr")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: bucket.path, relativePath: "2021",
-            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
         #expect(plan.steps.count == 2)
 
         // The tree changes while the plan is open: March is renamed by hand onto the name the plan
@@ -150,19 +167,16 @@ import EventsTestSupport
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("2021")
-        try write(bucket.appendingPathComponent("1. Mar 2021.pdf"), bytes: 8)
-        try write(bucket.appendingPathComponent("2. Apr 2021.pdf"), bytes: 8)
+        try writeFilingFile(bucket.appendingPathComponent("1. Mar 2021.pdf"), bytes: 8)
+        try writeFilingFile(bucket.appendingPathComponent("2. Apr 2021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: bucket.path, relativePath: "2021",
-            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
 
         // A different file lands on March's target between plan and apply, 20 bytes so a clobber
         // shows in the size, not only the listing.
-        try write(bucket.appendingPathComponent("01. Mar 2021.pdf"), bytes: 20)
+        try writeFilingFile(bucket.appendingPathComponent("01. Mar 2021.pdf"), bytes: 20)
         await manager.applyRenamePlans([plan])
 
         let survivor = try #require(try FileManager.default.attributesOfItem(
@@ -176,18 +190,15 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("2021")
         for (n, m) in [("01", "Mar"), ("02", "Apr"), ("03", "May")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
-        try write(bucket.appendingPathComponent("9829custbill02182021.pdf"))
+        try writeFilingFile(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         let undo = UndoManager()
         manager.undoManager = undo
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: bucket.path, relativePath: "2021",
-            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
         #expect(plan.renumbered == 3)
 
         await manager.applyRenamePlans([plan])
@@ -210,16 +221,13 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("2021")
         for (n, m) in [("01", "Mar"), ("02", "Apr"), ("03", "May")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
-        try write(bucket.appendingPathComponent("9829custbill02182021.pdf"))
+        try writeFilingFile(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: bucket.path, relativePath: "2021",
-            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
         #expect(plan.steps.count == 4)
 
         // May is renamed by hand to slot 01 while the plan is open. Three of the four steps would
@@ -242,9 +250,9 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("Utilities/PGE/2021")
         for (n, m) in [(1, "Mar"), (2, "Apr")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
         }
-        try write(root.appendingPathComponent("Inbox/.keep"))
+        try writeFilingFile(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
@@ -280,15 +288,12 @@ import EventsTestSupport
 
         let bucket = root.appendingPathComponent("2016")
         for (n, m) in [("07", "jul"), ("08", "Aug"), ("09", "Sep")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2016.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2016.pdf"), bytes: 8)
         }
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2016", year: "2016")
-        let plan = RenamePlanner.plan(
-            folderPath: bucket.path, relativePath: "2016",
-            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
-            entry: manager.filingFolderProfile?.folders["2016"])
+        let plan = self.plan("2016", try names(in: bucket), bucket.path, manager)
         // Exactly one step, changing nothing but case.
         #expect(plan.steps.map(\.proposedName) == ["07. Jul 2016.pdf"])
         #expect(plan.steps.first?.currentName == "07. jul 2016.pdf")
@@ -314,7 +319,7 @@ import EventsTestSupport
                      "this fixture only means anything on a case-INSENSITIVE volume")
         let lower = root.appendingPathComponent("07. jul 2016.pdf")
         let cased = root.appendingPathComponent("07. Jul 2016.pdf")
-        try write(lower)
+        try writeFilingFile(lower, bytes: 8)
 
         #expect(try FileSyncManager.safeMoveItem(at: lower, to: cased,
                                                  fileManager: FileManager.default) == nil)
@@ -357,28 +362,15 @@ import EventsTestSupport
     /// original.
     @MainActor
     @Test func aCohortThatFailsPartWayIsRolledBackToTheNumberingItStartedWith() async throws {
-        let fm = MockFileManager()
-        for dir in ["/prov", "/prov/2021"] {
-            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
-        }
         let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
                         "9829custbill02182021.pdf"]
-        for name in original {
-            fm.virtualDisk["/prov/2021/\(name)"] = MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: NSNumber(value: 12),
-                             .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
-                contents: nil)
-        }
+        let fm = try mockBucket("/prov/2021", original)
 
         let manager = FileSyncManager(fileManager: fm)
         let undo = UndoManager()
         manager.undoManager = undo
         manager.filingFolderProfile = profile(root: "/prov", rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: "/prov/2021", relativePath: "2021",
-            files: original.map { FolderFile(path: "/prov/2021/\($0)", name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", original, "/prov/2021", manager)
         // February takes slot 01 and the three months after it each move up: one cohort of four.
         #expect(plan.steps.count == 4)
         #expect(Set(plan.steps.map(\.cohort)).count == 1)
@@ -419,29 +411,15 @@ import EventsTestSupport
     /// the log names the folder, and the file stays in the undo group as the user's way back.
     @MainActor
     @Test func aRollbackThatCannotPutAFileBackSaysSoRatherThanOverwriting() async throws {
-        let fm = MockFileManager()
-        for dir in ["/prov", "/prov/2021"] {
-            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
-        }
-        func stub(_ size: Int) -> MockFileManager.FileStub {
-            MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: NSNumber(value: size),
-                             .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
-                contents: nil)
-        }
         let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
                         "9829custbill02182021.pdf"]
-        for name in original { fm.virtualDisk["/prov/2021/\(name)"] = stub(12) }
+        let fm = try mockBucket("/prov/2021", original)
 
         let manager = FileSyncManager(fileManager: fm)
         let undo = UndoManager()
         manager.undoManager = undo
         manager.filingFolderProfile = profile(root: "/prov", rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: "/prov/2021", relativePath: "2021",
-            files: original.map { FolderFile(path: "/prov/2021/\($0)", name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", original, "/prov/2021", manager)
         #expect(plan.steps.count == 4)
 
         // When the loop stats April's target: fail April's move and drop a 20-byte stranger onto
@@ -453,7 +431,7 @@ import EventsTestSupport
             armed = true
             fm.shouldFailMove = true
             fm.shouldFailMoveOnTempRename = true
-            fm.virtualDisk["/prov/2021/01. Mar 2021.pdf"] = stub(20)
+            fm.virtualDisk["/prov/2021/01. Mar 2021.pdf"] = Self.stub(20)
         }
 
         let log = LogCapture()
@@ -477,25 +455,12 @@ import EventsTestSupport
     /// move, and they are most of a real backlog.
     @MainActor
     @Test func anIndependentStepThatFailsTakesNothingElseWithIt() async throws {
-        let fm = MockFileManager()
-        for dir in ["/prov", "/prov/2021"] {
-            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
-        }
         let original = ["1. Mar 2021.pdf", "2. Apr 2021.pdf", "3. May 2021.pdf"]
-        for name in original {
-            fm.virtualDisk["/prov/2021/\(name)"] = MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: NSNumber(value: 12),
-                             .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
-                contents: nil)
-        }
+        let fm = try mockBucket("/prov/2021", original)
 
         let manager = FileSyncManager(fileManager: fm)
         manager.filingFolderProfile = profile(root: "/prov", rel: "2021", year: "2021")
-        let plan = RenamePlanner.plan(
-            folderPath: "/prov/2021", relativePath: "2021",
-            files: original.map { FolderFile(path: "/prov/2021/\($0)", name: $0) },
-            entry: manager.filingFolderProfile?.folders["2021"])
+        let plan = self.plan("2021", original, "/prov/2021", manager)
         // Three widenings, nothing arriving: no slot moves, so nothing is in a cohort.
         #expect(plan.steps.count == 3)
         #expect(plan.steps.allSatisfy { $0.cohort == 0 })
@@ -558,9 +523,9 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("PGE/2025")
         for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"), bytes: 8)
         }
-        try write(root.appendingPathComponent("Inbox/PGE DetailedBillApr2025.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Inbox/PGE DetailedBillApr2025.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
@@ -582,10 +547,10 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("PGE/2025")
         for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"), bytes: 8)
         }
         let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
-        try write(loose)
+        try writeFilingFile(loose, bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
@@ -608,10 +573,10 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("PGE/2025")
         for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
-            try write(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"))
+            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"), bytes: 8)
         }
         let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
-        try write(loose)
+        try writeFilingFile(loose, bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
@@ -678,9 +643,9 @@ import EventsTestSupport
         // The profile calls this folder `descriptive`, so there is no slot to take. The pass must
         // not rename into folders that never numbered anything.
         let bucket = root.appendingPathComponent("Manuals")
-        try write(bucket.appendingPathComponent("Thermostat.pdf"))
+        try writeFilingFile(bucket.appendingPathComponent("Thermostat.pdf"), bytes: 8)
         let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
-        try write(loose)
+        try writeFilingFile(loose, bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = FolderProfile(
@@ -703,18 +668,7 @@ import EventsTestSupport
     /// tell it from an empty one. One test, two halves: same file, folder and profile, differing
     /// only in whether the folder can be read.
     @Test func anUnreadableDestinationOffersNoSlotRatherThanTheFirstOne() throws {
-        let fm = MockFileManager()
-        for dir in ["/prov", "/prov/Bills"] {
-            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
-        }
-        // Sizes and dates stated: an attribute-less stub is synthesized as size 0 with no date, so
-        // bare stubs would be indistinguishable.
-        for name in ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"] {
-            fm.virtualDisk["/prov/Bills/\(name)"] = MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: NSNumber(value: 12), .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
-                contents: nil)
-        }
+        let fm = try mockBucket("/prov/Bills", ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"])
         let bills = URL(fileURLWithPath: "/prov/Bills")
         let profile = profile(root: "/prov", rel: "Bills", year: "2021")
 
@@ -752,9 +706,10 @@ import EventsTestSupport
         try makeCanonicalTempRoot(prefix: "RollbackOccupancy")
     }
 
-    /// The premise, on the real volume: after a case-only rename the old spelling still answers
+    /// The guard itself: the file being put back is not a stranger occupying its own old name. The
+    /// premise, on the real volume: after a case-only rename the old spelling still answers
     /// `fileExists`, so the bare probe can't tell a stranger from the file being put back.
-    @Test func aCaseOnlyRenameLeavesTheOldSpellingAnsweringFileExists() throws {
+    @Test func aCaseOnlyMemberIsNotItsOwnOccupant() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let lower = dir.appendingPathComponent("07. jul 2016.pdf")
@@ -773,17 +728,6 @@ import EventsTestSupport
                 "the old spelling stopped answering — the fold this guard exists for is gone")
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["07. Jul 2016.pdf"],
                 "fixture: there is exactly one file, under the new spelling")
-    }
-
-    /// The guard itself: the file being put back is not a stranger occupying its own old name.
-    @Test func aCaseOnlyMemberIsNotItsOwnOccupant() throws {
-        let dir = try makeDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let lower = dir.appendingPathComponent("07. jul 2016.pdf")
-        let upper = dir.appendingPathComponent("07. Jul 2016.pdf")
-        try Data("x".utf8).write(to: lower)
-        try FileManager.default.moveItem(at: lower, to: upper)
-        guard !FileSyncManager.volumeSupportsCaseSensitiveNames(for: dir) else { return }
 
         #expect(FileSyncManager.rollbackTargetIsOccupied(
             movedTo: upper, puttingBackTo: lower,

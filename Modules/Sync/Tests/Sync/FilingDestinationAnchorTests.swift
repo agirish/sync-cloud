@@ -11,22 +11,21 @@ import Foundation
 /// segments hang off; everything above what we are asked to create must already be there.
 @Suite struct FilingDestinationAnchorTests {
 
-    private func write(_ url: URL, bytes: Int = 512) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     /// The headline case: the anchor (`Documents/Vehicles`) is gone, so the two new segments have
-    /// nothing legitimate to hang off. Nothing is created and nothing moves.
+    /// nothing legitimate to hang off. Nothing is created and nothing moves. With the anchor PRESENT
+    /// the same call must still move the file and create the new segments, or the guard could be
+    /// satisfied by refusing everything.
     @MainActor
-    @Test func aVanishedAnchorRefusesTheMoveAndCreatesNothing() async throws {
+    @Test(arguments: [false, true])
+    func aVanishedAnchorRefusesTheMoveAndCreatesNothing(anchorLive: Bool) async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchor")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        try write(src)
-        // Deliberately NOT created: this is the provider subtree that has gone away.
+        try writeFilingFile(src, bytes: 512)
+        // Not created unless live: this is the provider subtree that has gone away.
         let anchor = root.appendingPathComponent("Documents/Vehicles")
+        if anchorLive { try writeFilingFile(anchor.appendingPathComponent(".keep"), bytes: 1) }
 
         let manager = FileSyncManager()
         let suggestion = FilingSuggestion(filePath: src.path, fileName: "Tesla Policy.pdf",
@@ -38,6 +37,13 @@ import Foundation
 
         let result = await manager.applyFilingSuggestion(suggestion, to: dest)
 
+        if anchorLive {
+            let moved = anchor.appendingPathComponent("Tesla/Insurance/Tesla Policy.pdf")
+            #expect(result == .moved)
+            #expect(FileManager.default.fileExists(atPath: moved.path))
+            #expect(!FileManager.default.fileExists(atPath: src.path))
+            return
+        }
         #expect(result == .failed)
         #expect(FileManager.default.fileExists(atPath: src.path), "the file must stay put")
         #expect(!FileManager.default.fileExists(atPath: anchor.path),
@@ -56,7 +62,7 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorPicked")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Statement.pdf")
-        try write(src)
+        try writeFilingFile(src, bytes: 512)
         let picked = root.appendingPathComponent("Documents/Statements")   // never created
 
         let manager = FileSyncManager()
@@ -71,33 +77,6 @@ import Foundation
         #expect(result == .failed)
         #expect(FileManager.default.fileExists(atPath: src.path))
         #expect(!FileManager.default.fileExists(atPath: picked.path))
-    }
-
-    /// Mutation guard: with the anchor PRESENT the same call must still move the file and create the
-    /// new segments. Without this the guard could be satisfied by refusing everything.
-    @MainActor
-    @Test func aLiveAnchorStillCreatesTheNewSegmentsAndMoves() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingAnchorLive")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let src = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        try write(src)
-        // The anchor exists this time; only Tesla/Insurance below it are new.
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-
-        let manager = FileSyncManager()
-        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Tesla Policy.pdf",
-                                          size: 512, modificationDate: nil, candidates: [])
-        let dest = FilingDestination(path: root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance").path,
-                                     confidence: .medium, reasons: [],
-                                     newSegments: ["Tesla", "Insurance"])
-        manager.filingSuggestions = [suggestion]
-
-        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
-
-        let moved = root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance/Tesla Policy.pdf")
-        #expect(result == .moved)
-        #expect(FileManager.default.fileExists(atPath: moved.path))
-        #expect(!FileManager.default.fileExists(atPath: src.path))
     }
 
     // MARK: The anchor derivation itself
@@ -157,45 +136,19 @@ import Foundation
 
     /// The batch path is what automations drive, so it gets its own coverage rather than riding on
     /// the single-file test: a vanished anchor must refuse there too, leaving every file in place.
+    /// "Nothing moved" is only evidence of a refusal if these suggestions would otherwise have been
+    /// filed, so the live case, differing ONLY in the anchor, files them: an ineligible batch (wrong
+    /// confidence, `fromContent`, `fromAI`) would move nothing for reasons unrelated to the anchor.
     @MainActor
-    @Test func theRecommendedBatchAlsoRefusesAVanishedAnchor() async throws {
+    @Test(arguments: [false, true])
+    func theRecommendedBatchAlsoRefusesAVanishedAnchor(anchorLive: Bool) async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorBatch")
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
         let b = root.appendingPathComponent("Downloads/Tesla Invoice.pdf")
-        try write(a); try write(b)
-        let anchor = root.appendingPathComponent("Documents/Vehicles")   // never created
-
-        let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
-                                     confidence: .high, reasons: [], newSegments: ["Tesla"])
-        let suggestions = [a, b].map {
-            FilingSuggestion(filePath: $0.path, fileName: $0.lastPathComponent, size: 512,
-                             modificationDate: nil, candidates: [dest], providerRoot: root.path)
-        }
-        let manager = FileSyncManager()
-        manager.filingSuggestions = suggestions
-
-        await manager.applyRecommendedFiling(suggestions)
-
-        #expect(FileManager.default.fileExists(atPath: a.path))
-        #expect(FileManager.default.fileExists(atPath: b.path))
-        #expect(!FileManager.default.fileExists(atPath: anchor.path))
-        #expect(manager.filingSuggestions.count == 2, "nothing filed, nothing dropped from the list")
-    }
-
-    /// Mutation guard for the batch test above. "Nothing moved" is only evidence of a refusal if
-    /// these suggestions would otherwise have been filed — an ineligible batch (wrong confidence,
-    /// `fromContent`, `fromAI`) would move nothing for reasons that have nothing to do with the
-    /// anchor, and the assertions above would pass while testing nothing at all.
-    @MainActor
-    @Test func theRecommendedBatchFilesTheSameSuggestionsWhenTheAnchorIsLive() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "FilingAnchorBatchLive")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let a = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        let b = root.appendingPathComponent("Downloads/Tesla Invoice.pdf")
-        try write(a); try write(b)
+        try writeFilingFile(a, bytes: 512); try writeFilingFile(b, bytes: 512)
         let anchor = root.appendingPathComponent("Documents/Vehicles")
-        try write(anchor.appendingPathComponent(".keep"), bytes: 1)   // the ONLY difference
+        if anchorLive { try writeFilingFile(anchor.appendingPathComponent(".keep"), bytes: 1) }
 
         let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
                                      confidence: .high, reasons: [], newSegments: ["Tesla"])
@@ -210,11 +163,18 @@ import Foundation
 
         await manager.applyRecommendedFiling(suggestions)
 
-        let filed = anchor.appendingPathComponent("Tesla")
-        #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("Tesla Policy.pdf").path))
-        #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("Tesla Invoice.pdf").path))
-        #expect(!FileManager.default.fileExists(atPath: a.path))
-        #expect(!FileManager.default.fileExists(atPath: b.path))
+        if anchorLive {
+            let filed = anchor.appendingPathComponent("Tesla")
+            #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("Tesla Policy.pdf").path))
+            #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("Tesla Invoice.pdf").path))
+            #expect(!FileManager.default.fileExists(atPath: a.path))
+            #expect(!FileManager.default.fileExists(atPath: b.path))
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        #expect(FileManager.default.fileExists(atPath: b.path))
+        #expect(!FileManager.default.fileExists(atPath: anchor.path))
+        #expect(manager.filingSuggestions.count == 2, "nothing filed, nothing dropped from the list")
     }
 
     /// The specific "no longer available" wording is reserved for the vanished-tree refusal. Any
@@ -225,11 +185,11 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGeneric")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Report.pdf")
-        try write(src)
+        try writeFilingFile(src, bytes: 512)
         // The anchor EXISTS but is a regular file, so `createDirectory` fails for a reason that has
         // nothing to do with a vanished tree.
         let blocker = root.appendingPathComponent("Documents/Vehicles")
-        try write(blocker, bytes: 4)
+        try writeFilingFile(blocker, bytes: 4)
 
         let manager = FileSyncManager()
         let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf", size: 512,
@@ -253,7 +213,7 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGone")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Report.pdf")
-        try write(src)
+        try writeFilingFile(src, bytes: 512)
         let folder = root.appendingPathComponent("Documents/Vehicles")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let manager = FileSyncManager()
@@ -280,9 +240,9 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorStale")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Report.pdf")
-        try write(src)
+        try writeFilingFile(src, bytes: 512)
         // The full destination exists NOW, though the suggestion still calls its leaves "new".
-        try write(root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance/.keep"), bytes: 1)
 
         let manager = FileSyncManager()
         let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf",

@@ -25,20 +25,11 @@ import Testing
         }
     }
 
-    private func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     /// A provider with two destination folders and `count` loose files. Two folders let the free and
     /// refine passes disagree, which makes "changed" testable.
     private func fixture(_ name: String, looseFiles count: Int = 2) throws -> URL {
-        let root = try makeCanonicalTempRoot(prefix: "Refine-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
-        for i in 0..<count { try write(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
-        return root
+        try refineFixture(prefix: "Refine-\(name)", looseFiles: count)
     }
 
     /// `freeDestination` is the scan's answer, `refineDestination` the refine pass's. Different
@@ -178,7 +169,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         // A second loose file with a word distinctive enough to key a rule on: a rule on
         // "mystery-0"'s one salient token would also steer any file sharing it.
-        try write(root.appendingPathComponent("Downloads/tesla-invoice.pdf"))
+        try writeFilingFile(root.appendingPathComponent("Downloads/tesla-invoice.pdf"))
         let asked = Asked()
         let m = manager(asked)
         m.filingRuleDefaults = ScratchDefaults("refineRemembered")
@@ -423,18 +414,9 @@ private actor AsyncGate {
         var count: Int { lock.lock(); defer { lock.unlock() }; return prompts }
     }
 
-    private func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     private func fixture(_ name: String) throws -> URL {
-        let root = try makeCanonicalTempRoot(prefix: "RefineReview-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/mystery-0.pdf"))
-        return root
+        try refineFixture(prefix: "RefineReview-\(name)", looseFiles: 1)
     }
 
     /// Cloud on in Settings but no usable key, so the router downgrades to on-device. The pass is
@@ -731,18 +713,13 @@ private actor AsyncGate {
         var reads: Int { lock.lock(); defer { lock.unlock() }; return n }
     }
 
-    private func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
 
     @Test func theRejectionStoreIsDecodedOncePerLoopNotOncePerSuggestion() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RefineRejectionReads")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
         let fileCount = 25
-        for i in 0..<fileCount { try write(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
+        for i in 0..<fileCount { try writeFilingFile(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
 
         let suite = "refineRejectionReads-\(UUID().uuidString)"
         let counting = try #require(CountingDefaults(name: suite, watching: FileSyncManager.rejectionsDefaultsKey))

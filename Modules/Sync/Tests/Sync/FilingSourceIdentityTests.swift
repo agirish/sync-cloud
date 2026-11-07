@@ -9,11 +9,6 @@ import Testing
 /// Automations' apply does. Real disk throughout: the identity is a real stat.
 @Suite @MainActor struct FilingSourceIdentityTests {
 
-    private static func write(_ url: URL, bytes: Int, fill: UInt8 = 0x41) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
 
     /// A scanned tree with one loose file and one existing folder to file it into.
     ///
@@ -23,8 +18,8 @@ import Testing
                                 contentTokens: Set<String> = []) async throws
         -> (root: URL, manager: FileSyncManager, card: FilingSuggestion, folder: FilingDestination) {
         let root = try makeCanonicalTempRoot(prefix: "FilingSourceIdentity")
-        try write(root.appendingPathComponent("Documents/Bills/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/\(fileName)"), bytes: 5000)
+        try writeFilingFile(root.appendingPathComponent("Documents/Bills/.keep"), bytes: 1)
+        try writeFilingFile(root.appendingPathComponent("Downloads/\(fileName)"), bytes: 5000)
         let m = FileSyncManager()
         // Content reading on explicitly: it is the default, but a stray `false` in the test
         // process's defaults would switch phase 2 off and leave the content test vacuous.
@@ -64,7 +59,7 @@ import Testing
         let src = URL(fileURLWithPath: card.filePath)
         // A re-download under the same name: different bytes, different size.
         try FileManager.default.removeItem(at: src)
-        try Self.write(src, bytes: 7000, fill: 0x42)
+        try writeFilingFile(src, bytes: 7000, fill: 0x42)
 
         let result = await m.applyFilingSuggestion(card, to: folder)
 
@@ -85,7 +80,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let src = URL(fileURLWithPath: card.filePath)
         try FileManager.default.removeItem(at: src)
-        try Self.write(src, bytes: 7000, fill: 0x42)
+        try writeFilingFile(src, bytes: 7000, fill: 0x42)
 
         #expect(await m.applyFilingSuggestion(card, to: folder) == .failed)
 
@@ -137,7 +132,7 @@ import Testing
 
         let src = URL(fileURLWithPath: card.filePath)
         try FileManager.default.removeItem(at: src)
-        try Self.write(src, bytes: 7000, fill: 0x42)
+        try writeFilingFile(src, bytes: 7000, fill: 0x42)
         let result = await m.applyFilingSuggestion(card, to: folder)
 
         #expect(result == .failed)

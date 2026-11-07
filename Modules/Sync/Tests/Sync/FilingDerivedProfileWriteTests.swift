@@ -245,7 +245,9 @@ import Testing
 
     /// A hand-built profile is never retired, even unprotected and inactive. It is the one
     /// artifact the app cannot rebuild, and `provenance` answers `handBuilt` for an absent or
-    /// unrecognised `builtBy` — the safe default by construction.
+    /// unrecognised `builtBy` — the safe default by construction. Nor is the active profile: it is
+    /// read from the INDEX, not taken from the caller, so a caller that has drifted (`protecting:
+    /// []` names nothing, and d1 is derived) cannot talk this into deleting the tree the app reads.
     @Test func aHandBuiltProfileIsNeverRetired() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -256,6 +258,8 @@ import Testing
         #expect(retired.isEmpty, "nothing was superseded but the hand-built root")
         #expect(try Self.ids(in: dir) == ["d1", "father"])
         #expect(FilingProfileStore.profile(id: "father", in: dir)?.provenance == .handBuilt)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "d1")
+        #expect(FilingProfileStore.profile(id: "d1", in: dir) != nil)
     }
 
     /// What the caller protects survives: the ledger pins the profile a landing was applied under,
@@ -274,20 +278,6 @@ import Testing
         // And the protected one is still re-pointable, which is the whole reason it was pinned.
         try FilingProfileStore.repointActiveProfile(to: "d1", in: dir)
         #expect(FilingProfileStore.activeProfileId(in: dir) == "d1")
-    }
-
-    /// The active profile is read from the INDEX, not taken from the caller — so a caller that
-    /// has drifted cannot talk this into deleting the tree the app is currently reading.
-    @Test func theActiveProfileIsNeverRetiredEvenIfTheCallerForgetsIt() throws {
-        let dir = Self.scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.handBuiltActive(in: dir)
-        try Self.derive("d1", from: "father", in: dir)
-
-        // `protecting: []` names nothing at all, d1 is derived, and it still survives.
-        _ = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir)
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "d1")
-        #expect(FilingProfileStore.profile(id: "d1", in: dir) != nil)
     }
 
     /// A row whose directory has already gone is pruned rather than skipped. Without this an

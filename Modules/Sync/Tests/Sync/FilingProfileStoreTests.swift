@@ -4,6 +4,10 @@ import Testing
 
 @Suite struct FilingProfileStoreTests {
 
+    private static func scratch() -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fps-\(UUID().uuidString)")
+    }
+
     static func makeProfiles(_ dir: URL, id: String = "father",
                              profile: String, memory: String?) throws {
         try FileManager.default.createDirectory(at: dir.appendingPathComponent(id),
@@ -42,8 +46,7 @@ import Testing
     """
 
     @Test func readsTheActiveProfileAndItsMemory() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: Self.memoryJSON)
 
@@ -73,8 +76,7 @@ import Testing
     /// `year` axis, so without the name fallback it lands in another family and is never compared
     /// with the years it belongs to.
     @Test func aYearInTheNameIsFoundWhenTheAxisIsMissing() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
         let p = try #require(FilingProfileStore.profile(id: "father", in: dir))
@@ -87,8 +89,7 @@ import Testing
     /// Inboxes are refused by the profile's own flag *and* by the path rule, because a tree grows
     /// new inboxes the survey never saw.
     @Test func inboxesAreRefusedAsDestinations() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
         let p = try #require(FilingProfileStore.profile(id: "father", in: dir))
@@ -98,19 +99,8 @@ import Testing
         #expect(p.acceptsNewFiles("Finance/US/Income Tax/2023"))
     }
 
-    /// A missing memory is ordinary, not a fault: the profile alone still routes.
-    @Test func aMissingMemoryStillYieldsAProfile() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
-        let loaded = try #require(FilingProfileStore.active(in: dir))
-        #expect(loaded.memory == nil)
-    }
-
     @Test func absentAndMalformedBothYieldNil() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         #expect(FilingProfileStore.active(in: dir) == nil)          // nothing there at all
         try Self.makeProfiles(dir, profile: "{ not json", memory: nil)
@@ -121,8 +111,7 @@ import Testing
     /// A future schema is refused, not half-read: decoded field by field, a new shape would become
     /// a mostly empty value that gets used, a silent wrong answer.
     @Test func aForeignSchemaIsRefusedRatherThanHalfRead() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let future = Self.memoryJSON.replacingOccurrences(of: "\"schemaVersion\":1",
                                                           with: "\"schemaVersion\":99")
@@ -136,8 +125,7 @@ import Testing
     /// `people.json` is read when present and supplies the full names, which a survey of folder
     /// names can't know and which make "Daughter Father" attributable to one person.
     @Test func aPeopleFileIsReadAndSuppliesTheFullNames() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
         try """
@@ -160,10 +148,10 @@ import Testing
     }
 
     /// With no `people.json` the registry is seeded from the profile's own axis, so aliases work on
-    /// a tree that has only been surveyed.
+    /// a tree that has only been surveyed. And a missing memory is ordinary, not a fault: the profile
+    /// alone still routes.
     @Test func withNoPeopleFileTheRegistryIsSeededFromTheProfile() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
 
@@ -171,13 +159,13 @@ import Testing
         #expect(loaded.registry.source == .profileAxis)
         #expect(Set(loaded.registry.people.map(\.id)) == ["father", "mother", "granny"])
         #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["granny"])
+        #expect(loaded.memory == nil)
     }
 
     /// The fingerprint moves when the roster does: it is mixed into every verdict cache key, and a
     /// changed roster changes the shortlist every file is asked about.
     @Test func theFingerprintMovesWhenThePeopleFileChanges() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
         let before = FilingProfileStore.fingerprint(id: "father", in: dir)
@@ -191,8 +179,7 @@ import Testing
     /// different. A digest without it could never recur once the file is fixed, so every paid
     /// verdict recorded under it would be unreachable (see `PeopleStore.savedRevision`).
     @Test func anUnreadablePeopleFileMakesTheFingerprintUnavailable() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         let fm = FileManager.default
         let people = dir.appendingPathComponent("father/people.json")
         defer {
@@ -210,8 +197,7 @@ import Testing
 
     /// A genuinely absent people.json stays an ordinary state: the other artifacts still digest.
     @Test func anAbsentPeopleFileStillYieldsAFingerprint() throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
 

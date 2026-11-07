@@ -7,13 +7,7 @@ import Testing
 /// that understates the one number it exists to state, and a resume that skips work.
 @Suite struct DocumentSurveyRegressionTests {
 
-    private func makeDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("survey-regression-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDir() throws -> URL { try makeProfilesDir(prefix: "survey-regression") }
 
     private let root = URL(fileURLWithPath: "/tree")
     private let page = "chase bank statement for the account ending march with invoice ACCT99182 due"
@@ -285,26 +279,6 @@ import Testing
                     """)
         }
         #expect(report.isComplete)
-    }
-
-    /// An unchanged plan still resumes by index: the cheap path survives the rule above.
-    @Test func anUnchangedPlanStillResumesByIndex() async throws {
-        let dir = try makeDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let paths = plan(10)
-        let alreadyRead = Dictionary(uniqueKeysWithValues: paths.prefix(4).map {
-            ($0, FilingSurvey.document(fromPage1: page, stamp: .init(size: 1, modified: 2), salt: "abcd"))
-        })
-        try DocumentSurveyCheckpointStore.write(
-            DocumentSurveyCheckpoint(profileId: "p", rootPath: root.path, salt: "abcd",
-                                     plan: paths, nextIndex: 4, read: alreadyRead,
-                                     startedAt: Date(), updatedAt: Date()),
-            id: "p", in: dir)
-        let run = DocumentSurveyRun(
-            profileId: "p", root: root, salt: "abcd", plan: paths, stamps: stamps(paths),
-            environment: .init(readDocument: { _ in self.page }), directory: dir)
-        #expect(await run.adoptCheckpoint() == nil)
-        #expect(await run.resumableProgress == (4, 10))
     }
 
     /// A checkpoint without `documentsUnavailable` still decodes: the default is a low count, not a

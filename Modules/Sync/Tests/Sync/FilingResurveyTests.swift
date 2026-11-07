@@ -56,6 +56,13 @@ import EventsTestSupport
         return (manager, docs, profiles, reads, root)
     }
 
+    /// The two artifacts a survey writes, and their bytes now.
+    static func artifactsBefore(_ profiles: URL) throws -> (corpus: URL, memory: URL, corpusBytes: Data, memoryBytes: Data) {
+        let corpus = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memory = profiles.appendingPathComponent("t/filing-memory.json")
+        return (corpus, memory, try Data(contentsOf: corpus), try Data(contentsOf: memory))
+    }
+
     // MARK: - A walk that read nothing must never be mistaken for an empty tree
 
     /// A root that can't be listed leaves both artifacts as they were. It comes back as one
@@ -67,10 +74,7 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
-        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
-        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
-        let corpusBefore = try Data(contentsOf: corpusURL)
-        let memoryBefore = try Data(contentsOf: memoryURL)
+        let (corpusURL, memoryURL, corpusBefore, memoryBefore) = try Self.artifactsBefore(profiles)
         let learnedBefore = try #require(manager.filingMemory).folders.count
         #expect(learnedBefore > 0, "fixture: there must be something to lose")
 
@@ -100,9 +104,7 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
-        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
-        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
-        let memoryBefore = try Data(contentsOf: memoryURL)
+        let (corpusURL, memoryURL, _, memoryBefore) = try Self.artifactsBefore(profiles)
         let learnedBefore = try #require(manager.filingMemory).folders.count
         #expect(learnedBefore > 0, "fixture: there must be something to lose")
 
@@ -140,12 +142,9 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
-        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
-        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let (corpusURL, memoryURL, corpusBefore, memoryBefore) = try Self.artifactsBefore(profiles)
         let fm = FileManager.default
         defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: corpusURL.path) }
-        let corpusBefore = try Data(contentsOf: corpusURL)
-        let memoryBefore = try Data(contentsOf: memoryURL)
         let learnedBefore = try #require(manager.filingMemory).folders.count
         #expect(learnedBefore > 0, "fixture: there must be something to lose")
 
@@ -180,12 +179,9 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
 
-        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
-        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let (corpusURL, memoryURL, corpusBefore, memoryBefore) = try Self.artifactsBefore(profiles)
         let fm = FileManager.default
         defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: memoryURL.path) }
-        let corpusBefore = try Data(contentsOf: corpusURL)
-        let memoryBefore = try Data(contentsOf: memoryURL)
 
         // The state a launch reaches with an unreadable memory: nothing was loaded from it.
         manager.filingMemory = nil
@@ -348,20 +344,6 @@ import EventsTestSupport
 
     // MARK: - The cost claim
 
-    /// A tree that hasn't changed costs no document reads.
-    @Test func aSecondSurveyOfAnUnchangedTreeReadsNothing() async throws {
-        let (manager, docs, _, reads, root) = try Self.makeTree()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let first = await manager.resurveyFilingMemory(root: docs)
-        #expect(first.documentsRead == 4)
-        #expect(reads.paths.count == 4)
-
-        reads.reset()
-        let second = await manager.resurveyFilingMemory(root: docs)
-        #expect(second.documentsRead == 0)
-        #expect(reads.paths.isEmpty)
-    }
-
     /// One new document in a four-document tree costs one read, not four.
     @Test func onlyTheNewDocumentIsRead() async throws {
         let (manager, docs, _, reads, root) = try Self.makeTree()
@@ -399,16 +381,22 @@ import EventsTestSupport
     // MARK: - Not disturbing what it did not change
 
     /// A survey that finds nothing must not rewrite the memory. Its bytes are hashed into every
-    /// cached verdict's key, so a fresh timestamp alone would throw away the verdict cache.
+    /// cached verdict's key, so a fresh timestamp alone would throw away the verdict cache. And a
+    /// tree that hasn't changed costs no document reads.
     @Test func anUnchangedSurveyLeavesTheArtifactByteIdentical() async throws {
-        let (manager, docs, profiles, _, root) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
-        _ = await manager.resurveyFilingMemory(root: docs)
+        let first = await manager.resurveyFilingMemory(root: docs)
+        #expect(first.documentsRead == 4)
+        #expect(reads.paths.count == 4)
         let url = FilingSurveyStore.memoryURL(id: "t", in: profiles)
         let before = try Data(contentsOf: url)
         let fingerprint = manager.filingArtifactFingerprint
 
+        reads.reset()
         let report = await manager.resurveyFilingMemory(root: docs)
+        #expect(report.documentsRead == 0)
+        #expect(reads.paths.isEmpty)
         #expect(!report.changed)
         #expect(try Data(contentsOf: url) == before)
         #expect(manager.filingArtifactFingerprint == fingerprint)
@@ -470,9 +458,10 @@ import EventsTestSupport
 
     /// A document the extractor returns nothing for (an image-only scan) is stamped once and left
     /// alone. Distinct from the glyph-soup case, which does return text: a survey that stamped only
-    /// what it read would reopen this file forever.
+    /// what it read would reopen this file forever. It is also the other direction of the eviction
+    /// guard below, so that guard can't become "never stamp a blank".
     @Test func aDocumentThatYieldsNothingIsStillStamped() async throws {
-        let (manager, docs, _, reads, root) = try Self.makeTree()
+        let (manager, docs, profiles, reads, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
         try Self.write(docs.appendingPathComponent("Health/Kaiser/imageonly.pdf"), "")
         manager.filingSnippetExtractor = { path in
@@ -481,6 +470,9 @@ import EventsTestSupport
         }
         _ = await manager.resurveyFilingMemory(root: docs)
         #expect(reads.paths.contains { $0.hasSuffix("imageonly.pdf") })
+        let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
+        #expect(corpus.documents.keys.contains { $0.hasSuffix("imageonly.pdf") },
+                "a readable-but-empty document must be stamped, or it is reopened every survey")
 
         reads.reset()
         let second = await manager.resurveyFilingMemory(root: docs)
@@ -562,30 +554,6 @@ import EventsTestSupport
         #expect(reads.paths.contains { $0.hasSuffix("offloaded.pdf") })
     }
 
-    /// The other direction, so the guard above can't become "never stamp a blank": a document that
-    /// is there and yields nothing is still stamped once. Same fixture as
-    /// ``aDocumentThatYieldsNothingIsStillStamped``, against the availability seam.
-    @Test func aBlankFromAFileThatIsStillThereIsStillStamped() async throws {
-        let (manager, docs, profiles, reads, root) = try Self.makeTree()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Self.write(docs.appendingPathComponent("Health/Kaiser/imageonly.pdf"), "")
-        manager.filingDocumentIsAvailable = { _ in true }
-        manager.filingSnippetExtractor = { path in
-            reads.note(path)
-            return path.hasSuffix("imageonly.pdf") ? nil : (try? String(contentsOfFile: path, encoding: .utf8))
-        }
-        _ = await manager.resurveyFilingMemory(root: docs)
-
-        let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
-        #expect(corpus.documents.keys.contains { $0.hasSuffix("imageonly.pdf") },
-                "a readable-but-empty document must be stamped, or it is reopened every survey")
-
-        reads.reset()
-        let second = await manager.resurveyFilingMemory(root: docs)
-        #expect(second.documentsRead == 0)
-        #expect(reads.paths.isEmpty)
-    }
-
     // MARK: - The folder the artifacts came from is the identity, not the field inside them
 
     /// A re-survey writes back to the folder it read from. The folder is the profile's identity
@@ -613,22 +581,10 @@ import EventsTestSupport
         #expect(!FileManager.default.fileExists(
             atPath: profiles.appendingPathComponent("default").path),
                 "nothing may be written under the field's name; that folder is where reads never go")
-    }
 
-    /// The republished fingerprint outlives the pass, so it gets its own assertion. Keyed on the
-    /// field, it would hash a folder with no artifacts: a digest disagreeing with every cached
-    /// verdict until the next launch.
-    @Test func theRepublishedFingerprintIsTakenFromTheFolderNotTheField() async throws {
-        let (manager, docs, profiles, _, root) = try Self.makeTree()
-        defer { try? FileManager.default.removeItem(at: root) }
-        manager.filingFolderProfile = FolderProfile(profileId: "default", root: docs.path,
-                                                    folders: [:], personTokens: [])
-        manager.filingProfileDirectoryId = "work"
-
-        _ = await manager.resurveyFilingMemory(root: docs)
-
-        let expected = FilingProfileStore.fingerprint(id: "work", in: profiles)
-        #expect(manager.filingArtifactFingerprint == expected)
+        // The republished fingerprint outlives the pass. Keyed on the field, it would hash a folder
+        // with no artifacts: a digest disagreeing with every cached verdict until the next launch.
+        #expect(manager.filingArtifactFingerprint == FilingProfileStore.fingerprint(id: "work", in: profiles))
         // Not the empty-folder digest: `""` recurs, so it would look like a stable answer forever.
         #expect(manager.filingArtifactFingerprint != FilingProfileStore.fingerprint(id: "default",
                                                                                    in: profiles))
@@ -775,10 +731,7 @@ import EventsTestSupport
         let (manager, docs, profiles, reads, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
-        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
-        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
-        let corpusBefore = try Data(contentsOf: corpusURL)
-        let memoryBefore = try Data(contentsOf: memoryURL)
+        let (corpusURL, memoryURL, corpusBefore, memoryBefore) = try Self.artifactsBefore(profiles)
         #expect(try #require(FilingSurveyStore.corpus(id: "t", in: profiles)).documents.count == 4,
                 "fixture: there must be something to lose")
 
@@ -811,10 +764,7 @@ import EventsTestSupport
         let (manager, docs, profiles, reads, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
-        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
-        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
-        let corpusBefore = try Data(contentsOf: corpusURL)
-        let memoryBefore = try Data(contentsOf: memoryURL)
+        let (corpusURL, memoryURL, corpusBefore, memoryBefore) = try Self.artifactsBefore(profiles)
 
         manager.filingFolderProfile = try JSONDecoder().decode(FolderProfile.self,
                                                                from: Data(profileJSON.utf8))

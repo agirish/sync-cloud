@@ -14,16 +14,6 @@ import EventsTestSupport
 /// (`docs/flaky-tests.md`, "Tests racing a real-time window").
 @Suite @MainActor struct DocumentSurveyVerbsTests {
 
-    /// Polls `condition` until it holds or `seconds` pass, and says which.
-    private func waitUntil(seconds: Double, _ condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return condition()
-    }
-
     /// The run, in a task the test can wait on with a deadline: a run that never resumes must fail
     /// here, not hang the suite.
     private final class Running {
@@ -58,14 +48,12 @@ import EventsTestSupport
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let running = start(manager, plan)
 
-        let paused = await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal }
-        #expect(paused, "premise: the heat never paused the run, so the rest proves nothing")
+        await waitUntil("premise: the heat never paused the run, so the rest proves nothing", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
         #expect(reads.paths.isEmpty, "premise: it read while paused")
 
         await manager.resumeDocumentSurvey()
 
-        let done = await waitUntil(seconds: 20) { running.finished }
-        #expect(done, "Resume now left the survey paused — the Mac is still hot, and it waited")
+        await waitUntil("Resume now left the survey paused — the Mac is still hot, and it waited", timeout: 20) { running.finished }
         #expect(reads.paths.count == plan.total)
         await finish(manager, running)
     }
@@ -80,16 +68,15 @@ import EventsTestSupport
         manager.machineConditions = { machine.now }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let running = start(manager, plan)
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .lowPower })
+        await waitUntil("the card never showed the pause for Low Power Mode", timeout: 20) { manager.documentSurveyProgress?.pause == .lowPower }
 
         await manager.resumeDocumentSurvey()
         // Before the next poll: Low Power Mode stays on and the display goes to sleep.
         machine.now = MachineConditions(displayAsleep: true, lowPowerMode: true)
 
-        let pausedAgain = await waitUntil(seconds: 20) {
+        await waitUntil("a sleeping display was read through on a waiver given for Low Power Mode", timeout: 20) {
             manager.documentSurveyProgress?.pause == .displayAsleep
         }
-        #expect(pausedAgain, "a sleeping display was read through on a waiver given for Low Power Mode")
         #expect(!running.finished)
         await finish(manager, running)
     }
@@ -103,14 +90,13 @@ import EventsTestSupport
         manager.machineConditions = { MachineConditions(heat: .critical) }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let running = start(manager, plan)
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await waitUntil("the card never showed the pause for heat", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
         await manager.pauseDocumentSurvey()
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .user })
+        await waitUntil("the card never showed the person’s Pause", timeout: 20) { manager.documentSurveyProgress?.pause == .user }
 
         await manager.resumeDocumentSurvey()
 
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal },
-                "Resume after Pause did not hand the card back to the heat")
+        await waitUntil("Resume after Pause did not hand the card back to the heat", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
         #expect(reads.paths.isEmpty, "the heat was waived by a click that only undid a Pause")
         await finish(manager, running)
     }
@@ -196,8 +182,7 @@ import EventsTestSupport
         }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let result = Task { @MainActor in await manager.runDocumentSurvey(plan: plan) }
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal },
-                "premise: the run never paused, so the rest proves nothing")
+        await waitUntil("premise: the run never paused, so the rest proves nothing", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
 
         let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
 
@@ -223,7 +208,7 @@ import EventsTestSupport
         manager.machineConditions = { MachineConditions(heat: .serious) }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let running = start(manager, plan)
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await waitUntil("the card never showed the pause for heat", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
 
         let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
 
@@ -256,10 +241,9 @@ import EventsTestSupport
         manager.machineConditions = { MachineConditions(heat: machine.hot ? .serious : .nominal) }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let first = start(manager, plan)
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await waitUntil("the card never showed the pause for heat", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
         await manager.pauseDocumentSurvey()
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .user },
-                "premise: the person's Pause never showed")
+        await waitUntil("premise: the person's Pause never showed", timeout: 20) { manager.documentSurveyProgress?.pause == .user }
 
         #expect(await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs) == .stopped(plan.root))
         await first.task?.value
@@ -293,7 +277,7 @@ import EventsTestSupport
         manager.machineConditions = { MachineConditions(heat: .serious) }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let running = start(manager, plan)
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await waitUntil("the card never showed the pause for heat", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
         manager.restructureLandingInProgress = true
 
         let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
@@ -311,9 +295,9 @@ import EventsTestSupport
         manager.machineConditions = { MachineConditions(heat: .serious) }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let running = start(manager, plan)
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .thermal })
+        await waitUntil("the card never showed the pause for heat", timeout: 20) { manager.documentSurveyProgress?.pause == .thermal }
         await manager.pauseDocumentSurvey()
-        #expect(await waitUntil(seconds: 20) { manager.documentSurveyProgress?.pause == .user })
+        await waitUntil("the card never showed the person’s Pause", timeout: 20) { manager.documentSurveyProgress?.pause == .user }
         return running
     }
 
@@ -386,7 +370,7 @@ import EventsTestSupport
         manager.documentSurveyStopWait = .milliseconds(300)
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         let result = Task { @MainActor in await manager.runDocumentSurvey(plan: plan) }
-        #expect(await waitUntil(seconds: 20) { gate.entered }, "premise: no document read began")
+        await waitUntil("premise: no document read began", timeout: 20) { gate.entered }
 
         let stopped = await manager.stopDocumentSurveyBeforeReplacingProfile(savingFolder: docs)
 

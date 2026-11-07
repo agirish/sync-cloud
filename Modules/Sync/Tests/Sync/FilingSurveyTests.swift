@@ -47,22 +47,15 @@ import Testing
         #expect(tree.documents == ["Home/Utilities/bill.pdf": FilingSurvey.Stamp(size: 42, modified: 333)])
     }
 
-    /// A folder the walk stopped at has children nobody looked at, so its mtime must not be recorded
-    /// as vouching for them, or the next survey would skip it for good.
-    @Test func flattenRefusesToStampAnUnexploredFolder() {
-        var capped = Self.folder("Deep", modified: 999, [])
-        capped.isUnexplored = true
-        let tree = FilingSurvey.flatten([Self.folder("Home", modified: 111, [capped])])
-        #expect(tree.folders == ["Home": 111])
-    }
-
     /// A folder the walk stopped at is recorded as unexplored, not merely skipped, so "nobody looked
     /// here" reads differently from "these are gone" (see
-    /// `aDocumentUnderAnUnwalkedFolderIsNotDropped`).
+    /// `aDocumentUnderAnUnwalkedFolderIsNotDropped`). Its children are unlooked-at, so its mtime is
+    /// not recorded as vouching for them, or the next survey would skip it for good.
     @Test func flattenRemembersWhichFoldersItCouldNotEnter() {
         var capped = Self.folder("Deep", modified: 999, [])
         capped.isUnexplored = true
         let tree = FilingSurvey.flatten([Self.folder("Home", modified: 111, [capped])])
+        #expect(tree.folders == ["Home": 111])
         #expect(tree.unexplored == ["Home/Deep"])
         #expect(tree.wasNotWalked("Home/Deep/tax return.pdf"))
         #expect(!tree.wasNotWalked("Home/bill.pdf"), "a walked branch must not be excused")

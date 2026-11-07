@@ -125,30 +125,4 @@ import Testing
             identity: nil, pageSample: nil))
         #expect(veto.reported == nil, "a token-only refusal has no names to report")
     }
-
-    // MARK: Both paid paths ask it
-
-    /// The call sites: both paid paths must actually call the shared rule.
-    @Test func bothPaidPathsRunTheirVerdictThroughTheVeto() throws {
-        let dir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Sync")
-        for file in ["FilingEngine.swift", "FileSyncManager+Filing.swift"] {
-            let source = try #require(try? String(contentsOf: dir.appendingPathComponent(file),
-                                                  encoding: .utf8),
-                                      "cannot read \(file) — this scan would be vacuous")
-            try #require(source.count > 500, "\(file) is implausibly short")
-            // Calls, not occurrences: `FilingEngine.swift` declares `personVeto`, so a bare
-            // `contains` would match the declaration and survive deleting every call.
-            let occurrences = source.components(separatedBy: "personVeto(").count - 1
-            let declarations = source.components(separatedBy: "func personVeto(").count - 1
-            #expect(occurrences - declarations >= 1,
-                    "\(file) resolves a backend verdict without the cross-person rule (\(occurrences) occurrence(s), \(declarations) of them the declaration)")
-        }
-        // The refine reaches it through `applyVerdicts`, where its own guards live.
-        let refine = try #require(try? String(contentsOf: dir.appendingPathComponent("FileSyncManager+FilingRefine.swift"),
-                                              encoding: .utf8))
-        #expect(refine.contains("FilingEngine.applyVerdicts("),
-                "the refine no longer runs its verdicts through the guards")
-    }
 }

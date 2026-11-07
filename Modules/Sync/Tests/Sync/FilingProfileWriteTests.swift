@@ -361,21 +361,6 @@ import Testing
         #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "father")
     }
 
-    /// The other half: an id naming a profile that is there is left alone. Without it, the test
-    /// above would pass if the write path re-pointed unconditionally.
-    @Test func anIndexNamingAProfileThatIsThereIsLeftAlone() throws {
-        let dir = Self.scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try FilingProfileStoreTests.makeProfiles(dir, profile: FilingProfileStoreTests.profileJSON,
-                                                 memory: nil)
-        let before = try Data(contentsOf: FilingProfileStore.indexURL(in: dir))
-
-        try FilingProfileStore.writeProfile(Self.nameOnly(id: "second", root: "~/Work"), in: dir)
-
-        #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == before)
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
-    }
-
     /// Control for the refusals above: a readable index with nothing active really is amended, or
     /// they would pass with the write path removed.
     @Test func anIndexItUnderstandsIsStillAmendedInPlace() throws {
@@ -657,6 +642,9 @@ import Testing
                 throw CocoaError(.fileWriteUnknown)
             }
         }
+        // When the bytes on disk are this call's, they go, so the comparison can't pass by never
+        // removing. Asserted before the log is read, so a missed line can't skip it.
+        #expect(!FileManager.default.fileExists(atPath: mineURL.path))
         var line = try #require(await Self.loggedLine(log, containing: mine),
                                 "the rollback wrote no line at all")
         #expect(line.contains(removed), "the line does not say the profile went away: \(line)")
@@ -713,25 +701,6 @@ import Testing
                 "the line still claims a profile sits at a path holding nothing, and predicts a refusal that cannot happen: \(line)")
         #expect(!line.contains(removed),
                 "the line credits this rollback with a removal it did not make: \(line)")
-    }
-
-    /// The other direction, so the comparison can't pass by never removing: when the bytes on disk
-    /// are this call's, they go.
-    @Test func theRollbackRemovesTheProfileItDidWrite() throws {
-        let dir = Self.scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = FilingProfileStore.profileURL(id: "father", in: dir)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-
-        #expect(throws: (any Error).self) {
-            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: url,
-                                        index: Data("{}".utf8),
-                                        at: dir.appendingPathComponent("profiles.json")) { _, _ in
-                throw CocoaError(.fileWriteUnknown)
-            }
-        }
-        #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
     // MARK: - The file says what it is

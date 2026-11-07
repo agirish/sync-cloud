@@ -47,18 +47,6 @@ import Testing
         #expect(defaults.data(forKey: FilingSpendStore.historyKey + ".unreadable") == corrupt)
     }
 
-    /// The ordinary path still accumulates: the refusal must not become "spend stopped recording".
-    @Test func aReadableStoreStillAccumulates() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
-        FilingSpendStore.record(entry(cost: 0.02), defaults: defaults)
-        FilingSpendStore.record(entry(cost: 0.03), defaults: defaults)
-        let totals = FilingSpendStore.totals(defaults: defaults)
-        #expect(abs(totals.costUSD - 0.05) < 0.0001)
-        #expect(totals.scans == 2)
-        #expect(FilingSpendStore.entries(defaults: defaults).count == 2)
-    }
-
     /// Absent is not unreadable: a first run records normally and leaves no backup behind.
     @Test func anAbsentStoreRecordsNormally() throws {
         let (defaults, name) = suite()

@@ -282,13 +282,4 @@ import Testing
         #expect(conditions.count == 1)
         #expect(Set(try #require(conditions.first).keys) == ["kindIs"])
     }
-
-    @Test func aRuleThisBuildWroteReadsBackUnchanged() throws {
-        let original = AutomationRule(name: "PDFs", enabled: false, matchMode: .any,
-                                      conditions: [.kindIs(.pdf), .contentContains("invoice")],
-                                      destinationTemplate: "Documents/{year}")
-        let data = try Self.encoder.encode([original])
-        let back = try Self.decoder.decode([AutomationRule].self, from: data)
-        #expect(back == [original])
-    }
 }

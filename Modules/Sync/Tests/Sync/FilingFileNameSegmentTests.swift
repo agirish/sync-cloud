@@ -16,6 +16,7 @@ import Testing
         #expect(FilingEngine.looksLikeAFileName("statement.PDF"))
         #expect(FilingEngine.looksLikeAFileName("scan.jpeg"))
         #expect(FilingEngine.looksLikeAFileName("data.7z"))
+        #expect(FilingEngine.looksLikeAFileName("415059.jpeg"))
     }
 
     /// A folder that merely contains a dot is not a document.
@@ -24,6 +25,8 @@ import Testing
         #expect(!FilingEngine.looksLikeAFileName("Dr. Smith"))
         #expect(!FilingEngine.looksLikeAFileName("Form 1099-B"))
         #expect(!FilingEngine.looksLikeAFileName("Immigration"))
+        #expect(!FilingEngine.looksLikeAFileName("2024-2026"))
+        #expect(!FilingEngine.looksLikeAFileName(".hidden"))
     }
 
     /// The precedence case. A non-ASCII digit after the final dot is not an extension; the rule's

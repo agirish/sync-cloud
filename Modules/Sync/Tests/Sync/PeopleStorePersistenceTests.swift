@@ -10,13 +10,7 @@ import Foundation
 @MainActor
 @Suite struct PeopleStorePersistenceTests {
 
-    private func makeDirectory() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("people-store-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDirectory() throws -> URL { try makeProfilesDir(prefix: "people-store") }
 
     private func write(_ json: String, to dir: URL) throws {
         try Data(json.utf8).write(to: dir.appendingPathComponent("p/people.json"))
@@ -53,15 +47,25 @@ import Foundation
 
     // MARK: - The bug
 
+    /// The edit itself lands too, or this would also pass if `save()` did nothing. And it is the
+    /// non-vacuity case for the unreadable-roster guards below: if the guard read "any file at
+    /// all", every edit would stop saving and they would still pass.
     @Test func anEditKeepsTheNoteAndAnythingElseInTheFile() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         try write(Self.handWritten, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        #expect(store.rosterIsUnreadable == false)
         store.add(displayName: "Mother")            // any edit at all rewrites the whole file
 
         let saved = try read(dir)
+        let people = try #require(saved["people"] as? [[String: Any]])
+        #expect(people.count == 2)
+        #expect(Set(people.compactMap { $0["id"] as? String }) == ["father", "mother"])
+        #expect(people.compactMap { $0["displayName"] as? String }.sorted() == ["Father", "Mother"],
+                "the edit must still be written")
+        #expect(saved["schemaVersion"] as? Int == FilingProfileStore.currentSchema)
         #expect(saved["_note"] as? String
                 == "Uncle is on this roster because the tree already files for him.",
                 "the note the user wrote was dropped by an edit made in the app")
@@ -69,22 +73,6 @@ import Foundation
         #expect(carried?["kind"] as? String == "whatever")
         #expect(carried?["n"] as? Int == 3,
                 "a key a newer build wrote must survive a round trip through this one")
-    }
-
-    /// Non-vacuity: the edit itself lands. The test above would also pass if `save()` did nothing.
-    @Test func theEditItselfIsWritten() throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try write(Self.handWritten, to: dir)
-
-        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Mother")
-
-        let saved = try read(dir)
-        let people = try #require(saved["people"] as? [[String: Any]])
-        #expect(people.count == 2)
-        #expect(Set(people.compactMap { $0["id"] as? String }) == ["father", "mother"])
-        #expect(saved["schemaVersion"] as? Int == FilingProfileStore.currentSchema)
     }
 
     /// A carried key can never shadow one the app owns. Keys are captured at load and re-applied at
@@ -289,23 +277,6 @@ import Foundation
         #expect(dest == target, "the symlink was replaced by a plain file the app wrote")
     }
 
-    /// Non-vacuity: if the guard read "any file at all", every edit would stop saving and the two
-    /// tests above would still pass. A readable roster must save exactly as before.
-    @Test func aReadableRosterStillSavesEveryEdit() throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try write(Self.handWritten, to: dir)
-
-        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        #expect(store.rosterIsUnreadable == false)
-        store.add(displayName: "Mother")
-
-        let saved = try read(dir)
-        let names = (saved["people"] as? [[String: Any]])?.compactMap { $0["displayName"] as? String }
-        #expect(names?.sorted() == ["Father", "Mother"], "the edit must still be written")
-        #expect(saved["_note"] as? String == "Uncle is on this roster because the tree already files for him.")
-    }
-
     // MARK: - The same failure inside a person record
 
     /// A key written on a person must survive an edit to anybody. `Person` models five keys and
@@ -328,19 +299,8 @@ import Foundation
         // And the modelled fields still round-trip, so the merge did not replace the record.
         #expect(father["displayName"] as? String == "Father")
         #expect(father["fullNames"] as? [String] == ["Father Elder"])
-    }
-
-    /// A person with no extras gains none, and the new person is written normally: the merge must
-    /// not invent keys or skip records it has nothing for.
-    @Test func recordsWithNothingCarriedAreUntouched() throws {
-        let dir = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try write(Self.handWrittenPerPerson, to: dir)
-
-        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Mother")
-
-        let people = try #require(try read(dir)["people"] as? [[String: Any]])
+        // A person with no extras gains none, and the new person is written normally: the merge
+        // must not invent keys or skip records it has nothing for.
         let granny = try #require(people.first { $0["id"] as? String == "granny" })
         #expect(Set(granny.keys) == ["id", "displayName"])
         let mother = try #require(people.first { $0["displayName"] as? String == "Mother" })

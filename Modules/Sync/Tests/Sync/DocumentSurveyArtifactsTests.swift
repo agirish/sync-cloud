@@ -9,13 +9,7 @@ import Testing
 /// is that they agree, including in fields a reader wouldn't notice.
 @Suite struct DocumentSurveyArtifactsTests {
 
-    private func makeDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("survey-artifacts-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDir() throws -> URL { try makeProfilesDir(prefix: "survey-artifacts") }
 
     /// A small tree: three folders, two documents apiece, each folder with its own mtime.
     private func tree() -> FilingSurvey.Tree {
@@ -82,26 +76,6 @@ import Testing
         let bad = FilingSurvey.buildMemory(corpus: corpus, folderModified: [:], profileId: "p")
         #expect(!FilingSurvey.staleFolders(tree: tree, memory: bad).isEmpty,
                 "dropping the walk's folder stamps changed nothing — this test cannot fail")
-    }
-
-    /// The two producers agree. Given identical reads over an identical tree, the corpus the
-    /// document survey composes and the one the incremental pass composes are the same value —
-    /// which is what lets `resurveyFilingMemory` take over the moment this finishes.
-    @Test func theTwoProducersComposeTheSameCorpus() {
-        let tree = tree()
-        let salt = "abcd"
-        let reads = read(tree, salt: salt)
-
-        // The document survey's composition: an empty corpus plus everything it read.
-        let fromSurvey = FilingSurvey.merge(corpus: FilingCorpus(profileId: "p", salt: salt),
-                                            tree: tree, read: reads)
-        // The incremental pass's, on a tree it has never seen: the same call, and that is the
-        // point — the survey uses the established function rather than a second implementation.
-        let fromResurvey = FilingSurvey.merge(corpus: FilingCorpus(profileId: "p", salt: salt),
-                                              tree: tree, read: reads)
-
-        #expect(fromSurvey.documents == fromResurvey.documents)
-        #expect(fromSurvey.salt == fromResurvey.salt)
     }
 
     /// The corpus and memory land as one pair, and the checkpoint is gone once they have.

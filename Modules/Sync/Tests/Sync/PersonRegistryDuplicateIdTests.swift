@@ -93,6 +93,8 @@ import Testing
         #expect(duplicated.detect(in: "Elder statement.pdf") == ["elder"])
     }
 
+    /// And a duplicated roster lists each phrase once, so the matcher never has two identical
+    /// candidates for one person.
     @Test func aRepeatedIdKeepsItsTokensInTheStrongMap() {
         let registry = PersonRegistry(people: [
             Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
@@ -100,15 +102,6 @@ import Testing
         ])
         #expect(registry.strong["kulkarni"] == "elder")
         #expect(registry.detect(in: "Kulkarni tax notice.pdf") == ["elder"])
-    }
-
-    /// A duplicated roster lists each phrase once, so the matcher never has two identical
-    /// candidates for one person.
-    @Test func aRepeatedIdIsNotPhraseMatchedTwice() {
-        let registry = PersonRegistry(people: [
-            Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
-            Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
-        ])
         #expect(registry.phrases.filter { $0.display == "Elder Kulkarni" }.count == 1,
                 "the same phrase is registered twice for one person")
     }

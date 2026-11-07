@@ -88,7 +88,8 @@ import EventsTestSupport
     }
 
     /// A structurally broken tag, such as one naming no document, costs only itself, and the loop
-    /// still advances past it.
+    /// still advances past it. And an entry this build can't read is a judgement, not litter: it is
+    /// kept, not swallowed and then deleted by the next save with nothing on screen or in the log.
     @Test func aMalformedTagCostsOnlyItself() throws {
         let broken = """
             {
@@ -103,22 +104,6 @@ import EventsTestSupport
         let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
         #expect(file.tags.map(\.personId) == ["son", "granny"],
                 "the two readable tags after the broken ones must survive")
-    }
-
-    /// An entry this build can't read is a judgement, not litter: it is kept, not swallowed and
-    /// then deleted by the next save with nothing on screen or in the log.
-    @Test func anEntryThisBuildCannotReadIsKept() throws {
-        let broken = """
-            {
-              "tags": [
-                { "path": "b.pdf", "person": "son", "verdict": "confirmed" },
-                "not even an object",
-                { "person": "daughter", "verdict": "confirmed" }
-              ]
-            }
-            """
-        let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
-        #expect(file.tags.map(\.personId) == ["son"])
         // The string and the object with neither key: both unreadable, both kept.
         #expect(file.unreadable.count == 2, "an unreadable entry was dropped; got \(file.unreadable)")
         #expect(file.unreadable.contains(.string("not even an object")))
@@ -419,13 +404,7 @@ import EventsTestSupport
 @MainActor
 @Suite struct PersonTagCorruptFileTests {
 
-    private func makeDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("person-tags-corrupt-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        return dir
-    }
+    private func makeDir() throws -> URL { try makeProfilesDir(prefix: "person-tags-corrupt") }
 
     /// Every set-aside beside the store, sorted by name (``setAsidesBeside(_:)``). The kept name is
     /// unique per episode, so tests discover the files rather than assume one fixed slot.
