@@ -13,9 +13,7 @@ import Foundation
 /// suite is flushed first, through the SPI the `defaults` tool calls, looked up rather than linked;
 /// an OS without it falls back to the ledger below.
 ///
-/// Mirrored verbatim in every test target, since they are separate SPM packages with no shared
-/// test-support module; keep the copies in step.
-func wipeDefaultsSuite(_ name: String) {
+public func wipeDefaultsSuite(_ name: String) {
     // Recorded here, not at the call sites, because every cleanup path (`defer` and
     // `ScratchDefaults.deinit`) goes through this one funnel, including suites built with a plain
     // `UserDefaults(suiteName:)`.
@@ -41,9 +39,9 @@ private let flushPreferencesCache =
 /// recorded, and the next run deletes what the last one left, keeping the directory at about one
 /// run's stragglers. A run killed before its cleanup records nothing; see
 /// `sweepStaleScratchPlists`.
-let scratchDefaultsLedger = ScratchDefaultsLedger()
+public let scratchDefaultsLedger = ScratchDefaultsLedger()
 
-final class ScratchDefaultsLedger: @unchecked Sendable {
+public final class ScratchDefaultsLedger: @unchecked Sendable {
     private let lock = NSLock()
     private var didSweepPreviousRun = false
 
@@ -53,7 +51,7 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         .appendingPathComponent("Library/Preferences")
 
     /// Records `name`, sweeping the previous run's leftovers on the first call of this process.
-    func record(_ name: String) {
+    public func record(_ name: String) {
         lock.lock()
         defer { lock.unlock() }
         if !didSweepPreviousRun {
@@ -87,10 +85,10 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
     /// CI job, an interrupted `swift test`) leaves suites no later run can name.
     ///
     /// The one-hour age floor makes this safe while other worktrees are testing: their live suites
-    /// are minutes old at most. Internal so tests can pin both dangerous edges directly (a stale
+    /// are minutes old at most. Public so tests can pin both dangerous edges directly (a stale
     /// scratch plist is deleted, a real lowercase-UUID domain is not); going through `record`'s
     /// once-per-process trigger would make them depend on test order.
-    func sweepStaleScratchPlists() {
+    public func sweepStaleScratchPlists() {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: preferencesDirectory) else { return }
         let cutoff = Date().addingTimeInterval(-3600)
@@ -112,7 +110,7 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
     ///
     /// **Never loosen this to case-insensitive**: real domains that carry a UUID write it lowercase
     /// (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), and the sweep would start deleting them.
-    static func isScratchSuitePlist(_ name: String) -> Bool {
+    public static func isScratchSuitePlist(_ name: String) -> Bool {
         guard name.hasSuffix(".plist") else { return false }
         guard !foreignSuitePrefixes.contains(where: name.hasPrefix) else { return false }
         let stem = name.dropLast(".plist".count)
@@ -133,12 +131,12 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
 /// The lifetime also outlasts work the test started: a manager whose task is still running holds
 /// the suite, so its last write lands before the wipe instead of recreating the plist after it, a
 /// race a `defer` loses.
-final class ScratchDefaults: UserDefaults {
-    let scratchSuiteName: String
+public final class ScratchDefaults: UserDefaults {
+    public let scratchSuiteName: String
 
     /// - Parameter prefix: names the owning test in `~/Library/Preferences` while the suite is
     ///   alive; a fresh UUID is appended so parallel tests never share a domain.
-    init(_ prefix: String) {
+    public init(_ prefix: String) {
         self.scratchSuiteName = "\(prefix)-\(UUID().uuidString)"
         super.init(suiteName: scratchSuiteName)!   // a fresh UUID is never a reserved domain name
         scratchDefaultsLedger.record(scratchSuiteName)

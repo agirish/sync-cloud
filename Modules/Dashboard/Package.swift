@@ -37,6 +37,7 @@ let package = Package(
                 .product(name: "FileExplorerTestSupport", package: "FileExplorer"),
                 .product(name: "EventsTestSupport", package: "Events"),
                 .product(name: "TestProcessTextChecking", package: "Design"),
+                .product(name: "DesignTestSupport", package: "Design"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ],
             path: "Tests/Dashboard")

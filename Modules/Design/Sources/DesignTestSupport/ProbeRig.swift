@@ -1,21 +1,19 @@
 import AppKit
 import SwiftUI
 import Testing
-@testable import Design
+import Design
 
 /// The one offscreen harness for the selection-lens and chrome-glass suites in this target: a view
 /// in a borderless sRGB window, held for the rig's lifetime, read back as raw bytes. One harness so
 /// every suite keeps the window alive (or `.sRGB` and `.aqua` stop applying), sets the colour
-/// space, and reads raw bytes rather than slow `colorAt`. Mirrored per test target, as
-/// `LayoutPumpWait` is, because the packages share no test-support module. Keep the copies in
-/// step.
+/// space, and reads raw bytes rather than slow `colorAt`. Shared by every UI test target.
 @MainActor
-final class ProbeRig<Root: View> {
-    let host: NSHostingView<Root>
-    let window: NSWindow
-    let size: CGSize
+public final class ProbeRig<Root: View> {
+    public let host: NSHostingView<Root>
+    public let window: NSWindow
+    public let size: CGSize
 
-    init(_ root: Root, size: CGSize) {
+    public init(_ root: Root, size: CGSize) {
         self.size = size
         host = NSHostingView(rootView: root)
         host.frame = CGRect(origin: .zero, size: size)
@@ -28,7 +26,7 @@ final class ProbeRig<Root: View> {
         host.layoutSubtreeIfNeeded()
     }
 
-    func capture() -> NSBitmapImageRep {
+    public func capture() -> NSBitmapImageRep {
         host.layoutSubtreeIfNeeded()
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: rep)
@@ -38,28 +36,28 @@ final class ProbeRig<Root: View> {
 
     /// The bounding box, in points, of the pixels matching `match` — in the rows `rows` spans when
     /// given, so the same colour elsewhere cannot widen it.
-    func box(rows: ClosedRange<CGFloat>? = nil, _ match: Pixel.Match) -> CGRect? {
+    public func box(rows: ClosedRange<CGFloat>? = nil, _ match: Pixel.Match) -> CGRect? {
         Pixel.box(capture(), width: size.width, rows: rows, match)
     }
 
-    func count(rows: ClosedRange<CGFloat>? = nil, _ match: Pixel.Match) -> Int {
+    public func count(rows: ClosedRange<CGFloat>? = nil, _ match: Pixel.Match) -> Int {
         Pixel.count(capture(), width: size.width, rows: rows, match)
     }
 }
 
 /// Reading a capture by colour, from the raw bytes.
-enum Pixel {
-    typealias Match = @Sendable (_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool
+public enum Pixel {
+    public typealias Match = @Sendable (_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool
 
     /// The lens probe, `(1, 0, 1)`, which reads back as raw `255, 0, 255`. Converting through
     /// `colorAt(…).usingColorSpace(.sRGB)` shifts it. Loose on purpose, for anti-aliased edges and
     /// the films a test checks for.
-    static let lensProbe: Match = { r, g, b in r > 229 && g < 115 && b > 229 }
+    public static let lensProbe: Match = { r, g, b in r > 229 && g < 115 && b > 229 }
     /// Chrome glass's probe, `(0, 1, 1)`: raw `0, 255, 255`.
-    static let chromeProbe: Match = { r, g, b in r < 115 && g > 229 && b > 229 }
+    public static let chromeProbe: Match = { r, g, b in r < 115 && g > 229 && b > 229 }
 
     /// Within `tolerance` (0...255) of `color` on every channel.
-    static func near(_ color: Color, within tolerance: Int = 31) -> Match {
+    public static func near(_ color: Color, within tolerance: Int = 31) -> Match {
         let c = NSColor(color).usingColorSpace(.sRGB) ?? .black
         let want = (Int(c.redComponent * 255), Int(c.greenComponent * 255), Int(c.blueComponent * 255))
         return { r, g, b in
@@ -71,7 +69,7 @@ enum Pixel {
     /// first. Records a test failure when it isn't, or every reader would answer "nothing matched"
     /// and each "draws nothing" test would pass on a capture it never read.
     @discardableResult
-    static func check(_ rep: NSBitmapImageRep, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
+    public static func check(_ rep: NSBitmapImageRep, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
         let readable = rep.bitmapData != nil && rep.samplesPerPixel >= 3 && rep.bitsPerSample == 8
             && !rep.bitmapFormat.contains(.alphaFirst) && !rep.bitmapFormat.contains(.floatingPointSamples)
         if !readable {
@@ -81,7 +79,7 @@ enum Pixel {
         return readable
     }
 
-    static func box(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
+    public static func box(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
                     _ match: Match) -> CGRect? {
         guard check(rep), let data = rep.bitmapData else { return nil }
         let scale = CGFloat(rep.pixelsWide) / width
@@ -101,7 +99,7 @@ enum Pixel {
                       width: CGFloat(maxX - minX + 1) / scale, height: CGFloat(maxY - minY + 1) / scale)
     }
 
-    static func count(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
+    public static func count(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
                       _ match: Match) -> Int {
         guard check(rep), let data = rep.bitmapData else { return 0 }
         let scale = CGFloat(rep.pixelsWide) / width
@@ -119,7 +117,7 @@ enum Pixel {
 
     /// How many pixels inside `rect` (in points) match: a marker's own box, apart from the same
     /// colour elsewhere in the render.
-    static func count(_ rep: NSBitmapImageRep, width: CGFloat, in rect: CGRect, _ match: Match) -> Int {
+    public static func count(_ rep: NSBitmapImageRep, width: CGFloat, in rect: CGRect, _ match: Match) -> Int {
         guard check(rep), let data = rep.bitmapData else { return 0 }
         let scale = CGFloat(rep.pixelsWide) / width
         let xs = max(0, Int(rect.minX * scale))..<min(rep.pixelsWide, Int(rect.maxX * scale))
@@ -135,12 +133,12 @@ enum Pixel {
     }
 
     /// Near-white and near-black ink: a label's two inks, on a fill and on glass.
-    static let whiteInk: Match = { r, g, b in r > 240 && g > 240 && b > 240 }
-    static let blackInk: Match = { r, g, b in r < 70 && g < 70 && b < 70 }
+    public static let whiteInk: Match = { r, g, b in r > 240 && g > 240 && b > 240 }
+    public static let blackInk: Match = { r, g, b in r < 70 && g < 70 && b < 70 }
 
     /// The colour at `point` (in points), as bytes. Black for a capture `check` rejects, so a reader
     /// fails rather than traps.
-    static func at(_ rep: NSBitmapImageRep, width: CGFloat, _ point: CGPoint) -> (UInt8, UInt8, UInt8) {
+    public static func at(_ rep: NSBitmapImageRep, width: CGFloat, _ point: CGPoint) -> (UInt8, UInt8, UInt8) {
         guard check(rep), let d = rep.bitmapData else { return (0, 0, 0) }
         let scale = CGFloat(rep.pixelsWide) / width
         let x = min(rep.pixelsWide - 1, max(0, Int(point.x * scale)))
@@ -150,7 +148,7 @@ enum Pixel {
     }
 
     /// One box per run of rows holding `match`: a column of separate markers, read apart.
-    static func rowRuns(_ rep: NSBitmapImageRep, width: CGFloat, _ match: Match) -> [CGRect] {
+    public static func rowRuns(_ rep: NSBitmapImageRep, width: CGFloat, _ match: Match) -> [CGRect] {
         guard check(rep), let data = rep.bitmapData else { return [] }
         let scale = CGFloat(rep.pixelsWide) / width
         func hit(_ y: Int) -> Bool {
@@ -175,7 +173,7 @@ enum Pixel {
     }
 
     /// One box per run of columns holding `match`, within `rows`: controls side by side, read apart.
-    static func columnRuns(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
+    public static func columnRuns(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>? = nil,
                            _ match: Match) -> [CGRect] {
         guard check(rep), let data = rep.bitmapData else { return [] }
         let scale = CGFloat(rep.pixelsWide) / width
@@ -204,7 +202,7 @@ enum Pixel {
     }
 
     /// Whether two boxes agree to within a pixel-and-a-bit on every edge.
-    static func same(_ a: CGRect?, _ b: CGRect?, tolerance: CGFloat = 1.01) -> Bool {
+    public static func same(_ a: CGRect?, _ b: CGRect?, tolerance: CGFloat = 1.01) -> Bool {
         guard let a, let b else { return false }
         return abs(a.minX - b.minX) <= tolerance && abs(a.maxX - b.maxX) <= tolerance
             && abs(a.minY - b.minY) <= tolerance && abs(a.maxY - b.maxY) <= tolerance

@@ -706,6 +706,7 @@ import Testing
     static let unaccentedHosts: [(file: String, root: String, why: String)] = [
         ("DocumentPDF.swift", "NSHostingView(rootView: root)", "a document laid out for printing — no controls"),
         ("PaneColumnsView.swift", "NSHostingView(rootView: VStack", "column rows measured offscreen, never shown"),
+        ("ProbeRig.swift", "NSHostingView(rootView: root)", "the test-only render rig, which paints what each test hands it"),
     ]
 
     /// A presentation that rightly sets no accent, named with why: nothing in it fills with one.

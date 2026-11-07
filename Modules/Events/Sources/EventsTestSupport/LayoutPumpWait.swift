@@ -1,13 +1,8 @@
 import AppKit
 
-/// The one layout-pumping condition wait for this target's mounted-view suites, and the one place
-/// its floor is set, so the floor is a single decision rather than one per suite.
-///
-/// Two copies live outside this target, `Modules/Dashboard/Tests/Dashboard/LayoutPumpWait.swift`
-/// and `Modules/Design/Tests/DesignTests/LayoutPumpWait.swift`, because those are separate SPM
-/// packages with no shared test-support module (the same reason `wipeDefaultsSuite` is duplicated).
-/// Keep the three in step: a fix made in one copy leaves the bug in the others.
-enum LayoutPumpWait {
+/// The one layout-pumping condition wait for every test target's mounted-view suites, and the one
+/// place its floor is set, so the floor is a single decision rather than one per suite.
+public enum LayoutPumpWait {
 
     /// The fewest layout passes a wait will make before it may give up, however little of its
     /// deadline is left.
@@ -23,7 +18,7 @@ enum LayoutPumpWait {
     /// verdict after this many passes.
     ///
     /// See `docs/flaky-tests.md`, "Fixed pumps and fixed sleeps".
-    static let pumpFloor = 50
+    public static let pumpFloor = 50
 
     /// Pumps `view`'s layout until `condition` holds, or until both the deadline has passed and
     /// `floor` passes have been made. The entry point for suites that poll
@@ -43,7 +38,7 @@ enum LayoutPumpWait {
     /// it reopens the starvation by hand, which is why `theFloorIsOnlyLoweredByItsOwnTests` scans
     /// for it.
     @MainActor
-    static func pump(_ view: NSView, upTo seconds: Double,
+    public static func pump(_ view: NSView, upTo seconds: Double,
                      floor: Int = pumpFloor,
                      now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
@@ -61,7 +56,7 @@ enum LayoutPumpWait {
 
     /// The same wait for a window; see the view overload.
     @MainActor
-    static func pump(_ window: NSWindow, upTo seconds: Double,
+    public static func pump(_ window: NSWindow, upTo seconds: Double,
                      floor: Int = pumpFloor,
                      now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, pumps: Int) {
@@ -93,7 +88,7 @@ enum LayoutPumpWait {
     ///
     /// See `docs/flaky-tests.md`, "Fixed pumps and fixed sleeps".
     @MainActor
-    static func poll(upTo seconds: Double,
+    public static func poll(upTo seconds: Double,
                      floor: Int = pumpFloor,
                      now: () -> Date = Date.init,
                      until condition: () -> Bool) async -> (held: Bool, passes: Int) {

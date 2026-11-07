@@ -15,8 +15,13 @@ let package = Package(
         // Test-only, the same way: gives the whole test process a Find pasteboard of its own; see
         // its header.
         .library(name: "TestProcessFindPasteboard", targets: ["TestProcessFindPasteboard"]),
+        // Test-only, the same way: `ProbeRig` and `Pixel`, the render-and-read harness every UI test
+        // target shares.
+        .library(name: "DesignTestSupport", targets: ["DesignTestSupport"]),
     ],
     dependencies: [
+        // Test-only: `EventsTestSupport`, the helpers every test target shares.
+        .package(path: "../Events"),
         // Test-only: the visual snapshot net. Only the test target links SnapshotTesting, never
         // the library product. All four are pinned `exact:`; the three transitives are named only
         // to pin them, since SnapshotTesting floats its own. Floating, the graph can pull two
@@ -33,10 +38,12 @@ let package = Package(
         .target(name: "TestProcessTextChecking", linkerSettings: [.linkedFramework("AppKit")]),
         .target(name: "TestProcessRendering"),
         .target(name: "TestProcessFindPasteboard", linkerSettings: [.linkedFramework("AppKit")]),
+        .target(name: "DesignTestSupport", dependencies: ["Design"]),
         .testTarget(
             name: "DesignTests",
             dependencies: [
-                "Design", "TestProcessTextChecking",
+                "Design", "TestProcessTextChecking", "DesignTestSupport",
+                .product(name: "EventsTestSupport", package: "Events"),
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
             ])
     ]

@@ -179,10 +179,7 @@ import Design
 
 /// Reads glyph ink back out of a live renderer and asks whether any of it fell outside the box.
 ///
-/// Duplicated from `Modules/Design/Tests/DesignTests/ScaledBoxTests.swift`, for the reason
-/// `MachinePinned.swift` in this directory is duplicated: SPM has no way to share test-support code
-/// across packages without minting a production library product, and this must stay test-only.
-/// Change one, change both.
+/// Duplicated from `Modules/Design/Tests/DesignTests/ScaledBoxTests.swift`. Change one, change both.
 enum GlyphInk {
 
     /// Set from the measured gap between the renderer's fringe and a real overflow, not by taste. A

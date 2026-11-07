@@ -1,19 +1,14 @@
 import Foundation
 import Testing
 
-// NOTE: Duplicated in the other five test targets, because SPM can't share test-support code
-// across packages without a production library product. Change the copies too:
-//   Modules/FileExplorer/Tests/FileExplorer/MachinePinned.swift
-//   Modules/Design/Tests/DesignTests/MachinePinned.swift
-//   Modules/Settings/Tests/Settings/MachinePinned.swift
-//   Modules/Sync/Tests/Sync/MachinePinned.swift
-//   SyncCloudTests/MachinePinned.swift
+// Shared by every test target: the packages link this product, and the app target compiles this
+// file in (see `project.yml`).
 
 /// Why a suite only gives a trustworthy verdict on the machine that recorded it. Pinned suites
 /// compare against artefacts or thresholds captured on one Mac, so another renderer or CPU fails
 /// them for machine reasons, not code reasons. The reason is a trait rather than part of the type's
 /// name, so a skip can't miss a pinned suite whose name doesn't match.
-enum MachinePinnedReason: String {
+public enum MachinePinnedReason: String, Sendable {
     /// Compares rendered output against reference PNGs recorded on one Mac.
     case referenceImages
     /// Reads painted pixels back out of a live renderer (`colorAt(`).
@@ -42,11 +37,11 @@ enum MachinePinnedReason: String {
     case liveProfile
 }
 
-enum MachinePinnedGate {
+public enum MachinePinnedGate {
 
     /// Reasons excluded by `SYNCCLOUD_SKIP_MACHINE_PINNED`, which takes `all` or a comma-separated
     /// list (`referenceImages,pixelSampling`). Unset, the local default, runs everything.
-    static let excludedReasons: Set<String> = {
+    public static let excludedReasons: Set<String> = {
         let raw = ProcessInfo.processInfo.environment["SYNCCLOUD_SKIP_MACHINE_PINNED"] ?? ""
         return Set(
             raw.split(separator: ",")
@@ -55,12 +50,12 @@ enum MachinePinnedGate {
         )
     }()
 
-    static func isExcluded(_ reason: MachinePinnedReason) -> Bool {
+    public static func isExcluded(_ reason: MachinePinnedReason) -> Bool {
         excludedReasons.contains("all") || excludedReasons.contains(reason.rawValue.lowercased())
     }
 
     /// The message a skipped suite reports, so a reader of CI output learns why it did not run.
-    static func comment(_ reason: MachinePinnedReason) -> Comment {
+    public static func comment(_ reason: MachinePinnedReason) -> Comment {
         "machine-pinned (\(reason.rawValue)) — excluded via SYNCCLOUD_SKIP_MACHINE_PINNED"
     }
 }
@@ -69,7 +64,7 @@ extension Trait where Self == ConditionTrait {
 
     /// Marks a suite as pinned to the recording machine, and skips it when CI says to. Applied at
     /// the declaration, so marking a new suite is one token and survives a rename.
-    static func machinePinned(_ reason: MachinePinnedReason) -> Self {
+    public static func machinePinned(_ reason: MachinePinnedReason) -> Self {
         .disabled(if: MachinePinnedGate.isExcluded(reason), MachinePinnedGate.comment(reason))
     }
 }

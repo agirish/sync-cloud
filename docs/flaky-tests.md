@@ -723,7 +723,7 @@ test's own `request`, so its count is queued before the first yield. The fixed s
 `9543b941` — *Let the drain be the gate the two redo tests already had*;
 `156cea74` — *Wait for the insurance filter pass to publish, not for 100ms*;
 `4347dfcd` — *Wait for the scan slot the queued-scan test needs, and assert it got queued*;
-`pumpFloor` and `pump` in `Modules/FileExplorer/Tests/FileExplorer/LayoutPumpWait.swift`;
+`pumpFloor` and `pump` in `Modules/Events/Sources/EventsTestSupport/LayoutPumpWait.swift`;
 `quiesceReveals` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift` — the
 last two cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
 cherry-pick between `v2.x` and `main` has to swap every one of them by hand.
