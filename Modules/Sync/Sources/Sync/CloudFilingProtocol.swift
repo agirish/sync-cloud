@@ -95,6 +95,16 @@ public enum CloudFilingProtocol {
             shape(for: model, toolChoice: .auto, strict: false)
         }
 
+        /// The shape Refine sends to `model`: the 5.5 request for a model Ask Claude offers (the live check
+        /// of 2026-11-07 found it works on all three), and today's request, streamed, for the older
+        /// models Refine runs on until it moves to the chat's model (TE335, E4).
+        public static func forRefine(model: String) -> RequestShape {
+            if let option = AskClaudeModels.options.first(where: { $0.id == model }) { return current(for: option) }
+            var shape = legacy
+            shape.stream = true
+            return shape
+        }
+
         /// 4,000 output tokens of room for low-effort thinking, on top of 80 per placement.
         public static let thinkingAllowance = 4_000
 
@@ -193,14 +203,12 @@ public enum CloudFilingProtocol {
         • If you genuinely cannot tell, use the folder "none".
         Always answer with paths relative to the folder list — never absolute paths.
         """
-        // The folder taxonomy is stable per provider, so it rides in a system block marked for
-        // prompt caching. The breakpoint goes on the last system block: the cache prefix renders
-        // tools → system → messages, so one marker there covers the tool schema too.
-        //
-        // A full 250-folder request is about 2,200 tokens, under Haiku 4.5's 4096-token minimum
-        // (our `defaultModel`) but over Sonnet 5's and Opus 5's. So on the default model `usage`
-        // reports zero cache tokens: the API declining a short prefix, not a bug. The TTL is
-        // 5 minutes, so scans minutes apart mostly find a cold cache anyway.
+        // The folder list rides in the second system block, **not marked for caching.** It once was,
+        // on the belief that the list is stable per provider. It is not: the menu leads with each
+        // batch's own shortlists (`FilingEngine.classifierFolders`), so a second pass never matched
+        // the first, and the mark only added the write premium (1.25 times input) to every request.
+        // The list is a few thousand tokens (3,800 to 4,300 in the log). A stable list ahead of the
+        // batch's own would make a mark pay; until it does, none.
         let folderBlock = "The user's existing folders (relative paths):\n"
             + taxonomyFolders.joined(separator: "\n")
 
@@ -262,7 +270,7 @@ public enum CloudFilingProtocol {
             "max_tokens": min(16384, 512 + files.count * 80) + shape.extraOutputTokens,
             "system": [
                 ["type": "text", "text": instructions],
-                ["type": "text", "text": folderBlock, "cache_control": ["type": "ephemeral"]],
+                ["type": "text", "text": folderBlock],
             ],
             "messages": [["role": "user", "content": userText]],
             "tools": [tool],

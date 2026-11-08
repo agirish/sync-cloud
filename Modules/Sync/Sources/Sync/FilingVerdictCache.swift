@@ -9,7 +9,12 @@ import Foundation
 /// - `filePath`, `modifiedMillis`, `size`: the triple the sync engine trusts as "unchanged". Unlike
 ///   ``ContentHashKey`` it lacks file number and status-change time, so an edit that restores the
 ///   mtime and keeps the size is served the old verdict.
-/// - `model`: switching models misses every entry and re-pays, which is correct.
+/// - `model`: the backend that answered. The on-device model and Claude are kept apart; every Claude
+///   model is one backend (``claudeIdentity``), so changing the chat's model doesn't re-pay (KR-C).
+///   A Claude answer saved before TE335 is keyed `cloud:<model>` and so never matches again: some of
+///   those were really the on-device model's, saved under Claude's name by a silent fallback.
+/// - `pageSent`: whether the file's first page went with the question. An answer given with the page
+///   is a different, better-informed answer than one given from the name alone.
 /// - `promptVersion` (``CloudFilingProtocol/promptVersion``): new instructions or tool schema ask a
 ///   different question.
 /// - `excludedRelativePaths`: a "Try another" re-ask is a different question. Sorted so ordering
@@ -28,6 +33,10 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
     public let model: String
     public let promptVersion: Int
     public let excludedRelativePaths: [String]
+    /// Whether page 1 went with the question. Its own field rather than a ``CloudFilingProtocol/promptVersion``
+    /// bump, which would discard every on-device answer as well. Entries written before it decode as
+    /// false, and so do the on-device model's, which never sends a page anywhere.
+    public let pageSent: Bool
     /// Digest of the filing artifacts the question was composed against
     /// (``FilingProfileStore/fingerprint(id:in:)``); empty on an unsurveyed tree. **A required init
     /// argument, never defaulted**, so dropping it at the scan is a build error rather than old
@@ -41,7 +50,8 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
     /// nil ``FileSyncManager/filingArtifactFingerprint`` does. The cost is a re-ask, paid on the
     /// cloud tier, every scan for such a file; it is rare, and serving a stale paid answer is worse.
     public init?(filePath: String, modificationDate: Date?, size: Int?, model: String,
-                 promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String) {
+                 promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String,
+                 pageSent: Bool = false) {
         guard let modificationDate, let size else { return nil }
         self.filePath = filePath
         self.modifiedMillis = Int((modificationDate.timeIntervalSince1970 * 1000).rounded())
@@ -49,8 +59,28 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
         self.model = model
         self.promptVersion = promptVersion
         self.excludedRelativePaths = excludedRelativePaths.sorted()
+        self.pageSent = pageSent
         self.artifacts = artifacts
     }
+
+    /// This key with `pageSent` changed: the same file asked the same question otherwise.
+    public func withPageSent(_ pageSent: Bool) -> FilingVerdictKey {
+        FilingVerdictKey(copying: self, pageSent: pageSent)
+    }
+
+    private init(copying other: FilingVerdictKey, pageSent: Bool) {
+        filePath = other.filePath
+        modifiedMillis = other.modifiedMillis
+        size = other.size
+        model = other.model
+        promptVersion = other.promptVersion
+        excludedRelativePaths = other.excludedRelativePaths
+        self.pageSent = pageSent
+        artifacts = other.artifacts
+    }
+
+    /// The identity every Claude model's answer is saved under (KR-C).
+    public static let claudeIdentity = "claude"
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -60,6 +90,7 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
         model = try c.decode(String.self, forKey: .model)
         promptVersion = try c.decode(Int.self, forKey: .promptVersion)
         excludedRelativePaths = try c.decodeIfPresent([String].self, forKey: .excludedRelativePaths) ?? []
+        pageSent = try c.decodeIfPresent(Bool.self, forKey: .pageSent) ?? false
         artifacts = try c.decodeIfPresent(String.self, forKey: .artifacts) ?? ""
     }
 }

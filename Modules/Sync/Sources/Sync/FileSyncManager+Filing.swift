@@ -1009,8 +1009,16 @@ extension FileSyncManager {
     /// (the CLI, tests) only.
     func resolvedFilingVerdictIdentity(for tier: FilingClassifierTier) -> String? {
         if !filingReusesVerdicts { return nil }
-        if let resolveBackend = filingBackendIdentity { return resolveBackend(tier) }
-        return configuredFilingBackendIdentity(for: tier)
+        // An `if let` on the closure, never `?? …`: a closure that answered nil means the app can't
+        // vouch for the backend, and the settings' guess must not stand in for it.
+        let identity: String?
+        if let resolveBackend = filingBackendIdentity { identity = resolveBackend(tier) }
+        else { identity = configuredFilingBackendIdentity(for: tier) }
+        guard let identity else { return nil }
+        // Any Claude model is one backend for saved answers (KR-C): `cloud:<model>` becomes one
+        // identity, so changing the model doesn't ask every file again. The on-device model's own
+        // identity is untouched.
+        return identity.hasPrefix("cloud:") ? FilingVerdictKey.claudeIdentity : identity
     }
 
     /// The cache, read from disk at most once per launch and then held in memory. An unset

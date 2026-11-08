@@ -371,26 +371,45 @@ private final class Quotes: @unchecked Sendable {
     }
 
     @MainActor
-    @Test func switchingBackendReclassifies() async throws {
-        // Changing the model in Settings must re-ask: serving an on-device answer as an Opus one
-        // is the silent substitution the identity exists to prevent. Exercised through refine,
-        // the only pass whose backend can vary; the scan is pinned to on-device by its tier.
+    @Test func switchingFromTheOnDeviceModelToClaudeReclassifies() async throws {
+        // Serving an on-device answer as Claude's is the silent substitution the identity exists to
+        // prevent. Exercised through refine, the only pass whose backend can vary; the scan is pinned
+        // to on-device by its tier.
         let (root, url, downloads) = try scanFixture("backend")
+        defer { remove(root, url) }
+
+        let log = CallLog()
+        let onDevice = manager(cacheAt: url, log: log, refineIdentity: FileSyncManager.onDeviceBackendIdentity)
+        await scanThenRefine(onDevice, downloads, root: root)
+        #expect(log.count == 2)                       // one free scan, one refine
+
+        // Same file, same everything, except the backend the refine names.
+        let claude = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
+        await scanThenRefine(claude, downloads, root: root)
+
+        // The scan reused its cached on-device verdict; the refine did not reuse the on-device one.
+        #expect(log.count == 3)
+        #expect(claude.filingLastRefine?.classified == 1)
+        #expect(claude.filingLastRefine?.reused == 0)
+    }
+
+    @MainActor
+    @Test func switchingBetweenClaudeModelsReusesTheSavedAnswers() async throws {
+        // Any Claude model's saved answer counts (TE335, KR-C), so a model change doesn't pay again.
+        let (root, url, downloads) = try scanFixture("claudeModels")
         defer { remove(root, url) }
 
         let log = CallLog()
         let haiku = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-haiku-4-5")
         await scanThenRefine(haiku, downloads, root: root)
-        #expect(log.count == 2)                       // one free scan, one refine
+        #expect(log.count == 2)
 
-        // Same file, same everything, except the model the refine names.
         let opus = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
         await scanThenRefine(opus, downloads, root: root)
 
-        // The scan reused its cached on-device verdict; the refine did not reuse Haiku's.
-        #expect(log.count == 3)
-        #expect(opus.filingLastRefine?.classified == 1)
-        #expect(opus.filingLastRefine?.reused == 0)
+        #expect(log.count == 2, "neither the scan nor the refine asked again")
+        #expect(opus.filingLastRefine?.classified == 0)
+        #expect(opus.filingLastRefine?.reused == 1)
     }
 
     @MainActor

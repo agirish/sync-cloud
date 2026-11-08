@@ -110,10 +110,7 @@ public enum CloudFilingRefiner {
         let files = Array(allFiles.prefix(maxFiles))
         let model = CloudFilingProtocol.currentModel(
             for: env.defaults.string(forKey: FileSyncManager.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
-        // Today's request, streamed. The shape the 5.5 models need arrives with the move to the chat's
-        // model (E4); the older models Refine runs on until then take this one.
-        var shape = CloudFilingProtocol.RequestShape.legacy
-        shape.stream = true
+        let shape = CloudFilingProtocol.RequestShape.forRefine(model: model)
         let body = CloudFilingProtocol.requestBody(model: model, taxonomyFolders: taxonomyFolders, files: files, shape: shape)
         guard let request = try? CloudFilingProtocol.urlRequest(body: body, key: key, shape: shape) else {
             return notStarted("The request couldn’t be built.")

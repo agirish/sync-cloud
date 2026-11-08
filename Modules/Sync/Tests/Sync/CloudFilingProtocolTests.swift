@@ -21,11 +21,11 @@ import Testing
         #expect(choice["name"] as? String == CloudFilingProtocol.toolName)
         let tools = try #require(body["tools"] as? [[String: Any]])
         #expect(tools.first?["strict"] as? Bool == true)
-        // The folder taxonomy lives in a CACHED system block (stable across scans).
+        // The folder taxonomy lives in its own system block, unmarked: the menu is batch-specific.
         let system = try #require(body["system"] as? [[String: Any]])
         let folderBlock = try #require(system.last)
         #expect((folderBlock["text"] as? String)?.contains("Documents/Vehicles") == true)
-        #expect(folderBlock["cache_control"] as? [String: String] == ["type": "ephemeral"])
+        #expect(folderBlock["cache_control"] == nil, "the menu is batch-specific, so a cache mark only adds the write premium")
         // The user turn lists the files with every excerpt the caller supplied, the
         // meaningfully-named file's included: dropping it would discard a page the scan already
         // read and leave the model guessing from the filename.

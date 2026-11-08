@@ -275,16 +275,33 @@ extension FileSyncManager {
                     filePath: s.filePath, modificationDate: s.modificationDate, size: s.size,
                     model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                     excludedRelativePaths: excludedByFile[s.filePath] ?? [],
-                    artifacts: artifacts) else {
+                    artifacts: artifacts, pageSent: downloadsBeforeAsking) else {
                     misses.append(s)
                     continue
                 }
                 keysByFile[s.filePath] = key
                 // A cloud-only file's cached answer came from its name alone; this pass is about to
                 // read it, so it is asked again.
-                if !(downloadsBeforeAsking && filingNotDownloaded.contains(s.filePath)),
-                   let hit = cache.verdict(for: key, providerRoot: root,
-                                           existingRelative: existingRelative) {
+                var hit: FilingVerdict?
+                if !(downloadsBeforeAsking && filingNotDownloaded.contains(s.filePath)) {
+                    hit = cache.verdict(for: key, providerRoot: root, existingRelative: existingRelative)
+                    // An answer given with the page also answers a pass that would send the name
+                    // alone; the reverse is not true.
+                    if hit == nil, !key.pageSent {
+                        hit = cache.verdict(for: key.withPageSent(true), providerRoot: root,
+                                            existingRelative: existingRelative)
+                    }
+                }
+                // A saved answer naming a hidden folder is a miss, not a hit: it would be dropped on
+                // arrival, and the file would never reach Claude.
+                if let saved = hit, !hidden.isEmpty,
+                   let dest = FilingEngine.destination(from: saved, providerRoot: root,
+                                                       existingRelative: existingRelative,
+                                                       nameProvider: filingLastNameProvider),
+                   hidden.isHidden(dest.path) {
+                    hit = nil
+                }
+                if let hit {
                     cachedVerdicts[s.filePath] = hit
                 } else {
                     misses.append(s)

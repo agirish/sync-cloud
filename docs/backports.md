@@ -14829,3 +14829,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The silent fallback, and answers from it saved under Claude's name | NOT OWED — no backporting; recorded |
+
+## Saved Refine answers are Claude's, any model, and know whether the page went (TE335, E3) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, a saved Refine answer is keyed to "Claude" rather than to one model,
+so changing the model doesn't ask every file again; the key records whether page 1 went with the
+question; an answer naming a folder hidden since is asked again instead of dropped; and the folder
+list is no longer marked for prompt caching. Answers saved before it are not trusted as Claude's,
+because the silent fallback saved some of the on-device model's under Claude's name.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s pageSent=%s cache_control=%s\n' $l \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingVerdictCache.swift 2>/dev/null | grep -c pageSent)" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudFilingProtocol.swift 2>/dev/null | grep -c cache_control)"; done
+# measured 2026-11-08, against origin, before this landed: pageSent 0 and the cache mark present on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Per-model keys, no page field, the cache mark, and fallback answers saved as Claude's | NOT OWED — no backporting; recorded |
