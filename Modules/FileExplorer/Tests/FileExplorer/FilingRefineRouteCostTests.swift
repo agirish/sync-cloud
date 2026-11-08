@@ -41,10 +41,6 @@ import SwiftUI
         // One scratch suite for the manager and the view alike, never the standard domain, which
         // under `swift test` is one plist shared by every test process on the machine.
         let defaults = ScratchDefaults("FilingRefineRouteCostTests")
-        // The cloud toggle gates `filingCloudRefineAvailable` before anything else, so without it
-        // neither seam is ever consulted and both tests below would pass on an empty toolbar.
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        defaults.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
         let m = FileSyncManager()
         m.filingContentDefaults = defaults
         // Stands in for the app's router, whose `.refine` arm reads the Keychain.

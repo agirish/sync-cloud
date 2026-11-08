@@ -47,8 +47,7 @@ import SwiftUI
     /// hands the same suite to the view through `.defaultAppStorage`, so the button and the manager
     /// read one store and can be made to agree, which is what these tests check. A fresh suite per
     /// manager, so no two mounts share one.
-    private static func manager(cloudOn: Bool, model: String? = nil,
-                                routesTo: String? = nil) -> FileSyncManager {
+    private static func manager(cloudOn: Bool, routesTo: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
         let defaults = ScratchDefaults("FilingRefineControlTests")
         m.filingContentDefaults = defaults
@@ -71,8 +70,8 @@ import SwiftUI
         // `@AppStorage` beneath it, so a store holding only this key would shadow the two this
         // suite exists to vary, and tests would compare two renders of the same button.
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
-        defaults.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
-        if let model { defaults.set(model, forKey: FileSyncManager.cloudModelDefaultsKey) }
+        // `cloudOn` is "a Claude key is saved": the app's seam, which is the only opt-in now (TE335).
+        m.filingCloudRefineConfigured = { cloudOn }
         return m
     }
 
@@ -125,7 +124,7 @@ import SwiftUI
 
     @Test func theRefineControlPaintsWhenThereAreResults() throws {
         let withCloud = try #require(toolbarStrip(mount(
-            Self.manager(cloudOn: true, model: "claude-opus-5"))))
+            Self.manager(cloudOn: true))))
         let withoutCloud = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: false))))
 
@@ -144,7 +143,8 @@ import SwiftUI
     @Test func theButtonSaysClaudeAndTheModelIsTheChatsNotOrganizes() throws {
         let source = SourceText.codeOnly(try SourceText.fileExplorer("LensWorkspaceView.swift"))
         #expect(source.contains(#"Label("Refine \(batch.count) with Claude…""#))
-        #expect(!source.contains("cloudModelDefaultsKey"), "Organize has no model of its own to read")
+        #expect(!source.contains("cloudModelDefaultsKey") && !source.contains("usesCloudDefaultsKey"),
+                "Organize has no model or switch of its own to read")
         #expect(source.contains("AskClaudeModels.defaultsKey"),
                 "the tooltip and Refine Names name the chat's model, read from the setting its menu writes")
     }
@@ -161,28 +161,27 @@ import SwiftUI
         #expect(inkedPixels(offered) > inkedPixels(withheld))
     }
 
-    @Test func cloudEnabledWithoutAKeyOffersTheInvitationNotAModelPromise() throws {
-        // The downgrade, at the button. Cloud is on, but the router sends this pass to the same
-        // on-device model the scan already ran, so the button must not offer "Refine 2 with Opus".
-        // The correct control is the invitation, which opens the Settings tab holding the missing
-        // key row.
+    @Test func aSavedKeyOffersTheButtonAndNoKeyOffersTheInvitation() throws {
+        // A saved key is the whole opt-in (TE335, LW-A): the button asks Claude, and the invitation
+        // is what a person with no key sees. The toolbar asks the cheap seam, never the route, which
+        // would read the Keychain on every render, so a key that is saved but unreadable paints the
+        // same button; the pass then says why it could not ask (`FilingRefineHonestTests`).
         //
-        // Compared against the working cloud state rather than against "something painted": both
-        // paint a sparkles button of similar size, so only comparing the two catches a branch that
-        // picked the wrong one.
-        let downgraded = try #require(toolbarStrip(mount(
-            Self.manager(cloudOn: true, model: "claude-opus-5", routesTo: "on-device"),
+        // Compared pixel against pixel, not "something painted": both states paint a sparkles button
+        // of similar size, so only comparing them catches a branch that picked the wrong one.
+        let unreadable = try #require(toolbarStrip(mount(
+            Self.manager(cloudOn: true, routesTo: "on-device"),
             configure: {})))
         let working = try #require(toolbarStrip(mount(
-            Self.manager(cloudOn: true, model: "claude-opus-5", routesTo: "cloud:claude-opus-5"),
+            Self.manager(cloudOn: true, routesTo: "cloud:claude-opus-5"),
             configure: {})))
         let invitation = try #require(toolbarStrip(mount(
             Self.manager(cloudOn: false), configure: {})))
 
-        #expect(differingPixels(downgraded, working) > 200,
-                "cloud-on-without-a-key painted the same button as cloud-on-with-one")
-        #expect(differingPixels(downgraded, invitation) == 0,
-                "cloud-on-without-a-key should paint exactly the invitation")
+        #expect(differingPixels(unreadable, working) == 0,
+                "the toolbar resolved the route instead of asking whether a key is saved")
+        #expect(differingPixels(working, invitation) > 200,
+                "a saved key painted the invitation")
     }
 
     @Test func changingTheCloudSettingUpdatesTheButtonOnTheNextRender() throws {
@@ -197,8 +196,7 @@ import SwiftUI
         let mounted = mount(m, configure: {})
         let before = try #require(toolbarStrip(mounted))
 
-        m.filingContentDefaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        m.filingContentDefaults.set("claude-opus-5", forKey: FileSyncManager.cloudModelDefaultsKey)
+        m.filingCloudRefineConfigured = { true }
         // Re-render the way dismissing the Settings overlay does.
         m.banner = .success("settings closed")
         mounted.host.needsLayout = true

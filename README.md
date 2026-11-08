@@ -114,8 +114,8 @@ One provider, six lenses:
 
 **Optional AI filing.** Suggestions come from a fast offline engine. You can add **Apple
 Intelligence** (on-device) or **Claude** (cloud, opt-in, API key in the Keychain). Claude is used
-only when you press **Refine with Claude**, with a cost estimate first and monthly and lifetime
-budget caps ($5 lifetime by default).
+only when you press **Refine with Claude**, with a cost estimate first, on Ask Claude's model and
+under its one monthly limit ($25 by default).
 
 ### ✏️ Edit — text and Markdown
 - **Source, Preview or Split**, with a **format bar** for headings, emphasis, lists, code, links
@@ -217,12 +217,13 @@ Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-bo
 ## Setting up Claude (optional)
 
 1. Get an API key from the [Claude Console](https://platform.claude.com/settings/keys).
-2. In **Settings ▸ Intelligence**, paste it under **Claude API key** and press **Test**. The key is
-   kept in the Keychain and used by both features below.
-3. **Organize's Refine:** turn on *Use Claude (cloud) to refine suggestions*, pick a model (Haiku
-   4.5, Sonnet 5 or Opus 5), and set a monthly or lifetime **budget cap**.
-4. **Ask Claude** (⌘J) needs no switch: pick its model (Sonnet 5.5, Opus 5.5 or Haiku 5.5), answer
-   style and monthly limit in the same tab.
+2. In **Settings ▸ Ask Claude ▸ Key & Spending**, paste it under **Claude API key** and press
+   **Test**. The key is kept in the Keychain and used by everything below.
+3. **Organize's Refine** needs no switch: a saved key turns it on, and each pass shows its price and
+   waits for your click. It runs on Ask Claude's model, and Try Another and Refine Names do too.
+4. **Ask Claude** (⌘J): pick its model (Sonnet 5.5, Opus 5.5 or Haiku 5.5) and answer style in
+   **General**. One **monthly limit** in Key & Spending covers the chat, Refine, Try Another and
+   Refine Names.
 
 Without a key, Organize runs on its offline engine, and Ask Claude asks for one before it answers.
 

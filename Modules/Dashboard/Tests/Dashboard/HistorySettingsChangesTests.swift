@@ -76,15 +76,15 @@ import Sync
         #expect(lists.add("intelligence.hidden", "/Users/me/Medical") == .done)
         let hid = SettingsChange(setting: "intelligence.hidden", target: "/Users/me/Medical", name: "Hidden from Claude",
                                  from: "false", to: "true", fromLabel: nil, toLabel: "hid a folder", how: .card)
-        defaults.set(false, forKey: FileSyncManager.usesCloudDefaultsKey)
-        let off = SettingsChange(setting: "intelligence.cloudRefine", name: "Use Claude (cloud) to refine suggestions", from: "true", to: "false",
-                                 fromLabel: "On", toLabel: "Off", how: .claude)
+        defaults.set(10.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        let off = SettingsChange(setting: "intelligence.monthlyLimit", name: "Monthly limit", from: "25.0", to: "10.0",
+                                 fromLabel: "$25", toLabel: "$10", how: .claude)
         var asked: [RemovalPrompt] = []
         for change in [hid, off] {
             SettingsRevert.revert(change, lookup: lookup, writer: writer, lists: lists, log: log,
                                   center: NotificationCenter(), confirmRaising: { asked.append($0); return false })
         }
-        #expect(asked.map(\.messageText) == ["Show “Medical” to Claude again?", "Put Use Claude (cloud) to refine suggestions back to On?"])
+        #expect(asked.map(\.messageText) == ["Show “Medical” to Claude again?", "Put Monthly limit back to $25?"])
         #expect(asked.map(HistorySettingsChanges.asksAsSettings) == [true, false])
     }
 }

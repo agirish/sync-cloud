@@ -238,8 +238,6 @@ import Sync
         #expect(limit.raises(from: .double(25), to: .double(50)))
         #expect(!limit.raises(from: .double(25), to: .double(10)))
         #expect(!limit.raises(from: .double(0), to: .double(100)))     // from No limit, anything is lower
-        let cap = try #require(SettingsCatalog.entry("intelligence.monthlyCap"))
-        #expect(cap.raises(from: .double(5), to: .double(0)))           // Off
     }
 
     @Test func aPricierModelRaises() throws {

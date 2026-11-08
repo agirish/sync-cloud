@@ -124,18 +124,13 @@ import Sync
         AskClaudePrivacy.shareWithoutAsking("/Users/u/Documents/Recipes", in: defaults)
         defaults.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
         AskClaudeSpend.record(3.10, in: defaults)
-        defaults.set(2.0, forKey: FileSyncManager.monthlyBudgetCapKey)
-        defaults.set(1.0, forKey: FileSyncManager.totalBudgetCapKey)
-        FilingSpendStore.record(
-            FilingSpendEntry(timestamp: Date(), model: "claude-haiku-4-5", fileCount: 5, placedCount: 4,
-                             inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0,
-                             cacheCreationTokens: 0, estimatedCostUSD: 0.75),
-            defaults: defaults)
+        defaults.set(true, forKey: RefineSpendMigration.doneKey)
+        defaults.set(Data("{}".utf8), forKey: RefineSpendMigration.noticeKey)
+        AskClaudeSpend.recordOrganize(0.75, in: defaults)
         defaults.set(Data("[]".utf8), forKey: FileSyncManager.automationRulesDefaultsKey)
         defaults.set(Data("[]".utf8), forKey: "editorPDFSavedSignatures")
         defaults.set("cursive", forKey: "editorPDFSignatureFace")
         defaults.set("claude-opus-4-1", forKey: "askClaudeModel")
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         defaults.set(Data("[]".utf8), forKey: FileSyncManager.rejectionsDefaultsKey)
         defaults.set(["a"], forKey: "folderJumpPinnedByRoot")
         defaults.set(Data("{}".utf8), forKey: "folderJumpRecentsByRoot")
@@ -145,9 +140,10 @@ import Sync
         settings.setSourceOrder(["Dropbox", "iCloud"])
         let kept = Set((defaults.persistentDomain(forName: test.suiteName) ?? [:]).keys)
             .filter(SettingsResetKeeps.keeps)
-        // The hidden list, three limits, this month's Ask Claude spend, Refine's history, totals, last,
-        // the automations, the signatures, the rejections, the pins, and the two roots marks.
-        #expect(kept.count == 14, "\(kept.sorted())")
+        // The hidden list, the limit, this month's Ask Claude spend and its Organize share, Refine's
+        // retirement stamp and notice, the automations, the signatures, the rejections, the pins, and
+        // the two roots marks.
+        #expect(kept.count == 12, "\(kept.sorted())")
 
         // Key by key, so the hidden list is there at every change the reset makes and a reader on
         // another thread never sees it gone. Removing the domain and writing it back would not be.
@@ -172,17 +168,16 @@ import Sync
         #expect(kept.isSubset(of: left), "\(kept.subtracting(left).sorted())")
         #expect(AskClaudePrivacy.hiddenFolders(in: defaults) == ["/Users/u/Documents/Medical"])
         #expect(AskClaudeSpend.limit(in: defaults) == 5)
-        #expect(AskClaudeSpend.spent(in: defaults) == 3.10)
-        #expect(FileSyncManager.totalBudgetCap(in: defaults) == 1)
-        #expect(defaults.double(forKey: FileSyncManager.monthlyBudgetCapKey) == 2)
-        #expect(FilingSpendStore.totals(defaults: defaults).costUSD == 0.75)
+        #expect(abs(AskClaudeSpend.spent(in: defaults) - 3.85) < 1e-9, "the chat's 3.10 and Organize's 0.75")
+        #expect(AskClaudeSpend.organizeSpent(in: defaults) == 0.75)
+        #expect(defaults.bool(forKey: RefineSpendMigration.doneKey), "the stamp survives, so it never runs twice")
+        #expect(defaults.data(forKey: RefineSpendMigration.noticeKey) != nil, "an unread notice survives a reset")
         #expect(AskClaudePrivacy.sharedFolders(in: defaults).isEmpty)
         #expect(defaults.data(forKey: FileSyncManager.automationRulesDefaultsKey) != nil)
         #expect(defaults.data(forKey: "editorPDFSavedSignatures") != nil)
         #expect(defaults.string(forKey: "editorPDFSignatureFace") == nil)
         #expect(defaults.object(forKey: "folderJumpRecentsByRoot") == nil)
         #expect(defaults.string(forKey: "askClaudeModel") == nil)
-        #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
         #expect(settings.dateToleranceSeconds == 1)
         #expect(settings.sourceOrder.isEmpty)
         #expect(defaults.object(forKey: "sourceOrder") == nil)

@@ -72,9 +72,8 @@ import Testing
     /// the third checks a pasted key against `api.anthropic.com/v1/models` so Settings can say
     /// whether it works. None is reachable without a key the user stored.
     private static let allowedNetworkFiles: Set<String> = [
-        "MacApp/CloudFilingClassifier.swift",
-        // Refine's streamed request (TE335). The same call as the classifier above, which it replaces
-        // in the app, so Help's account of Refine covers it.
+        // Refine's streamed request (TE335): Refine, Try Another and Refine Names. Help's account of
+        // Refine covers it.
         "Modules/Sync/Sources/Sync/CloudFilingRefiner.swift",
         "Modules/Sync/Sources/Sync/AnthropicKeyCheck.swift",
         // Ask Claude, the toolbar chat. Help ▸ Reading your documents names it as the second feature
@@ -177,7 +176,7 @@ import Testing
     /// The scans can actually fail: each is shown finding what it looks for.
     @Test func theScansAreNotVacuous() {
         #expect(Self.networkSymbols.contains { symbol in
-            Self.shippedSources.first { $0.path == "MacApp/CloudFilingClassifier.swift" }?
+            Self.shippedSources.first { $0.path == "Modules/Sync/Sources/Sync/CloudFilingRefiner.swift" }?
                 .text.contains(symbol) == true
         }, "the network scan cannot even see the known network call — every result above is meaningless")
     }

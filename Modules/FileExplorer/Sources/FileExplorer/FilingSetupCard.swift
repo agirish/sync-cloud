@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// A ``LensSetupCard`` with To File's own parts (its trigger and sample rows), so every lens's
 /// fresh state shares one layout. The trigger shows no price: the scan is free
-/// (`FilingClassifierTier.free`), and the paid Refine pass's cost goes in the `footnote`.
+/// (`FilingClassifierTier.free`), and the paid Refine pass quotes its own cost.
 ///
 /// The sample rows show the layout before a real run asks the user to judge proposed moves. They
 /// are inert and greyed, and the third makes "no confident home" familiar rather than a surprise.
@@ -13,9 +13,6 @@ import SwiftUI
 struct FilingSetupCard: View {
     let intro: LensIntro
     let accent: Color
-    /// The spend row, when this machine has cloud scans on record. Under the card — see
-    /// ``LensSetupCard/footnote`` for why it is not above it.
-    var footnote: AnyView? = nil
     let onStart: () -> Void
 
     var body: some View {
@@ -33,8 +30,7 @@ struct FilingSetupCard: View {
             samplesAccessibility: "Example of the suggestion format: a file name, the folder it "
                 + "would move to, and how confident the suggestion is. These are samples, not "
                 + "files on your disk.",
-            onStart: onStart,
-            footnote: footnote
+            onStart: onStart
         ) {
             ForEach(FilingSetupCard.samples) { sample in
                 sampleRow(sample)

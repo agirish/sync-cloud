@@ -75,19 +75,12 @@ struct FaceCallSite: Sendable, CustomStringConvertible {
 /// Every `.rounded` call site SyncCloud ships: the hits for `design: .rounded` under
 /// `Modules/*/Sources`.
 ///
-/// The two spend panes use identical `stat(_:_:)` helpers in different modules and render the
-/// same strings; they take different ones here so a fixture that stops discriminating shows up in
-/// one case. "18.4k tok" is left out: 72.745pt in the plain digits face against 72.210pt rounded,
-/// and at scale 1.15 both round to 82.5pt, so it would pass in the wrong face.
+/// The two spend panes' rounded monospaced-digit `stat` helpers were the other sites until Refine's
+/// own spend readouts went (TE335, E5); the rounded-digits path no longer ships, so no fixture here
+/// exercises it.
 let roundedCallSites = [
     FaceCallSite(site: "PaneRowFonts.name", font: .system(.body, design: .rounded),
                  digits: false, text: "Birth Certificate"),
-    FaceCallSite(site: "SettingsView.stat (filing spend)",
-                 font: .system(size: 16, weight: .semibold, design: .rounded).monospacedDigit(),
-                 digits: true, text: "~$1.24"),
-    FaceCallSite(site: "FilingSpendHistoryView.stat",
-                 font: .system(size: 16, weight: .semibold, design: .rounded).monospacedDigit(),
-                 digits: true, text: "1234"),
 ]
 
 /// The raw, unrounded width of `text` in `font`, which the gap floors below use because SwiftUI's
@@ -361,16 +354,12 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     /// Every shipping rounded call site, measured against the view SwiftUI lays out for it.
     ///
-    /// The case above covers `PaneRowFonts.name`, the one rounded site without monospaced digits.
-    /// `Font.monospacedDigit()` preserves the design, so the rounded, monospaced-digit filing-spend
-    /// totals must too: if `nsFont`'s digits path dropped the design, "1234" at 16pt semibold would
-    /// measure 40.745pt against a drawn 42.042pt. Parameterised over the sites, so a new rounded
-    /// call site is added here.
+    /// Parameterised over the sites, so a new rounded call site is added here.
     @Test(.machinePinned(.pixelSampling), arguments: roundedCallSites)
     func everyRoundedCallSiteMeasuresTheFaceItDraws(site: FaceCallSite) {
         for scale in appFontScales {
             // The premise, asserted: a string that measures the same in both faces would pass with
-            // the design dropped, as "18.4k tok" does at one scale (see `roundedCallSites`).
+            // the design dropped.
             let gap = abs(rawWidth(site.text, site.font.nsFont(scale: scale))
                           - rawWidth(site.text, site.faceWithTheDesignDropped(scale: scale)))
             #expect(gap > 1,

@@ -41,20 +41,6 @@ import Testing
         #expect(FilingSpendBudget.monthlySpend(entries: [entry(cost: 5, at: lastMonth)], now: now, calendar: cal) == 0)
     }
 
-    // MARK: isOverCap — boundary + cap-off behavior
-
-    @Test func isOverCapHonorsTheBoundaryAndTreatsZeroAsUnlimited() {
-        // Cap of 0 = unlimited — never over, whatever's been spent.
-        #expect(FilingSpendBudget.isOverCap(spent: 0, capUSD: 0) == false)
-        #expect(FilingSpendBudget.isOverCap(spent: 999, capUSD: 0) == false)
-        // Under the cap → not over.
-        #expect(FilingSpendBudget.isOverCap(spent: 4.99, capUSD: 5) == false)
-        // At the cap → over (>=), so a call at the boundary is blocked.
-        #expect(FilingSpendBudget.isOverCap(spent: 5.0, capUSD: 5) == true)
-        // Past the cap → over.
-        #expect(FilingSpendBudget.isOverCap(spent: 5.01, capUSD: 5) == true)
-    }
-
     // MARK: FilingSpendPreflight.wouldExceedCap (monthly + total dimensions)
 
     private func preflight(est: Double, monthlySpent: Double = 0, monthlyCap: Double = 0,
@@ -99,20 +85,5 @@ import Testing
         // Both off → never blocked.
         #expect(preflight(est: 1000, monthlySpent: 1000, monthlyCap: 0, totalSpent: 1000, totalCap: 0)
             .wouldExceedCap == false)
-    }
-
-    // MARK: total cap default — absent key means the shipped $5, not UserDefaults.double's 0
-
-    @Test func totalBudgetCapAppliesTheFiveDollarDefaultWhenUnset() {
-        let d = ScratchDefaults("FilingSpendBudgetTests.totalCap")
-        // Absent → the shipped default ($5), NOT 0.
-        #expect(FileSyncManager.totalBudgetCap(in: d) == FileSyncManager.defaultTotalBudgetCapUSD)
-        #expect(FileSyncManager.defaultTotalBudgetCapUSD == 5.0)
-        // Explicit 0 ("Off") is honored as off, not re-defaulted.
-        d.set(0.0, forKey: FileSyncManager.totalBudgetCapKey)
-        #expect(FileSyncManager.totalBudgetCap(in: d) == 0)
-        // A chosen value is returned verbatim.
-        d.set(25.0, forKey: FileSyncManager.totalBudgetCapKey)
-        #expect(FileSyncManager.totalBudgetCap(in: d) == 25.0)
     }
 }

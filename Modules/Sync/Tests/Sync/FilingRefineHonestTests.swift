@@ -25,6 +25,13 @@ private func answers(_ files: [FilingCandidateFile], answering names: [String], 
         var claudeAsks: Int { lock.withLock { cloud } }
     }
 
+    private final class TierLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var tiers: [FilingClassifierTier] = []
+        func record(_ tier: FilingClassifierTier) { lock.withLock { tiers.append(tier) } }
+        var all: [FilingClassifierTier] { lock.withLock { tiers } }
+    }
+
     private func fixture(_ name: String, files: Int = 3) throws -> URL { try refineFixture(prefix: "RefineHonest-\(name)", looseFiles: files) }
 
     /// The scan answers Documents/Family on-device. Refine routes to Claude, whose reply is `claude`.
@@ -178,6 +185,7 @@ private func answers(_ files: [FilingCandidateFile], answering names: [String], 
         let root = try fixture("tryfail", files: 1); defer { try? FileManager.default.removeItem(at: root) }
         let calls = Calls()
         let m = manager(calls) { _ in FilingRefineResult(ending: .failed("Claude is busy right now. Try again in a moment.")) }
+        AskClaudePrivacy.shareWithoutAsking(root.path, in: m.filingContentDefaults)   // a shared folder: the click may ask Claude
         await scan(m, root: root)
         let card = try #require(m.filingSuggestions.first)
         let before = card.best?.path
@@ -196,9 +204,49 @@ private func answers(_ files: [FilingCandidateFile], answering names: [String], 
         let m = manager(calls) { files in
             FilingRefineResult(ending: .answered, verdicts: answers(files, answering: files.map(\.fileName)), answered: 1, sent: 1, started: true, costUSD: 0.001)
         }
+        AskClaudePrivacy.shareWithoutAsking(root.path, in: m.filingContentDefaults)
         await scan(m, root: root)
         await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
         #expect(m.filingSuggestions.first?.best?.path.hasSuffix("Archive/2026") == true)
         #expect(calls.claudeAsks == 1 && calls.onDeviceRefines == 0)
+    }
+
+    // MARK: Try Another keeps to the folder's sharing choice (TE335, LX-A)
+
+    /// A folder that asks each time is not shared, so a click on Try Another there never reaches
+    /// Claude: the on-device model answers, at the free tier, and nothing leaves this Mac.
+    @Test func aTryAnotherInAFolderThatAsksEachTimeStaysOnThisMac() async throws {
+        let root = try fixture("tryasks", files: 1); defer { try? FileManager.default.removeItem(at: root) }
+        let calls = Calls()
+        let m = manager(calls) { files in
+            FilingRefineResult(ending: .answered, verdicts: answers(files, answering: files.map(\.fileName)), answered: 1, sent: 1, started: true, costUSD: 0.001)
+        }
+        let tiers = TierLog()
+        let scanAnswer = m.filingClassifier
+        m.filingClassifier = { ctx, files, tier in
+            tiers.record(tier)
+            return await scanAnswer?(ctx, files, tier) ?? [:]
+        }
+        await scan(m, root: root)
+        let afterScan = tiers.all.count
+        await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
+
+        #expect(calls.claudeAsks == 0, "nothing was sent to Claude from a folder that asks each time")
+        #expect(Array(tiers.all.dropFirst(afterScan)) == [.free], "the on-device model answered, at the free tier")
+        #expect(m.banner?.message.contains("Claude") != true, "no Claude failure was reported: Claude was never asked")
+    }
+
+    /// And the same click, same fixture, goes to Claude when the folder is shared without asking:
+    /// the sharing choice is the only difference between the two runs.
+    @Test(arguments: [false, true]) func aTryAnotherGoesToClaudeOnlyWhenTheFolderIsShared(shared: Bool) async throws {
+        let root = try fixture("trymixed-\(shared)", files: 1); defer { try? FileManager.default.removeItem(at: root) }
+        let calls = Calls()
+        let m = manager(calls) { files in
+            FilingRefineResult(ending: .answered, verdicts: answers(files, answering: files.map(\.fileName)), answered: 1, sent: 1, started: true, costUSD: 0.001)
+        }
+        if shared { AskClaudePrivacy.shareWithoutAsking(root.path, in: m.filingContentDefaults) }
+        await scan(m, root: root)
+        await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
+        #expect(calls.claudeAsks == (shared ? 1 : 0))
     }
 }

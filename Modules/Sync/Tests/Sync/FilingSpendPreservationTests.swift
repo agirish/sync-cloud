@@ -2,10 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A money store that can't be read must not be written over. If an undecodable payload read as
-/// zero and `record` wrote that back, one bad value would permanently erase the lifetime total and
-/// re-arm the $5 lifetime cap, with Settings showing $0.00 and no reason. The spent side must tell
-/// unreadable from absent, as `totalBudgetCap` does for the cap.
+/// Refine's old spend record is read once and never written over (TE335, E5). An undecodable
+/// payload must read as unreadable, not as zero: reading it as zero would carry nothing into Ask
+/// Claude's total and then delete the only copy.
 @Suite struct FilingSpendPreservationTests {
 
     private func suite() -> (UserDefaults, String) {
@@ -13,56 +12,37 @@ import Testing
         return (UserDefaults(suiteName: name)!, name)
     }
 
-    private func entry(cost: Double) -> FilingSpendEntry {
-        FilingSpendEntry(timestamp: Date(timeIntervalSince1970: 1_720_000_000),
-                         model: "claude-haiku-4-5", fileCount: 5, placedCount: 4,
-                         inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0,
-                         cacheCreationTokens: 0, estimatedCostUSD: cost)
-    }
-
-    @Test func anUnreadableTotalIsNotOverwrittenByTheNextScan() throws {
+    @Test func anUnreadableTotalIsKeptAndReportsItself() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
         let corrupt = Data("{ \"costUSD\": 4.87, \"tok".utf8)   // a truncated write
         defaults.set(corrupt, forKey: FilingSpendStore.totalsKey)
 
-        FilingSpendStore.record(entry(cost: 0.02), defaults: defaults)
-
-        #expect(defaults.data(forKey: FilingSpendStore.totalsKey) == corrupt,
-                "the lifetime total was overwritten by a scan recorded on top of a zero")
+        #expect(FilingSpendStore.isUnreadable(defaults: defaults))
+        #expect(defaults.data(forKey: FilingSpendStore.totalsKey) == corrupt, "reading must not rewrite")
         #expect(defaults.data(forKey: FilingSpendStore.totalsKey + ".unreadable") == corrupt,
                 "the unreadable value was not preserved")
     }
 
-    /// The monthly cap is summed from the history, so the same rule applies to it.
-    @Test func anUnreadableHistoryIsNotOverwrittenByTheNextScan() throws {
+    @Test func anUnreadableHistoryIsKeptAndReportsItself() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
         let corrupt = Data("[{\"model\":\"claude".utf8)
         defaults.set(corrupt, forKey: FilingSpendStore.historyKey)
 
-        FilingSpendStore.record(entry(cost: 0.02), defaults: defaults)
-
+        #expect(FilingSpendStore.isUnreadable(defaults: defaults))
         #expect(defaults.data(forKey: FilingSpendStore.historyKey) == corrupt)
         #expect(defaults.data(forKey: FilingSpendStore.historyKey + ".unreadable") == corrupt)
     }
 
-    /// Absent is not unreadable: a first run records normally and leaves no backup behind.
-    @Test func anAbsentStoreRecordsNormally() throws {
+    /// Absent is not unreadable: nothing recorded, and no backup left behind.
+    @Test func anAbsentStoreIsAbsentNotUnreadable() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
-        FilingSpendStore.record(entry(cost: 0.02), defaults: defaults)
-        #expect(FilingSpendStore.totals(defaults: defaults).scans == 1)
+        if case .absent = FilingSpendStore.totalsRead(defaults: defaults) {} else { Issue.record("not absent") }
+        if case .absent = FilingSpendStore.entriesRead(defaults: defaults) {} else { Issue.record("not absent") }
         #expect(defaults.data(forKey: FilingSpendStore.totalsKey + ".unreadable") == nil)
         #expect(FilingSpendStore.isUnreadable(defaults: defaults) == false)
-    }
-
-    /// The signal the budget backstop reads to fail closed.
-    @Test func anUnreadableStoreReportsItself() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
-        defaults.set(Data("{ nope".utf8), forKey: FilingSpendStore.totalsKey)
-        #expect(FilingSpendStore.isUnreadable(defaults: defaults))
     }
 
     /// Adding a field must not throw on existing data: a payload without `unpricedScans` still
@@ -80,8 +60,7 @@ import Testing
                 "an older payload must read as loaded, not as unreadable")
     }
 
-    /// An entry without `costUnpriced` decodes too; a throw would empty the history the monthly cap
-    /// is summed from.
+    /// An entry without `costUnpriced` decodes too.
     @Test func anOlderHistoryPayloadStillDecodes() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
@@ -93,21 +72,6 @@ import Testing
         let entries = FilingSpendStore.entries(defaults: defaults)
         #expect(entries.count == 1)
         #expect(entries.first?.costUnpriced == false)
-    }
-
-    /// An unpriced scan is counted as unpriced, not as free: an unknown model's nil cost isn't
-    /// $0.00, so lifetime spend is marked as a floor.
-    @Test func anUnpricedScanIsCountedSeparately() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
-        FilingSpendStore.record(FilingSpendEntry(
-            timestamp: Date(timeIntervalSince1970: 1_720_000_000), model: "some-new-model",
-            fileCount: 1, placedCount: 1, inputTokens: 100, outputTokens: 10,
-            cacheReadTokens: 0, cacheCreationTokens: 0,
-            estimatedCostUSD: 0, costUnpriced: true), defaults: defaults)
-        let totals = FilingSpendStore.totals(defaults: defaults)
-        #expect(totals.unpricedScans == 1, "lifetime spend does not record that it is a floor")
-        #expect(totals.scans == 1)
-        #expect(totals.tokens == 110, "the tokens are real and must still be counted")
+        #expect(!FilingSpendStore.isUnreadable(defaults: defaults))
     }
 }

@@ -44,8 +44,8 @@ struct LensSetupCard<Samples: View>: View {
         var isBusy: Bool = false
     }
     /// A lens-specific note for this screen, which **must not sit above the header**: every lens
-    /// opens with its header at the same height, so anything one lens adds goes under the card. To
-    /// File uses it for what the last cloud pass cost and the spend history button.
+    /// opens with its header at the same height, so anything one lens adds goes under the card. Restructure
+    /// uses it for its no-survey note.
     ///
     /// `AnyView` rather than a second generic parameter, so call sites with no footnote stay as
     /// they are.

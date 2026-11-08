@@ -183,7 +183,6 @@ extension FileSyncManager {
     /// stored", the route decides money, and the gap between them (stored but unreadable) is
     /// reported by the refine banner rather than silently believed.
     public var filingCloudRefineAvailable: Bool {
-        guard filingUsesCloud else { return false }
         if let configured = filingCloudRefineConfigured { return configured() }
         return filingRoutesToCloud(.refine)
     }
@@ -763,48 +762,12 @@ extension FileSyncManager {
         (filingContentDefaults.object(forKey: Self.usesAIDefaultsKey) as? Bool) ?? true
     }
 
-    /// Opt-in: prefer the cloud (Claude) classifier over the on-device model when a key is present.
-    /// Off by default: sends folder names and file names (and contents, if reading is on) to Anthropic.
-    // `nonisolated`: an immutable defaults-key string, main-actor-isolated only by living on
-    // `FileSyncManager`, and background callers (the classifiers, the app's startup read) read it.
-    public nonisolated static let usesCloudDefaultsKey = "tidyFilingUseCloud"
-    /// Whether Filing may use the opt-in cloud (Claude) backend. Off by default; with `filingUsesAI`
-    /// and a stored key, both needed for a cloud call. Read through the injectable defaults store so
-    /// tests can flip it without touching `.standard`.
+    /// Whether Claude can be used from Organize: a key is saved, answered by the app's cheap seam
+    /// (``filingCloudRefineConfigured``). There is no switch of Organize's own (TE335, LW-A): a saved
+    /// key is the opt-in, each Refine needs a click on Send, and a card's Try Another reaches Claude
+    /// only for a file in a folder shared without asking. Unset (the CLI, tests) means no.
     var filingUsesCloud: Bool {
-        (filingContentDefaults.object(forKey: Self.usesCloudDefaultsKey) as? Bool) ?? false
-    }
-    /// Which Claude model the cloud classifier uses (a model-ID string), trading cost against
-    /// quality. Defaults to Haiku, the cheapest (`CloudFilingProtocol.defaultModel`, and the
-    /// Settings picker's default).
-    // `nonisolated`: an immutable defaults-key string, main-actor-isolated only by living on
-    // `FileSyncManager`, and background callers (the classifiers, the app's startup read) read it.
-    public nonisolated static let cloudModelDefaultsKey = "tidyFilingCloudModel"
-
-    /// Monthly budget cap for cloud (Claude) Filing spend, in USD. 0 (the default) means no cap, so
-    /// the user is never surprise-blocked. When > 0 and this calendar month's spend would exceed it,
-    /// cloud calls pause and Filing falls back to its on-device suggestions.
-    // `nonisolated`: an immutable defaults-key string, main-actor-isolated only by living on
-    // `FileSyncManager`, and background callers (the classifiers, the app's startup read) read it.
-    public nonisolated static let monthlyBudgetCapKey = "tidyFilingMonthlyBudgetUSD"
-
-    /// Total (lifetime) budget cap for cloud (Claude) Filing spend, in USD. Unlike the monthly cap
-    /// it ships on by default (`defaultTotalBudgetCapUSD`), a backstop so a runaway or forgotten
-    /// cloud setup can't rack up unbounded spend. 0 means off.
-    public nonisolated static let totalBudgetCapKey = "tidyFilingTotalBudgetUSD"
-
-    /// Default total cap when the user has never set one, kept in step with the Settings picker's
-    /// default. Read through `totalBudgetCap(in:)` so an absent key means "$5 cap", not
-    /// `UserDefaults.double`'s 0 ("off"). `nonisolated` so `CloudFilingClassifier`'s own cap check
-    /// can read it off the main actor.
-    public nonisolated static let defaultTotalBudgetCapUSD = 5.0
-
-    /// The effective total cap for a defaults store. An absent key means the user hasn't chosen, so
-    /// the shipped $5 default applies; a present value (including `0`, "Off") is honoured as is.
-    /// Hence not `defaults.double(forKey:)`.
-    public nonisolated static func totalBudgetCap(in defaults: UserDefaults) -> Double {
-        defaults.object(forKey: totalBudgetCapKey) == nil ? defaultTotalBudgetCapUSD
-                                                          : defaults.double(forKey: totalBudgetCapKey)
+        filingCloudRefineConfigured?() ?? false
     }
 
     /// Decides whether the cloud (Claude) classifier may run for this batch. True at once when the
@@ -1328,7 +1291,15 @@ extension FileSyncManager {
         // Hidden from Claude is honoured as in the refine pass: a hidden file isn't asked about,
         // and a hidden folder is neither offered nor sent as one to avoid. Only when the re-ask
         // goes to Claude; on this Mac nothing leaves it.
-        let hidden = filingRoutesToCloud(.refine) ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
+        // Claude answers a Try Another only for a file in a folder shared without asking: asking it
+        // sends a request with no click of its own, so the folder's choice is the consent, and a
+        // folder that asks each time stays on this Mac (TE335, LX-A). Where the app installs no
+        // Claude request (the CLI, tests) a pass that routes to Claude goes through the classifier.
+        let routesToClaude = filingRoutesToCloud(.refine)
+        let useClaude = routesToClaude
+            && (filingRefineClassifier == nil
+                || AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: filingContentDefaults)).holds(suggestion.filePath))
+        let hidden = useClaude ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
         if hidden.isHidden(suggestion.filePath) {
             banner = .warning("“\(suggestion.fileName)” is hidden from Claude, so it wasn’t asked "
                               + "for another folder. Choose one instead.", log: .warn)
@@ -1384,7 +1355,7 @@ extension FileSyncManager {
         // silently: a click that does nothing, with its reason only in `~/sync-cloud.log`, teaches
         // nothing), and the card keeps its free on-device suggestion. The refine pass keeps its
         // dialog: it is a bulk action the user asked to price.
-        guard cloudSpendWithinCapsWithoutPrompting(files: [file], taxonomyFolders: taxonomyFolders) else {
+        guard !useClaude || cloudSpendWithinCapsWithoutPrompting(files: [file], taxonomyFolders: taxonomyFolders) else {
             return
         }
         // Claude when the pass routes there, through the request that says how it ended; otherwise
@@ -1392,7 +1363,7 @@ extension FileSyncManager {
         // on-device model.
         var cloudFailure: String?
         let verdicts: [String: FilingVerdict]
-        if filingRoutesToCloud(.refine), let refiner = filingRefineClassifier {
+        if useClaude, let refiner = filingRefineClassifier {
             let reply = await refiner(filingContext(taxonomyFolders: taxonomyFolders), [file])
             verdicts = reply.verdicts
             switch reply.ending {
@@ -1401,7 +1372,10 @@ extension FileSyncManager {
             case .failed(let why): cloudFailure = why
             }
         } else {
-            verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], .refine)
+            // This Mac: the free tier when Claude is the pass's route but not this file's, so nothing
+            // leaves it; the refine tier as before where there is no Claude route at all.
+            let onThisMac: FilingClassifierTier = routesToClaude && filingRefineClassifier != nil ? .free : .refine
+            verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], onThisMac)
         }
         // The verdict was computed against this invocation's pre-await snapshots. If the filing
         // state moved on while the classifier was out, the card now on screen (same id, the file

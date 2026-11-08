@@ -429,11 +429,11 @@ private actor AsyncGate {
         let m = FileSyncManager()
         // Cloud on,
         let settings = ScratchDefaults("refineDowngrade")
-        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         // verdict reuse off, so there is a miss for the guardrail to price (with the cache on, the
         // scan's on-device verdicts are hits and the confirmer is never reached),
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
         m.filingContentDefaults = settings
+        m.filingCloudRefineConfigured = { true }
         // but the app resolves both tiers to the on-device downgrade.
         m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
         m.filingClassifier = { _, files, _ in
@@ -451,18 +451,19 @@ private actor AsyncGate {
     }
 
     /// The same state, seen from the button. `filingCloudRefineAvailable` picks between "Refine N
-    /// with Opus" and the "set up Claude" invitation; keyed on the toggle, it would promise a model
-    /// that won't run. With no `filingCloudRefineConfigured` seam (the CLI and test shape) it falls
-    /// back to the real route, so this pins the fallback too.
-    @Test func theButtonDoesNotPromiseAModelTheRouterWillNotUse() async throws {
+    /// with Claude" and the "set up Claude" invitation. With no `filingCloudRefineConfigured` seam
+    /// (the CLI and test shape) it asks the real route, so a route that goes on-device offers the
+    /// invitation, and one that reaches Claude offers the button. (With the seam set, a saved key is
+    /// the answer: see the test below.)
+    @Test func withNoSeamTheButtonFollowsTheRoute() async throws {
         let m = FileSyncManager()
-        let settings = ScratchDefaults("refineDowngradeLabel")
-        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        m.filingContentDefaults = settings
+        m.filingContentDefaults = ScratchDefaults("refineDowngradeLabel")
         m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
-
         #expect(!m.filingCloudRefineAvailable,
-                "the button would name a cloud model for a pass the router sends on-device")
+                "the button would name Claude for a pass the router sends on-device")
+
+        m.filingBackendIdentity = { tier in tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity }
+        #expect(m.filingCloudRefineAvailable, "a route that reaches Claude offers the button")
     }
 
     /// The display seam answers the button and the route answers the money. They disagree in one
@@ -473,8 +474,8 @@ private actor AsyncGate {
         defer { try? FileManager.default.removeItem(at: root) }
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineUnreadable")
-        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         m.filingContentDefaults = settings
+        m.filingCloudRefineConfigured = { true }
         // A key is stored, so the button offers Claude,
         m.filingCloudRefineConfigured = { true }
         // but the router can't read it, so the pass runs on-device.
@@ -566,8 +567,8 @@ private actor AsyncGate {
     @Test func theFreeTiersConfiguredIdentityIgnoresTheCloudToggle() {
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineFreeIdentity")
-        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         m.filingContentDefaults = settings
+        m.filingCloudRefineConfigured = { true }
 
         #expect(m.configuredFilingBackendIdentity(for: .free) == FileSyncManager.onDeviceBackendIdentity)
         #expect(m.configuredFilingBackendIdentity(for: .refine).hasPrefix("cloud:"))
@@ -587,9 +588,9 @@ private actor AsyncGate {
         let asked = Probe()
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineDeclined")
-        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
         m.filingContentDefaults = settings
+        m.filingCloudRefineConfigured = { true }
         m.filingClassifier = { _, files, _ in
             asked.record()
             return Dictionary(uniqueKeysWithValues: files.map {
@@ -628,9 +629,9 @@ private actor AsyncGate {
         defer { try? FileManager.default.removeItem(at: root) }
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineApproved")
-        settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
         m.filingContentDefaults = settings
+        m.filingCloudRefineConfigured = { true }
         m.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map {
                 ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "t"))

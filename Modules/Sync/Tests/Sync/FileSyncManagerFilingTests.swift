@@ -904,10 +904,10 @@ private final class SnippetBox: @unchecked Sendable {
     @MainActor
     private func cloudReask(_ prefix: String, limit: Double? = nil) async -> (FileSyncManager, SnippetBox) {
         let defaults = ScratchDefaults(prefix)
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         if let limit { defaults.set(limit, forKey: AskClaudeSpend.limitDefaultsKey) }
 
         let manager = reaskManager(defaults: defaults)
+        manager.filingCloudRefineConfigured = { true }
         manager.filingBackendIdentity = { _ in "cloud:\(AskClaudeModels.defaultModel.id)" }
 
         let seen = SnippetBox()

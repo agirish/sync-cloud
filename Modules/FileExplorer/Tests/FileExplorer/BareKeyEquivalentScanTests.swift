@@ -137,9 +137,6 @@ import Testing
         // for it: ⏎ on the primary, esc on Later/Cancel, the platform convention for a modal.
         "OneWaySyncSheets.swift":
             "modal sheets: each primary carries .defaultAction, Later/Cancel .cancelAction",
-        // Sheet with a single Done button.
-        "FilingSpendHistoryView.swift":
-            "modal sheet: a lone Done button carrying .defaultAction",
         // Restructure's plan sheet, presented via `.sheet` over the lens: modal, so ⏎ on
         // `Export plan` is the platform convention and can't eat a key from the lens below.
         "RestructurePlanSheet.swift":

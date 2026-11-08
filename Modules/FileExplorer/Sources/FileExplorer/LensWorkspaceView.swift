@@ -132,14 +132,6 @@ public struct LensWorkspaceView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-    /// The recorded cloud spend both Organize surfaces read: the setup card's price and the spend
-    /// row above the results. Held in state because each of `FilingSpendStore.last()` and
-    /// `.totals()` is a `UserDefaults` read plus a JSON decode, and `filingSpendRow` renders on
-    /// every keystroke in the search field. ``refreshFilingSpend()`` reloads it on appear, when a
-    /// scan finishes, and when the history sheet closes (it can Clear). Same shape as
-    /// `SettingsView`'s `spendTotals`/`spendLast`/`refreshSpend`.
-    @State private var spendLast: FilingSpendEntry?
-    @State private var spendTotals = FilingSpendTotals()
     // The model Refine runs on is Ask Claude's: the chat's menu and Settings write the same key. Read
     // here so the tooltip and the Refine Names button re-render the moment it changes.
     @AppStorage(AskClaudeModels.defaultsKey)
@@ -216,7 +208,6 @@ public struct LensWorkspaceView: View {
         get { session.appliedRevealID }
         nonmutating set { session.appliedRevealID = newValue }
     }
-    @State private var showSpendHistory = false
     /// Bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
     /// Drives the "… freed this session" count-up caption on the reclaim pill.
     private var reclaim: ReclaimTally {
@@ -934,9 +925,6 @@ public struct LensWorkspaceView: View {
         // `columnSectionCard`). In Unified the content starts flush under the header's hairline at
         // the same 83.5 the file pane's list does.
         .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-        // `onDismiss`, because the history sheet can Clear History, and the setup card's cached
-        // spend must not go on quoting an erased record. `SettingsView` presents it the same way.
-        .sheet(isPresented: $showSpendHistory, onDismiss: refreshFilingSpend) { FilingSpendHistoryView().presentedNativeControlAccent() }
         // Review-after-create: a rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor. Cancel keeps it as created; the review is an offer, not a gate.
         // The offer is answered from the result message's popover, which hands the rule over here.
@@ -963,12 +951,6 @@ public struct LensWorkspaceView: View {
         // results, so "All filed" is earned only by this scan's work. The search resets in the
         // same `isSuggestingFiles` handler below, not a second one, so there is one scan-start
         // handler to find.
-        .onAppear(perform: refreshFilingSpend)
-        // The store's own change signal, for writers this view can't see: the same history view
-        // in the Settings window can Clear History. `receive(on:)` because `record` posts from off
-        // the main actor.
-        .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
-            .receive(on: DispatchQueue.main)) { _ in refreshFilingSpend() }
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
             if isScanning {
                 filedThisSession = false
@@ -981,10 +963,6 @@ public struct LensWorkspaceView: View {
                 // refills. Moving it would be wrong, because the auto-rescan fires as Organize
                 // appears and would yank a restored selection to To File on every launch. Only the
                 // parked query goes, because it described the previous scan's rows.
-            } else {
-                // Finished: a cloud call may have recorded spend, which the spend row and the
-                // setup card both quote. This handler's `else`, not a second `.onChange`.
-                refreshFilingSpend()
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" counts
@@ -1898,28 +1876,6 @@ public struct LensWorkspaceView: View {
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
 
-    /// Re-reads the recorded cloud spend. See ``spendLast`` for why it is cached, and the three
-    /// moments this is called from.
-    private func refreshFilingSpend() {
-        spendLast = FilingSpendStore.last()
-        spendTotals = FilingSpendStore.totals()
-    }
-
-    private var filingSpendRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "cloud").scaledFont(.system(size: 10))
-            if let last = spendLast {
-                Text("Last refine: \(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.counted(last)) · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            Spacer(minLength: 8)
-            Text("Total \(FilingSpendFormat.cost(spendTotals.costUSD))")
-            Button("History") { showSpendHistory = true }.controlSize(.mini)
-                .help("Show every cloud refine with its tokens and estimated cost")
-        }
-        .scaledFont(.system(size: 11))
-        .foregroundStyle(.secondary)
-    }
     /// "File all N confident", scoped to the filtered rows. `batch` comes from the rows on screen
     /// and is both the label's count and what `applyRecommendedFiling` files, so a query leaving
     /// 3 of 12 reads "File all 3 confident" and files exactly those.
@@ -2038,8 +1994,6 @@ public struct LensWorkspaceView: View {
         guard !scope.isEmpty else { return }
         Task {
             await syncManager.refineFilingSuggestions(scope)
-            // The pass may have spent; the spend row reads from a cached snapshot.
-            refreshFilingSpend()
         }
     }
 
@@ -4354,18 +4308,6 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private func filingContent(filing: [FilingSuggestion], counts: RailCounts) -> some View {
         VStack(spacing: 0) {
-            // The Cloud Filing spend row sits at the top of the content, not as a third header row:
-            // the header is a fixed two-row ladder (81pt in every lens), and this row is a footnote
-            // about what the last scan cost, not a control.
-            //
-            // Over the setup card it goes underneath instead, as the card's footnote (see
-            // `filingIntroState`): every lens opens with its card at the same height, and this row
-            // above it would push To File's down.
-            if spendRowPlacement == .aboveTheList {
-                filingSpendRow
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-            }
             // No teach prompt here: inserted above the cards after a move, it would slide the next
             // card's "File here" out from under the pointer. The offer rides in the move's "Filed …"
             // result message as "Save as rule…" (`FilingRuleOfferPanel`), so these cards never move.
@@ -4532,42 +4474,13 @@ public struct LensWorkspaceView: View {
                 scanTargetName: scanTargetName,
                 documentsRead: !(syncManager.filingMemory?.folders.isEmpty ?? true)),
             accent: glassHue.accentColor,
-            // Under the card, not above it; see `SpendRowPlacement`.
-            footnote: spendRowPlacement == .underTheSetupCard
-                ? AnyView(filingSpendRow.padding(.top, 2))
-                : nil,
             onStart: onFindFilingSuggestions
         )
     }
 
-    /// Whether To File is showing its pre-scan setup card. Asked by the state switch that draws it
-    /// and by the spend row that moves out of its way, from one place so the two can't disagree.
+    /// Whether To File is showing its pre-scan setup card.
     private var showsFilingSetupCard: Bool {
         !syncManager.isSuggestingFiles && !syncManager.hasSuggestedFiling
-    }
-
-    /// Where the cloud spend row goes. A value rather than two `if`s in two view bodies, so both
-    /// call sites read one answer and editing one branch can't put the row back above the card.
-    /// `LensSetupCardAlignmentTests` renders each case knowing it is what the lens really does.
-    enum SpendRowPlacement: Equatable {
-        /// Above the results.
-        case aboveTheList
-        /// Under the setup card, as its footnote. Every lens opens with the same card at the same
-        /// height, so the one row a lens adds cannot go in front of it.
-        case underTheSetupCard
-        /// No cloud pass on record: a footnote about nothing.
-        case hidden
-    }
-
-    nonisolated static func spendRowPlacement(scansOnRecord: Int,
-                                              showsSetupCard: Bool) -> SpendRowPlacement {
-        guard scansOnRecord > 0 else { return .hidden }
-        return showsSetupCard ? .underTheSetupCard : .aboveTheList
-    }
-
-    private var spendRowPlacement: SpendRowPlacement {
-        Self.spendRowPlacement(scansOnRecord: spendTotals.scans,
-                               showsSetupCard: showsFilingSetupCard)
     }
 
     /// Renames before its first run: the walk's job for this lens, one trigger (the same file pass

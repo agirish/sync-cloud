@@ -64,20 +64,20 @@ import Sync
 
     @Test func aRevertThatRaisesAsksFirst() {
         let rig = Rig(#function); defer { rig.done() }
-        let off = SettingsChange(setting: "intelligence.cloudRefine", name: "Use Claude (cloud) to refine suggestions", from: "true", to: "false",
-                                 fromLabel: "On", toLabel: "Off", how: .claude)
-        rig.defaults.set(false, forKey: FileSyncManager.usesCloudDefaultsKey)
+        let off = SettingsChange(setting: "intelligence.monthlyLimit", name: "Monthly limit", from: "25.0", to: "10.0",
+                                 fromLabel: "$25", toLabel: "$10", how: .claude)
+        rig.defaults.set(10.0, forKey: AskClaudeSpend.limitDefaultsKey)
         #expect(SettingsRevert.state(off, lookup: rig.lookup) == .ready(raises: true))
         var asked: [String] = []
         let cancelled = SettingsRevert.revert(off, lookup: rig.lookup, writer: rig.writer, log: rig.log, center: rig.center,
                                               confirmRaising: { asked.append($0.messageText); return false })
         #expect(cancelled != .done)
         #expect(asked.count == 1)
-        #expect(rig.defaults.bool(forKey: FileSyncManager.usesCloudDefaultsKey) == false)
+        #expect(AskClaudeSpend.limit(in: rig.defaults) == 10)
         #expect(rig.log.changes.isEmpty)
         #expect(SettingsRevert.revert(off, lookup: rig.lookup, writer: rig.writer, log: rig.log, center: rig.center,
                                       confirmRaising: { _ in true }) == .done)
-        #expect(rig.defaults.bool(forKey: FileSyncManager.usesCloudDefaultsKey))
+        #expect(AskClaudeSpend.limit(in: rig.defaults) == 25)
     }
 
     /// A list edit goes back one item at a time, while the item still is (or isn't) there;

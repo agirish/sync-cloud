@@ -813,3 +813,28 @@ only. The Intelligence tab still shows Refine's old model and caps until E5; the
   month total.
 - [ ] **Organize's share.** `defaults read com.abhishekgirish.SyncCloud | grep -i askClaudeOrganizeSpend`
   shows this month's Organize share, smaller than `askClaudeSpend.<month>`.
+
+## Refine has no switch or limits of its own (TE335, E5, 2026-11-08)
+
+Run in the installed app with a key saved. The tests drive defaults and scripted requests; the install
+was checked for launch and signature only. Check the notice on a copy of your real defaults, since it
+shows once: before the first launch of this build, `defaults read com.abhishekgirish.SyncCloud | grep -i
+tidyFiling` shows the old caps and history.
+
+- [ ] **The notice, once.** First launch of this build: Settings ▸ Ask Claude ▸ Key & Spending shows
+  “Refine’s own limits are gone”, naming the old monthly and total caps (a total of $5 if you never
+  chose one) and about what Refine had cost, with Got It. Press Got It: it goes and does not return after
+  a relaunch. If you had no Refine spend and chose no cap, there is no notice.
+- [ ] **This month carried over, once.** “This month” there has gone up by what Refine spent this month,
+  and “Of that, Organize” shows that part. Relaunch: neither moves. `defaults read
+  com.abhishekgirish.SyncCloud | grep -i tidyFiling` prints nothing now.
+- [ ] **No switch.** Settings ▸ Organize ▸ Suggestions has a Refine section with “Key, model and limit”
+  and a button to Key & Spending. The Use Claude switch, cloud model menu, caps and spend history are gone
+  from Settings, and the spend row and History button are gone from To File.
+- [ ] **A saved key turns Refine on.** With a key, results show “Refine N with Claude…”. Remove the key
+  and the button becomes the invitation to set Claude up, which opens Key & Spending.
+- [ ] **Try Another keeps to the folder.** In a folder set to ask each time, Try Another answers on this
+  Mac and asks Claude nothing (no cost line in Activity). In a folder shared without asking, it asks Claude
+  and its cost joins the month.
+- [ ] **Reset All Settings** keeps the monthly limit, the carried spend and an unread notice.
+- [ ] **Search.** Typing “refine” or “cloud” in Settings finds Key & Spending.

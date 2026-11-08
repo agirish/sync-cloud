@@ -66,19 +66,19 @@ import Sync
     @Test func editUndoPassesOverAStepOnlyItsCardTakesBack() {
         let store = Store()
         store.values["appearance.theme"] = .string("system")
-        store.values["intelligence.cloudRefine"] = .bool(true)
+        store.values["intelligence.readContents"] = .bool(true)
         let undo = stack(store)
         _ = change(undo, store, "appearance.theme", to: .string("dark"), name: "Theme")
         // Claude turned cloud refine off; undoing that would turn it back on.
-        let reading = change(undo, store, "intelligence.cloudRefine", to: .bool(false), name: "Use Claude (cloud) to refine suggestions", cardOnly: true)
+        let reading = change(undo, store, "intelligence.readContents", to: .bool(false), name: "Read file contents on this Mac", cardOnly: true)
 
         #expect(undo.undoTitle == "Undo Theme")
         undo.undo()
         #expect(store.values["appearance.theme"] == .string("system"))
-        #expect(store.values["intelligence.cloudRefine"] == .bool(false))
+        #expect(store.values["intelligence.readContents"] == .bool(false))
 
         undo.undoCard(reading, row: 0)
-        #expect(store.values["intelligence.cloudRefine"] == .bool(true))
+        #expect(store.values["intelligence.readContents"] == .bool(true))
     }
 
     /// Claude's own change goes on the stack as a click's would, once its card is in the chat. Its
@@ -86,11 +86,11 @@ import Sync
     @Test func claudesOwnChangesAreUndoneLikeAClicks() {
         let store = Store()
         store.values["appearance.theme"] = .string("dark")
-        store.values["intelligence.cloudRefine"] = .bool(false)
+        store.values["intelligence.readContents"] = .bool(false)
         let undo = stack(store)
         let card = UUID()
         undo.recordClaude([.init(id: "appearance.theme", changedFrom: "system", byClaude: true),
-                           .init(id: "intelligence.cloudRefine", changedFrom: "true", byClaude: true),
+                           .init(id: "intelligence.readContents", changedFrom: "true", byClaude: true),
                            .init(id: "sync.confirmTransfer", changedFrom: "true")], card: card)
 
         #expect(undo.offersUndo(card, row: 0) && undo.offersUndo(card, row: 1))
@@ -100,7 +100,7 @@ import Sync
         #expect(store.values["appearance.theme"] == .string("system"))
         #expect(!undo.canUndo)
         undo.undoCard(card, row: 1)
-        #expect(store.values["intelligence.cloudRefine"] == .bool(true))
+        #expect(store.values["intelligence.readContents"] == .bool(true))
     }
 
     /// A write that lands only once the sources are rediscovered: once the undone value is there,
@@ -144,20 +144,20 @@ import Sync
 
     /// A redo that would raise Claude's access waits for a click, as an undo that would does.
     @Test func aRedoThatRaisesIsntOnTheMenu() {
-        let store = Store(); store.values["intelligence.cloudRefine"] = .bool(false)
+        let store = Store(); store.values["intelligence.readContents"] = .bool(false)
         let undo = stack(store)
-        let key = AskClaudeSettingsLedger.Key(id: "intelligence.cloudRefine", target: nil)
-        store.values["intelligence.cloudRefine"] = .bool(true)
+        let key = AskClaudeSettingsLedger.Key(id: "intelligence.readContents", target: nil)
+        store.values["intelligence.readContents"] = .bool(true)
         var step = AskClaudeSettingsStep(card: UUID(), rows: [0], changes: [.init(key: key, before: .bool(false), after: .bool(true),
                                                                                   token: undo.token(key))],
-                                         name: "Use Claude (cloud) to refine suggestions", cardOnly: false)
+                                         name: "Read file contents on this Mac", cardOnly: false)
         step.redoRaises = true
         undo.record(step)
         undo.undo()
-        #expect(store.values["intelligence.cloudRefine"] == .bool(false))
+        #expect(store.values["intelligence.readContents"] == .bool(false))
         #expect(!undo.canRedo)
         undo.redo()
-        #expect(store.values["intelligence.cloudRefine"] == .bool(false))
+        #expect(store.values["intelligence.readContents"] == .bool(false))
     }
 
     /// An undo whose write is refused keeps its step and says so, rather than losing both.

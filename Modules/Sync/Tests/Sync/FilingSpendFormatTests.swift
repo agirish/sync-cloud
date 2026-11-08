@@ -2,36 +2,32 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The spend rows' number formatting. `files(_:)` makes the count and its noun agree in one place,
-/// so no row prints "1 files".
+/// What is left of Refine's own spend record after TE335 (E5): its number formatting, and the
+/// decoders that read the old record once so ``RefineSpendMigration`` can carry it forward.
 @Suite struct FilingSpendFormatTests {
 
-    @Test func oneFileIsSingular() {
-        #expect(FilingSpendFormat.files(1) == "1 file")
+    @Test func costShowsFourPlacesBelowOneCent() {
+        #expect(FilingSpendFormat.cost(0.0042) == "~$0.0042")
+        #expect(FilingSpendFormat.cost(0.04) == "~$0.04")
+        #expect(FilingSpendFormat.cost(0.01) == "~$0.01")
     }
 
-    @Test func otherCountsArePlural() {
-        #expect(FilingSpendFormat.files(0) == "0 files")
-        #expect(FilingSpendFormat.files(3) == "3 files")
-    }
-    /// The unit-aware spellings every spend row uses: a mapping refine's entry says "folder names ·
-    /// answered", never "files · placed", and an entry with no unit reads as a filing refine.
-    @Test func countedAndOutcomeFollowTheEntrysUnit() {
-        func entry(_ count: Int, unit: String?) -> FilingSpendEntry {
-            FilingSpendEntry(timestamp: Date(timeIntervalSince1970: 0), model: "m",
-                             fileCount: count, placedCount: count, inputTokens: 0,
-                             outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
-                             estimatedCostUSD: 0, unit: unit)
-        }
-        #expect(FilingSpendFormat.counted(entry(24, unit: "folder name")) == "24 folder names")
-        #expect(FilingSpendFormat.counted(entry(1, unit: "folder name")) == "1 folder name")
-        #expect(FilingSpendFormat.counted(entry(12, unit: nil)) == "12 files")
-        #expect(FilingSpendFormat.outcome(entry(3, unit: "folder name")) == "answered 3")
-        #expect(FilingSpendFormat.outcome(entry(3, unit: nil)) == "placed 3")
+    @Test func tokensAbbreviateAtAThousand() {
+        #expect(FilingSpendFormat.tokens(999) == "999 tok")
+        #expect(FilingSpendFormat.tokens(4700) == "4.7k tok")
     }
 
-    /// The unit round-trips, and its absence decodes as nil. Older history must not throw: a throw
-    /// empties the history the monthly cap is summed from.
+    @Test func modelNamesComeFromAskClaudesOptionsThenTheIdsFamily() {
+        let option = AskClaudeModels.options[0]
+        #expect(FilingSpendFormat.model(option.id) == option.name)
+        #expect(FilingSpendFormat.model("claude-haiku-9") == "Haiku")
+        #expect(FilingSpendFormat.model("claude-sonnet-9") == "Sonnet")
+        #expect(FilingSpendFormat.model("claude-opus-9") == "Opus")
+        #expect(FilingSpendFormat.model("mystery-1") == "mystery-1", "an unknown id is shown as it is")
+    }
+
+    /// The unit round-trips, and its absence decodes as nil. An older entry must not throw: a throw
+    /// would read as an unreadable record, and the migration would then leave it for the next launch.
     @Test func theUnitRoundTripsAndItsAbsenceDecodesQuietly() throws {
         let entry = FilingSpendEntry(timestamp: Date(timeIntervalSince1970: 5), model: "m",
                                      fileCount: 2, placedCount: 2, inputTokens: 1,

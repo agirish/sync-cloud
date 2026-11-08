@@ -265,6 +265,13 @@ struct SyncCloudApp: App {
                 Logger.shared.info(line)
             }
 
+            // Refine's own spend and caps give way to Ask Claude's one limit: this month's spend is
+            // carried into its total, the old caps and history become one notice, and the old record
+            // goes. Once, by its stamp; a record that can't be read waits for the next launch.
+            if let line = RefineSpendMigration.applyAtLaunch() {
+                Logger.shared.info(line)
+            }
+
             // Sources begin at their account folder rather than the `Documents` inside it, so every
             // position stored relative to a source root (pane folders, tab strips, pinned and
             // recent folders, Favorites order, filing destinations) moves down a level here.
@@ -414,7 +421,7 @@ struct SyncCloudApp: App {
             // back as Claude's.
             guard tier == .refine else { return FileSyncManager.onDeviceBackendIdentity }
             switch FilingBackendRouter.route(
-                cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
+                cloudEnabled: true,   // a saved key is the opt-in (TE335); `hasCloudKey` decides
                 hasCloudKey: AnthropicKeychain.hasKey,
                 logDowngrade: { _ in }
             ) {
@@ -448,7 +455,7 @@ struct SyncCloudApp: App {
             // queries the Keychain.
             let route = tier == .refine
                 ? FilingBackendRouter.route(
-                    cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
+                    cloudEnabled: true,   // a saved key is the opt-in (TE335); `hasCloudKey` decides
                     hasCloudKey: AnthropicKeychain.hasKey)
                 : .onDevice
             if route == .cloud {

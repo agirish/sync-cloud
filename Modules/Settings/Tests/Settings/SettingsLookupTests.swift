@@ -127,7 +127,7 @@ import Sync
         let (lookup, defaults) = lookup(name)
         defaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
 
-        let model = await lookup.get(["intelligence.cloudModel"])
+        let model = await lookup.get(["intelligence.reuseSuggestions"])
         #expect(model.contains("disabled: until Suggest folders with Apple Intelligence is on"))
     }
 

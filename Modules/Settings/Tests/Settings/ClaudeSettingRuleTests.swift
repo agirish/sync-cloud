@@ -33,29 +33,21 @@ import Sync
 
     @Test func reachGoesOnlyDown() throws {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
-        #expect(try refusal("intelligence.cloudRefine", .bool(true), .bool(false), defaults) == nil)
-        #expect(try refusal("intelligence.cloudRefine", .bool(false), .bool(true), defaults) != nil)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(10), defaults) == nil)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(50), defaults) != nil)
         // 0 is No limit, the highest there is: from it any limit lowers, and to it never does.
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(0), defaults) != nil)
-        #expect(try refusal("intelligence.monthlyCap", .double(0), .double(5), defaults) == nil)
         // A value it can't read now can't be judged a lowering.
         #expect(try refusal("intelligence.monthlyLimit", nil, .double(10), defaults) != nil)
     }
 
     @Test func aLimitNeverGoesToWhatsAlreadySpent() throws {
         let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
-        AskClaudeSpend.record(10, in: defaults)
-        FilingSpendStore.record(
-            FilingSpendEntry(timestamp: Date(), model: "claude-haiku-4-5", fileCount: 5, placedCount: 4,
-                             inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0,
-                             cacheCreationTokens: 0, estimatedCostUSD: 6),
-            defaults: defaults)
+        // The chat's and Organize's spend are one total, so the limit can't go to what both have spent.
+        AskClaudeSpend.record(4, in: defaults)
+        AskClaudeSpend.recordOrganize(6, in: defaults)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(10), defaults)?.contains("already spent") == true)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(5), defaults) != nil)
-        #expect(try refusal("intelligence.monthlyCap", .double(10), .double(5), defaults)?.contains("already spent") == true)
-        #expect(try refusal("intelligence.totalCap", .double(10), .double(5), defaults)?.contains("already spent") == true)
-        #expect(try refusal("intelligence.totalCap", .double(25), .double(10), defaults) == nil)
+        #expect(try refusal("intelligence.monthlyLimit", .double(50), .double(25), defaults) == nil)
     }
 }

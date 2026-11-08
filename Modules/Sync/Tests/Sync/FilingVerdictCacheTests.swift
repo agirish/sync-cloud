@@ -285,8 +285,8 @@ private final class Quotes: @unchecked Sendable {
     -> FileSyncManager {
         let m = manager(cacheAt: url, log: log, refineIdentity: "cloud:claude-opus-5")
         let scratch = ScratchDefaults(suite)
-        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         m.filingContentDefaults = scratch
+        m.filingCloudRefineConfigured = { true }
         m.filingCloudSpendConfirmer = confirm
         return m
     }

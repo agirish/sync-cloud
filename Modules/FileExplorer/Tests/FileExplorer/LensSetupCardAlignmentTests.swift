@@ -11,8 +11,8 @@ import Design
 /// ## Why pixels
 ///
 /// The failure to catch is a lens quietly opening lower than the others, and nothing in the view
-/// tree need say so: a sibling row outside a card (To File's cloud spend row, placed above it) can
-/// push it down while the card's own geometry is right. So this measures the composed screen as a
+/// tree need say so: a sibling row outside a card (To File's cloud spend row, placed above it, was one
+/// until TE335 retired it) can push it down while the card's own geometry is right. So this measures the composed screen as a
 /// person sees it: render the pane, find the topmost row of ink, and require the lenses to agree.
 /// `firstInkRow` measures paint, not frames: a header laid out at y=30 and drawn nowhere reads as
 /// no ink at all.
@@ -42,40 +42,13 @@ import Design
         LensSetupSampleRow { Text(text).scaledFont(.caption) }
     }
 
-    /// To File as `filingContent` composes it: the spend row and the card in one column, in the
-    /// lens's order. Rendering `FilingSetupCard` alone would miss a row placed outside the card.
-    /// Driven by the real placement rule, not a bool chosen here: `filingContent` and
-    /// `filingIntroState` both branch on `LensWorkspaceView.spendRowPlacement`, and
-    /// `theSetupCardStatePutsTheSpendRowUnderneath` pins the placement passed in here to that rule.
-    static func toFilePane(_ placement: LensWorkspaceView.SpendRowPlacement) -> some View {
-        VStack(spacing: 0) {
-            if placement == .aboveTheList {
-                spendRow.padding(.horizontal, 12).padding(.top, 10)
-            }
-            FilingSetupCard(
-                intro: LensIntros.organize(scanTargetName: "Naming Ceremony"),
-                accent: .blue,
-                footnote: placement == .underTheSetupCard
-                    ? AnyView(spendRow.padding(.top, 2))
-                    : nil,
-                onStart: {})
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// Stands in for `LensWorkspaceView.filingSpendRow`, with the same fonts, shape and two
-    /// trailing controls. That one is private to a view that needs a live manager, so it is rebuilt
-    /// at the size that matters: its height.
-    static var spendRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "cloud").scaledFont(.system(size: 10))
-            Text("Last refine: Opus · 1 file · 4.7k tok · ~$0.04").lineLimit(1)
-            Spacer(minLength: 8)
-            Text("Total ~$0.24")
-            Button("History") {}.controlSize(.mini)
-        }
-        .scaledFont(.system(size: 11))
-        .foregroundStyle(.secondary)
+    /// To File's setup card as the lens draws it.
+    static func toFilePane() -> some View {
+        FilingSetupCard(
+            intro: LensIntros.organize(scanTargetName: "Naming Ceremony"),
+            accent: .blue,
+            onStart: {})
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     static func duplicatesPane() -> some View {
@@ -217,7 +190,7 @@ import Design
     /// its trigger writes the first rule, and it sits in the same rail.
     @Test(.machinePinned(.pixelSampling)) func everyLensTriggerLandsAtTheSameHeight() {
         let panes: [(String, Int?)] = [
-            ("To File", Self.firstAccentRow(Self.render(Self.toFilePane(.underTheSetupCard)))),
+            ("To File", Self.firstAccentRow(Self.render(Self.toFilePane()))),
             ("Duplicates", Self.firstAccentRow(Self.render(Self.duplicatesPane()))),
             ("Renames", Self.firstAccentRow(Self.render(Self.renamesPane()))),
             // Restructure's reveal card, not its no-survey one, which has no trigger to measure.
@@ -246,7 +219,7 @@ import Design
 
     @Test(.machinePinned(.pixelSampling)) func everyLensOpensAtTheSameHeight() {
         let panes: [(String, Int?)] = [
-            ("To File", Self.firstInkRow(Self.render(Self.toFilePane(.underTheSetupCard)))),
+            ("To File", Self.firstInkRow(Self.render(Self.toFilePane()))),
             ("Duplicates", Self.firstInkRow(Self.render(Self.duplicatesPane()))),
             ("Renames", Self.firstInkRow(Self.render(Self.renamesPane()))),
             ("Restructure", Self.firstInkRow(Self.render(Self.restructureReadyPane()))),
@@ -261,59 +234,10 @@ import Design
         guard let first = rows.first else { return }
         for ((name, _), row) in zip(panes, rows) {
             // 2pt, not 0: antialiasing on a glyph's top edge can land a hair either way, and a
-            // misplaced row is far more (28pt for the spend row above the card).
+            // misplaced row is far more.
             #expect(abs(row - first) <= 2,
                     "\(name) opens at \(row)pt, To File at \(first)pt — the cards must line up")
         }
-    }
-
-    /// The harness could have failed: the misaligned composition, measured the same way, doesn't
-    /// align. Without this, a `firstInkRow` that returned the same number for every input would
-    /// satisfy `everyLensOpensAtTheSameHeight`. Renders To File with the spend row above the card
-    /// and requires the gap to be real and large.
-    @Test(.machinePinned(.pixelSampling)) func theSpendRowAboveTheCardIsWhatMisalignedIt() {
-        guard let broken = Self.firstInkRow(Self.render(Self.toFilePane(.aboveTheList))),
-              let fixed = Self.firstInkRow(Self.render(Self.toFilePane(.underTheSetupCard))),
-              let reference = Self.firstInkRow(Self.render(Self.duplicatesPane())) else {
-            Issue.record("blank render — harness broken")
-            return
-        }
-        #expect(broken < reference - 5, """
-                The spend row above the card starts ink at \(broken)pt against Duplicates' \
-                \(reference)pt — too close for this harness to have seen the 28pt regression \
-                the sibling test claims to prevent.
-                """)
-        #expect(abs(fixed - reference) <= 2)
-    }
-
-    /// Moving the footnote under the card keeps it drawn. Ink counts, because "is the spend row on
-    /// screen" is a paint question: an `AnyView?` left nil, or a footnote laid out past the scroll
-    /// content, leaves a card that measures correct and says nothing about what the last scan cost.
-    @Test(.machinePinned(.pixelSampling)) func theSpendFootnoteStillDrawsUnderTheCard() {
-        let with = Self.render(Self.toFilePane(.underTheSetupCard))
-        let without = Self.render(
-            FilingSetupCard(intro: LensIntros.organize(scanTargetName: "Naming Ceremony"),
-                            accent: .blue, footnote: nil, onStart: {})
-                .frame(maxWidth: .infinity, maxHeight: .infinity))
-        let differing = Self.differingPixels(with, without)
-        #expect(differing > 400, """
-                Only \(differing) pixels differ with the spend footnote and without it — the \
-                footnote is not being drawn.
-                """)
-    }
-
-    /// The placement rule itself, so the renders above render what the lens does. The pixels prove
-    /// "under the card lines up and above it doesn't"; this pins that the setup-card state really
-    /// asks for `.underTheSetupCard`.
-    @Test func theSetupCardStatePutsTheSpendRowUnderneath() {
-        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 4, showsSetupCard: true)
-                == .underTheSetupCard)
-        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 4, showsSetupCard: false)
-                == .aboveTheList)
-        // A machine that has never run a cloud pass gets no row in either state: a footnote about
-        // nothing, and a case that would otherwise read as "aligned" for the wrong reason.
-        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 0, showsSetupCard: true) == .hidden)
-        #expect(LensWorkspaceView.spendRowPlacement(scansOnRecord: 0, showsSetupCard: false) == .hidden)
     }
 
     static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {

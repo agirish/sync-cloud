@@ -14869,3 +14869,24 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Organize's own model, caps and spend history | NOT OWED — no backporting; recorded |
+
+## Refine has no switch, caps or history of its own (TE335, E5) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, a saved API key is the whole opt-in for Refine, Try Another and Refine
+Names: the “Use Claude (cloud)” switch, Refine's model menu, its monthly and lifetime caps and its spend
+history and Clear are gone, and its spend counts against Ask Claude's one monthly limit. At launch a
+one-time carry-over adds this month's old Refine spend to that total, shows one notice naming the old
+caps, and deletes the old keys. Try Another asks Claude only for a file in a folder shared without
+asking. The maintenance lines keep the switch, both caps, the history and the cloud model setting.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s switch=%s ownCaps=%s\n' $l \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift | grep -c 'usesCloudDefaultsKey')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift | grep -c 'totalBudgetCapKey')"; done
+# measured 2026-11-08, against origin, before this landed: each line prints switch=2 ownCaps=4
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Organize's own switch, caps, spend history and cloud model | NOT OWED — no backporting; recorded |

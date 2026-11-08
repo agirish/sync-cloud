@@ -193,15 +193,12 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(hidden.isError && hidden.result.hasPrefix("Not changed: Settings is open"))
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
 
-        // Their click, not Claude's: a Suggested setting, and cloud refine turned on.
+        // Their click, not Claude's: a Suggested setting.
         #expect(await set("sync.whenFileExists", "Skip").isError)
+        // Gone with the switch (TE335): there is no Claude-in-Organize setting to turn on or off.
         #expect(await set("intelligence.cloudRefine", "On").isError)
-        #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
 
-        // Lowering its own reach is Claude's to do: cloud refine off, a lower limit. Not below what's spent.
-        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        #expect(!(await set("intelligence.cloudRefine", "Off")).isError)
-        #expect(defaults.bool(forKey: FileSyncManager.usesCloudDefaultsKey) == false)
+        // Lowering its own reach is Claude's to do: a lower limit. Not below what's spent.
         AskClaudeSpend.record(7, in: defaults)
         #expect(await set("intelligence.monthlyLimit", "$50").isError)
         #expect(await set("intelligence.monthlyLimit", "No limit").isError)

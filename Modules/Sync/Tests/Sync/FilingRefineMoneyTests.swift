@@ -43,7 +43,7 @@ import Testing
     private func manager(spend: Double = 0, limit: Double? = nil, model: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingContentDefaults = ScratchDefaults("FilingRefineMoneyTests-\(UUID().uuidString)")
-        m.filingContentDefaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        m.filingCloudRefineConfigured = { true }
         if let model { m.filingContentDefaults.set(model, forKey: AskClaudeModels.defaultsKey) }
         if let limit { m.filingContentDefaults.set(limit, forKey: AskClaudeSpend.limitDefaultsKey) }
         if spend > 0 { AskClaudeSpend.record(spend, in: m.filingContentDefaults) }
@@ -75,10 +75,10 @@ import Testing
         #expect(p.totalCapUSD == 0 && p.totalSpentUSD == 0, "the old lifetime cap is not read")
         #expect(!p.wouldExceedCap)
         #expect(try #require(preflight(manager(spend: 9.999, limit: 10))).wouldExceedCap)
-        // The old Organize caps are not read at all.
+        // The old Organize caps, by the strings they were stored under, are not read at all.
         let old = manager()
-        old.filingContentDefaults.set(0.000001, forKey: FileSyncManager.monthlyBudgetCapKey)
-        old.filingContentDefaults.set(0.000001, forKey: FileSyncManager.totalBudgetCapKey)
+        old.filingContentDefaults.set(0.000001, forKey: "tidyFilingMonthlyBudgetUSD")
+        old.filingContentDefaults.set(0.000001, forKey: "tidyFilingTotalBudgetUSD")
         #expect(try #require(preflight(old)).wouldExceedCap == false)
     }
 

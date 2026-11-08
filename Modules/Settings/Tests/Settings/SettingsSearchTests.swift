@@ -162,10 +162,8 @@ import Testing
             .duplicates: ["Ignore files smaller than", "Folders overlap at", "Detect versions"],
             .toFile: ["Loose-files inbox", "Rules you taught by correcting", "Folder surveys"],
             .suggestions: ["Suggest folders with Apple Intelligence", "Read file contents on this Mac",
-                           "Use Claude (cloud) to refine suggestions", "Cloud model",
                            "Reuse suggestions for files that haven’t changed", "Saved suggestions"],
-            .keyAndSpending: ["Claude API key", "Refine spend history", "Monthly budget cap", "Total budget cap",
-                              "Monthly limit"],
+            .keyAndSpending: ["Claude API key", "Monthly limit", "This month", "Of that, Organize"],
             .people: ["People", "Add Person…"],
             .oneWaySync: ["One-Way Sync"],
         ]
@@ -202,23 +200,32 @@ import Testing
     ///
     /// The link lives in `MacApp/ContentView.swift`, which no package test compiles, so this pins
     /// the `cloudRefineSetup` place it opens. Asserted against the index, not a spelled-out page:
-    /// the right destination is wherever the switch is, so if it moves this fails instead of
-    /// agreeing with itself. Until TE335 the key is a page away, on Ask Claude ▸ Key & Spending,
-    /// which the Suggestions page's jump opens.
-    @Test func theCloudRefineOfferLandsOnThePageThatHoldsItsSwitch() throws {
+    /// the right destination is wherever the key is, so if it moves this fails instead of agreeing
+    /// with itself. Refine has no switch of its own since TE335: a saved key is the opt-in, and the
+    /// model and limit are Ask Claude's, all on Ask Claude ▸ Key & Spending.
+    @Test func theCloudRefineOfferLandsOnThePageThatHoldsTheKey() throws {
         let key = try #require(SettingsSearchIndex.all.first { $0.title == "Claude API key" })
-        let toggle = try #require(SettingsSearchIndex.all.first {
-            $0.title == "Use Claude (cloud) to refine suggestions"
-        })
-        let model = try #require(SettingsSearchIndex.all.first { $0.title == "Cloud model" })
+        let limit = try #require(SettingsSearchIndex.all.first { $0.title == "Monthly limit" })
 
         let offer = SettingsView.SettingsTab.cloudRefineSetup
-        #expect(offer == toggle.place,
-                "The cloud-refine offer opens \(offer.name) but the switch it exists to turn on is on \(toggle.place.name).")
-        #expect(offer == model.place,
-                "The cloud-refine offer opens \(offer.name) but Refine's model is on \(model.place.name).")
-        #expect(key.place == SettingsPlace(.keyAndSpending),
-                "The Suggestions page's jump opens Key & Spending, but the key is on \(key.place.name).")
+        #expect(offer == key.place,
+                "The cloud-refine offer opens \(offer.name) but the key it asks for is on \(key.place.name).")
+        #expect(offer == limit.place,
+                "The cloud-refine offer opens \(offer.name) but the limit Refine runs under is on \(limit.place.name).")
+        #expect(offer == SettingsPlace(.keyAndSpending))
+        // The retired switch and model picker are not in the index to be found.
+        #expect(!SettingsSearchIndex.all.contains { $0.title == "Use Claude (cloud) to refine suggestions" || $0.title == "Cloud model" })
+    }
+
+    /// Refine has no switch to search for any more (TE335), but someone who remembers one still types
+    /// "refine", "cloud" or "cloud model", and an empty result reads as "that setting is gone". They
+    /// land on the page that holds what replaced it: the key, and the one limit.
+    @Test func theWordsForTheRetiredCloudSwitchReachTheKeyPage() {
+        for query in ["refine", "cloud", "cloud refine", "use claude", "cloud model", "monthly cap", "try another"] {
+            let results = filterSettings(SettingsSearchIndex.all, query: query)
+            #expect(results.contains { $0.place == SettingsPlace(.keyAndSpending) },
+                    "'\(query)' reaches nothing on Ask Claude ▸ Key & Spending")
+        }
     }
 
     /// The API key is the most-hunted control in Settings, and "Intelligence" is not what anyone
@@ -292,6 +299,11 @@ import Testing
         "Inbox", "Saved scan data", "Markdown", "Reading", "Organize",
         "On-device", "What Claude may see",
         "Across your tree", "Names found in your documents", "Every folder",
+        // Organize ▸ Suggestions' "Refine": a group header over one jump row to Key & Spending,
+        // where "refine" is a keyword of the key and the limit (TE335).
+        "Refine",
+        // A notice that shows once, after Refine's own limits were retired (TE335, E5).
+        "Refine’s own limits are gone",
     ]
 
     /// Whether some entry's title and this on-screen label name the same control. Containment runs

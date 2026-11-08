@@ -4,10 +4,11 @@ import Foundation
 /// what he made by hand, and the marks that say which shape the stored data is in.
 ///
 /// - The Never show Claude list: emptied, Claude would see every folder he hid.
-/// - The spending limits (Ask Claude's monthly limit, Refine's monthly and lifetime caps): reset
-///   defaults would loosen a limit he set lower.
-/// - The spend records the limits count against, including `.unreadable` copies: wiped, this
-///   month's limit would start again from nothing.
+/// - The spending limit (Ask Claude's monthly limit, which Refine and Try Another share): a reset
+///   default would loosen a limit he set lower.
+/// - The spend records the limit counts against, including `.unreadable` copies and Organize's
+///   share: wiped, this month's limit would start again from nothing. Refine's retired record stays
+///   too, until the one-time carry-over has read it.
 /// - What he made by hand: Rules, saved signatures, Organize corrections, kept duplicate groups and
 ///   risky names, the people he said a file is not about, sidebar Favorites, Jump pins and their
 ///   order. The legacy filing rules keep their "migrated" flag, or the next launch would bring back
@@ -23,8 +24,12 @@ public enum SettingsResetKeeps {
     public static let keys: Set<String> = [
         AskClaudePrivacy.hiddenFoldersKey,
         AskClaudeSpend.limitDefaultsKey,
-        FileSyncManager.monthlyBudgetCapKey,
-        FileSyncManager.totalBudgetCapKey,
+        // Refine's retirement (RefineSpendMigration): run again after a reset it would carry nothing
+        // and show nothing, and a notice not yet read must survive one.
+        RefineSpendMigration.doneKey,
+        RefineSpendMigration.noticeKey,
+        // Refine's old spend record, kept so a reset before the first launch of this version can't
+        // lose what the migration will carry.
         FilingSpendStore.historyKey,
         FilingSpendStore.historyKey + ".unreadable",
         FilingSpendStore.totalsKey,
@@ -56,6 +61,6 @@ public enum SettingsResetKeeps {
     ]
 
     public static func keeps(_ key: String) -> Bool {
-        keys.contains(key) || key.hasPrefix(AskClaudeSpend.monthKeyPrefix)
+        keys.contains(key) || key.hasPrefix(AskClaudeSpend.monthKeyPrefix) || key.hasPrefix(AskClaudeSpend.organizeKeyPrefix)
     }
 }

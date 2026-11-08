@@ -276,12 +276,12 @@ private typealias PromptProbe = LockedBox<Int>
             defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
             let log = CallLog([]), tiers = TierLog([]), probe = PromptProbe(0)
             let settings = ScratchDefaults("autoFilingNoSpendSettings-\(cloudOn)")
-            settings.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
 
             // Auto-started.
             let auto = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
                                      store: defaults, tiers: tiers)
             auto.filingContentDefaults = settings
+            auto.filingCloudRefineConfigured = { cloudOn }
             auto.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
             #expect(auto.autoRescanFilingIfEligible(folder: downloads, providerRoot: root,
                                                     nameProvider: .dropBox))
@@ -409,8 +409,8 @@ private typealias PromptProbe = LockedBox<Int>
         // Cloud ON, but the identity the app vouches for is the on-device downgrade.
         let manager = filingManager(cacheAt: nil, log: log, identity: "on-device", store: defaults)
         let scratch = ScratchDefaults("autoFilingDowngradeSettings")
-        scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         manager.filingContentDefaults = scratch
+        manager.filingCloudRefineConfigured = { true }
         manager.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
 
         _ = manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root)

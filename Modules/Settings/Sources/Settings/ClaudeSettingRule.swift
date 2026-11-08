@@ -37,10 +37,6 @@ public enum ClaudeSettingRule {
         switch id {
         case "intelligence.monthlyLimit":
             AskClaudeSpend.spent(in: defaults, now: now)
-        case "intelligence.monthlyCap":
-            FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(defaults: defaults), now: now)
-        case "intelligence.totalCap":
-            FilingSpendStore.totals(defaults: defaults).costUSD
         default:
             nil
         }

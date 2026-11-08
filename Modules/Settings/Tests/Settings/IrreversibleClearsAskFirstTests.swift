@@ -2,11 +2,10 @@ import Foundation
 import Testing
 @testable import Settings
 
-/// Removing the API key, and both spend Clears, ask first.
+/// Removing the API key asks first.
 ///
-/// Remove deletes the Keychain item, which nothing in SyncCloud can read back; Clear (Settings ▸
-/// Intelligence) and Clear History (the Organize lens's spend sheet) reset what both budget caps
-/// count against, the $5 backstop included.
+/// Remove deletes the Keychain item, which nothing in SyncCloud can read back. (The spend Clears
+/// that stood beside it went with Refine's own record, TE335: nothing is left to clear.)
 ///
 /// The decisions are pinned on the static gates, since a button's closure can't be reached from a
 /// test, and the last test holds each button to its gate so the gates can't be tested but unused.
@@ -47,17 +46,5 @@ import Testing
                 "Remove no longer asks through `removeIfConfirmed`")
         #expect(!keyRow.contains("Button(\"Remove\", action: removeKey)"),
                 "Remove deletes the key on one click again")
-
-        // Both spend Clears, and no unasked clear anywhere else in the app.
-        let settings = try repoSource("Modules/Settings/Sources/Settings/SettingsView.swift")
-        let lensSheet = try repoSource("Modules/FileExplorer/Sources/FileExplorer/FilingSpendHistoryView.swift")
-        #expect(settings.contains("FilingSpendStore.clearIfConfirmed("),
-                "Ask Claude ▸ Key & Spending's Clear no longer asks")
-        #expect(lensSheet.contains("FilingSpendStore.clearIfConfirmed"),
-                "the Organize lens's Clear History no longer asks")
-        for (name, text) in [("SettingsView.swift", settings), ("FilingSpendHistoryView.swift", lensSheet)] {
-            #expect(!text.contains("FilingSpendStore.clear()"),
-                    "\(name) clears the spend without asking")
-        }
     }
 }

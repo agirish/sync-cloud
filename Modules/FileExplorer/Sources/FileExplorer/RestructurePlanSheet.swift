@@ -975,8 +975,8 @@ struct RestructurePlanSheet: View {
             case .hiddenFromClaude:
                 refineFailedText = "Nothing was sent — part of this family is hidden from Claude."
             case .unavailable:
-                refineFailedText = "The pass didn’t run — the key, the budget caps or the "
-                    + "network said no. Settings ▸ Organize has the details."
+                refineFailedText = "The pass didn’t run — the key, the monthly limit or the "
+                    + "network said no. Settings ▸ Ask Claude has the details."
             }
         }
     }

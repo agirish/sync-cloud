@@ -23,7 +23,7 @@ public struct SettingsActions {
     public static let ids: Set<String> = [
         "general.runSetupAgain", "sources.refresh", "sources.showInFinder", "sources.rootReset", "sources.openAtReset",
         "sources.removeFolder", "people.defaultOrder", "people.remove", "sync.ignoredItemsClearAll",
-        "organize.keptNamesClearAll", "duplicates.keptSeparateShowAgain", "intelligence.apiKeyRemove", "intelligence.costClear",
+        "organize.keptNamesClearAll", "duplicates.keptSeparateShowAgain", "intelligence.apiKeyRemove",
         "intelligence.savedSuggestionsClear", "advanced.logShowInFinder", "advanced.logClear", "advanced.sweep",
         "advanced.fileDigestsClear", "advanced.storageReportsClear", "advanced.resetSetup", "advanced.resetAll",
     ]
@@ -60,9 +60,6 @@ public struct SettingsActions {
             return .showKeptSeparateAgain(count: sync?.keptSeparateGroupCount ?? 0)
         case "intelligence.apiKeyRemove":
             let words = CloudKeyRow.removePrompt
-            return RemovalPrompt(messageText: words.messageText, informativeText: words.informativeText, confirmTitle: words.confirmTitle)
-        case "intelligence.costClear":
-            let words = FilingSpendStore.clearPrompt
             return RemovalPrompt(messageText: words.messageText, informativeText: words.informativeText, confirmTitle: words.confirmTitle)
         case "intelligence.savedSuggestionsClear":
             return .clearSavedSuggestions(count: sync?.filingVerdictCacheCountNow ?? 0)
@@ -162,10 +159,7 @@ public struct SettingsActions {
             return .done("Forgot \(count) group\(count == 1 ? "" : "s") kept separate. The next duplicate scan flags any that are still duplicates.")
         case "intelligence.apiKeyRemove":
             if let refusal = APIKeyRemoval.remove(from: keychain) { return .refused(refusal) }
-            return .done("Removed the API key. Ask Claude and Refine need a key again to use Claude.")
-        case "intelligence.costClear":
-            FilingSpendStore.clearIfConfirmed(defaults: lookup?.defaults ?? .standard, confirm: { true })
-            return .done("Cleared the recorded spend.")
+            return .done("Removed the API key. Ask Claude, Refine, Try Another and Refine Names need a key again to use Claude.")
         case "intelligence.savedSuggestionsClear":
             guard let sync else { return unavailable }
             let count = sync.filingVerdictCacheCountNow

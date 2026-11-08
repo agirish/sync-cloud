@@ -35,7 +35,6 @@ import Sync
         #expect(actions.prompt("advanced.logClear", target: nil)?.messageText == "Clear the Activity Log?")
         #expect(actions.prompt("advanced.logClear", target: nil)?.informativeText == Logger.clearPrompt.informativeText)
         #expect(actions.prompt("intelligence.apiKeyRemove", target: nil)?.messageText == CloudKeyRow.removePrompt.messageText)
-        #expect(actions.prompt("intelligence.costClear", target: nil)?.informativeText == FilingSpendStore.clearPrompt.informativeText)
         #expect(actions.prompt("advanced.resetSetup", target: nil)?.messageText == AdvancedSettingsTab.resetSetupPrompt.messageText)
         #expect(actions.prompt("advanced.resetAll", target: nil)?.informativeText.hasPrefix(AdvancedSettingsTab.resetAllExplanation) == true)
         #expect(actions.prompt("sources.removeFolder", target: nil) == .removeFolderSource(named: "this source"))

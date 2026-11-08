@@ -63,8 +63,8 @@ public struct FilingSpendPreflight: Sendable, Equatable {
     }
 }
 
-/// Month accounting and cap math for cloud Filing spend. Separate from `FilingSpendStore` (lifetime
-/// totals only) so the monthly window is testable without UserDefaults.
+/// Month accounting over Refine's retired spend record, so ``RefineSpendMigration`` can carry this
+/// month into Ask Claude's total. Pure, so it needs no UserDefaults to test.
 public enum FilingSpendBudget {
 
     /// Sums `estimatedCostUSD` over entries in the same calendar month and year as `now`: the cap
@@ -76,12 +76,5 @@ public enum FilingSpendBudget {
             guard comps.year == nowComps.year, comps.month == nowComps.month else { return running }
             return running + entry.estimatedCostUSD
         }
-    }
-
-    /// True when a cap is set (> 0) and `spent` has reached it: the hard gate before a cloud call.
-    /// Works for either cap (month's spend against the monthly cap, lifetime against the total). A
-    /// cap of 0 means unlimited, so this is always false there.
-    public static func isOverCap(spent: Double, capUSD: Double) -> Bool {
-        capUSD > 0 && spent >= capUSD
     }
 }
