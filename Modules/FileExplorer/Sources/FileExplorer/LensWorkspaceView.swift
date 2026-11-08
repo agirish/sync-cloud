@@ -140,11 +140,10 @@ public struct LensWorkspaceView: View {
     /// `SettingsView`'s `spendTotals`/`spendLast`/`refreshSpend`.
     @State private var spendLast: FilingSpendEntry?
     @State private var spendTotals = FilingSpendTotals()
-    // The model the refine button names. Read here so the button re-renders the moment the
-    // Settings picker changes, and resolved through `currentModel` at the point of use so a stale
-    // stored id names the model that will actually run.
-    @AppStorage(FileSyncManager.cloudModelDefaultsKey)
-    private var filingCloudModel: String = CloudFilingProtocol.defaultModel
+    // The model Refine runs on is Ask Claude's: the chat's menu and Settings write the same key. Read
+    // here so the tooltip and the Refine Names button re-render the moment it changes.
+    @AppStorage(AskClaudeModels.defaultsKey)
+    private var askClaudeModel: String = AskClaudeModels.defaultModel.id
 
     /// Honors Reduce motion: when true, the row-exit slides and the reclaim glow give way to an
     /// instant swap. The numeric count-up stays; it is acceptable under Reduce motion.
@@ -1974,8 +1973,7 @@ public struct LensWorkspaceView: View {
                     if syncManager.isRefiningFilingSuggestions {
                         Label("Stop Refining", systemImage: "stop.circle")
                     } else {
-                        Label("Refine \(batch.count) with \(FilingSpendFormat.model(refineModelName))",
-                              systemImage: "sparkles")
+                        Label("Refine \(batch.count) with Claude…", systemImage: "sparkles")
                     }
                 }
                 .buttonStyle(.bordered)
@@ -1990,7 +1988,7 @@ public struct LensWorkspaceView: View {
             } else if syncManager.filingSuggestionsHiddenFromClaude(scope) > 0 {
                 // Every file here is hidden from Claude: say so rather than drop the control.
                 Button {} label: {
-                    Label("Refine with \(FilingSpendFormat.model(refineModelName))", systemImage: "sparkles")
+                    Label("Refine with Claude…", systemImage: "sparkles")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -2010,17 +2008,16 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The model id a refine pass would name: the Settings picker's value, resolved as
-    /// `CloudFilingClassifier` resolves it, so the button can't name one model and send another.
+    /// The short name of the model a refine pass runs on: the chat's, "Opus 5.5".
     private var refineModelName: String {
-        CloudFilingProtocol.currentModel(for: filingCloudModel)
+        AskClaudeModels.option(for: askClaudeModel).name
     }
 
     /// Split out of the `.help` modifier because inline, the interpolation, pluralization and
     /// `isFiltered` branch push the `Button` expression past what the type-checker solves in
     /// reasonable time, and the build fails with no other diagnostic.
     private func refineButtonHelp(count: Int) -> String {
-        let model = FilingSpendFormat.model(refineModelName)
+        let model = refineModelName
         let files = count == 1 ? "1 suggestion" : "\(count) suggestions"
         let scope = isFiltered ? " — the ones your search left showing" : ""
         return "Re-asks Claude (\(model)) about \(files)\(scope). This one is billed to your API "
@@ -3391,7 +3388,7 @@ public struct LensWorkspaceView: View {
                 // Claude is refused.
                 onRefineMapping: { await syncManager.refineMapping($0, under: Self.planDiskRoot(profile.root).path) },
                 refineOffered: syncManager.filingCloudRefineAvailable,
-                refineModelLabel: FilingSpendFormat.model(refineModelName),
+                refineModelLabel: refineModelName,
                 onConfigureRefine: onConfigureCloudRefine,
                 // Straight from the manager: the checklist shows only stages the engine actually
                 // reached, and clears itself when the landing ends either way.

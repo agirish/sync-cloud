@@ -293,6 +293,7 @@ public enum FilingSpendFormat {
             ? "placed \(entry.placedCount)" : "answered \(entry.placedCount)"
     }
     public static func model(_ id: String) -> String {
+        if let option = AskClaudeModels.options.first(where: { $0.id == id }) { return option.name }
         if id.contains("haiku") { return "Haiku" }
         if id.contains("sonnet") { return "Sonnet" }
         if id.contains("opus") { return "Opus" }

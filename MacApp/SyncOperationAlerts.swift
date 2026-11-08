@@ -286,10 +286,7 @@ struct SyncOperationAlerts {
     /// itself says the call won't run. Pure so the wording is unit-testable.
     nonisolated static func filingSpendMessage(_ p: FilingSpendPreflight) -> String {
         let noun = p.fileCount == 1 ? p.unit : p.unit + "s"
-        if p.wouldExceedCap {
-            let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
-            return "This would exceed your \(which) cloud budget"
-        }
+        if p.wouldExceedCap { return "This would pass your monthly Claude limit" }
         // "Classify" is the filing refine's verb; any other unit is a send, said as one.
         return p.unit == "file"
             ? "Classify \(p.fileCount) \(noun) with \(FilingSpendFormat.model(p.model))?"
@@ -309,21 +306,14 @@ struct SyncOperationAlerts {
                 + "\(n == 1 ? "It downloads" : "They download") first so Claude can read page 1, "
                 + "and \(n == 1 ? "stays" : "stay") downloaded."
         }
+        // Ask Claude's one limit, shared by the chat, Refine, Try Another and Refine Names.
         if p.monthlyCapUSD > 0 {
-            text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of \(FilingSpendFormat.cost(p.monthlyCapUSD)) monthly cap."
-        }
-        if p.totalCapUSD > 0 {
-            text += "\(p.monthlyCapUSD > 0 ? "\n" : "\n\n")Lifetime: \(FilingSpendFormat.cost(p.totalSpentUSD)) of \(FilingSpendFormat.cost(p.totalCapUSD)) total cap."
+            text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of your \(FilingSpendFormat.cost(p.monthlyCapUSD)) monthly limit for Ask Claude and Organize."
         }
         if p.wouldExceedCap {
-            let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
-            // The on-device fallback is only true of the filing refine; the mapping refine has no
-            // on-device model, so its blocked dialog promises nothing.
-            text += " Running this would exceed the \(which) cap, so it’s blocked — "
-                + (p.unit == "file"
-                   ? "Organize will use its free on-device suggestions instead. "
-                   : "this pass only runs in the cloud, so nothing will be sent. ")
-                + "Raise or turn off the cap in Settings ▸ Ask Claude, under Key & Spending."
+            // Nothing is sent and nothing changes: no other model answers in Claude's place.
+            text += " Running this would pass the limit, so it’s blocked and nothing will be sent. "
+                + "Raise the limit in Settings ▸ Ask Claude, under Key & Spending."
         }
         return text
     }
@@ -337,9 +327,8 @@ struct SyncOperationAlerts {
         alert.messageText = filingSpendMessage(p)
         alert.informativeText = filingSpendInformativeText(p)
         if p.wouldExceedCap {
-            // Over budget: no proceed path. The button says what happens next: the filing refine
-            // falls back on-device; the mapping refine does not run.
-            alert.addButton(withTitle: p.unit == "file" ? "Use On-Device Instead" : "OK")
+            // Over the limit: no proceed path, and nothing else runs in its place.
+            alert.addButton(withTitle: "OK")
             _ = alert.runModal()
             return false
         }

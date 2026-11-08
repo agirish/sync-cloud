@@ -438,6 +438,11 @@ public enum CloudFilingProtocol {
     /// for such an id passed in directly; ``currentModel(for:)`` moves stored ones to Sonnet 5).
     /// These rates feed the spend caps as well as the log, so a family-wide rate would overcharge.
     public static func pricing(for model: String) -> (input: Double, output: Double)? {
+        // The models Ask Claude offers are priced from its own table, which is the one the limit and
+        // the receipts read. The family arms below are for the older ids Refine used to run on.
+        if let option = AskClaudeModels.options.first(where: { $0.id == model }) {
+            return (option.price.input, option.price.output)
+        }
         if model.hasPrefix("claude-opus") { return (5, 25) }
         if model.hasPrefix("claude-fable") || model.hasPrefix("claude-mythos") { return (10, 50) }
         if model == "claude-sonnet-5" || model.hasPrefix("claude-sonnet-5-") { return (2, 10) }

@@ -138,17 +138,15 @@ import SwiftUI
         #expect(differingPixels(withCloud, withoutCloud) > 200)
     }
 
-    @Test func theModelNameOnTheButtonComesFromSettings() throws {
-        // The assertion. The button promises a model and the classifier sends to one; if the button
-        // read a different key, or hard-coded a name, these two mounts, identical in every other
-        // input, would rasterize the same.
-        let opus = try #require(toolbarStrip(mount(
-            Self.manager(cloudOn: true, model: "claude-opus-5"))))
-        let haiku = try #require(toolbarStrip(mount(
-            Self.manager(cloudOn: true, model: "claude-haiku-4-5"))))
-
-        #expect(differingPixels(opus, haiku) > 50,
-                "the button paints the same thing for Opus and Haiku — it is not reading the model")
+    /// The button no longer names a model: Refine runs on the chat's (TE335), which is a read-out
+    /// elsewhere. A pixel diff can't show that, since the label is the same for every model, so the
+    /// source is read: the title says Claude, and nothing here reads a model setting of Organize's own.
+    @Test func theButtonSaysClaudeAndTheModelIsTheChatsNotOrganizes() throws {
+        let source = SourceText.codeOnly(try SourceText.fileExplorer("LensWorkspaceView.swift"))
+        #expect(source.contains(#"Label("Refine \(batch.count) with Claude…""#))
+        #expect(!source.contains("cloudModelDefaultsKey"), "Organize has no model of its own to read")
+        #expect(source.contains("AskClaudeModels.defaultsKey"),
+                "the tooltip and Refine Names name the chat's model, read from the setting its menu writes")
     }
 
     @Test func theInvitationIsWithheldWhenThereIsNowhereToSendTheUser() throws {

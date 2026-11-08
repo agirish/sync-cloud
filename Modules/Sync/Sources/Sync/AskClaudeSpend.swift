@@ -23,6 +23,15 @@ public enum AskClaudeSpend {
     /// Each month's spend is its own key, `askClaudeSpend.2026-11`.
     static let monthKeyPrefix = "askClaudeSpend."
 
+    /// The Organize share of each month's spend (Refine, Try Another, Refine Names), kept apart from
+    /// the total as `askClaudeOrganizeSpend.2026-11`. Not under `monthKeyPrefix`, so nothing that
+    /// reads a month's total can read this as one. The total already includes it.
+    static let organizeKeyPrefix = "askClaudeOrganizeSpend."
+
+    static func organizeKey(_ date: Date) -> String {
+        organizeKeyPrefix + String(monthKey(date).dropFirst(monthKeyPrefix.count))
+    }
+
     static func monthKey(_ date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -43,6 +52,19 @@ public enum AskClaudeSpend {
         let key = monthKey(now)
         defaults.set(defaults.double(forKey: key) + costUSD, forKey: key)
         NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    /// What Organize's Claude requests have cost this month: part of ``spent(in:now:)``, not added to it.
+    public static func organizeSpent(in defaults: UserDefaults, now: Date = Date()) -> Double {
+        defaults.double(forKey: organizeKey(now))
+    }
+
+    /// Records a cost for Organize's Claude requests: in the month's total, which the one limit reads,
+    /// and in Organize's share of it.
+    public static func recordOrganize(_ costUSD: Double, in defaults: UserDefaults, now: Date = Date()) {
+        guard costUSD > 0 else { return }
+        defaults.set(organizeSpent(in: defaults, now: now) + costUSD, forKey: organizeKey(now))
+        record(costUSD, in: defaults, now: now)
     }
 
     public static func state(in defaults: UserDefaults, now: Date = Date()) -> State {

@@ -862,14 +862,14 @@ extension FileSyncManager {
             return false
         case .billable(let preflight):
             guard preflight.wouldExceedCap else { return true }
-            Logger.shared.info("Filing: cloud re-ask skipped — it would pass a budget cap "
+            Logger.shared.info("Filing: cloud re-ask skipped — it would pass the monthly Claude limit "
                 + "(est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month "
-                + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)), lifetime "
-                + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
-                + "suggestion; raise the cap in Settings ▸ Ask Claude to keep using Claude.")
+                + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)) of "
+                + "\(FilingSpendFormat.cost(preflight.monthlyCapUSD))). Keeping the card's suggestion; "
+                + "raise the limit in Settings ▸ Ask Claude to keep using Claude.")
             // As for `.blocked` above, with a different remedy, so a different sentence.
-            banner = .warning("Couldn’t ask Claude for another folder — it would pass a budget "
-                              + "cap. Keeping the on-device suggestion; raise the cap in "
+            banner = .warning("Couldn’t ask Claude for another folder — it would pass your monthly Claude "
+                              + "limit. Keeping the earlier suggestion; raise the limit in "
                               + "Settings ▸ Ask Claude to keep using Claude.", log: .warn)
             return false
         }
@@ -889,10 +889,9 @@ extension FileSyncManager {
     func filingSpendGate(files: [FilingCandidateFile], taxonomyFolders: [String],
                                  downloading: Int = 0) -> FilingSpendGate {
         guard filingRoutesToCloud(.refine) else { return .notBilled }
-        // Resolved as the classifier resolves it, so the cost confirmed is priced for the model the
+        // The chat's model, priced from Ask Claude's table, so the cost confirmed is for the model the
         // call will name.
-        let model = CloudFilingProtocol.currentModel(
-            for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
+        let model = filingRefineModelID
         let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
         // An unpriced model is not a free one. `pricing(for:)` answers nil outside its
         // `claude-<family>` arms, and `currentModel(for:)` passes such an id through untouched (a
@@ -914,19 +913,15 @@ extension FileSyncManager {
                 + "the offered models in Settings ▸ Organize to use Claude.")
             return .blocked
         }
-        // Spend and caps must come from the same store, or the pre-flight compares spend in one
-        // place against a cap set in another. Production resolves both to `.standard`; only a test
-        // with an injected store can tell them apart.
-        let monthlySpent = FilingSpendBudget.monthlySpend(
-            entries: FilingSpendStore.entries(defaults: filingContentDefaults), now: Date())
-        let totalSpent = FilingSpendStore.totals(defaults: filingContentDefaults).costUSD
-        let monthlyCap = filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey)
-        let totalCap = Self.totalBudgetCap(in: filingContentDefaults)
+        // Ask Claude's one monthly limit and this month's spend against it. The old Organize caps are
+        // not read: there is no lifetime cap, so its half of the pre-flight is off.
         return .billable(FilingSpendPreflight(
             fileCount: files.count, model: model,
             estInputTokens: estTokens.input, estOutputTokens: estTokens.output,
-            estCostUSD: estCost, monthlySpentUSD: monthlySpent, monthlyCapUSD: monthlyCap,
-            totalSpentUSD: totalSpent, totalCapUSD: totalCap, downloadCount: downloading))
+            estCostUSD: estCost,
+            monthlySpentUSD: AskClaudeSpend.spent(in: filingContentDefaults),
+            monthlyCapUSD: AskClaudeSpend.limit(in: filingContentDefaults),
+            totalSpentUSD: 0, totalCapUSD: 0, downloadCount: downloading))
     }
 
     static func modificationYear(_ date: Date?) -> String? {
@@ -994,9 +989,18 @@ extension FileSyncManager {
     /// would serve it back as if Claude had given it.
     func configuredFilingBackendIdentity(for tier: FilingClassifierTier) -> String {
         guard tier == .refine, filingUsesCloud else { return Self.onDeviceBackendIdentity }
-        let model = CloudFilingProtocol.currentModel(
-            for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
-        return "cloud:" + model
+        return "cloud:" + filingRefineModelID
+    }
+
+    /// The Claude model Refine, Try Another and Refine Names use: Ask Claude's, the one in the chat's
+    /// menu and in Settings (TE335, JY-C). Not a model of Organize's own.
+    public var filingRefineModelID: String {
+        AskClaudeModels.option(for: filingContentDefaults.string(forKey: AskClaudeModels.defaultsKey)).id
+    }
+
+    /// Its short name for the Refine Names button: "Opus 5.5".
+    public var filingRefineModelName: String {
+        AskClaudeModels.option(for: filingContentDefaults.string(forKey: AskClaudeModels.defaultsKey)).name
     }
 
     /// The identity this pass's verdict cache keys on. nil turns the cache off for the pass, read

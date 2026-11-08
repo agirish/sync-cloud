@@ -14849,3 +14849,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Per-model keys, no page field, the cache mark, and fallback answers saved as Claude's | NOT OWED — no backporting; recorded |
+
+## Refine runs on the chat's model, priced from Ask Claude's table, under its one limit (TE335, E4) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, Refine, Try Another and Refine Names use the model in Ask Claude's
+menu, are priced from Ask Claude's table at the model that answered, and count against its one
+monthly limit, with their cost kept as an Organize share of the month. Refine Names streams on the
+new request shape and no longer fails on Opus 5.5 or Sonnet 5.5. The maintenance lines keep Organize's
+own model setting, its two caps and its own spend history, and price Haiku at $1 and $5.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s cloudModel=%s ownCaps=%s\n' $l \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift | grep -c 'cloudModelDefaultsKey')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift | grep -c 'monthlyBudgetCapKey')"; done
+# measured 2026-11-08, against origin, before this landed: each line has both (main still has the keys until E5)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Organize's own model, caps and spend history | NOT OWED — no backporting; recorded |

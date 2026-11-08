@@ -89,21 +89,32 @@ import Testing
         #expect(result.ending == .answered && result.started && result.sent == 3)
         #expect(result.answered == 3, "“none” is an answer")
         #expect(Set(result.verdicts.keys) == ["/x/f0.pdf", "/x/f1.pdf"])
-        let entries = FilingSpendStore.entries(defaults: defaults)
-        #expect(entries.count == 1 && entries[0].inputTokens == 1200 && entries[0].outputTokens == 60)
-        #expect(entries[0].estimatedCostUSD > 0 && result.costUSD == entries[0].estimatedCostUSD)
+        // Priced from Ask Claude's table (the chat's default model, Sonnet 5.5), in the month's total
+        // and in Organize's share of it, and nowhere else.
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(result.costUSD > 0)
+        #expect(AskClaudeSpend.spent(in: defaults, now: now) == result.costUSD)
+        #expect(AskClaudeSpend.organizeSpent(in: defaults, now: now) == result.costUSD)
+        #expect(FilingSpendStore.entries(defaults: defaults).isEmpty, "nothing new in the old spend history")
+        let option = AskClaudeModels.defaultModel
+        let expected = (1200 * option.price.input + 60 * option.price.output) / 1_000_000
+        #expect(abs(result.costUSD - expected) < 1e-9, "the model's own price: \(result.costUSD) vs \(expected)")
     }
 
-    @Test func theRequestIsTodaysShapeStreamed() async throws {
+    /// The chat's model is Ask Claude's setting, and Refine sends the request that model accepts.
+    @Test func theRequestIsTheChatsModelsShapeStreamed() async throws {
         let transport = Script(lines: Self.start() + Self.finish)
         _ = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(2), environment: Self.environment(transport))
         let request = try #require(transport.requests.first)
-        #expect(request.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01")
+        #expect(request.value(forHTTPHeaderField: "anthropic-version") == AskClaudeRequest.apiVersion)
+        #expect(request.value(forHTTPHeaderField: "anthropic-beta") == AskClaudeRequest.fallbackBeta)
         #expect(request.value(forHTTPHeaderField: "accept") == "text/event-stream")
         let data = try #require(request.httpBody)
         let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(body["model"] as? String == AskClaudeModels.defaultModel.id)
         #expect(body["stream"] as? Bool == true)
-        #expect((body["tool_choice"] as? [String: String])?["name"] == "file_placements")
+        #expect(body["tool_choice"] == nil, "a forced tool is a 400 on the 5.5 models")
+        #expect((body["output_config"] as? [String: String]) == ["effort": "low"])
     }
 
     @Test func aBatchOverTheCapSendsOnlyTheCap() async {
@@ -129,10 +140,10 @@ import Testing
         #expect(result.started && result.sent == 4)
         #expect(Set(result.verdicts.keys) == ["/x/f0.pdf", "/x/f1.pdf"], "the two whole placements; the third was cut off")
         #expect(result.answered == 2)
-        let entries = FilingSpendStore.entries(defaults: defaults)
-        #expect(entries.count == 1, "a request that started is recorded though it didn't finish")
-        #expect(entries[0].inputTokens == 1200 && entries[0].outputTokens > 0, "the output it streamed is estimated")
-        #expect(entries[0].placedCount == 2)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(result.costUSD > 0 && AskClaudeSpend.spent(in: defaults, now: now) == result.costUSD,
+                "a request that started is recorded though it didn't finish, with the output it streamed estimated")
+        #expect(AskClaudeSpend.organizeSpent(in: defaults, now: now) == result.costUSD)
     }
 
     @Test func aStreamThatEndsWithoutAnEndIsAFailureNotAnAnswer() async {
@@ -158,8 +169,8 @@ import Testing
 
         #expect(result.ending == .stopped && result.started)
         #expect(Set(result.verdicts.keys) == ["/x/f0.pdf"])
-        let entries = FilingSpendStore.entries(defaults: defaults)
-        #expect(entries.count == 1 && entries[0].outputTokens > 0, "a stopped stream never reports its output, so it is estimated")
+        #expect(AskClaudeSpend.spent(in: defaults, now: Date(timeIntervalSince1970: 1_800_000_000)) > 0,
+                "a stopped stream never reports its output, so it is estimated and recorded")
     }
 
     // MARK: Not started
@@ -172,7 +183,7 @@ import Testing
                                                      environment: Self.environment(transport, defaults: defaults))
         guard case .failed(let why) = result.ending else { Issue.record("not failed"); return }
         #expect(!why.isEmpty && !result.started && result.verdicts.isEmpty)
-        #expect(FilingSpendStore.entries(defaults: defaults).isEmpty)
+        #expect(AskClaudeSpend.spent(in: defaults, now: Date(timeIntervalSince1970: 1_800_000_000)) == 0, "never billed, never recorded")
     }
 
     @Test func noKeyIsNotStartedAndSendsNothing() async {
@@ -182,18 +193,84 @@ import Testing
         #expect(transport.requests.isEmpty)
     }
 
-    @Test func aReachedBudgetCapIsNotStartedAndSendsNothing() async {
+    @Test func aReachedLimitIsNotStartedAndSendsNothing() async {
         let defaults = ScratchDefaults("CloudFilingRefinerTests-\(UUID().uuidString)")
-        defaults.set(1.0, forKey: FileSyncManager.monthlyBudgetCapKey)
-        FilingSpendStore.record(FilingSpendEntry(timestamp: Date(timeIntervalSince1970: 1_800_000_000), model: "claude-haiku-4-5",
-                                                 fileCount: 1, placedCount: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0,
-                                                 cacheCreationTokens: 0, estimatedCostUSD: 2, costUnpriced: false), defaults: defaults)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        defaults.set(1.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        AskClaudeSpend.record(2.0, in: defaults, now: now)
         let transport = Script(lines: [])
         let result = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(2),
                                                      environment: Self.environment(transport, defaults: defaults))
         guard case .failed(let why) = result.ending else { Issue.record("not failed"); return }
-        #expect(why.contains("monthly budget cap") && !result.started)
+        #expect(why.contains("monthly limit") && !result.started)
         #expect(transport.requests.isEmpty)
+    }
+
+    /// The chat's chat spends toward the same limit: Ask Claude's own spend is what blocks it.
+    @Test func theOneLimitIsSharedWithTheChat() async {
+        let defaults = ScratchDefaults("CloudFilingRefinerTests-\(UUID().uuidString)")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        defaults.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        AskClaudeSpend.record(4.99, in: defaults, now: now)
+        let body = "{\"placements\":[" + Self.placement(0, "Home") + "]}"
+        let ok = Script(lines: Self.start() + [Self.piece(body)] + Self.finish)
+        let first = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(1),
+                                                    environment: Self.environment(ok, defaults: defaults))
+        #expect(first.ending == .answered, "under the limit it runs")
+        AskClaudeSpend.record(1.0, in: defaults, now: now)
+        let blocked = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(1),
+                                                      environment: Self.environment(Script(lines: []), defaults: defaults))
+        #expect(!blocked.started, "the chat's spend counts: now it is over")
+    }
+
+    // MARK: Refine Names
+
+    private static let mapping = MappingRefineRequest(
+        family: "Tax", members: ["2024"], rows: [.init(source: "Petition", target: nil), .init(source: "Approval", target: nil)],
+        candidateVocabularies: [["application", "approval"]])
+
+    private static func nameCall(_ sources: [String]) -> [String] {
+        let list = sources.map { "{\"source\":\"\($0)\",\"verdict\":\"keep\",\"target\":\"\",\"why\":\"fine\"}" }.joined(separator: ",")
+        return [
+            event(["type": "message_start", "message": ["model": "claude-sonnet-5-5", "usage": ["input_tokens": 900, "output_tokens": 1]]]),
+            event(["type": "content_block_start", "index": 0,
+                   "content_block": ["type": "tool_use", "id": "toolu_n", "name": "mapping_proposals", "input": [:]]]),
+            piece("{\"proposals\":[" + list + "]}"),
+        ] + finish
+    }
+
+    /// Refine Names is the same request as Refine: the chat's model, streamed, no forced tool, the same
+    /// limit, and its cost in the month's total and Organize's share.
+    @Test func refineNamesStreamsOnTheChatsModelAndRecordsItsCost() async throws {
+        let transport = Script(lines: Self.nameCall(["Petition", "Approval"]))
+        let defaults = ScratchDefaults("CloudFilingRefinerTests-\(UUID().uuidString)")
+        let proposals = await CloudFilingRefiner.refineNames(Self.mapping, environment: Self.environment(transport, defaults: defaults))
+
+        #expect(proposals?.map(\.source) == ["Petition", "Approval"])
+        let request = try #require(transport.requests.first)
+        let data = try #require(request.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(body["model"] as? String == AskClaudeModels.defaultModel.id && body["stream"] as? Bool == true)
+        #expect(body["tool_choice"] == nil)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(AskClaudeSpend.spent(in: defaults, now: now) > 0)
+        #expect(AskClaudeSpend.organizeSpent(in: defaults, now: now) == AskClaudeSpend.spent(in: defaults, now: now))
+    }
+
+    @Test func refineNamesStopsAtTheLimitAndAFailedOneStillRecordsWhatStarted() async {
+        let defaults = ScratchDefaults("CloudFilingRefinerTests-\(UUID().uuidString)")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        defaults.set(1.0, forKey: AskClaudeSpend.limitDefaultsKey)
+        AskClaudeSpend.record(2.0, in: defaults, now: now)
+        let unsent = Script(lines: [])
+        #expect(await CloudFilingRefiner.refineNames(Self.mapping, environment: Self.environment(unsent, defaults: defaults)) == nil)
+        #expect(unsent.requests.isEmpty)
+
+        let fresh = ScratchDefaults("CloudFilingRefinerTests-\(UUID().uuidString)")
+        let cut = Script(lines: Array(Self.nameCall(["Petition"]).prefix(3)), tail: .fail(URLError(.networkConnectionLost)))
+        #expect(await CloudFilingRefiner.refineNames(Self.mapping, environment: Self.environment(cut, defaults: fresh)) == nil,
+                "no proposals from an answer that didn't finish")
+        #expect(AskClaudeSpend.spent(in: fresh, now: now) > 0, "but the request that started is recorded")
     }
 
     // MARK: Reading what was cut off

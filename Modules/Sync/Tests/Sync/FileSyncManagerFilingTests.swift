@@ -897,19 +897,18 @@ private final class SnippetBox: @unchecked Sendable {
         #expect(seen.snippet == nil)
     }
 
-    // MARK: - The re-ask is billable, so it answers to the caps
+    // MARK: - The re-ask is billable, so it answers to the limit
 
-    /// Clicks "Try another" on `Scan.pdf` with the cloud backend on `model`, and `cap` as the
-    /// lifetime budget when given. Returns the manager and what the classifier was handed.
+    /// Clicks "Try another" on `Scan.pdf` with the cloud backend on the chat's model, and `limit` as
+    /// Ask Claude's monthly limit when given. Returns the manager and what the classifier was handed.
     @MainActor
-    private func cloudReask(_ prefix: String, model: String, cap: Double? = nil) async -> (FileSyncManager, SnippetBox) {
+    private func cloudReask(_ prefix: String, limit: Double? = nil) async -> (FileSyncManager, SnippetBox) {
         let defaults = ScratchDefaults(prefix)
         defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        defaults.set(model, forKey: FileSyncManager.cloudModelDefaultsKey)
-        if let cap { defaults.set(cap, forKey: FileSyncManager.totalBudgetCapKey) }
+        if let limit { defaults.set(limit, forKey: AskClaudeSpend.limitDefaultsKey) }
 
         let manager = reaskManager(defaults: defaults)
-        manager.filingBackendIdentity = { _ in "cloud:\(model)" }
+        manager.filingBackendIdentity = { _ in "cloud:\(AskClaudeModels.defaultModel.id)" }
 
         let seen = SnippetBox()
         manager.filingClassifier = { _, files, tier in
@@ -923,49 +922,32 @@ private final class SnippetBox: @unchecked Sendable {
         return (manager, seen)
     }
 
-    /// A re-ask is billable, so it passes the spend gate. A cap breach refuses, logs the specifics,
+    /// A re-ask is billable, so it passes the spend gate. A pass of the limit refuses, logs the specifics,
     /// puts the remedy in a banner, and the click keeps the free on-device suggestion it had. No
     /// modal per card click; the refine pass keeps its dialog. The banner is asserted, not just the
     /// refusal: a silent refusal with the remedy only in `~/sync-cloud.log` passes a test that
     /// checks only that the classifier wasn't reached.
     @MainActor
-    @Test func tryAnotherFolderStandsDownWhenACapWouldBePassed() async throws {
-        // A cap below the cost of any real call, so one priced file breaches it. Seeding spend
-        // just under the shipped $5 wouldn't: a one-file Haiku estimate is a fraction of a cent.
-        // This makes the estimate matter without depending on a model's price.
-        let (manager, seen) = await cloudReask("reaskCap", model: CloudFilingProtocol.defaultModel, cap: 0.0001)
+    @Test func tryAnotherFolderStandsDownWhenTheLimitWouldBePassed() async throws {
+        // A limit below the cost of any real call, so one priced file passes it. Seeding spend just
+        // under the shipped $25 wouldn't: a one-file estimate is a fraction of a cent. This makes the
+        // estimate matter without depending on a model's price.
+        let (manager, seen) = await cloudReask("reaskCap", limit: 0.0001)
 
-        #expect(seen.tier == nil, "the re-ask reached the paid classifier with the lifetime cap already passed")
+        #expect(seen.tier == nil, "the re-ask reached the paid classifier with the limit already passed")
         let banner = try #require(manager.banner, "the refused re-ask left the user no sign at all")
         #expect(banner.severity == .warning)
-        #expect(banner.message.contains("budget cap"),
+        #expect(banner.message.contains("monthly Claude limit"),
                 "the banner does not say why the click declined: \(banner.message)")
         #expect(banner.message.contains("Settings"),
                 "the banner does not name the remedy: \(banner.message)")
-    }
-
-    /// The other refusal the same gate makes, and it needs its own sentence: a model with no known
-    /// price cannot be quoted, so neither cap can be enforced against it. The remedy is a different
-    /// one (pick an offered model, not raise a cap), and a banner that named the wrong one would
-    /// send the user to a control that changes nothing.
-    @MainActor
-    @Test func tryAnotherFolderSaysWhyWhenTheModelHasNoKnownPrice() async throws {
-        // A model name no price table knows, which is exactly the state the gate blocks on.
-        let (manager, seen) = await cloudReask("reaskUnpriced", model: "claude-not-a-real-model")
-
-        #expect(seen.tier == nil, "the re-ask reached a classifier whose call could not be priced")
-        let banner = try #require(manager.banner, "the refused re-ask left the user no sign at all")
-        #expect(banner.message.contains("price"),
-                "the banner does not say the price is what is missing: \(banner.message)")
-        #expect(!banner.message.contains("raise the cap"),
-                "the banner sends the user to raise a cap, which is not this refusal's remedy: \(banner.message)")
     }
 
     /// And it still runs when there is room: the guard must not become "never re-ask". Same
     /// fixture with no recorded spend, so the same click goes through to the paid tier.
     @MainActor
     @Test func tryAnotherFolderStillRunsWhenTheCapsHaveRoom() async throws {
-        let (manager, seen) = await cloudReask("reaskRoom", model: CloudFilingProtocol.defaultModel)
+        let (manager, seen) = await cloudReask("reaskRoom")
 
         #expect(seen.tier == .refine, "a re-ask with budget left was refused")
         // And the banner must stay OUT of the ordinary path: a warning on every successful re-ask

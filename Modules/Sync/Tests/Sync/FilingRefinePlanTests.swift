@@ -24,7 +24,7 @@ import Testing
     private func manager(_ sent: Sent, cap: Double = 0) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingContentDefaults = ScratchDefaults("FilingRefinePlanTests-\(UUID().uuidString)")
-        m.filingContentDefaults.set(cap, forKey: FileSyncManager.monthlyBudgetCapKey)
+        if cap > 0 { m.filingContentDefaults.set(cap, forKey: AskClaudeSpend.limitDefaultsKey) }
         m.filingBackendIdentity = { tier in
             tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity
         }

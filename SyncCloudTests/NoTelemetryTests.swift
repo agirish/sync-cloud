@@ -76,7 +76,6 @@ import Testing
         // Refine's streamed request (TE335). The same call as the classifier above, which it replaces
         // in the app, so Help's account of Refine covers it.
         "Modules/Sync/Sources/Sync/CloudFilingRefiner.swift",
-        "MacApp/CloudMappingRefiner.swift",
         "Modules/Sync/Sources/Sync/AnthropicKeyCheck.swift",
         // Ask Claude, the toolbar chat. Help ▸ Reading your documents names it as the second feature
         // that reaches the internet, and what it sends.

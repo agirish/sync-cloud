@@ -99,13 +99,12 @@ import Testing
     }
 
     /// A cap block is the budget saying no, not the person declining: the over-cap dialog offers no
-    /// proceed button, so its `false` must land in `.unavailable` (whose sentence names the caps),
+    /// proceed button, so its `false` must land in `.unavailable` (whose sentence names the limit),
     /// never in `.declined` ("their choice, not a failure", a choice they never made).
     @Test func aCapBlockIsTheBudgetSayingNoNotADecline() async {
         let calls = Calls()
         let manager = makeManager(route: "cloud:claude", calls: calls)
-        manager.filingContentDefaults.set(0.000_000_1,
-                                          forKey: FileSyncManager.monthlyBudgetCapKey)
+        manager.filingContentDefaults.set(0.000_000_1, forKey: AskClaudeSpend.limitDefaultsKey)
         var seen: FilingSpendPreflight?
         manager.filingCloudSpendConfirmer = { preflight in
             seen = preflight

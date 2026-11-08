@@ -847,9 +847,7 @@ extension FileSyncManager {
                 + "Claude (cloud off, or no usable key), and naming has no on-device model")
             return .unavailable
         }
-        let model = CloudFilingProtocol.currentModel(
-            for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey)
-                ?? CloudFilingProtocol.defaultModel)
+        let model = filingRefineModelID
         // An unpriced model is not a free one, as in the filing refine's gate: no quote, no cap
         // arithmetic, no call.
         guard let estCost = MappingRefineProtocol.estimatedCostUSD(model: model,
@@ -864,12 +862,9 @@ extension FileSyncManager {
             fileCount: request.rows.count, model: model,
             estInputTokens: tokens.input, estOutputTokens: tokens.output,
             estCostUSD: estCost,
-            monthlySpentUSD: FilingSpendBudget.monthlySpend(
-                entries: FilingSpendStore.entries(defaults: filingContentDefaults),
-                now: Date()),
-            monthlyCapUSD: filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey),
-            totalSpentUSD: FilingSpendStore.totals(defaults: filingContentDefaults).costUSD,
-            totalCapUSD: Self.totalBudgetCap(in: filingContentDefaults),
+            monthlySpentUSD: AskClaudeSpend.spent(in: filingContentDefaults),
+            monthlyCapUSD: AskClaudeSpend.limit(in: filingContentDefaults),
+            totalSpentUSD: 0, totalCapUSD: 0,
             unit: "folder name")
         guard filingCloudSpendConfirmer(preflight) else {
             // Two cases end in `false`, and the sheet words them differently on purpose: over the

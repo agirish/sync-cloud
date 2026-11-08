@@ -791,3 +791,25 @@ tests drive a scripted stream, and the install was checked for launch and signat
   problem; it does not go blank.
 - [ ] **Over 150.** With more than 150 suggestions the banner says how many went in the request and to
   press Refine again for the rest.
+
+## Refine on the chat's model and Ask Claude's one limit (TE335, E4, 2026-11-08)
+
+Run in the installed app, with a key saved, Use Claude on in Settings ▸ Intelligence, and a To File
+list. The tests drive scripted streams and defaults; the install was checked for launch and signature
+only. The Intelligence tab still shows Refine's old model and caps until E5; they no longer do anything.
+
+- [ ] **The chat's model.** Pick Opus 5.5 in the Ask Claude panel's model menu, press “Refine N with
+  Claude…”: the dialog reads “Classify N files with Opus 5.5?”. Switch the chat to Haiku 5.5 and press
+  it again: the dialog names Haiku 5.5 and the estimate is lower. It does not fail with a 400.
+- [ ] **One limit.** The dialog's second paragraph reads “This month: … of your $25 monthly limit for
+  Ask Claude and Organize.” After a Refine, Ask Claude's month total (Settings ▸ Ask Claude, or the
+  panel's shield) has gone up by about what the receipt says, and by the chat's own questions too.
+- [ ] **The limit blocks.** Set the limit to the lowest choice and ask the chat a few questions until it
+  stops, then press Refine: the dialog's headline says it would pass your monthly Claude limit and its
+  only button is OK. Nothing is sent.
+- [ ] **Refine Names.** In a Restructure plan press Ask … About N Folder Names: it returns proposals on the
+  chat's model (this was a 400 on Opus 5.5 and Sonnet 5.5 before).
+- [ ] **Try Another.** One click on a card: it answers on the chat's model, and its cost shows in the same
+  month total.
+- [ ] **Organize's share.** `defaults read com.abhishekgirish.SyncCloud | grep -i askClaudeOrganizeSpend`
+  shows this month's Organize share, smaller than `askClaudeSpend.<month>`.

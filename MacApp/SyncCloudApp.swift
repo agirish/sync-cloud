@@ -419,8 +419,8 @@ struct SyncCloudApp: App {
                 logDowngrade: { _ in }
             ) {
             case .cloud:
-                let stored = UserDefaults.standard.string(forKey: FileSyncManager.cloudModelDefaultsKey)
-                return "cloud:" + CloudFilingProtocol.currentModel(for: stored ?? CloudFilingProtocol.defaultModel)
+                // The chat's model: Refine, Try Another and Refine Names use Ask Claude's.
+                return "cloud:" + AskClaudeModels.option(for: UserDefaults.standard.string(forKey: AskClaudeModels.defaultsKey)).id
             case .onDevice, .onDeviceCloudKeyUnavailable:
                 return FileSyncManager.onDeviceBackendIdentity
             }
@@ -465,9 +465,7 @@ struct SyncCloudApp: App {
         // spend store as the filing refine. The sheet gates the offer on a stored key
         // (`filingCloudRefineAvailable`); this closure is only the transport.
         manager.filingRefineClassifier = CloudFilingRefiner.live
-        manager.mappingRefiner = { request in
-            await CloudMappingRefiner.refine(request)
-        }
+        manager.mappingRefiner = CloudFilingRefiner.liveNames
         manager.filingSnippetExtractor = { path in
             await ContentSignalExtractor.snippet(forFileAt: path)
         }

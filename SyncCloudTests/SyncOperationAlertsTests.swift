@@ -60,30 +60,19 @@ import Sync
                              unit: unit)
     }
 
-    /// A mapping refine sends folder names, and every branch of the prompt says so: the verb
-    /// ("Send", never "Classify"), the noun, and above a cap the consequence. The filing refine
-    /// falls back on-device; the mapping refine just doesn't run, so it must not promise
-    /// "free on-device suggestions".
-    @Test func aFolderNameUnitReshapesTheVerbAndTheCapSentence() {
+    /// A mapping refine sends folder names, and the prompt says so: the verb ("Send", never
+    /// "Classify") and the noun. Over the limit nothing runs in either case, and neither promises an
+    /// on-device answer.
+    @Test func aFolderNameUnitReshapesTheVerb() {
         let names = Self.preflight(fileCount: 24, unit: "folder name")
-        #expect(SyncOperationAlerts.filingSpendMessage(names)
-                == "Send 24 folder names to Haiku?")
-        #expect(SyncOperationAlerts.filingSpendMessage(
-            Self.preflight(fileCount: 1, unit: "folder name"))
+        #expect(SyncOperationAlerts.filingSpendMessage(names) == "Send 24 folder names to Haiku?")
+        #expect(SyncOperationAlerts.filingSpendMessage(Self.preflight(fileCount: 1, unit: "folder name"))
                 == "Send 1 folder name to Haiku?")
-
-        let blocked = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80,
-                                     monthlyCapUSD: 1.00, unit: "folder name")
-        let body = SyncOperationAlerts.filingSpendInformativeText(blocked)
-        #expect(body.contains("only runs in the cloud"))
-        #expect(!body.contains("on-device suggestions"),
-                "the mapping refine has no on-device fallback to promise")
-
-        let blockedFiles = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80,
-                                          monthlyCapUSD: 1.00)
-        #expect(SyncOperationAlerts.filingSpendInformativeText(blockedFiles)
-            .contains("on-device suggestions"),
-                "the filing refine's true fallback sentence stays")
+        for unit in ["file", "folder name"] {
+            let blocked = SyncOperationAlerts.filingSpendInformativeText(
+                Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00, unit: unit))
+            #expect(blocked.contains("nothing will be sent") && !blocked.contains("on-device"), "\(unit)")
+        }
     }
 
     @Test func spendMessageNamesCountAndModelWithSingularPlural() {
@@ -93,62 +82,44 @@ import Sync
                 == "Classify 1 file with Sonnet?")
     }
 
-    @Test func spendMessageLeadsWithTheBlockWhenOverACap() {
-        // Monthly cap would be breached.
-        let monthly = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00)
-        #expect(SyncOperationAlerts.filingSpendMessage(monthly) == "This would exceed your monthly cloud budget")
+    /// The chat's models are named as the chat's menu names them.
+    @Test func theChatsModelsAreNamedAsTheMenuNamesThem() {
+        #expect(SyncOperationAlerts.filingSpendMessage(Self.preflight(fileCount: 6, model: "claude-opus-5-5"))
+                == "Classify 6 files with Opus 5.5?")
+        #expect(SyncOperationAlerts.filingSpendMessage(Self.preflight(fileCount: 6, model: "claude-haiku-5-5"))
+                == "Classify 6 files with Haiku 5.5?")
+    }
 
-        // Only the total (lifetime) cap would be breached.
-        let total = Self.preflight(estCostUSD: 0.50, totalSpentUSD: 4.80, totalCapUSD: 5.00)
-        #expect(SyncOperationAlerts.filingSpendMessage(total) == "This would exceed your total cloud budget")
-
-        // Both breached: the monthly wording wins.
-        let both = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00,
-                                  totalSpentUSD: 4.80, totalCapUSD: 5.00)
-        #expect(SyncOperationAlerts.filingSpendMessage(both) == "This would exceed your monthly cloud budget")
+    @Test func spendMessageLeadsWithTheBlockWhenOverTheLimit() {
+        let over = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00)
+        #expect(SyncOperationAlerts.filingSpendMessage(over) == "This would pass your monthly Claude limit")
+        let under = Self.preflight(estCostUSD: 0.05, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00)
+        #expect(SyncOperationAlerts.filingSpendMessage(under) == "Classify 12 files with Haiku?")
     }
 
     @Test func spendBodyAlwaysStatesTheEstimateAndBillingCaveat() {
         let body = SyncOperationAlerts.filingSpendInformativeText(Self.preflight())
         #expect(body.contains("Estimated cost: ~$0.02 (8.0k tok in / 1.5k tok out)."))
         #expect(body.contains("billed to your Anthropic API key"))
-        // No caps set → neither budget section appears.
+        // No limit set → no limit section.
         #expect(!body.contains("This month:"))
-        #expect(!body.contains("Lifetime:"))
     }
 
-    @Test func spendBodyShowsTheMonthlyBudgetOnlyWhenACapIsSet() {
+    @Test func spendBodyShowsThisMonthAgainstTheOneLimitOnlyWhenOneIsSet() {
         let body = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(monthlySpentUSD: 0.25, monthlyCapUSD: 1.00))
-        #expect(body.contains("This month: ~$0.25 of ~$1.00 monthly cap."))
+        #expect(body.contains("This month: ~$0.25 of your ~$1.00 monthly limit for Ask Claude and Organize."))
         #expect(!body.contains("Lifetime:"))
     }
 
-    @Test func spendBodyShowsTheLifetimeBudgetOnlyWhenATotalCapIsSet() {
-        let totalOnly = SyncOperationAlerts.filingSpendInformativeText(
-            Self.preflight(totalSpentUSD: 1.50, totalCapUSD: 5.00))
-        #expect(totalOnly.contains("\n\nLifetime: ~$1.50 of ~$5.00 total cap."))
-        #expect(!totalOnly.contains("This month:"))
-
-        // With BOTH caps the lifetime line joins the monthly section with a single newline.
-        let both = SyncOperationAlerts.filingSpendInformativeText(
-            Self.preflight(monthlySpentUSD: 0.25, monthlyCapUSD: 1.00, totalSpentUSD: 1.50, totalCapUSD: 5.00))
-        #expect(both.contains("monthly cap.\nLifetime: ~$1.50 of ~$5.00 total cap."))
-    }
-
-    @Test func spendBodySaysTheCallIsBlockedWhenItWouldExceedACap() {
-        let monthly = SyncOperationAlerts.filingSpendInformativeText(
+    @Test func spendBodySaysTheCallIsBlockedWhenItWouldPassTheLimit() {
+        let body = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00))
-        #expect(monthly.contains("Running this would exceed the monthly cap, so it’s blocked"))
-        #expect(monthly.contains("free on-device suggestions instead"))
-        #expect(monthly.contains("Settings ▸ Ask Claude"))
-
-        let total = SyncOperationAlerts.filingSpendInformativeText(
-            Self.preflight(estCostUSD: 0.50, totalSpentUSD: 4.80, totalCapUSD: 5.00))
-        #expect(total.contains("Running this would exceed the total cap, so it’s blocked"))
+        #expect(body.contains("Running this would pass the limit, so it’s blocked and nothing will be sent."))
+        #expect(body.contains("Settings ▸ Ask Claude"))
     }
 
-    @Test func spendBodyStaysUnblockedUnderTheCaps() {
+    @Test func spendBodyStaysUnblockedUnderTheLimit() {
         let body = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(estCostUSD: 0.02, monthlySpentUSD: 0.10, monthlyCapUSD: 1.00))
         #expect(!body.contains("blocked"))
