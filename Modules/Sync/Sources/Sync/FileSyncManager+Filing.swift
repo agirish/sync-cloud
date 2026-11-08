@@ -886,7 +886,7 @@ extension FileSyncManager {
         case billable(FilingSpendPreflight)
     }
 
-    private func filingSpendGate(files: [FilingCandidateFile], taxonomyFolders: [String],
+    func filingSpendGate(files: [FilingCandidateFile], taxonomyFolders: [String],
                                  downloading: Int = 0) -> FilingSpendGate {
         guard filingRoutesToCloud(.refine) else { return .notBilled }
         // Resolved as the classifier resolves it, so the cost confirmed is priced for the model the
@@ -1501,6 +1501,7 @@ extension FileSyncManager {
         // invocation token before releasing or publishing, so clearing here can neither strip a
         // successor's guard nor land a stale verdict.
         filingRefineInFlight = nil
+        filingOpenRefinePlans = [:]
         // The re-ask guard too. `tryAnotherFolder` releases its own entry in a `defer`, but only if
         // it returns, and `FilingClassifier` is a seam with no timeout in its type, so a hung
         // round-trip would latch the card and make every later "Try another" a silent no-op. The

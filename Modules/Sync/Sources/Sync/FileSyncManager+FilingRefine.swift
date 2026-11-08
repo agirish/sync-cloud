@@ -138,6 +138,10 @@ extension FileSyncManager {
     /// Re-asks the preferred backend about `scope`, and republishes the list with whatever it
     /// improves. Returns what it did, or nil when it declined to run at all.
     ///
+    /// This is the whole pass in one go: build the request, put today's spend dialog in front of it,
+    /// send it. The same three halves are also exposed apart, as ``prepareFilingRefine(_:)`` and
+    /// ``sendFilingRefine(_:scope:)``, for a plan that waits for a click (TE335).
+    ///
     /// Mirrors the scan's phase 3 (cache split, snippets, spend pre-flight, classify, record,
     /// apply), with three differences from running against a list already on screen:
     ///
@@ -160,9 +164,6 @@ extension FileSyncManager {
             }
             return nil
         }
-        // Once per pass: the matcher resolves each parent folder once and keeps it.
-        let hidden = claudeHiddenMatcher()
-        func shown(_ relative: String) -> Bool { Self.shownToClaude(relative, under: root, hidden: hidden) }
         // One pass at a time: `canRefineFilingSuggestions` checks `isRefiningFilingSuggestions`,
         // the token claimed on the next line. The button is disabled while a pass runs, but a menu
         // equivalent or a second click in the same run-loop turn isn't, and two passes would race
@@ -176,7 +177,52 @@ extension FileSyncManager {
             // ownership discipline as `filingTryAnotherInFlight`.
             if filingRefineInFlight == invocation { filingRefineInFlight = nil }
         }
+        guard let work = await buildRefineWork(eligible: eligible, hiddenCount: hiddenCount, root: root,
+                                               classifier: classifier) else { return nil }
+        // Whether the pass was declined, not just whether it ran. `cloudSpendAllows` returns false
+        // for both refusals (Cancel, and the over-cap dialog whose only button is "Use On-Device
+        // Instead"), which downstream would look like "nothing to send", and a user who declined
+        // would be told the pass ran and found no better homes.
+        var declined = false
+        if !work.files.isEmpty {
+            declined = !cloudSpendAllows(files: work.files, taxonomyFolders: work.context.destinations,
+                                         downloading: work.cloudOnly.count)
+        }
+        return await executeRefine(work, declined: declined, invocation: invocation)
+    }
 
+    /// What a pass has worked out before anything is sent: the batch, the cache split, the pages
+    /// read, and the request they make. Built by ``buildRefineWork(eligible:hiddenCount:root:classifier:)``,
+    /// priced by the plan, sent by ``executeRefine(_:declined:invocation:)``.
+    struct RefineWork {
+        typealias Request = (files: [FilingCandidateFile], shortlists: [String: [String]], context: FilingContext)
+        let root: String
+        let classifier: FilingClassifier
+        let eligible: [FilingSuggestion]
+        let hiddenCount: Int
+        let hidden: AskClaudePrivacy.Matcher
+        let existingRelative: Set<String>
+        let preAwaitGeneration: Int
+        let excludedByFile: [String: [String]]
+        let keysByFile: [String: FilingVerdictKey]
+        let cachedVerdicts: [String: FilingVerdict]
+        let cloudOnly: [FilingSuggestion]
+        let snippets: [String: String]
+        let files: [FilingCandidateFile]
+        let shortlists: [String: [String]]
+        let context: FilingContext
+        /// The request from a set of pages: built again once cloud-only files are downloaded.
+        let request: @MainActor ([String: String]) -> Request
+    }
+
+    /// Everything up to the price: the hidden list, the snapshot the answers are read against, the
+    /// rejections, the cache split, the pages, and the request. Sends and downloads nothing. nil
+    /// when it was cancelled.
+    func buildRefineWork(eligible: [FilingSuggestion], hiddenCount: Int, root: String,
+                         classifier: @escaping FilingClassifier) async -> RefineWork? {
+        // Once per pass: the matcher resolves each parent folder once and keeps it.
+        let hidden = claudeHiddenMatcher()
+        func shown(_ relative: String) -> Bool { Self.shownToClaude(relative, under: root, hidden: hidden) }
         // Snapshot everything the verdicts are interpreted against, where `root` was validated. A
         // scan of another provider during the round-trip swaps these; read live afterwards they
         // would mark segments new against the wrong tree, and the "creates N new folders"
@@ -250,8 +296,6 @@ extension FileSyncManager {
             snippets = await Self.extractSnippets(for: misses.map { $0.filePath }, using: extractor)
             if Task.isCancelled { return nil }
         }
-        var verdicts = cachedVerdicts
-        var classifiedCount = 0
         /// The request this pass would send, from the pages in hand. Built twice when cloud-only
         /// files are downloaded after the price is agreed.
         func request(_ snippets: [String: String]) -> (files: [FilingCandidateFile],
@@ -312,16 +356,26 @@ extension FileSyncManager {
         for s in cloudOnly {
             priced[s.filePath] = String(repeating: "x ", count: CloudFilingProtocol.maxSnippetChars / 2)
         }
-        var (files, shortlists, context) = request(priced)
-        // Whether the pass was declined, not just whether it ran. `cloudSpendAllows` returns false
-        // for both refusals (Cancel, and the over-cap dialog whose only button is "Use On-Device
-        // Instead"), which downstream would look like "nothing to send", and a user who declined
-        // would be told the pass ran and found no better homes.
-        var declined = false
-        if !files.isEmpty {
-            declined = !cloudSpendAllows(files: files, taxonomyFolders: context.destinations,
-                                         downloading: cloudOnly.count)
-        }
+        let (files, shortlists, context) = request(priced)
+        return RefineWork(root: root, classifier: classifier, eligible: eligible, hiddenCount: hiddenCount,
+                          hidden: hidden, existingRelative: existingRelative,
+                          preAwaitGeneration: preAwaitGeneration, excludedByFile: excludedByFile,
+                          keysByFile: keysByFile, cachedVerdicts: cachedVerdicts, cloudOnly: cloudOnly,
+                          snippets: snippets, files: files, shortlists: shortlists, context: context,
+                          request: { request($0) })
+    }
+
+    /// Downloads, sends, records and applies a built pass. `declined` is the spend dialog's refusal.
+    /// The caller holds `invocation` in `filingRefineInFlight`.
+    func executeRefine(_ work: RefineWork, declined: Bool, invocation: UUID) async -> FilingRefineSummary? {
+        let root = work.root, classifier = work.classifier, eligible = work.eligible
+        let hiddenCount = work.hiddenCount, hidden = work.hidden, existingRelative = work.existingRelative
+        let preAwaitGeneration = work.preAwaitGeneration, keysByFile = work.keysByFile
+        let cachedVerdicts = work.cachedVerdicts, cloudOnly = work.cloudOnly, request = work.request
+        var snippets = work.snippets
+        var (files, shortlists, context) = (work.files, work.shortlists, work.context)
+        var verdicts = cachedVerdicts
+        var classifiedCount = 0
         if !declined, !cloudOnly.isEmpty, let extractor = filingSnippetExtractor {
             isDownloadingFilingFiles = true
             let (landed, pending, refused) = await fetchCloudOnlyFiles(cloudOnly)
@@ -497,6 +551,152 @@ extension FileSyncManager {
                                  in scopedRejections: [FilingRejection]) -> Set<String> {
         Self.rejectedPaths(forFileNamed: suggestion.fileName, in: scopedRejections)
             .union(filingSessionRejections[suggestion.filePath] ?? [])
+    }
+}
+
+// MARK: - A plan that waits for a click (TE335, C1)
+
+extension FileSyncManager {
+
+    /// What a Refine pass would send and what it would cost, worked out and shown before anything
+    /// leaves the Mac. One is open per source: ``prepareFilingRefine(_:)`` replaces the last, and
+    /// ``sendFilingRefine(_:scope:)`` takes it, so a second click on Send finds nothing.
+    public struct FilingRefinePlan: Sendable, Equatable, Identifiable {
+        /// What Send will be billed as.
+        public enum Billing: Sendable, Equatable {
+            /// The pass doesn't reach Claude, or nothing needs sending: no charge.
+            case notBilled
+            /// Must not run (no price for the model); the reason is in the log.
+            case blocked
+            /// Priced as the classifier will price it.
+            case quote(FilingSpendPreflight)
+        }
+
+        public let id: UUID
+        /// The source this plan belongs to.
+        public let providerRoot: String
+        /// The suggestions Refine may ask about (the button's count): not rule-steered, not hidden.
+        public let eligible: Int
+        /// Suggestions left out because their file is hidden from Claude.
+        public let hiddenFromClaude: Int
+        /// Eligible suggestions already answered by this backend: reused free.
+        public let reused: Int
+        /// Files in the request.
+        public let toSend: Int
+        /// Cloud-only files that would download, and stay downloaded, so page 1 can be read.
+        public let downloads: Int
+        public let billing: Billing
+        /// The list on screen when the plan was made.
+        let generation: Int
+        /// What the request is made of: the files, the folders each rejected, which ones download,
+        /// the counts and the price. Send builds the request again and sends only if this still
+        /// matches.
+        let fingerprint: [String]
+    }
+
+    /// What ``sendFilingRefine(_:scope:)`` did.
+    public enum FilingRefineSendResult: Sendable, Equatable {
+        /// The pass ran.
+        case sent(FilingRefineSummary)
+        /// What would be sent or what it would cost changed since the plan: nothing was sent, and
+        /// this plan, now the open one, says what Send would do.
+        case requoted(FilingRefinePlan)
+        /// The plan was replaced, already sent, or the list it was about is gone.
+        case stale
+        /// A pass is already running, or Refine can't run now.
+        case unavailable
+        /// Over the limit, or no price for the model: nothing was sent.
+        case blocked
+        /// Every eligible file went hidden since the plan.
+        case nothingToSend
+    }
+
+    /// Works out the request and its price without sending, downloading or asking anything, and
+    /// keeps the result as this source's open plan. nil when Refine can't run or has nothing to ask.
+    public func prepareFilingRefine(_ scope: [FilingSuggestion]) async -> FilingRefinePlan? {
+        guard canRefineFilingSuggestions, let classifier = filingClassifier,
+              let root = filingLastProviderRoot else { return nil }
+        let eligible = filingSuggestionsEligibleForRefine(scope)
+        guard !eligible.isEmpty else { return nil }
+        guard let work = await buildRefineWork(eligible: eligible, hiddenCount: filingSuggestionsHiddenFromClaude(scope),
+                                               root: root, classifier: classifier) else { return nil }
+        // The list moved on while the pages were read: this plan is about the old one.
+        guard filingSuggestionsGeneration == work.preAwaitGeneration, filingLastProviderRoot == root else { return nil }
+        let plan = refinePlan(from: work)
+        filingOpenRefinePlans[root] = plan
+        return plan
+    }
+
+    /// Drops an open plan (the card's Cancel).
+    public func discardFilingRefinePlan(_ plan: FilingRefinePlan) {
+        if filingOpenRefinePlans[plan.providerRoot]?.id == plan.id { filingOpenRefinePlans[plan.providerRoot] = nil }
+    }
+
+    /// Sends an open plan. **Builds the whole request again first**, from the list on screen now
+    /// (`scope`), the Hidden from Claude list as it is now and the saved answers as they are now, and
+    /// sends only if that is what the plan quoted. If a rescan, a Try Another, a newly hidden folder
+    /// or a change of price made it something else, nothing is sent and the new plan is returned to
+    /// be read again. No dialog: the plan was the quote.
+    public func sendFilingRefine(_ plan: FilingRefinePlan, scope: [FilingSuggestion]) async -> FilingRefineSendResult {
+        // Taking the plan is the claim against a double click: the second send finds none.
+        guard filingOpenRefinePlans[plan.providerRoot]?.id == plan.id else { return .stale }
+        filingOpenRefinePlans[plan.providerRoot] = nil
+        guard canRefineFilingSuggestions, let classifier = filingClassifier,
+              let root = filingLastProviderRoot, root == plan.providerRoot else { return .unavailable }
+        let eligible = filingSuggestionsEligibleForRefine(scope)
+        guard !eligible.isEmpty else { return .nothingToSend }
+        guard let work = await buildRefineWork(eligible: eligible, hiddenCount: filingSuggestionsHiddenFromClaude(scope),
+                                               root: root, classifier: classifier) else { return .stale }
+        let fresh = refinePlan(from: work)
+        guard fresh.generation == plan.generation, fresh.fingerprint == plan.fingerprint else {
+            // A different list (a rescan) means a different plan, not an amended one.
+            guard filingSuggestionsGeneration == work.preAwaitGeneration else { return .stale }
+            filingOpenRefinePlans[root] = fresh
+            return .requoted(fresh)
+        }
+        switch fresh.billing {
+        case .blocked: return .blocked
+        case .quote(let quote) where quote.wouldExceedCap: return .blocked
+        default: break
+        }
+        // The list can move during the rebuild's awaits; sending then would pay for answers that
+        // are dropped on arrival. Checked next to the claim, with no await between.
+        guard filingSuggestionsGeneration == work.preAwaitGeneration, canRefineFilingSuggestions else { return .stale }
+        let invocation = UUID()
+        filingRefineInFlight = invocation
+        defer { if filingRefineInFlight == invocation { filingRefineInFlight = nil } }
+        guard let summary = await executeRefine(work, declined: false, invocation: invocation) else { return .stale }
+        return .sent(summary)
+    }
+
+    private func refinePlan(from work: RefineWork) -> FilingRefinePlan {
+        let billing: FilingRefinePlan.Billing
+        if work.files.isEmpty {
+            billing = .notBilled
+        } else {
+            switch filingSpendGate(files: work.files, taxonomyFolders: work.context.destinations,
+                                   downloading: work.cloudOnly.count) {
+            case .notBilled: billing = .notBilled
+            case .blocked: billing = .blocked
+            case .billable(let preflight): billing = .quote(preflight)
+            }
+        }
+        let cloudOnly = Set(work.cloudOnly.map(\.filePath))
+        var fingerprint = work.files.map { file in
+            file.filePath + "|" + file.excludedRelativePaths.sorted().joined(separator: ",")
+                + (cloudOnly.contains(file.filePath) ? "|download" : "")
+                + (file.contentSnippet == nil ? "" : "|text")
+        }.sorted()
+        fingerprint.append("eligible \(work.eligible.count) reused \(work.cachedVerdicts.count) hidden \(work.hiddenCount)")
+        switch billing {
+        case .quote(let q): fingerprint.append("quote \(q.model) \(q.fileCount) \(q.estCostUSD) \(q.downloadCount) \(q.wouldExceedCap)")
+        case .blocked: fingerprint.append("blocked")
+        case .notBilled: fingerprint.append("notBilled")
+        }
+        return FilingRefinePlan(id: UUID(), providerRoot: work.root, eligible: work.eligible.count,
+                                hiddenFromClaude: work.hiddenCount, reused: work.cachedVerdicts.count,
+                                toSend: work.files.count, downloads: work.cloudOnly.count, billing: billing,
+                                generation: work.preAwaitGeneration, fingerprint: fingerprint)
     }
 }
 

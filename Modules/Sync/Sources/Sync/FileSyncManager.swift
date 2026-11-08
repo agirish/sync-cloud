@@ -703,6 +703,10 @@ public class FileSyncManager: ObservableObject {
     /// only copy, so the guard has one place to break.
     @Published public internal(set) var filingRefineInFlight: UUID?
 
+    /// The Refine plan each source has open, waiting for Send: one per source, replaced by the next
+    /// prepare and taken by a send. Cleared with the filing state.
+    @Published public internal(set) var filingOpenRefinePlans: [String: FilingRefinePlan] = [:]
+
     /// True while the opt-in refine pass is out at the backend. Not `isSuggestingFiles`, which
     /// swaps the Organize lens to its scanning view: a refine improves the list the user is looking
     /// at and must not take it off screen.
