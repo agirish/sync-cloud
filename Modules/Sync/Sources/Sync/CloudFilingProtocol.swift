@@ -85,7 +85,7 @@ public enum CloudFilingProtocol {
 
         /// Today's request, unchanged. The default of every `requestBody` and the shape the app uses
         /// until the Refine request moves to ``current(for:)``.
-        public static let legacy = RequestShape(label: "today's", apiVersion: CloudFilingProtocol.apiVersion, betaHeader: nil,
+        public static let legacy = RequestShape(label: "today’s", apiVersion: CloudFilingProtocol.apiVersion, betaHeader: nil,
                                                 effort: nil, extraOutputTokens: 0, fallbacks: false, strict: true,
                                                 stream: false, toolChoice: .forced)
 
@@ -111,7 +111,7 @@ public enum CloudFilingProtocol {
         public static func variants(for model: AskClaudeModels.Option) -> [RequestShape] {
             var control = legacy
             control.stream = true
-            control.label = "today's, streamed"
+            control.label = "today’s, streamed"
             return [control,
                     shape(for: model, toolChoice: .auto, strict: false),
                     shape(for: model, toolChoice: .auto, strict: true),
