@@ -763,12 +763,11 @@ key comes from the environment, never the Keychain.
 `read -s "ASK_CLAUDE_LIVE_KEY?Key: " && export ASK_CLAUDE_LIVE_KEY`, then
 `scripts/build-slot swift test --package-path Modules/Sync --filter CloudFilingLiveShapeTests`.
 
-- [ ] **The table prints.** Without the key the suite is skipped, which is a vacuous green: quote the
+- [x] **The table prints.** Run 2026-11-07, 18 requests, under 5¢. Without the key the suite is skipped, which is a vacuous green: quote the
   printed lines (`OK`/`FAIL`, model, shape, HTTP status, placements read, tokens, cost).
-- [ ] **The control fails on 5.5.** "today's, streamed" (forced tool) returns HTTP 400 on Opus 5.5 and
-  Sonnet 5.5. If it passes, the finding behind TE335's E1 was wrong; say so.
-- [ ] **`RequestShape.current(for:)` works on all three models,** for the Refine batch and the
+- [x] **The control fails on 5.5.** "today's, streamed" (forced tool) returns HTTP 400 on Opus 5.5 and
+  Sonnet 5.5. Confirmed: HTTP 400 on both (`tool_choice: type "tool" and "any" are not supported for this model`), and `any` fails the same way. Haiku 5.5 accepts both.
+- [x] **`RequestShape.current(for:)` works on all three models,** for the Refine batch and the
   folder-name batch (the test asserts it). A model that fails is the one Refine is off on (KQ-C); if
   Opus 5.5 is that model, LA is asked again before any chat step.
-- [ ] **Pick the winning shape.** Compare the shapes that passed (auto tool, strict, any) and make that
-  one `current(for:)` in E3. Note cost and seconds per model.
+- [x] **Pick the winning shape.** The tool left to the model, without `strict`: the only shape that works on all three. `strict` cut answers short (Sonnet 5.5 1 of 6, Haiku 5.5 0 of 3) and `any` is a 400 on two. About 1,600 tokens in and 350 to 400 out for six files, under 1¢, 2 to 5 seconds.

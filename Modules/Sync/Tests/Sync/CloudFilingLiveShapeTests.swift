@@ -13,7 +13,13 @@ private let liveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_LIVE_KEY"]
 /// models in each shape in `CloudFilingProtocol.RequestShape.variants`, and prints one line per
 /// try: status, stop reason, placements read, tokens, estimated cost and seconds. The shape that
 /// `RequestShape.current(for:)` returns must work on all three; the other shapes are reported, not
-/// asserted, so a failing control (today's forced tool) shows what the API said.
+/// asserted, so a failing control (today’s forced tool) shows what the API said. A try works when the
+/// request is accepted, the answer isn't cut off, and every file or folder name has an answer.
+///
+/// **First run, 2026-11-07:** the forced tool was a 400 on Sonnet 5.5 and Opus 5.5 (`tool_choice:
+/// type "tool" and "any" are not supported for this model`), `any` the same. Leaving the tool to the
+/// model worked on all three. `strict` cut answers short on Sonnet 5.5 (1 of 6) and Haiku 5.5, so it
+/// stays off.
 ///
 /// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key (never the
 /// Keychain, which a test must never touch) and never on CI. It spends real money, a few cents in
@@ -49,6 +55,23 @@ struct CloudFilingLiveShapeTests {
         rows: [.init(source: "Petition", target: "Application"), .init(source: "Approval", target: nil),
                .init(source: "Receipts", target: nil)],
         candidateVocabularies: [["application", "approval", "receipt"]])
+
+    /// How many files the model answered for, in a folder or with “none”: a model that answers “none”
+    /// for a file it cannot place has answered, and a request that returns fewer answers than files has not.
+    static func answered(_ calls: [AskClaudeToolCall], tool: String, list: String, key: String, count: Int) -> Int {
+        var seen = Set<String>()
+        for call in calls where call.name == tool {
+            for entry in call.input[list]?.arrayValue ?? [] {
+                guard let value = entry[key] else { continue }
+                if let index = value.intValue ?? value.stringValue.flatMap(Int.init), key == "index" {
+                    if (0..<count).contains(index) { seen.insert("\(index)") }
+                } else if let name = value.stringValue {
+                    seen.insert(name)
+                }
+            }
+        }
+        return seen.count
+    }
 
     struct Outcome {
         var status = 0
@@ -112,7 +135,7 @@ struct CloudFilingLiveShapeTests {
         for shape in CloudFilingProtocol.RequestShape.variants(for: model) {
             let body = CloudFilingProtocol.requestBody(model: model.id, taxonomyFolders: Self.taxonomy, files: Self.files, shape: shape)
             let outcome = await Self.run(model: model, shape: shape, body: body, expected: Self.files.count) { calls in
-                CloudFilingProtocol.parseVerdicts(toolCalls: calls, files: Self.files)?.count ?? 0
+                Self.answered(calls, tool: CloudFilingProtocol.toolName, list: "placements", key: "index", count: Self.files.count)
             }
             print(Self.line("refine", model, shape, outcome))
             if shape == .current(for: model) { current = outcome }
@@ -126,7 +149,7 @@ struct CloudFilingLiveShapeTests {
         for shape in CloudFilingProtocol.RequestShape.variants(for: model) {
             let body = MappingRefineProtocol.requestBody(model: model.id, request: Self.mapping, shape: shape)
             let outcome = await Self.run(model: model, shape: shape, body: body, expected: Self.mapping.rows.count) { calls in
-                MappingRefineProtocol.parseProposals(toolCalls: calls, rows: Self.mapping.rows)?.count ?? 0
+                Self.answered(calls, tool: MappingRefineProtocol.toolName, list: "proposals", key: "source", count: Self.mapping.rows.count)
             }
             print(Self.line("names ", model, shape, outcome))
             if shape == .current(for: model) { current = outcome }
