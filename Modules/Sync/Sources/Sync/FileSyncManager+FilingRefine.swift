@@ -26,6 +26,10 @@ extension FileSyncManager {
         public enum Outcome: String, Sendable, Equatable, Codable {
             /// The pass reached the backend the user chose.
             case ran
+            /// Claude's request failed partway, or couldn't start. Answers that arrived are kept.
+            case failed
+            /// The person stopped it. Answers that arrived are kept.
+            case stopped
             /// The spend prompt was refused: Cancel, or "Use On-Device Instead".
             case declined
             /// Claude was switched on but its saved key could not be read, so this ran on-device.
@@ -171,6 +175,7 @@ extension FileSyncManager {
         // atomic on this actor.
         let invocation = UUID()
         filingRefineInFlight = invocation
+        filingRefineStopRequested = false
         defer {
             // Release only what this invocation still owns: `clearFiling()` can free the slot
             // mid-round-trip, and a successor's guard must not be stripped by this one's exit. Same
@@ -404,16 +409,33 @@ extension FileSyncManager {
         // Claude", the billable figure): a downgraded pass classifies every file on-device while
         // that stays 0, and the log should report the pass as run in full.
         var sentToBackend = 0
+        var result: FilingRefineResult?
         if !files.isEmpty, !declined {
-            let fresh = await classifier(context, files, .refine)
-            sentToBackend = files.count
+            let fresh: [String: FilingVerdict]
+            if filingRoutesToCloud(.refine), let refiner = filingRefineClassifier {
+                // Claude, streamed, and it says how it ended. No on-device answer stands in for a
+                // failed one. The task is kept so Stop can end the request; cancelling this pass's own
+                // task ends it too.
+                let stopped = filingRefineStopRequested
+                let run = Task { stopped ? FilingRefineResult(ending: .stopped) : await refiner(context, files) }
+                filingRefineRun = run
+                let reply = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
+                filingRefineRun = nil
+                result = reply
+                fresh = reply.verdicts
+                sentToBackend = reply.sent
+                classifiedCount = reply.started ? reply.sent : 0
+            } else {
+                fresh = await classifier(context, files, .refine)
+                sentToBackend = files.count
+                // Not counted when downgraded to on-device: `classifiedCount` is what the durable
+                // "refined" pill reports as "N files were sent to Claude", and it must agree with the
+                // banner saying nothing was sent or billed.
+                classifiedCount = filingCloudRefineIsDowngraded ? 0 : files.count
+            }
             // Before the staleness check, deliberately: the answer is already paid for.
             recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: root,
                                  existingRelative: existingRelative)
-            // Not counted when downgraded to on-device: `classifiedCount` is what the durable
-            // "refined" pill reports as "N files were sent to Claude", and it must agree with the
-            // banner saying nothing was sent or billed.
-            classifiedCount = filingCloudRefineIsDowngraded ? 0 : files.count
             verdicts.merge(fresh) { _, new in new }
         }
 
@@ -483,8 +505,14 @@ extension FileSyncManager {
         // Resolved once here, so the pill's summary and the banners below can't describe the same
         // pass differently. `downgraded` outranks `declined`: the spend prompt is only reached with
         // the cloud route selected, and if that route is unreachable the pass ran on-device.
+        let ran: FilingRefineSummary.Outcome
+        switch result?.ending {
+        case .stopped?: ran = .stopped
+        case .failed?: ran = .failed
+        default: ran = .ran
+        }
         let outcome: FilingRefineSummary.Outcome =
-            filingCloudRefineIsDowngraded ? .downgraded : (declined ? .declined : .ran)
+            filingCloudRefineIsDowngraded ? .downgraded : (declined ? .declined : ran)
         let summary = FilingRefineSummary(asked: eligible.count, reused: cachedVerdicts.count,
                                           classified: classifiedCount, changed: changed,
                                           outcome: outcome, hiddenFromClaude: hiddenCount)
@@ -530,14 +558,59 @@ extension FileSyncManager {
             banner = .warning(text + hiddenNote, log: .warn)
             return summary
         }
+        // Stopped or failed: say what came of it, what was kept and whether anything may have been
+        // billed. Not a success banner over a pass that didn't finish.
+        if let result, result.ending != .answered {
+            banner = .warning(Self.refineEndingText(result, changed: changed) + hiddenNote, log: .warn)
+            return summary
+        }
         // Success in both directions: "no better homes found" is a complete, correct answer to
         // what was asked, not a failure to warn about.
+        var capNote = ""
+        if let result, result.sent < files.count {
+            capNote = " \(result.sent) of \(files.count) went in this request; press Refine again for the rest."
+        }
         banner = .success((changed > 0
             ? "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
               + "\(changed) home\(changed == 1 ? "" : "s") changed."
             : "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
-              + "no better homes found.") + hiddenNote)
+              + "no better homes found.") + capNote + hiddenNote)
         return summary
+    }
+
+    /// Ends the refine request that is out, if one is. What had arrived is kept (LS).
+    /// Pressed before the request began, it stops the pass before sending anything.
+    public func stopFilingRefine() {
+        guard isRefiningFilingSuggestions else { return }
+        filingRefineStopRequested = true
+        filingRefineRun?.cancel()
+    }
+
+    /// What a pass that stopped or failed says, in the banner: how many answers arrived and were
+    /// kept, how many homes they moved, and whether anything may have been billed.
+    static func refineEndingText(_ result: FilingRefineResult, changed: Int) -> String {
+        let reason: String?
+        let lead: String
+        switch result.ending {
+        case .answered: return ""
+        case .stopped: reason = nil; lead = "Stopped."
+        case .failed(let why): reason = why; lead = result.started ? "Claude didn’t finish." : "Couldn’t ask Claude."
+        }
+        var text = lead + (reason.map { " " + $0 } ?? "")
+        guard result.started else { return text + " Nothing was sent, and the suggestions are unchanged." }
+        if result.answered > 0 {
+            text += " \(result.answered) of \(result.sent) answers arrived and were kept"
+                + (changed == 0 ? "." : ", moving \(changed) home\(changed == 1 ? "" : "s").")
+        } else {
+            text += " Nothing came back, so the suggestions are unchanged."
+        }
+        let cost = FilingSpendFormat.cost(result.costUSD)
+        if case .stopped = result.ending {
+            text += result.costUSD > 0 ? " About \(cost) was billed for what ran." : ""
+        } else {
+            text += " A request had started, so up to about \(cost) may have been billed."
+        }
+        return text
     }
 
     /// Every folder rejected for `suggestion`: this session's path-keyed rejections plus the
@@ -664,6 +737,7 @@ extension FileSyncManager {
         guard filingSuggestionsGeneration == work.preAwaitGeneration, canRefineFilingSuggestions else { return .stale }
         let invocation = UUID()
         filingRefineInFlight = invocation
+        filingRefineStopRequested = false
         defer { if filingRefineInFlight == invocation { filingRefineInFlight = nil } }
         guard let summary = await executeRefine(work, declined: false, invocation: invocation) else { return .stale }
         return .sent(summary)

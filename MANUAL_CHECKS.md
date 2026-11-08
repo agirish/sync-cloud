@@ -771,3 +771,23 @@ key comes from the environment, never the Keychain.
   folder-name batch (the test asserts it). A model that fails is the one Refine is off on (KQ-C); if
   Opus 5.5 is that model, LA is asked again before any chat step.
 - [x] **Pick the winning shape.** The tool left to the model, without `strict`: the only shape that works on all three. `strict` cut answers short (Sonnet 5.5 1 of 6, Haiku 5.5 0 of 3) and `any` is a 400 on two. About 1,600 tokens in and 350 to 400 out for six files, under 1¢, 2 to 5 seconds.
+
+## Refine stops and fails honestly (TE335, E2, 2026-11-08)
+
+Run in the installed app with a Claude key saved, Use Claude on in Settings ▸ Intelligence, and a
+To File list of 20 or more suggestions (a Downloads folder works). Nothing here ran by hand: the
+tests drive a scripted stream, and the install was checked for launch and signature only.
+
+- [ ] **Stop Refining.** Press “Refine N with …”. While it runs, the button reads “Stop Refining”.
+  Press it: the banner says “Stopped. K of N answers arrived and were kept …”, and the cards for
+  those K show their new homes. The last refine's cost is in the spend row, so a stopped request is
+  recorded.
+- [ ] **Stopped, then again.** Press Refine again: the K answers are reused (the banner counts them
+  as reused), and only the rest is asked.
+- [ ] **No network.** Turn Wi-Fi off, press Refine and confirm the estimate: the banner says Claude
+  didn't finish or couldn’t be asked, nothing is marked as refined, and the cards keep the free
+  suggestions. `~/sync-cloud.log` has a “Cloud Filing failed” line. Nothing on this Mac answered.
+- [ ] **Try Another with no network.** The card keeps its suggestion and the banner names the
+  problem; it does not go blank.
+- [ ] **Over 150.** With more than 150 suggestions the banner says how many went in the request and to
+  press Refine again for the rest.

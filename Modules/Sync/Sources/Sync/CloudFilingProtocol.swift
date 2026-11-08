@@ -311,8 +311,13 @@ public enum CloudFilingProtocol {
     static func verdicts(fromInputs inputs: [[String: Any]], files: [FilingCandidateFile]) -> [String: FilingVerdict]? {
         let lists = inputs.compactMap { $0["placements"] as? [[String: Any]] }
         guard !lists.isEmpty else { return nil }
+        return verdicts(fromPlacements: lists.flatMap { $0 }, files: files)
+    }
+
+    /// The same, from the placements themselves.
+    static func verdicts(fromPlacements placements: [[String: Any]], files: [FilingCandidateFile]) -> [String: FilingVerdict] {
         var out: [String: FilingVerdict] = [:]
-        for placement in lists.flatMap({ $0 }) {
+        for placement in placements {
             guard let index = lenientInt(placement["index"]), index >= 0, index < files.count else { continue }
             let folder = (placement["folder"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !folder.isEmpty, folder.lowercased() != "none" else { continue }
@@ -323,6 +328,61 @@ public enum CloudFilingProtocol {
                 confidence: FilingVerdict.confidence(fromScore: score),
                 reason: (reason?.isEmpty == false ? reason! : "Chosen by Claude"),
                 proposesNewFolder: lenientBool(placement["createsNewFolder"]) ?? false)
+        }
+        return out
+    }
+
+    /// How many files the placements answer for, in a folder or with “none”.
+    static func answeredCount(fromPlacements placements: [[String: Any]], fileCount: Int) -> Int {
+        Set(placements.compactMap { lenientInt($0["index"]) }.filter { $0 >= 0 && $0 < fileCount }).count
+    }
+
+    /// Every placement an answer carried: those in finished tool calls and the whole objects in a
+    /// call the stream did not finish. A dropped or stopped answer keeps what arrived (TE335, LS).
+    static func placements(toolCalls: [AskClaudeToolCall], unfinished: [(name: String, json: String)]) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        for call in toolCalls where call.name == toolName {
+            guard let data = try? call.input.encoded(),
+                  let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let list = input["placements"] as? [[String: Any]] else { continue }
+            out += list
+        }
+        for call in unfinished where call.name == toolName {
+            out += completeObjects(inPartialJSON: call.json, arrayKey: "placements")
+        }
+        return out
+    }
+
+    /// The whole objects in the array under `arrayKey` of JSON that stopped partway, in order. An
+    /// object cut off at the end is left out. Braces and brackets inside strings don't count.
+    static func completeObjects(inPartialJSON text: String, arrayKey: String) -> [[String: Any]] {
+        let bytes = Array(text.utf8)
+        guard let keyRange = text.range(of: "\"\(arrayKey)\""),
+              let open = text[keyRange.upperBound...].firstIndex(of: "[") else { return [] }
+        var i = text.utf8.distance(from: text.utf8.startIndex, to: open) + 1
+        var out: [[String: Any]] = []
+        while i < bytes.count {
+            let c = bytes[i]
+            if c == UInt8(ascii: "]") { break }
+            guard c == UInt8(ascii: "{") else { i += 1; continue }
+            var depth = 0, inString = false, escaped = false, j = i
+            while j < bytes.count {
+                let b = bytes[j]
+                if inString {
+                    if escaped { escaped = false } else if b == UInt8(ascii: "\\") { escaped = true } else if b == UInt8(ascii: "\"") { inString = false }
+                } else if b == UInt8(ascii: "\"") {
+                    inString = true
+                } else if b == UInt8(ascii: "{") {
+                    depth += 1
+                } else if b == UInt8(ascii: "}") {
+                    depth -= 1
+                    if depth == 0 { break }
+                }
+                j += 1
+            }
+            guard j < bytes.count else { break }   // cut off inside this object
+            if let object = (try? JSONSerialization.jsonObject(with: Data(bytes[i...j]))) as? [String: Any] { out.append(object) }
+            i = j + 1
         }
         return out
     }

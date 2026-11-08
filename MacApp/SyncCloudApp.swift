@@ -452,10 +452,9 @@ struct SyncCloudApp: App {
                     hasCloudKey: AnthropicKeychain.hasKey)
                 : .onDevice
             if route == .cloud {
-                if let cloud = await CloudFilingClassifier.classify(taxonomyFolders: taxonomy, files: files) {
-                    return cloud   // cloud succeeded (even if it placed nothing)
-                }
-                // hard failure (no key / network / non-200) → fall back to on-device
+                // Claude is reached through `filingRefineClassifier`, which says how a request ended,
+                // so a failure is shown as one. Nothing here answers in its place.
+                return [:]
             }
             if OnDeviceFilingClassifier.isAvailable {
                 return await OnDeviceFilingClassifier.classify(taxonomyFolders: taxonomy, files: files)
@@ -465,6 +464,7 @@ struct SyncCloudApp: App {
         // The mapping refine: a paid call over folder names, through the same key, model, caps and
         // spend store as the filing refine. The sheet gates the offer on a stored key
         // (`filingCloudRefineAvailable`); this closure is only the transport.
+        manager.filingRefineClassifier = CloudFilingRefiner.live
         manager.mappingRefiner = { request in
             await CloudMappingRefiner.refine(request)
         }

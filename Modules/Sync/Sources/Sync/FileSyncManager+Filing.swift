@@ -1375,7 +1375,22 @@ extension FileSyncManager {
         guard cloudSpendWithinCapsWithoutPrompting(files: [file], taxonomyFolders: taxonomyFolders) else {
             return
         }
-        let verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], .refine)
+        // Claude when the pass routes there, through the request that says how it ended; otherwise
+        // the on-device model, as before. A failed or stopped Claude request is not answered by the
+        // on-device model.
+        var cloudFailure: String?
+        let verdicts: [String: FilingVerdict]
+        if filingRoutesToCloud(.refine), let refiner = filingRefineClassifier {
+            let reply = await refiner(filingContext(taxonomyFolders: taxonomyFolders), [file])
+            verdicts = reply.verdicts
+            switch reply.ending {
+            case .answered: break
+            case .stopped: cloudFailure = "It was stopped."
+            case .failed(let why): cloudFailure = why
+            }
+        } else {
+            verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], .refine)
+        }
         // The verdict was computed against this invocation's pre-await snapshots. If the filing
         // state moved on while the classifier was out, the card now on screen (same id, the file
         // path) belongs to the new state, and writing the old verdict into it is a stale overwrite.
@@ -1384,6 +1399,12 @@ extension FileSyncManager {
         // Either way, drop the result; the defer above still releases only what this one owns.
         guard filingTryAnotherInFlight[suggestion.id] == invocation,
               filingSuggestionsGeneration == preAwaitGeneration else { return }
+        // Claude didn't answer: keep the card as it was and say why, rather than blank it.
+        if let cloudFailure, verdicts[suggestion.filePath] == nil {
+            banner = .warning("Claude didn’t answer for \(suggestion.fileName): \(cloudFailure) "
+                              + "Keeping its earlier suggestion.", log: .warn)
+            return
+        }
         // Mark new-vs-existing against the full, uncapped folder set, hidden folders included
         // since they still exist, so a real folder beyond the classifier's cap isn't labelled one
         // to create. Falls back to the capped cached list, before the hidden filter, if the full

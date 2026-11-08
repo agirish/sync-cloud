@@ -1965,9 +1965,14 @@ public struct LensWorkspaceView: View {
             if !batch.isEmpty || syncManager.isRefiningFilingSuggestions {
                 // `scope`, not `batch`: the pass filters it the same way, and only the whole scope
                 // lets it count the files hidden from Claude for its banner and pill.
-                Button { refineFilingSuggestions(scope) } label: {
+                Button {
+                    // While a pass runs the button is its Stop: it ends the request and keeps what
+                    // had arrived.
+                    if syncManager.isRefiningFilingSuggestions { syncManager.stopFilingRefine() }
+                    else { refineFilingSuggestions(scope) }
+                } label: {
                     if syncManager.isRefiningFilingSuggestions {
-                        Label("Refining…", systemImage: "sparkles")
+                        Label("Stop Refining", systemImage: "stop.circle")
                     } else {
                         Label("Refine \(batch.count) with \(FilingSpendFormat.model(refineModelName))",
                               systemImage: "sparkles")
@@ -1977,9 +1982,11 @@ public struct LensWorkspaceView: View {
                 .chromeHover()
                 .controlSize(.small)
                 // `canRefineFilingSuggestions` is false while a pass runs (it reads the same
-                // in-flight token), so this is the whole condition.
-                .disabled(!syncManager.canRefineFilingSuggestions)
-                .help(refineButtonHelp(count: batch.count))
+                // in-flight token), and a running pass is exactly when the button is Stop.
+                .disabled(!syncManager.canRefineFilingSuggestions && !syncManager.isRefiningFilingSuggestions)
+                .help(syncManager.isRefiningFilingSuggestions
+                      ? "Stop waiting for Claude. Answers that already arrived are kept; a request already sent may still bill."
+                      : refineButtonHelp(count: batch.count))
             } else if syncManager.filingSuggestionsHiddenFromClaude(scope) > 0 {
                 // Every file here is hidden from Claude: say so rather than drop the control.
                 Button {} label: {
@@ -2384,6 +2391,10 @@ public struct LensWorkspaceView: View {
         // from the cache. See `FilingRefineSummary.Outcome`.
         let sent: String
         switch (refine.outcome, refine.classified) {
+        case (.failed, _):
+            sent = "Claude didn’t finish, so only the answers that arrived were used."
+        case (.stopped, _):
+            sent = "You stopped it, so only the answers that arrived were used."
         case (.declined, _):
             sent = "Nothing was sent — the cloud pass was declined, so nothing was billed."
         case (.downgraded, _):
@@ -2408,7 +2419,7 @@ public struct LensWorkspaceView: View {
         // the same homes". The sentence above already says nothing was asked; this states the fact.
         let changed: String
         switch (refine.changed, refine.outcome) {
-        case (0, .declined): changed = "No suggestion changed."
+        case (0, .declined), (0, .failed), (0, .stopped): changed = "No suggestion changed."
         case (0, _):         changed = "No suggestion changed — the free pass had already found the same homes."
         case (1, _):         changed = "1 suggestion moved to a better home."
         default:             changed = "\(refine.changed) suggestions moved to better homes."

@@ -164,6 +164,15 @@ public struct AskClaudeStreamAccumulator: Sendable {
         }
     }
 
+    /// Tool calls the stream started and did not finish: the tool's name and the input JSON received
+    /// so far. A stopped or dropped answer leaves its last call here, and the complete parts of it can
+    /// still be read (``CloudFilingProtocol/completeObjects(inPartialJSON:arrayKey:)``).
+    public var unfinishedToolInputs: [(name: String, json: String)] {
+        partialJSON.keys.sorted().compactMap { index in
+            blocks[index]?["name"]?.stringValue.map { (name: $0, json: partialJSON[index] ?? "") }
+        }
+    }
+
     /// The tool calls in this turn.
     public var toolCalls: [AskClaudeToolCall] {
         content.compactMap { block in

@@ -14811,3 +14811,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` | Every sampled stall at INFO, background ones too, and no line for a hang until its sample ends | RECORDED — not owed |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No stall watch | CLOSED — doesn't apply |
+
+## A failed or stopped Refine says so and keeps what arrived (TE335, E2) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, Refine streams its request. A failure or a Stop is reported as one,
+the answers that arrived are applied and saved, any request that started is recorded as spend, and
+the on-device model no longer answers in Claude's place for Refine or Try Another. Every
+maintenance line still falls back silently on any failure and saves those answers as Claude's.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s silent-fallback=%s\n' $l \
+    "$(git show origin/$l:MacApp/SyncCloudApp.swift | grep -c 'hard failure (no key / network / non-200)')"; done
+# measured 2026-11-08, against origin, before this landed: 1 on every line (main: 0)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The silent fallback, and answers from it saved under Claude's name | NOT OWED — no backporting; recorded |

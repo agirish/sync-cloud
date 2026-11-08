@@ -67,12 +67,15 @@ import Testing
         return out.sorted { $0.0 < $1.0 }
     }()
 
-    /// The three files behind *Refine with Claude*, plus Ask Claude's engine: SyncCloud's whole
+    /// The files behind *Refine with Claude*, plus Ask Claude's engine: SyncCloud's whole
     /// network surface. Two post to `CloudFilingProtocol.endpoint` (`api.anthropic.com/v1/messages`);
     /// the third checks a pasted key against `api.anthropic.com/v1/models` so Settings can say
     /// whether it works. None is reachable without a key the user stored.
     private static let allowedNetworkFiles: Set<String> = [
         "MacApp/CloudFilingClassifier.swift",
+        // Refine's streamed request (TE335). The same call as the classifier above, which it replaces
+        // in the app, so Help's account of Refine covers it.
+        "Modules/Sync/Sources/Sync/CloudFilingRefiner.swift",
         "MacApp/CloudMappingRefiner.swift",
         "Modules/Sync/Sources/Sync/AnthropicKeyCheck.swift",
         // Ask Claude, the toolbar chat. Help ▸ Reading your documents names it as the second feature

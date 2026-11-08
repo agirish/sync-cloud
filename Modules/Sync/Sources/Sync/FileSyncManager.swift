@@ -707,6 +707,17 @@ public class FileSyncManager: ObservableObject {
     /// prepare and taken by a send. Cleared with the filing state.
     @Published public internal(set) var filingOpenRefinePlans: [String: FilingRefinePlan] = [:]
 
+    /// How Refine and Try Another reach Claude: a request that says how it ended, so a failure shows
+    /// as one and nothing stands in for Claude's answer (TE335, E2). The app installs it; where it is
+    /// nil (the CLI, tests) a pass that routes to Claude goes through ``filingClassifier`` as before.
+    public var filingRefineClassifier: FilingRefineClassifier?
+
+    /// The request a refine pass has out, so ``stopFilingRefine()`` can end it.
+    var filingRefineRun: Task<FilingRefineResult, Never>?
+
+    /// Stop was pressed during the pass that is running, possibly before its request began.
+    var filingRefineStopRequested = false
+
     /// True while the opt-in refine pass is out at the backend. Not `isSuggestingFiles`, which
     /// swaps the Organize lens to its scanning view: a refine improves the list the user is looking
     /// at and must not take it off screen.
