@@ -296,7 +296,7 @@ extension ContentView {
     }
 
     /// The window toolbar: the window-level controls only. The sidebar toggle, the workspace bar, a
-    /// long run's capsule, ⌘K, Ask Claude and the utilities (Settings, Activity, Info). Everything
+    /// long run's capsule, ⌘K, the utilities (Settings, Activity) and Ask Claude at the far right. Everything
     /// else lives where it acts: Scan in each pane header, Find Duplicates in its lens, and the file
     /// actions in the panes' action bar.
     @ToolbarContentBuilder
@@ -393,20 +393,6 @@ extension ContentView {
             .designAnimation(.easeOut(duration: 0.12), value: showCommandPalette)
         }
 
-        // Ask Claude: its own glass circle between ⌘K and the utility pill, accent-tinted while
-        // the panel is open, like Info. The fixed spacers make it its own capsule; otherwise
-        // macOS 26 draws adjacent items in one shared glass group, inside the utility pill.
-        if #available(macOS 26.0, *) {
-            ToolbarSpacer(.fixed)
-        }
-        ToolbarItem(placement: .primaryAction) {
-            AskClaudeToolbarButton(visibility: askClaudeHolder.visibility, accent: glassHue.accentColor) { toggleAskClaude() }
-                .disabled(askClaudeStateBusy != nil)
-        }
-        if #available(macOS 26.0, *) {
-            ToolbarSpacer(.fixed)
-        }
-
         ToolbarItemGroup(placement: .primaryAction) {
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")
@@ -430,6 +416,17 @@ extension ContentView {
                 ActivityCenter.shared.markSeen()
                 openWindow(id: ActivityCenter.windowID)
             }
+        }
+
+        // Ask Claude: the far right, its own glass circle after the utility pill, accent-tinted while
+        // the column is open. The fixed spacer makes it its own capsule; otherwise macOS 26 draws
+        // adjacent items in one shared glass group, inside the utility pill.
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.fixed)
+        }
+        ToolbarItem(placement: .primaryAction) {
+            AskClaudeToolbarButton(visibility: askClaudeHolder.visibility, accent: glassHue.accentColor) { toggleAskClaude() }
+                .disabled(askClaudeStateBusy != nil)
         }
     }
 }

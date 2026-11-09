@@ -796,8 +796,6 @@ enum SettingsSearchIndex {
               keywords: ["model", "ask claude model", "sonnet", "opus", "haiku", "default model"]),
         .init(at: .claudeGeneral, title: "Answers",
               keywords: ["brief", "detailed", "verbose", "answer length", "concise", "ask claude answers"]),
-        .init(at: .claudeGeneral, title: "Pin the panel to the window",
-              keywords: ["pin", "pinned", "dock", "sidebar", "side panel", "column", "ask claude panel", "float", "floating"]),
 
         // Ask Claude ▸ Privacy
         .init(at: .privacy, title: "Hidden from Claude",
@@ -2799,7 +2797,6 @@ struct IntelligenceSettingsTab: View {
     @AppStorage(AskClaudeModels.defaultsKey) private var askClaudeModel: String = AskClaudeModels.defaultModel.id
     @AppStorage(AskClaudeSpend.limitDefaultsKey) private var askClaudeLimitUSD: Double = AskClaudeSpend.defaultLimitUSD
     @AppStorage(AskClaudeDetail.defaultsKey) private var askClaudeAnswers: String = AskClaudeDetail.brief.rawValue
-    @AppStorage(AskClaudePanelSettings.pinnedKey) private var askClaudePinned: Bool = false
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @State private var askClaudeHidden: [String] = []
     @State private var askClaudeShared: [String] = []
@@ -2844,8 +2841,6 @@ struct IntelligenceSettingsTab: View {
                 .fixedSize()
                 .help("Brief answers in a sentence or two. Detailed explains what it checked and names close alternatives, and costs a little more per answer. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
             }
-            Toggle("Pin the panel to the window", isOn: $askClaudePinned)
-                .help("Ask Claude becomes the window’s right-hand column, with the content making room, instead of floating over it. Info and the pinned panel take turns on that edge: pinning closes Info, and opening Info lets the panel float until it closes. In a window too narrow, the panel floats and pins again when there is room. The 📌 in its header and View ▸ Pin Ask Claude change it too.")
         }
     }
 

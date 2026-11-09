@@ -145,7 +145,7 @@ import Testing
         let (chat, sent) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate())
         var asked: [String] = []
         chat.ask("one", screen: screen, tools: NoTools())
-        let rig = AskClaudePanelRig(chat: chat, onAsk: { asked.append($0) }, panelWindow: true)
+        let rig = AskClaudePanelRig(chat: chat, onAsk: { asked.append($0) }, parked: true)
         let window = rig.window
         window.orderFrontRegardless()
         window.makeKey()

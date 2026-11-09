@@ -748,36 +748,49 @@ closed and open.
 - [ ] **A customised pane bar.** A bar arranged before this build gains ⓘ right after Scan, once;
   remove it from Customize Pane Bar… and it stays removed after a relaunch.
 
-## Ask Claude pinned to the window (TE334, 2026-11-07)
+## Ask Claude, docked only (TE336, 2026-11-08)
 
-Pin it with the pin in its header (next to the shield), View ▸ Pin Ask Claude, or Settings ▸ Ask
-Claude ▸ General ▸ Pin the panel to the window. Check each in Browse, Compare, Organize and Edit,
-and in Unified and Cards (Settings ▸ Appearance ▸ Surface).
+Ask Claude is the window's right-hand column and nothing else: no floating panel, no 💬 button, no pin.
+It opens and closes from the button at the top right (the system's right-sidebar glyph), View ▸ Ask
+Claude and ⌘J. Check in Browse, Compare, Organize and Edit, and in Unified and Cards (Settings ▸
+Appearance ▸ Surface).
 
-- [ ] **Pin and unpin.** Open Ask Claude (⌘J), press the pin: it becomes the window's last column,
-  top to bottom, the content narrows, and its header's rule lines up with the panes'. Press it
-  again: it floats back to where it was. Both ways the column slides, and is instant with Reduce
-  Motion on.
-- [ ] **The default place.** With no saved place (Reset All, then ⌘J), the panel floats bottom left,
-  about half the window high. Drag it and it snaps as before; double-click the header and it returns
-  to the bottom left.
-- [ ] **A narrow window.** Drag the window narrower: nothing moves while you drag, and on letting go
-  the panel floats ("widen the window to pin"); widen it 40 points past the line and it pins again.
-  Organize folds its folder pane and sidebar, and Edit its list, when the window is narrow, and the
-  sidebar button brings Organize's sidebar back alone. Unpin or close and they come back.
+- [ ] **Open and close.** Click the toolbar button: the column slides in, top to bottom, the content
+  narrows, the button is tinted, and its header's rule lines up with the panes'. Click again, or ✕ in
+  its header: it goes. Both ways it slides, and is instant with Reduce Motion on. The header has the
+  shield, New Chat and ✕, and no pin.
+- [ ] **Remembered.** Close it, quit and relaunch: it stays closed. Open it, relaunch: it comes back
+  open and does not take the keyboard from the file list.
+- [ ] **A first launch.** After Reset All, with no API key saved, the window opens with no column. Save a
+  key in Settings: when Settings closes, the column opens once, without taking the keyboard. Close it
+  and it stays closed.
+- [ ] **A narrow window.** Drag the window narrower than Compare needs beside the column (about 1,040
+  pt): nothing moves while you drag, and on letting go the column slides over the content's right
+  edge with a shadow. A click in the content tucks it away and does its own job; ◨ or ⌘J brings it
+  back. Widen the window 40 points past the line and it docks again.
+- [ ] **Clicks in the overlaid column.** Click in its text box over the file list: the caret stays in
+  the box and no row is selected. Press Delete in the box with text: it deletes text, and no file
+  action is offered.
+- [ ] **Folds.** At 1,440 pt nothing folds in Organize or Edit. Narrow the window to about 1,270: Organize
+  folds its folder pane and sidebar, and Edit its list; the sidebar button brings Organize's sidebar
+  back alone. Close the column and they come back.
 - [ ] **Keys with the keyboard in the column.** Esc with nothing to stop does nothing; during a spoken
-  question it stops it; while editing a question it cancels the edit. ⌘W closes the panel (not a pane
-  tab or the window). ⌘J with the keyboard elsewhere takes you to the text box, a second ⌘J closes,
-  and while talking it does nothing. ⌘Z undoes typing and settings changes, never a file move.
-  ⌘A, ⌘C copy or select the answer text; ⌘X, ⌘V, ⌘⌫ beep and touch no file.
+  question it stops it; while editing a question it cancels the edit. ⌘W closes the column (not a
+  pane tab or the window). ⌘J with the keyboard elsewhere takes you to the text box, a second ⌘J
+  closes, and while talking it does nothing. ⌘Z undoes typing and settings changes, never a file
+  move. ⌘A, ⌘C copy or select the answer text; ⌘X, ⌘V, ⌘⌫ beep and touch no file.
 - [ ] **Clicks keep the keyboard in the column.** Click an empty part of the thread and press Space,
   an arrow or Delete: nothing happens to the files.
-- [ ] **Talking survives a pin.** Start a spoken question, press the pin: it keeps listening and
-  sends as before. An answer arriving or voice stopping does not pull the keyboard off the file list.
+- [ ] **Talking survives a move.** Start a spoken question, then drag the window across the narrow line:
+  it keeps listening and sends as before. An answer arriving or voice stopping does not pull the
+  keyboard off the file list.
 - [ ] **Busy.** Open Settings or Help: the column dims and takes no clicks or keys; close them and it
   carries on. Open a Compare difference's side-by-side: the column pauses under it too.
-- [ ] **VoiceOver.** With VoiceOver on, open and pin it in each workspace, switch workspaces, open
-  Info, and send a question: the app does not hang (the accessibility loop that once took it down).
+- [ ] **Info and the column.** Open a pane's Info with the column open in Browse at 1,100 pt: Info is a
+  drawer over the pane, the column is beside it, and both work.
+- [ ] **VoiceOver.** With VoiceOver on, open the column in each workspace, switch workspaces, open Info,
+  drag across the narrow line, and send a question: the app does not hang (the accessibility loop that
+  once took it down), and the overlaid column is read, not the content under it.
 
 ## Refine's request on the 5.5 models (TE335, E1, 2026-11-07)
 

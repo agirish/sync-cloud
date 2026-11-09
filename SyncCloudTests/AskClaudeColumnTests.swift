@@ -23,8 +23,8 @@ private struct ColumnProbeView: View {
     }
 }
 
-/// The pinned panel and the floating panel share one hosting view: pinning moves it into the
-/// window's column and unpinning moves it back, and nothing inside is rebuilt on the way.
+/// The dock holds one hosting view for the panel, and puts it in whichever column view is on screen:
+/// the one beside the workspace, or the one over it, and nothing inside is rebuilt on the way.
 @MainActor
 @Suite(.serialized) struct AskClaudeColumnTests {
 
@@ -35,72 +35,93 @@ private struct ColumnProbeView: View {
 
     private func settle() async { for _ in 0..<12 { try? await Task.sleep(for: .milliseconds(10)) } }
 
-    /// How many hosting views the column holds (it also holds its keyboard tint).
+    /// How many hosting views the column holds.
     private func hosts(in column: NSView) -> Int { column.subviews.filter { $0 is NSHostingView<AnyView> }.count }
 
-    @Test func pinningAndUnpinningMovesOneHostWithoutRebuildingIt() async throws {
-        let parent = offscreenWindow()
-        let columnWindow = offscreenWindow()
-        let column = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
-        columnWindow.contentView?.addSubview(column)
+    /// The column beside the workspace and the column over it are two views in one window, and the
+    /// panel moves between them as the window crosses the narrow line. Each move SwiftUI reports as a
+    /// disappearance and an appearance, which the panel treats as a move, so what lives in it (the
+    /// draft, a running voice) is built once. Mutation: the dock building a host per column view
+    /// must fail the state count.
+    @Test func theHostMovesBetweenTheDockedColumnAndTheOverlayWithoutRebuilding() async throws {
+        let window = offscreenWindow()
+        let docked = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
+        let overlaid = AskClaudeColumnView(frame: NSRect(x: 300, y: 0, width: 372, height: 760))
+        window.contentView?.addSubview(docked)
+        window.contentView?.addSubview(overlaid)
         let probe = ColumnProbe()
-        let controller = AskClaudeWindowController()
-        controller.container = NSRect(x: -30_000, y: -30_000, width: 1000, height: 720)
-        controller.panelRect = CGRect(x: 10, y: 300, width: 372, height: 400)
-        column.controller = controller
+        let dock = AskClaudeDock()
+        docked.controller = dock
+        overlaid.controller = dock
         let content = AnyView(ColumnProbeView(probe: probe))
 
-        controller.isPinned = false
-        controller.show(content, over: parent, activate: false)
+        dock.columnView = docked
+        dock.show(content)
         await settle()
-        #expect(parent.childWindows?.count == 1)
+        #expect(hosts(in: docked) == 1)
 
         for cycle in 1...20 {
-            controller.isPinned = true
-            controller.columnView = column
-            controller.show(content, over: parent, activate: false)
+            dock.columnView = overlaid
             await settle()
-            #expect(hosts(in: column) == 1, "cycle \(cycle): the host is in the column")
-            #expect(parent.childWindows?.isEmpty == true, "cycle \(cycle): the window gave way")
-
-            controller.isPinned = false
-            controller.show(content, over: parent, activate: false)
+            #expect(hosts(in: overlaid) == 1 && hosts(in: docked) == 0, "cycle \(cycle): the host is in the overlay")
+            dock.columnView = docked
             await settle()
-            #expect(hosts(in: column) == 0, "cycle \(cycle): the host left the column")
-            #expect(parent.childWindows?.count == 1, "cycle \(cycle): the window is back")
+            #expect(hosts(in: docked) == 1 && hosts(in: overlaid) == 0, "cycle \(cycle): the host is back in the dock")
         }
-        // One life for what is inside: it kept one state through every move. SwiftUI reports each
-        // move as a disappearance and an appearance, so the panel treats those as a move (its
-        // `leavingForAnotherWindow`); here the two stay in step, and it ends on screen.
         #expect(probe.states.count == 1, "the view's state was rebuilt \(probe.states.count) times")
         #expect(probe.appeared == probe.disappeared + 1, "appeared \(probe.appeared), disappeared \(probe.disappeared)")
-        controller.hide()
-        #expect(parent.childWindows?.isEmpty == true)
-        #expect(hosts(in: column) == 0)
+        dock.hide()
+        #expect(hosts(in: docked) == 0 && hosts(in: overlaid) == 0)
     }
 
-    /// Busy while pinned: the column stays where it is, dimmed and deaf, and comes back as it was.
+    /// Busy: the column stays where it is, dimmed and deaf, and comes back as it was.
     @Test func aBusyWindowPausesTheColumnInsteadOfRemovingIt() async throws {
-        let parent = offscreenWindow()
-        let columnWindow = offscreenWindow()
+        let window = offscreenWindow()
         let column = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
-        columnWindow.contentView?.addSubview(column)
+        window.contentView?.addSubview(column)
         let probe = ColumnProbe()
-        let controller = AskClaudeWindowController()
-        column.controller = controller
-        controller.isPinned = true
-        controller.columnView = column
-        controller.show(AnyView(ColumnProbeView(probe: probe)), over: parent, activate: false)
+        let dock = AskClaudeDock()
+        column.controller = dock
+        dock.columnView = column
+        dock.show(AnyView(ColumnProbeView(probe: probe)))
         await settle()
         #expect(hosts(in: column) == 1)
-        controller.isSuspended = true
+        dock.isSuspended = true
         #expect(column.isPaused && column.alphaValue == 0.5)
         #expect(column.hitTest(NSPoint(x: 10, y: 10)) == nil)
-        #expect(hosts(in: column) == 1, "pinned, a busy window leaves the column in place")
-        controller.isSuspended = false
+        #expect(hosts(in: column) == 1, "a busy window leaves the column in place")
+        dock.isSuspended = false
         #expect(!column.isPaused && column.alphaValue == 1)
         #expect(probe.states.count == 1 && probe.appeared == probe.disappeared + 1)
-        controller.hide()
+        dock.hide()
+    }
+
+    /// Over the workspace a click outside the column tucks it away, and the click still goes where it
+    /// was aimed. Inside it, or when docked, nothing is tucked.
+    @Test func aClickOutsideAnOverlaidColumnTucksItAway() async throws {
+        // Created, not deferred, so events can name it.
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 760),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let column = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
+        window.contentView?.addSubview(column)
+        var tucks = 0
+        column.onTuck = { tucks += 1 }
+        func click(at point: NSPoint) {
+            let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                           clickCount: 1, pressure: 1)!
+            // The column's monitor calls this for every click in its window; called directly here.
+            column.tuckIfOutside(event)
+        }
+        column.tucksOnOutsideClick = false
+        click(at: NSPoint(x: 100, y: 100))
+        #expect(tucks == 0, "a docked column tucked")
+        column.tucksOnOutsideClick = true
+        click(at: NSPoint(x: 800, y: 100))
+        #expect(tucks == 0, "a click inside the column tucked it")
+        click(at: NSPoint(x: 100, y: 100))
+        #expect(tucks == 1, "a click in the workspace did not tuck the overlaid column")
     }
 
     /// The inner edge's drag, held to the panel's width range and to the room there is.
@@ -116,7 +137,7 @@ private struct ColumnProbeView: View {
     }
 }
 
-/// The keys of a pinned panel, which the floating panel's own window used to answer.
+/// The column's keys: typing, undo, ⌘W, Esc and ⌥Space, answered wherever in it the keyboard is.
 @MainActor
 @Suite(.serialized) struct AskClaudeColumnKeysTests {
 

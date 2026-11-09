@@ -188,23 +188,22 @@ import Sync
         #expect(store.values["appearance.theme"] == .string("dark"))
     }
 
-    @Test func thePanelSendsEditUndoToTheSettingsWhenNoDraftIsTyped() {
+    @Test func theColumnSendsEditUndoToTheSettingsWhenNoDraftIsTyped() {
         let store = Store(); store.values["appearance.theme"] = .string("system")
         let undo = stack(store)
         _ = change(undo, store, "appearance.theme", to: .string("dark"), name: "Theme")
-        let saved = AskClaudePanelWindow.settingsUndo
-        AskClaudePanelWindow.settingsUndo = { undo }
-        defer { AskClaudePanelWindow.settingsUndo = saved }
-        let window = AskClaudePanelWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 100, height: 100),
-                                          styleMask: [.borderless], backing: .buffered, defer: true)
+        let saved = AskClaudeDock.settingsUndo
+        AskClaudeDock.settingsUndo = { undo }
+        defer { AskClaudeDock.settingsUndo = saved }
+        let window = AskClaudeColumnView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
 
-        let item = NSMenuItem(title: "Undo", action: #selector(AskClaudePanelWindow.undo(_:)), keyEquivalent: "z")
+        let item = NSMenuItem(title: "Undo", action: #selector(AskClaudeColumnView.undo(_:)), keyEquivalent: "z")
         #expect(window.validateUserInterfaceItem(item))
         #expect(item.title == "Undo Theme")
         window.undo(nil)
         #expect(store.values["appearance.theme"] == .string("system"))
 
-        let redo = NSMenuItem(title: "Redo", action: #selector(AskClaudePanelWindow.redo(_:)), keyEquivalent: "Z")
+        let redo = NSMenuItem(title: "Redo", action: #selector(AskClaudeColumnView.redo(_:)), keyEquivalent: "Z")
         #expect(window.validateUserInterfaceItem(redo))
         #expect(redo.title == "Redo Theme")
     }

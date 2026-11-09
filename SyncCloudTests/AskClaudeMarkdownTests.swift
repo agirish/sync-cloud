@@ -270,10 +270,10 @@ import Testing
         #expect(chat.items.contains { $0.kind == .assistant(text) })
         let container = CGSize(width: 1000, height: 800)
         return try Self.render(AskClaudePanel(
-            chat: chat, place: AskClaudePanelHandleTests.place,
+            chat: chat, place: AskClaudePanelHostedTests.place,
             accent: LiquidGlassHue.none.accentColor, accentFill: LiquidGlassHue.none.accentFillColor,
             onAccent: LiquidGlassHue.none.onAccentLabelColor, hue: .none, tint: 0, level: .solid,
-            onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container)
+            onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in })
             .frame(width: container.width, height: container.height, alignment: .topLeading), width: container.width)
     }
 

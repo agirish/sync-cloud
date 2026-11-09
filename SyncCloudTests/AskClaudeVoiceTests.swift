@@ -324,13 +324,14 @@ private final class Heard {
     }
 }
 
-/// The panel's keys and mic, in its own kind of window. Never ordered in: SwiftUI lays it out and
-/// the window takes the keys it is sent.
+/// The panel's keys and mic, in the window's column. Never ordered in: SwiftUI lays it out and the
+/// column answers the talk keys it is handed.
 @MainActor
 @Suite(.serialized, .machinePinned(.speechRecognition)) struct AskClaudePanelVoiceTests {
 
     private final class Panel {
-        let window: AskClaudePanelWindow
+        let window: NSWindow
+        let column: AskClaudeColumnView
         let host: NSHostingView<AskClaudePanel>
         var typed: [String] = []
         var spoken: [String] = []
@@ -338,33 +339,35 @@ private final class Heard {
 
         init(chat: AskClaudeChat, source: AskClaudeClipSource) {
             let container = CGSize(width: 1000, height: 800)
-            window = AskClaudePanelWindow(contentRect: NSRect(origin: .zero, size: container), styleMask: [.borderless],
-                                          backing: .buffered, defer: true)
+            window = NSWindow(contentRect: NSRect(origin: .zero, size: container), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
-            host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue,
+            column = AskClaudeColumnView(frame: NSRect(origin: .zero, size: container))
+            host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHostedTests.place, accent: .blue,
                                                           accentFill: .blue, onAccent: .white, onAsk: { _ in }, onClose: {},
-                                                          onOpenSettings: { _ in }, container: container,
+                                                          onOpenSettings: { _ in },
                                                           settingsBridge: .keySaved))
             host.frame = NSRect(origin: .zero, size: container)
             // Weak, not unowned: a turn still listening when a case ends (a failing one, or a
             // mutant that leaves the mic open) delivers its words after the fixture is gone, and an
             // unowned capture there would abort the whole test host.
-            host.rootView = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue,
+            host.rootView = AskClaudePanel(chat: chat, place: AskClaudePanelHostedTests.place, accent: .blue, accentFill: .blue,
                                            onAccent: .white, onAsk: { [weak self] in self?.typed.append($0) },
-                                           onClose: { [weak self] in self?.closed += 1 }, onOpenSettings: { _ in }, container: container,
+                                           onClose: { [weak self] in self?.closed += 1 }, onOpenSettings: { _ in },
                                            settingsBridge: .keySaved, onAskSpoken: { [weak self] in self?.spoken.append($0) },
                                            voiceHints: { ["Receipts"] }, voiceSource: { source })
-            window.contentView = host
+            window.contentView = NSView(frame: host.frame)
+            window.contentView?.addSubview(column)
+            column.adopt(host)
+            column.layoutSubtreeIfNeeded()
             host.layoutSubtreeIfNeeded()
         }
 
+        /// ⌥Space (49) or Esc (53), as the column hands them to the panel: the column's own monitor
+        /// needs the keyboard in it and a running event loop, which a test that is never key has not.
         func press(_ code: UInt16, _ flags: NSEvent.ModifierFlags) {
-            let space = code == 49
-            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
-                                         windowNumber: window.windowNumber, context: nil,
-                                         characters: space ? "\u{A0}" : "\u{1B}", charactersIgnoringModifiers: space ? " " : "\u{1B}",
-                                         isARepeat: false, keyCode: code)!
-            window.sendEvent(event)
+            let key: AskClaudeTalkKey = code == 49 ? .toggle(isRepeat: false) : .cancel
+            _ = column.onTalkKey?(key)
         }
     }
 
@@ -372,7 +375,7 @@ private final class Heard {
         let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelVoiceTests"), readKey: { nil }, keyChanges: NotificationCenter())
         let source = AskClaudeClipSource(try AskClaudeVoiceClips.receipts)
         let panel = Panel(chat: chat, source: source)
-        #expect(panel.window.onTalkKey != nil, "the panel never reached its window")
+        #expect(panel.column.onTalkKey != nil, "the panel never reached its column")
         panel.press(49, .option)
         await waitUntil("the clip plays into it", timeout: 60) { source.isStreaming }
         await waitUntil("the turn ends and sends", timeout: 60) { !panel.spoken.isEmpty }
@@ -396,19 +399,19 @@ private final class Heard {
         try await Task.sleep(for: .seconds(4))
         #expect(panel.spoken.isEmpty && panel.typed.isEmpty)
         #expect(panel.closed == 0)
-        // With nothing being said, Esc is passed on, to close the panel as it always has. (Not
-        // pressed here: a window that is never key has no field editor to carry it there.)
-        #expect(panel.window.onTalkKey?(.cancel) == false)
+        // With nothing being said, Esc is passed on: the column then stops an edit, and never closes
+        // the panel.
+        #expect(panel.column.onTalkKey?(.cancel) == false)
         withExtendedLifetime(panel) {}
     }
 
-    @Test func theWindowGoingAwayStopsTheMicrophone() async throws {
+    @Test func aPausedColumnStopsTheMicrophone() async throws {
         let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelVoiceTests"), readKey: { nil }, keyChanges: NotificationCenter())
         let source = AskClaudeClipSource(try AskClaudeVoiceClips.receipts)
         let panel = Panel(chat: chat, source: source)
         panel.press(49, .option)
         await waitUntil("listening starts", timeout: 60) { source.isStreaming }
-        panel.window.orderOut(nil)
+        panel.column.isPaused = true
         #expect(!source.isStreaming)
         try await Task.sleep(for: .seconds(4))
         #expect(panel.spoken.isEmpty)

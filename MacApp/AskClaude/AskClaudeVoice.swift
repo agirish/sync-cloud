@@ -405,11 +405,11 @@ struct AskClaudeLevelMeter: View {
     }
 }
 
-/// Gives the panel's window its talk keys and its going-away call, from a view behind
-/// the panel that finds the window it is in.
+/// Gives the panel's column its talk keys and its going-away call, from a view behind the panel that
+/// finds the column it is in.
 struct AskClaudeTalkKeys: NSViewRepresentable {
     let onKey: (AskClaudeTalkKey) -> Bool
-    /// Esc with nothing spoken, pinned: stops an edit; true when it did.
+    /// Esc with nothing spoken: stops an edit; true when it did.
     var onEscape: () -> Bool = { false }
     let onGone: () -> Void
 
@@ -441,11 +441,8 @@ struct AskClaudeTalkKeys: NSViewRepresentable {
         }
 
         func hook() {
-            if let window = window as? AskClaudePanelWindow {
-                window.onTalkKey = { [weak self] key in self?.onKey(key) ?? false }
-                window.onGone = { [weak self] in self?.onGone() }
-            } else if let column = AskClaudeColumnView.enclosing(self) {
-                // Pinned: the panel is in the main window's column, which takes the keys.
+            if let column = AskClaudeColumnView.enclosing(self) {
+                // The panel is in the main window's column, which takes the keys.
                 column.onTalkKey = { [weak self] key in self?.onKey(key) ?? false }
                 column.onEscape = { [weak self] in self?.onEscape() ?? false }
                 column.onGone = { [weak self] in self?.onGone() }

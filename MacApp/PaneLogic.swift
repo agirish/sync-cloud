@@ -763,23 +763,26 @@ enum PaneLogic {
     /// The lens panel's hard minimum, for the same reason.
     static let minLensWorkspaceWidth: CGFloat = 340
 
-    // MARK: - Where Ask Claude may be pinned
+    // MARK: - Where Ask Claude's column fits
+    //
+    // "Pin" in these names is the dock: the column beside the workspace, which the pinned panel
+    // introduced. Ask Claude has no other place now.
 
-    /// The workspaces the pinned column has to fit beside.
+    /// The workspaces the column has to fit beside.
     enum PinWorkspace: Equatable {
         case browse, compare, organize, edit
     }
 
-    /// Whether the pinned column fits, and whether it folds a pane to make it fit.
+    /// Whether the column fits beside the workspace, and whether it folds a pane to make it fit.
     struct PinVerdict: Equatable {
-        /// The window has room for the column beside the workspace. When it doesn't, the panel
-        /// floats instead and says why.
+        /// The window has room for the column beside the workspace. When it doesn't, the column is
+        /// drawn over the workspace's right edge instead, and folds nothing.
         var fits: Bool
         /// Organize's folder pane (and its sidebar with it) or Edit's file list is folded for the
         /// column. Only when `fits`.
         var folds: Bool
 
-        static let floating = PinVerdict(fits: false, folds: false)
+        static let overlay = PinVerdict(fits: false, folds: false)
     }
 
     /// What the room rule reads. A value, so the rule is a pure function a test can walk.
@@ -806,25 +809,27 @@ enum PaneLogic {
         /// nothing switches until it ends.
         var dragging = false
         /// Whether the window can fold a pane for the column. Until it can, Organize and Edit need
-        /// their panes open, and the panel floats in a window too narrow for that.
+        /// their panes open, and the column is drawn over the workspace in a window too narrow for that.
         var canFold = true
     }
 
-    /// The sidebar's floor, which it squeezes to before anything floats.
+    /// The sidebar's floor, which it squeezes to before the column goes over the workspace.
     static let minSidebarWidth: CGFloat = 150
     /// Browse's one pane at its narrowest: the pane header's own ladder is designed for 250, the
     /// same as Compare's pane.
     static let minBrowsePaneWidth: CGFloat = minComparePaneWidth
     /// Edit's document at its narrowest, and the room it wants before the list folds.
     static let minEditDocumentWidth: CGFloat = 260
-    /// To File below this loses its card buttons to the ⋯ menu; the pin folds the folder pane
-    /// before it gets there, and unfolds it again 40 pt past it.
-    static let comfortableLensWidth: CGFloat = 640
-    static let comfortableEditDocumentWidth: CGFloat = 600
+    /// Where the dock folds a pane: below 520 To File's summary row starts moving its buttons into ⋯,
+    /// and below 450 Edit's document and its Split halves get too narrow to write in. The dock is open
+    /// by default, so these are the squeeze lines and not comfort lines: at the common 1,440 pt
+    /// window nothing folds. The folder pane unfolds again 40 pt past the line.
+    static let comfortableLensWidth: CGFloat = 520
+    static let comfortableEditDocumentWidth: CGFloat = 450
     /// How far past a line a switch back must be, so a window sitting on the line stays put.
     static let pinHysteresis: CGFloat = 40
 
-    /// Whether the pinned column fits beside `workspace`, and whether a pane folds for it.
+    /// Whether the column fits beside `workspace`, and whether a pane folds for it.
     ///
     /// The workspace gets what the column leaves. Each needs its own minimum, the sidebar giving
     /// way to its floor first. Organize folds its folder pane, and its sidebar with it, when To File
@@ -872,9 +877,9 @@ enum PaneLogic {
             folds = comfort.width < line
         }
         let needed = folds ? (foldedNeed ?? unfoldedNeed) : unfoldedNeed
-        // Floating, it pins again only once the window is 40 pt past what it needs.
+        // Drawn over the workspace, it docks again only once the window is 40 pt past what it needs.
         let margin: CGFloat = previous.map { $0.fits ? 0 : pinHysteresis } ?? 0
-        guard width >= needed + margin else { return .floating }
+        guard width >= needed + margin else { return .overlay }
         return PinVerdict(fits: true, folds: folds)
     }
 

@@ -13,14 +13,19 @@ extension ContentView {
 
     var askClaudeChat: AskClaudeChat { askClaudeHolder.chat }
 
-    /// Whether the panel is the window's column rather than a floating window: the pin is on and the
-    /// window has the room.
-    var askClaudePinnedShown: Bool { askClaudePinned && askClaudePinState.fits }
+    // "Pin" in these names is the dock: the column beside the workspace. They keep the names the
+    // pinned column gave them, and the room rule is `PaneLogic.pinRoom`.
 
-    /// Why a panel that is pinned is floating, if it is: the window is too narrow.
-    var askClaudePinWaiting: AskClaudePanel.Waiting? {
-        askClaudePinned && !askClaudePinnedShown ? .narrow : nil
-    }
+    /// The column is open and has room beside the workspace.
+    var askClaudePinnedShown: Bool { askClaudeOpen && askClaudeMeasured && askClaudePinState.fits }
+
+    /// The row has been measured, so the room rule has an answer: before that the column is drawn
+    /// nowhere, so a launch never flashes it over the workspace.
+    var askClaudeMeasured: Bool { askClaudeRowWidth > 0 }
+
+    /// The column is open and the window is too narrow to share the row with the workspace, so it is
+    /// drawn over the workspace's right edge.
+    var askClaudeOverlaid: Bool { askClaudeOpen && askClaudeMeasured && !askClaudePinState.fits }
 
     /// Whether the room rule folds a pane for the column on this workspace: Organize's folder pane,
     /// with its sidebar, or Edit's file list. Not stored anywhere.
@@ -85,19 +90,13 @@ extension ContentView {
         }
     }
 
-    /// The 📌: pins the panel to the window's right edge, or lets it go.
-    func toggleAskClaudePin() {
-        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
-            askClaudePinned.toggle()
-        }
-        askClaudeHolder.visibility.focusRequests += 1
-    }
-
-    /// The pinned column, the last in the window's row. Its own view observes whether the panel is open.
+    /// The column: always drawn over the row's trailing edge, in one place, so the panel never changes
+    /// parent when the window crosses the narrow line. The row reserves its width when it is docked.
     var askClaudeColumn: some View {
         AskClaudeColumnSlot(
-            visibility: askClaudeHolder.visibility, controller: askClaudeHolder.windowController,
-            pinned: askClaudePinnedShown, width: askClaudePinnedDragWidth ?? askClaudePinnedWidth,
+            visibility: askClaudeHolder.visibility, dock: askClaudeHolder.dock,
+            docked: askClaudePinState.fits && askClaudeMeasured, overlaid: !askClaudePinState.fits && askClaudeMeasured,
+            width: askClaudePinnedDragWidth ?? askClaudePinnedWidth,
             surface: surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint,
             onDrag: { askClaudePinnedDragWidth = AskClaudePanel.pinnedDragWidth(base: askClaudePinnedWidth, translation: $0) },
             onCommit: {
@@ -106,15 +105,42 @@ extension ContentView {
             })
     }
 
-    func toggleAskClaude() {
-        // Pinned, it slides like Info does; floating, as it always has.
-        withDesignAnimation(askClaudePinnedShown ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.12), reduceMotion: reduceMotion) {
-            askClaudeHolder.visibility.isOpen.toggle()
-        }
+    /// What the row keeps for the column when it is docked.
+    var askClaudeReserve: some View {
+        AskClaudeReserve(visibility: askClaudeHolder.visibility, docked: askClaudePinState.fits && askClaudeMeasured,
+                         width: CGFloat(askClaudePinnedDragWidth ?? askClaudePinnedWidth) + PaneLogic.sidebarSeamWidth)
     }
 
-    /// The panel, hanging from the toolbar over the content’s right edge.
-    func askClaudeOverlay(in container: CGSize, onPlace: @escaping (CGRect) -> Void) -> some View {
+    /// ◨ and the menu item: opens the column and gives it the keyboard, or closes it. Tucked away over
+    /// a narrow window, the first press brings it back.
+    func toggleAskClaude() {
+        let visibility = askClaudeHolder.visibility
+        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+            if visibility.isOpen, visibility.tucked {
+                visibility.tucked = false
+            } else {
+                visibility.isOpen.toggle()
+                visibility.tucked = false
+                visibility.restored = false
+            }
+        }
+        if visibility.isOpen { visibility.focusRequests += 1 }
+    }
+
+    /// Opens the column the first time an API key is saved, once, and never takes the keyboard. A
+    /// window that has already been opened or closed by hand keeps its choice, and nothing happens
+    /// while setup, Settings or another overlay is up: it tries again when they are gone.
+    func askClaudeOpenOnFirstUse() {
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: AskClaudePanelSettings.openKey) == nil,
+              askClaudeStateBusy == nil, askClaudeSettingsBridge.keyIsSaved() else { return }
+        askClaudeHolder.visibility.restored = true
+        askClaudeHolder.visibility.isOpen = true
+        defaults.set("open", forKey: AskClaudePanelSettings.openKey)
+    }
+
+    /// The panel the column holds, built from live state each time the window redraws.
+    func askClaudePanel() -> some View {
         // Once: a question typed while Claude answers is sent from here when the answer ends,
         // with the panel open or not.
         if askClaudeChat.sendQueued == nil {
@@ -143,13 +169,9 @@ extension ContentView {
                               onAsk: { askClaudeSend($0) },
                               onClose: { toggleAskClaude() },
                               onOpenSettings: { openSettings(on: SettingsPlace($0)) },
-                              container: container,
-                              pinned: askClaudePinnedShown,
                               surface: surfaceStyle,
-                              pinOn: askClaudePinned,
-                              waiting: askClaudePinWaiting,
-                              onTogglePin: { toggleAskClaudePin() },
                               focusToken: askClaudeHolder.visibility.focusRequests,
+                              takesKeyboardOnAppear: !askClaudeHolder.visibility.restored,
                               onTalkingChange: { askClaudeHolder.visibility.isTalking = $0 },
                               onSetAccess: { askClaudeSetCurrentFolderAccess($0) },
                               onGoToFolder: { askClaudeShowFolderPane() },
@@ -174,7 +196,6 @@ extension ContentView {
                               settingsBridge: askClaudeSettingsBridge,
                               pdfBridge: askClaudePDFBridge,
                               refineBridge: askClaudeRefineBridge,
-                              onPlace: onPlace,
                               onAskSpoken: { askClaudeSend($0, spoken: true) },
                               voiceHints: { askClaudeVoiceHints() })
     }
@@ -182,14 +203,14 @@ extension ContentView {
     /// The panel's host, built here rather than in `body`: the window's modifier chain is at the
     /// edge of what the type checker solves in time, and a generic closure there tipped it over.
     var askClaudeHost: AskClaudeHost {
-        AskClaudeHost(visibility: askClaudeHolder.visibility, controller: askClaudeHolder.windowController,
-                      isPinned: askClaudePinnedShown, pinInput: askClaudePinInput,
+        AskClaudeHost(visibility: askClaudeHolder.visibility, dock: askClaudeHolder.dock,
+                      pinInput: askClaudePinInput,
                       onPinInput: { askClaudePinInputChanged($0) }, onLiveResize: { askClaudeWindowResizing = $0 },
-                      isPinOn: askClaudePinned,
                       foldWanted: askClaudePinFoldWanted, onFoldEnded: { askClaudePinFoldEnded() },
-                      pinToggle: askClaudePinBinding,
                       isBusy: askClaudeStateBusy != nil,
-                      panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding,
+                      panel: { AnyView(askClaudePanel()) }, toggle: askClaudeChordBinding,
+                      onOpenChange: { open in askClaudeOpen = open; UserDefaults.standard.set(open ? "open" : "closed", forKey: AskClaudePanelSettings.openKey) },
+                      onFirstUse: { askClaudeOpenOnFirstUse() },
                       onPrivacyChange: { askClaudePrivacyChanges += 1 })
     }
 
@@ -199,24 +220,26 @@ extension ContentView {
         // Not under a sheet or overlay the panel would open beneath, out of sight, taking the keys.
         guard askClaudeStateBusy == nil else { return nil }
         let visibility = askClaudeHolder.visibility
-        let pinned = askClaudePinnedShown
         return Binding(get: { visibility.isOpen }, set: { wanted in
-            // Pinned, ⌘J closes only from inside the panel, and not while a question is spoken:
-            // from anywhere else it takes you to the text box, as the toolbar button cannot.
-            if !wanted, visibility.isOpen, pinned {
+            // Open, ⌘J closes only from inside the panel, and not while a question is spoken: from
+            // anywhere else it takes you to the text box, as the toolbar button cannot.
+            if !wanted, visibility.isOpen {
                 if visibility.isTalking { return }
+                if visibility.tucked {
+                    visibility.tucked = false
+                    visibility.focusRequests += 1
+                    return
+                }
                 if AskClaudeColumnView.holder(in: NSApp.keyWindow) == nil {
                     visibility.focusRequests += 1
                     return
                 }
             }
             visibility.isOpen = wanted
+            visibility.tucked = false
+            visibility.restored = false
+            if wanted { visibility.focusRequests += 1 }
         })
-    }
-
-    /// View ▸ Pin Ask Claude's binding: the pin, through the same action as the 📌.
-    var askClaudePinBinding: Binding<Bool> {
-        Binding(get: { askClaudePinned }, set: { _ in toggleAskClaudePin() })
     }
 
     func askClaudeTools() -> AskClaudeBrowseTools {
@@ -305,6 +328,8 @@ extension ContentView {
         guard !items.isEmpty else { return }
         askClaudeChat.attach(items)
         Logger.shared.info("Ask Claude: attached \(items.count) item\(items.count == 1 ? "" : "s") from a row’s menu")
+        askClaudeHolder.visibility.restored = false
+        askClaudeHolder.visibility.tucked = false
         askClaudeHolder.visibility.isOpen = true
         askClaudeHolder.visibility.focusRequests += 1
     }
@@ -810,9 +835,8 @@ extension ContentView {
         if showHelp { return "Help is open" }
         if showSetup || shouldAutoShowSetup { return "setup is open" }
         if syncManager.currentError != nil { return "an error message is open" }
-        // Pinned, the column is in the window these overlays cover, so it pauses under them; a
-        // floating panel has always sat over them.
-        if askClaudePinnedShown, compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
+        // The column is in the window these overlays cover, so it pauses under them.
+        if askClaudeOpen, compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
         return nil
     }
 
@@ -1092,7 +1116,7 @@ extension ContentView {
                 }
             }
         }
-        AskClaudePanelWindow.settingsUndo = { [weak chat] in chat?.settingsUndo }
+        AskClaudeDock.settingsUndo = { [weak chat] in chat?.settingsUndo }
         return AskClaudeSettingsBridge(
             read: { lookup.currentValue($0, target: $1) },
             targetName: { id in settings.availableProviders.first { $0.id == id }?.displayName ?? people.person(named: id)?.displayName ?? id },
@@ -1584,82 +1608,82 @@ extension ContentView {
     }
 }
 
-/// Hosts the panel over the window’s content and publishes ⌘J’s binding. One modifier rather than
-/// two calls, so the window’s long modifier chain stays within what the type checker can solve.
+/// Hosts the panel in the window and publishes ⌘J's binding. One modifier rather than two calls, so
+/// the window's long modifier chain stays within what the type checker can solve.
 struct AskClaudeHost: ViewModifier {
     let visibility: AskClaudeVisibility
-    let controller: AskClaudeWindowController
-    /// Pinned: the panel is the window's column rather than a floating window.
-    let isPinned: Bool
+    let dock: AskClaudeDock
     /// What the room rule reads, and what to do when it changes.
     let pinInput: PaneLogic.PinRoomInput
     let onPinInput: (PaneLogic.PinRoomInput) -> Void
     let onLiveResize: (Bool) -> Void
-    /// The pin's setting, and what to do when it is turned on from outside the panel.
-    let isPinOn: Bool
     let foldWanted: Bool
     let onFoldEnded: () -> Void
-    /// View ▸ Pin Ask Claude.
-    let pinToggle: Binding<Bool>
-    /// Settings, Help, setup, a destination pick or a question is up: the panel steps aside.
+    /// Settings, Help, setup, a destination pick or a question is up: the column pauses.
     let isBusy: Bool
-    let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
+    let panel: () -> AnyView
     let toggle: Binding<Bool>?
+    /// The column was opened or closed: the window keeps it, and remembers it for the next launch.
+    let onOpenChange: (Bool) -> Void
+    /// A moment the column may open itself for the first time (launch, a key saved, an overlay gone).
+    let onFirstUse: () -> Void
     /// The Never show Claude list changed; the row menus' labels follow it.
     var onPrivacyChange: () -> Void = {}
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .topTrailing) { AskClaudeOverlay(visibility: visibility, controller: controller, isPinned: isPinned, isBusy: isBusy, panel: panel) }
+            .background { AskClaudeAnchorHost(visibility: visibility, dock: dock, isBusy: isBusy, panel: panel, onOpenChange: onOpenChange) }
             .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in onPrivacyChange() }
             .focusedSceneValue(\.askClaude, toggle)
-            .focusedSceneValue(\.askClaudePin, pinToggle)
             .onChange(of: pinInput, initial: true) { _, input in onPinInput(input) }
-            // Turned on from Settings: Info, which would take the edge, closes if there is room.
-            // The pin's fold is over (the column went, floated, or the window has the room): the
-            // next one starts afresh, with the sidebar away.
+            // The fold is over (the column went, or the window has the room): the next one starts
+            // afresh, with the sidebar away.
             .onChange(of: foldWanted) { _, wanted in if !wanted { onFoldEnded() } }
             // The window's own edge: nothing switches while it is dragged, and what it left is
             // decided the moment it is let go.
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.willStartLiveResizeNotification)) { _ in onLiveResize(true) }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification)) { _ in onLiveResize(false) }
+            // The first time a key is saved the column opens by itself, once, and only when nothing
+            // else is up.
+            .onAppear { onFirstUse() }
+            .onReceive(NotificationCenter.default.publisher(for: AnthropicKeychain.didChange)) { _ in onFirstUse() }
+            .onChange(of: isBusy) { _, busy in if !busy { onFirstUse() } }
             // The View menu's tick reads this, so it follows the panel without the window redrawing.
             .focusedSceneObject(visibility)
     }
 }
 
-/// The area the panel lives in, and the one view that watches whether it is open. The panel
-/// itself is in a child window over this area (AskClaudeWindow.swift).
-private struct AskClaudeOverlay: View {
+/// The one view that watches whether the column is open: it feeds the dock the panel's content and
+/// passes it the window's busy state, and tells the window when the column opens or closes. A background,
+/// so it takes no clicks and holds no room.
+private struct AskClaudeAnchorHost: View {
     @ObservedObject var visibility: AskClaudeVisibility
-    let controller: AskClaudeWindowController
-    let isPinned: Bool
+    let dock: AskClaudeDock
     let isBusy: Bool
-    let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
+    let panel: () -> AnyView
+    let onOpenChange: (Bool) -> Void
     /// Bumped when the hidden list changes: the window doesn't redraw for that, and the panel's
     /// header and shield must (the panel is rebuilt from live state each time this body runs).
     @State private var privacyChanges = 0
 
     var body: some View {
-        // The space the panel may move in.
-        GeometryReader { geo in
-            let controller = controller
-            let _ = privacyChanges
-            let visibility = visibility
-            // Built only while open: every redraw of the window rebuilds it otherwise.
-            AskClaudeWindowAnchor(controller: controller, isOpen: visibility.isOpen, isSuspended: isBusy, isPinned: isPinned,
-                                  content: visibility.isOpen ? panel(geo.size) { controller.panelRect = $0 } : AnyView(EmptyView()),
-                                  onClose: { visibility.isOpen = false })
-                .frame(width: geo.size.width, height: geo.size.height)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in privacyChanges += 1 }
-        // A row's Ask Claude About This brings an open panel's text box the keyboard.
-        .onChange(of: visibility.focusRequests) { controller.focus() }
+        let _ = privacyChanges
+        // Built only while open: every redraw of the window rebuilds it otherwise.
+        AskClaudeDockAnchor(dock: dock, isOpen: visibility.isOpen, isSuspended: isBusy,
+                            content: visibility.isOpen ? panel() : AnyView(EmptyView()),
+                            onClose: { visibility.isOpen = false; visibility.tucked = false })
+            .frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in privacyChanges += 1 }
+            // A row's Ask Claude About This brings an open column's text box the keyboard.
+            .onChange(of: visibility.focusRequests) { dock.focus() }
+            // Only a change is written: a launch that finds it closed must not stamp "closed", which
+            // would be taken for the person's choice and keep it from opening the first time.
+            .onChange(of: visibility.isOpen) { _, open in onOpenChange(open) }
     }
 }
 
-/// The toolbar's Ask Claude button, tinted while the panel is open. Its own view so that only it
-/// redraws when the panel opens or closes.
+/// The toolbar's Ask Claude button: the system's right-sidebar glyph, tinted while the column is
+/// open. Its own view so that only it redraws when the column opens or closes.
 struct AskClaudeToolbarButton: View {
     @ObservedObject var visibility: AskClaudeVisibility
     let accent: Color
@@ -1667,11 +1691,11 @@ struct AskClaudeToolbarButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label("Ask Claude", systemImage: "bubble.left.and.text.bubble.right")
+            Label("Ask Claude", systemImage: "sidebar.right")
                 .foregroundStyle(visibility.isOpen ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
                 .shortcutKeycap(AppChord.askClaude.display)
         }
-        .help(ShortcutHint.tooltip("Ask Claude", AppChord.askClaude.display))
+        .help(ShortcutHint.tooltip(visibility.isOpen ? "Close Ask Claude" : "Open Ask Claude", AppChord.askClaude.display))
         .accessibilityLabel("Ask Claude")
         .accessibilityAddTraits(visibility.isOpen ? .isSelected : [])
     }

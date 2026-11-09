@@ -5,8 +5,8 @@ import Sync
 import Design
 import UniformTypeIdentifiers
 
-/// Ask Claude’s panel: attached to the window, hanging from its toolbar button over the right edge
-/// of the content. It covers the content’s right side while open and pushes nothing narrower.
+/// Ask Claude’s panel: the window’s right-hand column, top to bottom, drawn beside the workspace or,
+/// in a window too narrow to share the row, over its right edge. Its width comes from its parent.
 struct AskClaudePanel: View {
     @ObservedObject var chat: AskClaudeChat
     /// The folder Claude sees, for the header and the shield's popover.
@@ -14,8 +14,7 @@ struct AskClaudePanel: View {
     let accent: Color
     let accentFill: Color
     let onAccent: Color
-    /// The window's accent, Tint and glass level. The panel is a window of its own, so it paints a
-    /// pane's surface itself: a gray popover would read as a system popup over the app.
+    /// The window's accent, Tint and glass level, for the surfaces the column draws.
     var hue: LiquidGlassHue = .none
     var tint: Double = 0
     var level: GlassLevel = .frosted
@@ -24,23 +23,16 @@ struct AskClaudePanel: View {
     /// Opens Settings on one of the Ask Claude tab's pages: General for the model menu,
     /// Privacy for the hidden list, Key & Spending for a key or limit problem.
     let onOpenSettings: (SettingsSubTab) -> Void
-    /// The area the panel lives in, for keeping a moved panel inside the window.
-    var container: CGSize = .zero
-    /// Pinned: the panel is the main window's right-hand column, not a floating window. It takes
-    /// the column's size from its parent and none of the floating look (glass, border, resize
-    /// handles, drag), and it paints as the surface style says: a header card over a thread card in
-    /// Cards, one flush area under a hairline in Unified.
-    var pinned = false
+    /// The column paints as the surface style says: a header card over a thread card in Cards, one flush
+    /// area under a hairline in Unified.
     var surface: SurfaceStyle = .unified
-    /// The pin is on (the choice), whether or not the window has the room for it now, and why the
-    /// panel is floating if it is: the window is too narrow.
-    var pinOn = false
-    var waiting: Waiting?
-    var onTogglePin: () -> Void = {}
-    enum Waiting { case narrow }
-    /// Bumped to bring the text box the keyboard: opening the panel, pinning it, ⌘J, Ask Claude
-    /// About This. Only these move the keyboard into a pinned column.
+    /// Bumped to bring the text box the keyboard: opening the panel, ⌘J, Ask Claude About This.
+    /// Only these move the keyboard into the column.
     var focusToken = 0
+    /// Whether the keyboard goes to the text box when the panel appears. False when it was restored
+    /// open at launch: a window that comes back with the chat open must not take the keyboard from
+    /// the file list the person was working in.
+    var takesKeyboardOnAppear = true
     /// Whether a question is being spoken, for ⌘J, which does nothing while one is.
     var onTalkingChange: (Bool) -> Void = { _ in }
     /// The shield's choice of what Claude gets from the folder on screen: ask each time, share
@@ -70,8 +62,6 @@ struct AskClaudePanel: View {
     var pdfBridge = AskClaudePDFBridge()
     /// What a Refine card does and reads.
     var refineBridge = AskClaudeRefineBridge()
-    /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
-    var onPlace: (CGRect) -> Void = { _ in }
     /// A spoken question's Send, so its bubble shows it was spoken; `onAsk` without it.
     var onAskSpoken: ((String) -> Void)?
     /// The words of the names on screen, for the transcriber to listen for (`AskClaudeVoiceHints`).
@@ -80,8 +70,8 @@ struct AskClaudePanel: View {
     var voiceSource: () -> AskClaudeVoiceSource = { AskClaudeMicrophone() }
 
     @State private var draft = ""
-    /// Whether the panel has opened in this hosting view, and whether it has just left a window
-    /// that it may be about to enter again (pinning and unpinning).
+    /// Whether the panel has opened in this hosting view, and whether it has just left its place in
+    /// the window that it may be about to enter again (docked beside the workspace, or over it).
     @State private var hasAppeared = false
     @State private var leavingForAnotherWindow = false
     @FocusState private var composerFocused: Bool
@@ -102,48 +92,9 @@ struct AskClaudePanel: View {
     @Environment(\.colorScheme) private var colorScheme
 
     static let width: CGFloat = 372
-    static let margin: CGFloat = 10
     static let minWidth: CGFloat = 300
     static let maxWidth: CGFloat = 720
-    static let minHeight: CGFloat = 320
-    /// Where a new panel starts: a chat's height, growing with the thread up to half the window's.
-    static let startHeight: CGFloat = 420
-    /// How close to a side of the window a drop docks the panel there.
-    static let snapZone: CGFloat = 56
-
-    // Docked bottom left (the default), docked right or left, docked in the other bottom corner
-    // growing upward from the window's bottom, or floating where it was dropped. One size in every placement, so a move
-    // never resizes it. Resized from its inner edge, its free end and the corner between them, by
-    // AppKit handles: SwiftUI gestures laid over the thread's scroll view lose the mouse to it. The
-    // move is measured on the screen (`moveGesture`): in the panel's own coordinates, the moving
-    // panel feeds its own movement back into the drag and it jitters.
-    enum Placement: String {
-        case right, left, bottomRight, bottomLeft, floating
-        var isRight: Bool { self == .right || self == .bottomRight }
-        var isBottom: Bool { self == .bottomRight || self == .bottomLeft }
-    }
-    /// Where a panel nobody has moved starts: the bottom left, clear of the Info inspector at the
-    /// right. Only a drop or a double-click on the header writes the saved place, so an install
-    /// that never moved it gets this and a saved place is left alone.
-    static let defaultPlacement: Placement = .bottomLeft
-    @AppStorage("askClaudePanelPlacement") private var placementRaw = Self.defaultPlacement.rawValue
-    @AppStorage("askClaudePanelWidth") private var storedWidth: Double = 372
-    /// 0 is automatic: the panel fits its thread, from `startHeight` up to the window's height.
-    /// Dragging the bottom edge sets a height; double-clicking it goes back to automatic.
-    @AppStorage("askClaudePanelChosenHeight") private var storedHeight: Double = 0
-    /// The thread's content and the panel's other parts, measured, for the automatic height.
-    @State private var threadHeight: CGFloat = 0
-    @State private var top: CGFloat = 0
-    @State private var bottom: CGFloat = 0
-    @AppStorage("askClaudePanelX") private var storedX: Double = 0
-    @AppStorage("askClaudePanelY") private var storedY: Double = 8
-    @State private var liveOrigin: CGPoint?
-    @State private var dragStart: CGPoint?
-    @State private var dragStartMouse: CGPoint?
-    @State private var liveSize: CGSize?
-    @State private var resizeStart: CGSize?
-
-    /// The pinned column's width while its inner (left) edge is dragged: dragging left widens it.
+    /// The column's width while its inner (left) edge is dragged: dragging left widens it.
     /// `base` is the width when the drag began; `translation` is cumulative. Held to the panel's
     /// own width range, and to `room` when the window leaves less.
     static func pinnedDragWidth(base: Double, translation: CGFloat, room: Double = .infinity) -> Double {
@@ -151,70 +102,11 @@ struct AskClaudePanel: View {
         return min(max(base - Double(translation), Double(minWidth)), widest)
     }
 
-    /// The saved place, or the default when none is saved or the saved one is unknown.
-    static func placement(raw: String?) -> Placement {
-        raw.flatMap(Placement.init(rawValue:)) ?? defaultPlacement
-    }
-
-    private var placement: Placement { Self.placement(raw: placementRaw) }
-
-    /// The height a panel with no chosen height takes: the thread's, from `startHeight`, but never
-    /// past half the window's (and never under `minHeight`). Dragging the bottom edge sets a height.
-    static func automaticHeight(content: CGFloat, container: CGSize) -> CGFloat {
-        min(max(minHeight, container.height / 2), max(startHeight, content))
-    }
-
-    private var tallest: CGFloat { max(Self.minHeight, container.height - 18) }
-
-    private var size: CGSize {
-        let widest = max(Self.minWidth, min(Self.maxWidth, container.width - 2 * Self.margin))
-        let width = min(widest, max(Self.minWidth, liveSize?.width ?? CGFloat(storedWidth)))
-        let automatic = Self.automaticHeight(content: top + bottom + threadHeight, container: container)
-        let wanted = liveSize?.height ?? (storedHeight > 0 ? CGFloat(storedHeight) : automatic)
-        return CGSize(width: width, height: min(tallest, max(Self.minHeight, wanted)))
-    }
-
-    /// A docked panel's top-left: under the toolbar, or its bottom edge on the window's.
-    static func docked(_ placement: Placement, size: CGSize, in container: CGSize) -> CGPoint {
-        CGPoint(x: placement.isRight ? container.width - size.width - margin : margin,
-                y: placement.isBottom ? max(8, container.height - size.height - 10) : 8)
-    }
-
-    /// Where a panel dropped with its top-left at `point` docks, or nil to float there. Near a side
-    /// it docks at that side's top or bottom, whichever edge of the window it is nearer; near the
-    /// bottom alone, at the nearer bottom corner. The top has no zone of its own: dropped under the
-    /// toolbar away from the sides, it floats there.
-    static func dock(droppedAt point: CGPoint, size: CGSize, in container: CGSize) -> Placement? {
-        let topGap = point.y - 8
-        let bottomGap = container.height - 10 - (point.y + size.height)
-        let low = bottomGap < topGap
-        if point.x <= margin + snapZone { return low ? .bottomLeft : .left }
-        if point.x + size.width >= container.width - margin - snapZone { return low ? .bottomRight : .right }
-        if low && bottomGap <= snapZone { return point.x + size.width / 2 < container.width / 2 ? .bottomLeft : .bottomRight }
-        return nil
-    }
-
-    private func clamped(_ point: CGPoint, size: CGSize) -> CGPoint {
-        CGPoint(x: min(max(Self.margin, point.x), max(Self.margin, container.width - size.width - Self.margin)),
-                y: min(max(8, point.y), max(8, container.height - size.height - 10)))
-    }
-
-    private var origin: CGPoint {
-        if let liveOrigin { return liveOrigin }
-        switch placement {
-        case .floating: return clamped(CGPoint(x: storedX, y: storedY), size: size)
-        default: return Self.docked(placement, size: size, in: container)
-        }
-    }
-
     var body: some View {
-        Group {
-            if pinned { pinnedLayout } else { floatingLayout }
-        }
-        .onChange(of: CGRect(origin: origin, size: size), initial: true) { _, frame in if !pinned { onPlace(frame) } }
+        layout
         .onAppear {
-            // Moving the hosting view between the floating window and the pinned column takes
-            // the panel out of one window and into the next, which SwiftUI reports as a
+            // Moving the hosting view between the docked column and the overlay takes the panel out
+            // of one place in the window and into the next, which SwiftUI reports as a
             // disappearance and an appearance. That is not the panel opening: the draft is
             // already here and the keyboard stays where it is.
             leavingForAnotherWindow = false
@@ -222,7 +114,7 @@ struct AskClaudePanel: View {
             hasAppeared = true
             // A draft left when the panel closed comes back with it.
             draft = chat.draft
-            composerFocused = true
+            if takesKeyboardOnAppear { composerFocused = true }
             refreshSpent()
             keySaved = settingsBridge.keyIsSaved()
         }
@@ -257,8 +149,7 @@ struct AskClaudePanel: View {
         // Back to the box once a spoken question is sent or thrown away.
         .onChange(of: voice.isActive) { _, active in if !active, mayTakeKeyboardBack { composerFocused = true } }
         .onChange(of: draft) { _, typed in if !typed.isEmpty { voice.notice = nil } }
-        .background(AskClaudeTalkKeys(onKey: talkKey, onEscape: escapePinned, onGone: { voice.cancel() }))
-        .environment(\.askClaudePanelPinned, pinned)
+        .background(AskClaudeTalkKeys(onKey: talkKey, onEscape: escape, onGone: { voice.cancel() }))
         .onChange(of: focusToken) { composerFocused = true }
         .onChange(of: voice.isActive) { _, active in onTalkingChange(active) }
         // A question being spoken stops when the panel goes, but not when it only moves window:
@@ -267,50 +158,16 @@ struct AskClaudePanel: View {
             leavingForAnotherWindow = true
             DispatchQueue.main.async { if leavingForAnotherWindow { voice.cancel() } }
         }
-        // Pinned, Esc does not close it: it stops talking or an edit, and nothing else (P4).
-        .onExitCommand(perform: pinned ? {} : onClose)
+        // Esc does not close it: it stops talking or an edit, and nothing else (P4).
+        .onExitCommand(perform: {})
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Ask Claude")
     }
 
-    /// The floating panel: its own size, glass, border and handles, in its own window.
-    private var floatingLayout: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                header
-                hairline
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { top = $0 }
-            thread
-            VStack(spacing: 0) {
-                hairline
-                composer
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bottom = $0 }
-        }
-        .frame(width: size.width, height: size.height)
-        // A pane's surface and accent wash, so the panel reads as part of the window at every
-        // accent and Tint, over the same ground for its text as the other floating panels, as thick
-        // as theirs at every level, and the window's own dark ground in dark. Solid is opaque like
-        // the panes; Frosted and Clear show the content blurred through the backdrop
-        // (AskClaudeWindow.swift), which owns the rounding and the shadow, so the ground is square.
-        .contentSurface(hue: hue, tint: tint)
-        // With None in light at Clear, the window's own white film instead: this window's backdrop
-        // is already the window's material, so the film is all that makes it the window's glass.
-        .glassPanelGround(level: level, hue: hue, tint: tint,
-                          opacity: LiquidGlass.panelTakesWindowGlass(level: level, hue: hue, dark: colorScheme == .dark)
-                              ? LiquidGlass.clearNoneLightVeil : level.groundedBackingOpacity,
-                          cornerRadius: 0)
-        // The floating panels' glass, so at Clear in light it is clear glass as Settings' is.
-        .floatingPanelGlass(level, cornerRadius: Radius.card)
-        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
-        .overlay { resizeHandles }
-    }
-
-    /// The pinned column. The header is as tall as the panes' headers, so their rule runs across
-    /// it. Cards draws two cards, like every other column; Unified draws one flush area, and the
-    /// column's slot gives it the surface.
-    @ViewBuilder private var pinnedLayout: some View {
+    /// The column. The header is as tall as the panes' headers, so their rule runs across it. Cards
+    /// draws two cards, like every other column; Unified draws one flush area, and the column's slot
+    /// gives it the surface.
+    @ViewBuilder private var layout: some View {
         if surface == .cards {
             VStack(spacing: 0) {
                 header
@@ -335,108 +192,8 @@ struct AskClaudePanel: View {
         }
     }
 
-    /// Measured on the screen, from where the mouse went down: the panel's own window moves under
-    /// the drag, so its coordinates (even `.global`, which is the window's) would feed the move
-    /// back into itself.
-    private var moveGesture: some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { _ in
-                let mouse = NSEvent.mouseLocation
-                let start = dragStart ?? origin
-                let startMouse = dragStartMouse ?? mouse
-                dragStart = start
-                dragStartMouse = startMouse
-                liveOrigin = clamped(CGPoint(x: start.x + mouse.x - startMouse.x, y: start.y - (mouse.y - startMouse.y)), size: size)
-            }
-            .onEnded { _ in
-                let dropped = liveOrigin ?? origin
-                withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
-                    if let dock = Self.dock(droppedAt: dropped, size: size, in: container) {
-                        placementRaw = dock.rawValue
-                    } else {
-                        placementRaw = Placement.floating.rawValue
-                        storedX = dropped.x
-                        storedY = dropped.y
-                    }
-                    liveOrigin = nil
-                }
-                dragStart = nil
-                dragStartMouse = nil
-            }
-    }
-
-    /// The inner side edge (the trailing one when floating), the free end (the bottom edge, or the
-    /// top one when docked at the bottom), and the corner between them, each a band just inside the
-    /// border: the panel's window ends at its edge, so a band straddling it lost its outer half.
-    private var resizeHandles: some View {
-        let right = placement.isRight
-        let low = placement.isBottom
-        let inner: AskClaudeResizeHandle.Edge = right ? .leading : .trailing
-        let end: AskClaudeResizeHandle.Edge = low ? .top : .bottom
-        let corner: AskClaudeResizeHandle.Edge = switch (low, right) {
-        case (false, true): .bottomLeading
-        case (false, false): .bottomTrailing
-        case (true, true): .topLeading
-        case (true, false): .topTrailing
-        }
-        let cornerAlignment: Alignment = switch corner {
-        case .bottomLeading: .bottomLeading
-        case .topLeading: .topLeading
-        case .topTrailing: .topTrailing
-        default: .bottomTrailing
-        }
-        let band: CGFloat = 6
-        return ZStack {
-            handle(inner)
-                .frame(width: band)
-                .padding(.vertical, Radius.card)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: right ? .leading : .trailing)
-            handle(end)
-                .frame(height: band)
-                .padding(.horizontal, Radius.card)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: low ? .top : .bottom)
-            handle(corner)
-                .frame(width: Radius.card, height: Radius.card)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cornerAlignment)
-        }
-    }
-
-    private func handle(_ edge: AskClaudeResizeHandle.Edge) -> some View {
-        AskClaudeResizeHandle(edge: edge, onDrag: { dx, dy in
-            let start = resizeStart ?? size
-            resizeStart = start
-            var next = start
-            switch edge {
-            case .leading: next.width = start.width - dx
-            case .trailing: next.width = start.width + dx
-            case .bottom: next.height = start.height + dy
-            case .top: next.height = start.height - dy
-            case .bottomLeading: next = CGSize(width: start.width - dx, height: start.height + dy)
-            case .bottomTrailing: next = CGSize(width: start.width + dx, height: start.height + dy)
-            case .topLeading: next = CGSize(width: start.width - dx, height: start.height - dy)
-            case .topTrailing: next = CGSize(width: start.width + dx, height: start.height - dy)
-            }
-            liveSize = next
-        }, onEnd: {
-            let final = size
-            storedWidth = final.width
-            if edge != .leading && edge != .trailing { storedHeight = final.height }
-            liveSize = nil
-            resizeStart = nil
-        }, onDoubleClick: {
-            // The free end's double-click goes back to fitting the thread.
-            guard edge != .leading && edge != .trailing else { return }
-            withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) { storedHeight = 0 }
-        })
-        // Dragging can't be done by VoiceOver; the panel's size has no other control to name.
-        .accessibilityHidden(true)
-    }
-
     private var header: some View {
         HStack(spacing: 2) {
-            // Double-click returns it to its default place, on the title and the space beside it but not the
-            // buttons: a double-click gesture over a button holds each click until the double-click
-            // interval runs out (about 0.35 s), so the shield's popover would come up that late.
             HStack(spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
                     Image(systemName: "bubble.left.and.text.bubble.right")
@@ -445,7 +202,7 @@ struct AskClaudePanel: View {
                     // The title, and under it what the next question will describe.
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Claude").scaledFont(.headline)
-                        Text(place.subtitle + waitingNote)
+                        Text(place.subtitle)
                             .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -453,16 +210,8 @@ struct AskClaudePanel: View {
                             .help(place.fullPath)
                     }
                 }
-                .help(pinned ? "" : "Drag the header to move. Drop it at a side or the bottom to snap it there; double-click to return it to the bottom left.")
                 .accessibilityElement(children: .combine)
                 Spacer(minLength: 8)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                guard !pinned else { return }
-                withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
-                    placementRaw = Self.defaultPlacement.rawValue
-                }
             }
             AskClaudeHeaderButton(symbol: "checkmark.shield", help: "What Claude sees, and what it may see", label: "What Claude Sees",
                                   isOn: showsPlace) { showsPlace.toggle() }
@@ -473,45 +222,14 @@ struct AskClaudePanel: View {
                                        onEditHiddenList: { showsPlace = false; onOpenSettings(.privacy) })
                         .presentedNativeControlAccent()
                 }
-            pinButton
             AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat() }
                 .disabled(chat.items.isEmpty && !chat.isRunning)
             AskClaudeHeaderButton(symbol: "xmark", help: ShortcutHint.tooltip("Close", AppChord.askClaude.display), label: "Close", action: onClose)
-                // ⌘J closes it from its own window too: while the panel is key, the menu's ⌘J
-                // belongs to no scene and is off.
-                .keyboardShortcut(pinned ? nil : KeyboardShortcut(AppChord.askClaude.key, modifiers: AppChord.askClaude.modifiers))
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .contentShape(Rectangle())
-        .gesture(moveGesture, including: pinned ? .subviews : .all)
-    }
-
-    /// What the place line adds while a pinned panel floats, so the reason is on the panel.
-    private var waitingNote: String {
-        switch waiting {
-        case .narrow: " · widen the window to pin"
-        case nil: ""
-        }
-    }
-
-    /// The pin: lit when it is on, ringed while the panel is floating until the window allows it.
-    private var pinButton: some View {
-        let help = switch waiting {
-        case .narrow: "Pins when the window is wider. Click to turn pinning off."
-        case nil: pinOn ? "Let it float" : "Pin to the right of the window"
-        }
-        return AskClaudeHeaderButton(symbol: pinOn ? "pin.fill" : "pin", help: help,
-                                     label: pinOn ? "Unpin Ask Claude" : "Pin Ask Claude", isOn: pinOn, action: onTogglePin)
-            .overlay {
-                if waiting != nil {
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                        .strokeBorder(accent, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
-                }
-            }
-            .accessibilityValue(waitingNote.isEmpty ? "" : String(waitingNote.dropFirst(3)))
     }
 
     /// How many of the newest rows are laid out as a plain stack; the rest are lazy.
@@ -580,14 +298,10 @@ struct AskClaudePanel: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threadHeight = $0 }
         }
         // Opens at the newest message and stays there as the thread grows.
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
-        // Docked left or floating, the resize band runs down the trailing edge: the scroll bar
-        // moves in past it, or a drag on the bar would resize the panel.
-        .contentMargins(.trailing, pinned || placement.isRight ? 0 : 6, for: .scrollIndicators)
     }
 
     private var composer: some View {
@@ -921,9 +635,9 @@ struct AskClaudePanel: View {
         }
     }
 
-    /// Esc pinned, with nothing spoken: stops an edit, and does nothing else. It never closes the
-    /// panel, which a pinned panel's Close button, ⌘W and ⌘J do.
-    private func escapePinned() -> Bool {
+    /// Esc, with nothing spoken: stops an edit, and does nothing else. It never closes the panel,
+    /// which its Close button, ⌘W and ⌘J do.
+    private func escape() -> Bool {
         guard chat.editing != nil else { return false }
         chat.cancelEdit()
         draft = draftBeforeEdit
@@ -931,11 +645,10 @@ struct AskClaudePanel: View {
         return true
     }
 
-    /// Whether the keyboard is the panel's to take back: always for a floating panel, which has
-    /// its own window, and for a pinned one only if it was already in the column. Without this an
-    /// answer finishing or voice stopping would pull the keyboard off the file list.
+    /// Whether the keyboard is the panel's to take back: only if it was already in the column.
+    /// Without this an answer finishing or voice stopping would pull the keyboard off the file list.
     private var mayTakeKeyboardBack: Bool {
-        !pinned || AskClaudeColumnView.holder(in: NSApp.keyWindow) != nil
+        AskClaudeColumnView.holder(in: NSApp.keyWindow) != nil
     }
 
     private func talkKey(_ key: AskClaudeTalkKey) -> Bool {
@@ -957,19 +670,6 @@ struct AskClaudePanel: View {
         spentText = limit > 0
             ? "\(AskClaudeSpend.format(spent)) of \(AskClaudeSpend.format(limit))"
             : AskClaudeSpend.format(spent)
-    }
-}
-
-private struct AskClaudePanelPinnedKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    /// Whether the panel is the main window's pinned column rather than a floating window of its
-    /// own, for the few views inside it whose keys would otherwise reach the whole window.
-    var askClaudePanelPinned: Bool {
-        get { self[AskClaudePanelPinnedKey.self] }
-        set { self[AskClaudePanelPinnedKey.self] = newValue }
     }
 }
 
@@ -2221,85 +1921,6 @@ enum AskClaudeLinks {
         let before = range.lowerBound > text.startIndex ? text[text.index(before: range.lowerBound)] : nil
         let after = range.upperBound < text.endIndex ? text[range.upperBound] : nil
         return !(before?.isLetter == true || before?.isNumber == true) && !(after?.isLetter == true || after?.isNumber == true)
-    }
-}
-
-/// One of the panel's resize handles: an AppKit view, so the drag and the resize cursor belong to
-/// it even where it lies over the thread's scroll view. The drag is reported in window points,
-/// right and down positive, measured from where it began.
-struct AskClaudeResizeHandle: NSViewRepresentable {
-    enum Edge { case leading, trailing, bottom, top, bottomLeading, bottomTrailing, topLeading, topTrailing }
-
-    let edge: Edge
-    let onDrag: (_ dx: CGFloat, _ dy: CGFloat) -> Void
-    let onEnd: () -> Void
-    var onDoubleClick: () -> Void = {}
-
-    func makeNSView(context: Context) -> HandleView {
-        let view = HandleView()
-        view.edge = edge
-        view.onDrag = onDrag
-        view.onEnd = onEnd
-        view.onDoubleClick = onDoubleClick
-        return view
-    }
-
-    func updateNSView(_ view: HandleView, context: Context) {
-        if view.edge != edge {
-            view.edge = edge
-            view.window?.invalidateCursorRects(for: view)
-        }
-        view.onDrag = onDrag
-        view.onEnd = onEnd
-        view.onDoubleClick = onDoubleClick
-    }
-
-    final class HandleView: NSView {
-        var edge: Edge = .bottom
-        var onDrag: (CGFloat, CGFloat) -> Void = { _, _ in }
-        var onEnd: () -> Void = {}
-        var onDoubleClick: () -> Void = {}
-        private var start: NSPoint?
-        private var dragged = false
-
-        override var mouseDownCanMoveWindow: Bool { false }
-
-        override func resetCursorRects() {
-            let position: NSCursor.FrameResizePosition = switch edge {
-            case .leading: .left
-            case .trailing: .right
-            case .bottom: .bottom
-            case .top: .top
-            case .bottomLeading: .bottomLeft
-            case .bottomTrailing: .bottomRight
-            case .topLeading: .topLeft
-            case .topTrailing: .topRight
-            }
-            addCursorRect(bounds, cursor: .frameResize(position: position, directions: .all))
-        }
-
-        // On the screen, not in the window: resizing the panel moves its window under the drag.
-        override func mouseDown(with event: NSEvent) {
-            dragged = false
-            if event.clickCount == 2 { onDoubleClick(); return }
-            start = NSEvent.mouseLocation
-        }
-
-        override func mouseDragged(with event: NSEvent) {
-            guard let start else { return }
-            dragged = true
-            let point = NSEvent.mouseLocation
-            onDrag(point.x - start.x, start.y - point.y)
-        }
-
-        override func mouseUp(with event: NSEvent) {
-            guard start != nil else { return }
-            start = nil
-            // A click that didn't drag sets nothing: storing the automatic height as a chosen one
-            // would stop the panel growing with the thread.
-            if dragged { onEnd() }
-            dragged = false
-        }
     }
 }
 

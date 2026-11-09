@@ -63,10 +63,9 @@ struct AskClaudeSettingsStep {
 }
 
 /// The chat's own undo and redo of settings changes, separate from typing's so it survives the
-/// panel: the panel's window and its undo manager are torn down whenever the panel closes or steps
-/// aside for Settings. The chat owns these for as long as it lives; New Chat clears them with the
-/// cards they belong to. The panel window sends Undo here when no draft is being typed
-/// (`AskClaudePanelWindow`).
+/// panel: the column's undo manager is torn down whenever the panel closes. The chat owns these for
+/// as long as it lives; New Chat clears them with the cards they belong to. The column sends Undo
+/// here when no draft is being typed (`AskClaudeColumnView`).
 @MainActor
 final class AskClaudeSettingsUndo {
     private(set) var undoSteps: [AskClaudeSettingsStep] = []

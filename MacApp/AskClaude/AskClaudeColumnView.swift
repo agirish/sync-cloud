@@ -1,16 +1,15 @@
 import AppKit
 import Design
 
-/// The pinned panel's place in the main window: it holds the hosting view, and it is the
-/// keyboard's anchor for everything the floating panel's window did for the keys.
+/// Ask Claude's place in the main window: it holds the hosting view, and it is the keyboard's anchor
+/// for the keys the panel needs.
 ///
-/// The floating panel is a window of its own, so its keys were its own: its typing, its undo,
-/// its ⌘W, Esc and ⌥Space. Pinned, the panel is inside the main window, and every one of those
-/// would otherwise reach the file list or the window. So the column answers them, wherever in it
-/// the keyboard is, and takes the keyboard on any click inside it so Space, the arrows and Delete
-/// never act on files by surprise. Modelled on Edit's `EditorUndoAnchorView`.
+/// The panel is inside the main window, so its typing, its undo, its ⌘W, Esc and ⌥Space would
+/// otherwise reach the file list or the window. So the column answers them, wherever in it the
+/// keyboard is, and takes the keyboard on any click inside it so Space, the arrows and Delete never
+/// act on files by surprise. Modelled on Edit's `EditorUndoAnchorView`.
 final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
-    weak var controller: AskClaudeWindowController?
+    weak var controller: AskClaudeDock?
 
     /// The window is busy: the column stays in place and takes nothing.
     var isPaused = false {
@@ -94,8 +93,8 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
         monitors.forEach { NSEvent.removeMonitor($0) }
         monitors = []
         guard window != nil else { return }
-        // Keys first, for Esc and ⌥Space: caught ahead of the field editor, as the floating
-        // window's `sendEvent` did, where ⌥Space types a non-breaking space and Esc does nothing.
+        // Keys first, for Esc and ⌥Space: caught ahead of the field editor, where ⌥Space types a
+        // non-breaking space and Esc does nothing.
         if let key = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             MainActor.assumeIsolated { self?.handle(keyDown: event) ?? event }
         }) { monitors.append(key) }
@@ -111,7 +110,7 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
     }
 
     /// Esc and ⌥Space while the keyboard is here. Esc stops a spoken question, else an edit, else
-    /// nothing: it never closes the pinned panel. Text being composed (an IME) is left alone.
+    /// nothing: it never closes the panel. Text being composed (an IME) is left alone.
     func handle(keyDown event: NSEvent) -> NSEvent? {
         guard event.window === window, !isPaused, holdsKeyboard,
               let key = AskClaudeTalkKey(event),
@@ -124,8 +123,20 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
         return event
     }
 
+    /// The column is drawn over the workspace (a window too narrow to share the row): a click in the
+    /// workspace tucks it away, and does its own job as well.
+    var tucksOnOutsideClick = false
+    var onTuck: () -> Void = {}
+
+    /// A click outside an overlaid column tucks it away. The click itself goes on to what it was aimed at.
+    func tuckIfOutside(_ event: NSEvent) {
+        guard tucksOnOutsideClick, event.window === window, !isPaused else { return }
+        if !bounds.contains(convert(event.locationInWindow, from: nil)) { onTuck() }
+    }
+
     /// After the click is handled, the keyboard is in the column if nothing in it took it.
     private func noteClick(_ event: NSEvent) {
+        tuckIfOutside(event)
         guard event.window === window, !isPaused, let window else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
@@ -143,7 +154,7 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
     override var undoManager: UndoManager? { typingUndo }
     private var typingChangedAt = Date.distantPast
 
-    private var settings: AskClaudeSettingsUndo? { AskClaudePanelWindow.settingsUndo() }
+    private var settings: AskClaudeSettingsUndo? { AskClaudeDock.settingsUndo() }
 
     /// Whether Undo belongs to the draft: the box holds text with a step to take, and it is newer
     /// than the latest settings change. Steps come back in the order they were made, so a setting

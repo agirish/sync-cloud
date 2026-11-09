@@ -27,7 +27,7 @@ import Testing
         bridge.keyIsSaved = { key.saved }
         bridge.saveSetupKey = saveSetupKey
         let rig = AskClaudePanelRig(chat: chat, bridge: bridge, place: Self.place, onAsk: onAsk,
-                                    topLeading: true, panelWindow: true)
+                                    topLeading: true, parked: true)
         return (rig.window, rig.host)
     }
 

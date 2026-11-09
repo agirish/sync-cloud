@@ -49,11 +49,11 @@ import Testing
 
     /// The column drawn as the last thing in a ZStack over a table.
     @Test func theColumnOverATableTakesTheClickAndNotTheTable() async throws {
-        let controller = AskClaudeWindowController()
+        let controller = AskClaudeDock()
         let (window, hosting) = host(
             ZStack(alignment: .trailing) {
                 TableRep()
-                AskClaudeColumnHost(controller: controller).frame(width: 372)
+                AskClaudeColumnHost(dock: controller).frame(width: 372)
             })
         await settle()
         _ = window
@@ -70,10 +70,10 @@ import Testing
 
     /// The same, as a SwiftUI `.overlay`, which is how the narrow-window overlay would be drawn.
     @Test func aSwiftUIOverlayOfTheColumnDoesTheSame() async throws {
-        let controller = AskClaudeWindowController()
+        let controller = AskClaudeDock()
         let (window, hosting) = host(
             TableRep().overlay(alignment: .trailing) {
-                AskClaudeColumnHost(controller: controller).frame(width: 372)
+                AskClaudeColumnHost(dock: controller).frame(width: 372)
             })
         await settle()
         _ = window
@@ -100,11 +100,11 @@ import Testing
 
     /// An empty, transparent column area must not let a click fall through to the table either.
     @Test func theColumnsBackgroundBlocksTheClickToo() async throws {
-        let controller = AskClaudeWindowController()
+        let controller = AskClaudeDock()
         let (window, hosting) = host(
             ZStack(alignment: .trailing) {
                 TableRep()
-                AskClaudeColumnHost(controller: controller).frame(width: 372)
+                AskClaudeColumnHost(dock: controller).frame(width: 372)
             })
         await settle()
         _ = window

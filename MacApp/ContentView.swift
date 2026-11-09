@@ -651,16 +651,17 @@ struct ContentView: View {
     /// What each pane's Info showed last, so crossing the width line has a hysteresis
     /// (`PaneInfo.presentation`). Keyed "left", "right" or "single".
     @State var paneInfoMemory: [String: PaneInfo.Presentation] = [:]
-    /// Ask Claude pinned as the window's right-hand column, and its width. Both are the pin's own
-    /// settings, apart from the floating panel's place and width. The 📌, View ▸ Pin Ask Claude and
-    /// Settings ▸ Ask Claude turn it on.
-    @AppStorage(AskClaudePanelSettings.pinnedKey) var askClaudePinned: Bool = false
-    @AppStorage(AskClaudePanelSettings.pinnedWidthKey) var askClaudePinnedWidth: Double = 372
+    /// Ask Claude is the window's right-hand column, and this is its width. The column is open by
+    /// default once a key is saved, and the window remembers it open or closed (`askClaudeOpen`).
+    @AppStorage(AskClaudePanelSettings.widthKey) var askClaudePinnedWidth: Double = 372
     @State var askClaudePinnedDragWidth: Double?
-    /// The width the workspace and the pinned column share, measured, and whether the column
-    /// fits in it (`PaneLogic.pinRoom`). Floating until the first measure.
+    /// Whether the column is open: the window's copy of `AskClaudeVisibility.isOpen`, which the
+    /// layout reads (the room it keeps, the panes it folds). Set by `AskClaudeHost`.
+    @State var askClaudeOpen = UserDefaults.standard.string(forKey: AskClaudePanelSettings.openKey) == "open"
+    /// The width the workspace and the column share, measured, and whether the column fits in it
+    /// (`PaneLogic.pinRoom`). Over the workspace until the first measure, which draws nothing.
     @State var askClaudeRowWidth: CGFloat = 0
-    @State var askClaudePinState = PaneLogic.PinVerdict.floating
+    @State var askClaudePinState = PaneLogic.PinVerdict.overlay
     /// The window's own edge is being dragged: the panel does not switch until it is let go.
     @State var askClaudeWindowResizing = false
     /// The pin is folding Organize's folder pane or Edit's list (its fold is computed, never stored):
@@ -1182,9 +1183,9 @@ struct ContentView: View {
                     }
                 }
             }
-            // Ask Claude's panel is a child window over the content (AskClaudeWindow.swift). It
-            // steps aside while Settings, Help, setup, a destination pick, a question or a sheet is
-            // up, and ⌘J and its toolbar button are off then.
+            // Ask Claude's column (AskClaudeDock.swift). It pauses while Settings, Help, setup, a
+            // destination pick, a question or a sheet is up, and ⌘J and its toolbar button are off
+            // then.
             .modifier(askClaudeHost)
             // Names the window on the two surfaces that read `NSWindow.title` whether or not a
             // title bar is drawn: the Window menu and Mission Control. Zero-sized and in the
@@ -3937,10 +3938,13 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 verticalSplit
-                // Claude, pinned: the last column. Empty unless it is open and pinned.
-                askClaudeColumn
+                // The room Ask Claude's column takes when it is docked: nothing otherwise.
+                askClaudeReserve
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { askClaudeRowWidth = $0 }
+            // The column itself, drawn over the row's trailing edge, docked over the room above or
+            // over the workspace when the window is too narrow to share the row.
+            .overlay(alignment: .trailing) { askClaudeColumn }
             // Unified is one box: the only outline under the toolbar, round every workspace's
             // content and the inspector beside it, which meet inside at hairlines. A no-op in
             // Cards, where each area is its own card. See `windowRegionFrame`.

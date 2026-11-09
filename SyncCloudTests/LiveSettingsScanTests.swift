@@ -57,7 +57,7 @@ import Testing
     /// `.standard` and calls the real API, so a chat given a key names its engine too.
     @Test func everyChatNamesItsDefaultsKeyAndEngine() throws {
         let calls = try Self.calls(of: "AskClaudeChat(")
-        try #require(calls.count >= 20, "found \(calls.count) AskClaudeChat constructions — the scan is reading the wrong folder")
+        try #require(calls.count >= 15, "found \(calls.count) AskClaudeChat constructions — the scan is reading the wrong folder")
         let live = calls.filter {
             $0.call.value("defaults") == nil || $0.call.value("readKey") == nil
                 || ($0.call.value("readKey") != "{nil}" && $0.call.value("makeEngine") == nil)

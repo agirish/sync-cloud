@@ -532,8 +532,6 @@ public enum SettingsCatalog {
         "EditorTextSettings.formatBarShowsLabelsKey", "EditorTextSettings.continuesListsKey",
         "EditorTextSettings.editsInPreviewKey",
         "EditorPDFSettings.layoutKey", "EditorPDFSettings.coverSeparatelyKey",
-        // The pinned Ask Claude panel (TE334): a row on Ask Claude ▸ General.
-        "AskClaudePanelSettings.pinnedKey",
     ]
 
     /// The search rows of `awaitingCatalogKeySources`, which reach no entry until drop 2.
@@ -542,7 +540,7 @@ public enum SettingsCatalog {
         "Wrap lines", "Readable line length", "Paper background", "Typewriter scrolling",
         "Check spelling while typing", "Format bar", "Labels on the format bar", "Continue lists",
         "Edit in Preview (experimental)", "Page layout", "Cover page separately",
-        "Pane bar", "Saved signatures", "Pin the panel to the window",
+        "Pane bar", "Saved signatures",
     ]
 
     private static func app(_ key: String, _ keySource: String, _ defaultSource: String) -> SettingStorage {

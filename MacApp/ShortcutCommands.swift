@@ -730,10 +730,6 @@ private struct InfoInspectorKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
-private struct AskClaudePinKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
-}
-
 private struct AskClaudeKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -1011,12 +1007,6 @@ extension FocusedValues {
     var infoInspector: Binding<Bool>? {
         get { self[InfoInspectorKey.self] }
         set { self[InfoInspectorKey.self] = newValue }
-    }
-
-    /// Whether Ask Claude is pinned to the window's right edge: View ▸ Pin Ask Claude.
-    var askClaudePin: Binding<Bool>? {
-        get { self[AskClaudePinKey.self] }
-        set { self[AskClaudePinKey.self] = newValue }
     }
 
     /// Ask Claude's panel. `nil` while a destination pick is up.
@@ -2747,17 +2737,6 @@ struct InspectorAndAskClaudeCommands: View {
     var body: some View {
         ToggleInspectorCommand()
         ToggleAskClaudeCommand()
-        PinAskClaudeCommand()
-    }
-}
-
-/// View ▸ Pin Ask Claude: the 📌 in the panel's header, from the menu. No shortcut of its own.
-struct PinAskClaudeCommand: View {
-    @FocusedValue(\.askClaudePin) private var pin
-
-    var body: some View {
-        Toggle("Pin Ask Claude", isOn: Binding(get: { pin?.wrappedValue ?? false }, set: { _ in pin?.wrappedValue.toggle() }))
-            .disabled(pin == nil)
     }
 }
 

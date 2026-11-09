@@ -17,18 +17,29 @@ import Events
 @MainActor
 final class AskClaudeChatHolder: ObservableObject {
     let chat = AskClaudeChat(storeURL: AskClaudeChat.defaultStore, historyURL: AskClaudeChat.defaultHistoryStore)
-    let visibility = AskClaudeVisibility()
-    /// Owns the panel's window and its one hosting view, so the pinned column and the floating
-    /// window share them (`AskClaudeWindowController`).
-    let windowController = AskClaudeWindowController()
+    let visibility = AskClaudeVisibility(restoredOpen: UserDefaults.standard.string(forKey: AskClaudePanelSettings.openKey) == "open")
+    /// Owns the panel's one hosting view and puts it in the window's column (`AskClaudeDock`).
+    let dock = AskClaudeDock()
 }
 
 @MainActor
 final class AskClaudeVisibility: ObservableObject {
-    @Published var isOpen = false
+    @Published var isOpen: Bool
+    /// The column came back open at launch, or opened itself the first time a key was saved: it does
+    /// not take the keyboard from the file list. Cleared by the first time the person opens it.
+    var restored: Bool
+    /// The column is drawn over the workspace (a window too narrow to share the row) and a click in
+    /// the workspace tucked it away. It is still open: ◨ or ⌘J brings it back, and widening the
+    /// window docks it again.
+    @Published var tucked = false
+
+    init(restoredOpen: Bool = false) {
+        isOpen = restoredOpen
+        restored = restoredOpen
+    }
     /// Bumped to bring an open panel's text box the keyboard (a row's Ask Claude About This).
     @Published var focusRequests = 0
-    /// Whether a question is being spoken: ⌘J does not close a pinned panel meanwhile. Not
+    /// Whether a question is being spoken: ⌘J does not close the panel meanwhile. Not
     /// published: the window redraws for nothing that watches it.
     var isTalking = false
 }

@@ -2,7 +2,7 @@ import CoreGraphics
 import Testing
 @testable import SyncCloud
 
-/// Where the pinned Ask Claude column fits, and what folds for it (`PaneLogic.pinRoom`). All at
+/// Where Ask Claude's column fits beside the workspace, and what folds for it (`PaneLogic.pinRoom`). All at
 /// Unified's zero gutter, the 373 pt column (372 and its seam) and the default 180 pt sidebar
 /// (181 with its seam), unless a test says otherwise.
 @Suite struct PinRoomTests {
@@ -39,9 +39,11 @@ import Testing
     // MARK: Organize folds its folder pane, and its sidebar with it
 
     @Test func organizeFoldsWhenToFileWouldLoseItsButtons() {
-        // To File is 72% of what the sidebar leaves; under 640 pt it folds. Unfolded, it fits from 1,084.
-        #expect(verdict(input(.organize, 1442)) == .init(fits: true, folds: true))
-        #expect(verdict(input(.organize, 1443)) == .init(fits: true, folds: false))
+        // To File is 72% of what the sidebar leaves; under 520 pt it folds (where its summary row starts moving buttons into ⋯). Unfolded, it fits from 1,084.
+        #expect(verdict(input(.organize, 1276)) == .init(fits: true, folds: true))
+        #expect(verdict(input(.organize, 1277)) == .init(fits: true, folds: false))
+        // The common 13-inch window folds nothing.
+        #expect(verdict(input(.organize, 1440)) == .init(fits: true, folds: false))
         #expect(verdict(input(.organize, 1600)) == .init(fits: true, folds: false))
     }
 
@@ -62,9 +64,11 @@ import Testing
     // MARK: Edit folds its list
 
     @Test func editFoldsItsListWhenTheDocumentWouldLoseItsWidth() {
-        // The document is under 600 pt below a 1,420 pt row; folded it needs only 818.
-        #expect(verdict(input(.edit, 1419)) == .init(fits: true, folds: true))
-        #expect(verdict(input(.edit, 1420)) == .init(fits: true, folds: false))
+        // The document is under 450 pt below a 1,270 pt row; folded it needs only 818.
+        #expect(verdict(input(.edit, 1269)) == .init(fits: true, folds: true))
+        #expect(verdict(input(.edit, 1270)) == .init(fits: true, folds: false))
+        // The common 13-inch window folds nothing.
+        #expect(verdict(input(.edit, 1440)) == .init(fits: true, folds: false))
         #expect(verdict(input(.edit, 817)).fits == false)
         #expect(verdict(input(.edit, 818)) == .init(fits: true, folds: true))
         #expect(verdict(input(.edit, 817, foldedByHand: true)).fits == false)
@@ -76,21 +80,21 @@ import Testing
     @Test func aFoldKeepsItselfUntilFortyPointsPastTheLine() {
         let folded = PaneLogic.PinVerdict(fits: true, folds: true)
         let open = PaneLogic.PinVerdict(fits: true, folds: false)
-        // 1,443 is past the line, but a folded pane waits for the 40-pt margin (to about 1,499).
-        #expect(verdict(input(.organize, 1443), after: folded).folds)
-        #expect(verdict(input(.organize, 1498), after: folded).folds)
-        #expect(verdict(input(.organize, 1499), after: folded).folds == false)
+        // 1,277 is past the line, but a folded pane waits for the 40-pt margin (to about 1,332).
+        #expect(verdict(input(.organize, 1277), after: folded).folds)
+        #expect(verdict(input(.organize, 1331), after: folded).folds)
+        #expect(verdict(input(.organize, 1332), after: folded).folds == false)
         // Open, it stays open down to the line itself.
-        #expect(verdict(input(.organize, 1443), after: open).folds == false)
-        #expect(verdict(input(.organize, 1442), after: open).folds)
+        #expect(verdict(input(.organize, 1277), after: open).folds == false)
+        #expect(verdict(input(.organize, 1276), after: open).folds)
     }
 
     @Test func aFloatingPanelPinsAgainOnlyFortyPointsPastWhatItNeeds() {
-        let floating = PaneLogic.PinVerdict.floating
+        let overlaid = PaneLogic.PinVerdict.overlay
         let pinned = PaneLogic.PinVerdict(fits: true, folds: false)
-        #expect(verdict(input(.browse, 800), after: floating).fits == false)
-        #expect(verdict(input(.browse, 813), after: floating).fits == false)
-        #expect(verdict(input(.browse, 814), after: floating).fits)
+        #expect(verdict(input(.browse, 800), after: overlaid).fits == false)
+        #expect(verdict(input(.browse, 813), after: overlaid).fits == false)
+        #expect(verdict(input(.browse, 814), after: overlaid).fits)
         // Pinned, it stays down to what it needs.
         #expect(verdict(input(.browse, 774), after: pinned).fits)
         #expect(verdict(input(.browse, 773), after: pinned).fits == false)

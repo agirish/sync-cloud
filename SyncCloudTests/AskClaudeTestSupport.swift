@@ -65,10 +65,17 @@ enum SSE {
     }
 }
 
-/// The Ask Claude panel hosted over a 1000×800 container in a borderless window: with
-/// `panelWindow`, the panel's own kind, parked off every display (a click reaches a SwiftUI button
-/// only in a window that is ordered in); otherwise a plain one. Laid out, never ordered in or made
-/// key: each test does that, and focuses the box, in its own order.
+/// A borderless window that may become key, which a plain borderless one may not: a test that
+/// clicks the panel's buttons or types in its box needs one.
+final class KeyableTestWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+/// The Ask Claude panel hosted in a 1000×800 borderless window: with `parked`, one that can become
+/// key, parked off every display (a click reaches a SwiftUI button only in a window that is ordered
+/// in); otherwise a plain one. Laid out, never ordered in or made key: each test does that, and
+/// focuses the box, in its own order.
 @MainActor
 final class AskClaudePanelRig {
     static let container = CGSize(width: 1000, height: 800)
@@ -76,23 +83,23 @@ final class AskClaudePanelRig {
     let host: NSView
 
     init(chat: AskClaudeChat, bridge: AskClaudeSettingsBridge = .keySaved,
-         place: AskClaudePlace = AskClaudePanelHandleTests.place,
-         onAsk: @escaping (String) -> Void = { _ in }, topLeading: Bool = false, panelWindow: Bool = false) {
+         place: AskClaudePlace = AskClaudePanelHostedTests.place,
+         onAsk: @escaping (String) -> Void = { _ in }, topLeading: Bool = false, parked: Bool = false) {
         let container = Self.container
         let panel = AskClaudePanel(chat: chat, place: place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: onAsk, onClose: {}, onOpenSettings: { _ in }, container: container,
+                                   onAsk: onAsk, onClose: {}, onOpenSettings: { _ in },
                                    settingsBridge: bridge)
         host = topLeading
             ? NSHostingView(rootView: AnyView(panel.frame(width: container.width, height: container.height,
                                                           alignment: .topLeading)))
             : NSHostingView(rootView: AnyView(panel))
         host.frame = NSRect(origin: .zero, size: container)
-        window = panelWindow
-            ? AskClaudePanelWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window = parked
+            ? KeyableTestWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
             : NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        if panelWindow { window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)) }
+        if parked { window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)) }
         host.layoutSubtreeIfNeeded()
     }
 

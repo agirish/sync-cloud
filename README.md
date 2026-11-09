@@ -37,7 +37,7 @@ Deletes go to the Trash, overwrites are staged and swapped in atomically, and ea
 ## Features
 
 ### 💬 Ask Claude (new in v7.0)
-A chat panel over the window (⌘J, or the toolbar button) that answers questions about what you're
+A chat in a column at the window's right edge (⌘J, or the button at the top right) that answers questions about what you're
 looking at and moves you around the app, using your own Anthropic API key. Nothing is sent until
 you ask.
 - **Sees a description of the screen, not your files** — names, kinds, sizes, dates and tags. When
@@ -61,9 +61,9 @@ you ask.
   own spending or access but never raise it. Every change is listed in History, most with Revert.
 - **Type or talk**: click the mic or press ⌥Space; speech becomes text on this Mac. Up brings back
   your last 10 questions.
-- **Float or pin**: it floats over the window, starting at the bottom left. Pin it, from its header,
-  View ▸ Pin Ask Claude or Settings, and it becomes the window's right-hand column, with the content
-  making room; in a window too narrow it floats until there is room.
+- **Always at hand**: it is the window's right-hand column, with the content making room, open by
+  default once you have saved a key and remembered after that. In a window too narrow to share the
+  row it slides over the content instead, and a click there tucks it away.
 - Pick Sonnet, Opus or Haiku from the chat; every answer says what it sent and what it cost,
   against a monthly limit ($25 to start).
 
