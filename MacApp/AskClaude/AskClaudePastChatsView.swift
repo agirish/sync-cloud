@@ -50,6 +50,7 @@ struct AskClaudePastChatsView: View {
                     if !query.isEmpty {
                         Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .help("Clear search")
                             .accessibilityLabel("Clear search")
                     }
                 }
@@ -207,7 +208,7 @@ struct AskClaudePastChatsView: View {
                 HStack {
                     Button("New Chat", action: onNewChat).frame(maxWidth: .infinity)
                     Button(continueTitle(entry.resume)) { onContinue(entry.id) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).accentedProminent()
                         .disabled(isRunning)
                         .frame(maxWidth: .infinity)
                 }
