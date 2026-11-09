@@ -118,6 +118,19 @@ import Sync
                 "the reveal parked the stack at \(room.frame.maxX), not at the visible edge \(viewport.maxX)")
     }
 
+    /// Info finds the scroll view a swipe over it is handed to: the stack's, never a column's list,
+    /// which would turn a sideways swipe over Info into a vertical scroll of some column.
+    @Test func infoFindsTheStacksScrollView() async throws {
+        let slot = PaneInfoSlot()
+        let (window, _) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot))
+        defer { _ = window }
+        let stack = try #require(slot.stackScroller, "Info has no stack to hand its swipes to")
+        #expect(!(stack.documentView is NSTableView), "Info would hand its swipes to a column's list")
+        #expect(stack.window === window)
+        // The fixture overflows, so the stack has somewhere to scroll and the claim is not vacuous.
+        #expect((stack.documentView?.frame.width ?? 0) > stack.contentSize.width)
+    }
+
     /// Taking the room away (Info closed, or become a drawer) withdraws it, so the app stops drawing
     /// Info where the room was.
     @Test func closingWithdrawsTheRoom() async throws {
@@ -137,5 +150,56 @@ import Sync
         let (window, _) = await mount(width: 1200, path: ["a1"], room: nil)
         defer { _ = window }
         #expect(slot.room == nil)
+    }
+}
+
+/// Which wheel events over Info also go to the column stack (`PaneInfoWheelRouting`).
+@Suite struct PaneInfoWheelRoutingTests {
+
+    /// One event through the rule; `#expect` cannot call a mutating member itself.
+    private func step(_ routing: inout PaneInfoWheelRouting, phase: NSEvent.Phase,
+                      momentumPhase: NSEvent.Phase, overInfo: Bool) -> Bool {
+        routing.forwards(phase: phase, momentumPhase: momentumPhase, overInfo: overInfo)
+    }
+
+    /// A trackpad gesture is claimed where it starts and keeps that answer through its momentum,
+    /// though the pointer drifts off Info, as AppKit routes it. Mutation: deciding per event by the
+    /// pointer drops the drifting half of a swipe.
+    @Test func aGestureStartedOverInfoIsForwardedToTheEnd() {
+        var routing = PaneInfoWheelRouting()
+        #expect(step(&routing, phase: .mayBegin, momentumPhase: [], overInfo: true))
+        #expect(step(&routing, phase: .began, momentumPhase: [], overInfo: true))
+        #expect(step(&routing, phase: .changed, momentumPhase: [], overInfo: false))
+        #expect(step(&routing, phase: .ended, momentumPhase: [], overInfo: false))
+        #expect(step(&routing, phase: [], momentumPhase: .began, overInfo: false))
+        #expect(step(&routing, phase: [], momentumPhase: .changed, overInfo: false))
+        #expect(step(&routing, phase: [], momentumPhase: .ended, overInfo: false))
+        #expect(!routing.claimed, "the claim outlived its gesture")
+    }
+
+    /// A gesture that starts over a column is the stack's already; drifting over Info forwards none
+    /// of it, or the stack would get it twice.
+    @Test func aGestureStartedElsewhereIsNeverForwarded() {
+        var routing = PaneInfoWheelRouting()
+        #expect(!step(&routing, phase: .began, momentumPhase: [], overInfo: false))
+        #expect(!step(&routing, phase: .changed, momentumPhase: [], overInfo: true))
+        #expect(!step(&routing, phase: [], momentumPhase: .changed, overInfo: true))
+    }
+
+    /// A plain wheel's clicks carry no phase: each is its own gesture, judged where it lands, and
+    /// one never leaves a claim behind for the next.
+    @Test func aPlainWheelIsJudgedClickByClick() {
+        var routing = PaneInfoWheelRouting()
+        #expect(step(&routing, phase: [], momentumPhase: [], overInfo: true))
+        #expect(!step(&routing, phase: [], momentumPhase: [], overInfo: false))
+        #expect(!routing.claimed)
+    }
+
+    /// A cancelled gesture lets go.
+    @Test func aCancelledGestureLetsGo() {
+        var routing = PaneInfoWheelRouting()
+        _ = step(&routing, phase: .began, momentumPhase: [], overInfo: true)
+        #expect(step(&routing, phase: .cancelled, momentumPhase: [], overInfo: true))
+        #expect(!routing.claimed)
     }
 }

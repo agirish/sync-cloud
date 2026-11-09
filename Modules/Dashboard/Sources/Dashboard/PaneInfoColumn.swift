@@ -39,6 +39,8 @@ public struct PaneInfoColumnOverlay<Content: View>: View {
             let x = Self.leadingX(room: room, width: live)
             content
                 .frame(width: live, height: room.frame.height)
+                // A swipe that starts over Info scrolls the columns too, as it would over a column.
+                .forwardsWheelGesturesToColumns(slot)
                 .overlay(alignment: room.dividerEdge == .trailing ? .trailing : .leading) {
                     divider(edge: room.dividerEdge, committed: committed)
                 }

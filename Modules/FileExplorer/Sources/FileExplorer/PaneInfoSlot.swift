@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Where a pane's Info column goes: the room the pane's list keeps for it, and where that room is
@@ -49,6 +50,11 @@ public final class PaneInfoSlot {
 
     /// The room the list keeps now, or nil while it keeps none.
     public private(set) var room: Room?
+
+    /// The column stack's scroll view, so a swipe that starts over Info also reaches the columns
+    /// it sits among (`forwardsWheelGesturesToColumns`). Info is drawn over the stack, not inside
+    /// it, so AppKit sends such a swipe to Info alone. Weak: the stack owns it; nil in Tree.
+    @ObservationIgnored public internal(set) weak var stackScroller: NSScrollView?
 
     /// Which reporter wrote last, so a list that is leaving (Tree giving way to Columns) cannot clear
     /// the room the arriving one has just written.

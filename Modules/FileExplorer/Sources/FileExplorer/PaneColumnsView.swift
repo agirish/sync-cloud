@@ -284,6 +284,8 @@ struct PaneColumnsView: View {
                             .frame(width: infoWidth)
                             .id(PaneInfoSlot.stackID)
                             .reportsPaneInfoRoom(infoRoom.slot, edge: .trailing)
+                            // Tells Info which scroll view to hand its swipes to.
+                            .background(PaneInfoStackProbe(slot: infoRoom.slot))
                     }
                     if fillerWidth > 0 {
                         deselectCatcher(width: fillerWidth, place: "past last column",
