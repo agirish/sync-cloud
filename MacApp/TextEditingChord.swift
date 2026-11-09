@@ -41,7 +41,7 @@ enum TextEditingChord {
         if belongsToTextEditor(responder), let editor = responder as? NSTextView {
             editorAction(editor)
         } else if AskClaudeColumnView.enclosing(responder) != nil {
-            // The pinned Ask Claude column: its answers are SwiftUI text, neither an NSTextView nor
+            // The Ask Claude column: its answers are SwiftUI text, neither an NSTextView nor
             // a reader, and nothing typed there is ever about a file. ⌘C and ⌘A act on the selected
             // words (`columnAction`); every other chord, ⌘X, ⌘V, ⌘⌫ and the transfers among them,
             // is refused, never run on the pane's selection.

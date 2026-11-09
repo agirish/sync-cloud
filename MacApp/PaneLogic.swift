@@ -805,8 +805,8 @@ enum PaneLogic {
         var foldedByHand = false
         /// Edit's list column as drawn, where it is drawn.
         var editColumn: CGFloat = 232
-        /// A splitter is being dragged (the window's, a sidebar's, a pane's, Info's, the column's):
-        /// nothing switches until it ends.
+        /// A splitter is being dragged (the window's edge, a sidebar's, a pane's, the rail's, Edit's
+        /// list column, the column's own): nothing switches until it ends.
         var dragging = false
         /// Whether the window can fold a pane for the column. Until it can, Organize and Edit need
         /// their panes open, and the column is drawn over the workspace in a window too narrow for that.

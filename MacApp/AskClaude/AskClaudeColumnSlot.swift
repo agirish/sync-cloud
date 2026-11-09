@@ -36,6 +36,9 @@ struct AskClaudeColumnSlot: View {
             }
             .frame(maxHeight: .infinity)
             .shadow(color: .black.opacity(overlaid ? 0.24 : 0), radius: overlaid ? 14 : 0, x: overlaid ? -4 : 0, y: 0)
+            // Over the workspace, VoiceOver reads the column and not the content under it, as it
+            // does Info's drawer.
+            .accessibilityAddTraits(overlaid ? .isModal : [])
             .transition(.move(edge: .trailing).combined(with: .opacity))
         }
     }
@@ -58,7 +61,7 @@ struct AskClaudeColumnSlot: View {
         Color.clear.frame(width: 1)
             .unifiedSeam(surface, edge: .leading)
             .overlay {
-                ResizeHandle(axis: .horizontal, thickness: 10, minimumDistance: 1, coordinateSpace: .global,
+                ResizeHandle(axis: .horizontal, thickness: AskClaudeColumnView.resizeHandleThickness, minimumDistance: 1, coordinateSpace: .global,
                              onDrag: { onDrag($0.translation.width) }, onCommit: onCommit)
             }
     }

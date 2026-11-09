@@ -64,7 +64,7 @@ enum ShortcutsReference {
             // Routed by where the caret is, like ⌘F, so the row names both meanings.
             Item(keys: "⌘ I", action: "Show or hide the pane’s Info — in Edit’s text, Italic"),
             Item(keys: "⌘ J", action: "Show or hide Ask Claude, to ask about the screen you’re on"),
-            // The panel's own key, caught by `AskClaudeWindow` ahead of the field editor, not a
+            // The panel's own key, caught by `AskClaudeColumnView` ahead of the field editor, not a
             // menu chord, so no registry check asks for this row.
             Item(keys: "⌥ Space", action: "In Ask Claude, talk; again to send, Esc to cancel"),
             Item(keys: "⌘ L", action: "Open Activity — runs, messages, Sync History and the log"),

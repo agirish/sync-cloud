@@ -1462,9 +1462,9 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         var opened: [String] = []
         let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
             ctx.showPlace = { place, tab, _ in
-                guard ["settings", "activity", "help", "trash"].contains(place) else { return false }
+                guard ["settings", "activity", "help", "trash"].contains(place) else { return .noSuchPlace }
                 opened.append(place + (tab.map { ":" + $0 } ?? ""))
-                return true
+                return .shown
             }
         })
         var handles = AskClaudeHandles()
@@ -1480,9 +1480,9 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         var toggled: [String] = []
         let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
             ctx.showPlace = { place, _, visible in
-                guard ["info", "sidebar"].contains(place) else { return false }
+                guard ["info", "sidebar"].contains(place) else { return .noSuchPlace }
                 toggled.append("\(place):\(visible)")
-                return true
+                return .shown
             }
         })
         var handles = AskClaudeHandles()
@@ -1492,6 +1492,22 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         let sidebar = await runner.run(call("show_in_app", ["place": .string("sidebar"), "visible": .bool(false)]), handles: &handles)
         #expect(sidebar.step == "Hid the sidebar")
         #expect(toggled == ["info:true", "sidebar:false"])
+    }
+
+    /// Info where no pane can show it is a real place that isn't available, and Claude is told why,
+    /// not that there is no place called info.
+    @Test func showInAppSaysWhyInfoIsUnavailableRatherThanThatItIsNoPlace() async {
+        let why = "Info isn’t available here: Edit’s file pane is hidden."
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
+            ctx.showPlace = { place, _, _ in place == "info" ? .unavailable(why) : .noSuchPlace }
+        })
+        var handles = AskClaudeHandles()
+        let info = await runner.run(call("show_in_app", ["place": .string("info")]), handles: &handles)
+        #expect(info.isError)
+        #expect(info.result == why)
+        #expect(info.step == "Didn’t show Info: not available here")
+        let printer = await runner.run(call("show_in_app", ["place": .string("printer")]), handles: &handles)
+        #expect(printer.isError && printer.step == "No place called printer")
     }
 
     @Test func viewChangesSortHiddenFilesAndMode() async {

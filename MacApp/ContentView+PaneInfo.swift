@@ -23,8 +23,16 @@ extension ContentView {
         return selectedWorkspace == .browse ? paneInfoBrowseOn : paneInfoRailOn
     }
 
+    /// Whether that pane's Info is drawn: on, and not held away by Ask Claude's fold of Organize's pane.
+    func paneInfoShows(isLeft: Bool) -> Bool {
+        paneInfoIsOn(isLeft: isLeft) && !(isLeft && organizePinFoldHoldsInfo)
+    }
+
     func setPaneInfo(isLeft: Bool, _ on: Bool) {
         withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+            // Asked for while Ask Claude's column folds Organize's pane: the pane opens, as it does
+            // for its own button, and Info shows in it.
+            if on, isLeft, organizePinFoldHoldsInfo { askClaudeReleasePinFold() }
             if layoutMode == .compare {
                 if isLeft { paneInfoLeftOn = on } else { paneInfoRightOn = on }
             } else if selectedWorkspace == .browse {
@@ -36,7 +44,7 @@ extension ContentView {
     }
 
     func paneInfoBinding(isLeft: Bool) -> Binding<Bool> {
-        Binding(get: { paneInfoIsOn(isLeft: isLeft) }, set: { setPaneInfo(isLeft: isLeft, $0) })
+        Binding(get: { paneInfoShows(isLeft: isLeft) }, set: { setPaneInfo(isLeft: isLeft, $0) })
     }
 
     /// Whether the pane on that side is on screen: not when the workspace's panes are folded away
@@ -46,15 +54,24 @@ extension ContentView {
         return isLeft || layoutMode == .compare
     }
 
-    /// Organize's folder pane is folded to its spine. Its Info is still reachable, as a drawer from
-    /// the spine over the lens, so ⌘I and Get Info keep working there.
+    /// Organize's folder pane is folded to its spine by hand (the stored fold). Its Info is still
+    /// reachable, as a drawer from the spine over the lens, so ⌘I and Get Info keep working there.
+    /// Not for the fold Ask Claude's column makes: a drawer then would cover the To File it folded
+    /// the pane to make room for.
     var organizeSpineHoldsInfo: Bool {
+        selectedWorkspace == .filing && layoutMode == .singleSource && panesStoredHiddenForCurrentTab
+    }
+
+    /// Organize's folder pane is folded only for Ask Claude's column (computed, never stored). Asking
+    /// for its Info opens the pane, which ends that fold, and Info shows in it (`setPaneInfo`).
+    var organizePinFoldHoldsInfo: Bool {
         selectedWorkspace == .filing && layoutMode == .singleSource && panesHiddenForCurrentTab
+            && !panesStoredHiddenForCurrentTab
     }
 
     /// Whether Info can be shown for the pane on that side right now.
     func paneInfoAvailable(isLeft: Bool) -> Bool {
-        paneIsOnScreen(isLeft: isLeft) || (isLeft && organizeSpineHoldsInfo)
+        paneIsOnScreen(isLeft: isLeft) || (isLeft && (organizeSpineHoldsInfo || organizePinFoldHoldsInfo))
     }
 
     /// What a pane header needs to draw its Info button; nil where the pane has none (Edit with its
@@ -71,11 +88,19 @@ extension ContentView {
         return paneInfoBinding(isLeft: isLeft)
     }
 
+    /// Why no pane can show Info, as Ask Claude tells Claude when it asks for it. Edit with its file
+    /// pane hidden is the one workspace that gets here in practice.
+    var paneInfoUnavailableSentence: String {
+        selectedWorkspace == .editor
+            ? "Info isn’t available here: Edit’s file pane is hidden."
+            : "Info isn’t available here: no file pane is on screen."
+    }
+
     // MARK: Get Info
 
     /// Which pane holds `path`: the left, unless Compare's right pane's tree has it, or it lies under
     /// the right pane's root. `inspectorPreview`'s rule, so the picture and the pane agree.
-    private func paneInfoTargetIsLeft(for path: String) -> Bool {
+    func paneInfoTargetIsLeft(for path: String) -> Bool {
         guard layoutMode == .compare else { return true }
         if !syncManager.leftNodes(for: [path]).isEmpty { return true }
         if !syncManager.rightNodes(for: [path]).isEmpty { return false }
@@ -93,17 +118,17 @@ extension ContentView {
         setPaneInfo(isLeft: isLeft, true)
     }
 
-    /// The Get Info target, for the pane it belongs to only.
+    /// This pane's Get Info target, while the pane still holds it.
     private func paneInfoOverridePath(isLeft: Bool) -> String? {
-        guard let infoPath, paneInfoTargetIsLeft(for: infoPath) == isLeft else { return nil }
-        return infoPath
+        guard let path = infoTargets.path(isLeft: isLeft), paneInfoTargetIsLeft(for: path) == isLeft else { return nil }
+        return path
     }
 
     /// The one file this pane's Info previews: a Get Info target first, else the one file selected in
     /// this pane. Never the document Edit has open beside it.
     private func paneInfoPreviewTarget(isLeft: Bool) -> (node: FileNode, isLeft: Bool)? {
         guard let target = Self.inspectorPreview(
-            infoPath: paneInfoOverridePath(isLeft: isLeft), infoNode: infoNode, followsLeft: isLeft,
+            infoPath: paneInfoOverridePath(isLeft: isLeft), infoNode: infoTargets.node(isLeft: isLeft), followsLeft: isLeft,
             selectedLeft: syncManager.selectedLeftPaths, selectedRight: syncManager.selectedRightPaths,
             leftNodes: { syncManager.leftNodes(for: $0) }, rightNodes: { syncManager.rightNodes(for: $0) },
             rightRoot: currentRightPath)
@@ -226,5 +251,43 @@ extension ContentView {
         if organizeSpineHoldsInfo && paneInfoRailOn {
             paneInfoDrawer(isLeft: true, width: PaneInfo.slotWidth, edge: .leading)
         }
+    }
+}
+
+/// Get Info's targets, one per pane. A Get Info on a row aims the Info of the pane that holds the row,
+/// and only that pane's selection or source (or a workspace switch) retires it, so a click in the
+/// other pane never takes it away.
+struct PaneInfoTargets {
+    struct Target {
+        let path: String
+        /// The target as a node of its own, read off the disk after Get Info, for a path no pane's
+        /// tree holds.
+        var node: FileNode?
+    }
+
+    private(set) var left: Target?
+    private(set) var right: Target?
+
+    func path(isLeft: Bool) -> String? { (isLeft ? left : right)?.path }
+    func node(isLeft: Bool) -> FileNode? { (isLeft ? left : right)?.node }
+
+    /// Get Info on `path`, in that pane.
+    mutating func aim(_ path: String, isLeft: Bool) { put(Target(path: path), isLeft: isLeft) }
+
+    /// The node read for `path`, kept only while `path` is still that pane's target.
+    mutating func found(_ node: FileNode?, for path: String, isLeft: Bool) {
+        guard self.path(isLeft: isLeft) == path else { return }
+        put(Target(path: path, node: node), isLeft: isLeft)
+    }
+
+    mutating func clear(isLeft: Bool) { put(nil, isLeft: isLeft) }
+
+    mutating func clearAll() {
+        left = nil
+        right = nil
+    }
+
+    private mutating func put(_ target: Target?, isLeft: Bool) {
+        if isLeft { left = target } else { right = target }
     }
 }

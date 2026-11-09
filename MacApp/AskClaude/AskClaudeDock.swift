@@ -111,15 +111,20 @@ struct AskClaudeDockAnchor: NSViewRepresentable {
     var isSuspended = false
     let content: AnyView
     var onClose: () -> Void = {}
+    /// This window's own edge is being dragged (true) or let go (false). Another window's resize is
+    /// not this one's.
+    var onLiveResize: (Bool) -> Void = { _ in }
 
     func makeNSView(context: Context) -> AnchorView {
         let view = AnchorView()
         view.dock = dock
+        view.onLiveResize = onLiveResize
         return view
     }
 
     func updateNSView(_ view: AnchorView, context: Context) {
         view.dock = dock
+        view.onLiveResize = onLiveResize
         view.wanted = isOpen ? (content, onClose) : nil
         view.busy = isSuspended
         view.sync()
@@ -134,6 +139,12 @@ struct AskClaudeDockAnchor: NSViewRepresentable {
         /// What to show, kept so a view that reaches its window late still opens the panel.
         var wanted: (content: AnyView, onClose: () -> Void)?
         var busy = false
+        var onLiveResize: (Bool) -> Void = { _ in }
+        /// A drag of the window's edge is under way. Left behind by a move to another window, it is
+        /// let go, so the room rule is never frozen by a resize this view can no longer see end.
+        private var liveResizing = false {
+            didSet { if liveResizing != oldValue { onLiveResize(liveResizing) } }
+        }
         private var sheetBeginning = false
         private var observers: [NSObjectProtocol] = []
 
@@ -155,6 +166,7 @@ struct AskClaudeDockAnchor: NSViewRepresentable {
             super.viewDidMoveToWindow()
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers = []
+            liveResizing = false
             guard let window else { dock?.hide(); return }
             let center = NotificationCenter.default
             // A sheet on the main window pauses the column: at once as it begins (it may not be
@@ -170,6 +182,14 @@ struct AskClaudeDockAnchor: NSViewRepresentable {
                     self?.sheetBeginning = false
                     DispatchQueue.main.async { self?.sync() }
                 }
+            })
+            // This window's edge only: nothing switches while it is dragged, and what it left is
+            // decided the moment it is let go.
+            observers.append(center.addObserver(forName: NSWindow.willStartLiveResizeNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.liveResizing = true }
+            })
+            observers.append(center.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.liveResizing = false }
             })
             sync()
         }

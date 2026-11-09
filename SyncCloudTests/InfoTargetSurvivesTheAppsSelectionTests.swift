@@ -1,9 +1,10 @@
 import Testing
 import Foundation
+import Sync
 @testable import SyncCloud
 
 /// The app's own selection doesn't retire a Get Info target. A left-pane selection change clears
-/// `infoPath` so the inspector follows the selection. The owed pane selection is paid when the
+/// the left pane's target (`infoTargets`) so its Info follows the selection. The owed pane selection is paid when the
 /// pane's tree publishes, possibly after the user used a rail row's Get Info on another file, and
 /// unmarked it would jump the inspector to the document. The payment is marked
 /// (`editorPaneSelectionPaid`) before it is written, and the clear reads the mark.
@@ -32,7 +33,7 @@ import Foundation
                                  "the left pane's selection no longer clears the Get Info target at all")
         let open = try #require(handler.range(of: "openSelectedPaneFileInEditor(paths)"))
         #expect(clear.lowerBound < open.lowerBound, "the mark is consumed before the clear reads it")
-        #expect(!content.contains(".onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }"),
+        #expect(!content.contains(".onChange(of: syncManager.selectedLeftPaths) { _, _ in infoTargets.clear(isLeft: true) }"),
                 "an unconditional clear is back — the app's own write clears the target again")
         #expect(content.contains(".onChange(of: syncManager.selectedRightPaths) { _, paths in clearInfoTargetAfterRightSelection(paths) }"),
                 "the right pane's selection no longer reaches the Get Info target's clear")
@@ -63,6 +64,41 @@ import Foundation
                                  "the marker is never lowered — the user's next clear would keep a stale target")
         let rule = try #require(body.range(of: "Self.rightSelectionClearsInfoTarget(paths, clearWasPaid: paid)"))
         #expect(read.lowerBound < lower.lowerBound && lower.lowerBound < rule.lowerBound)
-        #expect(body.contains("{ infoPath = nil }"))
+        #expect(body.contains("{ infoTargets.clear(isLeft: false) }"))
+    }
+
+    /// Each pane keeps its own Get Info target: the left pane's selection retires the left's, the
+    /// right's the right's, and neither touches the other.
+    @Test func eachPaneKeepsItsOwnTarget() throws {
+        var targets = PaneInfoTargets()
+        targets.aim("/L/a.pdf", isLeft: true)
+        targets.aim("/R/b.pdf", isLeft: false)
+        #expect(targets.path(isLeft: true) == "/L/a.pdf" && targets.path(isLeft: false) == "/R/b.pdf")
+        targets.clear(isLeft: false)
+        #expect(targets.path(isLeft: true) == "/L/a.pdf", "the right pane's selection took the left pane's target")
+        #expect(targets.path(isLeft: false) == nil)
+        targets.aim("/R/b.pdf", isLeft: false)
+        targets.clear(isLeft: true)
+        #expect(targets.path(isLeft: false) == "/R/b.pdf", "the left pane's selection took the right pane's target")
+        // The node read off the disk lands only on the side, and the path, it was read for.
+        let node = FileNode(id: "/R/b.pdf", name: "b.pdf", isDirectory: false)
+        targets.found(node, for: "/R/b.pdf", isLeft: true)
+        #expect(targets.node(isLeft: true) == nil && targets.node(isLeft: false) == nil)
+        targets.found(node, for: "/R/b.pdf", isLeft: false)
+        #expect(targets.node(isLeft: false)?.id == "/R/b.pdf")
+        targets.aim("/R/c.pdf", isLeft: false)
+        #expect(targets.node(isLeft: false) == nil, "a new target kept the old one's node")
+        targets.clearAll()
+        #expect(targets.path(isLeft: true) == nil && targets.path(isLeft: false) == nil)
+
+        // The window: each selection handler clears its own side, and Get Info aims the side that
+        // holds the path.
+        let left = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
+                                                         in: "ContentView.swift")
+        #expect(left.contains("infoTargets.clear(isLeft: true)") && !left.contains("isLeft: false"))
+        let show = CodeText(try declarationBody(of: "func showInfo(for path: String) {", in: macAppFile("ContentView.swift")))
+        #expect(show.contains("let isLeft = paneInfoTargetIsLeft(for: path)"))
+        #expect(show.contains("infoTargets.aim(path, isLeft: isLeft)"))
+        #expect(show.contains("infoTargets.found(node, for: path, isLeft: isLeft)"))
     }
 }

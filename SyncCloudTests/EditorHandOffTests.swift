@@ -294,7 +294,7 @@ import FileExplorer
     @Test func showInfoOpensThePanesInfoOnThePathItWasHanded() throws {
         let content = try macAppFile("ContentView.swift")
         let body = CodeText(try declarationBody(of: "func showInfo(for path: String) {", in: content))
-        #expect(body.contains("infoPath = path"), "Get Info no longer aims Info at its path")
+        #expect(body.contains("infoTargets.aim(path, isLeft: isLeft)"), "Get Info no longer aims Info at its path")
         #expect(body.contains("openPaneInfo(for: path)"), "Get Info no longer opens the pane's Info")
     }
 }

@@ -529,8 +529,9 @@ extension ContentView {
     }
 
     /// The spine's Info button: lit while Organize's Info is open, which is the drawer over the lens.
+    /// While the pane is folded for Ask Claude's column there is no drawer, and it opens the pane.
     private var spineInfoButton: some View {
-        let on = paneInfoRailOn
+        let on = paneInfoShows(isLeft: true)
         let title = on ? "Hide Info" : "Show Info"
         return Button { setPaneInfo(isLeft: true, !on) } label: {
             Self.stripGlyph("info.circle", lit: on, accent: glassHue.accentColor)

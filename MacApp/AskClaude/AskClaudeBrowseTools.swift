@@ -15,6 +15,15 @@ import Events
 @MainActor
 final class AskClaudeBrowseTools: AskClaudeToolRunning {
 
+    /// What `show_in_app` did with a place.
+    enum PlaceOutcome: Equatable {
+        case shown
+        /// Not a place, or not a Settings tab or setting.
+        case noSuchPlace
+        /// A real place that can't be shown here, with the sentence that says why.
+        case unavailable(String)
+    }
+
     /// What the tools need from the window, read fresh at each call: the person may have moved
     /// between two tool calls.
     struct Context {
@@ -137,8 +146,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var setSort: (_ name: String) -> Bool = { _ in false }
         var setHiddenFiles: (_ shown: Bool) -> Void = { _ in }
         var setMode: (_ name: String) -> Bool = { _ in false }
-        /// Opens settings (and a tab), activity, help or the Trash; false for a place that isn't one.
-        var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> Bool = { _, _, _ in false }
+        /// Opens settings (and a tab), activity, help or the Trash, or shows or hides Info or the
+        /// sidebar: what it did, or why it couldn't.
+        var showPlace: (_ place: String, _ tab: String?, _ visible: Bool) -> PlaceOutcome = { _, _, _ in .noSuchPlace }
         /// The settings tool's answers; nil where there is no app to read.
         var settingsLookup: SettingsLookup?
         /// Whether the chat panel is on screen; Claude changes nothing itself while it isn't.
@@ -606,11 +616,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open \(place): \(busy)")
             }
             let visible = call.input["visible"]?.boolValue ?? true
-            guard ctx.showPlace(place, call.string("tab"), visible) else {
+            let names = ["info": "Info", "inspector": "Info", "sidebar": "the sidebar"]
+            switch ctx.showPlace(place, call.string("tab"), visible) {
+            case .shown:
+                break
+            case .noSuchPlace:
                 return AskClaudeToolOutcome(result: "Places are settings, activity, help, trash, info and sidebar; a settings tab or setting must be one Settings has.",
                                             isError: true, step: "No place called \(place)", logStep: "No place called that (no match, \(place.count) characters)")
+            case .unavailable(let why):
+                let name = names[place] ?? place
+                return AskClaudeToolOutcome(result: why, isError: true, step: "Didn’t show \(name): not available here")
             }
-            let names = ["info": "Info", "sidebar": "the sidebar"]
             if let name = names[place] {
                 let did = visible ? "Showed \(name)" : "Hid \(name)"
                 return AskClaudeToolOutcome(result: did + ".", step: did)

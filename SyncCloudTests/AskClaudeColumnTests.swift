@@ -23,8 +23,8 @@ private struct ColumnProbeView: View {
     }
 }
 
-/// The dock holds one hosting view for the panel, and puts it in whichever column view is on screen:
-/// the one beside the workspace, or the one over it, and nothing inside is rebuilt on the way.
+/// The dock holds one hosting view for the panel, and puts it in whichever column view is on screen,
+/// and nothing inside is rebuilt on the way.
 @MainActor
 @Suite(.serialized) struct AskClaudeColumnTests {
 
@@ -38,40 +38,41 @@ private struct ColumnProbeView: View {
     /// How many hosting views the column holds.
     private func hosts(in column: NSView) -> Int { column.subviews.filter { $0 is NSHostingView<AnyView> }.count }
 
-    /// The column beside the workspace and the column over it are two views in one window, and the
-    /// panel moves between them as the window crosses the narrow line. Each move SwiftUI reports as a
-    /// disappearance and an appearance, which the panel treats as a move, so what lives in it (the
-    /// draft, a running voice) is built once. Mutation: the dock building a host per column view
+    /// The column is one slot, but SwiftUI builds it a new column view whenever it comes back: from
+    /// being tucked away over a narrow window, or when the surface style changes its frame. The dock
+    /// moves its one hosting view into whichever column view it is handed. Each move SwiftUI reports
+    /// as a disappearance and an appearance, which the panel treats as a move, so what lives in it
+    /// (the draft, a running voice) is built once. Mutation: the dock building a host per column view
     /// must fail the state count.
-    @Test func theHostMovesBetweenTheDockedColumnAndTheOverlayWithoutRebuilding() async throws {
+    @Test func theHostMovesBetweenColumnViewsWithoutRebuilding() async throws {
         let window = offscreenWindow()
-        let docked = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
-        let overlaid = AskClaudeColumnView(frame: NSRect(x: 300, y: 0, width: 372, height: 760))
-        window.contentView?.addSubview(docked)
-        window.contentView?.addSubview(overlaid)
+        let first = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
+        let second = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))
+        window.contentView?.addSubview(first)
+        window.contentView?.addSubview(second)
         let probe = ColumnProbe()
         let dock = AskClaudeDock()
-        docked.controller = dock
-        overlaid.controller = dock
+        first.controller = dock
+        second.controller = dock
         let content = AnyView(ColumnProbeView(probe: probe))
 
-        dock.columnView = docked
+        dock.columnView = first
         dock.show(content)
         await settle()
-        #expect(hosts(in: docked) == 1)
+        #expect(hosts(in: first) == 1)
 
         for cycle in 1...20 {
-            dock.columnView = overlaid
+            dock.columnView = second
             await settle()
-            #expect(hosts(in: overlaid) == 1 && hosts(in: docked) == 0, "cycle \(cycle): the host is in the overlay")
-            dock.columnView = docked
+            #expect(hosts(in: second) == 1 && hosts(in: first) == 0, "cycle \(cycle): the host is in the new column view")
+            dock.columnView = first
             await settle()
-            #expect(hosts(in: docked) == 1 && hosts(in: overlaid) == 0, "cycle \(cycle): the host is back in the dock")
+            #expect(hosts(in: first) == 1 && hosts(in: second) == 0, "cycle \(cycle): the host is back in the first")
         }
         #expect(probe.states.count == 1, "the view's state was rebuilt \(probe.states.count) times")
         #expect(probe.appeared == probe.disappeared + 1, "appeared \(probe.appeared), disappeared \(probe.disappeared)")
         dock.hide()
-        #expect(hosts(in: docked) == 0 && hosts(in: overlaid) == 0)
+        #expect(hosts(in: first) == 0 && hosts(in: second) == 0)
     }
 
     /// Busy: the column stays where it is, dimmed and deaf, and comes back as it was.
@@ -122,6 +123,69 @@ private struct ColumnProbeView: View {
         #expect(tucks == 0, "a click inside the column tucked it")
         click(at: NSPoint(x: 100, y: 100))
         #expect(tucks == 1, "a click in the workspace did not tuck the overlaid column")
+        // The resize handle reaches past the column's leading edge: a press there drags the column.
+        click(at: NSPoint(x: 628 - 5, y: 100))
+        #expect(tucks == 1, "a press on the column's resize handle tucked it")
+        click(at: NSPoint(x: 628 - AskClaudeColumnView.resizeHandleThickness - 2, y: 100))
+        #expect(tucks == 2, "a click just past the handle did not tuck the column")
+    }
+
+    /// ◨ is in the toolbar, and a press on it must reach the toggle with the column still open, or
+    /// it untucks a column it means to close. So a press in the titlebar or toolbar, or at the
+    /// window's edge where a resize starts, is not a click in the workspace and tucks nothing.
+    @Test func aPressInTheTitlebarOrAtTheWindowsEdgeDoesNotTuck() throws {
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1000, height: 760),
+                              styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = try #require(window.contentView)
+        let layout = window.contentLayoutRect
+        // The harness: a titlebar the content runs under, or there is nothing above the workspace.
+        try #require(layout.maxY < content.bounds.maxY - 10, "no titlebar over the content: \(layout) in \(content.bounds)")
+        let column = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: content.bounds.height))
+        content.addSubview(column)
+        column.tucksOnOutsideClick = true
+        var tucks = 0
+        column.onTuck = { tucks += 1 }
+        func click(at point: NSPoint) {
+            let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                           clickCount: 1, pressure: 1)!
+            column.tuckIfOutside(event)
+        }
+        click(at: NSPoint(x: 900, y: layout.maxY + 4))
+        #expect(tucks == 0, "a press in the toolbar, over the column, tucked it")
+        click(at: NSPoint(x: 100, y: layout.maxY + 4))
+        #expect(tucks == 0, "a press in the titlebar tucked the column")
+        click(at: NSPoint(x: 2, y: 300))
+        #expect(tucks == 0, "a press on the window's left edge tucked the column")
+        click(at: NSPoint(x: 300, y: 2))
+        #expect(tucks == 0, "a press on the window's bottom edge tucked the column")
+        // The control: a press in the workspace itself still tucks it.
+        click(at: NSPoint(x: 300, y: 300))
+        #expect(tucks == 1, "a click in the workspace did not tuck the column")
+    }
+
+    /// Only this window's edge holds the room rule still: another window's live resize (Settings,
+    /// Activity, a second main window) is not this one's. A resize under way when the anchor leaves
+    /// its window is let go, so the rule is never left frozen.
+    @Test func onlyThisWindowsLiveResizeHoldsTheRoomRule() {
+        let window = offscreenWindow()
+        let other = offscreenWindow()
+        let anchor = AskClaudeDockAnchor.AnchorView(frame: .zero)
+        var seen: [Bool] = []
+        anchor.onLiveResize = { seen.append($0) }
+        window.contentView?.addSubview(anchor)
+        let center = NotificationCenter.default
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: other)
+        center.post(name: NSWindow.didEndLiveResizeNotification, object: other)
+        #expect(seen.isEmpty, "another window's resize reached this one: \(seen)")
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        #expect(seen == [true])
+        center.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        #expect(seen == [true, false])
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        anchor.removeFromSuperview()
+        #expect(seen == [true, false, true, false], "a resize left under way when the anchor went")
     }
 
     /// The inner edge's drag, held to the panel's width range and to the room there is.

@@ -662,6 +662,9 @@ struct ContentView: View {
     /// (`PaneLogic.pinRoom`). Over the workspace until the first measure, which draws nothing.
     @State var askClaudeRowWidth: CGFloat = 0
     @State var askClaudePinState = PaneLogic.PinVerdict.overlay
+    /// The room rule has answered for a measured row. Until then `askClaudePinState` is a
+    /// placeholder, not an answer the first real one keeps the 40 pt margin from.
+    @State var askClaudePinDecided = false
     /// The window's own edge is being dragged: the panel does not switch until it is let go.
     @State var askClaudeWindowResizing = false
     /// The pin is folding Organize's folder pane or Edit's list (its fold is computed, never stored):
@@ -673,10 +676,6 @@ struct ContentView: View {
     /// which is taken down whenever the inspector shows a folder or folds the picture away.
     /// `@State` on a class, for `lensSession`'s reason: owned, not observed.
     @State var inspectorDownloads = InspectorDownloads()
-    /// The Get Info target as a node of its own, for one no pane's tree holds — a differences row
-    /// outside the folder the pane is in, a file the pane's filter hides. Made when Get Info is
-    /// chosen, never in `body`, and read only while its path is still the target.
-    @State var infoNode: FileNode?
     /// The preview's share of the Info inspector's height: set by dragging the bar under it, kept
     /// across launches, and most of the panel until the user says otherwise.
     @AppStorage("infoInspectorPreviewFraction") var inspectorPreviewFraction: Double =
@@ -704,10 +703,12 @@ struct ContentView: View {
     /// Whether the pointer is on each pane's strip — a reference, so crossing a strip re-renders
     /// nothing. Read only when a close asks whether to hold.
     @State var tabStripPointer = PaneTabStripPointer()
-    /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
-    /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
-    /// follows the selection again.
-    @State var infoPath: String? = nil
+    /// The explicit "Get Info" targets, one per pane, from a pane or differences-row right-click.
+    /// Each overrides its own pane's selection in that pane's Info, and is cleared when that pane's
+    /// selection changes, so its Info then follows the selection again. Each carries the target as a
+    /// node of its own, for one no pane's tree holds — a differences row outside the folder the pane
+    /// is in, a file the pane's filter hides — made when Get Info is chosen, never in `body`.
+    @State var infoTargets = PaneInfoTargets()
 
     @State var bannerDismissScheduler = BannerDismissScheduler()
     /// Where the reader last clicked in Organize and Edit — their source pane, or the lens or
@@ -1626,11 +1627,11 @@ struct ContentView: View {
         // This pair, not the handler above, because that handler returns early during discovery and
         // on a pane swap, and a swap moves the lens source just as surely as the source menu.
         .onChange(of: leftProviderId) { _, _ in
-            infoPath = nil
+            infoTargets.clear(isLeft: true)
             clearPersonScope()
         }
         .onChange(of: rightProviderId) { _, _ in
-            infoPath = nil
+            infoTargets.clear(isLeft: false)
             clearPersonScope()
         }
         .onChange(of: selectedWorkspace) { _, workspace in
@@ -1640,7 +1641,7 @@ struct ContentView: View {
             // values are a pinned persistence format that says "Filing" where the user reads
             // "Organize".
             Logger.shared.info("User switched to \(workspace.title)")
-            infoPath = nil
+            infoTargets.clearAll()
             // A person gather does not survive leaving the workspace it was opened from: it takes
             // the lens slot everywhere, so Compare would show someone's files instead of the
             // differences. Here, not in `workspaceSelection`'s setter, because programmatic
@@ -1937,7 +1938,7 @@ struct ContentView: View {
     /// Computed, so a workspace switch applies its remembered state with no plumbing. Read through
     /// `TopPaneVisibility.overrides`' one-entry memo rather than `decodeOverrides`, because it is
     /// read from dozens of sites per body pass and each direct read would parse the JSON again.
-    /// The panes as DRAWN: the stored fold, or the one the pinned Ask Claude column makes for itself.
+    /// The panes as DRAWN: the stored fold, or the one the docked Ask Claude column makes for itself.
     /// Everything that lays out or enables a control reads this. What records or writes a fold reads
     /// `panesStoredHiddenForCurrentTab`, so the pin's fold is never stored over a fold made by hand.
     var panesHiddenForCurrentTab: Bool {
@@ -2356,10 +2357,11 @@ struct ContentView: View {
     }
 
     /// "Get Info" from a pane or differences-row right-click: show the in-app Info for the path (not
-    /// Finder's Get Info), in the pane that holds it (`openPaneInfo`).
+    /// Finder's Get Info), in the pane that holds it (`openPaneInfo`). The target is that pane's
+    /// alone: the other pane's Get Info target and selection are left as they are.
     func showInfo(for path: String) {
-        infoPath = path
-        infoNode = nil
+        let isLeft = paneInfoTargetIsLeft(for: path)
+        infoTargets.aim(path, isLeft: isLeft)
         openPaneInfo(for: path)
         // Off the main thread, with its date: a stat on a provider that has stopped answering would
         // hang the app at the click, and without the date a file previewed this way would not
@@ -2371,20 +2373,19 @@ struct ContentView: View {
                 return FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: values.isDirectory ?? false,
                                 modificationDate: values.contentModificationDate)
             }.value
-            guard infoPath == path else { return }
-            infoNode = node
+            infoTargets.found(node, for: path, isLeft: isLeft)
         }
     }
 
-    /// A change of the left pane's selection retires an explicit Get Info target, so the inspector
-    /// follows the new selection — unless the change is the app's own payment of an owed selection,
+    /// A change of the left pane's selection retires the left pane's Get Info target (never the
+    /// right's), so its Info follows the new selection — unless the change is the app's own payment of an owed selection,
     /// marked `editorPaneSelectionPaid` before it is written. That payment can land a moment after
     /// the open it was owed for, when the user may have used a rail row's Get Info on another file,
     /// and a write they did not make must not jump the inspector. **Called before
     /// `openSelectedPaneFileInEditor`**, which consumes the marker.
     func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {
         if Self.leftSelectionClearsInfoTarget(paths, paidSelection: editorPaneSelectionPaid) {
-            infoPath = nil
+            infoTargets.clear(isLeft: true)
         }
     }
 
@@ -2394,14 +2395,14 @@ struct ContentView: View {
         return paths != [paidSelection]
     }
 
-    /// The right pane's half. Paying an owed selection clears the right pane, whatever it holds, as
-    /// a left-pane click would, and that clear is not the user's either, so it keeps a Get Info
-    /// target as the left-pane write does. The marker is one-shot: consumed by the change it
-    /// announced.
+    /// The right pane's half, for the right pane's target alone. Paying an owed selection clears the
+    /// right pane, whatever it holds, as a left-pane click would, and that clear is not the user's
+    /// either, so it keeps a Get Info target as the left-pane write does. The marker is one-shot:
+    /// consumed by the change it announced.
     func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {
         let paid = editorPaneRightClearPaid
         editorPaneRightClearPaid = false
-        if Self.rightSelectionClearsInfoTarget(paths, clearWasPaid: paid) { infoPath = nil }
+        if Self.rightSelectionClearsInfoTarget(paths, clearWasPaid: paid) { infoTargets.clear(isLeft: false) }
     }
 
     /// The rule: every change but the app's own clear.

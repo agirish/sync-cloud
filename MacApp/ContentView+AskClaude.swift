@@ -73,6 +73,10 @@ extension ContentView {
             gutter: LiquidGlass.gutter(surfaceStyle),
             sidebarShown: folderSidebarPreference(for: selectedWorkspace) && selectedWorkspace.supportsFolderSidebar,
             sidebarStored: CGFloat(browseSidebarWidthRaw),
+            // The sidebar brought back alone beside Organize's folded pane (LJ).
+            sidebarReopenedByHand: askClaudePinSidebarShown,
+            // The rail's split as drawn: a drag's value while there is one.
+            railFraction: railDragFraction ?? railFraction,
             // Nothing for the pin to fold where the person already has: Edit with the pane folded and
             // the list folded or put away too, Organize with its pane folded.
             foldedByHand: selectedWorkspace == .editor
@@ -82,9 +86,12 @@ extension ContentView {
             canFold: true)
     }
 
-    /// Runs the room rule. Called as its input changes.
+    /// Runs the room rule. Called as its input changes. Until the row is first measured there is no
+    /// previous answer, so the first real one is decided fresh, with no margin for a line the window
+    /// never crossed.
     func askClaudePinInputChanged(_ input: PaneLogic.PinRoomInput) {
-        let verdict = PaneLogic.pinRoom(input, previous: askClaudePinState)
+        let verdict = PaneLogic.pinRoom(input, previous: askClaudePinDecided ? askClaudePinState : nil)
+        if input.rowWidth > 0 { askClaudePinDecided = true }
         if verdict != askClaudePinState {
             withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { askClaudePinState = verdict }
         }
@@ -835,8 +842,9 @@ extension ContentView {
         if showHelp { return "Help is open" }
         if showSetup || shouldAutoShowSetup { return "setup is open" }
         if syncManager.currentError != nil { return "an error message is open" }
-        // The column is in the window these overlays cover, so it pauses under them.
-        if askClaudeOpen, compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
+        // The column is in the window these overlays cover: open, it pauses under them, and closed,
+        // ◨ and ⌘J don't open it beneath one.
+        if compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
         return nil
     }
 
@@ -1000,15 +1008,19 @@ extension ContentView {
                         .map { SettingsPlace($0) }
                         ?? tab.flatMap(SettingsPlace.holding)
                         ?? (tab == nil ? SettingsPlace(.intelligence) : nil)
-                    guard let chosen else { return false }
+                    guard let chosen else { return .noSuchPlace }
                     openSettings(on: chosen)
                 case "info", "inspector":
                     // The Info of the pane you last used.
                     let isLeft = shortcutTabTargetIsLeft
-                    guard paneInfoAvailable(isLeft: isLeft) else { return false }
+                    guard paneInfoAvailable(isLeft: isLeft) else { return .unavailable(paneInfoUnavailableSentence) }
                     setPaneInfo(isLeft: isLeft, visible)
                 case "sidebar":
-                    guard folderSidebarIsAvailable else { return false }
+                    guard folderSidebarIsAvailable else {
+                        return .unavailable(selectedWorkspace.supportsFolderSidebar
+                                            ? "The sidebar isn’t available here: the pane it belongs to is folded."
+                                            : "The sidebar isn’t available here: \(selectedWorkspace.title) has no sidebar.")
+                    }
                     setFolderSidebarVisible(visible)
                 case "activity", "log", "activity log":
                     openWindow(id: ActivityCenter.windowID)
@@ -1018,9 +1030,9 @@ extension ContentView {
                     // As the sidebar's own Trash row does: the Trash is Finder's to show.
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: NSHomeDirectory() + "/.Trash")
                 default:
-                    return false
+                    return .noSuchPlace
                 }
-                return true
+                return .shown
             },
             settingsLookup: askClaudeSettingsLookup,
             chatIsOpen: askClaudeHolder.visibility.isOpen && ((askClaudePinState.fits && askClaudeMeasured) || !askClaudeHolder.visibility.tucked),
@@ -1634,17 +1646,16 @@ struct AskClaudeHost: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background { AskClaudeAnchorHost(visibility: visibility, dock: dock, isBusy: isBusy, panel: panel, onOpenChange: onOpenChange) }
+            .background {
+                AskClaudeAnchorHost(visibility: visibility, dock: dock, isBusy: isBusy, panel: panel, onOpenChange: onOpenChange,
+                                    onLiveResize: onLiveResize)
+            }
             .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in onPrivacyChange() }
             .focusedSceneValue(\.askClaude, toggle)
             .onChange(of: pinInput, initial: true) { _, input in onPinInput(input) }
             // The fold is over (the column went, or the window has the room): the next one starts
             // afresh, with the sidebar away.
             .onChange(of: foldWanted) { _, wanted in if !wanted { onFoldEnded() } }
-            // The window's own edge: nothing switches while it is dragged, and what it left is
-            // decided the moment it is let go.
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willStartLiveResizeNotification)) { _ in onLiveResize(true) }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndLiveResizeNotification)) { _ in onLiveResize(false) }
             // The first time a key is saved the column opens by itself, once, and only when nothing
             // else is up.
             .onAppear { onFirstUse() }
@@ -1664,6 +1675,8 @@ private struct AskClaudeAnchorHost: View {
     let isBusy: Bool
     let panel: () -> AnyView
     let onOpenChange: (Bool) -> Void
+    /// This window's own edge is dragged or let go: the anchor watches its window alone.
+    let onLiveResize: (Bool) -> Void
     /// Bumped when the hidden list changes: the window doesn't redraw for that, and the panel's
     /// header and shield must (the panel is rebuilt from live state each time this body runs).
     @State private var privacyChanges = 0
@@ -1673,7 +1686,8 @@ private struct AskClaudeAnchorHost: View {
         // Built only while open: every redraw of the window rebuilds it otherwise.
         AskClaudeDockAnchor(dock: dock, isOpen: visibility.isOpen, isSuspended: isBusy,
                             content: visibility.isOpen ? panel() : AnyView(EmptyView()),
-                            onClose: { visibility.isOpen = false; visibility.tucked = false })
+                            onClose: { visibility.isOpen = false; visibility.tucked = false },
+                            onLiveResize: onLiveResize)
             .frame(width: 0, height: 0)
             .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in privacyChanges += 1 }
             // A row's Ask Claude About This brings an open column's text box the keyboard.

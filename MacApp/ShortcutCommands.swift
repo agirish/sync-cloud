@@ -2441,7 +2441,7 @@ struct CloseTabCommand: View {
     /// Static and injectable so the rule can be tested without a key window. A `switch`, not
     /// `if let`, so a fourth state can't be added without the compiler asking what ⌘W does in it.
     static func run(_ close: CloseTabAction?, closeColumn: (() -> Void)? = nil, closeWindow: () -> Void) {
-        // The pinned Ask Claude column has the keyboard: ⌘W closes the panel, never a pane tab or
+        // The Ask Claude column has the keyboard: ⌘W closes the panel, never a pane tab or
         // the window. Decided now, not when the menu was drawn: the keyboard moves without a redraw.
         if let closeColumn {
             closeColumn()

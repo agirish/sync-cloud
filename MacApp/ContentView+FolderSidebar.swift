@@ -49,7 +49,7 @@ extension ContentView {
             preference: folderSidebarPreference(for: selectedWorkspace) && !folderSidebarHeldByExpand)
     }
 
-    /// Whether the pinned Ask Claude column is holding Organize's folder pane folded, and the
+    /// Whether the docked Ask Claude column is holding Organize's folder pane folded, and the
     /// sidebar with it: Organize only, since Edit's sidebar already outlives a collapse.
     var folderSidebarHeldByPinFold: Bool {
         selectedWorkspace == .filing && askClaudePinFoldActive

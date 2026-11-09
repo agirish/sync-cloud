@@ -8,11 +8,11 @@ import Testing
 @Suite struct PinRoomTests {
 
     private func input(_ workspace: PaneLogic.PinWorkspace, _ row: CGFloat, sidebar: Bool = true, gutter: CGFloat = 0,
-                       reopened: Bool = false, foldedByHand: Bool = false, dragging: Bool = false,
-                       canFold: Bool = true) -> PaneLogic.PinRoomInput {
+                       reopened: Bool = false, railFraction: Double = 0.28, foldedByHand: Bool = false,
+                       dragging: Bool = false, canFold: Bool = true) -> PaneLogic.PinRoomInput {
         PaneLogic.PinRoomInput(workspace: workspace, rowWidth: row, columnWidth: 373, gutter: gutter,
                                sidebarShown: sidebar, sidebarStored: 180, sidebarReopenedByHand: reopened,
-                               foldedByHand: foldedByHand, dragging: dragging, canFold: canFold)
+                               railFraction: railFraction, foldedByHand: foldedByHand, dragging: dragging, canFold: canFold)
     }
 
     private func verdict(_ i: PaneLogic.PinRoomInput, after previous: PaneLogic.PinVerdict? = nil) -> PaneLogic.PinVerdict {
@@ -53,6 +53,21 @@ import Testing
         #expect(verdict(input(.organize, 747)) == .init(fits: true, folds: true))
         #expect(verdict(input(.organize, 897, reopened: true)).fits == false)
         #expect(verdict(input(.organize, 898, reopened: true)).fits)
+    }
+
+    /// To File is what the rail leaves, so a wider rail folds sooner: at 1,400 pt the default 28%
+    /// rail leaves To File 609 pt, a 45% rail 465.
+    @Test func organizesFoldLineMovesWithTheRailsSplit() {
+        #expect(verdict(input(.organize, 1400)) == .init(fits: true, folds: false))
+        #expect(verdict(input(.organize, 1400, railFraction: 0.45)) == .init(fits: true, folds: true))
+    }
+
+    /// The window feeds the rule the sidebar it brought back by hand and the rail's split as drawn,
+    /// a drag's value first. Before, neither reached it, and the rule read its defaults.
+    @Test func theWindowFeedsTheRuleTheReopenedSidebarAndTheLiveRail() throws {
+        let call = try CallArguments(of: "PaneLogic.PinRoomInput(", in: normalizedCode(macAppFile("ContentView+AskClaude.swift")))
+        #expect(call.passes("sidebarReopenedByHand", "askClaudePinSidebarShown"))
+        #expect(call.passes("railFraction", "railDragFraction ?? railFraction"))
     }
 
     @Test func aPaneFoldedByHandIsNeverTheOnesToFold() {

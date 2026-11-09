@@ -128,10 +128,29 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
     var tucksOnOutsideClick = false
     var onTuck: () -> Void = {}
 
-    /// A click outside an overlaid column tucks it away. The click itself goes on to what it was aimed at.
+    /// The column's resize handle, on its seam: it reaches this far past the column's leading edge,
+    /// and a press there is the column's own, never a click in the workspace.
+    static let resizeHandleThickness: CGFloat = 10
+    /// How far inside the window's edges a press may be a resize rather than a click in the workspace.
+    static let windowEdgeMargin: CGFloat = 5
+
+    /// A click in the workspace outside an overlaid column tucks it away. The click itself goes on to
+    /// what it was aimed at. A press in the titlebar or toolbar (◨ among them), at the window's edge
+    /// (a resize) or on the column's own resize handle is not a click in the workspace.
     func tuckIfOutside(_ event: NSEvent) {
-        guard tucksOnOutsideClick, event.window === window, !isPaused else { return }
-        if !bounds.contains(convert(event.locationInWindow, from: nil)) { onTuck() }
+        guard tucksOnOutsideClick, event.window === window, !isPaused, let window else { return }
+        let point = event.locationInWindow
+        let workspace = window.contentLayoutRect.insetBy(dx: Self.windowEdgeMargin, dy: 0)
+        guard workspace.contains(point), point.y >= workspace.minY + Self.windowEdgeMargin else { return }
+        if !pressIsInside(convert(point, from: nil)) { onTuck() }
+    }
+
+    /// The column, and its resize handle on the leading edge.
+    private func pressIsInside(_ point: NSPoint) -> Bool {
+        var inside = bounds
+        inside.origin.x -= Self.resizeHandleThickness
+        inside.size.width += Self.resizeHandleThickness
+        return inside.contains(point)
     }
 
     /// After the click is handled, the keyboard is in the column if nothing in it took it.

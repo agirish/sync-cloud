@@ -76,7 +76,7 @@ extension ContentView {
     var editorRailIsDrawn: Bool {
         TopPaneVisibility.editorRailIsDrawn(paneHidden: panesHiddenForCurrentTab,
                                             railHidden: editorRailHidden,
-                                            // The hand fold, or the one the pinned Ask Claude column makes.
+                                            // The hand fold, or the one the docked Ask Claude column makes.
                                             railFolded: editorRailFolded || askClaudePinFoldActive)
     }
 
