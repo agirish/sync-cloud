@@ -23,16 +23,16 @@ extension ContentView {
         return selectedWorkspace == .browse ? paneInfoBrowseOn : paneInfoRailOn
     }
 
-    /// Whether that pane's Info is drawn: on, and not held away by Ask Claude's fold of Organize's pane.
+    /// Whether that pane's Info is drawn: on, and not held away by Ask Claude's fold of the pane.
     func paneInfoShows(isLeft: Bool) -> Bool {
-        paneInfoIsOn(isLeft: isLeft) && !(isLeft && organizePinFoldHoldsInfo)
+        paneInfoIsOn(isLeft: isLeft) && !(isLeft && pinFoldHoldsInfo)
     }
 
     func setPaneInfo(isLeft: Bool, _ on: Bool) {
         withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
-            // Asked for while Ask Claude's column folds Organize's pane: the pane opens, as it does
-            // for its own button, and Info shows in it.
-            if on, isLeft, organizePinFoldHoldsInfo { askClaudeReleasePinFold() }
+            // Asked for while Ask Claude's column folds Organize's or Edit's pane: the pane opens,
+            // as it does for its own button, and Info shows in it.
+            if on, isLeft, pinFoldHoldsInfo { askClaudeReleasePinFold() }
             if layoutMode == .compare {
                 if isLeft { paneInfoLeftOn = on } else { paneInfoRightOn = on }
             } else if selectedWorkspace == .browse {
@@ -62,16 +62,23 @@ extension ContentView {
         selectedWorkspace == .filing && layoutMode == .singleSource && panesStoredHiddenForCurrentTab
     }
 
-    /// Organize's folder pane is folded only for Ask Claude's column (computed, never stored). Asking
-    /// for its Info opens the pane, which ends that fold, and Info shows in it (`setPaneInfo`).
-    var organizePinFoldHoldsInfo: Bool {
-        selectedWorkspace == .filing && layoutMode == .singleSource && panesHiddenForCurrentTab
-            && !panesStoredHiddenForCurrentTab
+    /// Organize's folder pane or Edit's file pane is folded only for Ask Claude's column (computed,
+    /// never stored). Asking for its Info opens the pane, which ends that fold, and Info shows in it
+    /// (`setPaneInfo`).
+    var pinFoldHoldsInfo: Bool {
+        Self.pinFoldHoldsInfo(workspace: selectedWorkspace, drawnHidden: panesHiddenForCurrentTab,
+                              storedHidden: panesStoredHiddenForCurrentTab)
+    }
+
+    /// The rule: Organize or Edit, with the pane drawn folded though the person left it open. Edit's
+    /// pane folded by hand stays as it is, and its Info unavailable, as without the column.
+    static func pinFoldHoldsInfo(workspace: Workspace, drawnHidden: Bool, storedHidden: Bool) -> Bool {
+        (workspace == .filing || workspace == .editor) && drawnHidden && !storedHidden
     }
 
     /// Whether Info can be shown for the pane on that side right now.
     func paneInfoAvailable(isLeft: Bool) -> Bool {
-        paneIsOnScreen(isLeft: isLeft) || (isLeft && (organizeSpineHoldsInfo || organizePinFoldHoldsInfo))
+        paneIsOnScreen(isLeft: isLeft) || (isLeft && (organizeSpineHoldsInfo || pinFoldHoldsInfo))
     }
 
     /// What a pane header needs to draw its Info button; nil where the pane has none (Edit with its

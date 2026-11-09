@@ -329,7 +329,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 if ctx.isHidden(folder.absolute) { return hiddenFolder() }
                 guard Self.isFolder(folder.absolute) else {
                     return AskClaudeToolOutcome(result: "There is no folder \(folder.label) in \(sourceName).", isError: true,
-                                                step: Self.sentence("No folder \(folder.label)"))
+                                                step: Self.sentence("No folder \(folder.label)"),
+                                                logStep: "No folder that (no match, \(folder.label.count) characters)")
                 }
             }
             if let name = call.string("tab"), Self.tab(named: name, in: ctx.tabs) == nil {
@@ -337,15 +338,18 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                             isError: true, step: "No tab \(name)", logStep: "No tab that (no match, \(name.count) characters)")
             }
             if let history = call.string("history")?.lowercased(), history != "back", history != "forward" {
-                return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)")
+                return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)",
+                                            logStep: "No history that (no match, \(history.count) characters)")
             }
         case .view:
             let sorts = ["name", "kind", "date", "date modified", "size", "tags"]
             if let sort = call.string("sort"), !sorts.contains(sort.lowercased()) {
-                return AskClaudeToolOutcome(result: "Sort by name, kind, date, size or tags.", isError: true, step: "No sort called \(sort)")
+                return AskClaudeToolOutcome(result: "Sort by name, kind, date, size or tags.", isError: true, step: "No sort called \(sort)",
+                                            logStep: "No sort called that (no match, \(sort.count) characters)")
             }
             if let mode = call.string("mode"), !["columns", "list", "tree"].contains(mode.lowercased()) {
-                return AskClaudeToolOutcome(result: "The view is columns or list.", isError: true, step: "No view called \(mode)")
+                return AskClaudeToolOutcome(result: "The view is columns or list.", isError: true, step: "No view called \(mode)",
+                                            logStep: "No view called that (no match, \(mode.count) characters)")
             }
         case .open, .reveal:
             if let path = call.string("handle").flatMap(handles.path(for:)),
@@ -636,7 +640,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .showInApp:
             let place = (call.string("place") ?? "").lowercased()
             if let busy = ctx.busyReason {
-                return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open \(place): \(busy)")
+                return AskClaudeToolOutcome(result: "Can’t open it right now: \(busy).", isError: true, step: "Didn’t open \(place): \(busy)",
+                                            logStep: "Didn’t open that (\(place.count) characters): \(busy)")
             }
             let visible = call.input["visible"]?.boolValue ?? true
             let names = ["info": "Info", "inspector": "Info", "sidebar": "the sidebar"]
@@ -691,7 +696,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if loaded == nil { loaded = await listDisk(folder.absolute) }
         guard let everything = loaded else {
             return AskClaudeToolOutcome(result: "\(folder.label) couldn’t be read: it may not exist, or the cloud is slow to answer.",
-                                        isError: true, step: Self.sentence("\(folder.label) couldn’t be read"))
+                                        isError: true, step: Self.sentence("\(folder.label) couldn’t be read"),
+                                        logStep: "A folder couldn’t be read (\(folder.label.count) characters)")
         }
         let items = everything.filter { !ctx.isHidden($0.id) }
         let from = max(0, call.int("from") ?? 0)
@@ -711,7 +717,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             // a card, as a search inside files does.
             let found = AskClaudeFoundNames(words: "", folderLabel: folder.label, names: page.map(\.name), count: items.count,
                                             rows: lines.joined(separator: "\n"), paths: page.map(\.id), files: files,
-                                            header: header, source: .listing)
+                                            header: header, source: .listing, folderPath: folder.absolute)
             return AskClaudeToolOutcome(result: Self.heldNames("\(AskClaudeScreenCard.escape(folder.label)) holds \(Self.count(items.count, "item")), on their Mac."),
                                         step: step, found: found)
         }
@@ -832,7 +838,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             // Names found beyond the folder on screen wait on a card for their click.
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: hits.map(\.name), count: total,
                                             rows: lines.joined(separator: "\n"), paths: hits.map(\.id), files: files, header: header,
-                                            source: .names, fromIndex: searchedIndex, allFiles: !hits.contains(where: \.isDirectory))
+                                            source: .names, fromIndex: searchedIndex, allFiles: !hits.contains(where: \.isDirectory),
+                                            folderPath: folder.absolute)
             let who = searchedIndex ? "Spotlight found" : "The folders the pane has opened hold"
             return AskClaudeToolOutcome(result: Self.heldNames("\(who) \(total) match\(total == 1 ? "" : "es") for “\(label)” under \(AskClaudeScreenCard.escape(folder.label)), on their Mac."),
                                         step: step, logStep: logStep, found: found)
@@ -1152,7 +1159,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if let history = call.string("history")?.lowercased() {
             guard history == "back" || history == "forward" else {
-                return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)")
+                return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)",
+                                            logStep: "No history that (no match, \(history.count) characters)")
             }
             guard ctx.history(history == "forward") else {
                 return AskClaudeToolOutcome(result: "There’s nowhere to go \(history).", isError: true, step: "Nowhere to go \(history)")
@@ -1209,7 +1217,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                     if ctx.isHidden(resolved.absolute) { return hiddenFolder() }
                     guard Self.isFolder(resolved.absolute) else {
                         return AskClaudeToolOutcome(result: "There is no folder \(resolved.label) in \(source.name).", isError: true,
-                                                    step: Self.sentence("No folder \(resolved.label) in \(source.name)"))
+                                                    step: Self.sentence("No folder \(resolved.label) in \(source.name)"),
+                                                    logStep: "No folder that (no match, \(resolved.label.count) characters)")
                     }
                     target = resolved
                 }
@@ -1236,7 +1245,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if now.isHidden(folder.absolute) { return hiddenFolder() }
             guard Self.isFolder(folder.absolute) else {
                 return AskClaudeToolOutcome(result: "There is no folder \(folder.label) in \(now.sourceName).", isError: true,
-                                            step: Self.sentence("No folder \(folder.label)"))
+                                            step: Self.sentence("No folder \(folder.label)"),
+                                            logStep: "No folder that (no match, \(folder.label.count) characters)")
             }
             if !(now.inBrowse && now.folder == folder.relative) {
                 now.goTo(folder.absolute)
@@ -1293,7 +1303,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if ctx.isHidden(resolved.absolute) { return hiddenFolder() }
             guard Self.isFolder(resolved.absolute) else {
                 return AskClaudeToolOutcome(result: "There is no folder \(resolved.label) in \(source.name).", isError: true,
-                                            step: Self.sentence("No folder \(resolved.label) in \(source.name)"))
+                                            step: Self.sentence("No folder \(resolved.label) in \(source.name)"),
+                                            logStep: "No folder that (no match, \(resolved.label.count) characters)")
             }
             target = resolved
         }
@@ -1564,7 +1575,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 // Whether any file mentions a word says what the files hold, so even "none" waits:
                 // a count of 0 or 1 in a folder of one file is the answer.
                 let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: [], count: 0, rows: noMatch,
-                                                paths: [], files: [], header: noMatch)
+                                                paths: [], files: [], header: noMatch, folderPath: folder.absolute)
                 return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: "Found no text matching “\(label)”",
                                             logStep: "Searched contents under \(folder.label): 0 hit(s), held on a card", found: found)
             }
@@ -1603,7 +1614,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let listed = nodes.prefix(Self.maxFound)
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
                                             count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id),
-                                            files: files, header: header)
+                                            files: files, header: header, folderPath: folder.absolute)
             return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: step, logStep: logStep, found: found)
         }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step, logStep: logStep)
@@ -2230,7 +2241,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var done: [String] = []
         if let sort = call.string("sort") {
             guard ctx.setSort(sort) else {
-                return AskClaudeToolOutcome(result: "Sort by name, kind, date, size or tags.", isError: true, step: "No sort called \(sort)")
+                return AskClaudeToolOutcome(result: "Sort by name, kind, date, size or tags.", isError: true, step: "No sort called \(sort)",
+                                            logStep: "No sort called that (no match, \(sort.count) characters)")
             }
             done.append("Sorted by \(sort)")
         }
@@ -2240,7 +2252,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if let mode = call.string("mode") {
             guard ctx.setMode(mode) else {
-                return AskClaudeToolOutcome(result: "The view is columns or list.", isError: true, step: "No view called \(mode)")
+                return AskClaudeToolOutcome(result: "The view is columns or list.", isError: true, step: "No view called \(mode)",
+                                            logStep: "No view called that (no match, \(mode.count) characters)")
             }
             done.append("Switched to \(mode)")
         }

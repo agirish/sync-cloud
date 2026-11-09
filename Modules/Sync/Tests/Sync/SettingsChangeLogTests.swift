@@ -207,6 +207,25 @@ import EventsTestSupport
                 "the change made while the move was refused was lost")
     }
 
+    /// A file spoilt while the app runs is set aside, and the fresh record keeps every row this copy
+    /// holds, its own written ones and those it can't read included: the spoilt file no longer has them.
+    @Test func aFileSpoiltMidSessionKeepsTheRowsThisCopyHolds() throws {
+        let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+        let url = record(in: dir)
+        let first = change("First", at: Date().addingTimeInterval(-2))
+        let json = String(data: try JSONEncoder().encode([first]), encoding: .utf8)!
+        try ("[{\"how\":\"someday\",\"name\":\"Future\"}," + json.dropFirst()).write(to: url, atomically: true, encoding: .utf8)
+        let log = SettingsChangeLog(fileURL: url)
+        log.record(change("Second", at: Date().addingTimeInterval(-1)))
+        try "{ not a list".write(to: url, atomically: true, encoding: .utf8)
+
+        log.record(change("Third"))
+        #expect(setAsidesBeside(url).count == 1)
+        #expect(SettingsChangeLog(fileURL: url).changes.map(\.name) == ["First", "Second", "Third"],
+                "rows this copy wrote before the file was spoilt were dropped")
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("someday"), "the row this build can't read was dropped")
+    }
+
     @Test func whatNamesAHiddenItemIsShownWithoutItsWords() {
         let url = file(); defer { try? FileManager.default.removeItem(at: url) }
         let log = SettingsChangeLog(fileURL: url)

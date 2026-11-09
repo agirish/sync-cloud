@@ -14,9 +14,21 @@ import Events
 /// The heavy synchronous work (PDF parse, OCR) runs on a dedicated queue so it never blocks the
 /// Swift cooperative thread pool.
 enum ContentSignalExtractor {
-    /// The running scan's warning budget, set for the extraction `workQueue` is running.
-    /// Touched only on `workQueue`, which is serial.
-    nonisolated(unsafe) private static var budget: FilingWarningBudget?
+    /// The running scan's warning budget, for the extraction this thread is running. `workQueue`
+    /// is concurrent, so the budget rides on the thread, set for one block by ``withBudget(_:_:)``.
+    private static var budget: FilingWarningBudget? {
+        Thread.current.threadDictionary[budgetKey] as? FilingWarningBudget
+    }
+    private static let budgetKey = "SyncCloud.FilingWarningBudget"
+
+    /// Runs `body` on this thread with `budget` as its warning budget.
+    private static func withBudget<T>(_ budget: FilingWarningBudget?, _ body: () -> T) -> T {
+        let thread = Thread.current.threadDictionary
+        let previous = thread[budgetKey]
+        thread[budgetKey] = budget
+        defer { thread[budgetKey] = previous }
+        return body()
+    }
 
     /// Logs a per-file read warning, or keeps the name for the scan's closing line once the
     /// budget is spent. With no budget (a read outside a scan) every warning is logged.
@@ -46,10 +58,7 @@ enum ContentSignalExtractor {
             // Read here, in the task: a task-local isn't visible inside the queue's block.
             let budget = FilingWarningBudget.current
             workQueue.async {
-                // The queue is serial, so one extraction at a time sees this budget.
-                Self.budget = budget
-                defer { Self.budget = nil }
-                continuation.resume(returning: extractSync(path))
+                continuation.resume(returning: withBudget(budget) { extractSync(path) })
             }
         }
     }
@@ -118,8 +127,10 @@ enum ContentSignalExtractor {
     /// bounds as the token path — nothing leaves the device.
     static func snippet(forFileAt path: String) async -> String? {
         await withCheckedContinuation { continuation in
+            // Read here, in the task: a task-local isn't visible inside the queue's block.
+            let budget = FilingWarningBudget.current
             workQueue.async {
-                let text = extractTextSync(URL(fileURLWithPath: path))
+                let text = withBudget(budget) { extractTextSync(URL(fileURLWithPath: path)) }
                 continuation.resume(returning: text.isEmpty ? nil : text)
             }
         }

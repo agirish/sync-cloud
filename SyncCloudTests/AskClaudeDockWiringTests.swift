@@ -40,7 +40,65 @@ import Foundation
         #expect(spine.contains("panesStoredHiddenForCurrentTab"))
         #expect(!spine.contains("panesHiddenForCurrentTab"), "the drawn fold, the dock's included, again")
         let set = CodeText(try declarationBody(of: "func setPaneInfo(isLeft: Bool, _ on: Bool) {", in: source))
-        #expect(set.contains("if on, isLeft, organizePinFoldHoldsInfo { askClaudeReleasePinFold() }"))
+        #expect(set.contains("if on, isLeft, pinFoldHoldsInfo { askClaudeReleasePinFold() }"))
+    }
+
+    /// Under the dock's fold, Edit's file pane is drawn folded though the person left it open: ⌘I
+    /// and Get Info open it, as Organize's do, rather than call it hidden. A pane the person folded
+    /// stays folded, and Info unavailable, as without the column.
+    @Test func infoUnderTheDocksFoldOpensEditsPaneToo() throws {
+        #expect(ContentView.pinFoldHoldsInfo(workspace: .editor, drawnHidden: true, storedHidden: false),
+                "Edit's pane under the dock's fold has no way to Info")
+        #expect(ContentView.pinFoldHoldsInfo(workspace: .filing, drawnHidden: true, storedHidden: false))
+        #expect(!ContentView.pinFoldHoldsInfo(workspace: .editor, drawnHidden: true, storedHidden: true), "a hand fold")
+        #expect(!ContentView.pinFoldHoldsInfo(workspace: .editor, drawnHidden: false, storedHidden: false), "nothing folded")
+        #expect(!ContentView.pinFoldHoldsInfo(workspace: .browse, drawnHidden: true, storedHidden: false))
+        #expect(!ContentView.pinFoldHoldsInfo(workspace: .compare, drawnHidden: true, storedHidden: false))
+        // The window: ⌘I's availability and Info's drawing read it.
+        let source = try Self.paneInfo()
+        let rule = CodeText(try declarationBody(of: "var pinFoldHoldsInfo: Bool {", in: source))
+        #expect(rule.contains("Self.pinFoldHoldsInfo(workspace: selectedWorkspace, drawnHidden: panesHiddenForCurrentTab, storedHidden: panesStoredHiddenForCurrentTab)"))
+        let available = CodeText(try declarationBody(of: "func paneInfoAvailable(isLeft: Bool) -> Bool {", in: source))
+        #expect(available.contains("organizeSpineHoldsInfo || pinFoldHoldsInfo"))
+    }
+
+    /// Docked, the column has no tuck: one made over a narrow window ends when it docks, so ◨, the
+    /// header's ✕ and ⌘J close it at the first press, and narrowing again draws it over the
+    /// workspace rather than hiding it.
+    @MainActor @Test func aTuckEndsWhenTheColumnDocks() throws {
+        let visibility = AskClaudeVisibility(restoredOpen: true)
+        visibility.tucked = true
+        visibility.toggle()
+        #expect(visibility.isOpen && !visibility.tucked, "over the workspace, the first press brings it back")
+        visibility.tucked = true
+        visibility.columnDocked()
+        #expect(!visibility.tucked, "docked, the column kept its tuck")
+        visibility.toggle()
+        #expect(!visibility.isOpen, "◨ on a docked column did not close it")
+        // The window: the room rule's handler ends the tuck on a docked answer, and ◨ runs the rule.
+        let source = try Self.askClaude()
+        let handler = CodeText(try declarationBody(of: "func askClaudePinInputChanged(_ input: PaneLogic.PinRoomInput) {", in: source))
+        #expect(handler.contains("if verdict.fits, input.rowWidth > 0 { askClaudeHolder.visibility.columnDocked() }"))
+        let toggle = CodeText(try declarationBody(of: "func toggleAskClaude() {", in: source))
+        #expect(toggle.contains("visibility.toggle()"))
+    }
+
+    /// A pane opened by hand under the dock's fold is released until the rule stops wanting the
+    /// fold, not until the column stops being docked: the release sends the column over the
+    /// workspace when the opened pane leaves no room, and ending it there would fold the pane again
+    /// at once. A workspace switch ends it too, so Edit's list folds after Organize's was opened.
+    @Test func theReleaseLastsUntilTheFoldIsOverOrTheWorkspaceChanges() throws {
+        let source = try Self.askClaude()
+        let held = CodeText(try declarationBody(of: "var askClaudePinFoldHeld: Bool {", in: source))
+        #expect(held.contains("askClaudePinState.folds"))
+        #expect(!held.contains("askClaudePinnedShown") && !held.contains("askClaudePinFoldWanted") && !held.contains(".fits"),
+                "the release ends again whenever the column is drawn over the workspace")
+        #expect(try CallArguments(of: "AskClaudeHost(", in: normalizedCode(source)).passes("foldHeld", "askClaudePinFoldHeld"))
+        let host = CodeText(try declarationBody(of: "struct AskClaudeHost: ViewModifier {", in: source))
+        #expect(host.contains(".onChange(of: foldHeld) { _, held in if !held { onFoldEnded() } }"))
+        let window = try macAppFile("ContentView.swift")
+        let switched = CodeText(try declarationBody(of: ".onChange(of: selectedWorkspace) { _, workspace in", in: window))
+        #expect(switched.contains("askClaudePinFoldEnded()"), "a release outlives its workspace")
     }
 
     /// `show_in_app info` where no pane can show Info says why, rather than that there is no place

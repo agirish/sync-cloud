@@ -133,7 +133,8 @@ struct AskClaudePanel: View {
             chat.draftToRestore = nil
             composerFocused = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)) { _ in refreshSpent() }
+        // Posted from wherever a cost is recorded, Organize's Refine off the main thread included.
+        .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange).receive(on: RunLoop.main)) { _ in refreshSpent() }
         // The limit is set in Settings, which writes it straight to the defaults.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in refreshSpent() }
         // The box takes the keyboard back once the answer is in, and VoiceOver hears that it is.

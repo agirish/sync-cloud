@@ -11,9 +11,8 @@ import Foundation
 ///   too, until the one-time carry-over has read it.
 /// - What he made by hand: Rules, saved signatures, Organize corrections, kept duplicate groups and
 ///   risky names, the people he said a file is not about, sidebar Favorites, Jump pins and their
-///   order. The legacy filing rules keep their "migrated" flag, or the next launch would bring back
-///   rules he deleted. What he only passed through (Jump recents, recent files, the signature
-///   sheet's last pen) resets.
+///   order. What he only passed through (Jump recents, recent files, the signature sheet's last
+///   pen) resets.
 /// - Migration marks: the app writes current-shape data at once after a reset, so a dropped mark
 ///   would migrate it again, and the roots moves are not idempotent (`RootsMigration.stampKey`).
 ///

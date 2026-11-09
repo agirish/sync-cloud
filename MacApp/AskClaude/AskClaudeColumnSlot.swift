@@ -67,6 +67,29 @@ struct AskClaudeColumnSlot: View {
     }
 }
 
+/// ◨'s act on the column, and what docking does to a tuck: the rules `toggleAskClaude` and the room
+/// rule's handler run, here so a test can walk them.
+extension AskClaudeVisibility {
+    /// Opens the column, or closes it. Tucked away over a narrow window, the first press brings it
+    /// back instead.
+    func toggle() {
+        if isOpen, tucked {
+            tucked = false
+        } else {
+            isOpen.toggle()
+            tucked = false
+            restored = false
+        }
+    }
+
+    /// The column docked beside the workspace. A tuck hides only a column drawn over the workspace,
+    /// so it ends here: kept, ◨, the header's ✕ and ⌘J would only untuck a column already on screen,
+    /// and the next narrowing would hide it rather than draw it over the workspace.
+    func columnDocked() {
+        if tucked { tucked = false }
+    }
+}
+
 /// The room the row keeps for a docked column, so the workspace is narrower by its width. Nothing
 /// when it is closed, tucked or drawn over the workspace. Its own view, observing `visibility`.
 struct AskClaudeReserve: View {

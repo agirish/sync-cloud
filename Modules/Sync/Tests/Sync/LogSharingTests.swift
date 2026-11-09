@@ -76,6 +76,51 @@ import Testing
         #expect(LogSharing.roster(profilesDirectory: nil).isEmpty)
     }
 
+    /// With no `people.json`, Settings ▸ People shows a list suggested from the folder survey;
+    /// those names are masked too.
+    @Test func aSuggestedListIsMaskedToo() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("LogSharing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let folder = dir.appendingPathComponent("father")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(FilingProfileStoreTests.profileJSON.utf8).write(to: folder.appendingPathComponent("folder-profile.json"))
+        let roster = LogSharing.roster(profilesDirectory: dir)
+        #expect(!roster.isEmpty)
+        let masked = LogSharing.mask("Filed for Father, Mother; Mom and Granny", home: "/Users/jdoe", people: roster)
+        for name in ["Father", "Mother", "Mom", "Granny"] { #expect(!masked.contains(name), "\(masked)") }
+    }
+
+    /// One id in two profiles: the forms either gives go, not only the first profile's.
+    @Test func theSameIdInTwoProfilesKeepsEveryForm() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("LogSharing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func write(_ profile: String, _ json: String) throws {
+            let folder = dir.appendingPathComponent(profile)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(json.utf8).write(to: folder.appendingPathComponent("people.json"))
+        }
+        try write("a", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna","fullNames":[],"aliases":[]}]}"#)
+        try write("b", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna","fullNames":["Anna Kowalczyk"],"aliases":["Mutti"]}]}"#)
+        let roster = LogSharing.roster(profilesDirectory: dir)
+        #expect(roster.map(\.id) == ["anna"])
+        let masked = LogSharing.mask("Mutti and Anna Kowalczyk", home: "/Users/jdoe", people: roster)
+        #expect(masked == "<person 1> and <person 1>")
+    }
+
+    /// A surname goes however it is joined to the first name, or on its own.
+    @Test func aSurnameGoesInAnySpelling() {
+        for text in ["Anna_Smith_W2.pdf", "Smith, Anna", "Anna  Smith", "Anna\u{00A0}Smith", "Anna%20Smith", "SMITH ANNA"] {
+            #expect(!mask(text).localizedCaseInsensitiveContains("smith"), "\(text) → \(mask(text))")
+        }
+        // Words of a name are still whole words: "Smithson" stays.
+        #expect(mask("Smithson") == "Smithson")
+    }
+
+    @Test func anEmailWithAccentsGoesWhole() {
+        #expect(mask("anna@müller.de wrote") == "<account> wrote")
+        #expect(mask("zoé.x@exemple.fr") == "<account>")
+    }
+
     @Test func theCopyOpensWithItsHeaderAndHoldsTheMaskedFile() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("LogSharing-\(UUID().uuidString).log")
         defer { try? FileManager.default.removeItem(at: file) }

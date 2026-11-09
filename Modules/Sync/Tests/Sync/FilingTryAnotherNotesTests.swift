@@ -94,6 +94,40 @@ extension HandBuiltRefineSuites {
         #expect(reports.list == [FilingTryAnotherReport(fileName: c.fileName, filePath: c.filePath, outcome: .answered, costUSD: 0.003, modelName: m.filingRefineModelName)])
     }
 
+    /// The click asks Claude about what this Mac showed; it rejects nothing, so no folder he never
+    /// turned down goes as "avoid" or is remembered against other files.
+    @Test func theClickRejectsNothingThisMacShowed() async throws {
+        let claude = Counter()
+        let m = manager(claude)
+        let root = try await scanned(m); defer { try? FileManager.default.removeItem(at: root) }
+        await m.tryAnotherFolder(for: try card(m))
+        let shown = try #require(try card(m).best?.path)
+        #expect(shown.hasSuffix("Archive/2026"))
+        let rejectionsBefore = m.filingRejections
+
+        await m.tryAnotherFolder(for: try card(m), askingClaudeWithPage: true)
+
+        #expect(claude.count == 1)
+        #expect(m.filingSessionRejections[try card(m).filePath]?.contains(shown) != true)
+        #expect(m.filingRejections == rejectionsBefore)
+    }
+
+    /// This Mac found no other folder, so the card has none: the click still asks Claude.
+    @Test func theClickAsksClaudeWhenThisMacFoundNothing() async throws {
+        let claude = Counter()
+        let m = manager(claude)
+        let root = try await scanned(m); defer { try? FileManager.default.removeItem(at: root) }
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.tryAnotherFolder(for: try card(m))
+        #expect(try card(m).best == nil)
+        #expect(m.filingTryAnotherNotes[try card(m).filePath]?.offersClaudeWithPage == true)
+
+        await m.tryAnotherFolder(for: try card(m), askingClaudeWithPage: true)
+
+        #expect(claude.count == 1, "the click is the request")
+        #expect(try card(m).best?.path.hasSuffix("Projects/Taxes") == true)
+    }
+
     @Test func aSharedFolderAsksClaudeOnTheOrdinaryClickAndOffersNothing() async throws {
         let claude = Counter()
         let m = manager(claude)

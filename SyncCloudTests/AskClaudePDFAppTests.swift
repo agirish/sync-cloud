@@ -147,20 +147,23 @@ import Sync
     // MARK: Handles, minted as the line is sent
 
     /// A file a line names gets its handle when the line is sent: the same handle every time for
-    /// the same file, and none for one now hidden from Claude.
+    /// the same file. A line marking a file now hidden from Claude is left out whole, its name, new
+    /// home and reason too, even beside a file that isn't hidden; a line says one was.
     @Test func linesGetTheirHandlesAsTheyAreSent() {
         var handles = AskClaudeHandles()
         let earlier = handles.handle(for: "/d/Other.pdf")
-        let lines = ["They compressed “A.pdf”: “A (compressed).pdf” \(AskClaudeChat.fileMark("/d/A (compressed).pdf")), 3 pages.",
-                     "And again \(AskClaudeChat.fileMark("/d/A (compressed).pdf")).",
-                     "Hidden: \(AskClaudeChat.fileMark("/secret/B.pdf"))."]
+        let lines = ["“Lab Results.pdf” \(AskClaudeChat.fileMark("/secret/Lab Results.pdf")) → Medical/2026 (a blood panel), "
+                        + "beside \(AskClaudeChat.fileMark("/d/A (compressed).pdf")).",
+                     "They compressed “A.pdf”: “A (compressed).pdf” \(AskClaudeChat.fileMark("/d/A (compressed).pdf")), 3 pages.",
+                     "And again \(AskClaudeChat.fileMark("/d/A (compressed).pdf"))."]
         let sent = AskClaudeChat.minted(lines, handles: &handles, isHidden: { $0.hasPrefix("/secret") })
         let handle = handles.handle(for: "/d/A (compressed).pdf")
         #expect(handle != earlier)
-        #expect(sent[0] == "They compressed “A.pdf”: “A (compressed).pdf” (\(handle)), 3 pages.")
-        #expect(sent[1] == "And again (\(handle)).")
-        #expect(sent[2] == "Hidden: (in a folder hidden from you).")
+        #expect(sent == ["They compressed “A.pdf”: “A (compressed).pdf” (\(handle)), 3 pages.",
+                         "And again (\(handle)).",
+                         "A note about a file in a folder hidden from you was left out."])
         #expect(handles.path(for: handle) == "/d/A (compressed).pdf")
+        #expect(!sent.joined().contains("Lab Results") && !sent.joined().contains("Medical/2026"), "a hidden file's line reached Claude")
         #expect(!sent.joined().contains("⟦"), "a mark reached Claude")
     }
 

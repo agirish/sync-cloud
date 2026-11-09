@@ -779,7 +779,9 @@ enum PaneLogic {
         /// drawn over the workspace's right edge instead, and folds nothing.
         var fits: Bool
         /// Organize's folder pane (and its sidebar with it) or Edit's file list is folded for the
-        /// column. Only when `fits`.
+        /// column. Only when `fits`, except after the person opened the folded pane by hand
+        /// (`foldReleasedByHand`): then it says the rule still wants the fold, so the release holds
+        /// while the column is drawn over the workspace for want of room beside the opened pane.
         var folds: Bool
 
         static let overlay = PinVerdict(fits: false, folds: false)
@@ -797,8 +799,11 @@ enum PaneLogic {
         /// The sidebar the workspace would draw by preference, and the width stored for it.
         var sidebarShown: Bool
         var sidebarStored: CGFloat
-        /// The sidebar was brought back alone while the pin holds Organize's fold (LJ).
+        /// The sidebar was brought back alone while the pin holds Organize's fold (LJ). Drawn
+        /// whatever `sidebarShown` says: that is the preference, and this is not.
         var sidebarReopenedByHand = false
+        /// The person opened the pane the pin folded: it is drawn open, so the rule measures it open.
+        var foldReleasedByHand = false
         /// Organize's rail fraction.
         var railFraction: Double = 0.28
         /// The folder pane (Organize) or file list (Edit) is already folded, by hand.
@@ -856,8 +861,9 @@ enum PaneLogic {
             unfoldedNeed = sidebarFloor + 2 * minComparePaneWidth
         case .organize:
             unfoldedNeed = sidebarFloor + minRailWidth + minLensWorkspaceWidth
-            // Folded, the sidebar goes with the pane unless it was brought back by hand.
-            foldedNeed = spine + minLensWorkspaceWidth + (input.sidebarReopenedByHand ? sidebarFloor : 0)
+            // Folded, the sidebar goes with the pane unless it was brought back by hand, which
+            // draws it with the shared sidebar setting off too.
+            foldedNeed = spine + minLensWorkspaceWidth + (input.sidebarReopenedByHand ? minSidebarWidth + overhead : 0)
             if input.foldedByHand { unfoldedNeed = foldedNeed ?? unfoldedNeed }
             let lens = (width - sidebarSlot) * (1 - CGFloat(input.railFraction))
             comfort = (lens, comfortableLensWidth)
@@ -876,10 +882,14 @@ enum PaneLogic {
             let line = previous?.folds == true ? comfort.line + pinHysteresis : comfort.line
             folds = comfort.width < line
         }
-        let needed = folds ? (foldedNeed ?? unfoldedNeed) : unfoldedNeed
+        // A fold the person ended by opening the pane is measured open: with no room for the
+        // opened pane beside the column, the column goes over the workspace rather than squeezing
+        // it below its minimum, and the release holds there (`folds` stays) until the fold is over.
+        let released = folds && input.foldReleasedByHand
+        let needed = folds && !released ? (foldedNeed ?? unfoldedNeed) : unfoldedNeed
         // Drawn over the workspace, it docks again only once the window is 40 pt past what it needs.
         let margin: CGFloat = previous.map { $0.fits ? 0 : pinHysteresis } ?? 0
-        guard width >= needed + margin else { return .overlay }
+        guard width >= needed + margin else { return released ? PinVerdict(fits: false, folds: true) : .overlay }
         return PinVerdict(fits: true, folds: folds)
     }
 

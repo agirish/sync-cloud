@@ -668,8 +668,9 @@ struct ContentView: View {
     /// The window's own edge is being dragged: the panel does not switch until it is let go.
     @State var askClaudeWindowResizing = false
     /// The pin is folding Organize's folder pane or Edit's list (its fold is computed, never stored):
-    /// the person opened it by hand, which ends the pin's fold until the column goes or there is
-    /// room again, and the sidebar they brought back alone while Organize's pane is folded.
+    /// the person opened it by hand, which ends the pin's fold until the column goes, there is room
+    /// again or the workspace changes, and the sidebar they brought back alone while Organize's pane
+    /// is folded.
     @State var askClaudePinFoldReleased = false
     @State var askClaudePinSidebarShown = false
     /// The inspector preview's downloads, owned here so a "Downloading…" outlives the preview,
@@ -1642,6 +1643,9 @@ struct ContentView: View {
             // "Organize".
             Logger.shared.info("User switched to \(workspace.title)")
             infoTargets.clearAll()
+            // A pane opened by hand under Ask Claude's fold was that workspace's: Organize to Edit
+            // with both folding, Edit's list folds as the rule says, not open for a pane left behind.
+            askClaudePinFoldEnded()
             // A person gather does not survive leaving the workspace it was opened from: it takes
             // the lens slot everywhere, so Compare would show someone's files instead of the
             // differences. Here, not in `workspaceSelection`'s setter, because programmatic
@@ -2384,15 +2388,24 @@ struct ContentView: View {
     /// and a write they did not make must not jump the inspector. **Called before
     /// `openSelectedPaneFileInEditor`**, which consumes the marker.
     func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {
-        if Self.leftSelectionClearsInfoTarget(paths, paidSelection: editorPaneSelectionPaid) {
+        if Self.leftSelectionClearsInfoTarget(paths, paidSelection: editorPaneSelectionPaid,
+                                              otherPane: syncManager.selectedRightPaths) {
             infoTargets.clear(isLeft: true)
         }
     }
 
-    /// The rule: every change but the one the app marked as its own write.
-    static func leftSelectionClearsInfoTarget(_ paths: Set<String>, paidSelection: String?) -> Bool {
+    /// The rule: every change but the one the app marked as its own write, and the clear a click in
+    /// the other pane makes (`PaneLogic.reconciledSelections`).
+    static func leftSelectionClearsInfoTarget(_ paths: Set<String>, paidSelection: String?, otherPane: Set<String>) -> Bool {
+        if clearedForTheOtherPane(paths, otherPane: otherPane) { return false }
         guard let paidSelection else { return true }
         return paths != [paidSelection]
+    }
+
+    /// A pane's selection emptied while the other pane holds one: the one-pane-selected rule's clear
+    /// for a click over there, not this pane's own change. Its Get Info target stays.
+    static func clearedForTheOtherPane(_ paths: Set<String>, otherPane: Set<String>) -> Bool {
+        paths.isEmpty && !otherPane.isEmpty
     }
 
     /// The right pane's half, for the right pane's target alone. Paying an owed selection clears the
@@ -2402,12 +2415,15 @@ struct ContentView: View {
     func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {
         let paid = editorPaneRightClearPaid
         editorPaneRightClearPaid = false
-        if Self.rightSelectionClearsInfoTarget(paths, clearWasPaid: paid) { infoTargets.clear(isLeft: false) }
+        if Self.rightSelectionClearsInfoTarget(paths, clearWasPaid: paid, otherPane: syncManager.selectedLeftPaths) {
+            infoTargets.clear(isLeft: false)
+        }
     }
 
-    /// The rule: every change but the app's own clear.
-    static func rightSelectionClearsInfoTarget(_ paths: Set<String>, clearWasPaid: Bool) -> Bool {
-        !(clearWasPaid && paths.isEmpty)
+    /// The rule: every change but the app's own clear, and the clear a click in the other pane makes.
+    static func rightSelectionClearsInfoTarget(_ paths: Set<String>, clearWasPaid: Bool, otherPane: Set<String>) -> Bool {
+        if clearedForTheOtherPane(paths, otherPane: otherPane) { return false }
+        return !(clearWasPaid && paths.isEmpty)
     }
 
     /// Opens each pane at its source's landing folder (`openAt`). Runs once, inside the

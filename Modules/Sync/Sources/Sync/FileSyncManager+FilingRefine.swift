@@ -116,6 +116,14 @@ extension FileSyncManager {
         }.count
     }
 
+    /// The lists that decide what a pass may send: hidden, shared without asking, and left out
+    /// with Customize….
+    func refinePrivacyLists() -> [[String]] {
+        [AskClaudePrivacy.hiddenFolders(in: filingContentDefaults),
+         AskClaudePrivacy.sharedFolders(in: filingContentDefaults),
+         filingRefineLeftOutFolders.sorted()]
+    }
+
     /// The Hidden from Claude list (``AskClaudePrivacy``), read once per pass. Every `.refine`-tier
     /// request honours it: no file, folder name, excerpt or rejected folder inside a hidden folder
     /// goes to the backend. Read from `filingContentDefaults`, `.standard` in the app, so tests
@@ -209,6 +217,11 @@ extension FileSyncManager {
         let eligible: [FilingSuggestion]
         let hiddenCount: Int
         let hidden: AskClaudePrivacy.Matcher
+        /// The hidden, shared and left-out folders as the request was built against them: a change
+        /// before the send (a download, the cache read) stops it.
+        let privacyLists: [[String]]
+        /// Whether the pass routed to Claude when its saved answers were keyed.
+        let routedToCloud: Bool
         let existingRelative: Set<String>
         let preAwaitGeneration: Int
         let excludedByFile: [String: [String]]
@@ -258,6 +271,7 @@ extension FileSyncManager {
                          classifier: @escaping FilingClassifier,
                          options: FilingRefineOptions = FilingRefineOptions()) async -> RefineWork? {
         // Once per pass: the matcher resolves each parent folder once and keeps it.
+        let privacyLists = refinePrivacyLists()
         let hidden = claudeHiddenMatcher()
         // Folders left out by Customize… on the plan card, for the session: they go nowhere, like a
         // hidden folder's name, but the shortlists and the cache are not about a privacy list.
@@ -295,6 +309,7 @@ extension FileSyncManager {
 
         // Split against the cache first (see the doc above for why this precedes the pre-flight).
         let identity = resolvedFilingVerdictIdentity(for: .refine)
+        let routedToCloud = filingRoutesToCloud(.refine)
         let downloadsBeforeAsking = filingReadsContents && filingSnippetExtractor != nil
             && filingRoutesToCloud(.refine)
         let hadReader = filingReadsContents && filingSnippetExtractor != nil
@@ -495,7 +510,7 @@ extension FileSyncManager {
             alternative = (alt.files, alt.context, altCloudOnly.count)
         }
         return RefineWork(root: root, classifier: classifier, eligible: eligible, hiddenCount: hiddenCount,
-                          hidden: hidden, existingRelative: existingRelative,
+                          hidden: hidden, privacyLists: privacyLists, routedToCloud: routedToCloud, existingRelative: existingRelative,
                           preAwaitGeneration: preAwaitGeneration, excludedByFile: excludedByFile,
                           keysByFile: keysByFile, cachedVerdicts: cachedVerdicts, cachedWithPage: cachedWithPage,
                           cloudOnly: cloudOnly,
@@ -539,6 +554,18 @@ extension FileSyncManager {
                 + (pending.isEmpty ? "" : ", \(pending.count) still downloading")
                 + (refused == 0 ? "" : ", \(refused) refused"))
         }
+        // The download and the build's own reads awaited: what the request was built against
+        // must still hold, with no await from here to the send. A folder hidden, or taken off the
+        // shared list, meanwhile would otherwise still go; another provider, or a pass that took
+        // this one's place, would be answered against the wrong tree.
+        // The route too: the saved answers were keyed to whoever answers, and an answer from this
+        // Mac must not be saved as Claude's.
+        guard declined || (filingRefineInFlight == invocation && filingLastProviderRoot == root
+              && filingSuggestionsGeneration == preAwaitGeneration && refinePrivacyLists() == work.privacyLists
+              && filingRoutesToCloud(.refine) == work.routedToCloud) else {
+            Logger.shared.info("Filing: refine not sent — the list, the provider, where it goes or the folders hidden from or shared with Claude changed while it got ready")
+            return nil
+        }
         (files, shortlists, context) = request(snippets)
         // What a classifier saw, whichever one it was. Separate from `classifiedCount` ("sent to
         // Claude", the billable figure): a downgraded pass classifies every file on-device while
@@ -547,7 +574,7 @@ extension FileSyncManager {
         var result: FilingRefineResult?
         // Whose answers these are, the cached ones included: the cache is keyed by the backend, so
         // a pass routed to Claude reuses only Claude's. An unreadable key routes on-device.
-        let answersAreClaudes = filingRoutesToCloud(.refine)
+        let answersAreClaudes = work.routedToCloud
         if !files.isEmpty, !declined {
             let fresh: [String: FilingVerdict]
             if answersAreClaudes, let refiner = filingRefineClassifier {
@@ -558,7 +585,8 @@ extension FileSyncManager {
                 let run = Task { stopped ? FilingRefineResult(ending: .stopped) : await refiner(context, files) }
                 filingRefineRun = run
                 let reply = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
-                filingRefineRun = nil
+                // Only its own: a pass that replaced this one (after `clearFiling()`) holds the slot now.
+                if filingRefineRun == run { filingRefineRun = nil }
                 result = reply
                 fresh = reply.verdicts
                 sentToBackend = reply.sent

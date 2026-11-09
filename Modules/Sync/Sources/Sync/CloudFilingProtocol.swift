@@ -95,16 +95,6 @@ public enum CloudFilingProtocol {
             shape(for: model, toolChoice: .auto, strict: false)
         }
 
-        /// The shape Refine sends to `model`: the 5.5 request for a model Ask Claude offers (the live check
-        /// of 2026-11-07 found it works on all three), and today's request, streamed, for the older
-        /// models Refine runs on until it moves to the chat's model (TE335, E4).
-        public static func forRefine(model: String) -> RequestShape {
-            if let option = AskClaudeModels.options.first(where: { $0.id == model }) { return current(for: option) }
-            var shape = legacy
-            shape.stream = true
-            return shape
-        }
-
         /// 4,000 output tokens of room for low-effort thinking, on top of 80 per placement.
         public static let thinkingAllowance = 4_000
 

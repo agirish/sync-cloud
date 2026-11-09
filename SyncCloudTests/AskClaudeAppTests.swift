@@ -943,6 +943,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(found.header?.hasPrefix("2 files under") == true)
         #expect(handles.count == 0 && found.files?.allSatisfy { $0.row.hasPrefix("|") } == true)
         #expect(Set(found.paths) == [receipt, biopsy])
+        #expect(found.folderPath == Self.root + "/Documents/Taxes", "a share refuses by the folder searched once it is hidden")
         let on = await runner(sharesRoot: true).run(search, handles: &handles)
         #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
     }
@@ -971,6 +972,17 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         }
         // A workspace that doesn't exist.
         outcomes.append(("go_to workspace", await tools().run(call("go_to", ["workspace": .string(words)]), handles: &handles)))
+        // A folder Claude guessed, and arguments it made up, before the switch to Browse and in it.
+        for inBrowse in [false, true] {
+            let place = inBrowse ? "in Browse" : "before Browse"
+            outcomes.append(("go_to folder \(place)", await tools(inBrowse: inBrowse).run(
+                call("go_to", ["folder": .string("Documents/\(words)")]), handles: &handles)))
+            outcomes.append(("go_to history \(place)", await tools(inBrowse: inBrowse).run(
+                call("go_to", ["history": .string(words)]), handles: &handles)))
+        }
+        for key in ["sort", "mode"] {
+            outcomes.append(("view \(key)", await tools(inBrowse: false).run(call("view", [key: .string(words)]), handles: &handles)))
+        }
         for (name, out) in outcomes {
             // The step names them, so the log would have them without a logStep.
             #expect(out.step.contains(words) || out.found != nil, "\(name): \(out.step)")
@@ -1037,6 +1049,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(elsewhere.result.contains("Their names weren’t sent to you") && !elsewhere.result.contains("Costco"))
         let found = try #require(elsewhere.found)
         #expect(found.source == .names && found.fromIndex == false && found.count == 2 && found.files?.count == 2)
+        #expect(found.folderPath == Self.root + "/Documents")
         #expect(found.rows.contains("Receipt Costco 2025.pdf|PDF document|1 KB|") && found.rows.contains("|Documents/Taxes"))
         #expect(AskClaudeHeldAnswer.foundTitle(found) == "SyncCloud found 2 files named “receipt 2025” in Documents, among the folders it has opened:")
         #expect(elsewhere.step == "Found 2 for “receipt 2025”")
@@ -1055,6 +1068,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(archive.result.hasPrefix("Documents/Archive holds 1 item, on their Mac.") && !archive.result.contains("2019"))
         let listing = try #require(archive.found)
         #expect(listing.source == .listing && listing.noun == "item" && listing.files?.first?.folder == "Documents/Archive")
+        #expect(listing.folderPath == Self.root + "/Documents/Archive")
         #expect(AskClaudeHeldAnswer.foundTitle(listing) == "Documents/Archive holds 1 item, on this Mac:")
         #expect(listing.header?.hasSuffix("rows: handle|name|kind|size|modified|tags|folder") == true)
         // Shared without asking, or the chat's tick: the rows go.
@@ -1092,6 +1106,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(none.result.contains("not even how many") && !none.result.contains("No file"))
         let card = try #require(none.found)
         #expect(card.count == 0 && card.files?.isEmpty == true)
+        #expect(card.folderPath == Self.root + "/Documents/Taxes", "a search that found nothing refuses by its folder once it is hidden")
         #expect(AskClaudeHeldAnswer.foundTitle(card) == "Spotlight found no files mentioning “biopsy” in Documents/Taxes, on this Mac.")
         let one = await runner(hits: [receipt]).run(search, handles: &handles)
         #expect(one.result == none.result)
@@ -2459,6 +2474,77 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(shared.items.last?.kind == .note("Didn’t ask again: it shares what was found in Biopsy results.pdf, which is in a folder hidden from Claude now."))
     }
 
+    /// A search that found nothing still says what the folder's files hold: once the folder is
+    /// hidden, its card refuses at the click, and its share asked again (Retry, Ask Again) refuses
+    /// too, naming the folder, rather than going to the new chat the hide starts.
+    @Test func aSearchThatFoundNothingIsRefusedOnceItsFolderIsHidden() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        func chat() async throws -> (AskClaudeChat, UUID) {
+            let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
+            chat.ask("does anything mention my diagnosis?", screen: screen, tools: FindsNothing()); await waitUntilIdle(chat)
+            return (chat, try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id))
+        }
+        let (held, card) = try await chat()
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(held.takeFound(card) == nil)
+        #expect(held.items.contains { $0.kind == .note("Didn’t share that no file mentions “diagnosis”: the folder searched is hidden from Claude now.") })
+        #expect(!held.items.contains { if case .found = $0.kind { true } else { false } })
+        AskClaudePrivacy.setHiddenFolders([], in: d)
+        let (shared, id) = try await chat()
+        let share = try #require(shared.takeFound(id))
+        #expect(share.shown == "Shared that no file mentions “diagnosis”")
+        shared.ask(share.question, shown: share.shown, screen: screen, tools: NoTools()); await waitUntilIdle(shared)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        let before = shared.items.count
+        shared.ask(share.question, shown: share.shown, screen: screen, tools: NoTools()); await waitUntilIdle(shared)
+        #expect(shared.items.count == before + 1)
+        #expect(shared.items.last?.kind == .note("Didn’t ask again: it shares what was found in Medical, which is in a folder hidden from Claude now."))
+    }
+
+    /// A share's rows carry this chat's handles. Asked again (Retry, Ask Again) when the next
+    /// question starts a new chat, whose handles count from r1 again, it is refused, as its card
+    /// would be: a carried r2 could name another file there.
+    @Test func aShareAskedAgainIsRefusedWhenTheChatStartsOver() async throws {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
+        chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+        let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id)
+        let share = try #require(chat.takeFound(card))
+        #expect(share.question.range(of: #"\nr\d+\|"#, options: .regularExpression) != nil, "premise: the share carries handles")
+        chat.ask(share.question, shown: share.shown, screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        // A folder the share has nothing in, hidden: the next question starts a new chat.
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Work"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(chat.startsOverAtNextQuestion)
+        let before = chat.items
+        chat.ask(share.question, shown: share.shown, screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(Array(chat.items.dropLast()) == before, "the chat started over for a question it then sent")
+        #expect(chat.items.last?.kind == .note("Didn’t ask again: a folder was hidden from Claude since this chat began, so the next question starts a new chat, without what this one shares. Ask again to read it afresh."))
+        // A question of his own still starts the new chat.
+        chat.ask("anything else?", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.items.first?.kind == .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays."))
+    }
+
+    /// A folder hidden before the chat's first question is hidden from its start: a later change to
+    /// the list that hides nothing new doesn't count it as hidden since and restart the chat.
+    @Test func aFolderHiddenBeforeTheFirstQuestionIsHiddenFromTheStart() async {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        // Another change, a folder shared without asking say, posts the same news.
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(!chat.startsOverAtNextQuestion)
+        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        #expect(chat.items.first?.kind == .user("one"))
+    }
+
     /// A share of the first page of a long list says so, and how to see the rest; a card saved
     /// with the old on-card ticks keeps them.
     @Test func aPartOfALongListIsSharedAsAPart() async throws {
@@ -2864,6 +2950,18 @@ private final class FindsNames: AskClaudeToolRunning {
                                                         rows: "rows: handle|name\nr1|Biopsy results.pdf",
                                                         paths: names.map { "/Users/me/Medical/" + $0 }, files: files,
                                                         header: "8 files under iCloud › Medical contain “diagnosis”, newest period first:\nrows: handle|name|kind|size|modified|tags|folder"))
+    }
+}
+
+/// A search inside files that found nothing, held on a card.
+@MainActor
+private final class FindsNothing: AskClaudeToolRunning {
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let none = "No file under iCloud › Medical has text matching “diagnosis”."
+        return AskClaudeToolOutcome(result: "held", step: "Found no text matching “diagnosis”",
+                                    found: AskClaudeFoundNames(words: "diagnosis", folderLabel: "iCloud › Medical", names: [], count: 0,
+                                                               rows: none, paths: [], files: [], header: none,
+                                                               folderPath: "/Users/me/Medical"))
     }
 }
 
@@ -3775,6 +3873,42 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(AskClaudeChat.lasts(.refine(done)))
         var closed = card(); closed.phase = .closed
         #expect(!AskClaudeChat.lasts(.refine(closed)))
+    }
+
+    /// A Refine card's update isn't them talking to Claude: an hour after the last question the
+    /// next one starts a new chat however recently a card changed, so a cold transcript isn't
+    /// replayed at uncached prices. The thread, card and all, is still kept across a relaunch for
+    /// the hour after it changed; and a chat with no question yet has nothing to start over.
+    @Test func aCardsUpdateKeepsTheThreadButNotClaudesChat() async throws {
+        let d = defaults()
+        let url = store()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock }, storeURL: url)
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        clock += 50 * 60
+        let id = chat.addRefineCard(card())
+        clock += 5 * 60
+        chat.updateRefine(id) { $0.phase = .done; $0.answers = .init() }
+        chat.noteTryAnother(FilingTryAnotherReport(fileName: "a.pdf", outcome: .answered, costUSD: 0.01, modelName: "Opus 5.5"))
+        clock += 10 * 60
+        #expect(chat.startsOverAtNextQuestion, "a card's update kept Claude's chat going past the hour")
+
+        let back = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock }, storeURL: url)
+        #expect(back.refineCard(id)?.phase == .done, "the thread changed within the hour, so it comes back")
+        #expect(back.startsOverAtNextQuestion, "and its next question still starts a new chat")
+
+        // That new chat keeps the answered Refine card, newer than the question, with its Undo.
+        back.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(back)
+        #expect(back.refineCard(id)?.phase == .done, "the new chat dropped a Refine card answered minutes ago")
+        #expect(back.items.contains { if case .note(let text) = $0.kind { return text == "Started a new chat after an hour away." } else { return false } })
+
+        let cardsOnly = makeChat(OneLineTransport(text: "hi"), defaults: defaults("cardsOnly"), now: { clock })
+        _ = cardsOnly.addRefineCard(card())
+        clock += 2 * 3600
+        #expect(!cardsOnly.startsOverAtNextQuestion, "no question yet: nothing to replay, and the card would go")
     }
 
     /// "This hour" means it: a Try Another after the line's hour starts a new line.

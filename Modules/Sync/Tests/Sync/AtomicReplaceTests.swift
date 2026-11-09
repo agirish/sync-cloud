@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import EventsTestSupport
 @testable import Sync
 
 /// `safeCopyItem`/`safeMoveItem` replace an existing destination through the atomic `replaceItem`
@@ -26,6 +27,32 @@ import Foundation
 
     private func seed(_ inner: MockFileManager, path: String, size: Int) {
         inner.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
+    }
+
+    /// Trashes as asked but, like a Trash that can't say where it put the item, reports no location.
+    private final class SilentTrashFileManager: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
+        override func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            try inner.trashItem(at: url, resultingItemURL: nil)
+            outResultingURL?.pointee = nil
+        }
+    }
+
+    /// A Replace is recorded at Info even when the Trash names no location for the old version:
+    /// the collision line a Replace writes is Debug, so this line is the only record.
+    @MainActor
+    @Test func aReplaceWhoseBackupTheTrashCannotPlaceIsStillLogged() async throws {
+        let log = LogCapture()
+        let inner = MockFileManager()
+        let folder = "/dst-\(UUID().uuidString)"
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: folder), withIntermediateDirectories: true)
+        seed(inner, path: "/src/f.txt", size: 100)
+        seed(inner, path: "\(folder)/f.txt", size: 5)
+
+        _ = try FileSyncManager.safeCopyItem(at: URL(fileURLWithPath: "/src/f.txt"), to: URL(fileURLWithPath: "\(folder)/f.txt"),
+                                             fileManager: SilentTrashFileManager(inner: inner))
+
+        #expect(await log.holds(.info, containing: "Replaced \(folder)/f.txt — previous version moved to the Trash"))
     }
 
     // MARK: - Parity: the dest-exists replace goes through the atomic primitive, no trash-then-move

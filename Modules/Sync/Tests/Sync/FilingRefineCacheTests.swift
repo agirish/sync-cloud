@@ -172,15 +172,11 @@ import Testing
 
     // MARK: The request
 
-    @Test func refineSendsTheFiveFiveRequestToTheModelsAskClaudeOffersAndTodaysToTheOlderOnes() {
+    /// Refine runs on the chat's model (E4), so every request is the 5.5 shape, streamed.
+    @Test func refineSendsTheFiveFiveRequestToEveryModelAskClaudeOffers() {
         for option in AskClaudeModels.options {
-            let shape = CloudFilingProtocol.RequestShape.forRefine(model: option.id)
-            #expect(shape == .current(for: option))
-            #expect(shape.toolChoice == .auto && shape.stream)
-        }
-        for older in ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "some-hand-set-model"] {
-            let shape = CloudFilingProtocol.RequestShape.forRefine(model: older)
-            #expect(shape.toolChoice == .forced && shape.stream && shape.strict, "\(older): today's request, streamed")
+            let shape = CloudFilingProtocol.RequestShape.current(for: option)
+            #expect(shape.toolChoice == .auto && shape.stream, "\(option.id)")
         }
     }
 }

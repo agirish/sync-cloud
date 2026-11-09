@@ -135,15 +135,19 @@ public final class SettingsChangeLog: ObservableObject {
     /// another copy trimmed or cleared stay gone; only a row this copy couldn't write is added back.
     public func record(_ change: SettingsChange) {
         let disk = Self.load(fileURL, fileManager: fileManager)
-        // Spoilt since it was opened: the write below must set it aside first, not replace it.
-        if disk.fileIsUnreadable { fileIsUnreadable = true }
+        // Spoilt since it was opened: the write below must set it aside first, not replace it. Every
+        // row this copy holds is then in no readable file, so the fresh record keeps them all.
+        if disk.fileIsUnreadable {
+            fileIsUnreadable = true
+            unwritten = Set(changes.map(\.id))
+        }
         let onDisk = Set(disk.changes.map(\.id))
         let merged = disk.changes + changes.filter { unwritten.contains($0.id) && !onDisk.contains($0.id) } + [change]
         // Oldest first by when each was made, so the trim drops the oldest whichever copy wrote it.
         let ordered = merged.enumerated().sorted { ($0.element.at, $0.offset) < ($1.element.at, $1.offset) }.map(\.element)
         changes = Self.trimmed(ordered, now: Date())
-        // Rows this build can't read only ever come from the file.
-        unreadable = disk.unreadable
+        // Rows this build can't read only ever come from the file, as last read: a spoilt one has none.
+        if !disk.fileIsUnreadable { unreadable = disk.unreadable }
         unwritten = save() ? [] : unwritten.union([change.id])
     }
 

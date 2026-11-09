@@ -326,7 +326,8 @@ extension FileSyncManager {
             learnFromFiling(fileName: item.from.lastPathComponent, sourcePath: item.from.path,
                             into: item.to.deletingLastPathComponent().path, filedPath: item.to.path)
         }
-        Logger.shared.info("Ask Claude applied “\(actionName)”: \(outcome.doneCount) of \(rows.count) done"
+        // Not the card's title: Claude writes it, often from the question's own words.
+        Logger.shared.info("Ask Claude applied a card: \(outcome.doneCount) of \(rows.count) done"
             + (outcome.rows.count > outcome.doneCount ? ", \(outcome.rows.count - outcome.doneCount) skipped or failed" : ""))
         return outcome
     }

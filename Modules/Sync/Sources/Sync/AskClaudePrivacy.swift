@@ -190,6 +190,9 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public let fromIndex: Bool?
     /// Whether every one is a file; a lookup can find folders too, which the card calls items.
     public let allFiles: Bool?
+    /// The folder searched or listed, so a share or a Retry refuses once it is hidden from Claude
+    /// even when nothing was found in it. Nil on an older saved card.
+    public let folderPath: String?
     /// Customize is open: the table gives way to ticks for files and details.
     public var customizing: Bool?
     /// The details they left out under Customize, by key (`detailKeys`); names always go.
@@ -240,7 +243,8 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     }
 
     public init(words: String, folderLabel: String, names: [String], count: Int, rows: String, paths: [String],
-                files: [File]? = nil, header: String? = nil, source: Source? = nil, fromIndex: Bool? = nil, allFiles: Bool? = nil) {
+                files: [File]? = nil, header: String? = nil, source: Source? = nil, fromIndex: Bool? = nil, allFiles: Bool? = nil,
+                folderPath: String? = nil) {
         self.words = words
         self.folderLabel = folderLabel
         self.names = names
@@ -252,6 +256,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
         self.source = source
         self.fromIndex = fromIndex
         self.allFiles = allFiles
+        self.folderPath = folderPath
     }
 
     /// "file" or "item": a lookup that found a folder calls them items, as a listing does.

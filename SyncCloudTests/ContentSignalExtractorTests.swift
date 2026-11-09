@@ -332,4 +332,20 @@ import UniformTypeIdentifiers
         let said = entries.filter { $0.message.contains("quiet-notes.txt") }
         #expect(said.isEmpty, "a readable file logged \(said.map(\.message)) — the warnings above would be lost in the noise")
     }
+
+    /// The scan's budget holds for page reads too, run several at once: past the first 20 a scan,
+    /// a file that won't read is kept for the closing line, not logged on its own.
+    @Test func pageReadsRunTogetherShareTheScansWarningBudget() async throws {
+        let dir = FixtureDir()
+        let paths = (0..<25).map { dir.path("broken-\($0).png") }
+        for path in paths { try Data("not an image".utf8).write(to: URL(fileURLWithPath: path)) }
+        let budget = FilingWarningBudget()
+        await FilingWarningBudget.$current.withValue(budget) {
+            await withTaskGroup(of: Void.self) { group in
+                for path in paths { group.addTask { _ = await ContentSignalExtractor.snippet(forFileAt: path) } }
+            }
+        }
+        let closing = budget.overflowLines().joined(separator: "\n")
+        #expect(closing.contains("5 more file(s)"), "\(closing)")
+    }
 }

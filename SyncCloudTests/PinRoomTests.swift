@@ -8,11 +8,12 @@ import Testing
 @Suite struct PinRoomTests {
 
     private func input(_ workspace: PaneLogic.PinWorkspace, _ row: CGFloat, sidebar: Bool = true, gutter: CGFloat = 0,
-                       reopened: Bool = false, railFraction: Double = 0.28, foldedByHand: Bool = false,
-                       dragging: Bool = false, canFold: Bool = true) -> PaneLogic.PinRoomInput {
+                       reopened: Bool = false, released: Bool = false, railFraction: Double = 0.28,
+                       foldedByHand: Bool = false, dragging: Bool = false, canFold: Bool = true) -> PaneLogic.PinRoomInput {
         PaneLogic.PinRoomInput(workspace: workspace, rowWidth: row, columnWidth: 373, gutter: gutter,
                                sidebarShown: sidebar, sidebarStored: 180, sidebarReopenedByHand: reopened,
-                               railFraction: railFraction, foldedByHand: foldedByHand, dragging: dragging, canFold: canFold)
+                               foldReleasedByHand: released, railFraction: railFraction, foldedByHand: foldedByHand,
+                               dragging: dragging, canFold: canFold)
     }
 
     private func verdict(_ i: PaneLogic.PinRoomInput, after previous: PaneLogic.PinVerdict? = nil) -> PaneLogic.PinVerdict {
@@ -55,6 +56,37 @@ import Testing
         #expect(verdict(input(.organize, 898, reopened: true)).fits)
     }
 
+    /// The sidebar brought back by hand beside the folded pane is drawn with the shared sidebar
+    /// setting off too, so it costs its floor either way: 898 pt, not the 747 of no sidebar.
+    @Test func aSidebarReopenedByHandCountsWithTheSettingOff() {
+        #expect(verdict(input(.organize, 897, sidebar: false, reopened: true)).fits == false,
+                "the reopened sidebar was left out of the room with the setting off")
+        #expect(verdict(input(.organize, 898, sidebar: false, reopened: true)) == .init(fits: true, folds: true))
+    }
+
+    /// The person opened the pane the pin folded. It is drawn open, so the rule measures it open:
+    /// at 1,000 pt Organize folded fits (374 of 627) but open needs 711, so the column goes over the
+    /// workspace rather than squeezing the rail and To File below their minimums. `folds` stays,
+    /// so the release outlives the overlay it caused, and the pane does not fold again at once.
+    @Test func aFoldOpenedByHandIsMeasuredOpen() {
+        #expect(verdict(input(.organize, 1000)) == .init(fits: true, folds: true))
+        #expect(verdict(input(.organize, 1000, released: true)) == .init(fits: false, folds: true),
+                "the opened pane was measured folded")
+        // Room for it open: docked, and still the rule's fold (drawn open by the release).
+        #expect(verdict(input(.organize, 1084, released: true)) == .init(fits: true, folds: true))
+        // Over the workspace, it docks again 40 pt past what open needs.
+        let released = PaneLogic.PinVerdict(fits: false, folds: true)
+        #expect(verdict(input(.organize, 1123, released: true), after: released).fits == false)
+        #expect(verdict(input(.organize, 1124, released: true), after: released) == .init(fits: true, folds: true))
+        // Edit's list, between what folded needs (818) and what open needs (1,050).
+        #expect(verdict(input(.edit, 1000)) == .init(fits: true, folds: true))
+        #expect(verdict(input(.edit, 1000, released: true)) == .init(fits: false, folds: true))
+        #expect(verdict(input(.edit, 1050, released: true)) == .init(fits: true, folds: true))
+        // Past the comfort line nothing folds, and a release changes nothing.
+        #expect(verdict(input(.organize, 1440, released: true)) == .init(fits: true, folds: false))
+        #expect(verdict(input(.browse, 700, released: true)) == .init(fits: false, folds: false))
+    }
+
     /// To File is what the rail leaves, so a wider rail folds sooner: at 1,400 pt the default 28%
     /// rail leaves To File 609 pt, a 45% rail 465.
     @Test func organizesFoldLineMovesWithTheRailsSplit() {
@@ -67,6 +99,7 @@ import Testing
     @Test func theWindowFeedsTheRuleTheReopenedSidebarAndTheLiveRail() throws {
         let call = try CallArguments(of: "PaneLogic.PinRoomInput(", in: normalizedCode(macAppFile("ContentView+AskClaude.swift")))
         #expect(call.passes("sidebarReopenedByHand", "askClaudePinSidebarShown"))
+        #expect(call.passes("foldReleasedByHand", "askClaudePinFoldReleased"))
         #expect(call.passes("railFraction", "railDragFraction ?? railFraction"))
     }
 

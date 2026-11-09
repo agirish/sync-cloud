@@ -278,6 +278,147 @@ extension HandBuiltRefineSuites {
         #expect(!m.isRefiningFilingSuggestions)
     }
 
+    /// A folder hidden while Send is still making the request (reading pages, downloading): the
+    /// request was built before the hide, so nothing goes.
+    @Test func aFolderHiddenWhileSendIsStillMakingTheRequestSendsNothing() async throws {
+        let root = try fixture("hide-early"); defer { try? FileManager.default.removeItem(at: root) }
+        let seen = Seen()
+        let m = manager(seen)
+        let downloads = root.appendingPathComponent("Downloads").path
+        AskClaudePrivacy.shareWithoutAsking(downloads, in: m.filingContentDefaults)
+        await scan(m, root: root)
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        m.filingSnippetExtractor = { [m] _ in
+            await MainActor.run { AskClaudePrivacy.setHiddenFolders([downloads], in: m.filingContentDefaults) }
+            return "page one text"
+        }
+        let result = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        #expect(seen.all.isEmpty, "nothing was sent: \(result)")
+        #expect(!m.isRefiningFilingSuggestions)
+    }
+
+    /// The same for a folder taken off the shared list meanwhile: its pages no longer go unasked.
+    @Test func aFolderUnsharedWhileSendIsStillMakingTheRequestSendsNothing() async throws {
+        let root = try fixture("unshare-early"); defer { try? FileManager.default.removeItem(at: root) }
+        let seen = Seen()
+        let m = manager(seen)
+        AskClaudePrivacy.shareWithoutAsking(root.appendingPathComponent("Downloads").path, in: m.filingContentDefaults)
+        await scan(m, root: root)
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        m.filingSnippetExtractor = { [m] _ in
+            await MainActor.run { AskClaudePrivacy.setSharedFolders([], in: m.filingContentDefaults) }
+            return "page one text"
+        }
+        _ = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        #expect(seen.all.isEmpty, "the pages would have gone from a folder no longer shared")
+    }
+
+    /// Makes every card's file cloud-only until its download, which runs `during` (on the main
+    /// actor): the one await between the plan's last check and the send.
+    private func downloading(_ m: FileSyncManager, during: @escaping @MainActor () -> Void) {
+        final class Landed: @unchecked Sendable {
+            private let lock = NSLock()
+            private var paths: Set<String> = []
+            func add(_ p: String) { lock.withLock { _ = paths.insert(p) } }
+            func has(_ p: String) -> Bool { lock.withLock { paths.contains(p) } }
+        }
+        let landed = Landed()
+        for s in m.filingSuggestions { m.filingNotDownloaded.insert(s.filePath) }
+        m.filingSnippetExtractor = { p in landed.has(p) ? "page one text" : nil }
+        m.filingStatFlags = { p in landed.has(p) ? 0 : MaterializationStatus.datalessFlag }
+        m.filingDownloadWait = (3, .zero)
+        m.filingDownloader = { p in
+            landed.add(p)
+            MainActor.assumeIsolated { during() }
+        }
+    }
+
+    /// A folder hidden while a pass downloads its cloud-only files: the request was made before
+    /// the hide, so nothing goes, the downloaded pages included.
+    @Test func aFolderHiddenWhileThePassDownloadsSendsNothing() async throws {
+        let root = try fixture("hide-download"); defer { try? FileManager.default.removeItem(at: root) }
+        let seen = Seen()
+        let m = manager(seen)
+        let downloads = root.appendingPathComponent("Downloads").path
+        AskClaudePrivacy.shareWithoutAsking(downloads, in: m.filingContentDefaults)
+        await scan(m, root: root)
+        downloading(m) { AskClaudePrivacy.setHiddenFolders([downloads], in: m.filingContentDefaults) }
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        #expect(plan.toSend == 2, "the fixture sends both")
+        _ = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        #expect(seen.all.isEmpty, "nothing was sent")
+        #expect(!m.isRefiningFilingSuggestions)
+    }
+
+    /// Where the pass goes changed while it downloaded (the key removed, say): its saved answers
+    /// were keyed to Claude, so nothing this Mac answers is saved as Claude's.
+    @Test func aRouteThatChangesWhileThePassDownloadsSavesNothingAsClaudes() async throws {
+        let root = try fixture("route-flip"); defer { try? FileManager.default.removeItem(at: root) }
+        let cache = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("RefinePagesCache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let seen = Seen()
+        let m = manager(seen, cacheDir: cache)
+        AskClaudePrivacy.shareWithoutAsking(root.appendingPathComponent("Downloads").path, in: m.filingContentDefaults)
+        await scan(m, root: root)
+        downloading(m) { m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity } }
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        _ = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        #expect(seen.all.isEmpty)
+        // Back on Claude: nothing this Mac answered stands in for Claude's answer.
+        m.filingBackendIdentity = { tier in tier == .refine ? "cloud:claude-opus-5-5" : FileSyncManager.onDeviceBackendIdentity }
+        m.filingSnippetExtractor = { _ in "page one text" }
+        let again = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        #expect(again.reused == 0 && again.toSend == 2, "this Mac's answers were saved as Claude's")
+    }
+
+    /// A pass that outlived its list (`clearFiling()`, then a new pass) leaves the new pass's Stop
+    /// working: finishing, it does not take the new pass's request handle with it.
+    @Test func anAbandonedPassLeavesTheNextPassesStopWorking() async throws {
+        let root = try fixture("abandoned", files: 1); defer { try? FileManager.default.removeItem(at: root) }
+        let m = manager(Seen())
+        await scan(m, root: root)
+        final class Gate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var calls = 0, released = false, cancelled = false
+            func call() -> Int { lock.withLock { calls += 1; return calls } }
+            var count: Int { lock.withLock { calls } }
+            func release() { lock.withLock { released = true } }
+            var isReleased: Bool { lock.withLock { released } }
+            func sawCancel() { lock.withLock { cancelled = true } }
+            var sawCancelled: Bool { lock.withLock { cancelled } }
+        }
+        let gate = Gate()
+        m.filingRefineClassifier = { _, files in
+            let deadline = Date().addingTimeInterval(10)
+            if gate.call() == 1 {
+                while !gate.isReleased, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
+            } else {
+                while !Task.isCancelled, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
+                if Task.isCancelled { gate.sawCancel(); return FilingRefineResult(ending: .stopped, started: true, costUSD: 0) }
+            }
+            return FilingRefineResult(ending: .answered, verdicts: [:], answered: 0, sent: files.count, started: true, costUSD: 0)
+        }
+        func waitFor(_ calls: Int) async {
+            let deadline = Date().addingTimeInterval(10)
+            while gate.count < calls, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
+        }
+        let planA = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        let a = Task { await m.sendFilingRefine(planA, scope: m.filingSuggestions) }
+        await waitFor(1)
+        m.clearFiling()
+        await scan(m, root: root)
+        let planB = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        let b = Task { await m.sendFilingRefine(planB, scope: m.filingSuggestions) }
+        await waitFor(2)
+        #expect(gate.count == 2, "both passes reached Claude")
+        gate.release()
+        _ = await a.value
+
+        m.stopFilingRefine()
+        _ = await b.value
+        #expect(gate.sawCancelled, "Stop ended the second pass's request")
+    }
+
     /// The list replaced while Claude answered: the paid answers are saved, not applied, and the send
     /// says what it cost instead of calling the plan out of date.
     @Test func aPassWhoseListMovedWhileClaudeAnsweredSaysWhatItCost() async throws {

@@ -160,7 +160,13 @@ final class AskClaudeChat: ObservableObject {
 
     private var engine: AskClaudeEngine
     private var task: Task<Void, Never>?
+    /// When the thread last changed, a card's own update included: a saved chat comes back within
+    /// the hour after it.
     private var lastActivity: Date?
+    /// When they last asked Claude something here: an hour past it the next question starts a new
+    /// chat, the cache being cold. A Refine or Try Another card's update doesn't count; it would
+    /// keep a cold transcript going at uncached prices. Nil until the first question.
+    private var talkedAt: Date?
     /// The question running, or last run: what a download card offered during it was wanted for.
     private var askedQuestion: String?
     private var streamingItem: UUID?
@@ -342,11 +348,15 @@ final class AskClaudeChat: ObservableObject {
         /// Each share's question and the files it carries, so Retry after a relaunch still
         /// refuses one hidden since; absent in older chats.
         var carried: [String: [String]]?
+        /// When they last asked Claude something; absent in older chats, which take `lastActivity`.
+        var talkedAt: Date?
 
         init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?,
-             hiddenAtStart: [String]?, sharesAnswers: Bool?, sharesNames: Bool? = nil, carried: [String: [String]]? = nil) {
+             hiddenAtStart: [String]?, sharesAnswers: Bool?, sharesNames: Bool? = nil, carried: [String: [String]]? = nil,
+             talkedAt: Date? = nil) {
             self.items = items
             self.lastActivity = lastActivity
+            self.talkedAt = talkedAt
             self.engine = engine
             self.sinceLastAnswer = sinceLastAnswer
             self.hiddenAtStart = hiddenAtStart
@@ -368,6 +378,7 @@ final class AskClaudeChat: ObservableObject {
             sharesAnswers = try container.decodeIfPresent(Bool.self, forKey: .sharesAnswers)
             sharesNames = try container.decodeIfPresent(Bool.self, forKey: .sharesNames)
             carried = try container.decodeIfPresent([String: [String]].self, forKey: .carried)
+            talkedAt = try container.decodeIfPresent(Date.self, forKey: .talkedAt)
         }
     }
 
@@ -447,6 +458,7 @@ final class AskClaudeChat: ObservableObject {
         let item = Item(kind: .settings(.caughtKey(in: message)))
         items.append(item)
         lastActivity = now()
+        talkedAt = lastActivity
         caughtMessages[item.id] = (message, key)
         Logger.shared.info("Ask Claude: held back a message that holds an API key")
         if !isRunning { save() }
@@ -505,20 +517,36 @@ final class AskClaudeChat: ObservableObject {
     /// out again, and a restart mints it afresh in the new chat.
     static func fileMark(_ path: String) -> String { "⟦\(path)⟧" }
 
-    /// The lines with each file mark made a handle — or, for a file now on Never show Claude, said
-    /// to be in a hidden folder, with no handle.
+    /// The lines with each file mark made a handle. A line marking a file now on Never show Claude
+    /// is left out whole, with a line saying so: its other words (the file's name, its new home,
+    /// why) are about that file too.
     static func minted(_ lines: [String], handles: inout AskClaudeHandles, isHidden: (String) -> Bool) -> [String] {
-        lines.map { line in
+        func marks(_ line: String) -> [String] {
+            var paths: [String] = []
+            var rest = Substring(line)
+            while let open = rest.firstIndex(of: "⟦"), let close = rest[open...].firstIndex(of: "⟧") {
+                paths.append(String(rest[rest.index(after: open)..<close]))
+                rest = rest[rest.index(after: close)...]
+            }
+            return paths
+        }
+        let kept = lines.filter { !marks($0).contains(where: isHidden) }
+        var out = kept.map { line in
             var out = ""
             var rest = Substring(line)
             while let open = rest.firstIndex(of: "⟦"), let close = rest[open...].firstIndex(of: "⟧") {
                 out += rest[..<open]
-                let path = String(rest[rest.index(after: open)..<close])
-                out += isHidden(path) ? "(in a folder hidden from you)" : "(\(handles.handle(for: path)))"
+                out += "(\(handles.handle(for: String(rest[rest.index(after: open)..<close]))))"
                 rest = rest[rest.index(after: close)...]
             }
             return out + rest
         }
+        let dropped = lines.count - kept.count
+        if dropped > 0 {
+            out.append(dropped == 1 ? "A note about a file in a folder hidden from you was left out."
+                                    : "\(dropped) notes about files in folders hidden from you were left out.")
+        }
+        return out
     }
 
     /// The question as sent, with what happened on the cards in front of it, as data.
@@ -620,6 +648,7 @@ final class AskClaudeChat: ObservableObject {
         carried = stored.carried ?? [:]
         items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
         lastActivity = stored.lastActivity
+        talkedAt = stored.talkedAt ?? stored.lastActivity
         // Judged against what was hidden when the chat began, not at this launch: a folder hidden
         // and then a quit must still keep what Claude saw of it out of the next question. A chat
         // saved without it can't be judged, so it starts over once if anything is hidden.
@@ -732,7 +761,7 @@ final class AskClaudeChat: ObservableObject {
         let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
                             sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer,
                             hiddenAtStart: hiddenAtStart.sorted(), sharesAnswers: sharesAnswers ? true : nil,
-                            sharesNames: sharesNames ? true : nil, carried: carried.isEmpty ? nil : carried)
+                            sharesNames: sharesNames ? true : nil, carried: carried.isEmpty ? nil : carried, talkedAt: talkedAt)
         do {
             let data = try JSONEncoder().encode(stored)
             try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -881,7 +910,8 @@ final class AskClaudeChat: ObservableObject {
         switch kind {
         case .offer(let passage, _): passage.path.map { [$0] } ?? []
         case .reads(let group): group.ticked.compactMap(\.path)
-        case .found(let found): found.files == nil ? found.paths : found.ticked.map(\.path)
+        // And the folder searched: a search that found nothing still says what its files hold.
+        case .found(let found): (found.files == nil ? found.paths : found.ticked.map(\.path)) + (found.folderPath.map { [$0] } ?? [])
         default: []
         }
     }
@@ -891,7 +921,7 @@ final class AskClaudeChat: ObservableObject {
     /// a share's handles are minted in this chat's table, and a new chat's counts from r1 again.
     private var startsOverNext: String? {
         guard startsOverAtNextQuestion else { return nil }
-        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset { return "this chat is over an hour old" }
+        if let last = talkedAt, now().timeIntervalSince(last) > Self.idleReset { return "this chat is over an hour old" }
         if hiddenSinceStart { return "a folder was hidden from Claude since this chat began" }
         return "SyncCloud was updated since this chat began"
     }
@@ -942,14 +972,20 @@ final class AskClaudeChat: ObservableObject {
         let namesOnly = found.customized && found.chosenDetails.isEmpty
         // Only what's ticked goes; a saved card without ticks sends all it held.
         let going = found.files == nil ? found.paths : found.ticked.map(\.path)
-        // A search that found nothing still waits for its share: "none" says what the files hold.
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
+        // A search that found nothing still waits for its share: "none" says what the files hold,
+        // so it refuses once the folder searched is hidden, as a share of what it found would.
         if found.count == 0, found.files?.isEmpty == true {
+            if let folder = found.folderPath, hidden.isHidden(folder) {
+                Logger.shared.info("Ask Claude didn’t share a search that found nothing: its folder is hidden from Claude now")
+                replace(id, with: .note("Didn’t share that no file mentions “\(found.words)”: the folder searched is hidden from Claude now."))
+                return nil
+            }
             found.sent = true
             items[index].kind = .found(found)
             return (Self.foundQuestion(found), "Shared that no file mentions “\(found.words)”")
         }
         guard !going.isEmpty else { return nil }
-        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: defaults))
         if going.contains(where: hidden.isHidden) {
             Logger.shared.info("Ask Claude didn’t share search results: a file in them is hidden from Claude now")
             replace(id, with: .note("Didn’t share the \(found.noun)s \(found.brief): one is in a folder hidden from Claude now."))
@@ -1414,7 +1450,7 @@ final class AskClaudeChat: ObservableObject {
     /// starts over for exactly these, and the menu prices no catch-up for a chat about to go.
     var startsOverAtNextQuestion: Bool {
         guard !items.isEmpty else { return false }
-        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset { return true }
+        if let last = talkedAt, now().timeIntervalSince(last) > Self.idleReset { return true }
         if hiddenSinceStart { return true }
         if let setting = engine.setting, !AskClaudeEngine.isCurrent(setting: setting) { return true }
         return false
@@ -1452,8 +1488,20 @@ final class AskClaudeChat: ObservableObject {
             addNote("Didn’t ask again: it shares what was found in \((path as NSString).lastPathComponent), which is in a folder hidden from Claude now.")
             return
         }
-        if let last = lastActivity, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty {
-            startOver()
+        // A share's handles are this chat's (Retry, an at-limit card's Ask Again): a new chat mints
+        // its own from r1, so one carried into it could name a different file. Refused as `carry` does.
+        if carried[question] != nil, let why = startsOverNext {
+            Logger.shared.info("Ask Claude didn’t ask again: the question carries a share and the next question starts a new chat")
+            addNote("Didn’t ask again: \(why), so the next question starts a new chat, without what this one shares. Ask again to read it afresh.")
+            return
+        }
+        if let last = talkedAt, now().timeIntervalSince(last) > Self.idleReset, !items.isEmpty {
+            // Refine cards from Organize can be newer than the last question: one running or
+            // answered keeps its place and its Undo, and what was done on cards still reaches Claude.
+            let kept = items.filter { if case .refine = $0.kind { return Self.lasts($0.kind) } else { return false } }
+            let newlyHidden = Set(AskClaudePrivacy.hiddenFolders(in: defaults)).subtracting(hiddenAtStart)
+            startOver(carrying: Self.withoutHidden(sinceLastAnswer, newlyHidden))
+            items = kept
             items.append(Item(kind: .note("Started a new chat after an hour away.")))
         }
         if hiddenSinceStart, !items.isEmpty {
@@ -1462,8 +1510,9 @@ final class AskClaudeChat: ObservableObject {
             startOver(carrying: Self.withoutHidden(sinceLastAnswer, newlyHidden))
             items.append(Item(kind: .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays.")))
         }
-        // This question may look in anything not hidden now.
-        hiddenAtStart.formIntersection(AskClaudePrivacy.hiddenFolders(in: defaults))
+        // This question may look in anything not hidden now; a chat's first starts with all that is.
+        let hiddenAsAsked = Set(AskClaudePrivacy.hiddenFolders(in: defaults))
+        if items.isEmpty { hiddenAtStart = hiddenAsAsked } else { hiddenAtStart.formIntersection(hiddenAsAsked) }
         // A change of model or style, from the menu or Settings, carries on in this chat:
         // each question says which in its own block. Only an update that changed the system text
         // or the tools can't: replayed thinking is bound to both.
@@ -1474,6 +1523,7 @@ final class AskClaudeChat: ObservableObject {
             items.append(Item(kind: .note("Started a new chat: Ask Claude was updated since this one began.")))
         }
         lastActivity = now()
+        talkedAt = lastActivity
         askedQuestion = question
         // Taken now and put back if the question never joins the transcript (a failed or stopped
         // request, an empty answer): Claude didn't get them, so they go with the next one.
@@ -1659,6 +1709,7 @@ final class AskClaudeChat: ObservableObject {
         items = Array(items[..<index]) + kept
         if let editing, !items.contains(where: { $0.id == editing }) { self.editing = nil }
         lastActivity = now()
+        talkedAt = lastActivity
         refreshLinkTargets()
         save()
         Logger.shared.info("Ask Claude took back \(gone.count) item\(gone.count == 1 ? "" : "s"), kept \(kept.count) card\(kept.count == 1 ? "" : "s")"
@@ -1730,6 +1781,7 @@ final class AskClaudeChat: ObservableObject {
         streamingItem = nil
         receipt = nil
         lastActivity = nil
+        talkedAt = nil
         linkTargets = [:]
         hiddenSinceStart = false
         hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults))

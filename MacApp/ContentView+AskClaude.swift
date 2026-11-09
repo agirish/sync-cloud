@@ -36,6 +36,13 @@ extension ContentView {
     /// The pin is folding now: wanted, and not ended by the person opening the pane by hand.
     var askClaudePinFoldActive: Bool { askClaudePinFoldWanted && !askClaudePinFoldReleased }
 
+    /// The room rule still wants the fold, drawn or ended by hand: the column is open on Organize or
+    /// Edit and the rule says so, docked or, after a release with no room beside the opened pane,
+    /// drawn over the workspace. When this ends, so does the release (`askClaudePinFoldEnded`).
+    var askClaudePinFoldHeld: Bool {
+        askClaudeOpen && askClaudeMeasured && askClaudePinState.folds && (selectedWorkspace == .filing || selectedWorkspace == .editor)
+    }
+
     /// The person opened a pane the pin folded: ends the pin's fold. True when it did, so the act
     /// that asked (the spine's button, a Files button) leaves the stored fold alone.
     @discardableResult
@@ -75,6 +82,8 @@ extension ContentView {
             sidebarStored: CGFloat(browseSidebarWidthRaw),
             // The sidebar brought back alone beside Organize's folded pane (LJ).
             sidebarReopenedByHand: askClaudePinSidebarShown,
+            // The pane the pin folded, opened by hand: measured open.
+            foldReleasedByHand: askClaudePinFoldReleased,
             // The rail's split as drawn: a drag's value while there is one.
             railFraction: railDragFraction ?? railFraction,
             // Nothing for the pin to fold where the person already has: Edit with the pane folded and
@@ -92,6 +101,9 @@ extension ContentView {
     func askClaudePinInputChanged(_ input: PaneLogic.PinRoomInput) {
         let verdict = PaneLogic.pinRoom(input, previous: askClaudePinDecided ? askClaudePinState : nil)
         if input.rowWidth > 0 { askClaudePinDecided = true }
+        // Docked, nothing tucks it away: ◨ and ⌘J close it, and the next narrowing draws it over the
+        // workspace again.
+        if verdict.fits, input.rowWidth > 0 { askClaudeHolder.visibility.columnDocked() }
         if verdict != askClaudePinState {
             withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { askClaudePinState = verdict }
         }
@@ -122,15 +134,7 @@ extension ContentView {
     /// a narrow window, the first press brings it back.
     func toggleAskClaude() {
         let visibility = askClaudeHolder.visibility
-        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
-            if visibility.isOpen, visibility.tucked {
-                visibility.tucked = false
-            } else {
-                visibility.isOpen.toggle()
-                visibility.tucked = false
-                visibility.restored = false
-            }
-        }
+        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { visibility.toggle() }
         if visibility.isOpen { visibility.focusRequests += 1 }
     }
 
@@ -213,7 +217,7 @@ extension ContentView {
         AskClaudeHost(visibility: askClaudeHolder.visibility, dock: askClaudeHolder.dock,
                       pinInput: askClaudePinInput,
                       onPinInput: { askClaudePinInputChanged($0) }, onLiveResize: { askClaudeWindowResizing = $0 },
-                      foldWanted: askClaudePinFoldWanted, onFoldEnded: { askClaudePinFoldEnded() },
+                      foldHeld: askClaudePinFoldHeld, onFoldEnded: { askClaudePinFoldEnded() },
                       isBusy: askClaudeStateBusy != nil,
                       panel: { AnyView(askClaudePanel()) }, toggle: askClaudeChordBinding,
                       onOpenChange: { open in askClaudeOpen = open; UserDefaults.standard.set(open ? "open" : "closed", forKey: AskClaudePanelSettings.openKey) },
@@ -1683,7 +1687,8 @@ struct AskClaudeHost: ViewModifier {
     let pinInput: PaneLogic.PinRoomInput
     let onPinInput: (PaneLogic.PinRoomInput) -> Void
     let onLiveResize: (Bool) -> Void
-    let foldWanted: Bool
+    /// The room rule wants a fold (`askClaudePinFoldHeld`); when it stops, the fold is over.
+    let foldHeld: Bool
     let onFoldEnded: () -> Void
     /// Settings, Help, setup, a destination pick or a question is up: the column pauses.
     let isBusy: Bool
@@ -1707,7 +1712,7 @@ struct AskClaudeHost: ViewModifier {
             .onChange(of: pinInput, initial: true) { _, input in onPinInput(input) }
             // The fold is over (the column went, or the window has the room): the next one starts
             // afresh, with the sidebar away.
-            .onChange(of: foldWanted) { _, wanted in if !wanted { onFoldEnded() } }
+            .onChange(of: foldHeld) { _, held in if !held { onFoldEnded() } }
             // The first time a key is saved the column opens by itself, once, and only when nothing
             // else is up.
             .onAppear { onFirstUse() }

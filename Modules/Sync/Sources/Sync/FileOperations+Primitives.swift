@@ -298,15 +298,18 @@ extension FileSyncManager {
         guard let backupURL else { return nil }
         var trashedURL: NSURL? = nil
         let recovered: URL?
-        if (try? fileManager.trashItem(at: backupURL, resultingItemURL: &trashedURL)) != nil {
+        let trashed = (try? fileManager.trashItem(at: backupURL, resultingItemURL: &trashedURL)) != nil
+        if trashed {
             recovered = trashedURL as URL?
         } else {
             recovered = backupURL
         }
+        // The one line that lets a replaced file be found again. At .info so a normal trace keeps
+        // it; the per-file collision line a Replace also writes is Debug, so this is the record.
         if let recovered {
-            // The one line that lets a replaced file be found again. At .info so a normal trace
-            // keeps it.
             Logger.shared.info("Replaced \(destinationURL.path) — previous version recoverable at \(recovered.path)")
+        } else if trashed {
+            Logger.shared.info("Replaced \(destinationURL.path) — previous version moved to the Trash")
         }
         return recovered
     }

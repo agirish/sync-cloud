@@ -15014,3 +15014,51 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## The logging batch: levels, start and finish lines, grouped floods, words kept out — recorded, not owed
+
+2026-11-08, recorded for the logging commits of 2026-11-06–07 that had no row (402cd6e49, 5cd6e9440,
+2e68c9b00, 774982eba, f17902ed1, ab7298b23, 7513ce47b, 7dae00c59, 72ca38815, 3ca2b8602). On
+`main`, Info is the shipped level, each operation has a start and a finish line, per-item floods
+are grouped by `LogNames` without dropping a name, errors go through `LogError.describe` (no
+userInfo paths), and the words of a question stay out of the log. The maintenance lines log the
+older way: one unsplit line of names, the whole userInfo of an error.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s describe=%s lognames=%s\n' $l \
+    "$(git grep -c 'enum LogError' origin/$l -- Modules | wc -l | tr -d ' ')" \
+    "$(git grep -c 'enum LogNames' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-08, against origin: 0 0 on every line (main: 1 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The older log lines and levels | RECORDED — not owed |
+
+## Second review since v7.0: Refine's send, Try Another's page, masking, the OCR budget — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, a second adversarial review fixed: a Refine that rechecks the
+hidden, shared and left-out folders, the provider, its route and its own slot after its downloads
+and before it sends; Stop on a pass that replaced an abandoned one; Ask Claude with Page 1…
+rejecting nothing and working when this Mac found no folder; Copy Log for Sharing masking a
+suggested People list, every profile's forms of one person, a surname on its own and an accented
+email; the 20-a-scan read-warning budget holding for page reads run four at once; a Replace whose
+old version the Trash can't place still logged at Info; Claude's guessed folder names and arguments
+kept out of the log. Plus the chat and dock fixes in the same batch. All of it is code the
+maintenance lines don't have, except the Replace line: there the per-file collision line is still
+Info, so a Replace is never unlogged.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s refinecard=%s logshare=%s budget=%s replaceInfo=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeRefineCard')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'LogSharing')" \
+    "$(git grep -c 'class FilingWarningBudget' origin/$l -- Modules | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/SyncCloudApp.swift | grep -c 'Logger.shared.info("Collision on')"; done
+# measured 2026-11-08, against origin, before this landed: every line 0 0 0 replaceInfo=1
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | none of the reviewed code; a Replace logged by its Info collision line | CLOSED — does not apply |

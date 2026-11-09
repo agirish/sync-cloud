@@ -10,31 +10,55 @@ import Foundation
 /// 2. **The home folder's paths**: `/Users/<you>` and the `-Users-<you>-` spelling some tools use
 ///    for paths.
 /// 3. **People's names**: every name form of everyone in every filing profile's People list
-///    (display names, full names, aliases, and the ids, which are built from names), as
-///    `<person N>`, numbered in roster order and the same number throughout one copy.
+///    (display names, full names, aliases, and the ids, which are built from names), whole and
+///    word by word, as `<person N>`, numbered in roster order and the same number throughout one
+///    copy.
 /// 4. **The bare account name**, last: an account named for its owner is often a People name too,
 ///    and masked first it would split "Anna Smith" into "<you> Smith" before the full form matched.
 ///
 /// Names match on letter boundaries (`_`, digits and punctuation count as boundaries), ignoring
-/// case for forms of 4 letters or more, after NFC on both sides; the fallback id `person` is never
+/// case for forms of 4 letters or more and for forms stored in lower case (a suggested list's,
+/// whose spelling in the tree isn't known), after NFC on both sides; the fallback id `person` is never
 /// matched. What can't be masked this way is said in the copy's header, so the reader knows.
 public enum LogSharing {
 
-    /// Everyone in every profile's `people.json` under `profilesDirectory`, in profile then
-    /// roster order, each person once by id. A profile whose roster doesn't read is skipped.
+    /// Everyone in every profile under `profilesDirectory`, in profile then roster order, each
+    /// person once by id with every name form any profile gives them. A profile's roster is its
+    /// `people.json`, or, when that is absent or doesn't read, the list People suggests from its
+    /// folder survey (``PersonRegistry/seeded(from:)``), which Settings shows though it is never
+    /// written.
     public static func roster(profilesDirectory: URL?, fileManager: FileManager = .default) -> [Person] {
         guard let profilesDirectory,
               let profiles = try? fileManager.contentsOfDirectory(atPath: profilesDirectory.path) else { return [] }
         struct File: Decodable { let people: [Person] }
-        var seen: Set<String> = []
-        var out: [Person] = []
+        var order: [String] = []
+        var byID: [String: Person] = [:]
         for profile in profiles.sorted() {
-            let url = profilesDirectory.appendingPathComponent(profile).appendingPathComponent("people.json")
-            guard let data = try? Data(contentsOf: url),
-                  let file = try? JSONDecoder().decode(File.self, from: data) else { continue }
-            for person in file.people where seen.insert(person.id).inserted { out.append(person) }
+            let folder = profilesDirectory.appendingPathComponent(profile)
+            let people: [Person]
+            if let data = try? Data(contentsOf: folder.appendingPathComponent("people.json")),
+               let file = try? JSONDecoder().decode(File.self, from: data) {
+                people = file.people
+            } else if let data = try? Data(contentsOf: FilingProfileStore.profileURL(id: profile, in: profilesDirectory)),
+                      let folderProfile = try? JSONDecoder().decode(FolderProfile.self, from: data) {
+                people = PersonRegistry.seeded(from: folderProfile).people
+            } else {
+                continue
+            }
+            for person in people {
+                guard var known = byID[person.id] else {
+                    order.append(person.id)
+                    byID[person.id] = person
+                    continue
+                }
+                // The same id in another profile can carry other forms ("Anna Smith", "Mom"): all go.
+                for form in person.nameForms where !known.nameForms.contains(form) {
+                    if person.fullNames.contains(form) { known.fullNames.append(form) } else { known.aliases.append(form) }
+                }
+                byID[person.id] = known
+            }
         }
-        return out
+        return order.compactMap { byID[$0] }
     }
 
     /// The header the copy opens with: what was masked, and what wasn't.
@@ -71,7 +95,7 @@ public enum LogSharing {
     // MARK: - Steps
 
     private static let email = try! NSRegularExpression(
-        pattern: #"((?:GoogleDrive|OneDrive|Box)-)?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#)
+        pattern: #"((?:GoogleDrive|OneDrive|Box)-)?[\p{L}\p{M}\p{N}._%+-]+@[\p{L}\p{M}\p{N}.-]+\.[\p{L}\p{M}]{2,}"#)
 
     static func maskEmails(_ text: String) -> String {
         email.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1<account>")
@@ -102,8 +126,13 @@ public enum LogSharing {
         // Longer forms first, so "Anna Smith" is masked whole before "Anna".
         var forms: [(form: String, number: Int)] = []
         for (index, person) in people.enumerated() {
-            for form in Set(person.nameForms + [person.id]) {
-                let form = form.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespaces)
+            // Each form whole, then each word of it: a surname must not survive "Anna_Smith.pdf",
+            // "Smith, Anna" or two spaces between them.
+            let whole = (person.nameForms + [person.id]).map {
+                $0.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespaces)
+            }
+            let words = whole.flatMap { $0.split(whereSeparator: { !$0.isLetter }).map(String.init) }
+            for form in Set(whole + words) {
                 guard form.count >= 2, form.lowercased() != "person" else { continue }
                 forms.append((form, index + 1))
             }
@@ -111,7 +140,8 @@ public enum LogSharing {
         forms.sort { $0.form.count > $1.form.count }
         var out = text
         for (form, number) in forms {
-            out = replaceWord(form, with: "<person \(number)>", in: out, ignoringCase: form.count >= 4)
+            out = replaceWord(form, with: "<person \(number)>", in: out,
+                              ignoringCase: form.count >= 4 || form == form.lowercased())
         }
         return out
     }

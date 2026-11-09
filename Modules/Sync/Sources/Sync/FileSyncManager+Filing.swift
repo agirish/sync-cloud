@@ -810,7 +810,7 @@ extension FileSyncManager {
     ///
     /// The refine pass keeps its dialog, showing a cap breach as an informational alert: it is a
     /// bulk action the user asked to price. A single card is not, and the remedy for a hit cap is
-    /// the same either way: Settings ▸ Organize.
+    /// the same either way: Settings ▸ Ask Claude.
     func cloudSpendWithinCapsWithoutPrompting(files: [FilingCandidateFile],
                                               taxonomyFolders: [String]) -> Bool {
         switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
@@ -822,7 +822,7 @@ extension FileSyncManager {
             // specifics; this says the sentence the user needs.
             banner = .warning("Couldn’t ask Claude for another folder — the chosen model has no "
                               + "known price, so the cost can’t be checked. Keeping the on-device "
-                              + "suggestion; pick one of the offered models in Settings ▸ Organize.", log: .warn)
+                              + "suggestion; pick one of the offered models in the Ask Claude chat’s model menu.", log: .warn)
             return false
         case .billable(let preflight):
             guard preflight.wouldExceedCap else { return true }
@@ -870,13 +870,13 @@ extension FileSyncManager {
         // No substitute number is honest, so the pass stands down and keeps the free on-device
         // suggestions, as `CloudFilingClassifier` does when the spend record can't be read: no paid
         // call while no cap can be enforced. The log names the model, since the remedy is one
-        // Settings ▸ Organize change away.
+        // model-menu change away.
         guard let estCost = CloudFilingProtocol.estimatedCostUSD(
                 model: model, taxonomyFolders: taxonomyFolders, files: files) else {
             Logger.shared.warning("Filing: cloud classify skipped for \(files.count) file(s) — no price "
                 + "is known for model “\(model)”, so the cost could not be quoted and neither budget "
                 + "cap could be enforced against it. Using the free on-device suggestions; pick one of "
-                + "the offered models in Settings ▸ Organize to use Claude.")
+                + "the offered models in the Ask Claude chat’s model menu to use Claude.")
             return .blocked
         }
         // Ask Claude's one monthly limit and this month's spend against it. The old Organize caps are
@@ -1240,7 +1240,10 @@ extension FileSyncManager {
     /// `askingClaudeWithPage` is the click on "Ask Claude with Page 1…": for a file in a folder that
     /// asks each time it sends this one file's first page to Claude, because the person said to.
     public func tryAnotherFolder(for suggestion: FilingSuggestion, askingClaudeWithPage: Bool = false) async {
-        guard let rejected = suggestion.best else { return }
+        // "Ask Claude with Page 1…" follows a Try Another this Mac answered: what it showed, or
+        // nothing, was never rejected, so it asks Claude without rejecting anything more.
+        let rejected = askingClaudeWithPage ? nil : suggestion.best
+        guard askingClaudeWithPage || rejected != nil else { return }
         // One re-ask per card at a time: each click fires an unstructured Task, and a second
         // round-trip's late result would overwrite the first's. Re-entrant calls for the same
         // suggestion are ignored; the first click's answer is the one the card shows.
@@ -1260,10 +1263,12 @@ extension FileSyncManager {
         // The persisted (token-keyed) rejection is best-effort: token-less filenames can't store
         // one. The session set, keyed by file path, guarantees the click takes effect: the
         // rejected folder never comes back for this file, whatever its name.
-        rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path,
-                                providerRoot: suggestion.providerRoot,
-                                evidenceWord: rejected.evidenceToken)
-        filingSessionRejections[suggestion.filePath, default: []].insert(rejected.path)
+        if let rejected {
+            rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path,
+                                    providerRoot: suggestion.providerRoot,
+                                    evidenceWord: rejected.evidenceToken)
+            filingSessionRejections[suggestion.filePath, default: []].insert(rejected.path)
+        }
 
         // Every folder rejected for this file (this session's + persisted).
         let fileTokens = Set(FilingEngine.salientTokens(ofFileNamed: suggestion.fileName))
@@ -1274,7 +1279,7 @@ extension FileSyncManager {
 
         // Cycle to the next candidate the file already carries.
         let remaining = suggestion.candidates.filter { !allRejected.contains($0.path) }
-        if !remaining.isEmpty {
+        if !askingClaudeWithPage, !remaining.isEmpty {
             replaceFilingSuggestion(suggestion.id, candidates: remaining)
             return
         }
