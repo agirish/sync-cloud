@@ -33,11 +33,11 @@ struct AskClaudePanel: View {
     var pinned = false
     var surface: SurfaceStyle = .unified
     /// The pin is on (the choice), whether or not the window has the room for it now, and why the
-    /// panel is floating if it is: Info is open, or the window is too narrow.
+    /// panel is floating if it is: the window is too narrow.
     var pinOn = false
     var waiting: Waiting?
     var onTogglePin: () -> Void = {}
-    enum Waiting { case info, narrow }
+    enum Waiting { case narrow }
     /// Bumped to bring the text box the keyboard: opening the panel, pinning it, ⌘J, Ask Claude
     /// About This. Only these move the keyboard into a pinned column.
     var focusToken = 0
@@ -492,7 +492,6 @@ struct AskClaudePanel: View {
     /// What the place line adds while a pinned panel floats, so the reason is on the panel.
     private var waitingNote: String {
         switch waiting {
-        case .info: " · pins again when Info closes"
         case .narrow: " · widen the window to pin"
         case nil: ""
         }
@@ -501,7 +500,6 @@ struct AskClaudePanel: View {
     /// The pin: lit when it is on, ringed while the panel is floating until the window allows it.
     private var pinButton: some View {
         let help = switch waiting {
-        case .info: "Pins again when Info closes. Click to turn pinning off."
         case .narrow: "Pins when the window is wider. Click to turn pinning off."
         case nil: pinOn ? "Let it float" : "Pin to the right of the window"
         }

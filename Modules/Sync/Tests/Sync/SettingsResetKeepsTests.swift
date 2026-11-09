@@ -93,8 +93,7 @@ import Testing
     /// the app wrote after the reset a second time.
     @Test func theMigrationMarksAreKept() {
         for key in ["rootsModelStamp",
-                    "rootsModelHandledProviderIds", "paneBarArrangementMigration",
-                    "infoPreviewMigrationDone"] {
+                    "rootsModelHandledProviderIds", "paneBarArrangementMigration"] {
             #expect(SettingsResetKeeps.keeps(key), "\(key)")
         }
     }

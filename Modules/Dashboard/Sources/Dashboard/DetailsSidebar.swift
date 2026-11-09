@@ -52,6 +52,10 @@ public struct DetailsSidebar: View {
     /// right pane with nothing selected falls through to the left; with nothing selected anywhere,
     /// the focused folder is the right pane's.
     public let followsRight: Bool
+    /// Describes only the pane `followsRight` names, never the other one. A pane's own Info is this:
+    /// in Compare the unfocused pane would otherwise be described by the other pane's selection, or
+    /// by none. With nothing selected the pane's own folder is shown.
+    public let ownPaneOnly: Bool
 
     /// The picture's share of the inspector's height until the user drags it: most of it, since the
     /// page is what the panel is opened to read.
@@ -88,12 +92,12 @@ public struct DetailsSidebar: View {
     nonisolated private static let dateFormatter = ZoneRefreshedFormatter.localized(date: .medium,
                                                                                     time: .medium)
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil, previewFraction: Binding<Double> = .constant(DetailsSidebar.defaultPreviewFraction), preview: AnyView? = nil, previewPath: String? = nil, followsRight: Bool = false) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, overridePath: String? = nil, singleSource: Bool = false, cloudCoverage: FileLocation.Coverage? = nil, editorHandOff: EditorHandOff? = nil, previewFraction: Binding<Double> = .constant(DetailsSidebar.defaultPreviewFraction), preview: AnyView? = nil, previewPath: String? = nil, followsRight: Bool = false, ownPaneOnly: Bool = false) {
         self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,
                   overridePath: overridePath, singleSource: singleSource,
                   cloudCoverage: cloudCoverage, editorHandOff: editorHandOff,
                   cache: DetailsMetadataCache(), previewFraction: previewFraction, preview: preview,
-                  previewPath: previewPath, followsRight: followsRight)
+                  previewPath: previewPath, followsRight: followsRight, ownPaneOnly: ownPaneOnly)
     }
 
     /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
@@ -103,7 +107,8 @@ public struct DetailsSidebar: View {
          overridePath: String?, singleSource: Bool, cloudCoverage: FileLocation.Coverage? = nil,
          editorHandOff: EditorHandOff? = nil, cache: DetailsMetadataCache,
          previewFraction: Binding<Double> = .constant(DetailsSidebar.defaultPreviewFraction),
-         preview: AnyView? = nil, previewPath: String? = nil, followsRight: Bool = false) {
+         preview: AnyView? = nil, previewPath: String? = nil, followsRight: Bool = false,
+         ownPaneOnly: Bool = false) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
@@ -115,6 +120,7 @@ public struct DetailsSidebar: View {
         self.preview = preview
         self.previewPath = previewPath
         self.followsRight = followsRight
+        self.ownPaneOnly = ownPaneOnly
         _cache = State(initialValue: cache)
     }
     
@@ -152,11 +158,20 @@ public struct DetailsSidebar: View {
         singleSource ? [] : syncManager.selectedRightPaths
     }
 
+    /// The selection of the one pane an own-pane Info describes.
+    private var ownSelectionPaths: Set<String> {
+        followsRight ? rightSelectionPaths : syncManager.selectedLeftPaths
+    }
+
     /// The path to display metadata for: first selected path in either pane, or the focused folder path.
     internal var activePath: String {
         // A "Get Info" target wins over the pane selection (a differences-table row has no pane
         // selection of its own).
         if let overridePath, !overridePath.isEmpty { return overridePath }
+        if ownPaneOnly {
+            if let own = ownSelectionPaths.min() { return own }
+            return followsRight ? rightPath : leftPath
+        }
         if followsRight, let right = rightSelectionPaths.min() { return right }
         // The shared resolver, so the inspector and Space (`PaneLogic.primarySelectionPath`)
         // always agree on which file is current.
@@ -182,6 +197,7 @@ public struct DetailsSidebar: View {
     /// holds a selection, would caption a chosen file "— focused folder".
     internal var isShowingFocusedFolderFallback: Bool {
         if let overridePath, !overridePath.isEmpty { return false }
+        if ownPaneOnly { return ownSelectionPaths.isEmpty }
         if followsRight, !rightSelectionPaths.isEmpty { return false }
         return CurrentSelection.primaryPanePath(
             left: syncManager.selectedLeftPaths,
@@ -201,6 +217,11 @@ public struct DetailsSidebar: View {
     /// `DetailsSelectionSummary.make(selectedPaths:resolving:)`.
     internal var selectionSummary: DetailsSelectionSummary? {
         if let overridePath, !overridePath.isEmpty { return nil }
+        if ownPaneOnly {
+            return DetailsSelectionSummary.make(selectedPaths: ownSelectionPaths) {
+                followsRight ? syncManager.rightNodes(for: $0) : syncManager.leftNodes(for: $0)
+            }
+        }
         if followsRight, !rightSelectionPaths.isEmpty {
             return DetailsSelectionSummary.make(selectedPaths: rightSelectionPaths) {
                 syncManager.rightNodes(for: $0)

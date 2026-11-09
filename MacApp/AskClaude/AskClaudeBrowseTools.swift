@@ -610,7 +610,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 return AskClaudeToolOutcome(result: "Places are settings, activity, help, trash, info and sidebar; a settings tab or setting must be one Settings has.",
                                             isError: true, step: "No place called \(place)", logStep: "No place called that (no match, \(place.count) characters)")
             }
-            let names = ["info": "the Info inspector", "sidebar": "the sidebar"]
+            let names = ["info": "Info", "sidebar": "the sidebar"]
             if let name = names[place] {
                 let did = visible ? "Showed \(name)" : "Hid \(name)"
                 return AskClaudeToolOutcome(result: did + ".", step: did)

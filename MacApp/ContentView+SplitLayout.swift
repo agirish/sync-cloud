@@ -266,6 +266,8 @@ extension ContentView {
                 .frame(minWidth: collapsed ? nil : row.workspaceWidth,
                        maxWidth: collapsed ? .infinity : row.workspaceWidth)
                 .clipped()
+                // Info, from the folded pane's spine, over the lens's leading edge.
+                .overlay(alignment: .leading) { organizeSpineInfoDrawer }
                 // The lens's result message, when the reader is working here.
                 .modifier(workspaceResultMessageHost)
                 // With the strip's own curve, so the lens header moves down beside the pane's
@@ -483,6 +485,12 @@ extension ContentView {
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
                 }
+                // Organize's Info, which has no pane to sit in while the pane is folded: a button
+                // under the pane's, over the strip that is the pane's own target. The drawer it
+                // opens comes out of the strip over the lens (`organizeSpineInfoDrawer`).
+                .overlay(alignment: .top) {
+                    if selectedWorkspace == .filing { spineInfoButton.padding(.top, 76) }
+                }
                 .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
                 .help("Show the \(name) pane to browse or re-scope")
                 .accessibilityLabel("Show the \(name) source pane")
@@ -518,6 +526,19 @@ extension ContentView {
         // the one region, with a hairline where the workspace starts.
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         .unifiedSeam(surfaceStyle, edge: .trailing)
+    }
+
+    /// The spine's Info button: lit while Organize's Info is open, which is the drawer over the lens.
+    private var spineInfoButton: some View {
+        let on = paneInfoRailOn
+        let title = on ? "Hide Info" : "Show Info"
+        return Button { setPaneInfo(isLeft: true, !on) } label: {
+            Self.stripGlyph("info.circle", lit: on, accent: glassHue.accentColor)
+        }
+        .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
+        .help(ShortcutHint.tooltip(title, AppChord.infoInspector.display))
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
 
     /// One strip button's face, the pane's and the list's alike, so they read as one control: the

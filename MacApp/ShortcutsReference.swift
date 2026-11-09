@@ -62,7 +62,7 @@ enum ShortcutsReference {
             // this list optional.
             Item(keys: "⌘ K", action: "Go to — any place, folder, person, or a typed path"),
             // Routed by where the caret is, like ⌘F, so the row names both meanings.
-            Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit’s text, Italic"),
+            Item(keys: "⌘ I", action: "Show or hide the pane’s Info — in Edit’s text, Italic"),
             Item(keys: "⌘ J", action: "Show or hide Ask Claude, to ask about the screen you’re on"),
             // The panel's own key, caught by `AskClaudeWindow` ahead of the field editor, not a
             // menu chord, so no registry check asks for this row.

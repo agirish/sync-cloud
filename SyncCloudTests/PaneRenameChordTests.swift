@@ -42,14 +42,14 @@ import AppKit
                 "Space has moved — this check has stopped covering the list it is scoped to")
 
         let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let listModifier = "                .onKeyPress("        // 16 spaces: the list's own level
+        let listModifier = "                    .onKeyPress("        // 20 spaces: the list's own level, inside the Info host
         let spaceAt = try #require(lines.firstIndex { $0.hasPrefix(listModifier)
                                                       && $0.contains(".space") },
                                    "Space is not an `onKeyPress` at the file list's indentation")
         // The next handler at exactly that indentation, and everything up to the modifier after it.
         let renameAt = try #require(lines[(spaceAt + 1)...].firstIndex { $0.hasPrefix(listModifier) },
                                     "there is no second key handler on the file list — ↩ is unwired")
-        let end = lines[(renameAt + 1)...].firstIndex { $0.hasPrefix("                .")
+        let end = lines[(renameAt + 1)...].firstIndex { $0.hasPrefix("                    .")
                                                         && !$0.hasPrefix(listModifier) }
             ?? lines.endIndex
         let handler = lines[renameAt..<end].joined(separator: "\n")

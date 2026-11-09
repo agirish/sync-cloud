@@ -10,7 +10,7 @@ import Testing
     /// Every item a Compare pane in Columns mode can offer.
     private static let allAvailable: [PaneBarItem] =
         [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
-         .search, .delete, .typeFilter]
+         .search, .delete, .typeFilter, .info]
 
     // MARK: Persistence
 
@@ -22,7 +22,7 @@ import Testing
         // passes a delete handler. No leading `flexibleSpace`: the bar starts where the breadcrumb
         // below it starts. No Preview: the preview lives in the Info inspector.
         #expect(PaneBarArrangement.default.items == [
-            .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
+            .viewMode, .collapse, .backForward, .scan, .info, .newFolder, .sort, .hiddenFiles,
             .delete, .typeFilter, .search
         ])
         #expect(PaneBarArrangement.default.items.last == .search,

@@ -73,7 +73,7 @@ public struct PaneBarCustomizeSheet: View {
     /// `PaneBarCustomizeSheetTests.testThePaletteOffersEveryRemovableControl` checks it against
     /// `PaneBarItem.allCases`.
     static let palette: [PaneBarItem] = [
-        .viewMode, .backForward, .newFolder, .sort, .hiddenFiles, .typeFilter, .search, .delete,
+        .viewMode, .backForward, .info, .newFolder, .sort, .hiddenFiles, .typeFilter, .search, .delete,
         .collapse, .scan, .space, .flexibleSpace
     ]
 

@@ -89,14 +89,41 @@ import EventsTestSupport
     }
 
     /// Filter by Type's step (version 2): a bar migrated for Search gains it just before Search,
-    /// once, and nothing else moves.
+    /// once, and nothing else moves but Info's step (version 3), which lands right after Scan.
     @Test func testABarStampedForSearchGainsTheFilterBeforeIt() {
         let defaults = ScratchDefaults("PaneBarMigrationTests-filter")
         defaults.set(1, forKey: PaneBar.migrationKey)
         defaults.set("backForward,scan,search,newFolder", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.typeFilter], removed: []))
-        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,typeFilter,search,newFolder")
-        #expect(defaults.integer(forKey: PaneBar.migrationKey) == 2)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.info, .typeFilter], removed: []))
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,info,typeFilter,search,newFolder")
+        #expect(defaults.integer(forKey: PaneBar.migrationKey) == 3)
+    }
+
+    /// Info's step (version 3): a bar already migrated for Filter by Type gains Info right after
+    /// Scan, once, and nothing else moves.
+    @Test func testABarStampedForTheFilterGainsInfoAfterScan() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-info")
+        defaults.set(2, forKey: PaneBar.migrationKey)
+        defaults.set("backForward,scan,newFolder,typeFilter,search", forKey: PaneBar.arrangementKey)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .rewritten(added: [.info], removed: []))
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,info,newFolder,typeFilter,search")
+        #expect(defaults.integer(forKey: PaneBar.migrationKey) == 3)
+        // Once: a second launch writes nothing, and a deliberate removal afterwards sticks.
+        defaults.set("backForward,scan,newFolder,typeFilter,search", forKey: PaneBar.arrangementKey)
+        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,newFolder,typeFilter,search")
+    }
+
+    /// The retired `preview` token is not Info: a bar that carries it gains Info like any other,
+    /// and the token rides through untouched.
+    @Test func testAStoredRetiredPreviewIsNotInfo() {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-info-preview")
+        defaults.set(2, forKey: PaneBar.migrationKey)
+        defaults.set("backForward,scan,preview,search", forKey: PaneBar.arrangementKey)
+        PaneBarMigration.apply(defaults: defaults)
+        let stored = PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey) ?? "")
+        #expect(stored.items.contains(.info), "the retired preview token kept Info off the bar")
+        #expect(stored.encoded.contains("preview"), "the retired token was dropped from the stored bar")
     }
 
     /// A bar that dropped Search gets the filter at its trailing end rather than not at all.
@@ -105,7 +132,7 @@ import EventsTestSupport
         defaults.set(1, forKey: PaneBar.migrationKey)
         defaults.set("backForward,scan,sort", forKey: PaneBar.arrangementKey)
         PaneBarMigration.apply(defaults: defaults)
-        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,sort,typeFilter")
+        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,info,sort,typeFilter")
     }
 
     /// Removing it afterwards sticks: the step runs once per bar, by the stamp.
@@ -336,10 +363,10 @@ import EventsTestSupport
     /// route's members with that route removed.
     @Test func testTheRouteDerivationNamesWhatTheRoutesDoNotCover() {
         // Written out, not recomputed from `default.items`: that is the derivation under test.
-        let shipped: [PaneBarItem] = [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort,
+        let shipped: [PaneBarItem] = [.viewMode, .collapse, .backForward, .scan, .info, .newFolder, .sort,
                                       .hiddenFiles, .delete, .typeFilter, .search]
         #expect(PaneBarArrangement.default.encoded == "viewMode,collapse,backForward,"
-                + "scan,newFolder,sort,hiddenFiles,delete,typeFilter,search",
+                + "scan,info,newFolder,sort,hiddenFiles,delete,typeFilter,search",
                 "the shipped bar changed; the literal below is what this test is measuring against")
         let withNoRoutes = PaneBarMigration.controlsWithoutARoute(shipping: .default, routed: [])
         let namedInstead = "with no routes declared, every shipped control is stranded — this named "
@@ -496,9 +523,9 @@ import EventsTestSupport
         // `omissionMessage`): a declined control is absent by design, not by the user's doing.
         #expect(await log.entries.contains {
             $0.message == "[panebar] The stored pane-bar arrangement omits View, Collapse Pane, "
-                + "Back/Forward, New Folder, Hidden Files, Filter by Type, Search"
+                + "Back/Forward, Info, New Folder, Hidden Files, Filter by Type, Search"
                 + " — put back from Customize Pane Bar…"
-        }, "a launch on a bar missing seven shipped controls wrote nothing about it")
+        }, "a launch on a bar missing eight shipped controls wrote nothing about it")
     }
 
     /// `apply` writes no report of its own. Its caller is `App.init`, which SwiftUI may re-run, so a
@@ -516,7 +543,7 @@ import EventsTestSupport
         // …and the migrating path too, since a `defer` fires on every way out.
         let migrating = ScratchDefaults("PaneBarMigrationTests-reach-apply-migrating")
         migrating.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: migrating) == .rewritten(added: [.typeFilter], removed: []),
+        #expect(PaneBarMigration.apply(defaults: migrating) == .rewritten(added: [.info, .typeFilter], removed: []),
                 "the fixture must really migrate")
         // After both calls, so a capture that holds it was listening across them.
         let marker = "panebar-reach-not-from-apply-\(UUID().uuidString)"

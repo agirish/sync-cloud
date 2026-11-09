@@ -38,6 +38,12 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// bars (`PaneBarMigration` step 2), for Search's reason: it is a harmless way of looking, and a
     /// customized bar would otherwise never see it.
     case typeFilter
+    /// Appended last, per the rule above. Shows or hides this pane's Info: the file's picture and
+    /// its details, in a column at the pane's right edge (a drawer over a pane too narrow for one).
+    /// Migrated onto older bars (`PaneBarMigration` step 3), for Search's and Filter's reason: it is
+    /// a harmless way of looking, and a customized bar would otherwise never see it. The raw value
+    /// `info` is new; the retired `preview` is a different token and stays retired.
+    case info
 
     public var id: String { rawValue }
 
@@ -66,6 +72,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .search: return "Search"
         case .delete: return "Delete"
         case .typeFilter: return "Filter by Type"
+        case .info: return "Info"
         }
     }
 
@@ -92,6 +99,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .search: return "Search"
         case .delete: return "Delete"
         case .typeFilter: return "Filter"
+        case .info: return "Info"
         }
     }
 
@@ -114,6 +122,10 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// way Hidden's eye does.
     public static let typeFilterSymbol = "line.3.horizontal.decrease.circle"
 
+    /// The Info button's glyph; filled while the pane's Info is open, so the state rides in the
+    /// glyph as Filter's does.
+    public static let infoSymbol = "info.circle"
+
     /// The palette tile's glyph. Paired items (View, Back/Forward) draw the first of their pair here;
     /// the bar itself draws both.
     public var paletteSymbol: String {
@@ -130,6 +142,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         case .search: return "magnifyingglass"
         case .delete: return "trash"
         case .typeFilter: return PaneBarItem.typeFilterSymbol
+        case .info: return PaneBarItem.infoSymbol
         }
     }
 
@@ -178,7 +191,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// here with a keyboard equivalent everywhere. Delete sits before it, since its ⌘⌫ is
     /// Compare-only.
     public static let `default` = PaneBarArrangement([
-        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
+        .viewMode, .collapse, .backForward, .scan, .info, .newFolder, .sort, .hiddenFiles,
         .delete, .typeFilter, .search
     ])
 
@@ -402,7 +415,7 @@ public enum PaneBarLayout {
         // Search draws the same plain nav pill as its neighbours, not Design's
         // `ExpandingSearchToggle`, which sizes itself from a bare 13pt glyph, so it measures as one
         // pill.
-        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search, .delete, .typeFilter:
+        case .collapse, .scan, .newFolder, .sort, .hiddenFiles, .search, .delete, .typeFilter, .info:
             return pill.width
         }
     }
@@ -737,7 +750,7 @@ public enum PaneBar {
 /// remove Search after the migration and it stays removed.
 public enum PaneBarMigration {
     /// Bump this, and add a step below, whenever a control joins `PaneBarArrangement.default`.
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     // MARK: The routes a shipped control has onto a customized bar
     //
@@ -760,7 +773,7 @@ public enum PaneBarMigration {
 
     /// Controls a step in `apply` puts onto a stored bar. A claim, not a mechanism, so the tests
     /// bind it to the steps by running the migration once per control.
-    public static let migratedControls: Set<PaneBarItem> = [.typeFilter]
+    public static let migratedControls: Set<PaneBarItem> = [.typeFilter, .info]
 
     /// Controls that ship on the default bar and deliberately decline a step.
     ///
@@ -834,6 +847,13 @@ public enum PaneBarMigration {
         if from < 2, !arrangement.items.contains(.typeFilter) {
             let at = arrangement.items.firstIndex(of: .search) ?? arrangement.items.count
             arrangement.insert(.typeFilter, at: at)
+        }
+        // Step 3: Info, right after Scan, where the default carries it, or at the front of the
+        // bar's second half on one that dropped Scan (which `normalized` restores, so this is the
+        // same place). Like Filter by Type it is a harmless way of looking.
+        if from < 3, !arrangement.items.contains(.info) {
+            let at = arrangement.items.firstIndex(of: .scan).map { $0 + 1 } ?? arrangement.items.count
+            arrangement.insert(.info, at: at)
         }
         // Compared, not flagged: `PaneBarArrangement.insert` may refuse (a bar at `maxItems`,
         // reachable because spacers repeat), so only the items know whether anything changed.

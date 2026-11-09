@@ -437,7 +437,7 @@ and key refusals are tested; this is what is not.
 - [ ] **Stop from the capsule.** Click the capsule's ✕, or press ⌘. → the merge stops between copies;
   Esc does not stop it.
 - [ ] **Narrow window.** Drag the window to its narrowest (760pt) during a run → the capsule is a ring
-  with its ✕, still in the toolbar, with Settings, Activity Log and Info still visible beside it.
+  with its ✕, still in the toolbar, with Settings and Activity Log still visible beside it.
 
 ## Two runs at once in the capsule (Run Room TE217–TE219, 2026-10-27)
 
@@ -719,6 +719,35 @@ is removed and put back here, so have it to hand (or copy it from the Claude Con
 - [ ] **A click asks.** Click a starter: it's sent as if typed, the starters go, and ↑ in the box
   brings it back.
 
+## Info in each pane (TE336, 2026-11-08)
+
+The window has no Info column any more: each file pane has its own Info, in a column at its right
+edge or a drawer over it. Check in Unified and Cards (Settings ▸ Appearance ▸ Surface), with Ask Claude
+closed and open.
+
+- [ ] **Browse, Columns.** Click ⓘ in the pane bar (or press ⌘I): a 300pt Info column appears at the
+  right end of the columns, which give up that width. Click a file, then a folder, then a file: the
+  Info column never moves or resizes, the folder shows its glyph and summary in the same frame, and
+  the columns do not jump.
+- [ ] **Browse, Tree.** The same in Tree: Info is a second column right of the tree.
+- [ ] **A narrow pane.** Drag the window narrower until the pane is under 600pt: Info becomes a drawer
+  over the pane's right edge with a ✕ and a shadow, the list underneath does not move, and arrow keys
+  in the list change what Info shows. Widen it 40pt past the line and it is a column again; dragging
+  across the line does not flicker.
+- [ ] **The drawer's keys.** With the keyboard in the drawer, Esc closes it; ✕ closes it. VoiceOver reads
+  the drawer, not the list under it.
+- [ ] **Compare.** Open Info on the left pane: it describes the left selection even while the right
+  pane has focus, and the right pane's ⓘ is independent. Get Info on a Differences row opens the
+  pane on that row's side.
+- [ ] **Organize.** The folder pane's ⓘ opens a drawer over it. Fold the folder pane (the spine): the
+  spine's ⓘ opens a drawer from the spine over the lens, ⌘I does the same.
+- [ ] **Edit.** With its file pane hidden there is no Info button, Text Files rows have no Get Info and
+  ⌘I is italic in Markdown and does nothing elsewhere. Open the file pane: its ⓘ appears.
+- [ ] **Downloads.** Select a cloud-only file and click Download in Info: the picture arrives when the
+  download ends, and a second pane does not start a second watch.
+- [ ] **A customised pane bar.** A bar arranged before this build gains ⓘ right after Scan, once;
+  remove it from Customize Pane Bar… and it stays removed after a relaunch.
+
 ## Ask Claude pinned to the window (TE334, 2026-11-07)
 
 Pin it with the pin in its header (next to the shield), View ▸ Pin Ask Claude, or Settings ▸ Ask
@@ -727,14 +756,11 @@ and in Unified and Cards (Settings ▸ Appearance ▸ Surface).
 
 - [ ] **Pin and unpin.** Open Ask Claude (⌘J), press the pin: it becomes the window's last column,
   top to bottom, the content narrows, and its header's rule lines up with the panes'. Press it
-  again: it floats back to where it was. Both ways the column slides like Info does, and is instant
-  with Reduce Motion on.
+  again: it floats back to where it was. Both ways the column slides, and is instant with Reduce
+  Motion on.
 - [ ] **The default place.** With no saved place (Reset All, then ⌘J), the panel floats bottom left,
   about half the window high. Drag it and it snaps as before; double-click the header and it returns
   to the bottom left.
-- [ ] **Info and the pin take turns.** With Info open, press the pin: Info closes. Pinned, press ⌘I:
-  the panel floats at its place (never over Info) with the pin still lit and ringed and the place
-  line saying it pins again when Info closes; close Info and it pins again.
 - [ ] **A narrow window.** Drag the window narrower: nothing moves while you drag, and on letting go
   the panel floats ("widen the window to pin"); widen it 40 points past the line and it pins again.
   Organize folds its folder pane and sidebar, and Edit its list, when the window is narrow, and the

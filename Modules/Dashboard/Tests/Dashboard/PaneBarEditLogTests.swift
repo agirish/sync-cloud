@@ -17,7 +17,7 @@ import EventsTestSupport
 @Suite(.serialized) struct PaneBarEditLogTests {
 
     private static let defaultEncoded =
-        "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,delete,typeFilter,search"
+        "viewMode,collapse,backForward,scan,info,newFolder,sort,hiddenFiles,delete,typeFilter,search"
 
     /// The bar after someone drags Delete off it.
     private static let withoutDelete = PaneBarArrangement(
@@ -28,7 +28,7 @@ import EventsTestSupport
     @Test func testTheFixturesMatchTheShippedDefault() {
         #expect(PaneBarArrangement.default.encoded == Self.defaultEncoded)
         #expect(Self.withoutDelete.encoded ==
-                "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,typeFilter,search")
+                "viewMode,collapse,backForward,scan,info,newFolder,sort,hiddenFiles,typeFilter,search")
     }
 
     /// Removing a control says what went and what is left, which answers "what does my bar look
@@ -36,7 +36,7 @@ import EventsTestSupport
     @Test func testRemovingAControlNamesItAndTheBarItLeftBehind() {
         #expect(PaneBarEditLog.message(from: .default, to: Self.withoutDelete)
                 == "[panebar] User removed Delete from the pane bar — it is now "
-                + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,typeFilter,search")
+                + "viewMode,collapse,backForward,scan,info,newFolder,sort,hiddenFiles,typeFilter,search")
     }
 
     /// A result that is the shipped set says so. The tail is read off the result, not the gesture,
@@ -114,7 +114,7 @@ import EventsTestSupport
         // stand in for this one.
         let written = await log.entries.last { $0.message.hasPrefix("[panebar] User removed Delete") }
         #expect(written?.message == "[panebar] User removed Delete from the pane bar — it is now "
-                + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,typeFilter,search")
+                + "viewMode,collapse,backForward,scan,info,newFolder,sort,hiddenFiles,typeFilter,search")
         #expect(written?.level == .info, "a user rearranging their own bar is not a warning")
     }
 }

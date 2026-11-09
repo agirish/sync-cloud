@@ -58,11 +58,14 @@ import Foundation
         // stops short of the list would fail like the regression. A floor on how much to read, not
         // where the member ends: the checks anchor on the list line, so reading past costs nothing.
         let body = String(content[column.upperBound...].prefix(20_000))
-        let list = try #require(body.range(of: "            treeView(pane)\n"),
+        // Inside `paneInfoHost`, which puts Info beside the whole chain, so one level deeper.
+        let host = try #require(body.range(of: "            paneInfoHost(isLeft: isLeft) {\n"),
+                                "the pane's list is not inside the Info host — Info would sit inside the list's chain")
+        let list = try #require(body.range(of: "                treeView(pane)\n", range: host.upperBound..<body.endIndex),
                                 "paneColumn no longer builds the list at the expected nesting")
         let after = String(body[list.upperBound...])
         // The list's own modifiers are indented one level deeper than the `treeView(pane)` line.
-        #expect(after.contains("                .onKeyPress(.space) { paneQuickLook() }"),
+        #expect(after.contains("                    .onKeyPress(.space) { paneQuickLook() }"),
                 "Space → Quick Look is not a modifier on the file list")
         // And it is the first thing after the card, so it can't drift past the overlay onto
         // something wider. Measured in code lines, not characters, so comments between the lines
@@ -78,7 +81,7 @@ import Foundation
         // modifier, the card, stands between list and handler. What the card is passed is its own
         // business.
         #expect(between.count == 1
-                    && between[0].hasPrefix("                .paneCardIfNeeded("),
+                    && between[0].hasPrefix("                    .paneCardIfNeeded("),
                 """
                 the Space handler is no longer the first thing after the card — it is now preceded \
                 by \(between.count) modifier line(s): \(between). Anything inserted here is a \

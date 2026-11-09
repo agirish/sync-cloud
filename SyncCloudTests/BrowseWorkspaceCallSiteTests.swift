@@ -156,24 +156,24 @@ import FileExplorer
 
     // MARK: The preview
 
-    /// The preview is the Info inspector's alone, drawn at the height last dragged to. A preview
-    /// beside a pane's list would resize the pane and move its columns on every click between a
-    /// file and a folder. No pane can draw one, and View ▸ File Preview is gone; this pins what is
-    /// left for the app to get wrong.
-    @Test func testThePreviewIsTheInfoInspectorsAlone() throws {
+    /// The preview is Info's alone, drawn at the height last dragged to, and Info is a column or a
+    /// drawer of its own beside a pane's list, never a preview column inside it. A preview inside the
+    /// list's columns would resize them and move them on every click between a file and a folder.
+    /// View ▸ File Preview is gone; this pins what is left for the app to get wrong.
+    @Test func testThePreviewIsThePanesInfoAlone() throws {
         let macApp = Self.codeOnly(try macAppSources())
-        let content = Self.codeOnly(try macAppFile("ContentView.swift"))
+        let content = Self.codeOnly(try macAppFile("ContentView+PaneInfo.swift"))
         #expect(content.contains("AnyView(InspectorFilePreview("),
-                "the inspector no longer draws the preview")
+                "Info no longer draws the preview")
         #expect(content.contains("previewFraction: $inspectorPreviewFraction"),
-                "the inspector no longer draws the preview at the remembered height")
+                "Info no longer draws the preview at the remembered height")
         // The retired menu item by its title, the only spelling that can come back: the type and
         // keys it read are gone from the modules, so a check on their names could never fail.
         #expect(!macApp.contains("\"File Preview\""), "View ▸ File Preview is back")
-        #expect(content.contains("paneWatches: paneIsWatching(isLeft: target.isLeft)"),
-                "the inspector's preview no longer says whether a pane is on screen to watch a download")
+        #expect(content.contains("paneWatches: true"),
+                "Info's preview no longer says the pane is on screen to watch a download")
         #expect(content.contains("downloads: inspectorDownloads"),
-                "the inspector's downloads are not the window's, so they die with the preview")
+                "Info's downloads are not the window's, so they die with the preview")
     }
 
     // MARK: Sort By ticks the panes' order

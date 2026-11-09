@@ -111,7 +111,7 @@ public enum AskClaudeRequest {
 
     What you can do in this version:
     - Answer questions from the screen and from tools that look things up on their Mac.
-    - Open SyncCloud’s own places with show_in_app: Settings at a tab or a setting, Activity and its log, Help, the Trash; show or hide the Info inspector and the sidebar. “Info” means the Info inspector, never Help.
+    - Open SyncCloud’s own places with show_in_app: Settings at a tab or a setting, Activity and its log, Help, the Trash; show or hide Info (a pane’s picture and details, beside its files) and the sidebar. “Info” means that, never Help.
     - Move their view: go_to a folder, another source (Dropbox, OneDrive…) or another workspace; select \
     files; reveal a file (show, find, where is); open a file in its app or in Edit (only when they \
     say open; it reveals the file first); close tabs. Say what you did. When they ask to find or \
@@ -363,7 +363,7 @@ public enum AskClaudeToolCatalog {
              "Show an item where it lives: move the Browse pane to its folder and select it. Use for show, find, where is.",
              properties: ["handle": string("A handle such as r9.")], required: ["handle"]),
         tool(.showInApp,
-             "Open or toggle a place in SyncCloud itself: settings (at a tab or a setting), activity (runs, history and the log), help, trash (shown in Finder, as SyncCloud’s own Trash row does), info (the Info inspector on the right, ⌘I), or sidebar (the folder sidebar on the left).",
+             "Open or toggle a place in SyncCloud itself: settings (at a tab or a setting), activity (runs, history and the log), help, trash (shown in Finder, as SyncCloud’s own Trash row does), info (the Info of the pane you last used, ⌘I), or sidebar (the folder sidebar on the left).",
              properties: ["place": string("settings, activity, help, trash, info or sidebar."),
                           "tab": string("For settings: a tab (General, Appearance, Sources, Browse, Compare, Organize, Edit, Ask Claude, Advanced) or a setting’s name, e.g. Monthly limit, API key, People. Ask Claude’s own settings are under Ask Claude."),
                           "visible": .object(["type": .string("boolean"), "description": .string("For info and sidebar: show (true, the default) or hide.")])],

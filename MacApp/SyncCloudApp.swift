@@ -232,18 +232,6 @@ struct SyncCloudApp: App {
             if let moved = LiquidGlass.migrateRetiredHue() {
                 Logger.shared.info("Accent migrated: \"\(moved.from)\" is no longer offered → \(moved.to.displayName)")
             }
-            // The preview lives in the Info inspector: Info opens once for anyone who had the
-            // in-pane preview on, and folds the preview away for anyone who had it off. Before any
-            // @AppStorage reads either key. Logged when it runs.
-            switch InfoPreviewMigration.run(in: .standard) {
-            case .openedInfo?:
-                Logger.shared.info("[info] The preview is in the Info inspector now — opened Info, as the preview was on")
-            case .foldedPreview?:
-                Logger.shared.info("[info] The preview is in the Info inspector now — folded it away there, as the preview was off")
-            case nil:
-                break
-            }
-
             // Put a newly shipped pane-bar control onto a bar arranged on an earlier build, before
             // any @AppStorage reads the arrangement; otherwise a customized bar keeps the new
             // control hidden in ⋯. Stamped, once per added control, so a deliberate removal

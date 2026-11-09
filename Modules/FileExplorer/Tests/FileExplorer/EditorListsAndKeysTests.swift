@@ -75,8 +75,8 @@ import Foundation
     /// where it has a menu (a path).
     @Test func theHeaderNameSaysWhatRightClickOffers() throws {
         #expect(EditorRailRowMenu.nameTooltip("Plan for the long weekend.md")
-                == "“Plan for the long weekend.md” — right-click to reveal, get info or rename")
-        let order = ["Reveal in Browse", "Get Info", "Rename"].map { EditorRailRowMenuTests.six.firstIndex(of: $0) ?? -1 }
+                == "“Plan for the long weekend.md” — right-click to reveal or rename")
+        let order = ["Reveal in Browse", "Rename"].map { EditorRailRowMenuTests.five.firstIndex(of: $0) ?? -1 }
         #expect(order == order.sorted() && !order.contains(-1), "the tooltip's verbs are not in the menu's order")
         #expect(try SourceText.fileExplorer("EditorWorkspaceView.swift")
             .contains(".help(document.path == nil ? \"\" : EditorRailRowMenu.nameTooltip(document.name))"))

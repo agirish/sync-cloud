@@ -1451,7 +1451,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         })
         var handles = AskClaudeHandles()
         let info = await runner.run(call("show_in_app", ["place": .string("info")]), handles: &handles)
-        #expect(info.step == "Showed the Info inspector")
+        #expect(info.step == "Showed Info")
         #expect(info.movedView == nil)
         let sidebar = await runner.run(call("show_in_app", ["place": .string("sidebar"), "visible": .bool(false)]), handles: &handles)
         #expect(sidebar.step == "Hid the sidebar")

@@ -26,7 +26,6 @@ import FileExplorerTestSupport
         var actions: EditorRailRowActions {
             EditorRailRowActions(revealInBrowse: { self.calls.append("browse \($0)") },
                                  revealInBrowseRefusal: { _ in self.refusal },
-                                 getInfo: { self.calls.append("info \($0)") },
                                  quickLook: { self.calls.append("quicklook \($0)") },
                                  download: { self.calls.append("download \($0)") },
                                  rename: { self.calls.append("rename \($0)") },
@@ -38,21 +37,22 @@ import FileExplorerTestSupport
     /// A row that is not the open document, which the header's menu can't reach.
     static let rowPath = "/Users/me/Notes/ideas.md"
 
-    static let six = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look", "Rename", "Move to Trash…"]
+    static let five = ["Reveal in Browse", "Reveal in Finder", "Quick Look", "Rename", "Move to Trash…"]
 
-    /// Six acts for a file on disk: the four ways out, then Browse's Rename and Delete in their own
-    /// group at the bottom, with Browse's words and glyphs, Delete destructive. Mutation: dropping
+    /// Five acts for a file on disk: the three ways out, then Browse's Rename and Delete in their own
+    /// group at the bottom, with Browse's words and glyphs, Delete destructive. No Get Info: the rail
+    /// is drawn only while the file pane is hidden, and Info lives in the pane. Mutation: dropping
     /// the group break before Rename or the destructive role, or swapping Rename and Delete, must
     /// fail a line.
-    @Test func theMenuOffersSixActsInThreeGroupsInOrder() {
+    @Test func theMenuOffersFiveActsInTwoGroupsInOrder() {
         let items = EditorRailRowMenu.items(for: Self.rowPath, actions: Recorder().actions)
-        #expect(items.map(\.title) == Self.six, "the rail row menu reads \(items.map(\.title))")
-        #expect(items.map(\.systemImage) == ["folder", "info.circle", RevealGlyph.inFinder, "doc.viewfinder",
+        #expect(items.map(\.title) == Self.five, "the rail row menu reads \(items.map(\.title))")
+        #expect(items.map(\.systemImage) == ["folder", RevealGlyph.inFinder, "doc.viewfinder",
                                              "pencil", "trash"],
                 "the rail row menu's glyphs read \(items.map(\.systemImage))")
-        #expect(items.map(\.startsGroup) == [false, false, false, false, true, false],
+        #expect(items.map(\.startsGroup) == [false, false, false, true, false],
                 "the separators fall before \(items.filter(\.startsGroup).map(\.title))")
-        #expect(items.map(\.isDestructive) == [false, false, false, false, false, true])
+        #expect(items.map(\.isDestructive) == [false, false, false, false, true])
         #expect(items.allSatisfy { $0.refusal == nil }, "an item is greyed for a file Browse can show")
     }
 
@@ -61,9 +61,9 @@ import FileExplorerTestSupport
     /// dropping the break after it, must fail it.
     @Test func aCloudOnlyFileLeadsWithDownload() {
         let items = EditorRailRowMenu.items(for: Self.rowPath, isCloudOnly: true, actions: Recorder().actions)
-        #expect(items.map(\.title) == ["Download"] + Self.six, "the cloud-only row's menu reads \(items.map(\.title))")
+        #expect(items.map(\.title) == ["Download"] + Self.five, "the cloud-only row's menu reads \(items.map(\.title))")
         #expect(items.first?.systemImage == "icloud.and.arrow.down")
-        #expect(items.map(\.startsGroup) == [false, true, false, false, false, true, false])
+        #expect(items.map(\.startsGroup) == [false, true, false, false, true, false])
     }
 
     /// Reveal in Browse is greyed where Browse can't show the file, with the reason under it, and the
@@ -73,10 +73,10 @@ import FileExplorerTestSupport
         let recorder = Recorder()
         recorder.refusal = "Not in the source Browse shows"
         let items = EditorRailRowMenu.items(for: Self.rowPath, actions: recorder.actions)
-        #expect(items.map(\.refusal) == ["Not in the source Browse shows", nil, nil, nil, nil, nil])
+        #expect(items.map(\.refusal) == ["Not in the source Browse shows", nil, nil, nil, nil])
     }
 
-    /// Each item runs its own act, on this row's path. A swapped pair (Get Info opening Quick Look,
+    /// Each item runs its own act, on this row's path. A swapped pair (Reveal in Finder opening Quick Look,
     /// Rename deleting) draws identically, and a closure bound to the open document instead of the
     /// row passes every test that opens only one file.
     @Test func everyActReceivesTheRowsPath() {
@@ -85,13 +85,13 @@ import FileExplorerTestSupport
             item.perform()
         }
         let p = Self.rowPath
-        #expect(recorder.calls == ["download \(p)", "browse \(p)", "info \(p)", "finder \(p)", "quicklook \(p)",
+        #expect(recorder.calls == ["download \(p)", "browse \(p)", "finder \(p)", "quicklook \(p)",
                                    "rename \(p)", "delete \(p)"],
                 "the acts ran as \(recorder.calls)")
     }
 
     /// The header's door keeps its own Reveal in Browse: `revealing(through:)` swaps that one act
-    /// and leaves the other six the row's. Mutation: returning `self` must fail it.
+    /// and leaves the other four the row's. Mutation: returning `self` must fail it.
     @Test func theHeadersDoorSwapsOnlyRevealInBrowse() {
         let recorder = Recorder()
         let header = recorder.actions.revealing(through: { recorder.calls.append("header \($0)") })
@@ -99,13 +99,13 @@ import FileExplorerTestSupport
             item.perform()
         }
         let p = Self.rowPath
-        #expect(recorder.calls == ["download \(p)", "header \(p)", "info \(p)", "finder \(p)", "quicklook \(p)",
+        #expect(recorder.calls == ["download \(p)", "header \(p)", "finder \(p)", "quicklook \(p)",
                                    "rename \(p)", "delete \(p)"],
                 "the header's acts ran as \(recorder.calls)")
     }
 
     /// The menu as an `NSMenu` draws it: separators as untitled items.
-    static let sixDrawn = ["Reveal in Browse", "Get Info", "Reveal in Finder", "Quick Look", "", "Rename", "Move to Trash…"]
+    static let fiveDrawn = ["Reveal in Browse", "Reveal in Finder", "Quick Look", "", "Rename", "Move to Trash…"]
 
     /// The workspace hands the rail the host's acts as they are, read off a hosted workspace. The
     /// host builds the row actions (the app's Reveal in Browse is its own door, so its log can tell
@@ -123,9 +123,9 @@ import FileExplorerTestSupport
             }
             return recorder.calls.joined(separator: ", ")
         }
-        #expect(menus.first?.titles == Self.sixDrawn, "the workspace's rail row draws \(menus.map(\.titles))")
+        #expect(menus.first?.titles == Self.fiveDrawn, "the workspace's rail row draws \(menus.map(\.titles))")
         let p = Self.rowPath
-        #expect(menus.first?.act?.hasPrefix("browse \(p), info \(p), finder \(p), quicklook \(p), rename \(p), delete \(p)") == true,
+        #expect(menus.first?.act?.hasPrefix("browse \(p), finder \(p), quicklook \(p), rename \(p), delete \(p)") == true,
                 "the rail row's menu ran \(menus.first?.act ?? "nothing") — not the host's acts on the row's path")
     }
 
@@ -145,8 +145,8 @@ import FileExplorerTestSupport
             }
             return recorder.calls.joined(separator: ", ")
         }
-        #expect(menus.first?.titles == Self.sixDrawn, "the file name's menu reads \(menus.map(\.titles))")
-        #expect(menus.first?.act?.hasPrefix("header \(path), info \(path), finder \(path), quicklook \(path), rename \(path), delete \(path)") == true,
+        #expect(menus.first?.titles == Self.fiveDrawn, "the file name's menu reads \(menus.map(\.titles))")
+        #expect(menus.first?.act?.hasPrefix("header \(path), finder \(path), quicklook \(path), rename \(path), delete \(path)") == true,
                 "the file name's menu ran \(menus.first?.act ?? "nothing")")
     }
 
@@ -163,13 +163,13 @@ import FileExplorerTestSupport
             enabled = menu.items.map(\.isEnabled)
             return nil
         }
-        #expect(menus.first?.titles.prefix(3) == ["Reveal in Browse", "Not in the source Browse shows", "Get Info"],
+        #expect(menus.first?.titles.prefix(3) == ["Reveal in Browse", "Not in the source Browse shows", "Reveal in Finder"],
                 "the greyed reveal draws \(menus.map(\.titles))")
         #expect(enabled.prefix(3) == [false, false, true], "the items' enabled states are \(enabled)")
     }
 
     /// The same words and glyphs as the menus these acts already live in. The pane's row menu owns
-    /// Download, Get Info, Reveal in Finder, Quick Look, Rename and Delete; the header's filename
+    /// Download, Reveal in Finder, Quick Look, Rename and Delete; the header's filename
     /// menu is this menu. Read from their source rather than re-typed here, so a rename on either
     /// side fails.
     @Test func theWordsMatchThePaneRowMenuAndTheHeader() throws {
@@ -177,7 +177,6 @@ import FileExplorerTestSupport
         // Download's word is the offer's title for one file; its glyph is the row's item.
         #expect(pane.contains(#"Label(offer.title, systemImage: "icloud.and.arrow.down")"#))
         #expect(try SourceText.fileExplorer("CloudDownloadOffer.swift").contains(#"case .file: return "Download""#))
-        #expect(pane.contains(#"Label("Get Info", systemImage: "info.circle")"#))
         #expect(pane.contains(#"Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)"#))
         #expect(pane.contains(#"Label("Quick Look", systemImage: "doc.viewfinder")"#))
         #expect(pane.contains(#"Label("Rename", systemImage: "pencil")"#))
@@ -215,7 +214,7 @@ import FileExplorerTestSupport
             menu.performActionForItem(at: reveal)
             return recorder.calls.last
         }
-        #expect(menus.map(\.titles) == [Self.sixDrawn, ["Download", ""] + Self.sixDrawn],
+        #expect(menus.map(\.titles) == [Self.fiveDrawn, ["Download", ""] + Self.fiveDrawn],
                 "the rail's rows draw these menus, top to bottom: \(menus.map(\.titles))")
         #expect(menus.map(\.act) == entries.map { "browse \($0.path)" },
                 "each row's Reveal in Browse ran as \(menus.map(\.act))")

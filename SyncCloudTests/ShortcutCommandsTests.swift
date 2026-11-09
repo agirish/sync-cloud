@@ -547,7 +547,7 @@ import Foundation
 
         // And the mouse half says so rather than no-opping silently.
         let toolbar = try macAppFile("ContentView+Toolbar.swift")
-        #expect(sourceCodeOnly(toolbar).components(separatedBy: ".disabled(pendingDestination != nil)").count - 1 >= 4,
+        #expect(sourceCodeOnly(toolbar).components(separatedBy: ".disabled(pendingDestination != nil)").count - 1 >= 3,
                 "a toolbar control that cannot act during a pick still looks like it can")
     }
 

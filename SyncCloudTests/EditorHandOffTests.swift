@@ -110,10 +110,11 @@ import FileExplorer
     /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the
     /// resolver's own tests can't see it because they inject `opensInEdit` directly.
     @Test func theInspectorAndTheFileMenuAreWiredToTheRealHandOff() throws {
-        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
+        // Info lives in the pane now, built in `ContentView+PaneInfo.swift`.
+        let content = sourceCodeOnly(try macAppFile("ContentView+PaneInfo.swift"))
         // The construction's own argument list, not a fixed-length window.
         let inspector = try #require(argumentLists(of: "EditorHandOff(", in: content).first,
-                                     "the Info inspector is built without an editor hand-off")
+                                     "Info is built without an editor hand-off")
         #expect(CodeText(content).contains("editorHandOff: EditorHandOff("),
                 "the hand-off is built, but not handed to the inspector")
         let handOff = CallArguments(inspector)
@@ -223,8 +224,10 @@ import FileExplorer
         let rail = try Self.railRowActions()
         #expect(rail.passes("revealInBrowse", "{ path in revealInBrowse(path, from: .railRow) }"),
                 "the rail rows' Reveal in Browse is not wired to revealInBrowse as its own door")
-        #expect(rail.passes("getInfo", "{ path in showInfo(for: path) }"),
-                "the rail row menu's Get Info is not wired to the Info inspector")
+        // No Get Info on the rail: it is drawn only while the file pane is hidden, and Info lives
+        // in the pane.
+        #expect(!(try macAppFile("ContentView+Editor.swift")).contains("getInfo:"),
+                "the rail row menu has a Get Info again, with no pane to show Info in")
         // `followsPane: false`: a rail row is not the pane's selection, so a pane click must not
         // retarget a preview opened from here (`CurrentSelection.previewFollow`).
         #expect(rail.passes("quickLook", "{ path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) }"),
@@ -287,12 +290,12 @@ import FileExplorer
         }
     }
 
-    /// Get Info's destination: the inspector, on the path it was handed.
-    @Test func showInfoOpensTheInspectorOnThePathItWasHanded() throws {
+    /// Get Info's destination: the Info of the pane that holds the path it was handed.
+    @Test func showInfoOpensThePanesInfoOnThePathItWasHanded() throws {
         let content = try macAppFile("ContentView.swift")
         let body = CodeText(try declarationBody(of: "func showInfo(for path: String) {", in: content))
-        #expect(body.contains("infoPath = path"), "Get Info no longer aims the inspector at its path")
-        #expect(body.contains("showInspector = true"), "Get Info no longer opens the inspector")
+        #expect(body.contains("infoPath = path"), "Get Info no longer aims Info at its path")
+        #expect(body.contains("openPaneInfo(for: path)"), "Get Info no longer opens the pane's Info")
     }
 }
 

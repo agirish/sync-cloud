@@ -31,7 +31,7 @@ import Testing
     }
 
     /// One item in the menu bar is called Preview: Text ▸ Preview (⌃⌘2). The file preview lives in
-    /// the Info inspector and has no menu item, so no item and no Help sentence may name a View ▸
+    /// each pane's Info and has no menu item, so no item and no Help sentence may name a View ▸
     /// File Preview.
     @Test func onlyTheTextMenuHasAPreview() throws {
         func previews(_ menu: NSMenu) -> [String] {
@@ -46,7 +46,7 @@ import Testing
         let browse = try #require(HelpBook.topic(id: "browse-workspace"))
         #expect(!browse.article.blocks.contains { $0.searchableText.contains("File Preview") },
                 "Help still names View ▸ File Preview")
-        #expect(browse.article.blocks.contains { $0.searchableText.contains("Info inspector") },
+        #expect(browse.article.blocks.contains { $0.searchableText.contains("the pane’s Info") },
                 "Help does not say where the preview went — the absence above is vacuous")
     }
 

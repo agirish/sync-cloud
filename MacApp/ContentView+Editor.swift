@@ -500,10 +500,10 @@ extension ContentView {
                     EditorRevealInBrowse.refusal(
                         for: path, sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath)
                 },
-                // The two acts that need the window: the Info inspector, and the shared Quick Look
-                // panel. `followsPane: false`: a rail row is not the pane's selection, so a pane
-                // click must not retarget a preview opened from here.
-                getInfo: { path in showInfo(for: path) },
+                // The act that needs the window: the shared Quick Look panel. `followsPane: false`: a
+                // rail row is not the pane's selection, so a pane click must not retarget a preview
+                // opened from here. No Get Info: the rail is drawn only while the file pane is
+                // hidden, and Info lives in the pane.
                 quickLook: { path in toggleQuickLook(URL(fileURLWithPath: path), followsPane: false) },
                 download: { path in downloadFromEdit(path) },
                 // Browse's own Rename and Delete: its prompt, confirmation and undo, and the open

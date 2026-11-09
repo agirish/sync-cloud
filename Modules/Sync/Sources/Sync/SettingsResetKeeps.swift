@@ -55,9 +55,6 @@ public enum SettingsResetKeeps {
         "rootsModelStamp",                      // RootsMigration.stampKey
         "rootsModelHandledProviderIds",         // RootsMigration.handledProviderIdsKey
         "paneBarArrangementMigration",          // PaneBar.migrationKey
-        // InfoPreviewMigration.doneKey (the app's): run again after a reset, it would read the
-        // preview's reset keys as on and open Info. Pinned by the app's tests.
-        "infoPreviewMigrationDone",
     ]
 
     public static func keeps(_ key: String) -> Bool {

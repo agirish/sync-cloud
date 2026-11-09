@@ -16,7 +16,6 @@ public struct EditorRailRowActions {
     /// for a file from Compare's right side or another source, Reveal in Browse would switch and then
     /// leave it unselected. The item is greyed with this line under it; Reveal in Finder still works.
     let revealInBrowseRefusal: (String) -> String?
-    let getInfo: (String) -> Void
     let quickLook: (String) -> Void
     let revealInFinder: (String) -> Void
     /// Asks for a cloud-only file's content (Browse's Download); the file opens here if it is the
@@ -28,7 +27,6 @@ public struct EditorRailRowActions {
 
     public init(revealInBrowse: @escaping (String) -> Void,
                 revealInBrowseRefusal: @escaping (String) -> String?,
-                getInfo: @escaping (String) -> Void,
                 quickLook: @escaping (String) -> Void,
                 download: @escaping (String) -> Void,
                 rename: @escaping (String) -> Void,
@@ -36,7 +34,6 @@ public struct EditorRailRowActions {
                 revealInFinder: @escaping (String) -> Void = EditorRailRowActions.revealInFinder) {
         self.revealInBrowse = revealInBrowse
         self.revealInBrowseRefusal = revealInBrowseRefusal
-        self.getInfo = getInfo
         self.quickLook = quickLook
         self.download = download
         self.rename = rename
@@ -53,7 +50,7 @@ public struct EditorRailRowActions {
     /// reveal logs as the header's rather than a row's.
     func revealing(through reveal: @escaping (String) -> Void) -> EditorRailRowActions {
         EditorRailRowActions(revealInBrowse: reveal, revealInBrowseRefusal: revealInBrowseRefusal,
-                             getInfo: getInfo, quickLook: quickLook, download: download,
+                             quickLook: quickLook, download: download,
                              rename: rename, delete: delete, revealInFinder: revealInFinder)
     }
 }
@@ -111,8 +108,6 @@ struct EditorRailRowMenu: View {
             Item(title: "Reveal in Browse", systemImage: "folder",
                  refusal: actions.revealInBrowseRefusal(path), startsGroup: isCloudOnly,
                  perform: { actions.revealInBrowse(path) }),
-            Item(title: "Get Info", systemImage: "info.circle",
-                 perform: { actions.getInfo(path) }),
             Item(title: "Reveal in Finder", systemImage: RevealGlyph.inFinder,
                  perform: { actions.revealInFinder(path) }),
             Item(title: "Quick Look", systemImage: "doc.viewfinder",
@@ -128,7 +123,7 @@ struct EditorRailRowMenu: View {
     /// The header name's tooltip: the whole name, which the header truncates in the middle, and the
     /// menu behind it, its acts in the menu's own order.
     static func nameTooltip(_ name: String) -> String {
-        "“\(name)” — right-click to reveal, get info or rename"
+        "“\(name)” — right-click to reveal or rename"
     }
 
     var body: some View {

@@ -523,17 +523,6 @@ enum PaneLogic {
         return path == browsePath ? nil : path
     }
 
-    /// Which pane the Info inspector describes: the pane the user is working in, or the other one
-    /// when only that one holds a selection. With nothing selected anywhere, still the user's pane:
-    /// the inspector then shows its folder, captioned "Right pane" or "Left pane". Outside Compare
-    /// there is only the left pane.
-    static func inspectorFollowsLeft(isCompare: Bool, focusedIsLeft: Bool,
-                                     leftHasSelection: Bool, rightHasSelection: Bool) -> Bool {
-        guard isCompare else { return true }
-        if focusedIsLeft { return leftHasSelection || !rightHasSelection }
-        return !rightHasSelection && leftHasSelection
-    }
-
     /// The left pane wins when both have selections. The selection bindings enforce exclusivity via
     /// `reconciledSelections`, clearing the other pane one runloop tick after a pick lands, so both
     /// can be non-empty for at most a frame; this tiebreak keeps that frame pointing at a real
@@ -1168,22 +1157,6 @@ enum PaneLogic {
     /// up. The caller guards `panesHeight > 0`.
     static func verticalDragFraction(locationY: CGFloat, panesHeight: CGFloat) -> Double {
         Double((panesHeight - locationY) / panesHeight)
-    }
-
-    /// The Info inspector's minimum width, matching `DetailsSidebar`'s own `minWidth: 200`, below
-    /// which the metadata rows stop reflowing cleanly.
-    static let inspectorMinWidth: Double = 200
-    /// The inspector's maximum width, so a drag can't let it swallow the window and starve the
-    /// panes. A fixed cap keeps the math geometry-free; the flexible panes absorb what is left.
-    static let inspectorMaxWidth: Double = 600
-
-    /// The inspector width during a resize drag. The handle is on the panel's leading edge, so
-    /// dragging left (negative `translation`) widens it. `base` is the width at drag start,
-    /// constant for the gesture since storage is written only on release; `translation` is
-    /// cumulative. Clamped to `[inspectorMinWidth, inspectorMaxWidth]` so the same guard runs in
-    /// tests.
-    static func inspectorDragWidth(base: Double, translation: CGFloat) -> Double {
-        min(max(base - Double(translation), inspectorMinWidth), inspectorMaxWidth)
     }
 
     /// Whether one copy of a duplicate review is still where, and what, the scan saw.

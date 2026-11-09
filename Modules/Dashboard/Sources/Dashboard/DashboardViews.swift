@@ -115,6 +115,10 @@ public struct PaneHeader: View {
     /// The Filter button's state and counts. `nil` is a header with no Filter button (every caller
     /// outside the app), so `availableItems`, the ladder and the snapshots stay unchanged.
     public var typeFilter: PaneTypeFilterControl?
+    /// The Info button's state. `nil` is a header with no Info button (every caller outside the
+    /// app's panes, and Edit while its file pane is hidden), so `availableItems`, the ladder and the
+    /// snapshots stay unchanged.
+    public var info: PaneInfoControl?
     @State private var typeFilterShown = false
     /// The breadcrumb falls back to its compact form when the whole trail doesn't fit, as in Edit's
     /// one-column pane. See `PaneBreadcrumb.compactsWhenNarrow`.
@@ -182,9 +186,11 @@ public struct PaneHeader: View {
         onSearchAdvance: ((Bool) -> Void)? = nil,
         personOffer: ((String) -> Person?)? = nil,
         onAcceptPerson: ((Person) -> Void)? = nil,
-        typeFilter: PaneTypeFilterControl? = nil
+        typeFilter: PaneTypeFilterControl? = nil,
+        info: PaneInfoControl? = nil
     ) {
         self.typeFilter = typeFilter
+        self.info = info
         self.compactsBreadcrumbWhenNarrow = compactsBreadcrumbWhenNarrow
         self.title = title
         self.provider = provider
@@ -477,6 +483,8 @@ public struct PaneHeader: View {
         if searchText != nil, searchIsExpanded != nil { available.append(.search) }
         // Same gate, same reason: no control value, no Filter button.
         if typeFilter != nil { available.append(.typeFilter) }
+        // Same gate: no control value, no Info button.
+        if info != nil { available.append(.info) }
         return available
     }
 
@@ -802,7 +810,29 @@ public struct PaneHeader: View {
             if let typeFilter {
                 typeFilterPill(typeFilter, controlSize: controlSize)
             }
+        case .info:
+            if let info {
+                infoPill(info, controlSize: controlSize)
+            }
         }
+    }
+
+    /// The Info button: opens or closes this pane's Info. The glyph fills and takes the accent while
+    /// it is open, so the state rides in the glyph as Filter's does, and VoiceOver reads it as a
+    /// toggle that is selected.
+    @ViewBuilder
+    private func infoPill(_ control: PaneInfoControl, controlSize: ControlSize) -> some View {
+        Button(action: control.toggle) {
+            Image(systemName: control.isOn ? PaneBarItem.infoSymbol + ".fill" : PaneBarItem.infoSymbol)
+                .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize,
+                               ink: control.isOn ? glassHue.accentColor : nil)
+        }
+        .buttonStyle(navButtonStyle)
+        .paneNavGlass()
+        .shortcutKeycap(AppChord.infoInspector.display)
+        .help(control.help)
+        .accessibilityLabel("Info")
+        .accessibilityAddTraits(control.isOn ? .isSelected : [])
     }
 
     /// The Filter button: a pill that opens the type list. The glyph fills and takes the accent
@@ -1158,6 +1188,13 @@ public struct PaneHeader: View {
                     PaneTypeFilterMenuItems(control: typeFilter)
                 } label: {
                     Label("Filter by Type", systemImage: PaneBarItem.typeFilterSymbol)
+                }
+            }
+        case .info:
+            // Folded, a checkmark row: the state stays visible where the pill is not.
+            if let info {
+                Toggle(isOn: Binding(get: { info.isOn }, set: { _ in info.toggle() })) {
+                    Label("Info", systemImage: PaneBarItem.infoSymbol)
                 }
             }
         case .space, .flexibleSpace:

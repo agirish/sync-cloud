@@ -1217,7 +1217,7 @@ struct ShortcutValuePublisher: ViewModifier {
     let hiddenFiles: Binding<Bool>
     /// The focused pane's type filter, or nil with no pane on screen.
     let typeFilter: PaneTypeFilterControl?
-    let inspector: Binding<Bool>
+    let inspector: Binding<Bool>?
     let differencesList: Binding<Bool>?
     let delete: (() -> Void)?
     let switchPaneFocus: PaneFocusSwitch?
@@ -1438,7 +1438,7 @@ extension ContentView {
             documentPrint: shortcutDocumentPrint,
             hiddenFiles: $syncManager.showHiddenFiles,
             typeFilter: panesHiddenForCurrentTab ? nil : typeFilterControl(isLeft: shortcutTabTargetIsLeft),
-            inspector: shortcutInfoInspector,
+            inspector: shortcutPaneInfo,
             differencesList: shortcutDifferencesList,
             delete: shortcutDeleteSelection,
             switchPaneFocus: switchPaneFocusAction,
@@ -1945,17 +1945,6 @@ extension ContentView {
         guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
         return { beginNewFolder(isLeft: isLeft) }
-    }
-
-    /// The same 0.15s ease the toolbar button wraps its toggle in — a menu item skipping the
-    /// animation would make ⌘I feel like a different control from the button it badges.
-    var shortcutInfoInspector: Binding<Bool> {
-        Binding(
-            get: { showInspector },
-            set: { newValue in
-                withAnimation(.easeInOut(duration: 0.15)) { showInspector = newValue }
-            }
-        )
     }
 
     var shortcutDifferencesList: Binding<Bool>? {

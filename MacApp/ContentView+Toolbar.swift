@@ -430,31 +430,6 @@ extension ContentView {
                 ActivityCenter.shared.markSeen()
                 openWindow(id: ActivityCenter.windowID)
             }
-
-            // The Info inspector toggle, available on every workspace (Compare shows both sides'
-            // status, a lens the single source), so opening Info never pulls the rail to Compare.
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
-            } label: {
-                Label("Info", systemImage: "sidebar.right")
-                    // Accent-tinted while the inspector is open, so the toggle reads as a state, not
-                    // just an action.
-                    .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
-                    // On the label, like Settings above: a toolbar item's own bounds are AppKit's.
-                    .shortcutKeycap(AppChord.infoInspector.display)
-            }
-            .help(ShortcutHint.tooltip(
-                showInspector ? "Hide the Info inspector" : "Show the Info inspector",
-                AppChord.infoInspector.display))
-            // Named as drawn, so VoiceOver and Voice Control both say "Info"; open is the selected
-            // trait, as the accent tint is for the eye.
-            .accessibilityLabel("Info")
-            .accessibilityAddTraits(showInspector ? .isSelected : [])
-            // Both halves of one control agree. ⌘I is silenced during a destination pick
-            // (`ShortcutValuePublisher.suspended`), and the picker's scrim doesn't cover the
-            // toolbar, so the button is disabled too; otherwise a mouse user could toggle the
-            // inspector under the overlay when a keyboard user can't.
-            .disabled(pendingDestination != nil)
         }
     }
 }

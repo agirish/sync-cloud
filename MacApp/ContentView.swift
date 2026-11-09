@@ -640,10 +640,17 @@ struct ContentView: View {
     @AppStorage(TopPaneVisibility.editorExpandFoldedPaneKey) var editorExpandFoldedPane: Bool = false
 
 
-    /// Whether the Compare Info inspector is shown: a toggleable right-side panel with metadata
-    /// (and both-sides status) for the current selection. Persisted across launches. Internal, not
-    /// private: its toggle sits in the window toolbar (ContentView+Toolbar.swift).
-    @AppStorage("showCompareInspector") var showInspector: Bool = false
+    /// Each file pane's Info: the picture and details of what it has selected, in a column at the
+    /// pane's right edge, or a drawer over a pane too narrow for one (`PaneInfo`). One switch per
+    /// pane, on keys of their own (`PaneInfo.defaultsKey`): the two comparison panes, Browse, and
+    /// the single-source rail. Internal, not private: `ContentView+PaneInfo` reads them.
+    @AppStorage(PaneInfo.defaultsKey(isLeft: true)) var paneInfoLeftOn: Bool = false
+    @AppStorage(PaneInfo.defaultsKey(isLeft: false)) var paneInfoRightOn: Bool = false
+    @AppStorage(PaneInfo.railDefaultsKey) var paneInfoRailOn: Bool = false
+    @AppStorage(PaneInfo.browseDefaultsKey) var paneInfoBrowseOn: Bool = false
+    /// What each pane's Info showed last, so crossing the width line has a hysteresis
+    /// (`PaneInfo.presentation`). Keyed "left", "right" or "single".
+    @State var paneInfoMemory: [String: PaneInfo.Presentation] = [:]
     /// Ask Claude pinned as the window's right-hand column, and its width. Both are the pin's own
     /// settings, apart from the floating panel's place and width. The 📌, View ▸ Pin Ask Claude and
     /// Settings ▸ Ask Claude turn it on.
@@ -661,25 +668,17 @@ struct ContentView: View {
     /// room again, and the sidebar they brought back alone while Organize's pane is folded.
     @State var askClaudePinFoldReleased = false
     @State var askClaudePinSidebarShown = false
-    /// The Info inspector's persisted width, resizable by dragging its leading edge. 360pt until
-    /// dragged, wide enough for the preview to read a page. Clamped to
-    /// `PaneLogic.inspector{Min,Max}Width` whenever it's written.
-    @AppStorage("compareInspectorWidth") var inspectorWidth: Double = 360
     /// The inspector preview's downloads, owned here so a "Downloading…" outlives the preview,
     /// which is taken down whenever the inspector shows a folder or folds the picture away.
     /// `@State` on a class, for `lensSession`'s reason: owned, not observed.
-    @State private var inspectorDownloads = InspectorDownloads()
+    @State var inspectorDownloads = InspectorDownloads()
     /// The Get Info target as a node of its own, for one no pane's tree holds — a differences row
     /// outside the folder the pane is in, a file the pane's filter hides. Made when Get Info is
     /// chosen, never in `body`, and read only while its path is still the target.
-    @State private var infoNode: FileNode?
-    /// The live width during a resize drag; `nil` when idle. Mirrors the pane splits' pattern —
-    /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
-    /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
-    @State var inspectorDragWidth: Double? = nil
+    @State var infoNode: FileNode?
     /// The preview's share of the Info inspector's height: set by dragging the bar under it, kept
     /// across launches, and most of the panel until the user says otherwise.
-    @AppStorage("infoInspectorPreviewFraction") private var inspectorPreviewFraction: Double =
+    @AppStorage("infoInspectorPreviewFraction") var inspectorPreviewFraction: Double =
         DetailsSidebar.defaultPreviewFraction
     /// Per-pane action-bar placement scratch space. `FileTreeView` fills each with live row/viewport
     /// geometry; `paneColumn` reads the resolved edge straight from `body`, so the bar's edge is
@@ -707,7 +706,7 @@ struct ContentView: View {
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
-    @State private var infoPath: String? = nil
+    @State var infoPath: String? = nil
 
     @State var bannerDismissScheduler = BannerDismissScheduler()
     /// Where the reader last clicked in Organize and Edit — their source pane, or the lens or
@@ -2352,13 +2351,12 @@ struct ContentView: View {
         select(settings.addFolderSource(path: url.path))
     }
 
-    /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for
-    /// the path (not Finder's Get Info). Opens the inspector in place on the current tab; it is
-    /// available on both Compare and Organize.
+    /// "Get Info" from a pane or differences-row right-click: show the in-app Info for the path (not
+    /// Finder's Get Info), in the pane that holds it (`openPaneInfo`).
     func showInfo(for path: String) {
         infoPath = path
         infoNode = nil
-        withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
+        openPaneInfo(for: path)
         // Off the main thread, with its date: a stat on a provider that has stopped answering would
         // hang the app at the click, and without the date a file previewed this way would not
         // refresh when it changed.
@@ -3764,7 +3762,8 @@ struct ContentView: View {
                     return PersonSearchOffer.person(matching: query, registry: registry)
                 },
                 onAcceptPerson: { person in acceptPersonScope(person) },
-                typeFilter: typeFilterControl(isLeft: isLeft)
+                typeFilter: typeFilterControl(isLeft: isLeft),
+                info: paneInfoControl(isLeft: isLeft)
             )
             // Cards gives the provider header its own card, the [toolbar][gap][content] rhythm the
             // bottom workspace has; each card insets by half a gutter, so header↔list is one
@@ -3772,55 +3771,59 @@ struct ContentView: View {
             // the hairline every workspace column's header carries on the same line.
             .columnHeaderRule(surfaceStyle)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-            treeView(pane)
-                .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-                // Space → Quick Look, scoped to the file list — see `paneQuickLook()`.
-                //
-                // The single-key overload, deliberately. It takes modified presses and fires on
-                // key-repeat like every overload (see `KeyPress.isPlainKeystroke`), and neither
-                // matters here: Quick Look opens a panel, a repeat re-targets the same panel, and
-                // nothing moves on disk.
-                .onKeyPress(.space) { paneQuickLook() }
-                // ↩ → Rename, scoped like Space — see `paneRename()`.
-                //
-                // `.onKeyPress(keys:phases:)` with `isPlainKeystroke`, because no overload filters
-                // modifiers (a plain `.return` handler would steal ⌘↩, ⌥↩ and the rest), and the
-                // keypad's Enter sends U+0003, not U+000D. `isPlainKeystroke`, not
-                // `modifiers.isEmpty`: the keypad's Enter always carries `.numericPad` +
-                // `.function`, and `.capsLock` rides on every event while engaged. `.down` only.
-                //
-                // No `focused` term: the guard it needs (a destination pick or the ⌘K palette
-                // owning the keyboard) is `paneChordsSuspended`, asked inside `paneRename()` as the
-                // menu item's twin asks it.
-                .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
-                    guard press.isPlainKeystroke else { return .ignored }
-                    return paneRename()
-                }
-                // The file actions (Compare/Copy/Move/Delete) on whichever pane holds the
-                // selection, so the buttons name their target. Scoped to the list, not the column,
-                // so at the top it lands under the header; it flips to the top when a selected row
-                // nears the bottom. The result message shares the stack on the list's side, so it
-                // never covers the bar, the header or the row acted on.
-                .overlay(alignment: barAtTop ? .top : .bottom) {
-                    VStack(spacing: 0) {
-                        if barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
-                        if let message {
-                            paneMessagePiece(isLeft: isLeft, message: message, atTop: barAtTop,
-                                             besideBar: !barNodes.isEmpty, placement: placement)
-                        }
-                        if !barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
+            // The list and its Info: Info sits beside the whole chain below (a column) or over it (a
+            // drawer), never inside it, so Space's Quick Look and the action bar stay the list's own.
+            paneInfoHost(isLeft: isLeft) {
+                treeView(pane)
+                    .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
+                    // Space → Quick Look, scoped to the file list — see `paneQuickLook()`.
+                    //
+                    // The single-key overload, deliberately. It takes modified presses and fires on
+                    // key-repeat like every overload (see `KeyPress.isPlainKeystroke`), and neither
+                    // matters here: Quick Look opens a panel, a repeat re-targets the same panel, and
+                    // nothing moves on disk.
+                    .onKeyPress(.space) { paneQuickLook() }
+                    // ↩ → Rename, scoped like Space — see `paneRename()`.
+                    //
+                    // `.onKeyPress(keys:phases:)` with `isPlainKeystroke`, because no overload filters
+                    // modifiers (a plain `.return` handler would steal ⌘↩, ⌥↩ and the rest), and the
+                    // keypad's Enter sends U+0003, not U+000D. `isPlainKeystroke`, not
+                    // `modifiers.isEmpty`: the keypad's Enter always carries `.numericPad` +
+                    // `.function`, and `.capsLock` rides on every event while engaged. `.down` only.
+                    //
+                    // No `focused` term: the guard it needs (a destination pick or the ⌘K palette
+                    // owning the keyboard) is `paneChordsSuspended`, asked inside `paneRename()` as the
+                    // menu item's twin asks it.
+                    .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
+                        guard press.isPlainKeystroke else { return .ignored }
+                        return paneRename()
                     }
-                }
-                // Quick fade on appear and disappear only (keyed on presence, not the edge), so
-                // clicking a file shows the bar at once and clearing the selection fades it out.
-                //
-                // Through `designAnimation` because the transition is not only a fade: it carries
-                // `.move(edge:)`, so the bar slides in from the top or bottom. Under Reduce Motion
-                // the insertion lands at once.
-                .designAnimation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
-                // The message's own arrival and departure, keyed on its identity: a replacement
-                // slides in for the one it replaces.
-                .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: message?.id)
+                    // The file actions (Compare/Copy/Move/Delete) on whichever pane holds the
+                    // selection, so the buttons name their target. Scoped to the list, not the column,
+                    // so at the top it lands under the header; it flips to the top when a selected row
+                    // nears the bottom. The result message shares the stack on the list's side, so it
+                    // never covers the bar, the header or the row acted on.
+                    .overlay(alignment: barAtTop ? .top : .bottom) {
+                        VStack(spacing: 0) {
+                            if barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
+                            if let message {
+                                paneMessagePiece(isLeft: isLeft, message: message, atTop: barAtTop,
+                                                 besideBar: !barNodes.isEmpty, placement: placement)
+                            }
+                            if !barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
+                        }
+                    }
+                    // Quick fade on appear and disappear only (keyed on presence, not the edge), so
+                    // clicking a file shows the bar at once and clearing the selection fades it out.
+                    //
+                    // Through `designAnimation` because the transition is not only a fade: it carries
+                    // `.move(edge:)`, so the bar slides in from the top or bottom. Under Reduce Motion
+                    // the insertion lands at once.
+                    .designAnimation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
+                    // The message's own arrival and departure, keyed on its identity: a replacement
+                    // slides in for the one it replaces.
+                    .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: message?.id)
+            }
         }
         // The pane the sidebar opens into, marked on the pane, where the eye is, not only in the
         // sidebar's `Left | Right` control.
@@ -3897,95 +3900,7 @@ struct ContentView: View {
         }
     }
 
-    /// The Info inspector: a toggleable right-side panel showing metadata for the current
-    /// selection. Available on Compare (with both-sides status) and on the single-source rail.
-    /// `DetailsSidebar` handles the no-selection empty state itself.
-    private var infoInspector: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "info.circle")
-                    .scaledFont(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text("Info").scaledFont(.system(size: 12, weight: .semibold))
-                Spacer(minLength: 0)
-                CloseButton {
-                    withAnimation(.easeInOut(duration: 0.15)) { showInspector = false }
-                }
-                .help("Hide the Info inspector")
-                // CloseButton deliberately names itself nowhere; every caller says what it closes.
-                .accessibilityLabel("Hide the Info inspector")
-            }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            Divider()
-            // Which pane the inspector is describing, in Compare, where it follows the pane you are
-            // working in. A Get Info target names no pane, so it gets no line.
-            if layoutMode == .compare, infoPath == nil {
-                Text(inspectorFollowsLeft ? "Left pane · \(paneNames.left)" : "Right pane · \(paneNames.right)")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 6)
-                Divider()
-            }
-            let previewTarget = inspectorPreviewTarget
-            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, overridePath: infoPath, singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
-                           // The app answers what the editor opens, because the app is where every
-                           // other door asks it: `EditableText.opensInEdit` is the row menu's own
-                           // gate, so the inspector cannot disagree with the menu about a file.
-                           editorHandOff: EditorHandOff(isOffered: { EditableText.opensInEdit(path: $0) },
-                                                       open: { handOffToEditor($0) }),
-                           // The picture over the details, at the height last dragged to.
-                           previewFraction: $inspectorPreviewFraction,
-                           preview: previewTarget.map { target in
-                               AnyView(InspectorFilePreview(
-                                   node: target.node,
-                                   paneToken: PaneToken(isLeft: target.isLeft,
-                                                        isSingleSource: layoutMode == .singleSource),
-                                   paneWatches: paneIsWatching(isLeft: target.isLeft),
-                                   downloads: inspectorDownloads))
-                           },
-                           previewPath: previewTarget?.node.id,
-                           // The pane you are working in, the same answer the preview reads.
-                           followsRight: !inspectorFollowsLeft)
-        }
-        .frame(width: inspectorDragWidth ?? inspectorWidth)
-        // A card like every other surface, not a docked `.bar` panel: an opaque bar fill would be a
-        // solid band down a window Clear asks to see through, and its zero inset would break the
-        // gap model.
-        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-    }
-
-    /// Whether the inspector describes the left pane's selection: the pane the user is working in
-    /// (`focusedPane`), or the other one when that holds nothing. `DetailsSidebar` alone reads the
-    /// left pane first, so in Compare a click in the right pane would be described only once the
-    /// left pane's selection was empty.
-    private var inspectorFollowsLeft: Bool {
-        PaneLogic.inspectorFollowsLeft(isCompare: layoutMode == .compare,
-                                       focusedIsLeft: focusedPane == .left,
-                                       leftHasSelection: !syncManager.selectedLeftPaths.isEmpty,
-                                       rightHasSelection: !syncManager.selectedRightPaths.isEmpty)
-    }
-
-    /// The one file the inspector previews, and which pane's tree it was found in — nil for a
-    /// folder, several items, nothing selected, or the document Edit has open beside it.
-    private var inspectorPreviewTarget: (node: FileNode, isLeft: Bool)? {
-        guard let target = Self.inspectorPreview(
-            infoPath: infoPath, infoNode: infoNode, followsLeft: inspectorFollowsLeft,
-            selectedLeft: syncManager.selectedLeftPaths, selectedRight: syncManager.selectedRightPaths,
-            leftNodes: { syncManager.leftNodes(for: $0) }, rightNodes: { syncManager.rightNodes(for: $0) },
-            rightRoot: currentRightPath)
-        else { return nil }
-        // Not the document Edit has open. Opening a file selects it in the pane, so the inspector
-        // beside the editor would preview the very file being edited (as Quick Look first read it,
-        // not as the editor has it) and parse a PDF a second time in the shared lane. Its icon
-        // stands in.
-        if selectedWorkspace == .editor, target.node.id == editorOpenPath { return nil }
-        return target
-    }
-
-    /// `inspectorPreviewTarget`'s rule, pure: a Get Info target first, in whichever tree holds it,
+    /// `paneInfoPreviewTarget`'s rule, pure: a Get Info target first, in whichever tree holds it,
     /// or as its own node (`infoNode`) when neither does, filed with the right pane only under the
     /// right pane's root; otherwise the one item selected in the pane the inspector follows. Files
     /// only: a folder has no preview.
@@ -4017,54 +3932,12 @@ struct ContentView: View {
         return (node, followsLeft)
     }
 
-    /// Whether the pane on that side is on screen to watch a download its token posts. Not when the
-    /// workspace's panes are folded away (Edit starts so), nor the right pane outside Compare.
-    private func paneIsWatching(isLeft: Bool) -> Bool {
-        guard contentLayout.drawsAPaneList, !panesHiddenForCurrentTab else { return false }
-        return isLeft || layoutMode == .compare
-    }
-
-    /// The draggable seam between the panes and the Info inspector: a 1pt strip with a 10pt hit
-    /// target, clear in Cards and the hairline in Unified. `inspectorWidth` holds still until
-    /// release, so it is the stable base for `PaneLogic.inspectorDragWidth`.
-    ///
-    /// The drag reads `.global`, not `.local`: the handle moves as the inspector widens, so a local
-    /// `translation` feeds back on itself and collapses to ~0 (see `ResizeHandle`).
-    private var inspectorResizeHandle: some View {
-        // In Cards a clear 1pt strip, not a visible Divider: the inspector is a floating card, so
-        // the seam is the gap between cards (2.5 + 1 + 2.5) and only the hit target remains. In
-        // Unified the strip IS the hairline between the two.
-        Color.clear.frame(width: 1)
-            .unifiedSeam(surfaceStyle, edge: .leading)
-            .overlay {
-                ResizeHandle(
-                    axis: .horizontal,
-                    thickness: 10,
-                    minimumDistance: 1,
-                    coordinateSpace: .global,
-                    onDrag: { value in
-                        inspectorDragWidth = PaneLogic.inspectorDragWidth(
-                            base: inspectorWidth, translation: value.translation.width)
-                    },
-                    onCommit: {
-                        if let w = inspectorDragWidth { inspectorWidth = w }
-                        inspectorDragWidth = nil
-                    }
-                )
-            }
-    }
-
     @ViewBuilder
     private var mainContentView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 verticalSplit
-                if showInspector {
-                    inspectorResizeHandle
-                    infoInspector
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-                // Claude, pinned: the last column, after Info. Empty unless it is open and pinned.
+                // Claude, pinned: the last column. Empty unless it is open and pinned.
                 askClaudeColumn
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { askClaudeRowWidth = $0 }
@@ -4101,7 +3974,6 @@ struct ContentView: View {
         // still win.
         .animation(nil, value: selectedWorkspace)
         .animation(nil, value: panesHiddenForCurrentTab)
-        .designAnimation(.easeInOut(duration: 0.15), value: showInspector)
         // No dimming overlay during a long run: the window stays live for reading, progress is the
         // toolbar capsule's (`mainToolbar`), and writes are greyed through `runWriteLock`. No
         // window-top result message either, which would cover the pane header's Delete; each pane's

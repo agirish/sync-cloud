@@ -177,9 +177,6 @@ import Testing
 
     /// Keyed `File.swift/firstTouchedIdentifier`.
     static let exempt: [String: Exemption] = [
-        "ContentView+Toolbar.swift/showInspector": .gatedByAModifier,
-        "ContentView.swift/showInspector": .gatedByAModifier,
-        "ShortcutCommands.swift/showInspector": .gatedByAModifier,
 
         "SetupArtwork.swift/appeared": .gatedByHand,
         "SetupArtwork.swift/breathe": .gatedByHand,

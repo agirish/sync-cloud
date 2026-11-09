@@ -64,6 +64,6 @@ import Foundation
 
     @Test func everyNavPillWearsGlassOnItsButton() throws {
         let views = try Self.source("DashboardViews.swift")
-        #expect(Self.count(".paneNavGlass()", in: views) == 12, "every nav pill's button")
+        #expect(Self.count(".paneNavGlass()", in: views) == 13, "every nav pill's button")
     }
 }

@@ -397,54 +397,6 @@ import Sync
         #expect(isClose(PaneLogic.verticalDragFraction(locationY: 600, panesHeight: 800), 0.25))
     }
 
-    // inspectorFollowsLeft
-
-    /// In Compare the inspector follows the pane the user is working in, even when the other pane
-    /// also holds a selection — the left-first rule described the left pane after a click on the right.
-    @Test func testTheInspectorFollowsTheFocusedPaneInCompare() {
-        #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
-                                                leftHasSelection: true, rightHasSelection: true))
-        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
-                                               leftHasSelection: true, rightHasSelection: true))
-    }
-
-    /// A focused pane with nothing selected hands over to the other pane's selection rather than
-    /// describing nothing; with nothing selected anywhere, the pane the user is in — Help and the
-    /// caption both say the inspector describes it.
-    @Test func testAnEmptyFocusedPaneFallsThroughToTheOther() {
-        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
-                                               leftHasSelection: true, rightHasSelection: false))
-        #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
-                                                leftHasSelection: false, rightHasSelection: true))
-        #expect(!PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: false,
-                                                leftHasSelection: false, rightHasSelection: false),
-                "with nothing selected, the right pane focused, the inspector described the left")
-        #expect(PaneLogic.inspectorFollowsLeft(isCompare: true, focusedIsLeft: true,
-                                               leftHasSelection: false, rightHasSelection: false))
-    }
-
-    /// Outside Compare there is one pane, and it is the left one, whatever a stale right
-    /// selection says.
-    @Test func testOutsideCompareTheInspectorFollowsTheLeftPane() {
-        #expect(PaneLogic.inspectorFollowsLeft(isCompare: false, focusedIsLeft: false,
-                                               leftHasSelection: false, rightHasSelection: true))
-    }
-
-    // inspectorDragWidth
-
-    @Test func testInspectorDragLeftWidensRightNarrows() {
-        // The handle is on the panel's leading edge: dragging left (negative translation) widens it,
-        // dragging right (positive) narrows it.
-        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: -50), 320))
-        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: 50), 220))
-    }
-
-    @Test func testInspectorDragWidthClampsToBounds() {
-        // A big drag can't push the panel below the content floor or past the window-safety cap.
-        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: 500), PaneLogic.inspectorMinWidth))
-        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: -1000), PaneLogic.inspectorMaxWidth))
-    }
-
     // MARK: bootstrapSteps
 
     @Test func testFirstAppearanceRunsTheFullBootstrapInOrder() {

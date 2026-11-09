@@ -14934,3 +14934,25 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | drops Claude's answer past the shortlist | NOT OWED — no backporting; recorded |
 | `v3.x` / `v2.x` | no shortlist rule | CLOSED — does not apply |
+
+## Info lives in each pane (TE336) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, the window has no Info column. Each file pane has its own Info: a fixed
+300 pt column at the right end of Columns or beside the Tree, a drawer over a pane under 600 pt (Compare's
+panes, Organize's folder pane), and a spine button and drawer for Organize's folded pane. ⓘ is back in the
+pane bar (⌘I toggles the focused pane's), each pane remembers its own switch, and Edit has no Info while its
+file pane is hidden, so its Text Files rows lost Get Info. The toolbar's Info button, the window-level
+width and the first-launch Info migration are gone. The maintenance lines keep one Info column at the
+window's right edge, opened from the toolbar.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s window_info=%s pane_info=%s\n' $l \
+    "$(git show origin/$l:MacApp/ContentView.swift | grep -c 'showCompareInspector')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'ContentView+PaneInfo')"; done
+# measured 2026-11-08, against origin, before this landed: each line has the window-level column, no pane Info
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | the window-level Info column, no pane Info | NOT OWED — no backporting; recorded |

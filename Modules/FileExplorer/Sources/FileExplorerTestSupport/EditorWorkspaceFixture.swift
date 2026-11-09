@@ -90,7 +90,7 @@ public extension EditorRailRowActions {
     /// a test that performs every item never brings Finder forward.
     static var inert: EditorRailRowActions {
         EditorRailRowActions(revealInBrowse: { _ in }, revealInBrowseRefusal: { _ in nil },
-                             getInfo: { _ in }, quickLook: { _ in }, download: { _ in },
+                             quickLook: { _ in }, download: { _ in },
                              rename: { _ in }, delete: { _ in }, revealInFinder: { _ in })
     }
 }

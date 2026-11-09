@@ -261,8 +261,8 @@ import Testing
         let doors = [
             "eight ways to bring a file here",
             "right-click a text file and choose Open in Edit",     // a file pane's row menu
-            // The Info inspector's Open in Edit, the first of its buttons.
-            "the first of the Info inspector’s buttons under the file’s name",   // ⌘I
+            // Info's Open in Edit, the first of its buttons.
+            "the first of the buttons under the file’s name in a pane’s Info",   // ⌘I
             "Compare’s list of differences offers Open in Edit",   // per side
             "a copy in Organize’s duplicates offers it first",
             "in Finder, a text file’s Open With menu offers SyncCloud",   // ExternalOpen
@@ -271,7 +271,7 @@ import Testing
             "Every one but Compare’s list of differences also takes the file pane on the left",
         ]
         let backAndAround = [
-            "Reveal in Browse", "Get Info, Reveal in Finder, Quick Look, Rename and Move to Trash",
+            "Reveal in Browse", "Reveal in Finder, Quick Look, Rename and Move to Trash",
             "New Text File, on the file name’s row",
             "“in Finance”", "“iCloud › Documents › Finance”",                   // both readings
             "“No document open”",                                               // the empty page

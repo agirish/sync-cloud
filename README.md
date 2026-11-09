@@ -75,8 +75,8 @@ you ask.
 - **Folder sidebar** (⌃⌘S) in every workspace: **Favorites** you curate, **Locations** for every
   signed-in account and disk, and **Recents** — switchable to **Revisited** (folders you come back
   to) or **Frequent** (where you spend the most time).
-- **Column view**, a file preview in the **Info inspector** (⌘I), per-pane **tabs**, and a **pane bar** you arrange
-  yourself.
+- **Column view**, a file preview in each pane's **Info** (⌘I, or ⓘ in the pane bar), per-pane **tabs**, and a
+  **pane bar** you arrange yourself.
 - **Filter by type** from the pane bar: Images, PDFs, Archives and the rest, with counts.
 - **Knows when it's out of date**: a pane says when its folder changed on disk since it was read,
   and an amber line says when Dropbox, OneDrive or Google Drive isn't running and the folder may be
