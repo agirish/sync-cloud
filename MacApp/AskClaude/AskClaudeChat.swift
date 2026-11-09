@@ -108,8 +108,9 @@ final class AskClaudeChat: ObservableObject {
         var question: String
         var attachments: [Attachment]
         var editable: Bool
-        /// An earlier chat it carried as text (Continue, TE306): Edit and Retry carry it again.
-        var carried: String? = nil
+        /// The past chat it carried as text (Continue, TE306): Edit and Retry carry it again, built
+        /// afresh against what is hidden then.
+        var carriedFrom: UUID? = nil
     }
 
     /// Where a download card is.
@@ -183,12 +184,27 @@ final class AskClaudeChat: ObservableObject {
     /// The chat put away when this one began after an hour away, still on screen above "Earlier ·
     /// Claude doesn't see this" (decision JK). Shown, never sent.
     @Published private(set) var earlier: AskClaudePastChats.Entry?
+    /// Its id, kept while it is deleted, so an Undo brings it back on screen.
+    private var earlierID: UUID?
     /// Continue on a chat over an hour old: the next question carries it on, reading it back in once
     /// (decision JJ).
     @Published private(set) var continuing = false
-    /// Continue on a chat that can't be read back in: its questions and answers, as text, go with
-    /// the next question.
-    @Published private(set) var carryingText: String?
+    /// Continue on a chat that can't be read back in: the past chat whose questions and answers go
+    /// with the next question, as text. Kept as the chat, not its text, so the text is built when the
+    /// question goes, against what is hidden then, and a chat deleted since sends nothing.
+    @Published private(set) var carryFrom: UUID?
+
+    /// The text the next question carries, built now; nil when none, or its chat is gone.
+    var carryingText: String? {
+        guard let carryFrom, let stored = pastChats?.chat(carryFrom) else { return nil }
+        return AskClaudePastChats.carriedText(stored, hiddenFolders: AskClaudePrivacy.hiddenFolders(in: defaults))
+    }
+
+    /// Whether the next question carries a past chat as text: one is set and still listed.
+    var isCarrying: Bool {
+        guard let carryFrom, let pastChats else { return false }
+        return pastChats.entries.contains { $0.id == carryFrom }
+    }
     /// Cards from an earlier session (a chat over an hour old when it came back, or carried on with
     /// Continue): drawn with their buttons off, since what they offered may be stale and their Undo
     /// ended with that session.
@@ -199,11 +215,13 @@ final class AskClaudeChat: ObservableObject {
 
     /// Cancel on "Your next question carries the earlier chat": it goes nowhere.
     func cancelCarry() {
-        carryingText = nil
+        carryFrom = nil
         save()
     }
     /// The question running, or last run: what a download card offered during it was wanted for.
     private var askedQuestion: String?
+    /// The run going is an on-device command, which asks Claude nothing.
+    private var onDeviceRunning = false
     private var streamingItem: UUID?
     /// The question running, as the thread shows it: where a model switch's note goes.
     private var askedItem: UUID?
@@ -397,10 +415,17 @@ final class AskClaudeChat: ObservableObject {
         var earlier: UUID?
         /// Cards from an earlier session, drawn with their buttons off.
         var expired: [UUID]?
+        /// Continue was pressed: the next question reads the chat back in.
+        var continuing: Bool?
+        /// Continue in a New Chat was pressed: the past chat the next question carries as text.
+        var carryFrom: UUID?
 
         init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?,
              hiddenAtStart: [String]?, sharesAnswers: Bool?, sharesNames: Bool? = nil, carried: [String: [String]]? = nil,
-             talkedAt: Date? = nil, folder: String? = nil, id: UUID? = nil, earlier: UUID? = nil, expired: [UUID]? = nil) {
+             talkedAt: Date? = nil, folder: String? = nil, id: UUID? = nil, earlier: UUID? = nil, expired: [UUID]? = nil,
+             continuing: Bool? = nil, carryFrom: UUID? = nil) {
+            self.continuing = continuing
+            self.carryFrom = carryFrom
             self.expired = expired
             self.folder = folder
             self.id = id
@@ -434,6 +459,8 @@ final class AskClaudeChat: ObservableObject {
             id = try container.decodeIfPresent(UUID.self, forKey: .id)
             earlier = try container.decodeIfPresent(UUID.self, forKey: .earlier)
             expired = try container.decodeIfPresent([UUID].self, forKey: .expired)
+            continuing = try container.decodeIfPresent(Bool.self, forKey: .continuing)
+            carryFrom = try container.decodeIfPresent(UUID.self, forKey: .carryFrom)
         }
     }
 
@@ -637,8 +664,9 @@ final class AskClaudeChat: ObservableObject {
         restoreHistory()
         // A chat deleted, cleared or re-hidden under the one shown above the line follows it there.
         pastChats?.onRefresh = { [weak self] in
-            guard let self, let shown = self.earlier else { return }
-            self.earlier = self.pastChats?.entries.first { $0.id == shown.id }
+            guard let self, let id = self.earlierID else { return }
+            let now = self.pastChats?.entries.first { $0.id == id }
+            if now != self.earlier { self.earlier = now }
         }
         // A key replaced or removed in Settings reaches this chat at once, not at its next start.
         keyCenter = keyChanges
@@ -702,12 +730,17 @@ final class AskClaudeChat: ObservableObject {
         // An hour-old chat stays on screen, and the next question starts a new one (decision JK).
         // One past the keep length goes to Past Chats, which deletes it.
         if let days = pastChats?.keep.days, now().timeIntervalSince(stored.talkedAt ?? stored.lastActivity) > Double(days) * 86_400 {
+            var stored = stored
+            (stored.earlier, stored.continuing, stored.carryFrom) = (nil, nil, nil)
             pastChats?.archive(stored, id: stored.id ?? UUID())
             Self.removeIfPresent(storeURL, what: "the old saved chat")
             return
         }
         load(stored)
-        if let earlierID = stored.earlier { earlier = pastChats?.entry(earlierID) }
+        earlierID = stored.earlier
+        if let earlierID { earlier = pastChats?.entry(earlierID) }
+        // Read the list now, so the carry's note can tell whether its chat is still there.
+        if let carryFrom { _ = pastChats?.entry(carryFrom) }
     }
 
     /// Takes a saved chat in as the chat in the panel: at launch, and for Continue.
@@ -724,8 +757,11 @@ final class AskClaudeChat: ObservableObject {
         sharesNames = stored.sharesNames ?? false
         carried = stored.carried ?? [:]
         items = Self.withoutRepeatedSteps(stored.items).map(Self.notWaiting)
-        lastActivity = stored.lastActivity
-        talkedAt = stored.talkedAt ?? stored.lastActivity
+        continuing = stored.continuing ?? false
+        carryFrom = stored.carryFrom
+        // A chat saved only for its carry has nothing asked yet.
+        lastActivity = items.isEmpty ? nil : stored.lastActivity
+        talkedAt = items.isEmpty ? nil : stored.talkedAt ?? stored.lastActivity
         // Judged against what was hidden when the chat began, not at this launch: a folder hidden
         // and then a quit must still keep what Claude saw of it out of the next question. A chat
         // saved without it can't be judged, so it starts over once if anything is hidden.
@@ -846,13 +882,15 @@ final class AskClaudeChat: ObservableObject {
 
     /// The chat as it is saved, or nil when it is empty.
     private func storedNow() -> Stored? {
-        guard let lastActivity, !items.isEmpty else { return nil }
-        return Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
+        // An empty chat is saved only while it carries a past one, so the carry outlasts a quit.
+        guard !items.isEmpty ? lastActivity != nil : carryFrom != nil else { return nil }
+        return Stored(items: items, lastActivity: lastActivity ?? now(), engine: engine.snapshot,
                       sinceLastAnswer: sinceLastAnswer.isEmpty ? nil : sinceLastAnswer,
                       hiddenAtStart: hiddenAtStart.sorted(), sharesAnswers: sharesAnswers ? true : nil,
                       sharesNames: sharesNames ? true : nil, carried: carried.isEmpty ? nil : carried, talkedAt: talkedAt,
-                      folder: folder, id: chatID, earlier: earlier?.id,
-                      expired: expiredCards.isEmpty ? nil : expiredCards.map(\.self))
+                      folder: folder, id: chatID, earlier: earlierID,
+                      expired: expiredCards.isEmpty ? nil : expiredCards.map(\.self),
+                      continuing: continuing ? true : nil, carryFrom: carryFrom)
     }
 
     // MARK: Past chats (TE306)
@@ -862,8 +900,11 @@ final class AskClaudeChat: ObservableObject {
     @discardableResult
     private func archiveCurrent() -> UUID? {
         guard let pastChats, var stored = storedNow(), AskClaudePastChats.isWorthKeeping(items) else { return nil }
-        if isRunning { stored.engine.setting = nil }
+        // An on-device command running asks Claude nothing: the transcript is whole.
+        if isRunning, !onDeviceRunning { stored.engine.setting = nil }
         stored.earlier = nil
+        stored.continuing = nil
+        stored.carryFrom = nil
         pastChats.archive(stored, id: chatID)
         return chatID
     }
@@ -879,15 +920,22 @@ final class AskClaudeChat: ObservableObject {
     var currentResume: AskClaudePastChats.Resume? {
         guard !isRunning, startsOverAtNextQuestion, let stored = storedNow() else { return nil }
         let hidden = AskClaudePrivacy.hiddenFolders(in: defaults)
-        let names = AskClaudePastChats.hiddenNames(in: stored, context: .init(hiddenFolders: hidden)).count
-        return AskClaudePastChats.resume(stored, hiddenNames: names, hiddenSince: hiddenSinceStart, model: model, warm: !idleExpired,
-                                         hiddenFolders: hidden)
+        let names = AskClaudePastChats.hiddenNames(in: stored, context: .init(hiddenFolders: hidden))
+        let way = AskClaudePastChats.way(stored, hiddenNames: names, hiddenSince: hiddenSinceStart, hiddenFolders: hidden)
+        return AskClaudePastChats.price(way, model: model, warm: !idleExpired)
+    }
+
+    /// What the next question costs to read this chat back in after Continue, as the button said.
+    var continuingCost: Double? {
+        guard continuing, let tokens = contextTokens else { return nil }
+        let warm = talkedAt.map { now().timeIntervalSince($0) <= Self.idleReset } ?? false
+        return AskClaudePastChats.readBackCost(tokens: tokens, lastModel: engine.lastKept?.model, model: model, warm: warm)
     }
 
     /// Continue under the chat on screen after an hour away: the next question reads it back in, or,
     /// when it can't be, a new chat starts and carries it as text.
     func continueThisChat() {
-        guard let resume = currentResume, let stored = storedNow() else { return }
+        guard let resume = currentResume else { return }
         switch resume {
         case .readBack:
             continuing = true
@@ -896,7 +944,9 @@ final class AskClaudeChat: ObservableObject {
             Logger.shared.info("Ask Claude: Continue — the next question reads this chat back in")
         case .asText:
             startOver(keepingInView: true)
-            carryingText = AskClaudePastChats.carriedText(stored, hiddenFolders: AskClaudePrivacy.hiddenFolders(in: defaults))
+            // The chat just put away, now the one shown above the line.
+            carryFrom = earlierID
+            save()
             Logger.shared.info("Ask Claude: Continue — a new chat carries the last one as text")
         }
     }
@@ -906,20 +956,21 @@ final class AskClaudeChat: ObservableObject {
     func continuePast(_ id: UUID) -> Bool {
         guard !isRunning, let pastChats, let entry = pastChats.entries.first(where: { $0.id == id }),
               let stored = pastChats.chat(id) else { return false }
-        switch entry.resume {
+        switch entry.way {
         case .readBack:
             startOver()
             _ = pastChats.take(id)
             load(stored)
             continuing = true
-            save()
+            carryFrom = nil
             expiredCards.formUnion(items.map(\.id))
             save()
             Logger.shared.info("Ask Claude: Continue — a past chat is back, and the next question reads it back in")
         case .asText:
             startOver()
+            earlierID = entry.id
             earlier = entry
-            carryingText = AskClaudePastChats.carriedText(stored, hiddenFolders: AskClaudePrivacy.hiddenFolders(in: defaults))
+            carryFrom = entry.id
             save()
             Logger.shared.info("Ask Claude: Continue — a new chat carries a past one as text")
         }
@@ -1665,16 +1716,7 @@ final class AskClaudeChat: ObservableObject {
             addNote("Didn’t ask again: \(why), so the next question starts a new chat, without what this one shares. Ask again to read it afresh.")
             return
         }
-        if idleExpired, !items.isEmpty {
-            // Refine cards from Organize can be newer than the last question: one running or
-            // answered keeps its place and its Undo, and what was done on cards still reaches Claude.
-            let kept = items.filter { if case .refine = $0.kind { return Self.lasts($0.kind) } else { return false } }
-            let newlyHidden = Set(AskClaudePrivacy.hiddenFolders(in: defaults)).subtracting(hiddenAtStart)
-            startOver(carrying: Self.withoutHidden(sinceLastAnswer, newlyHidden), keepingInView: true)
-            items = kept
-            // The line over the earlier chat says it; without Past Chats, this does.
-            if earlier == nil { items.append(Item(kind: .note("Started a new chat after an hour away."))) }
-        }
+        if idleExpired, !items.isEmpty { startAfterAnHourAway() }
         if hiddenSinceStart, !items.isEmpty {
             // What he did on cards still reaches Claude, less any line naming what he hid.
             let newlyHidden = Set(AskClaudePrivacy.hiddenFolders(in: defaults)).subtracting(hiddenAtStart)
@@ -1713,12 +1755,13 @@ final class AskClaudeChat: ObservableObject {
         engine.handles = minting
         // Continue on a chat that couldn't be read back in: it goes with this question, once.
         let carry = carryingText
-        carryingText = nil
+        let carrySource = carry == nil ? nil : carryFrom
+        carryFrom = nil
         continuing = false
         let sent = (carry.map { $0 + "\n\n" } ?? "") + Self.withSinceLastAnswer(named, question)
 
         let questionItem = Item(kind: .user(shown ?? question), spoken: spoken ? true : nil,
-                                asked: Asked(question: question, attachments: attached, editable: editable, carried: carry))
+                                asked: Asked(question: question, attachments: attached, editable: editable, carriedFrom: carrySource))
         items.append(questionItem)
         askedItem = questionItem.id
         turnReads = nil
@@ -1737,12 +1780,13 @@ final class AskClaudeChat: ObservableObject {
         task = Task { [weak self] in
             let screen = await screen()
             guard let self, self.run == thisRun else { return }
-            // The folder relative to its source, or the source at its top level, for Past Chats' row.
-            if self.folder == nil { self.folder = screen.folder.isEmpty ? screen.source : screen.folder }
+            // The folder relative to its source, or the source at its top level, for Past Chats' row;
+            // never one hidden from Claude, whose name the row would show.
+            if self.folder == nil, !screen.folderHidden { self.folder = screen.folder.isEmpty ? screen.source : screen.folder }
             // Stopped while the screen was read: the run ends here, as a stop does later on.
             if Task.isCancelled {
                 self.sinceLastAnswer = pending + self.sinceLastAnswer
-                if let carry { self.carryingText = carry }
+                if let carrySource { self.carryFrom = carrySource }
                 self.items.append(Item(kind: .note("Stopped.")))
                 Logger.shared.info("Ask Claude question stopped before it was sent")
                 self.finishRun()
@@ -1771,7 +1815,7 @@ final class AskClaudeChat: ObservableObject {
             // ends without a problem and keeps nothing, and a problem in a later round comes after.
             if !joined {
                 self.sinceLastAnswer = pending + self.sinceLastAnswer
-                if let carry { self.carryingText = carry }
+                if let carrySource { self.carryFrom = carrySource }
             }
             self.finishRun(joined: joined)
         }
@@ -1808,13 +1852,14 @@ final class AskClaudeChat: ObservableObject {
         let questionItem = Item(kind: .user(question), spoken: spoken ? true : nil,
                                 asked: Asked(question: question, attachments: [], editable: true))
         // An hour away starts a new chat here too, the old one kept above the line (decision JK).
-        if idleExpired, !items.isEmpty { startOver(keepingInView: true) }
+        if idleExpired, !items.isEmpty { startAfterAnHourAway() }
         // A chat this opens starts from what is hidden now, as `ask` starts one: an older baseline
         // would count a folder hidden before it as hidden since, and start the chat over.
         if items.isEmpty { hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults)) }
         items.append(questionItem)
         isRunning = true
         isThinking = true
+        onDeviceRunning = true
         stoppedThisRun = false
         problemThisRun = false
         run += 1
@@ -1825,6 +1870,7 @@ final class AskClaudeChat: ObservableObject {
             @MainActor func end() {
                 self.isRunning = false
                 self.isThinking = false
+                self.onDeviceRunning = false
                 self.task = nil
             }
             if Task.isCancelled {
@@ -1970,7 +2016,7 @@ final class AskClaudeChat: ObservableObject {
             sinceLastAnswer = lines + sinceLastAnswer
         }
         // The question taken back carried an earlier chat: the one asked in its place carries it.
-        if let carry = items[index].asked?.carried { carryingText = carry }
+        if let from = items[index].asked?.carriedFrom { carryFrom = from }
         let keptIDs = Set(kept.map(\.id))
         for item in gone where !keptIDs.contains(item.id) {
             pdfThumbnails[item.id] = nil
@@ -2055,6 +2101,18 @@ final class AskClaudeChat: ObservableObject {
         return kept + ["They hid an item from you; \(dropped == 1 ? "a note about it was" : "\(dropped) notes about it were") left out."]
     }
 
+    /// An hour away: a new chat, the old one kept in view above it (decision JK). Refine cards from
+    /// Organize can be newer than the last question: one running or answered keeps its place and its
+    /// Undo, and what was done on cards still reaches Claude.
+    private func startAfterAnHourAway() {
+        let kept = items.filter { if case .refine = $0.kind { return Self.lasts($0.kind) } else { return false } }
+        let newlyHidden = Set(AskClaudePrivacy.hiddenFolders(in: defaults)).subtracting(hiddenAtStart)
+        startOver(carrying: Self.withoutHidden(sinceLastAnswer, newlyHidden), keepingInView: true)
+        items = kept
+        // The line over the earlier chat says it; without Past Chats, this does.
+        if earlier == nil { items.append(Item(kind: .note("Started a new chat after an hour away."))) }
+    }
+
     /// Clears the thread and the transcript. The handle table goes with it. `lines` are report
     /// lines the new chat sends (a restart for privacy keeps them); every other start drops them.
     ///
@@ -2064,16 +2122,19 @@ final class AskClaudeChat: ObservableObject {
         let hadItems = !items.isEmpty
         let archived = archiveCurrent()
         if let archived {
+            earlierID = keepingInView ? archived : nil
             earlier = keepingInView ? pastChats?.entries.first { $0.id == archived } : nil
         } else if !keepingInView || hadItems {
             // A chat that ended without an answer isn't kept: no older one stands in for it.
+            earlierID = nil
             earlier = nil
         }
         expiredCards = []
         chatID = UUID()
         folder = nil
         continuing = false
-        carryingText = nil
+        carryFrom = nil
+        onDeviceRunning = false
         carried = [:]
         task?.cancel()
         task = nil

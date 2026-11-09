@@ -1010,6 +1010,10 @@ For the after-GA-prep sitting. Ask two short questions in one chat first, then N
   “a hidden item” in the chat, search for it finds nothing, and Continue reads “Continue in a New
   Chat · N¢”. Press it: the note over the box has Cancel, and the next question carries only your
   questions.
+- [ ] **Hidden after Continue.** Continue in a New Chat on a chat that read a file, then hide that
+  file's folder before asking: the next question's receipt (Details) carries only your questions.
+  Quit and relaunch before asking instead: the note over the box is still there. Switch the model
+  menu with “Continue · N¢” on screen: its price changes with it.
 - [ ] **Settings.** Settings ▸ Ask Claude ▸ Privacy ▸ Past chats: 30 days, the count and size. Pick
   7 days with an older chat present: it asks before deleting. Clear All… asks, then the list is
   empty and says how chats get there.

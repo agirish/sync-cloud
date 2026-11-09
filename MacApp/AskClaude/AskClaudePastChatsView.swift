@@ -14,6 +14,8 @@ struct AskClaudePastChatsView: View {
     let onAccent: Color
     /// A question is running: Continue waits for it.
     let isRunning: Bool
+    /// The chat's own store, where the model menu keeps its choice: Continue is priced for it.
+    let defaults: UserDefaults
     let onContinue: (UUID) -> Void
     let onNewChat: () -> Void
     let onOpenSettings: () -> Void
@@ -202,24 +204,23 @@ struct AskClaudePastChatsView: View {
             }
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             Divider()
-            VStack(alignment: .leading, spacing: 7) {
-                Text(Self.continueWhy(entry.resume)).scaledFont(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button("New Chat", action: onNewChat).frame(maxWidth: .infinity)
-                    Button(continueTitle(entry.resume)) { onContinue(entry.id) }
-                        .buttonStyle(.borderedProminent).accentedProminent()
-                        .disabled(isRunning)
-                        .frame(maxWidth: .infinity)
+            AskClaudeWithModel(defaults: defaults) { model in
+                let resume = entry.resume(model: model, now: Date())
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(Self.continueWhy(resume)).scaledFont(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("New Chat", action: onNewChat).frame(maxWidth: .infinity)
+                        Button(Self.continueTitle(resume)) { onContinue(entry.id) }
+                            .buttonStyle(.borderedProminent).accentedProminent()
+                            .disabled(isRunning)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
                 }
-                .controlSize(.large)
+                .padding(12)
             }
-            .padding(12)
         }
-    }
-
-    private func continueTitle(_ resume: AskClaudePastChats.Resume) -> String {
-        Self.continueTitle(resume)
     }
 
     static func continueTitle(_ resume: AskClaudePastChats.Resume) -> String {
@@ -339,6 +340,14 @@ struct AskClaudeEarlierLine: View {
     let resume: AskClaudePastChats.Resume?
     let onContinue: () -> Void
 
+    /// `resume` priced for the model in the chat's menu, drawn again when the menu changes.
+    static func priced(title: String, defaults: UserDefaults, resume: @escaping (AskClaudeModels.Option) -> AskClaudePastChats.Resume?,
+                       onContinue: @escaping () -> Void) -> some View {
+        AskClaudeWithModel(defaults: defaults) { model in
+            AskClaudeEarlierLine(title: title, resume: resume(model), onContinue: onContinue)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -364,4 +373,18 @@ struct AskClaudeEarlierLine: View {
     private var line: some View {
         Rectangle().fill(.separator).frame(height: 1)
     }
+}
+
+/// Its content, given the model in the chat's menu and drawn again when that changes: what a price
+/// on screen is worked out for.
+struct AskClaudeWithModel<Content: View>: View {
+    @AppStorage private var modelID: String
+    private let content: (AskClaudeModels.Option) -> Content
+
+    init(defaults: UserDefaults, @ViewBuilder content: @escaping (AskClaudeModels.Option) -> Content) {
+        _modelID = AppStorage(wrappedValue: AskClaudeModels.defaultModel.id, AskClaudeModels.defaultsKey, store: defaults)
+        self.content = content
+    }
+
+    var body: some View { content(AskClaudeModels.option(for: modelID)) }
 }

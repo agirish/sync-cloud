@@ -1,5 +1,6 @@
 import Foundation
 import Events
+import Settings
 import Sync
 
 /// Ask Claude's past chats (TE306): every chat put away by New Chat, an hour away, an update or a
@@ -42,6 +43,13 @@ final class AskClaudePastChats: ObservableObject {
         }
     }
 
+    /// How Continue would carry a chat on, before it is priced: the price depends on the model in
+    /// the menu and on whether the hour has passed, so it is worked out when drawn.
+    enum Way: Equatable {
+        case readBack(tokens: Int, lastModel: String?)
+        case asText(reason: String, tokens: Int)
+    }
+
     /// How Continue carries a chat on (decision JJ).
     enum Resume: Equatable {
         /// Claude reads it back in once, as it was: about `costUSD` at the model it was on.
@@ -61,11 +69,18 @@ final class AskClaudePastChats: ObservableObject {
         let costUSD: Double
         let hiddenNames: Int
         let lines: [Line]
-        let resume: Resume
+        let way: Way
         /// What search looks in: questions and answers, folded for case and accents.
         let searchText: String
 
-        static func == (a: Entry, b: Entry) -> Bool { a.id == b.id && a.lastAsked == b.lastAsked && a.hiddenNames == b.hiddenNames }
+        static func == (a: Entry, b: Entry) -> Bool {
+            a.id == b.id && a.lastAsked == b.lastAsked && a.hiddenNames == b.hiddenNames && a.way == b.way
+        }
+
+        /// Continue priced for `model`, the one the next question goes to, as of `now`.
+        func resume(model: AskClaudeModels.Option, now: Date) -> Resume {
+            AskClaudePastChats.price(way, model: model, warm: now.timeIntervalSince(lastAsked) <= AskClaudeChat.idleReset)
+        }
 
         /// "Immigration · 5 questions · 6.1¢"
         var detail: String {
@@ -138,50 +153,51 @@ final class AskClaudePastChats: ObservableObject {
     /// Called after every refresh, so the chat can follow a chat deleted or re-hidden under it.
     var onRefresh: (() -> Void)?
 
-    /// Each file as last read, by its date: a refresh reads only what is new or changed.
-    private var decoded: [UUID: (lastAsked: Date, file: File)] = [:]
+    /// Each chat as last built, by its date and what was hidden then: a refresh reads and builds
+    /// only what is new or changed, and builds every chat again only when the hidden list changes.
+    private var built: [UUID: (lastAsked: Date, hidden: [String], entry: Entry)] = [:]
 
     /// Deletes what the keep length has passed, then reads every chat. Run at launch, when the list
     /// opens, and after a chat is put away.
     func refresh() {
         guard let files else { entries = []; return }
         files.prune(keep: keep, now: now())
-        let context = Context(hiddenFolders: AskClaudePrivacy.hiddenFolders(in: defaults),
-                              model: AskClaudeModels.option(for: defaults.string(forKey: AskClaudeModels.defaultsKey)), now: now())
+        let hidden = AskClaudePrivacy.hiddenFolders(in: defaults)
+        var context: Context?
         let onDisk = files.entries()
-        decoded = decoded.filter { id, _ in onDisk.contains { $0.id == id } }
+        let ids = Set(onDisk.map(\.id))
+        built = built.filter { ids.contains($0.key) }
         entries = onDisk.compactMap { entry in
-            let file: File
-            if let cached = decoded[entry.id], cached.lastAsked == entry.lastAsked {
-                file = cached.file
-            } else {
-                guard let data = try? Data(contentsOf: entry.url) else { return nil }
-                do {
-                    file = try JSONDecoder().decode(File.self, from: data)
-                } catch {
-                    Logger.shared.warning("Ask Claude: a past chat couldn’t be read and isn’t listed — \(error.localizedDescription)")
-                    return nil
-                }
-                decoded[entry.id] = (entry.lastAsked, file)
+            if let cached = built[entry.id], cached.lastAsked == entry.lastAsked, cached.hidden == hidden {
+                return cached.entry
             }
-            return Self.entry(file, lastAsked: entry.lastAsked, bytes: entry.bytes, context: context)
+            guard let data = try? Data(contentsOf: entry.url) else { return nil }
+            let file: File
+            do {
+                file = try JSONDecoder().decode(File.self, from: data)
+            } catch {
+                Logger.shared.warning("Ask Claude: a past chat couldn’t be read and isn’t listed — \(error.localizedDescription)")
+                return nil
+            }
+            if context == nil { context = Context(hiddenFolders: hidden) }
+            let made = Self.entry(file, lastAsked: entry.lastAsked, bytes: entry.bytes, context: context!)
+            built[entry.id] = (entry.lastAsked, hidden, made)
+            return made
         }
         onRefresh?()
     }
 
-    /// What every entry of one refresh is judged against: what is hidden now, through one matcher,
-    /// and the model a Continue would ask.
+    /// What every entry of one refresh is judged against: what is hidden now, through one matcher
+    /// for them all and one for each folder.
     struct Context {
         let hiddenFolders: [String]
         let matcher: AskClaudePrivacy.Matcher
-        let model: AskClaudeModels.Option
-        let now: Date
+        let each: [(folder: String, matcher: AskClaudePrivacy.Matcher)]
 
-        init(hiddenFolders: [String], model: AskClaudeModels.Option = AskClaudeModels.defaultModel, now: Date = Date()) {
+        init(hiddenFolders: [String]) {
             self.hiddenFolders = hiddenFolders
             matcher = AskClaudePrivacy.Matcher(hiddenFolders)
-            self.model = model
-            self.now = now
+            each = hiddenFolders.map { ($0, AskClaudePrivacy.Matcher([$0])) }
         }
     }
 
@@ -285,24 +301,32 @@ final class AskClaudePastChats: ObservableObject {
     }
 
     /// The names a past chat must not show: every file or folder it named inside something hidden
-    /// from Claude now, and the hidden folders' own names when it saw inside them, or was about one.
+    /// from Claude now, with and without its extension ("Passport 2024" as well as "Passport
+    /// 2024.pdf"), and the hidden folders' own names when it saw inside them, or was about one.
     /// Longest first, so a name holding another is hidden whole.
     static func hiddenNames(in chat: AskClaudeChat.Stored, context: Context) -> [String] {
-        let paths = chat.engine.handles.paths
+        guard !context.hiddenFolders.isEmpty else { return [] }
+        let paths = chat.engine.handles.paths.filter(context.matcher.isHidden)
         var names = Set<String>()
-        for path in paths where context.matcher.isHidden(path) {
+        for path in paths {
             let name = (path as NSString).lastPathComponent
-            if name.count >= 2 { names.insert(name) }
+            let stem = (name as NSString).deletingPathExtension
+            for word in [name, stem] where word.count >= 2 { names.insert(word) }
         }
-        let folderName = chat.folder.map { ($0 as NSString).lastPathComponent.lowercased() }
-        for folder in context.hiddenFolders {
+        let folderParts = Set((chat.folder ?? "").split(separator: "/").map { $0.lowercased() })
+        for (folder, one) in context.each {
             let name = (folder as NSString).lastPathComponent
             guard name.count >= 2 else { continue }
             // By the matcher's spellings (a link, another case), not the path as typed.
-            let one = AskClaudePrivacy.Matcher([folder])
-            if paths.contains(where: one.isHidden) || folderName == name.lowercased() { names.insert(name) }
+            if paths.contains(where: one.isHidden) || folderParts.contains(name.lowercased()) { names.insert(name) }
         }
         return names.sorted { $0.count > $1.count }
+    }
+
+    /// Whether the chat's own folder, as its row shows it, is or sits inside a hidden folder.
+    static func folderIsHidden(_ chat: AskClaudeChat.Stored, context: Context) -> Bool {
+        let parts = Set((chat.folder ?? "").split(separator: "/").map { $0.lowercased() })
+        return context.hiddenFolders.contains { parts.contains(($0 as NSString).lastPathComponent.lowercased()) }
     }
 
     static let hiddenWord = "a hidden item"
@@ -344,26 +368,23 @@ final class AskClaudePastChats: ObservableObject {
         let cost = chat.items.reduce(0.0) { sum, item in
             if case .receipt(let receipt) = item.kind { sum + receipt.costUSD } else { sum }
         }
+        let folder = folderIsHidden(chat, context: context) ? nil : chat.folder.map { redact(($0 as NSString).lastPathComponent, names) }
         return Entry(id: file.id, lastAsked: lastAsked, bytes: bytes,
                      firstQuestion: questions.first ?? "A chat",
-                     folder: chat.folder.map { redact(($0 as NSString).lastPathComponent, names) },
+                     folder: folder,
                      questions: questions.count, costUSD: cost, hiddenNames: names.count, lines: lines,
-                     resume: resume(chat, hiddenNames: names.count, hiddenSince: hiddenSince(chat, hiddenNow: context.hiddenFolders),
-                                    model: context.model, warm: context.now.timeIntervalSince(lastAsked) <= AskClaudeChat.idleReset,
-                                    hiddenFolders: context.hiddenFolders),
+                     way: way(chat, hiddenNames: names, hiddenSince: hiddenSince(chat, hiddenNow: context.hiddenFolders),
+                              hiddenFolders: context.hiddenFolders),
                      searchText: fold((questions + answers).joined(separator: "\n")))
     }
 
-    /// Continue's way for a saved chat (decision JJ), priced for `model`, the one the next question
-    /// goes to. `warm`: asked within the hour, so Claude still has it cached and reading it again
-    /// costs a cache read, unless the model changed.
-    static func resume(_ chat: AskClaudeChat.Stored, hiddenNames: Int, hiddenSince: Bool, model: AskClaudeModels.Option,
-                       warm: Bool, hiddenFolders: [String]) -> Resume {
-        func asText(_ reason: String) -> Resume {
-            let text = carriedText(chat, hiddenFolders: hiddenFolders)
-            return .asText(reason: reason, costUSD: AskClaudeModels.catchUpCost(contextTokens: max(1, text.count / 4), to: model))
+    /// Continue's way for a saved chat (decision JJ), before it is priced.
+    static func way(_ chat: AskClaudeChat.Stored, hiddenNames: [String], hiddenSince: Bool, hiddenFolders: [String]) -> Way {
+        func asText(_ reason: String) -> Way {
+            let text = carriedText(chat, hiddenNames: hiddenNames)
+            return .asText(reason: reason, tokens: max(1, text.count / 4))
         }
-        if hiddenNames > 0 {
+        if !hiddenNames.isEmpty {
             return asText("Something this chat named is hidden from Claude now, so it can’t pick it up where it was, and only your questions go.")
         }
         if hiddenSince { return asText("A folder was hidden from Claude since this chat began, so it can’t pick it up where it was.") }
@@ -373,11 +394,27 @@ final class AskClaudePastChats: ObservableObject {
         guard AskClaudeEngine.isCurrent(setting: setting) else {
             return asText("Ask Claude was updated since this chat, so Claude can’t pick it up exactly where it was.")
         }
-        let tokens = chat.engine.contextTokens ?? 0
-        let cost = warm && chat.engine.lastKept?.model == model.id
+        return .readBack(tokens: chat.engine.contextTokens ?? 0, lastModel: chat.engine.lastKept?.model)
+    }
+
+    /// Continue priced for `model`, the one the next question goes to. `warm`: asked within the
+    /// hour, so Claude still has it cached and reading it again costs a cache read, unless the model
+    /// changed.
+    nonisolated static func price(_ way: Way, model: AskClaudeModels.Option, warm: Bool) -> Resume {
+        switch way {
+        case .readBack(let tokens, let lastModel):
+            return .readBack(costUSD: readBackCost(tokens: tokens, lastModel: lastModel, model: model, warm: warm), tokens: tokens)
+        case .asText(let reason, let tokens):
+            return .asText(reason: reason, costUSD: AskClaudeModels.catchUpCost(contextTokens: tokens, to: model))
+        }
+    }
+
+    /// What reading a chat of `tokens` back in costs: a cache read while it is warm on the same
+    /// model, else writing it to the cache again.
+    nonisolated static func readBackCost(tokens: Int, lastModel: String?, model: AskClaudeModels.Option, warm: Bool) -> Double {
+        warm && lastModel == model.id
             ? Double(tokens) * model.price.forPrompt(tokens).cacheRead / 1_000_000
             : AskClaudeModels.catchUpCost(contextTokens: tokens, to: model)
-        return .readBack(costUSD: cost, tokens: tokens)
     }
 
     /// The read-only lines of a chat: questions, answers, what happened, and each card as one line
@@ -398,16 +435,16 @@ final class AskClaudePastChats: ObservableObject {
             case .filing(let card):
                 return .card(symbol: "folder", text: "Where \(card.fileName) could go: " + card.folders.map(\.label).joined(separator: ", "))
             case .plan(let plan):
-                return .card(symbol: "checklist", text: plan.title + " · " + (plan.summary ?? "\(plan.state)"))
+                return .card(symbol: "checklist", text: plan.title + " · " + (plan.summary ?? word(plan.state)))
             case .choices(let choices, _):
                 return .card(symbol: "list.bullet", text: choices.map(\.label).joined(separator: " · "))
             case .rule(let card):
-                return .card(symbol: "wand.and.stars", text: "Rule: \(card.title) · \(card.state)")
+                return .card(symbol: "wand.and.stars", text: "Rule: \(card.title) · " + word(card.state))
             case .settings(let card):
-                let rows = card.rows.map(\.id).joined(separator: ", ")
+                let rows = card.rows.map { SettingsCatalog.entry($0.id)?.label ?? $0.id }.joined(separator: ", ")
                 return .card(symbol: "gearshape", text: (card.title ?? "Settings") + (rows.isEmpty ? "" : ": " + rows))
             case .pdf(let card):
-                return .card(symbol: "doc.richtext", text: card.title + " · \(card.state)")
+                return .card(symbol: "doc.richtext", text: card.title + " · " + word(card.state))
             case .found(let found):
                 return .card(symbol: "magnifyingglass", text: "Found \(found.count) in \(found.folderLabel)")
             case .reads(let group):
@@ -419,6 +456,38 @@ final class AskClaudePastChats: ObservableObject {
             case .noted(let noted, let undone):
                 return .meta(noted.line + (undone ? " · undone" : ""))
             }
+        }
+    }
+
+    static func word(_ state: AskClaudePlan.State) -> String {
+        switch state {
+        case .proposed: "offered"
+        case .applying, .partlyApplied: "partly applied"
+        case .applied: "applied"
+        case .undone: "undone"
+        case .declined: "not now"
+        }
+    }
+
+    static func word(_ state: AskClaudeRuleCard.State) -> String {
+        switch state {
+        case .offered: "offered"
+        case .saved: "saved"
+        case .declined: "not now"
+        }
+    }
+
+    static func word(_ state: AskClaudePDFCard.State) -> String {
+        switch state {
+        case .checking, .offered: "offered"
+        case .running, .quitWhileRunning: "stopped when SyncCloud quit"
+        case .done: "done"
+        case .partlyDone: "partly done"
+        case .nothingWritten: "nothing to write"
+        case .failed: "failed"
+        case .notNow: "not now"
+        case .undone: "undone"
+        case .replaced: "replaced by a newer card"
         }
     }
 
@@ -440,7 +509,10 @@ final class AskClaudePastChats: ObservableObject {
     /// since, only the questions go: an answer can hold what Claude read in a hidden file without
     /// naming it. A line naming something hidden never goes.
     static func carriedText(_ chat: AskClaudeChat.Stored, hiddenFolders: [String]) -> String {
-        let names = hiddenNames(in: chat, context: Context(hiddenFolders: hiddenFolders))
+        carriedText(chat, hiddenNames: hiddenNames(in: chat, context: Context(hiddenFolders: hiddenFolders)))
+    }
+
+    static func carriedText(_ chat: AskClaudeChat.Stored, hiddenNames names: [String]) -> String {
         let questionsOnly = !names.isEmpty
         var dropped = 0
         var body = lines(chat.items).compactMap { line -> String? in
@@ -453,11 +525,17 @@ final class AskClaudePastChats: ObservableObject {
             if names.contains(where: { redact(text, [$0]) != text }) { dropped += 1; return nil }
             return text
         }
-        var cut = 0
-        while body.count > 1, body.joined(separator: "\n\n").count > carryLimit {
-            body.removeFirst()
-            cut += 1
+        // Newest lines kept: count back from the end until the next would pass the limit.
+        var length = 0
+        var keptFrom = body.count
+        while keptFrom > 0 {
+            let next = length + body[keptFrom - 1].count + (keptFrom == body.count ? 0 : 2)
+            if next > carryLimit, keptFrom < body.count { break }
+            length = next
+            keptFrom -= 1
         }
+        let cut = keptFrom
+        body.removeFirst(cut)
         var note = questionsOnly
             ? "An earlier chat we had: my questions only, since I’ve hidden something it touched from you."
             : "An earlier chat we had, carried on as text. You don’t have what you read from files then; look again if you need it."

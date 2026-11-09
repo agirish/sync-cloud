@@ -196,7 +196,7 @@ struct AskClaudePanel: View {
     @ViewBuilder private var content: some View {
         if showsPast, let past = chat.pastChats {
             AskClaudePastChatsView(past: past, opened: $pastOpened, accentFill: accentFill, onAccent: onAccent,
-                                   isRunning: chat.isRunning,
+                                   isRunning: chat.isRunning, defaults: chat.settingsDefaults,
                                    onContinue: { id in if chat.continuePast(id) { closePast() } },
                                    onNewChat: { chat.newChat(); closePast() },
                                    onOpenSettings: { onOpenSettings(.privacy) })
@@ -306,9 +306,10 @@ struct AskClaudePanel: View {
                             // Not drawn again as each word of the new answer streams in.
                             .equatable()
                             .opacity(0.6)
-                        AskClaudeEarlierLine(title: "Earlier · Claude doesn’t see this",
-                                             resume: chat.isRunning || chat.items.contains(where: Self.isQuestion) ? nil : earlier.resume,
-                                             onContinue: { chat.continuePast(earlier.id) })
+                        let offers = !chat.isRunning && !chat.items.contains(where: Self.isQuestion)
+                        AskClaudeEarlierLine.priced(title: "Earlier · Claude doesn’t see this", defaults: chat.settingsDefaults,
+                                                    resume: { offers ? earlier.resume(model: $0, now: Date()) : nil },
+                                                    onContinue: { chat.continuePast(earlier.id) })
                     }
                     if chat.items.isEmpty && chat.earlier == nil {
                         AskClaudeEmptyState(keySaved: keySaved, starters: AskClaudeStarters.questions(for: place.starterScreen),
@@ -336,9 +337,11 @@ struct AskClaudePanel: View {
                     ForEach(chat.items.dropFirst(lazy)) { item in
                         threadRow(item, turns: turns, retries: retries, latestReceipt: latestReceipt)
                     }
-                    if let resume = chat.currentResume {
-                        AskClaudeEarlierLine(title: "Your next question starts a new chat · Claude won’t see what’s above",
-                                             resume: resume, onContinue: { chat.continueThisChat() })
+                    if chat.currentResume != nil {
+                        // Read again inside, so a change in the model menu prices it afresh.
+                        AskClaudeEarlierLine.priced(title: "Your next question starts a new chat · Claude won’t see what’s above",
+                                                    defaults: chat.settingsDefaults, resume: { _ in chat.currentResume },
+                                                    onContinue: { chat.continueThisChat() })
                     }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
@@ -362,26 +365,30 @@ struct AskClaudePanel: View {
 
     /// What the next question carries after Continue.
     private var continueNote: String? {
-        if chat.carryingText != nil { return "Your next question carries the earlier chat to Claude as text." }
+        if chat.isCarrying { return "Your next question carries the earlier chat to Claude as text." }
         guard chat.continuing else { return nil }
-        let cost = chat.contextTokens.map { AskClaudeModels.catchUpCost(contextTokens: $0, to: chat.model) } ?? 0
+        // Priced as Continue's button was, so the two agree.
+        let cost = chat.continuingCost ?? 0
         return cost > 0 ? "Your next question reads this chat back in to Claude once, about \(AskClaudeSpend.format(cost))."
                         : "Your next question carries this chat on."
     }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let note = continueNote {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Label(note, systemImage: "arrow.uturn.forward")
-                        .fixedSize(horizontal: false, vertical: true)
-                    if chat.carryingText != nil {
-                        Spacer(minLength: 4)
-                        Button("Cancel") { chat.cancelCarry() }.buttonStyle(.link)
-                            .help("Ask without the earlier chat")
+            if continueNote != nil {
+                // Drawn again when the model menu changes, so its price follows it.
+                AskClaudeWithModel(defaults: chat.settingsDefaults) { _ in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Label(continueNote ?? "", systemImage: "arrow.uturn.forward")
+                            .fixedSize(horizontal: false, vertical: true)
+                        if chat.isCarrying {
+                            Spacer(minLength: 4)
+                            Button("Cancel") { chat.cancelCarry() }.buttonStyle(.link)
+                                .help("Ask without the earlier chat")
+                        }
                     }
+                    .scaledFont(.caption).foregroundStyle(.secondary)
                 }
-                .scaledFont(.caption).foregroundStyle(.secondary)
             }
             if chat.editing != nil { editingLine }
             if let waiting = chat.queued { queuedLine(waiting) }
@@ -934,14 +941,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         }
     }
 
-    /// The cards whose buttons go off once their session has passed. Refine and Try Another run on
-    /// Organize's clock, not the chat's, and keep theirs.
-    static func expires(_ kind: AskClaudeChat.Item.Kind) -> Bool {
-        switch kind {
-        case .user, .assistant, .step, .moved, .receipt, .problem, .note, .refine, .tryAnother: false
-        default: true
-        }
-    }
+    static func expires(_ kind: AskClaudeChat.Item.Kind) -> Bool { AskClaudeChat.expires(kind) }
 
 
     private func menuTitle(_ action: AskClaudeTurnAction) -> String {
@@ -2279,5 +2279,16 @@ enum AskClaudeHeldAnswer {
         guard words >= 1_000 else { return words }
         let step = words >= 10_000 ? 1_000 : 100
         return (words + step / 2) / step * step
+    }
+}
+
+extension AskClaudeChat {
+    /// The cards whose buttons go off once their session has passed. Refine and Try Another run on
+    /// Organize's clock, not the chat's, and keep theirs.
+    nonisolated static func expires(_ kind: Item.Kind) -> Bool {
+        switch kind {
+        case .user, .assistant, .step, .moved, .receipt, .problem, .note, .refine, .tryAnother: false
+        default: true
+        }
     }
 }
