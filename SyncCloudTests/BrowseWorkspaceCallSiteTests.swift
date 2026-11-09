@@ -156,9 +156,9 @@ import FileExplorer
 
     // MARK: The preview
 
-    /// The preview is Info's alone, drawn at the height last dragged to, and Info is a column or a
-    /// drawer of its own beside a pane's list, never a preview column inside it. A preview inside the
-    /// list's columns would resize them and move them on every click between a file and a folder.
+    /// The preview is Info's alone, drawn at the height last dragged to. Info is one more column, drawn
+    /// over the room the list keeps for it, or a drawer; never a view inside the list's columns,
+    /// which would resize them and make the pane non-`Equatable`.
     /// View ▸ File Preview is gone; this pins what is left for the app to get wrong.
     @Test func testThePreviewIsThePanesInfoAlone() throws {
         let macApp = Self.codeOnly(try macAppSources())

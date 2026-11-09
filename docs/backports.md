@@ -14957,6 +14957,18 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | the window-level Info column, no pane Info | NOT OWED — no backporting; recorded |
 
+## Info as a column (TE337) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, a pane's Info is one more column: in Columns it follows the deepest
+column and scrolls with the stack, in Tree it sits at the list's right edge; it has no title bar (a ✕ on
+hover), no fill or seam of its own, and a column's divider that drags it from 200 to 600 pt
+(`paneInfoWidth`, one width for every pane). The maintenance lines have no pane Info (TE336, above), so
+there is nothing there to restyle.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | the window-level Info column, no pane Info | NOT OWED — no backporting; recorded |
+
 ## The Refine plan card, redone (TE335) — recorded, not owed
 
 2026-11-08, for v7.1. On `main`, the Ask Claude plan card for Refine lists what goes to Claude, what needs

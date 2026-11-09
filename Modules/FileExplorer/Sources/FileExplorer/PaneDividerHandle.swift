@@ -2,11 +2,16 @@ import AppKit
 import SwiftUI
 
 /// One hairline and the 9pt strip that makes it grabbable: the chrome a pane divider wears. Generic
-/// over its gesture; the column dividers are its one caller.
-struct PaneDividerHandle<G: Gesture>: View {
+/// over its gesture; the column dividers wear it, and so does a pane's Info column, so the two read
+/// as one kind of edge.
+public struct PaneDividerHandle<G: Gesture>: View {
     let gesture: G
 
-    var body: some View {
+    public init(gesture: G) {
+        self.gesture = gesture
+    }
+
+    public var body: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.08))
             .frame(width: 1)

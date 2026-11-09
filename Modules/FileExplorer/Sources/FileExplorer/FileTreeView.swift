@@ -649,6 +649,9 @@ public struct FileTreeView: View, Equatable {
     /// Changing the text size still invalidates this view (dynamic properties bypass `==`, as the
     /// `@AppStorage` hue does), so the setting stays live.
     @Environment(\.appFontScale) private var appFontScale
+    /// The room the app's Info column takes, or nil for none (`PaneInfoSlot`). An environment value,
+    /// not a property, so it is outside `==` and still redraws the pane, as `appFontScale` does.
+    @Environment(\.paneInfoRoom) private var infoRoom
     private var rowFonts: PaneRowFonts { PaneRowFonts(scale: appFontScale) }
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
@@ -891,6 +894,9 @@ public struct FileTreeView: View, Equatable {
         // Drop the sidebar list's own vibrant background so the pane picks up the selected
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
+        // Info's room at the trailing edge, inside the surface so Info sits on the same wash as the
+        // rows (`PaneInfoSlot`). The Columns branch keeps its room in the stack instead.
+        .modifier(PaneInfoTrailingRoom(room: infoRoom))
         .contentSurface(hue: glassHue, tint: surfaceTint)
         // The viewport's global frame: height plus top edge in window coordinates. Rows report in
         // global space too, since a named space can't be resolved inside a List row (each is its

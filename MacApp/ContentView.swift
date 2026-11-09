@@ -640,8 +640,8 @@ struct ContentView: View {
     @AppStorage(TopPaneVisibility.editorExpandFoldedPaneKey) var editorExpandFoldedPane: Bool = false
 
 
-    /// Each file pane's Info: the picture and details of what it has selected, in a column at the
-    /// pane's right edge, or a drawer over a pane too narrow for one (`PaneInfo`). One switch per
+    /// Each file pane's Info: the picture and details of what it has selected, as one more column in
+    /// the pane, or a drawer over a pane too narrow for one (`PaneInfo`). One switch per
     /// pane, on keys of their own (`PaneInfo.defaultsKey`): the two comparison panes, Browse, and
     /// the single-source rail. Internal, not private: `ContentView+PaneInfo` reads them.
     @AppStorage(PaneInfo.defaultsKey(isLeft: true)) var paneInfoLeftOn: Bool = false
@@ -651,6 +651,12 @@ struct ContentView: View {
     /// What each pane's Info showed last, so crossing the width line has a hysteresis
     /// (`PaneInfo.presentation`). Keyed "left", "right" or "single".
     @State var paneInfoMemory: [String: PaneInfo.Presentation] = [:]
+    /// Info's width as a column, one for every pane, as the columns' is (`PaneInfo.widthDefaultsKey`).
+    @AppStorage(PaneInfo.widthDefaultsKey) var paneInfoWidth: Double = Double(PaneInfo.defaultWidth)
+    /// Where each pane's list keeps the room Info is drawn over (`PaneInfoSlot`): one per side, so
+    /// Compare's two panes never read each other's.
+    @State var paneInfoSlotLeft = PaneInfoSlot()
+    @State var paneInfoSlotRight = PaneInfoSlot()
     /// Ask Claude is the window's right-hand column, and this is its width. The column is open by
     /// default once a key is saved, and the window remembers it open or closed (`askClaudeOpen`).
     @AppStorage(AskClaudePanelSettings.widthKey) var askClaudePinnedWidth: Double = 372
@@ -3792,8 +3798,9 @@ struct ContentView: View {
             // the hairline every workspace column's header carries on the same line.
             .columnHeaderRule(surfaceStyle)
             .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-            // The list and its Info: Info sits beside the whole chain below (a column) or over it (a
-            // drawer), never inside it, so Space's Quick Look and the action bar stay the list's own.
+            // The list and its Info: Info is drawn over the whole chain below, in the room the list
+            // keeps for it (a column) or as a drawer, never inside it, so Space's Quick Look and the
+            // action bar stay the list's own.
             paneInfoHost(isLeft: isLeft) {
                 treeView(pane)
                     .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
@@ -3833,6 +3840,8 @@ struct ContentView: View {
                             }
                             if !barAtTop { paneBarPiece(isLeft: isLeft, barNodes: barNodes, atTop: barAtTop, placement: placement) }
                         }
+                        // Centred over the list's part of the pane, beside Info's column, not over it.
+                        .clearsPaneInfo()
                     }
                     // Quick fade on appear and disappear only (keyed on presence, not the edge), so
                     // clicking a file shows the bar at once and clearing the selection fades it out.

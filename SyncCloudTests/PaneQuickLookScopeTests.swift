@@ -58,7 +58,7 @@ import Foundation
         // stops short of the list would fail like the regression. A floor on how much to read, not
         // where the member ends: the checks anchor on the list line, so reading past costs nothing.
         let body = String(content[column.upperBound...].prefix(20_000))
-        // Inside `paneInfoHost`, which puts Info beside the whole chain, so one level deeper.
+        // Inside `paneInfoHost`, which draws Info over the whole chain, so one level deeper.
         let host = try #require(body.range(of: "            paneInfoHost(isLeft: isLeft) {\n"),
                                 "the pane's list is not inside the Info host — Info would sit inside the list's chain")
         let list = try #require(body.range(of: "                treeView(pane)\n", range: host.upperBound..<body.endIndex),

@@ -146,95 +146,110 @@ extension ContentView {
 
     // MARK: The panel
 
-    enum PaneInfoKind { case slot, drawer, spineDrawer }
+    enum PaneInfoKind { case column, drawer, spineDrawer }
 
-    /// The Info panel for one pane: a header with a close button, then the preview over the details,
-    /// scoped to that pane alone (`DetailsSidebar.ownPaneOnly`).
+    /// The Info panel for one pane: the preview over the details, scoped to that pane alone
+    /// (`DetailsSidebar.ownPaneOnly`). As a column it has no title bar, as no column has, and a ✕
+    /// that shows on hover; a drawer, a card over the pane, keeps its title bar and ✕.
+    @ViewBuilder
     func paneInfoPanel(isLeft: Bool, kind: PaneInfoKind) -> some View {
-        let previewTarget = paneInfoPreviewTarget(isLeft: isLeft)
-        return VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "info.circle")
-                    .scaledFont(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text("Info").scaledFont(.system(size: 12, weight: .semibold))
-                Spacer(minLength: 0)
-                CloseButton { setPaneInfo(isLeft: isLeft, false) }
-                    .help("Hide Info")
-                    .accessibilityLabel("Hide Info")
+        switch kind {
+        case .column:
+            paneInfoDetails(isLeft: isLeft)
+                .paneInfoHoverClose { setPaneInfo(isLeft: isLeft, false) }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Info")
+        case .drawer, .spineDrawer:
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .scaledFont(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Info").scaledFont(.system(size: 12, weight: .semibold))
+                    Spacer(minLength: 0)
+                    CloseButton { setPaneInfo(isLeft: isLeft, false) }
+                        .help("Hide Info")
+                        .accessibilityLabel("Hide Info")
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                Divider()
+                paneInfoDetails(isLeft: isLeft)
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            Divider()
-            DetailsSidebar(
-                syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath,
-                overridePath: paneInfoOverridePath(isLeft: isLeft),
-                singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
-                // The app answers what the editor opens: `EditableText.opensInEdit` is the row
-                // menu's own gate, so Info cannot disagree with the menu about a file.
-                editorHandOff: EditorHandOff(isOffered: { EditableText.opensInEdit(path: $0) },
-                                             open: { handOffToEditor($0) }),
-                // The picture over the details, at the height last dragged to.
-                previewFraction: $inspectorPreviewFraction,
-                preview: previewTarget.map { target in
-                    AnyView(InspectorFilePreview(
-                        node: target.node,
-                        paneToken: PaneToken(isLeft: target.isLeft, isSingleSource: layoutMode == .singleSource),
-                        // The panel is in the pane, so the pane is on screen to watch a download.
-                        paneWatches: true,
-                        downloads: inspectorDownloads))
-                },
-                previewPath: previewTarget?.node.id,
-                followsRight: !isLeft,
-                ownPaneOnly: true)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Info")
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Info")
-        .modifier(PaneInfoKindFrame(kind: kind))
     }
 
-    /// The panel's frame by kind: a column's fixed width, or a drawer's in the pane that holds it.
-    private struct PaneInfoKindFrame: ViewModifier {
-        let kind: PaneInfoKind
-        func body(content: Content) -> some View {
-            switch kind {
-            case .slot: content.frame(width: PaneInfo.slotWidth)
-            case .drawer, .spineDrawer: content
-            }
-        }
+    /// The preview over the details, as both kinds draw it.
+    private func paneInfoDetails(isLeft: Bool) -> some View {
+        let previewTarget = paneInfoPreviewTarget(isLeft: isLeft)
+        return DetailsSidebar(
+            syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath,
+            overridePath: paneInfoOverridePath(isLeft: isLeft),
+            singleSource: layoutMode == .singleSource, cloudCoverage: settings.cloudCoverage,
+            // The app answers what the editor opens: `EditableText.opensInEdit` is the row
+            // menu's own gate, so Info cannot disagree with the menu about a file.
+            editorHandOff: EditorHandOff(isOffered: { EditableText.opensInEdit(path: $0) },
+                                         open: { handOffToEditor($0) }),
+            // The picture over the details, at the height last dragged to.
+            previewFraction: $inspectorPreviewFraction,
+            preview: previewTarget.map { target in
+                AnyView(InspectorFilePreview(
+                    node: target.node,
+                    paneToken: PaneToken(isLeft: target.isLeft, isSingleSource: layoutMode == .singleSource),
+                    // The panel is in the pane, so the pane is on screen to watch a download.
+                    paneWatches: true,
+                    downloads: inspectorDownloads))
+            },
+            previewPath: previewTarget?.node.id,
+            followsRight: !isLeft,
+            ownPaneOnly: true)
     }
 
     // MARK: Where it sits
 
-    /// Wraps a pane's file list (the whole chain, key handlers and action bar included) so Info sits
-    /// beside it as a column, or over it as a drawer. The list stays where it is in the tree whether
+    /// Where the pane on that side keeps the room for its Info column.
+    func paneInfoSlot(isLeft: Bool) -> PaneInfoSlot { isLeft ? paneInfoSlotLeft : paneInfoSlotRight }
+
+    /// Wraps a pane's file list (the whole chain, key handlers and action bar included) so Info is
+    /// one more column in it, or a drawer over it. The list stays where it is in the tree whether
     /// Info is open or not, so opening Info never rebuilds it.
     ///
-    /// The slot is a sibling of the chain, not inside it: Space's Quick Look and the action bar's
-    /// centring belong to the list alone, so a Space typed in Info is not Quick Look and the bar does
-    /// not sit over Info. The pane's width is read here, synchronously, by `GeometryReader`, as the
-    /// pane's columns read theirs.
+    /// As a column, Info is drawn over the list, never inside it: the list keeps the room (after
+    /// the deepest column in Columns, at its trailing edge in Tree) and says where it is
+    /// (`PaneInfoSlot`). So Space's Quick Look and ↩ stay the list's, a Space typed in Info is not
+    /// Quick Look, and the action bar centres beside Info (`clearsPaneInfo`), not over it. The
+    /// pane's width is read here, synchronously, by `GeometryReader`, as the pane's columns read
+    /// theirs.
     @ViewBuilder
     func paneInfoHost<Content: View>(isLeft: Bool, @ViewBuilder content: () -> Content) -> some View {
         let list = content()
-        return GeometryReader { geo in
+        GeometryReader { geo in
             let key = paneInfoMemoryKey(isLeft: isLeft)
             let on = paneIsOnScreen(isLeft: isLeft) && paneInfoIsOn(isLeft: isLeft)
-            let mode = PaneInfo.presentation(isOn: on, paneWidth: geo.size.width, previous: paneInfoMemory[key])
-            HStack(spacing: 0) {
-                list
-                if mode == .slot {
-                    paneInfoPanel(isLeft: isLeft, kind: .slot)
-                        .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
-                        .unifiedSeam(surfaceStyle, edge: .leading)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+            let width = PaneInfo.clampWidth(CGFloat(paneInfoWidth))
+            let mode = PaneInfo.presentation(isOn: on, paneWidth: geo.size.width,
+                                             previous: paneInfoMemory[key], infoWidth: width)
+            let slot = paneInfoSlot(isLeft: isLeft)
+            list
+                .environment(\.paneInfoRoom, mode == .column ? PaneInfoRoom(width: width, slot: slot) : nil)
+                .coordinateSpace(.named(PaneInfoSlot.coordinateSpace))
+                .overlay(alignment: .topLeading) {
+                    if mode == .column {
+                        PaneInfoColumnOverlay(slot: slot, width: $paneInfoWidth) {
+                            paneInfoPanel(isLeft: isLeft, kind: .column)
+                        }
+                        .transition(.opacity)
+                    }
                 }
-            }
-            .overlay(alignment: .trailing) {
-                if mode == .drawer {
-                    paneInfoDrawer(isLeft: isLeft, width: PaneInfo.drawerWidth(paneWidth: geo.size.width), edge: .trailing)
+                .overlay(alignment: .trailing) {
+                    if mode == .drawer {
+                        paneInfoDrawer(isLeft: isLeft,
+                                       width: PaneInfo.drawerWidth(paneWidth: geo.size.width, infoWidth: width),
+                                       edge: .trailing)
+                    }
                 }
-            }
-            .onChange(of: mode, initial: true) { _, new in paneInfoMemory[key] = new }
+                .onChange(of: mode, initial: true) { _, new in paneInfoMemory[key] = new }
         }
     }
 
@@ -256,7 +271,7 @@ extension ContentView {
     @ViewBuilder
     var organizeSpineInfoDrawer: some View {
         if organizeSpineHoldsInfo && paneInfoRailOn {
-            paneInfoDrawer(isLeft: true, width: PaneInfo.slotWidth, edge: .leading)
+            paneInfoDrawer(isLeft: true, width: PaneInfo.clampWidth(CGFloat(paneInfoWidth)), edge: .leading)
         }
     }
 }

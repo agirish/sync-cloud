@@ -725,11 +725,8 @@ The window has no Info column any more: each file pane has its own Info, in a co
 edge or a drawer over it. Check in Unified and Cards (Settings ▸ Appearance ▸ Surface), with Ask Claude
 closed and open.
 
-- [ ] **Browse, Columns.** Click ⓘ in the pane bar (or press ⌘I): a 300pt Info column appears at the
-  right end of the columns, which give up that width. Click a file, then a folder, then a file: the
-  Info column never moves or resizes, the folder shows its glyph and summary in the same frame, and
-  the columns do not jump.
-- [ ] **Browse, Tree.** The same in Tree: Info is a second column right of the tree.
+- [ ] **Browse, Columns and Tree.** Click ⓘ in the pane bar (or press ⌘I): Info appears as one more
+  column. Where it sits and how it resizes are TE337's checks, below.
 - [ ] **A narrow pane.** Drag the window narrower until the pane is under 600pt: Info becomes a drawer
   over the pane's right edge with a ✕ and a shadow, the list underneath does not move, and arrow keys
   in the list change what Info shows. Widen it 40pt past the line and it is a column again; dragging
@@ -747,6 +744,32 @@ closed and open.
   download ends, and a second pane does not start a second watch.
 - [ ] **A customised pane bar.** A bar arranged before this build gains ⓘ right after Scan, once;
   remove it from Customize Pane Bar… and it stays removed after a relaunch.
+
+## Info as a column (TE337, 2026-11-08)
+
+Info looks and resizes like one more column. Check in Unified and Cards, light and dark.
+
+- [ ] **Columns.** Open Info in Browse with Work selected two levels deep: Info sits right after the
+  deepest column, with the empty space past it, not at the pane's right edge. No title bar, no fill of
+  its own: the same background as the columns, and the same faint line between it and the column
+  before it.
+- [ ] **Follows the columns.** Click a folder: a new column opens and Info moves right with it. Click
+  a file in an earlier column: Info moves back. Drill deep enough to overflow: the stack scrolls so
+  Info is at the right edge with the deepest column beside it. Scroll the stack back: Info slides off
+  with the columns and never draws past the pane's edge.
+- [ ] **Resize.** Drag Info's right edge: it widens and narrows like a column (200–600 pt), the cursor
+  is the resize cursor, and the width stays after a relaunch and in every pane (Compare's two match).
+  Double-click the edge: back to 300.
+- [ ] **Tree.** Switch the pane to Tree: Info is at the right edge, its divider on its left edge; drag
+  it, and the rows end where it begins once you let go.
+- [ ] **Close.** Hover Info: a ✕ shows at its top right; click it and Info closes. Move away: it hides.
+  With Full Keyboard Access, Tab reaches the ✕ and shows it. VoiceOver offers "Hide Info" on Info.
+- [ ] **Keys stay the list's.** Select text in Info's details and press Space: nothing previews. Click a
+  row and press Space: Quick Look opens.
+- [ ] **Action bar.** In Compare at a width where Info is a column, select a file: the action bar centres
+  over the columns beside Info, never over Info.
+- [ ] **Narrow panes.** Under 600 pt (more if Info is wider) Info is still a drawer with its title bar
+  and ✕.
 
 ## Ask Claude, docked only (TE336, 2026-11-08)
 

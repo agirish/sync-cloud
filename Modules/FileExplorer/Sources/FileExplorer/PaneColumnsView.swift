@@ -158,6 +158,11 @@ struct PaneColumnsView: View {
     /// default, keeps nothing.
     @Environment(\.paneScrollMemory) private var scrollMemory
 
+    /// The room the app's Info column takes after the deepest column, or nil for none (see
+    /// `PaneInfoSlot`). The stack keeps it as it keeps a column: in its scrolling content, so Info
+    /// follows the deepest column and a drill brings it into view.
+    @Environment(\.paneInfoRoom) private var infoRoom
+
     /// Whether a rebuilt pane may put the stack's kept position back. Not while the host has asked
     /// for a row reveal, which brings the deepest column in (`revealColumnHolding`) and wins.
     ///
@@ -219,8 +224,9 @@ struct PaneColumnsView: View {
         }
     }
 
-    /// The pane: the Miller-column stack, scrolling horizontally within the pane's width. Nothing
-    /// else shares it; the file preview is the Info inspector's, so a file click takes no room.
+    /// The pane: the Miller-column stack, scrolling horizontally within the pane's width. With Info
+    /// open as a column the stack keeps its room after the deepest column; Info itself is the app's,
+    /// drawn over that room (`PaneInfoSlot`).
     @ViewBuilder
     private func columnStack(paneWidth: CGFloat) -> some View {
         // Below two minimum columns there is no room for a second one, so the pane shows a single
@@ -245,7 +251,11 @@ struct PaneColumnsView: View {
             spansStack ? paneWidth
                 : min(columnWidth(atDepth: offset), viewportWidth)
         }
-        let fillerWidth = PaneViewMode.trailingFillerWidth(paneWidth: viewportWidth, columnWidths: widths)
+        // Info's room, as wide as Info, never wider than the viewport, as a column. None in push mode:
+        // the app's line keeps Info a drawer in any pane that narrow.
+        let infoWidth: CGFloat? = spansStack ? nil : infoRoom.map { min($0.width, viewportWidth) }
+        let fillerWidth = PaneViewMode.trailingFillerWidth(paneWidth: viewportWidth,
+                                                           columnWidths: widths + [infoWidth ?? 0])
         // The empty area past the columns answers a right-click as the deepest column's own empty
         // area does; at rest that is most of the pane.
         let menuDirectory = visible.last
@@ -268,6 +278,13 @@ struct PaneColumnsView: View {
                                 }
                             }
                     }
+                    if let infoWidth, let infoRoom {
+                        // Empty: the app draws Info over it. Its id lets a reveal scroll to it.
+                        Color.clear
+                            .frame(width: infoWidth)
+                            .id(PaneInfoSlot.stackID)
+                            .reportsPaneInfoRoom(infoRoom.slot, edge: .trailing)
+                    }
                     if fillerWidth > 0 {
                         deselectCatcher(width: fillerWidth, place: "past last column",
                                         menuDirectory: menuDirectory)
@@ -278,7 +295,7 @@ struct PaneColumnsView: View {
                 .background(PaneColumnsOverscrollReturn(holdGate: holdGate))
                 // Same placement, same reason: the offset this remembers is the stack's.
                 .background(stackScrollMemoryProbe(
-                    contentWidth: widths.reduce(0, +) + fillerWidth))
+                    contentWidth: widths.reduce(0, +) + (infoWidth ?? 0) + fillerWidth))
             }
             .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
@@ -342,6 +359,12 @@ struct PaneColumnsView: View {
                 guard grew else { return }
                 revealDeepestColumn(proxy)
             }
+            // And when Info opens as a column, or commits wider: its room is the stack's last item,
+            // so either can push it past the trailing edge. Narrowing only un-hides, per the rule.
+            .onChange(of: infoRoom?.width) { previous, current in
+                guard let current, current > (previous ?? 0) else { return }
+                revealDeepestColumn(proxy)
+            }
             // A reveal waiting out a hold must not outlive its pane: the queued chain holds this
             // view's captures and the `ScrollViewProxy` (see `PaneColumnHoldGate.cancelPendingReveal`).
             .onDisappear { holdGate.cancelPendingReveal() }
@@ -399,7 +422,8 @@ struct PaneColumnsView: View {
         revealDeepestColumn(proxy)
     }
 
-    /// Brings the deepest column back to the trailing edge of the stack's viewport.
+    /// Brings the deepest column back to the trailing edge of the stack's viewport, or, with Info open
+    /// as a column, Info's room after it.
     ///
     /// Deferred, because `onChange` fires while SwiftUI is still applying the update, so the scroll
     /// would resolve against the old geometry and land short of a fresh column.
@@ -439,6 +463,8 @@ struct PaneColumnsView: View {
         let animation = revealAnimation
         let gate = holdGate
         let budget = revealHoldChecks
+        // With Info open as a column its room follows the deepest column, so the reveal shows both.
+        let toInfo = infoRoom != nil
         // A fresh reveal supersedes any chain waiting out a hold and every attempt an earlier
         // reveal queued; the new chain re-resolves its target against the current `treeRoot`.
         // See `PaneColumnHoldGate.beginReveal`.
@@ -463,7 +489,10 @@ struct PaneColumnsView: View {
                     budget, Double(budget) * WheelGestureTracker.staleness))
             }
             guard let deepest = browsePath.columnDirectories(treeRoot: treeRoot).last else { return }
-            withAnimation(animation) { proxy.scrollTo(deepest, anchor: .trailing) }
+            withAnimation(animation) {
+                if toInfo { proxy.scrollTo(PaneInfoSlot.stackID, anchor: .trailing) }
+                else { proxy.scrollTo(deepest, anchor: .trailing) }
+            }
             // The gate answer above is a snapshot: a main-thread hitch can open a gap in momentum
             // delivery, so this scrolls, the next event re-engages the lock and `enforceHold`
             // reverts it. So ask again, `staleness` later. Not zero: a zero-delay re-ask lands
