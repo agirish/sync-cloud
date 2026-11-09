@@ -153,6 +153,31 @@ import Testing
         #expect(result.verdicts.count == 1)
     }
 
+    /// A reply that finishes without answering every file (prose instead of the tool, or the output
+    /// cap) is not a whole answer: it ends as a failure that keeps what came, so the card offers the
+    /// rest again instead of calling the unanswered files kept.
+    @Test func aFinishedReplyThatAnswersOnlySomeFilesIsNotAWholeAnswer() async {
+        let body = "{\"placements\":[" + Self.placement(0, "Home") + "]}"
+        let early = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(3),
+                                                    environment: Self.environment(Script(lines: Self.start() + [Self.piece(body)] + Self.finish)))
+        #expect(early.ending == .failed("Claude stopped early."))
+        #expect(early.answered == 1 && early.verdicts.count == 1 && early.started)
+
+        let capped = [
+            Self.event(["type": "content_block_stop", "index": 0]),
+            Self.event(["type": "message_delta", "delta": ["stop_reason": "max_tokens"], "usage": ["output_tokens": 60]]),
+            Self.event(["type": "message_stop"]),
+        ]
+        let cut = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(3),
+                                                  environment: Self.environment(Script(lines: Self.start() + [Self.piece(body)] + capped)))
+        #expect(cut.ending == .failed("Claude’s answer was cut short."))
+
+        let whole = "{\"placements\":[" + [Self.placement(0, "Home"), Self.placement(1, "none")].joined(separator: ",") + "]}"
+        let all = await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: Self.files(2),
+                                                  environment: Self.environment(Script(lines: Self.start() + [Self.piece(whole)] + Self.finish)))
+        #expect(all.ending == .answered, "every file answered, “none” included")
+    }
+
     // MARK: Stop
 
     @MainActor

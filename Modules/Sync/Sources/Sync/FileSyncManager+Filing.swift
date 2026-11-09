@@ -1343,8 +1343,11 @@ extension FileSyncManager {
                 filingScanLifecycle.status = nil
             }
         }
+        // A folder Customize… left out goes nowhere, not even as "avoid: …"; the answer is still
+        // checked against the rejections when it lands.
         let excluded = allRejected.filter { !hidden.isHidden($0) }
             .compactMap { Self.relativePath($0, under: root) }
+            .filter { !Self.isLeftOut($0, in: leftOut) }
         // The page the scan already read, not nil. This is a `.refine` call, the paid tier, and as
         // in the refine pass a name-only verdict is one the overlay refuses anyway
         // (`contentBlind`), a paid round-trip that changes nothing. `filingPageSamples` already
@@ -1389,7 +1392,7 @@ extension FileSyncManager {
                 case .stopped: .stopped
                 case .failed: .failed
                 }
-                filingTryAnotherReports?(FilingTryAnotherReport(fileName: suggestion.fileName, outcome: outcome,
+                filingTryAnotherReports?(FilingTryAnotherReport(fileName: suggestion.fileName, filePath: suggestion.filePath, outcome: outcome,
                                                                 costUSD: reply.costUSD, modelName: filingRefineModelName))
             }
         } else {

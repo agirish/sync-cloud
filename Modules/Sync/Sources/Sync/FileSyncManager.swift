@@ -724,9 +724,10 @@ public class FileSyncManager: ObservableObject {
     @Published public internal(set) var filingOpenRefinePlans: [String: FilingRefinePlan] = [:]
 
     /// Folders (relative to the source) the person left out of the folder list with Customize… on
-    /// the plan card, and everything under them. Kept until the app quits, and read by Refine, Try
-    /// Another and Refine Names alike (TE335, LY-A), so there is one rule and nothing to manage in
-    /// Settings. Never saved.
+    /// the plan card, and everything under them. Kept until the app quits, and read by Refine and Try
+    /// Another alike (TE335, LY-A), so there is one rule and nothing to manage in Settings: neither
+    /// sends a left-out name, not even as "avoid: …". Refine Names sends its mapping's own names and
+    /// does not read it. Never saved.
     @Published public var filingRefineLeftOutFolders: Set<String> = []
 
     /// How Refine and Try Another reach Claude: a request that says how it ended, so a failure shows
@@ -739,6 +740,8 @@ public class FileSyncManager: ObservableObject {
 
     /// Stop was pressed during the pass that is running, possibly before its request began.
     var filingRefineStopRequested = false
+    /// The latest sent pass whose answers came after the list moved on (see `DiscardedRefine`).
+    var filingDiscardedRefine: DiscardedRefine?
 
     /// True while the opt-in refine pass is out at the backend. Not `isSuggestingFiles`, which
     /// swaps the Organize lens to its scanning view: a refine improves the list the user is looking
@@ -3747,10 +3750,12 @@ public struct FilingTryAnotherNote: Equatable, Sendable {
 public struct FilingTryAnotherReport: Sendable, Equatable {
     public enum Outcome: Sendable, Equatable { case answered, failed, stopped }
     public let fileName: String
+    /// The file's path, so two files of one name count as two; empty where unknown.
+    public let filePath: String
     public let outcome: Outcome
     public let costUSD: Double
     public let modelName: String
-    public init(fileName: String, outcome: Outcome, costUSD: Double, modelName: String) {
-        self.fileName = fileName; self.outcome = outcome; self.costUSD = costUSD; self.modelName = modelName
+    public init(fileName: String, filePath: String = "", outcome: Outcome, costUSD: Double, modelName: String) {
+        self.fileName = fileName; self.filePath = filePath; self.outcome = outcome; self.costUSD = costUSD; self.modelName = modelName
     }
 }

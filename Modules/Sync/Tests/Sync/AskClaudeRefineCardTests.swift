@@ -209,7 +209,6 @@ extension HandBuiltRefineSuites {
         defer { try? FileManager.default.removeItem(at: root) }
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
         #expect(!card.plan.routesToClaude && card.monthLine == "Runs on this Mac · nothing is billed")
-        #expect(card.monthFraction == nil || card.plan.limitUSD > 0)
     }
 
     // MARK: Moves
@@ -358,7 +357,7 @@ extension HandBuiltRefineSuites {
         card.finish(.sent(.init(asked: 30, reused: 0, classified: 30, changed: 25)), report: report(sent: 30, answered: 30, changes: 25))
         let line = try? #require(card.toldToClaude)
         #expect(line?.hasPrefix("They ran Refine from Organize on 30 files; a separate request to Opus 5.5 that you didn’t make.") == true)
-        #expect(line?.contains("It changed 25 suggested homes: “f0.pdf” → Work/Invoices (Page 1 is an invoice)") == true)
+        #expect(line?.contains("It changed 25 suggested homes: “f0.pdf” ⟦/r/f0.pdf⟧ → Work/Invoices (Page 1 is an invoice)") == true)
         #expect(line?.contains("“f19.pdf”") == true && line?.contains("“f20.pdf”") == false)
         #expect(line?.contains("; and 5 more") == true)
         #expect(line?.hasSuffix("Nothing has moved: they still File it in Organize.") == true)
@@ -376,6 +375,93 @@ extension HandBuiltRefineSuites {
 
         let waiting = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .planned)
         #expect(waiting.toldToClaude == nil, "a plan that was not sent is not told")
+    }
+
+    /// A changed file goes to Claude marked with its path, so the chat turns it into a handle, and a
+    /// folder hidden before the next question drops the line on the privacy restart.
+    @Test func eachChangedFileCarriesItsPathSoAFolderHiddenSinceDropsTheLine() {
+        var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        let r = FileSyncManager.FilingRefineReport(
+            changes: [.init(filePath: "/Users/x/Downloads/Lab results.pdf", fileName: "Lab results.pdf", before: nil, after: "Health/Labs", reason: nil)],
+            asked: 1, reused: 0, hiddenFromClaude: 0, sent: 1, answered: 1, pagesSent: 0, folderNames: 10,
+            requests: 1, costUSD: 0.01, modelName: "Opus 5.5", ending: .answered, keptForNextPress: 0, waitingForPage: 0)
+        card.finish(.sent(.init(asked: 1, reused: 0, classified: 1, changed: 1)), report: r)
+        let line = try? #require(card.toldToClaude)
+        #expect(line?.contains("“Lab results.pdf” ⟦/Users/x/Downloads/Lab results.pdf⟧ → Health/Labs") == true)
+        #expect(line?.contains("Downloads") == true, "the folder's name is in the line, for the hidden check to find")
+    }
+
+    @Test func aPassThatNeverReachedClaudeTellsItNothing() {
+        var failed = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        failed.finish(.sent(.init(asked: 2, reused: 0, classified: 0, changed: 0, outcome: .failed)),
+                      report: report(sent: 0, answered: 0, changes: 0, ending: .failed("There is no Claude key to read."), requests: 0, cost: 0))
+        #expect(failed.endingMessage?.hasSuffix("Nothing was sent, and the suggestions are unchanged.") == true)
+        #expect(failed.toldToClaude == nil, "the card says nothing was sent, so Claude is not told a request ran")
+
+        var stopped = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        stopped.finish(.sent(.init(asked: 2, reused: 0, classified: 0, changed: 0, outcome: .stopped)),
+                       report: report(sent: 2, answered: 0, changes: 0, ending: .stopped, requests: 0, cost: 0))
+        #expect(stopped.toldToClaude == nil)
+    }
+
+    @Test func savedAnswersThatMovedHomesAreNotCalledUnchanged() {
+        var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        card.finish(.sent(.init(asked: 3, reused: 2, classified: 0, changed: 2, outcome: .failed)),
+                    report: report(sent: 1, answered: 0, changes: 2, ending: .failed("There is no Claude key to read."), requests: 0, cost: 0))
+        #expect(card.endingMessage == "There is no Claude key to read. Nothing was sent; saved answers changed the homes below.")
+    }
+
+    @Test func aStopThatLandsAfterTheLastAnswerDoesNotCountZeroUnanswered() {
+        var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        card.finish(.sent(.init(asked: 3, reused: 0, classified: 3, changed: 1, outcome: .stopped)),
+                    report: report(sent: 3, answered: 3, changes: 1, ending: .stopped, cost: 0.02))
+        #expect(card.endingMessage == "The 3 answers are kept in Organize.")
+    }
+
+    @Test func aStopBeforeSendingAndAPassWhoseListMovedSayWhatHappened() {
+        var stopped = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        stopped.finish(.stoppedBeforeSending, report: nil)
+        #expect(stopped.phase == .closed && stopped.closedLine == "Stopped before anything was sent.")
+
+        var gone = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        gone.finish(.discarded(sent: 4, costUSD: 0.03), report: nil)
+        #expect(gone.phase == .closed)
+        #expect(gone.closedLine == "The list in Organize changed while Claude answered, so the answers for 4 files weren’t applied. "
+                + "About 3¢ was billed. They’re saved: press Refine in Organize to use them without asking again.")
+    }
+
+    @Test func singularCountsReadAsSingular() {
+        var plan = AskClaudeRefineCard.Plan()
+        plan.eligible = 3; plan.toSend = 2; plan.folderNames = 1; plan.keptForNextPress = 1; plan.costUSD = 0.05
+        plan.exceedsLimit = true; plan.fits = 1; plan.fitsCostUSD = 0.02; plan.spentUSD = 24.99; plan.limitUSD = 25
+        let card = AskClaudeRefineCard(sourceName: "X", plan: plan, phase: .planned)
+        #expect(card.goesLines.contains { $0.text == "folder name" })
+        #expect(card.notSentLines.contains { $0.text == "waits for the next Refine" })
+        #expect(card.fitLine?.text == "fits under the limit · about 2¢", "its own quote, not half the whole price")
+        #expect(card.sendFitTitle == "Send 1 file · about 2¢")
+    }
+
+    @Test func aCardKeepsTheFilesItWasForThroughASavedChat() throws {
+        let card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .done, answers: .init())
+        var withScope = card; withScope.scopePaths = ["/r/a.pdf", "/r/b.pdf"]
+        let back = try JSONDecoder().decode(AskClaudeRefineCard.self, from: JSONEncoder().encode(withScope)).restored
+        #expect(back.scopePaths == ["/r/a.pdf", "/r/b.pdf"], "Try Again after a relaunch still knows its files")
+        // A card saved before the field existed still decodes.
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(card)) as? [String: Any])
+        json["scopePaths"] = nil
+        let old = try JSONDecoder().decode(AskClaudeRefineCard.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(old.scopePaths.isEmpty && old.phase == .done)
+    }
+
+    @Test func aCardBeingQuotedCannotSendOrTick() {
+        var plan = AskClaudeRefineCard.Plan()
+        plan.eligible = 2; plan.toSend = 2; plan.costUSD = 0.01
+        var card = AskClaudeRefineCard(sourceName: "X", plan: plan, phase: .planned)
+        card.planID = UUID()
+        #expect(card.canSend && card.canTick)
+        card.quoting = true
+        #expect(!card.canSend && !card.canTick, "Send waits for the new plan, so the old one can't go")
+        #expect(!card.restored.quoting)
     }
 
     @Test func aStoppedPassTellsClaudeItWasStopped() {

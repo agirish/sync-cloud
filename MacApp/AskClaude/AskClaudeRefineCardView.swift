@@ -14,6 +14,8 @@ struct AskClaudeRefineBridge {
     var setTick: @MainActor (_ item: UUID, _ on: Bool) -> Void = { _, _ in }
     /// Ask again about the files answered before. Re-quotes the plan.
     var askAgain: @MainActor (_ item: UUID) -> Void = { _ in }
+    /// Quotes the plan again as it stands: after the limit was changed, say.
+    var requote: @MainActor (_ item: UUID) -> Void = { _ in }
     /// Makes a new plan for the files a stopped or failed pass left unanswered.
     var retry: @MainActor (_ item: UUID) -> Void = { _ in }
     /// The folders Customize… can leave out, and the ones left out now.
@@ -191,7 +193,8 @@ struct AskClaudeRefineCardView: View {
             heading(card.title)
             noticeRow
             if let n = card.needsFirstPagesNote { note(n.text, info: n.info) }
-            ForEach(card.waitingNames, id: \.self) { name in
+            // By place, not by name: two folders can each hold a file of one name.
+            ForEach(Array(card.waitingNames.enumerated()), id: \.offset) { _, name in
                 Text(name).scaledFont(.callout).fontWeight(.medium).fixedSize(horizontal: false, vertical: true)
             }
             if card.plan.waitingForPage > card.waitingNames.count {
@@ -320,9 +323,13 @@ struct AskClaudeRefineCardView: View {
         Button("Cancel") { bridge.cancel(itemID) }
         if card.layout == .overLimit {
             Button("Change Limit…") { bridge.changeLimit() }
+            // Once the limit is raised in Settings, the card says what it allows now.
+            Button("Quote Again") { bridge.requote(itemID) }
+                .disabled(card.quoting)
             if let fit = card.sendFitTitle {
                 Button(fit) { bridge.sendFit(itemID) }
                     .buttonStyle(.borderedProminent).accentedProminent()
+                    .disabled(card.quoting)
             }
         } else {
             Button(card.sendTitle) { bridge.send(itemID) }
@@ -427,10 +434,12 @@ struct AskClaudeRefineCardView: View {
 }
 
 /// Customize…: the folder names Claude is shown, with the ones to leave out ticked off. Held for the
-/// session by the manager, so Refine, Try Another and Refine Names follow one rule.
+/// session by the manager, so Refine and Try Another follow one rule. Refine Names sends the
+/// mapping's own names, which this list doesn't change.
 private struct AskClaudeRefineFoldersPopover: View {
     let itemID: UUID
     let bridge: AskClaudeRefineBridge
+    @Environment(\.dismiss) private var dismiss
     @State private var left: Set<String> = []
     @State private var query = ""
 
@@ -438,7 +447,7 @@ private struct AskClaudeRefineFoldersPopover: View {
         let folders = bridge.folders().filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
         VStack(alignment: .leading, spacing: 8) {
             Text("Folder names Claude is shown").scaledFont(.headline)
-            Text("Untick a folder to leave its name, and the names under it, out. This lasts until you quit, for Refine, Try Another and Refine Names.")
+            Text("Untick a folder to leave its name, and the names under it, out. This lasts until you quit, for Refine and Try Another.")
                 .scaledFont(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("Filter", text: $query).textFieldStyle(.roundedBorder).controlSize(.small)
             List(folders, id: \.self) { folder in
@@ -451,7 +460,10 @@ private struct AskClaudeRefineFoldersPopover: View {
             HStack {
                 Button("Reset") { left = [] }.disabled(left.isEmpty)
                 Spacer()
-                Button("Done") { bridge.setLeftOut(itemID, left) }
+                Button("Done") {
+                    bridge.setLeftOut(itemID, left)
+                    dismiss()
+                }
                     .buttonStyle(.borderedProminent).accentedProminent()
             }
             .controlSize(.small)

@@ -3636,12 +3636,43 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!AskClaudeChat.lasts(.tryAnother(line)), "and goes with it")
     }
 
-    /// Refine's card is not one of the cards that outlive a new chat: the answers stay on Organize's
-    /// cards, and the chat is free to start over.
-    @Test func aRefineCardDoesNotOutliveItsChat() {
+    /// Edit or Retry takes back the question and what followed, but not a Refine that is running or
+    /// answered: its answers are on Organize's cards, and its receipt and Undo live here. A plan
+    /// nobody sent goes with its turn.
+    @Test func aRunningOrAnsweredRefineCardOutlivesARewindAndAPlanDoesNot() {
         #expect(!AskClaudeChat.lasts(.refine(card())))
-        var done = card(); done.phase = .done
-        #expect(!AskClaudeChat.lasts(.refine(done)))
+        var sending = card(); sending.phase = .sending(answered: nil)
+        #expect(AskClaudeChat.lasts(.refine(sending)))
+        var done = card(); done.phase = .done; done.answers = .init()
+        #expect(AskClaudeChat.lasts(.refine(done)))
+        var closed = card(); closed.phase = .closed
+        #expect(!AskClaudeChat.lasts(.refine(closed)))
+    }
+
+    /// "This hour" means it: a Try Another after the line's hour starts a new line.
+    @Test func tryAnotherStartsANewLineEachHour() {
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: defaults(), now: { clock })
+        let report = FilingTryAnotherReport(fileName: "a.pdf", filePath: "/r/a.pdf", outcome: .answered, costUSD: 0.01, modelName: "Opus 5.5")
+        chat.noteTryAnother(report)
+        clock += 30 * 60
+        chat.noteTryAnother(report)
+        #expect(chat.items.count == 1, "the same hour: one line")
+        clock += 45 * 60
+        chat.noteTryAnother(report)
+        #expect(chat.items.count == 2, "past the hour: a new line")
+        guard case .tryAnother(let first)? = chat.items.first?.kind, case .tryAnother(let second)? = chat.items.last?.kind else {
+            Issue.record("not two lines"); return
+        }
+        #expect(first.requests == 2 && second.requests == 1)
+    }
+
+    /// Two files of one name in different folders are two files on the line.
+    @Test func tryAnotherCountsFilesByPath() {
+        var line = AskClaudeTryAnotherLine()
+        line.add(FilingTryAnotherReport(fileName: "Scan.pdf", filePath: "/r/A/Scan.pdf", outcome: .answered, costUSD: 0, modelName: ""))
+        line.add(FilingTryAnotherReport(fileName: "Scan.pdf", filePath: "/r/B/Scan.pdf", outcome: .answered, costUSD: 0, modelName: ""))
+        #expect(line.files.count == 2)
     }
 }
 

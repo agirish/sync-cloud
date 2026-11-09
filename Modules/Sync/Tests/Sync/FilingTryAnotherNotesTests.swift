@@ -91,7 +91,7 @@ extension HandBuiltRefineSuites {
         #expect(claude.count == 1, "the click is the request")
         #expect(m.filingTryAnotherNotes[c.filePath] == nil, "the note is gone: Claude answered")
         #expect(try card(m).best?.path.hasSuffix("Projects/Taxes") == true)
-        #expect(reports.list == [FilingTryAnotherReport(fileName: c.fileName, outcome: .answered, costUSD: 0.003, modelName: m.filingRefineModelName)])
+        #expect(reports.list == [FilingTryAnotherReport(fileName: c.fileName, filePath: c.filePath, outcome: .answered, costUSD: 0.003, modelName: m.filingRefineModelName)])
     }
 
     @Test func aSharedFolderAsksClaudeOnTheOrdinaryClickAndOffersNothing() async throws {

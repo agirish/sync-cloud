@@ -127,8 +127,14 @@ public enum CloudFilingRefiner {
         let placements = CloudFilingProtocol.placements(toolCalls: run.accumulator.toolCalls, unfinished: run.accumulator.unfinishedToolInputs)
         let verdicts = CloudFilingProtocol.verdicts(fromPlacements: placements, files: files)
         let answered = CloudFilingProtocol.answeredCount(fromPlacements: placements, fileCount: files.count)
-        if case .answered = run.ending, run.accumulator.stopReason == "max_tokens" {
-            Logger.shared.warning("Cloud Filing response was truncated (max_tokens) — \(files.count - answered) file(s) are unanswered.")
+        // A reply that finished without an answer for every file (prose instead of the tool, or the
+        // output cap) is not a whole answer: the card says how far it got and offers the rest again,
+        // rather than counting the unanswered files as kept.
+        if case .answered = run.ending, answered < files.count {
+            let truncated = run.accumulator.stopReason == "max_tokens"
+            Logger.shared.warning("Cloud Filing response " + (truncated ? "was truncated (max_tokens)" : "ended early")
+                                  + " — \(files.count - answered) file(s) are unanswered.")
+            run.ending = .failed(truncated ? "Claude’s answer was cut short." : "Claude stopped early.")
         }
         let cost = settle(&run, option: option, env: env)
         let how: String

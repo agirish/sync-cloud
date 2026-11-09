@@ -214,6 +214,8 @@ extension FileSyncManager {
         let excludedByFile: [String: [String]]
         let keysByFile: [String: FilingVerdictKey]
         let cachedVerdicts: [String: FilingVerdict]
+        /// The saved answers that were given with the file's page 1.
+        let cachedWithPage: Set<String>
         let cloudOnly: [FilingSuggestion]
         let snippets: [String: String]
         let files: [FilingCandidateFile]
@@ -283,10 +285,12 @@ extension FileSyncManager {
         // filter re-reads them afterwards (below).
         let scopedRejections = filingRejections(under: URL(fileURLWithPath: root))
         let excludedByFile = Dictionary(uniqueKeysWithValues: eligible.map { s in
-            // A rejected folder goes out as "avoid: …", so a hidden one is left off.
+            // A rejected folder goes out as "avoid: …", so a hidden one is left off, and so is one
+            // Customize… left out: its name goes nowhere.
             (s.filePath, rejectedFolders(for: s, in: scopedRejections)
                 .filter { !hidden.isHidden($0) }
-                .compactMap { Self.relativePath($0, under: root) })
+                .compactMap { Self.relativePath($0, under: root) }
+                .filter { !Self.isLeftOut($0, in: leftOut) })
         })
 
         // Split against the cache first (see the doc above for why this precedes the pre-flight).
@@ -300,6 +304,8 @@ extension FileSyncManager {
         func pageGoes(_ s: FilingSuggestion, ticked: Bool) -> Bool { isShared(s) || ticked }
         var keysByFile: [String: FilingVerdictKey] = [:]
         var cachedVerdicts: [String: FilingVerdict] = [:]
+        // Saved answers Claude gave with the file's page 1: they count as read, not name-only.
+        var cachedWithPage: Set<String> = []
         var misses = eligible
         // `artifacts` nil means the fingerprint is unavailable and the cache is off, read and
         // write (see the scan site in `FileSyncManager+Filing`). The stakes are highest here:
@@ -327,15 +333,18 @@ extension FileSyncManager {
                 // A cloud-only file's cached answer came from its name alone; this pass is about to
                 // read it, so it is asked again.
                 var hit: FilingVerdict?
+                var hitWithPage = false
                 // "Ask again": the saved answers are not looked at, so every file is asked.
                 if !options.askAgain,
                    !(key.pageSent && filingNotDownloaded.contains(s.filePath)) {
                     hit = cache.verdict(for: key, providerRoot: root, existingRelative: existingRelative)
+                    hitWithPage = hit != nil && key.pageSent
                     // An answer given with the page also answers a pass that would send the name
                     // alone; the reverse is not true.
                     if hit == nil, !key.pageSent {
                         hit = cache.verdict(for: key.withPageSent(true), providerRoot: root,
                                             existingRelative: existingRelative)
+                        hitWithPage = hit != nil
                     }
                 }
                 // A saved answer naming a hidden folder is a miss, not a hit: it would be dropped on
@@ -349,6 +358,7 @@ extension FileSyncManager {
                 }
                 if let hit {
                     cachedVerdicts[s.filePath] = hit
+                    if hitWithPage { cachedWithPage.insert(s.filePath) }
                 } else {
                     misses.append(s)
                 }
@@ -487,7 +497,8 @@ extension FileSyncManager {
         return RefineWork(root: root, classifier: classifier, eligible: eligible, hiddenCount: hiddenCount,
                           hidden: hidden, existingRelative: existingRelative,
                           preAwaitGeneration: preAwaitGeneration, excludedByFile: excludedByFile,
-                          keysByFile: keysByFile, cachedVerdicts: cachedVerdicts, cloudOnly: cloudOnly,
+                          keysByFile: keysByFile, cachedVerdicts: cachedVerdicts, cachedWithPage: cachedWithPage,
+                          cloudOnly: cloudOnly,
                           snippets: snippets, files: files, shortlists: shortlists, context: context,
                           request: { request($0) }, options: options, facts: facts,
                           tickedAlternative: alternative)
@@ -504,7 +515,8 @@ extension FileSyncManager {
         var (files, shortlists, context) = (work.files, work.shortlists, work.context)
         var verdicts = cachedVerdicts
         var classifiedCount = 0
-        if !declined, !cloudOnly.isEmpty, let extractor = filingSnippetExtractor {
+        // A Stop pressed already downloads nothing: the pass ends before it sends.
+        if !declined, !filingRefineStopRequested, !cloudOnly.isEmpty, let extractor = filingSnippetExtractor {
             isDownloadingFilingFiles = true
             let (landed, pending, refused) = await fetchCloudOnlyFiles(cloudOnly)
             isDownloadingFilingFiles = false
@@ -559,8 +571,14 @@ extension FileSyncManager {
                 // banner saying nothing was sent or billed.
                 classifiedCount = filingCloudRefineIsDowngraded ? 0 : files.count
             }
+            // Saved under what actually went: a page that didn't download or didn't read leaves a
+            // name-only answer, which must not answer a later pass that sends the page.
+            var recordKeys = keysByFile
+            for file in files where file.contentSnippet == nil {
+                if let key = recordKeys[file.filePath], key.pageSent { recordKeys[file.filePath] = key.withPageSent(false) }
+            }
             // Before the staleness check, deliberately: the answer is already paid for.
-            recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: root,
+            recordFilingVerdicts(fresh, keys: recordKeys, providerRoot: root,
                                  existingRelative: existingRelative)
             verdicts.merge(fresh) { _, new in new }
         }
@@ -571,6 +589,10 @@ extension FileSyncManager {
         guard filingRefineInFlight == invocation,
               filingSuggestionsGeneration == preAwaitGeneration else {
             Logger.shared.info("Filing: refine result discarded — the suggestions were replaced while it ran")
+            // Paid for and saved, not applied: the card that sent it says so, with the cost.
+            if let result, result.started {
+                filingDiscardedRefine = DiscardedRefine(invocation: invocation, sent: result.sent, costUSD: result.costUSD)
+            }
             return nil
         }
 
@@ -592,7 +614,9 @@ extension FileSyncManager {
         // The scan's rule, as the same expression: see `FilingEngine.contentBlindFiles`.
         let contentBlind = FilingEngine.contentBlindFiles(
             handedOver: eligible.map { $0.filePath },
-            read: Set(files.filter { $0.contentSnippet != nil }.map(\.filePath)),
+            // A saved answer given with the page was read too: reused, it must not be taken for a
+            // name-only one, or asking again after Undo Refine would change nothing.
+            read: Set(files.filter { $0.contentSnippet != nil }.map(\.filePath)).union(work.cachedWithPage),
             hadReader: filingReadsContents && filingSnippetExtractor != nil)
         // The profile and registry are passed here as on the scan, so the cross-person veto also
         // guards Refine, the pass most likely to name a confident wrong person, and one family
@@ -782,12 +806,16 @@ extension FileSyncManager {
         case .failed(let why): reason = why; lead = result.started ? "Claude didn’t finish." : "Couldn’t ask Claude."
         }
         var text = lead + (reason.map { " " + $0 } ?? "")
-        guard result.started else { return text + " Nothing was sent, and the suggestions are unchanged." }
+        // Saved answers apply even when Claude was never reached, so "unchanged" is said only when true.
+        let savedMoved = " Saved answers moved \(changed) home\(changed == 1 ? "" : "s")."
+        guard result.started else {
+            return text + (changed == 0 ? " Nothing was sent, and the suggestions are unchanged." : " Nothing was sent." + savedMoved)
+        }
         if result.answered > 0 {
             text += " \(result.answered) of \(result.sent) answers arrived and were kept"
                 + (changed == 0 ? "." : ", moving \(changed) home\(changed == 1 ? "" : "s").")
         } else {
-            text += " Nothing came back, so the suggestions are unchanged."
+            text += changed == 0 ? " Nothing came back, so the suggestions are unchanged." : " Nothing came back." + savedMoved
         }
         let cost = FilingSpendFormat.cost(result.costUSD)
         if case .stopped = result.ending {
@@ -988,6 +1016,9 @@ extension FileSyncManager {
         public let tickGain: TickGain?
         /// When the quote passes the limit: how many of these files would fit under it.
         public let fits: Int?
+        /// What sending only those `fits` files would cost, quoted as a whole request: the folder
+        /// list is paid once whatever the file count, so it is not a share of the full price.
+        public let fitsCostUSD: Double?
         /// The files not answered before, and what the pass does with each.
         public let files: [FilingRefinePlanFile]
         /// Whether the pass reaches Claude (and so is billed), and this month's spend against Ask
@@ -1023,6 +1054,19 @@ extension FileSyncManager {
         case blocked
         /// Every eligible file went hidden since the plan.
         case nothingToSend
+        /// Stop was pressed while the request was still being made: nothing was sent.
+        case stoppedBeforeSending
+        /// The request ran, but the list in Organize was replaced while Claude answered, so its
+        /// answers were saved and not applied. `sent` files went; `costUSD` was billed.
+        case discarded(sent: Int, costUSD: Double)
+    }
+
+    /// A pass whose answers arrived after the list moved on: what it sent and cost, for the card
+    /// that sent it. Set by ``executeRefine(_:declined:invocation:)``, read once by the send.
+    struct DiscardedRefine: Sendable, Equatable {
+        let invocation: UUID
+        let sent: Int
+        let costUSD: Double
     }
 
     /// Works out the request and its price without sending, downloading or asking anything, and
@@ -1060,11 +1104,22 @@ extension FileSyncManager {
               let root = filingLastProviderRoot, root == plan.providerRoot else { return .unavailable }
         let eligible = filingSuggestionsEligibleForRefine(scope)
         guard !eligible.isEmpty else { return .nothingToSend }
+        // Claimed before the rebuild, not after: the card shows Stop from the click, and a Stop
+        // pressed while the pages are read must reach this pass. It also keeps a second pass from
+        // starting meanwhile. Check and claim are adjacent with no await between.
+        let invocation = UUID()
+        filingRefineInFlight = invocation
+        filingRefineStopRequested = false
+        defer { if filingRefineInFlight == invocation { filingRefineInFlight = nil } }
         guard let work = await buildRefineWork(eligible: eligible, hiddenCount: filingSuggestionsHiddenFromClaude(scope),
                                                root: root, classifier: classifier, options: plan.options) else { return .stale }
+        // `clearFiling()` can free the slot during the rebuild.
+        guard filingRefineInFlight == invocation else { return .stale }
+        if filingRefineStopRequested { return .stoppedBeforeSending }
         let fresh = refinePlan(from: work)
         guard fresh.generation == plan.generation, fresh.fingerprint == plan.fingerprint else {
-            // A different list (a rescan) means a different plan, not an amended one.
+            // The list, the hidden list, the saved answers or the price moved during the rebuild:
+            // the plan is quoted again, as of now.
             guard filingSuggestionsGeneration == work.preAwaitGeneration else { return .stale }
             filingOpenRefinePlans[root] = fresh
             return .requoted(fresh)
@@ -1075,13 +1130,16 @@ extension FileSyncManager {
         default: break
         }
         // The list can move during the rebuild's awaits; sending then would pay for answers that
-        // are dropped on arrival. Checked next to the claim, with no await between.
-        guard filingSuggestionsGeneration == work.preAwaitGeneration, canRefineFilingSuggestions else { return .stale }
-        let invocation = UUID()
-        filingRefineInFlight = invocation
-        filingRefineStopRequested = false
-        defer { if filingRefineInFlight == invocation { filingRefineInFlight = nil } }
-        guard let summary = await executeRefine(work, declined: false, invocation: invocation) else { return .stale }
+        // are dropped on arrival. Checked with no await before the send.
+        guard filingSuggestionsGeneration == work.preAwaitGeneration, filingUsesAI, filingClassifier != nil,
+              !filingSuggestions.isEmpty, filingLastProviderRoot == root, !filingLastTaxonomyFolders.isEmpty else { return .stale }
+        guard let summary = await executeRefine(work, declined: false, invocation: invocation) else {
+            if let gone = filingDiscardedRefine, gone.invocation == invocation {
+                filingDiscardedRefine = nil
+                return .discarded(sent: gone.sent, costUSD: gone.costUSD)
+            }
+            return .stale
+        }
         return .sent(summary)
     }
 
@@ -1127,6 +1185,7 @@ extension FileSyncManager {
 
         // How many would fit under the limit, when this pass would pass it.
         var fits: Int?
+        var fitsCostUSD: Double?
         if case .quote(let q) = billing, q.wouldExceedCap, q.monthlyCapUSD > 0 {
             let room = q.monthlyCapUSD - q.monthlySpentUSD
             var low = 0, high = work.files.count - 1
@@ -1137,6 +1196,10 @@ extension FileSyncManager {
                 if cost <= room { low = mid } else { high = mid - 1 }
             }
             fits = low
+            if low > 0 {
+                fitsCostUSD = CloudFilingProtocol.estimatedCostUSD(model: q.model, taxonomyFolders: work.context.destinations,
+                                                                   files: Array(work.files.prefix(low)))
+            }
         }
         let model = filingRefineModelID
         return FilingRefinePlan(id: UUID(), providerRoot: work.root, eligible: work.eligible.count,
@@ -1146,7 +1209,7 @@ extension FileSyncManager {
                                 folderNames: work.facts.folderNames, folderNamesLeftOut: work.facts.folderNamesLeftOut,
                                 pagesShared: work.facts.pagesShared, pagesAskEachTime: work.facts.pagesAskEachTime,
                                 pagesWaiting: work.facts.pagesWaiting, waitingForPage: work.facts.waitingForPage,
-                                keptForNextPress: work.facts.keptForNextPress, tickGain: tickGain, fits: fits,
+                                keptForNextPress: work.facts.keptForNextPress, tickGain: tickGain, fits: fits, fitsCostUSD: fitsCostUSD,
                                 files: work.facts.rows, routesToClaude: filingRoutesToCloud(.refine),
                                 monthSpentUSD: AskClaudeSpend.spent(in: filingContentDefaults),
                                 monthLimitUSD: AskClaudeSpend.limit(in: filingContentDefaults),

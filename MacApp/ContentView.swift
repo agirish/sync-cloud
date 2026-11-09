@@ -1504,6 +1504,9 @@ struct ContentView: View {
                     if syncManager.filingPersonVetoLog == nil {
                         syncManager.filingPersonVetoLog = PersonVetoLog()
                     }
+                    // Try Another's running line and Refine Names' receipt reach the chat from the
+                    // start, not only once its column has been opened.
+                    installAskClaudeRefineReports()
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()

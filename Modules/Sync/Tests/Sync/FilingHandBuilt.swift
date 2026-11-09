@@ -84,6 +84,8 @@ enum HandBuiltFiling {
         m.filingLastRefine = nil
         m.filingLastRefineReport = nil
         m.filingOpenRefinePlans = [:]
+        m.filingDiscardedRefine = nil
+        m.filingRefineStopRequested = false
         m.filingTryAnotherNotes = [:]
         m.filingSessionRejections = [:]
         m.filingNotDownloaded = []

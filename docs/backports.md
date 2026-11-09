@@ -14973,3 +14973,28 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | no Refine card in the chat | CLOSED — does not apply |
+
+## Ask Claude review fixes: Refine, its card, the dock, the chat — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, an adversarial review of Ask Claude since v7.0 fixed:
+- **Refine:** Stop during a send's first seconds, saved answers reused as name-only, Customize… left-outs
+  sent as "avoid:" lines, a name-only answer saved as one with its page, and a partial reply counted whole.
+- **The plan card:** Cancel, Undo, Retry and tick races, plus its counts.
+- **The docked column:** tucking on ◨ and on its own edge.
+- **The chat:** its log lines and Copy Log for Sharing's masking.
+
+Every piece is code the maintenance lines don't have.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s card=%s dock=%s logshare=%s pagesent=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeRefineCard')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeDock')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'LogSharing')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingVerdictCache.swift 2>/dev/null | grep -c 'pageSent')"; done
+# measured 2026-11-08, against origin, before this landed: 0 for each on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | none of the reviewed code | CLOSED — does not apply |

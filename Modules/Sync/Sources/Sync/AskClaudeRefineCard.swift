@@ -31,6 +31,8 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         public var exceedsLimit = false
         /// Files that would fit under the limit, when this pass would pass it.
         public var fits: Int?
+        /// What sending only those would cost, quoted as its own request.
+        public var fitsCostUSD: Double?
         public var tickGainFiles: Int?
         public var tickGainCostUSD: Double?
         public var ticked = false
@@ -44,10 +46,14 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         public var files: [File] = []
 
         public struct File: Codable, Equatable, Sendable, Identifiable {
-            public var id: String { name }
+            /// By path: two folders can each hold a "Scan.pdf".
+            public var id: String { path ?? name }
+            public var path: String?
             public var name: String
             public var status: FileSyncManager.FilingRefinePlanFile.Status
-            public init(name: String, status: FileSyncManager.FilingRefinePlanFile.Status) { self.name = name; self.status = status }
+            public init(path: String? = nil, name: String, status: FileSyncManager.FilingRefinePlanFile.Status) {
+                self.path = path; self.name = name; self.status = status
+            }
         }
 
         public init() {}
@@ -74,6 +80,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             limitUSD = try c.decodeIfPresent(Double.self, forKey: .limitUSD) ?? 0
             exceedsLimit = try c.decodeIfPresent(Bool.self, forKey: .exceedsLimit) ?? false
             fits = try c.decodeIfPresent(Int.self, forKey: .fits)
+            fitsCostUSD = try c.decodeIfPresent(Double.self, forKey: .fitsCostUSD)
             tickGainFiles = try c.decodeIfPresent(Int.self, forKey: .tickGainFiles)
             tickGainCostUSD = try c.decodeIfPresent(Double.self, forKey: .tickGainCostUSD)
             ticked = try c.decodeIfPresent(Bool.self, forKey: .ticked) ?? false
@@ -98,11 +105,12 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             keptForNextPress = plan.keptForNextPress
             modelName = plan.modelName
             fits = plan.fits
+            fitsCostUSD = plan.fitsCostUSD
             tickGainFiles = plan.tickGain?.files
             tickGainCostUSD = plan.tickGain?.costUSD
             ticked = plan.options.pagesFromAskEachTime
             askedAgain = plan.options.askAgain
-            files = plan.files.map { .init(name: $0.name, status: $0.status) }
+            files = plan.files.map { .init(path: $0.path, name: $0.name, status: $0.status) }
             routesToClaude = plan.routesToClaude
             spentUSD = plan.monthSpentUSD
             limitUSD = plan.monthLimitUSD
@@ -234,16 +242,36 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var startedAt: Date?
     /// Said above the plan when it was quoted again: what changed, and that nothing was sent.
     public var notice: String?
+    /// The files the card was made for, so Try Again works on a card restored from a saved chat.
+    public var scopePaths: [String] = []
+    /// A tick, Ask Again or Customize… is being quoted: Send and the tick wait for the new plan.
+    /// `quoteToken` is the latest request's, so an older one that lands later is dropped, and
+    /// `wantedOptions` holds every choice so far, so two quick changes don't undo each other.
+    /// None is saved.
+    public var quoting = false
+    public var quoteToken: UUID?
+    public var wantedOptions: FileSyncManager.FilingRefineOptions?
 
-    private enum CodingKeys: String, CodingKey { case sourceName, plan, phase, answers, notice }
+    private enum CodingKeys: String, CodingKey { case sourceName, plan, phase, answers, notice, scopePaths }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sourceName = try c.decode(String.self, forKey: .sourceName)
+        plan = try c.decode(Plan.self, forKey: .plan)
+        phase = try c.decode(Phase.self, forKey: .phase)
+        answers = try c.decodeIfPresent(Answers.self, forKey: .answers)
+        notice = try c.decodeIfPresent(String.self, forKey: .notice)
+        scopePaths = try c.decodeIfPresent([String].self, forKey: .scopePaths) ?? []
+    }
 
     /// Rows the answers show before "Show all".
     public static let rowsShown = 6
 
-    public init(sourceName: String, plan: FileSyncManager.FilingRefinePlan) {
+    public init(sourceName: String, plan: FileSyncManager.FilingRefinePlan, scopePaths: [String] = []) {
         self.sourceName = sourceName
         self.plan = Plan(plan)
         self.planID = plan.id
+        self.scopePaths = scopePaths
     }
 
     public init(sourceName: String, plan: Plan, phase: Phase = .planned, answers: Answers? = nil) {
@@ -258,6 +286,9 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var restored: AskClaudeRefineCard {
         var card = self
         card.planID = nil
+        card.quoting = false
+        card.quoteToken = nil
+        card.wantedOptions = nil
         switch phase {
         case .planned, .sending: card.phase = .expired
         default: break
@@ -303,6 +334,17 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         case .stale, .unavailable:
             phase = .expired
             planID = nil
+        case .stoppedBeforeSending:
+            phase = .closed
+            planID = nil
+            notice = "Stopped before anything was sent."
+        case .discarded(let sent, let cost):
+            phase = .closed
+            planID = nil
+            let files = sent == 1 ? "1 file" : "\(sent) files"
+            notice = "The list in Organize changed while Claude answered, so the answers for \(files) weren’t applied. "
+                + (cost > 0 ? Self.priceWords(cost).prefix(1).uppercased() + Self.priceWords(cost).dropFirst() + " was billed. " : "")
+                + "They’re saved: press Refine in Organize to use them without asking again."
         }
     }
 
@@ -374,8 +416,8 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         }
         if plan.folderNames > 0 {
             out.append(.init(count: "\(plan.folderNames)",
-                             text: "folder names" + (plan.folderNamesLeftOut > 0 ? " (\(plan.folderNamesLeftOut) left out)" : ""),
-                             info: "So Claude can pick a home for each file. Customize leaves folders out until you quit, for Refine, Try Another and Refine Names.",
+                             text: (plan.folderNames == 1 ? "folder name" : "folder names") + (plan.folderNamesLeftOut > 0 ? " (\(plan.folderNamesLeftOut) left out)" : ""),
+                             info: "So Claude can pick a home for each file. Customize leaves folders out until you quit, for Refine and Try Another.",
                              action: .customize))
         }
         return out
@@ -392,7 +434,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             out.append(.init(count: "\(plan.reused)", text: "answered before, free", info: nil, action: .askAgain))
         }
         if plan.keptForNextPress > 0 {
-            out.append(.init(count: "\(plan.keptForNextPress)", text: "wait for the next Refine",
+            out.append(.init(count: "\(plan.keptForNextPress)", text: plan.keptForNextPress == 1 ? "waits for the next Refine" : "wait for the next Refine",
                              info: "One request carries at most \(CloudFilingRefiner.maxFiles) files.", action: nil))
         }
         return out
@@ -489,8 +531,9 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     }
     public var fitLine: CountLine? {
         guard plan.exceedsLimit, let fits = plan.fits, fits > 0, let cost = plan.costUSD, plan.toSend > 0 else { return nil }
-        let part = cost * Double(fits) / Double(plan.toSend)
-        return .init(count: "\(fits)", text: "fit under the limit · \(Self.priceWords(part))", info: nil, action: nil)
+        // Its own quote when the plan has one: the folder list costs the same for 1 file or 10.
+        let part = plan.fitsCostUSD ?? cost * Double(fits) / Double(plan.toSend)
+        return .init(count: "\(fits)", text: (fits == 1 ? "fits" : "fit") + " under the limit · \(Self.priceWords(part))", info: nil, action: nil)
     }
 
     /// Why nothing can be sent: no price for the model.
@@ -561,7 +604,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         if keptAsWas > 0 { parts.append("\(keptAsWas) kept") }
         if a.reused > 0 { parts.append("\(a.reused) reused") }
         if a.hidden > 0 { parts.append("\(a.hidden) hidden from Claude") }
-        if a.kept > 0 { parts.append("\(a.kept) wait for the next Refine") }
+        if a.kept > 0 { parts.append("\(a.kept) \(a.kept == 1 ? "waits" : "wait") for the next Refine") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -577,7 +620,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         guard let a = answers, a.requests > 0 else { return nil }
         var sent = "\(a.sent) \(a.sent == 1 ? "name" : "names")"
         if a.pagesSent > 0 { sent += ", \(a.pagesSent) first \(a.pagesSent == 1 ? "page" : "pages")" }
-        if a.folderNames > 0 { sent += " and \(a.folderNames) folder names" }
+        if a.folderNames > 0 { sent += " and \(a.folderNames) folder \(a.folderNames == 1 ? "name" : "names")" }
         let finished = a.ending == .answered ? "1 request" : "1 request, not finished"
         return "\(finished) · \(sent) sent · \(a.modelName) · \(a.costUSD > 0 ? Self.priceWords(a.costUSD) : "no cost recorded")."
     }
@@ -602,14 +645,20 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var endingMessage: String? {
         guard let a = answers else { return nil }
         let left = max(0, a.sent - a.answered)
+        // Saved answers can move homes even when nothing new came back, so "unchanged" only when true.
+        let nothing = a.rows.isEmpty ? "Nothing came back, so the suggestions are unchanged."
+                                     : "Nothing new came back; saved answers changed the homes below."
         let kept = a.answered > 0
-            ? "The \(a.answered) \(a.answered == 1 ? "answer is" : "answers are") kept in Organize. \(left) \(Self.files(left)) \(left == 1 ? "wasn’t" : "weren’t") answered."
-            : "Nothing came back, so the suggestions are unchanged."
+            ? "The \(a.answered) \(a.answered == 1 ? "answer is" : "answers are") kept in Organize."
+                + (left > 0 ? " \(left) \(Self.files(left)) \(left == 1 ? "wasn’t" : "weren’t") answered." : "")
+            : nothing
         switch a.ending {
         case .answered: return nil
         case .stopped: return kept
         case .failed(let why):
-            guard a.requests > 0 else { return "\(why) Nothing was sent, and the suggestions are unchanged." }
+            guard a.requests > 0 else {
+                return "\(why) Nothing was sent" + (a.rows.isEmpty ? ", and the suggestions are unchanged." : "; saved answers changed the homes below.")
+            }
             return a.answered > 0 ? kept : "\(why) \(kept)"
         case .unreadableKey:
             return "Your saved API key couldn’t be read, so nothing was sent or billed. These are the on-device suggestions. Check the key in Settings, Ask Claude."
@@ -655,8 +704,10 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     // MARK: What Claude is told
 
     /// Changed answers named in the line the chat's Claude hears: the pass is a separate request, so
-    /// it learns of it afterwards, from this line, with the next question. Each changed file names
-    /// its folder, so a folder hidden since drops the line (`AskClaudeChat.withoutHidden`).
+    /// it learns of it afterwards, from this line, with the next question. Each changed file carries
+    /// its path as a file mark (`AskClaudeChat.fileMark`, "⟦path⟧"), so it reaches Claude as a
+    /// handle, and a folder hidden since drops the line on the restart for privacy
+    /// (`AskClaudeChat.withoutHidden`, which reads the folder's name in the path).
     public static let toldChanges = 20
 
     public var toldToClaude: String? {
@@ -664,15 +715,18 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         var line = "They ran Refine from Organize on \(a.sent) file\(a.sent == 1 ? "" : "s"); a separate request to \(a.modelName.isEmpty ? "you" : a.modelName) that you didn’t make. "
         switch a.ending {
         case .answered: break
-        case .stopped: line += "They stopped it after \(a.answered) of \(a.sent) answers; "
-        case .failed: line += "It failed after \(a.answered) of \(a.sent) answers; "
+        case .stopped, .failed:
+            // Claude was never reached: there is nothing it didn't do to tell it.
+            guard a.requests > 0 else { return nil }
+            line += a.ending == .stopped ? "They stopped it after \(a.answered) of \(a.sent) answers; "
+                                         : "It failed after \(a.answered) of \(a.sent) answers; "
         case .unreadableKey, .notSent: return nil
         }
         let offered = a.offered == 0 ? "" : " For \(a.offered) file\(a.offered == 1 ? "" : "s") you picked another folder, kept as the next choice under Try Another Folder."
         guard !a.rows.isEmpty else { return line + "no suggestion changed." + offered }
         let shown = a.rows.prefix(Self.toldChanges).map { row -> String in
             let reason = (row.reason ?? "").isEmpty ? "" : " (" + String(row.reason!.prefix(90)) + ")"
-            return "“\(row.name)” → \(row.after)\(reason)"
+            return "“\(row.name)” ⟦\(row.path)⟧ → \(row.after)\(reason)"
         }
         line += "It changed \(a.rows.count) suggested home\(a.rows.count == 1 ? "" : "s"): " + shown.joined(separator: "; ")
         if a.rows.count > shown.count { line += "; and \(a.rows.count - shown.count) more" }
@@ -696,13 +750,13 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
 
     /// The tick and Customize… work only while the plan is open to change.
     public var canTick: Bool {
-        guard case .planned = phase else { return false }
+        guard case .planned = phase, !quoting else { return false }
         return planID != nil
     }
 
     /// Whether Send can be pressed on this card.
     public var canSend: Bool {
-        guard case .planned = phase, planID != nil else { return false }
+        guard case .planned = phase, planID != nil, !quoting else { return false }
         return !plan.blocked && !plan.nothingNew && plan.toSend > 0 && !plan.exceedsLimit
     }
 }
@@ -711,7 +765,10 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
 /// place and moved to the bottom as it changes, so the chat shows what Try Another has used without a
 /// card per click. Each card shows its own failure or refusal; this line only counts.
 public struct AskClaudeTryAnotherLine: Codable, Equatable, Sendable {
+    /// The files asked about, by path where the report has one: two folders can each hold a "Scan.pdf".
     public var files: [String] = []
+    /// When the line's hour began; a click after it starts a new line.
+    public var startedAt: Date?
     public var requests = 0
     public var failed = 0
     public var costUSD = 0.0
@@ -722,14 +779,22 @@ public struct AskClaudeTryAnotherLine: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         files = try c.decodeIfPresent([String].self, forKey: .files) ?? []
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt)
         requests = try c.decodeIfPresent(Int.self, forKey: .requests) ?? 0
         failed = try c.decodeIfPresent(Int.self, forKey: .failed) ?? 0
         costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
         modelName = try c.decodeIfPresent(String.self, forKey: .modelName) ?? ""
     }
 
+    /// Whether a click at `now` still belongs to this line's hour.
+    public func holds(_ now: Date) -> Bool {
+        guard let startedAt else { return false }
+        return now.timeIntervalSince(startedAt) < 3600 && now >= startedAt
+    }
+
     public mutating func add(_ report: FilingTryAnotherReport) {
-        if !files.contains(report.fileName) { files.append(report.fileName) }
+        let file = report.filePath.isEmpty ? report.fileName : report.filePath
+        if !files.contains(file) { files.append(file) }
         requests += 1
         if report.outcome == .failed { failed += 1 }
         costUSD += report.costUSD

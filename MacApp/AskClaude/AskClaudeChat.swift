@@ -436,9 +436,9 @@ final class AskClaudeChat: ObservableObject {
     /// plan card appears. In memory only.
     var pendingRefine: (source: String, paths: [String])?
 
-    /// The files each Refine card was made for, by card. In memory only: a plan does not outlive the
-    /// app, and a card that comes back from a saved chat cannot send.
-    var refineScopes: [UUID: [String]] = [:]
+    /// The Refine card whose pass Undo Refine would take back: the manager keeps one pass's undo,
+    /// the latest, so only the card that sent it offers Undo. In memory only, like that undo.
+    var refineUndoCard: UUID?
 
     /// Holds back a message with an API key in it, putting a card in its place.
     /// - Returns: Whether it held the message back.
@@ -1265,7 +1265,6 @@ final class AskClaudeChat: ObservableObject {
             return false
         }.map(\.id)
         items.removeAll { replaced.contains($0.id) }
-        for id in replaced { refineScopes[id] = nil }
         streamingItem = nil
         let item = Item(kind: .refine(card))
         items.append(item)
@@ -1278,7 +1277,9 @@ final class AskClaudeChat: ObservableObject {
     /// bottom so it is not lost up the thread, except while a question is streaming, whose own item
     /// must stay last.
     func noteTryAnother(_ report: FilingTryAnotherReport) {
-        if let index = items.firstIndex(where: { if case .tryAnother = $0.kind { true } else { false } }),
+        let at = now()
+        // The line for this hour; an older one stays as it was, a record of its own hour.
+        if let index = items.lastIndex(where: { if case .tryAnother(let line) = $0.kind { line.holds(at) } else { false } }),
            case .tryAnother(var line) = items[index].kind {
             line.add(report)
             items[index].kind = .tryAnother(line)
@@ -1288,6 +1289,7 @@ final class AskClaudeChat: ObservableObject {
             }
         } else {
             var line = AskClaudeTryAnotherLine()
+            line.startedAt = at
             line.add(report)
             items.append(Item(kind: .tryAnother(line)))
         }
@@ -1640,6 +1642,10 @@ final class AskClaudeChat: ObservableObject {
         case .rule(let card): return card.state == .saved
         case .settings(let card):
             return card.rows.contains { $0.changedFrom != nil || $0.keySaved == true || !($0.listEdits ?? []).isEmpty || $0.outcome != nil }
+        case .refine(let card):
+            // Running, or answered: its answers are on the cards in Organize, with its Undo here.
+            if case .sending = card.phase { return true }
+            return card.answers != nil
         default: return false
         }
     }

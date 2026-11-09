@@ -18,13 +18,17 @@ extension HandBuiltRefineSuites {
     private final class Seen: @unchecked Sendable {
         private let lock = NSLock()
         private var requests: [(snippets: [String: String?], folders: [String])] = []
+        private var avoided: [[String]] = []
         func record(_ files: [FilingCandidateFile], _ context: FilingContext) {
             lock.withLock {
                 requests.append((Dictionary(uniqueKeysWithValues: files.map { ($0.fileName, $0.contentSnippet) }),
                                  context.destinations))
+                avoided.append(files.flatMap(\.excludedRelativePaths))
             }
         }
         var all: [(snippets: [String: String?], folders: [String])] { lock.withLock { requests } }
+        /// Every "avoid: …" folder each request carried.
+        var avoids: [[String]] { lock.withLock { avoided } }
     }
 
     private func fixture(_ name: String, files: Int = 2) throws -> URL { HandBuiltFiling.root(name, files: files) }
@@ -235,6 +239,107 @@ extension HandBuiltRefineSuites {
         let sent = try #require(seen.all.first)
         #expect(!sent.folders.contains { $0 == "Archive" || $0.hasPrefix("Archive/") }, "a left-out folder, and what is under it, was not sent: \(sent.folders)")
         #expect(sent.folders.contains { $0.hasPrefix("Documents") })
+    }
+
+    /// A folder left out goes nowhere, not even as a rejected folder's "avoid: …" line.
+    @Test func aLeftOutFolderIsNotSentAsAnAvoidLineEither() async throws {
+        let root = try fixture("leftout-avoid"); defer { try? FileManager.default.removeItem(at: root) }
+        let seen = Seen()
+        let m = manager(seen)
+        await scan(m, root: root)
+        let file = try #require(m.filingSuggestions.first)
+        m.filingSessionRejections[file.filePath] = [root.appendingPathComponent("Archive/2026").path,
+                                                    root.appendingPathComponent("Projects/Taxes").path]
+        m.filingRefineLeftOutFolders = ["Archive"]
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        _ = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        let avoided = try #require(seen.avoids.first)
+        #expect(!avoided.contains { $0.hasPrefix("Archive") }, "the left-out folder's name stayed home: \(avoided)")
+        #expect(avoided.contains("Projects/Taxes"), "a rejection that isn't left out still goes")
+    }
+
+    // MARK: Stop, and saved answers
+
+    /// Stop shows from the click, while the request is still being made: pressed then, nothing goes.
+    @Test func aStopWhileSendIsStillMakingTheRequestSendsNothing() async throws {
+        let root = try fixture("stop-early"); defer { try? FileManager.default.removeItem(at: root) }
+        let seen = Seen()
+        let m = manager(seen)
+        await scan(m, root: root)
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        // The send reads the pages again; Stop arrives while it does.
+        m.filingSnippetExtractor = { [m] _ in
+            await m.stopFilingRefine()
+            return "page one text"
+        }
+        let result = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        #expect(result == .stoppedBeforeSending)
+        #expect(seen.all.isEmpty, "nothing was sent")
+        #expect(!m.isRefiningFilingSuggestions)
+    }
+
+    /// The list replaced while Claude answered: the paid answers are saved, not applied, and the send
+    /// says what it cost instead of calling the plan out of date.
+    @Test func aPassWhoseListMovedWhileClaudeAnsweredSaysWhatItCost() async throws {
+        let root = try fixture("moved"); defer { try? FileManager.default.removeItem(at: root) }
+        let m = manager(Seen())
+        await scan(m, root: root)
+        let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        m.filingRefineClassifier = { [m] _, files in
+            await m.publishFilingSuggestions(m.filingSuggestions)   // a rescan lands meanwhile
+            return FilingRefineResult(ending: .answered, verdicts: Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "claude"))
+            }), answered: files.count, sent: files.count, started: true, costUSD: 0.002)
+        }
+        let result = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
+        #expect(result == .discarded(sent: 2, costUSD: 0.002))
+        #expect(m.filingSuggestions.allSatisfy { $0.best?.path.hasSuffix("Documents/Family") == true }, "nothing applied to the new list")
+    }
+
+    /// A saved answer Claude gave with page 1 is a read answer when it is used again: after Undo
+    /// Refine, sending the plan again (nothing new to ask) puts Claude's homes back.
+    @Test func aSavedAnswerGivenWithThePageStillMovesAHomeFromText() async throws {
+        let root = try fixture("reuse-page")
+        let cache = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("RefinePagesCache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let seen = Seen()
+        let m = manager(seen, cacheDir: cache)
+        AskClaudePrivacy.shareWithoutAsking(root.appendingPathComponent("Downloads").path, in: m.filingContentDefaults)
+        await scan(m, root: root)
+        try readFromText(m, name: "mystery-0.pdf")
+        try readFromText(m, name: "mystery-1.pdf")
+        let first = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        #expect(first.pagesShared == 2, "the fixture sends both pages")
+        _ = await m.sendFilingRefine(first, scope: m.filingSuggestions)
+        #expect(m.filingSuggestions.allSatisfy { $0.best?.path.hasSuffix("Archive/2026") == true }, "Claude read the pages and moved both")
+
+        #expect(m.undoFilingRefine() == 2)
+        let again = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        #expect(again.reused == 2 && again.toSend == 0)
+        _ = await m.sendFilingRefine(again, scope: m.filingSuggestions)
+        #expect(seen.all.count == 1, "nothing was asked twice")
+        #expect(m.filingSuggestions.allSatisfy { $0.best?.path.hasSuffix("Archive/2026") == true },
+                "the saved answers were read ones, so they move homes read from text again")
+    }
+
+    /// A pass that meant to send a page but couldn't read it saves a name-only answer.
+    @Test func anAnswerIsSavedAsNameOnlyWhenItsPageDidNotGo() async throws {
+        let root = try fixture("unread-page")
+        let cache = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("RefinePagesCache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let seen = Seen()
+        let m = manager(seen, cacheDir: cache)
+        AskClaudePrivacy.shareWithoutAsking(root.appendingPathComponent("Downloads").path, in: m.filingContentDefaults)
+        m.filingSnippetExtractor = { _ in nil }   // no text layer: the page can't be read
+        await scan(m, root: root)
+        let first = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        _ = await m.sendFilingRefine(first, scope: m.filingSuggestions)
+        #expect(seen.all.first?.snippets.values.allSatisfy { $0 == nil } == true, "names alone went")
+
+        // Now the page reads: the name-only answer must not stand in for one given with it.
+        m.filingSnippetExtractor = { _ in "page one text" }
+        let withPages = try #require(await m.prepareFilingRefine(m.filingSuggestions))
+        #expect(withPages.reused == 0 && withPages.toSend == 2, "asked again, with the pages")
     }
 
     @Test func leftOutAppliesToTheFolderAndEverythingUnderIt() {

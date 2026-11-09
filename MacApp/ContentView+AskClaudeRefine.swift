@@ -55,8 +55,7 @@ extension ContentView {
                              : "Refine has nothing to ask right now.")
                 return
             }
-            let id = chat.addRefineCard(AskClaudeRefineCard(sourceName: source, plan: plan))
-            chat.refineScopes[id] = scope.map(\.filePath)
+            chat.addRefineCard(AskClaudeRefineCard(sourceName: source, plan: plan, scopePaths: scope.map(\.filePath)))
             Logger.shared.info("Ask Claude: a Refine plan for \(plan.eligible) file(s) is waiting for Send")
         }
     }
@@ -69,19 +68,23 @@ extension ContentView {
             show: { if !askClaudeHolder.visibility.isOpen { toggleAskClaude() } })
     }
 
+    /// Once, at the window's setup: Try Another's requests count on one running line in the chat,
+    /// and a Refine Names request leaves its receipt there, whether or not the column has been
+    /// opened yet (the panel is built only while it is open).
+    func installAskClaudeRefineReports() {
+        guard syncManager.filingTryAnotherReports == nil else { return }
+        let chat = askClaudeChat
+        syncManager.filingTryAnotherReports = { chat.noteTryAnother($0) }
+        syncManager.filingMappingRefineReports = { report in
+            chat.addNote(AskClaudeRefineCard.refineNamesReceipt(folderNames: report.folderNames, fileNames: report.fileNames,
+                                                                costUSD: report.costUSD, modelName: report.modelName,
+                                                                answered: report.answered))
+        }
+    }
+
     /// What a Refine card does and reads.
     var askClaudeRefineBridge: AskClaudeRefineBridge {
-        // Once: Try Another's requests count on one running line in the chat, and a Refine Names
-        // request leaves its receipt there.
-        if syncManager.filingTryAnotherReports == nil {
-            let chat = askClaudeChat
-            syncManager.filingTryAnotherReports = { chat.noteTryAnother($0) }
-            syncManager.filingMappingRefineReports = { report in
-                chat.addNote(AskClaudeRefineCard.refineNamesReceipt(folderNames: report.folderNames, fileNames: report.fileNames,
-                                                                    costUSD: report.costUSD, modelName: report.modelName,
-                                                                    answered: report.answered))
-            }
-        }
+        installAskClaudeRefineReports()
         return AskClaudeRefineBridge(
             send: { askClaudeRefineSend($0, fitting: false) },
             sendFit: { askClaudeRefineSend($0, fitting: true) },
@@ -89,10 +92,16 @@ extension ContentView {
             stop: { _ in syncManager.stopFilingRefine() },
             setTick: { id, on in askClaudeRefineChange(id) { $0.pagesFromAskEachTime = on } },
             askAgain: { id in askClaudeRefineChange(id) { $0.askAgain = true } },
+            requote: { id in askClaudeRefineChange(id) { _ in } },
             retry: { id in
                 guard let card = askClaudeChat.refineCard(id) else { return }
                 // What Claude already answered is saved, so a new plan asks only about what is left.
-                askClaudeRefine(scope: askClaudeRefineScope(id), source: card.sourceName)
+                let scope = askClaudeRefineScope(id)
+                guard !scope.isEmpty else {
+                    askClaudeChat.addNote("The files this Refine was about aren’t in Organize’s list now. Press Refine there to make a new plan.")
+                    return
+                }
+                askClaudeRefine(scope: scope, source: card.sourceName)
             },
             folders: { syncManager.filingLastTaxonomyFolders.sorted() },
             leftOut: { syncManager.filingRefineLeftOutFolders },
@@ -102,12 +111,21 @@ extension ContentView {
             },
             changeLimit: { openSettings(on: SettingsView.SettingsTab.cloudRefineSetup) },
             undo: { id in
+                let chat = askClaudeChat
+                // The manager holds the latest pass's undo only: an older card never takes it.
+                guard chat.refineUndoCard == id else { return }
+                chat.refineUndoCard = nil
                 let restored = syncManager.undoFilingRefine()
-                askClaudeChat.updateRefine(id) { $0.answers?.undone = true }
-                askClaudeChat.tellClaude("They chose Undo Refine on the card: \(restored) suggestion\(restored == 1 ? "" : "s") went back to the on-device answer.")
+                guard restored > 0 else {
+                    chat.addNote("Nothing went back: the suggestions in Organize changed since this Refine.")
+                    return
+                }
+                chat.updateRefine(id) { $0.answers?.undone = true }
+                chat.tellClaude("They chose Undo Refine on the card: \(restored) suggestion\(restored == 1 ? "" : "s") went back to the on-device answer.")
             },
             canUndo: { id in
-                guard let card = askClaudeChat.refineCard(id), card.answers?.undone != true else { return false }
+                guard let card = askClaudeChat.refineCard(id), card.answers?.undone != true,
+                      askClaudeChat.refineUndoCard == id else { return false }
                 return syncManager.canUndoFilingRefine
             },
             reveal: { path in revealInBrowse(path, with: [path], from: .pdfToolBanner) })
@@ -115,7 +133,7 @@ extension ContentView {
 
     /// The suggestions a card was made for, as they are now.
     func askClaudeRefineScope(_ id: UUID) -> [FilingSuggestion] {
-        let paths = Set(askClaudeChat.refineScopes[id] ?? [])
+        let paths = Set(askClaudeChat.refineCard(id)?.scopePaths ?? [])
         return syncManager.filingSuggestions.filter { paths.contains($0.filePath) }
     }
 
@@ -127,21 +145,35 @@ extension ContentView {
 
     /// Makes the card's plan again with one option changed (the tick, ask again, folders left out).
     /// The new plan replaces the old as the source's open one, so only the card on screen can send.
+    /// While it is made the card is quoting: Send and the tick wait, so a click can't send the old
+    /// plan. Choices made meanwhile add up (`wantedOptions`), and only the latest quote lands.
     private func askClaudeRefineChange(_ id: UUID, _ change: @escaping (inout FileSyncManager.FilingRefineOptions) -> Void) {
         let chat = askClaudeChat
-        guard let card = chat.refineCard(id), card.canTick, let old = askClaudeRefineOpenPlan(card) else {
+        guard let card = chat.refineCard(id), case .planned = card.phase, card.planID != nil,
+              let old = askClaudeRefineOpenPlan(card) else {
             chat.updateRefine(id) { if case .planned = $0.phase { $0.phase = .expired; $0.planID = nil } }
             return
         }
-        var options = old.options
+        var options = card.wantedOptions ?? old.options
         change(&options)
+        let token = UUID()
+        chat.updateRefine(id) { $0.quoting = true; $0.quoteToken = token; $0.wantedOptions = options }
         let scope = askClaudeRefineScope(id)
         Task { @MainActor in
-            guard let fresh = await syncManager.prepareFilingRefine(scope, options: options) else {
-                chat.updateRefine(id) { $0.phase = .expired; $0.planID = nil }
+            let fresh = await syncManager.prepareFilingRefine(scope, options: options)
+            // A later change, a Cancel or a send since: this quote is not the card's any more.
+            guard let now = chat.refineCard(id), now.quoteToken == token, case .planned = now.phase else {
+                if let fresh, chat.refineCard(id)?.planID != fresh.id { syncManager.discardFilingRefinePlan(fresh) }
                 return
             }
-            chat.updateRefine(id) { $0.plan = .init(fresh); $0.planID = fresh.id; $0.notice = nil }
+            guard let fresh else {
+                chat.updateRefine(id) { $0.phase = .expired; $0.planID = nil; $0.quoting = false; $0.quoteToken = nil }
+                return
+            }
+            chat.updateRefine(id) {
+                $0.plan = .init(fresh); $0.planID = fresh.id; $0.notice = nil
+                $0.quoting = false; $0.quoteToken = nil; $0.wantedOptions = fresh.options
+            }
         }
     }
 
@@ -149,7 +181,7 @@ extension ContentView {
         let chat = askClaudeChat
         guard let card = chat.refineCard(id) else { return }
         if let plan = askClaudeRefineOpenPlan(card) { syncManager.discardFilingRefinePlan(plan) }
-        chat.updateRefine(id) { $0.phase = .closed; $0.planID = nil; $0.notice = nil }
+        chat.updateRefine(id) { $0.phase = .closed; $0.planID = nil; $0.notice = nil; $0.quoting = false; $0.quoteToken = nil }
     }
 
     /// Send, on the person's click: one request for what the plan quoted. If the list, the Hidden
@@ -157,7 +189,7 @@ extension ContentView {
     /// shows the new plan to read again.
     private func askClaudeRefineSend(_ id: UUID, fitting: Bool) {
         let chat = askClaudeChat
-        guard let card = chat.refineCard(id), card.planID != nil, case .planned = card.phase,
+        guard let card = chat.refineCard(id), card.planID != nil, case .planned = card.phase, !card.quoting,
               !chat.pressing.contains("refine-\(id)") else { return }
         guard let open = askClaudeRefineOpenPlan(card) else {
             chat.updateRefine(id) { $0.phase = .expired; $0.planID = nil }
@@ -173,7 +205,14 @@ extension ContentView {
                 guard let fits = open.fits, fits > 0 else { return }
                 var options = open.options
                 options.limitTo = fits
-                guard let smaller = await syncManager.prepareFilingRefine(scope, options: options) else {
+                let made = await syncManager.prepareFilingRefine(scope, options: options)
+                // Cancel (or anything that closed the card) while the smaller plan was made: it is
+                // not sent, and does not stay open either.
+                guard let current = chat.refineCard(id), case .planned = current.phase, current.planID == open.id else {
+                    if let made { syncManager.discardFilingRefinePlan(made) }
+                    return
+                }
+                guard let smaller = made else {
                     chat.updateRefine(id) { $0.phase = .expired; $0.planID = nil }
                     return
                 }
@@ -188,6 +227,8 @@ extension ContentView {
             let report = syncManager.filingLastRefineReport
             chat.updateRefine(id) { $0.finish(result, report: report, replanned: replanned) }
             if case .sent = result {
+                // This card's pass holds the manager's one undo now, or none does.
+                chat.refineUndoCard = syncManager.canUndoFilingRefine ? id : nil
                 if let line = chat.refineCard(id)?.toldToClaude { chat.tellClaude(line) }
                 Logger.shared.info("Ask Claude: Refine sent from its card — \(report?.changes.count ?? 0) home(s) changed")
             }
