@@ -4,12 +4,13 @@ import Testing
 
 /// Undo Refine (TE335, C4): the on-device suggestions come back for the files a pass moved, except
 /// where the person has chosen since; a rescan makes the list another one and Undo goes with it.
+extension HandBuiltRefineSuites {
 @MainActor
-@Suite(.serialized) struct FilingRefineUndoTests {
+@Suite struct FilingRefineUndoTests {
 
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
-    private static let shared = FileSyncManager()
-    private static let defaults = ScratchDefaults("FilingRefineUndoTests")
+    private static var shared: FileSyncManager { HandBuiltFiling.manager }
+    private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
 
 
     private func manager() -> FileSyncManager {
@@ -113,4 +114,5 @@ import Testing
         let (root2, _) = try await refined(shown); defer { try? FileManager.default.removeItem(at: root2) }
         #expect(shown.banner?.message.hasPrefix("Refined 3 suggestions") == true, "without a chat the banner stays")
     }
+}
 }

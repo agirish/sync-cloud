@@ -89,6 +89,11 @@ extension ContentView {
             stop: { _ in syncManager.stopFilingRefine() },
             setTick: { id, on in askClaudeRefineChange(id) { $0.pagesFromAskEachTime = on } },
             askAgain: { id in askClaudeRefineChange(id) { $0.askAgain = true } },
+            retry: { id in
+                guard let card = askClaudeChat.refineCard(id) else { return }
+                // What Claude already answered is saved, so a new plan asks only about what is left.
+                askClaudeRefine(scope: askClaudeRefineScope(id), source: card.sourceName)
+            },
             folders: { syncManager.filingLastTaxonomyFolders.sorted() },
             leftOut: { syncManager.filingRefineLeftOutFolders },
             setLeftOut: { id, folders in
@@ -109,7 +114,7 @@ extension ContentView {
     }
 
     /// The suggestions a card was made for, as they are now.
-    private func askClaudeRefineScope(_ id: UUID) -> [FilingSuggestion] {
+    func askClaudeRefineScope(_ id: UUID) -> [FilingSuggestion] {
         let paths = Set(askClaudeChat.refineScopes[id] ?? [])
         return syncManager.filingSuggestions.filter { paths.contains($0.filePath) }
     }
@@ -175,7 +180,7 @@ extension ContentView {
                 plan = smaller
                 chat.updateRefine(id) { $0.plan = .init(smaller); $0.planID = smaller.id }
             } else if !card.canSend { return }
-            chat.updateRefine(id) { $0.phase = .sending(answered: nil); $0.notice = nil }
+            chat.updateRefine(id) { $0.phase = .sending(answered: nil); $0.notice = nil; $0.startedAt = Date() }
             let result = await syncManager.sendFilingRefine(plan, scope: scope)
             // Refused for the limit, the plan was taken: a new one says what the limit allows.
             var replanned: FileSyncManager.FilingRefinePlan?

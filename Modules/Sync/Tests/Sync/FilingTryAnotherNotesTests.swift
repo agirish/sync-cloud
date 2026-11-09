@@ -5,12 +5,13 @@ import Testing
 /// What Try Another says on a card, and the one click that sends a page to Claude (TE335, LX-A, LT-B):
 /// a folder that asks each time stays on this Mac and offers the page; the click sends it; a failure or
 /// a reached limit is the card's own note; and each request that reached Claude is reported.
+extension HandBuiltRefineSuites {
 @MainActor
-@Suite(.serialized) struct FilingTryAnotherNotesTests {
+@Suite struct FilingTryAnotherNotesTests {
 
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
-    private static let shared = FileSyncManager()
-    private static let defaults = ScratchDefaults("FilingTryAnotherNotesTests")
+    private static var shared: FileSyncManager { HandBuiltFiling.manager }
+    private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
 
 
     private final class Counter: @unchecked Sendable {
@@ -196,4 +197,5 @@ import Testing
         #expect(back == line)
         #expect((try? JSONDecoder().decode(AskClaudeTryAnotherLine.self, from: Data("{}".utf8))) == AskClaudeTryAnotherLine())
     }
+}
 }

@@ -14956,3 +14956,20 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | the window-level Info column, no pane Info | NOT OWED — no backporting; recorded |
+
+## The Refine plan card, redone (TE335) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, the Ask Claude plan card for Refine lists what goes to Claude, what needs
+your OK and what isn't sent, with details behind ⓘ marks and a "Which files" list. A plan with nothing to
+send says why and, when a page-1 tick would help, asks for the tick before Send turns on. A replaced plan
+leaves the chat and a canceled one shrinks to a line. The maintenance lines have no Refine card in the chat.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s card=%s\n' $l "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeRefineCard')"; done
+# measured 2026-11-08, against origin, before this landed: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | no Refine card in the chat | CLOSED — does not apply |

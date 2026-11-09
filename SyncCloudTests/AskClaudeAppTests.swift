@@ -3566,9 +3566,9 @@ private final class OffersADownload: AskClaudeToolRunning {
         let other = chat.addRefineCard(card("Backup Drive"))
         let second = chat.addRefineCard(card("Cloud Drive"))
 
-        #expect(chat.refineCard(first)?.phase == .replaced && chat.refineCard(first)?.canSend == false,
-                "the older plan can no longer send")
-        #expect(chat.refineCard(first)?.closedLine == "Replaced by a newer plan. Nothing was sent.")
+        #expect(chat.refineCard(first) == nil && !chat.items.contains { $0.id == first },
+                "the older plan can no longer send, so it leaves the thread instead of sitting there as a card to read past")
+        #expect(chat.items.count == 2, "the other source's plan and the new one")
         #expect(chat.refineCard(other)?.phase == .planned, "another source's plan is its own")
         #expect(chat.refineCard(second)?.phase == .planned)
     }
@@ -3655,6 +3655,9 @@ private final class OffersADownload: AskClaudeToolRunning {
         plan.folderNames = 238; plan.pagesShared = 2; plan.pagesWaiting = 4; plan.waitingForPage = 2
         plan.modelName = "Opus 5.5"; plan.costUSD = 0.05; plan.spentUSD = 3.12; plan.limitUSD = 25
         plan.tickGainFiles = 2; plan.tickGainCostUSD = 0.01
+        plan.files = [.init(name: "Invoice 2026-04.pdf", status: .namePlusPage), .init(name: "Statement 2026-03.pdf", status: .namePlusPage),
+                      .init(name: "Scan 0412.pdf", status: .nameOnly), .init(name: "Lease draft.pdf", status: .nameOnly),
+                      .init(name: "Boarding pass OPO.pdf", status: .needsOK), .init(name: "Tax form 1099.pdf", status: .needsOK)]
         configure(&plan)
         return plan
     }
@@ -3685,6 +3688,11 @@ private final class OffersADownload: AskClaudeToolRunning {
             ("limit", make(plan { $0.exceedsLimit = true; $0.spentUSD = 24.97; $0.fits = 3 })),
             ("limit-none-fit", make(plan { $0.exceedsLimit = true; $0.spentUSD = 24.999; $0.fits = 0 })),
             ("nothing-new", make(plan { $0.toSend = 0; $0.waitingForPage = 0; $0.pagesWaiting = 0 })),
+            ("all-wait", make(plan { $0.eligible = 1; $0.toSend = 0; $0.waitingForPage = 1; $0.pagesWaiting = 1; $0.reused = 0; $0.hidden = 0
+                $0.costUSD = nil; $0.tickGainFiles = 1; $0.tickGainCostUSD = 0.01; $0.files = [.init(name: "Boarding pass OPO.pdf", status: .needsOK)] })),
+            ("all-wait-ticked", make(plan { $0.eligible = 1; $0.toSend = 1; $0.waitingForPage = 0; $0.pagesWaiting = 0; $0.pagesAskEachTime = 1; $0.pagesShared = 0
+                $0.reused = 0; $0.hidden = 0; $0.ticked = true; $0.tickGainFiles = nil; $0.files = [.init(name: "Boarding pass OPO.pdf", status: .namePlusPage)] })),
+            ("off-claude", make(plan { $0.routesToClaude = false; $0.costUSD = nil })),
             ("blocked", make(plan { $0.blocked = true; $0.modelName = "A Model With A Rather Long Name 5.5" })),
             ("notice", make(plan(), notice: "Something changed since this plan (the list, a folder hidden from Claude, or the price), so it was quoted again. Nothing was sent.")),
             ("sending", make(plan(), .sending(answered: 3))),
@@ -3704,7 +3712,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         for (name, card) in cards() {
             let size = host(card, width: 240).sizeThatFits(in: CGSize(width: 240, height: 4_000))
             #expect(size.width <= 240, "\(name) asks for \(size.width) pt of 240")
-            #expect(size.height > 20, "\(name) drew nothing")
+            #expect(size.height > 8, "\(name) drew nothing")
         }
     }
 

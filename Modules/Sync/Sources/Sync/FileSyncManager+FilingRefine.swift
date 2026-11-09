@@ -245,6 +245,8 @@ extension FileSyncManager {
         var folderNamesLeftOut = 0
         /// Files the request cap or "Send the N that fit" kept for the next press.
         var keptForNextPress = 0
+        /// Each file not answered before, and what the pass does with it.
+        var rows: [FilingRefinePlanFile] = []
     }
 
     /// Everything up to the price: the hidden list, the snapshot the answers are read against, the
@@ -462,6 +464,15 @@ extension FileSyncManager {
                 + heldBack.count
         }
         facts.waitingForPage = chosen.waiting
+        let sendingPaths = Set(sending.map(\.filePath))
+        facts.rows = misses.map { s in
+            let status: FilingRefinePlanFile.Status
+            if waits(s, ticked: options.pagesFromAskEachTime) { status = .needsOK }
+            else if sendingPaths.contains(s.filePath) {
+                status = hasPage(s) && pageGoes(s, ticked: options.pagesFromAskEachTime) ? .namePlusPage : .nameOnly
+            } else { status = .nextPress }
+            return FilingRefinePlanFile(path: s.filePath, name: s.fileName, status: status)
+        }
         facts.folderNames = context.destinations.count
         facts.folderNamesLeftOut = folderNamesLeftOut
         facts.keptForNextPress = chosen.kept
@@ -677,7 +688,7 @@ extension FileSyncManager {
             pagesSent: files.filter { $0.contentSnippet != nil }.count, folderNames: context.destinations.count,
             requests: (result?.started ?? false) ? 1 : 0, costUSD: result?.costUSD ?? 0,
             modelName: filingRefineModelName, ending: ending,
-            keptForNextPress: work.facts.keptForNextPress, offered: offered)
+            keptForNextPress: work.facts.keptForNextPress, offered: offered, waitingForPage: work.facts.waitingForPage)
         // `sentToBackend`, not `classifiedCount` (see the declaration). The route is named because
         // the number alone can't tell a pass nobody paid for from one nobody ran.
         Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(sentToBackend) sent to "
@@ -805,6 +816,27 @@ extension FileSyncManager {
 
 extension FileSyncManager {
 
+    /// One file on a plan, and what the pass does with it (the "Which files" list).
+    public struct FilingRefinePlanFile: Sendable, Equatable, Identifiable {
+        public enum Status: String, Sendable, Equatable, Codable {
+            /// Its name, type and year go, and so does its first page.
+            case namePlusPage
+            /// Only its name, type and year go.
+            case nameOnly
+            /// Left out until the person ticks: its first page needs their OK.
+            case needsOK
+            /// Beyond what one request carries, or what fits: kept for the next press.
+            case nextPress
+        }
+        public var id: String { path }
+        public let path: String
+        public let name: String
+        public let status: Status
+        public init(path: String, name: String, status: Status) {
+            self.path = path; self.name = name; self.status = status
+        }
+    }
+
     /// What the plan card lets the person choose for one pass.
     public struct FilingRefineOptions: Sendable, Equatable {
         /// The tick: page 1 goes for files in folders that ask each time, and so do the files whose
@@ -858,6 +890,8 @@ extension FileSyncManager {
         public let keptForNextPress: Int
         /// Cards whose home stood while Claude named another folder, next under Try Another Folder.
         public var offered = 0
+        /// Files still waiting for the tick, so the card can say a first page would let Claude try them.
+        public var waitingForPage = 0
     }
 
     /// The on-device suggestions a pass replaced, kept so Undo Refine can put them back. Valid only
@@ -954,6 +988,13 @@ extension FileSyncManager {
         public let tickGain: TickGain?
         /// When the quote passes the limit: how many of these files would fit under it.
         public let fits: Int?
+        /// The files not answered before, and what the pass does with each.
+        public let files: [FilingRefinePlanFile]
+        /// Whether the pass reaches Claude (and so is billed), and this month's spend against Ask
+        /// Claude's limit, whatever the quote: a plan with nothing to send still says where the month stands.
+        public let routesToClaude: Bool
+        public let monthSpentUSD: Double
+        public let monthLimitUSD: Double
 
         public struct TickGain: Sendable, Equatable {
             public let files: Int
@@ -1073,13 +1114,15 @@ extension FileSyncManager {
 
         // What ticking would add, priced the same way.
         var tickGain: FilingRefinePlan.TickGain?
-        if let alt = work.tickedAlternative, case .quote(let now) = billing,
-           case .billable(let altQuote) = filingSpendGate(files: alt.files, taxonomyFolders: alt.context.destinations,
-                                                          downloading: alt.cloudOnly) {
-            tickGain = .init(files: alt.files.count - work.files.count,
-                             costUSD: max(0, altQuote.estCostUSD - now.estCostUSD))
-        } else if let alt = work.tickedAlternative, case .notBilled = billing {
-            tickGain = .init(files: alt.files.count - work.files.count, costUSD: 0)
+        if let alt = work.tickedAlternative {
+            var base = 0.0
+            if case .quote(let now) = billing { base = now.estCostUSD }
+            if case .billable(let altQuote) = filingSpendGate(files: alt.files, taxonomyFolders: alt.context.destinations,
+                                                              downloading: alt.cloudOnly) {
+                tickGain = .init(files: alt.files.count - work.files.count, costUSD: max(0, altQuote.estCostUSD - base))
+            } else {
+                tickGain = .init(files: alt.files.count - work.files.count, costUSD: 0)
+            }
         }
 
         // How many would fit under the limit, when this pass would pass it.
@@ -1104,6 +1147,9 @@ extension FileSyncManager {
                                 pagesShared: work.facts.pagesShared, pagesAskEachTime: work.facts.pagesAskEachTime,
                                 pagesWaiting: work.facts.pagesWaiting, waitingForPage: work.facts.waitingForPage,
                                 keptForNextPress: work.facts.keptForNextPress, tickGain: tickGain, fits: fits,
+                                files: work.facts.rows, routesToClaude: filingRoutesToCloud(.refine),
+                                monthSpentUSD: AskClaudeSpend.spent(in: filingContentDefaults),
+                                monthLimitUSD: AskClaudeSpend.limit(in: filingContentDefaults),
                                 generation: work.preAwaitGeneration, fingerprint: fingerprint)
     }
 }

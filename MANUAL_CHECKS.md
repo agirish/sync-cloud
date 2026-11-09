@@ -917,3 +917,28 @@ one request, a few cents.
   build, once.)
 - [ ] **Not built, on purpose:** the “Claude agrees” badge and a per-card “In chat” link (the link is beside the
   pill); progress is “One request” with no running count.
+
+## The redesigned Refine plan card (TE335, card polish, 2026-11-08)
+
+Drawn first in the "Refine Card Review" mockup; the five choices were settled there. Run in the
+installed app with a key saved and a To File list. Nothing here was clicked against the real API.
+
+- [ ] **Short lines, reasons behind ⓘ.** The plan reads: Goes to Claude (files, first pages, folder names with
+  Customize…), Needs your OK (one checkbox), Not sent (hidden, answered before), the model and month, and a
+  button that carries the price: “Send 4 files · about 4¢”. Hover each ⓘ for its reason.
+- [ ] **The tick.** “Send first pages for N more files”, with what it buys beneath. Tick it: the count, the
+  price and the button change (“Send 6 files · about 5¢”). The tick is per pass.
+- [ ] **Which Files.** Opens a list of each file with “name + first page”, “name only”, “needs your OK”. A file
+  hidden from Claude is counted, never named.
+- [ ] **Every file waits.** With one file in a folder that is not shared whose home was read from its page: the
+  card says “A name alone can’t improve this file.”, names it, Send is off, and “Tick the box to send this file.”
+  shows. Tick it: Send turns on as “Send 1 file · about 1¢”.
+- [ ] **Over the limit.** “Over your $25 limit by about 1¢. You’ve used $24.97.”, the whole plan and the part that
+  fits, Change Limit… and “Send 3 files · about 3¢”.
+- [ ] **Old plans.** Press Refine twice: the first plan is gone from the chat, not left as a grey card. Cancel a
+  plan: it shrinks to one muted line.
+- [ ] **Sending and after.** The card counts seconds while it runs. The answers lead with “N homes changed”, each
+  move with the new folder in bold, a Receipt ⓘ and Undo Refine; a stopped or dropped pass says how many answers
+  arrived and offers “Try Again for the N”.
+- [ ] **Not drawn exactly:** “Ask Again” on the nothing-new card has no price (the plan has no quote when nothing
+  is sent); its ⓘ says the usual price applies.

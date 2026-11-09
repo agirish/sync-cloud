@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 @testable import Sync
 
 /// A To File list built by hand, with no folder on disk and no scan (TE335's tests).
@@ -9,6 +10,12 @@ import Foundation
 /// the start of the package run was enough to turn them red (docs/flaky-tests.md, "Every gate parks
 /// at once"). A hand-built list costs microseconds.
 enum HandBuiltFiling {
+
+    /// The one manager and the one defaults suite all four hand-built suites use, one at a time: each
+    /// costs 0.1 to 2 s to make on the main actor, and four of each at the start of the package run
+    /// was part of what pushed the parking suites past their bound.
+    @MainActor static let manager = FileSyncManager()
+    @MainActor static let defaults = ScratchDefaults("HandBuiltFiling")
 
     /// How many loose files each fake root was made for, so `build` can be called with the URL alone.
     private final class Counts: @unchecked Sendable {
@@ -84,3 +91,7 @@ enum HandBuiltFiling {
         m.publishFilingSuggestions([])
     }
 }
+
+/// The suites built on `HandBuiltFiling`, nested here so they run one after another: `.serialized` on a
+/// parent applies to its children, and they share one manager.
+@Suite(.serialized) enum HandBuiltRefineSuites {}

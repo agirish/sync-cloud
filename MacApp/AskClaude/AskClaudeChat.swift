@@ -1255,17 +1255,17 @@ final class AskClaudeChat: ObservableObject {
 
     // MARK: Refine cards (TE335)
 
-    /// Puts a Refine plan in the thread. A plan still waiting for the same source is replaced by
-    /// it, and says so: one plan is open per source, and the older one could no longer send.
+    /// Puts a Refine plan in the thread. A plan still waiting for the same source is removed: one plan
+    /// is open per source, the older one could no longer send, and a card that says so is only
+    /// something to read past.
     @discardableResult
     func addRefineCard(_ card: AskClaudeRefineCard) -> UUID {
-        for index in items.indices {
-            guard case .refine(var old) = items[index].kind, old.sourceName == card.sourceName,
-                  case .planned = old.phase else { continue }
-            old.phase = .replaced
-            old.planID = nil
-            items[index].kind = .refine(old)
-        }
+        let replaced = items.filter {
+            if case .refine(let old) = $0.kind, old.sourceName == card.sourceName, case .planned = old.phase { return true }
+            return false
+        }.map(\.id)
+        items.removeAll { replaced.contains($0.id) }
+        for id in replaced { refineScopes[id] = nil }
         streamingItem = nil
         let item = Item(kind: .refine(card))
         items.append(item)

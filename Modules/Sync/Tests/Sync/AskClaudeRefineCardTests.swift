@@ -4,12 +4,13 @@ import Testing
 
 /// The Refine card's words and moves (TE335, C3): what each state says, which buttons it allows, and
 /// what a send does to it. Built from real plans, so the sentences are about real numbers.
+extension HandBuiltRefineSuites {
 @MainActor
-@Suite(.serialized) struct AskClaudeRefineCardTests {
+@Suite struct AskClaudeRefineCardTests {
 
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
-    private static let shared = FileSyncManager()
-    private static let defaults = ScratchDefaults("AskClaudeRefineCardTests")
+    private static var shared: FileSyncManager { HandBuiltFiling.manager }
+    private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
 
 
     private func manager(limit: Double? = nil, model: String? = nil) -> FileSyncManager {
@@ -53,50 +54,79 @@ import Testing
     }
 
     private func report(sent: Int = 4, answered: Int = 4, changes: Int = 2, ending: FileSyncManager.FilingRefineReport.Ending = .answered,
-                        requests: Int = 1, cost: Double = 0.04, offered: Int = 0) -> FileSyncManager.FilingRefineReport {
+                        requests: Int = 1, cost: Double = 0.04, waiting: Int = 0, offered: Int = 0) -> FileSyncManager.FilingRefineReport {
         var report = FileSyncManager.FilingRefineReport(
             changes: (0..<changes).map { .init(filePath: "/r/f\($0).pdf", fileName: "f\($0).pdf", before: "Receipts/2026", after: "Work/Invoices", reason: "Page 1 is an invoice") },
             asked: sent, reused: 1, hiddenFromClaude: 1, sent: sent, answered: answered, pagesSent: 2, folderNames: 238,
-            requests: requests, costUSD: cost, modelName: "Opus 5.5", ending: ending, keptForNextPress: 0)
+            requests: requests, costUSD: cost, modelName: "Opus 5.5", ending: ending, keptForNextPress: 0, waitingForPage: waiting)
         report.offered = offered
         return report
     }
 
     // MARK: The plan says what goes
 
-    @Test func aPlanNamesWhatGoesWhatWaitsAndWhatItCosts() async throws {
+    @Test func aNormalPlanGroupsWhatGoesTheOneCallAndWhatIsLeftOut() async throws {
         let m = manager(model: AskClaudeModels.opus.id)
         let (p, root) = try await plan(m, files: 4, shared: [0, 1]); defer { try? FileManager.default.removeItem(at: root) }
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
 
-        #expect(card.title == "Refine 4 files in Cloud Drive")
-        let lines = card.lines
-        #expect(lines.first?.text.hasPrefix("Your folder names (") == true)
-        #expect(lines.contains { $0.text == "Names, types and years of 4 files" })
-        #expect(lines.contains { $0.text.contains("Page-1 text, up to 800 characters, from 2 files in folders shared without asking") })
-        let tick = try #require(lines.first { $0.kind == .tick })
-        #expect(tick.text == "Also page-1 text from files in folders that ask each time")
-        #expect(tick.detail?.hasPrefix("Unticked: those files go by name") == true)
-        #expect(card.quoteLine.hasPrefix("Opus 5.5 · this chat’s model ≈ "))
-        #expect(card.monthLine?.hasPrefix("This month ") == true && card.monthLine?.contains("of $25") == true)
-        #expect(card.sendTitle == "Send 4 files" && card.canSend)
-        #expect(card.limitMessage == nil && card.cutNote == nil)
+        #expect(card.layout == .normal && card.title == "Refine 4 files in Cloud Drive")
+        let goes = card.goesLines
+        #expect(goes[0] == .init(count: "4", text: "files: name, type, year", info: nil, action: .whichFiles))
+        #expect(goes[1].count == "2" && goes[1].text == "first pages" && goes[1].info != nil)
+        #expect(goes.last?.text == "folder names" && goes.last?.action == .customize, "the folder list is a visible line with Customize…")
+        let ok = try #require(card.ok)
+        #expect(ok.title == "Send first pages for 2 more files" && !ok.checked)
+        #expect(ok.info == "Their folders aren’t shared with Claude, so a first page goes only if you tick this. It counts for this pass only.")
+        #expect(card.monthLine.hasPrefix("Opus 5.5 · ") && card.monthLine.contains("of $25 this month"))
+        #expect(card.sendTitle.hasPrefix("Send 4 files · ") && card.canSend)
+        #expect(card.limitMessage == nil && card.cutNote == nil && card.tickHint == nil)
     }
 
-    @Test func theTickChangesTheLineAndSaysWhatItBuys() async throws {
+    @Test func theTickIsTheOneDecisionAndTheButtonFollowsIt() async throws {
         let m = manager()
         let (plain, root) = try await plan(m, files: 3, configure: { try readFromText($0, name: "mystery-2.pdf") }); defer { try? FileManager.default.removeItem(at: root) }
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: plain)
-        let tick = try #require(card.lines.first { $0.kind == .tick })
-        #expect(tick.detail?.contains("1 wait for their page text") == true)
-        #expect(tick.detail?.contains("tick to include: +1 file") == true, "\(tick.detail ?? "")")
-        #expect(card.plan.ticked == false)
+        let ok = try #require(card.ok)
+        #expect(ok.title == "Send first pages for 3 more files")
+        #expect(ok.detail?.hasPrefix("Improves 1 more file") == true, "\(ok.detail ?? "")")
+        #expect(card.plan.toSend == 2 && card.sendTitle.hasPrefix("Send 2 files"))
 
         let ticked = try #require(await m.prepareFilingRefine(m.filingSuggestions, options: .init(pagesFromAskEachTime: true)))
         let on = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: ticked)
-        #expect(on.plan.ticked && on.plan.waitingForPage == 0)
-        #expect(on.lines.first { $0.kind == .tick }?.text == "Also page-1 text from 3 files in folders that ask each time")
-        #expect(on.sendTitle == "Send 3 files")
+        #expect(on.ok?.checked == true && on.ok?.detail == "Included in the price below")
+        #expect(on.sendTitle.hasPrefix("Send 3 files"), "ticking brings the waiting file in")
+    }
+
+    /// The case from the screenshot: one file waits for its first page and nothing else can go.
+    @Test func whenEveryFileWaitsTheCardSaysWhyAndTheTickUnblocksIt() async throws {
+        let m = manager()
+        let (zero, root) = try await plan(m, files: 1, configure: { try readFromText($0, name: "mystery-0.pdf") }); defer { try? FileManager.default.removeItem(at: root) }
+        let card = AskClaudeRefineCard(sourceName: "iCloud", plan: zero)
+
+        #expect(card.layout == .needsFirstPages)
+        let note = try #require(card.needsFirstPagesNote)
+        #expect(note.text == "A name alone can’t improve this file.")
+        #expect(note.info == "Its suggested folder came from reading its first page, and its folder isn’t shared with Claude, so Claude hasn’t seen that page.")
+        #expect(card.waitingNames == ["mystery-0.pdf"])
+        let ok = try #require(card.ok)
+        #expect(ok.title == "Send its first page" && !ok.checked && ok.info == "Up to 800 characters of text from each first page, once, for this pass only.")
+        #expect(card.tickHint == "Tick the box to send this file.")
+        #expect(card.sendTitle == "Send 0 files" && !card.canSend, "Send is off, and the card says what turns it on")
+        #expect(card.goesLines.isEmpty)
+
+        let ticked = try #require(await m.prepareFilingRefine(m.filingSuggestions, options: .init(pagesFromAskEachTime: true)))
+        let on = AskClaudeRefineCard(sourceName: "iCloud", plan: ticked)
+        #expect(on.layout == .normal && on.canSend && on.tickHint == nil)
+        #expect(on.sendTitle.hasPrefix("Send 1 file · "))
+    }
+
+    @Test func whichFilesNamesEachFileAndWhatItSends() async throws {
+        let m = manager()
+        let (p, root) = try await plan(m, files: 4, shared: [0, 1], configure: { try readFromText($0, name: "mystery-3.pdf") }); defer { try? FileManager.default.removeItem(at: root) }
+        let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
+        let status = Dictionary(uniqueKeysWithValues: card.plan.files.map { ($0.name, $0.status) })
+        #expect(status == ["mystery-0.pdf": .namePlusPage, "mystery-1.pdf": .namePlusPage, "mystery-2.pdf": .nameOnly, "mystery-3.pdf": .needsOK])
     }
 
     @Test func aBigPassSaysHowManyGoAndHowManyWait() async throws {
@@ -112,17 +142,18 @@ import Testing
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
         #expect(card.title == "Refine \(CloudFilingRefiner.maxFiles + 12) files in Cloud Drive")
         #expect(card.cutNote == "\(CloudFilingRefiner.maxFiles) of \(CloudFilingRefiner.maxFiles + 12) this pass. The other 12 stay for the next Refine.")
+        #expect(card.notSentLines.contains { $0.count == "12" && $0.text == "wait for the next Refine" })
     }
 
-    @Test func hiddenAndReusedFilesAreCountedAndNeverNamed() async throws {
+    @Test func hiddenFilesAreCountedAndNeverNamed() async throws {
         let m = manager()
         let (p, root) = try await plan(m, files: 3, configure: {
             AskClaudePrivacy.setHiddenFolders([$0.filingLastProviderRoot.map { $0 + "/Downloads/mystery-0.pdf" } ?? ""], in: $0.filingContentDefaults)
         }); defer { try? FileManager.default.removeItem(at: root) }
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
-        let hidden = try #require(card.lines.first { $0.kind == .notSent })
-        #expect(hidden.text == "1 file in a folder hidden from Claude" && hidden.detail == "Not named anywhere")
-        #expect(!card.lines.contains { $0.text.contains("mystery-0") })
+        let hidden = try #require(card.notSentLines.first)
+        #expect(hidden.count == "1" && hidden.text == "hidden from Claude" && hidden.info?.contains("never sent or named") == true)
+        #expect(!card.plan.files.contains { $0.name == "mystery-0.pdf" } && card.waitingNames.isEmpty)
         #expect(card.plan.eligible == 2 && card.title == "Refine 2 files in Cloud Drive")
     }
 
@@ -136,17 +167,17 @@ import Testing
 
         let again = try #require(await m.prepareFilingRefine(m.filingSuggestions))
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: again)
-        #expect(card.plan.nothingNew && !card.canSend)
+        #expect(card.layout == .nothingNew && !card.canSend)
         #expect(card.nothingNewTitle == "Nothing new to ask")
-        #expect(card.nothingNewMessage == "All 3 files were answered before and are reused free.")
-        #expect(card.lines.isEmpty)
+        #expect(card.nothingNewMessage == "All 3 were answered before. Nothing to send, nothing billed.")
+        #expect(card.goesLines.isEmpty && card.notSentLines.isEmpty && card.ok == nil)
 
         let asked = try #require(await m.prepareFilingRefine(m.filingSuggestions, options: .init(askAgain: true)))
         let ask = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: asked)
-        #expect(!ask.plan.nothingNew && ask.canSend && ask.plan.askedAgain)
+        #expect(ask.layout == .normal && ask.canSend && ask.plan.askedAgain)
     }
 
-    @Test func overTheLimitTheCardOffersChangeLimitAndTheSmallerPartInstead() async throws {
+    @Test func overTheLimitTheCardLeadsWithTheWarningAndOffersTheSmallerPart() async throws {
         let m = manager()
         let (open, root) = try await plan(m, files: 8); defer { try? FileManager.default.removeItem(at: root) }
         guard case .quote(let quote) = open.billing else { Issue.record("no quote"); return }
@@ -154,57 +185,71 @@ import Testing
         let over = try #require(await m.prepareFilingRefine(m.filingSuggestions))
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: over)
 
-        #expect(card.plan.exceedsLimit && !card.canSend, "Send is off over the limit")
+        #expect(card.layout == .overLimit && !card.canSend, "Send is off over the limit")
         let message = try #require(card.limitMessage)
-        #expect(message.hasPrefix("This pass would pass your ") && message.contains("limit by"))
-        #expect(message.hasSuffix("or send the smaller part that fits."))
-        let fit = try #require(card.sendFitTitle)
-        #expect(fit == "Send the \(try #require(over.fits)) that fit")
+        #expect(message.hasPrefix("Over your ") && message.contains(" limit by ") && message.hasSuffix("."))
+        let fits = try #require(over.fits)
+        #expect(card.wholePlanLine.count == "8" && card.wholePlanLine.action == .whichFiles)
+        #expect(card.fitLine?.count == "\(fits)")
+        #expect(try #require(card.sendFitTitle).hasPrefix("Send \(fits) file"))
     }
 
     @Test func aModelWithNoPriceBlocksTheCardAndSaysWhichToDo() async throws {
         var plan = AskClaudeRefineCard.Plan()
         plan.eligible = 3; plan.toSend = 3; plan.modelName = "Mystery 9"; plan.blocked = true
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: plan, phase: .planned)
+        #expect(card.layout == .blocked)
         #expect(card.blockedMessage == "Refine isn’t available on Mystery 9. Switch this chat to another model with the menu under the text box, then press Refine again.")
         #expect(!card.canSend)
     }
 
-    @Test func aPlanThatIsNotBilledSaysNothingIsBilled() async throws {
+    @Test func aPlanOffTheClaudeRouteSaysNothingIsBilled() async throws {
         let m = manager()
         let (p, root) = try await plan(m, files: 2, configure: { $0.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity } })
         defer { try? FileManager.default.removeItem(at: root) }
         let card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
-        #expect(card.quoteLine.hasSuffix("nothing is billed") && card.monthLine == nil)
+        #expect(!card.plan.routesToClaude && card.monthLine == "Runs on this Mac · nothing is billed")
+        #expect(card.monthFraction == nil || card.plan.limitUSD > 0)
     }
 
     // MARK: Moves
 
-    @Test func aSentPlanBecomesItsAnswersWithAReceipt() async throws {
+    @Test func aSentPlanBecomesItsAnswersWithAReceiptBehindAnInfoMark() async throws {
         let m = manager()
         let (p, root) = try await plan(m, files: 4); defer { try? FileManager.default.removeItem(at: root) }
         var card = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: p)
         card.phase = .sending(answered: nil)
         card.finish(.sent(.init(asked: 4, reused: 1, classified: 4, changed: 2)), report: report())
         #expect(card.phase == .done && card.planID == nil && !card.canSend)
-        #expect(card.answersTitle == "Refined 4 files · 2 homes changed")
-        #expect(card.answersFootnote == "1 answered before was reused · 1 left out: hidden from Claude")
-        #expect(card.receiptLine == "Sent 4 file names, 2 page-1 excerpts and your folder list (238) · 1 request · 4¢ · Opus 5.5")
-        #expect(card.endingTitle == nil)
+        #expect(card.answersTitle == "2 homes changed")
+        #expect(card.answersSub == "4 files checked · about 4¢ · nothing has moved yet")
+        #expect(card.answersFootnote == "2 kept · 1 reused · 1 hidden from Claude")
+        #expect(card.receiptInfo == "1 request · 4 names, 2 first pages and 238 folder names sent · Opus 5.5 · about 4¢.")
+        #expect(card.endingTitle == nil && card.answersWaitingNote == nil && card.retryTitle == nil)
         #expect(card.answers?.rows.first?.before == "Receipts/2026" && card.answers?.rows.first?.after == "Work/Invoices")
+    }
+
+    @Test func theAnswersSayWhichFilesStillNeedAFirstPage() {
+        var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        card.finish(.sent(.init(asked: 4, reused: 0, classified: 4, changed: 2)), report: report(waiting: 2))
+        #expect(card.answersWaitingNote == "2 files still need a first page.")
+        var one = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        one.finish(.sent(.init(asked: 4, reused: 0, classified: 4, changed: 2)), report: report(waiting: 1))
+        #expect(one.answersWaitingNote == "1 file still needs a first page.")
     }
 
     @Test func aPassThatChangedNothingSaysSo() {
         var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
         card.finish(.sent(.init(asked: 3, reused: 0, classified: 3, changed: 0)), report: report(sent: 3, answered: 3, changes: 0))
-        #expect(card.answersTitle == "Refined 3 files · no better homes found")
+        #expect(card.answersTitle == "No better homes found")
+        #expect(card.answersSub == "3 files checked · about 4¢ · nothing has moved yet")
     }
 
     @Test func aPassWhoseAnswerWentUnderTryAnotherSaysWhereItIs() throws {
         var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
         card.finish(.sent(.init(asked: 1, reused: 0, classified: 1, changed: 0)),
                     report: report(sent: 1, answered: 1, changes: 0, offered: 1))
-        #expect(card.answersTitle == "Refined 1 file · no home changed")
+        #expect(card.answersTitle == "No home changed")
         #expect(card.answersFootnote?.hasPrefix("Claude picked another folder for 1 file: Try Another Folder shows it · ") == true)
         #expect(card.toldToClaude?.hasSuffix("no suggestion changed. For 1 file you picked another folder, "
                                              + "kept as the next choice under Try Another Folder.") == true)
@@ -215,21 +260,20 @@ import Testing
         var both = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
         both.finish(.sent(.init(asked: 4, reused: 0, classified: 4, changed: 2)),
                     report: report(changes: 2, offered: 2))
-        #expect(both.answersTitle == "Refined 4 files · 2 homes changed")
+        #expect(both.answersTitle == "2 homes changed")
         #expect(both.answersFootnote?.hasPrefix("Claude picked another folder for 2 files: Try Another Folder shows each") == true)
         #expect(both.toldToClaude?.contains("(Page 1 is an invoice). For 2 files you picked another folder") == true)
     }
 
-    @Test func aFailedPassKeepsWhatArrivedAndSaysItMayHaveBeenBilled() {
+    @Test func aFailedPassKeepsWhatArrivedAndOffersToTryAgainForTheRest() {
         var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
         card.finish(.sent(.init(asked: 6, reused: 0, classified: 6, changed: 2, outcome: .failed)),
                     report: report(sent: 6, answered: 4, changes: 2, ending: .failed("The connection dropped."), cost: 0.04))
-        #expect(card.endingTitle == "Claude didn’t finish: 4 of 6 answers arrived")
-        let text = try? #require(card.endingMessage)
-        #expect(text?.hasPrefix("The connection dropped. The 4 answers that arrived are kept and shown in Organize.") == true)
-        #expect(text?.contains("Nothing is called Claude’s that Claude did not answer.") == true)
-        #expect(text?.hasSuffix("A request had started, so up to about 4¢ may have been billed.") == true)
-        #expect(card.receiptLine?.contains("1 request, not finished") == true)
+        #expect(card.endingTitle == "The connection dropped after 4 of 6 answers")
+        #expect(card.endingMessage == "The 4 answers are kept in Organize. 2 files weren’t answered.")
+        #expect(card.endingInfo == "A request had started, so up to about 4¢ may have been billed even though it didn’t finish. Nothing is called Claude’s that Claude didn’t answer.")
+        #expect(card.retryTitle == "Try Again for the 2")
+        #expect(card.receiptInfo?.hasPrefix("1 request, not finished") == true)
     }
 
     @Test func aStoppedPassSaysWhatRanAndWhatItCost() {
@@ -237,7 +281,9 @@ import Testing
         card.finish(.sent(.init(asked: 6, reused: 0, classified: 6, changed: 1, outcome: .stopped)),
                     report: report(sent: 6, answered: 3, changes: 1, ending: .stopped, cost: 0.03))
         #expect(card.endingTitle == "Stopped after 3 of 6 answers")
-        #expect(card.endingMessage == "The 3 answers that arrived are kept and shown in Organize. About 3¢ was billed for what ran.")
+        #expect(card.endingMessage == "The 3 answers are kept in Organize. 3 files weren’t answered.")
+        #expect(card.endingInfo == "About 3¢ was billed for what ran.")
+        #expect(card.retryTitle == "Try Again for the 3")
     }
 
     @Test func aPassThatNeverStartedSaysNothingWasSent() {
@@ -246,7 +292,7 @@ import Testing
                     report: report(sent: 0, answered: 0, changes: 0, ending: .failed("There is no Claude key to read."), requests: 0, cost: 0))
         #expect(card.endingTitle == "Couldn’t ask Claude")
         #expect(card.endingMessage == "There is no Claude key to read. Nothing was sent, and the suggestions are unchanged.")
-        #expect(card.receiptLine == nil, "no request, no receipt")
+        #expect(card.receiptInfo == nil && card.endingInfo == nil && card.retryTitle == nil, "no request, no receipt, nothing to retry")
     }
 
     @Test func anUnreadableKeySaysSoAndOwnsNothingAsClaudes() {
@@ -255,6 +301,12 @@ import Testing
                     report: report(sent: 0, answered: 0, changes: 0, ending: .downgraded, requests: 0, cost: 0))
         #expect(card.endingTitle == "Couldn’t reach Claude")
         #expect(card.endingMessage?.contains("nothing was sent or billed") == true)
+    }
+
+    @Test func theRunningTimeIsOnlyAsKnownAsTheStartTime() {
+        let card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        #expect(card.progressLine(elapsed: 12) == "12 s · keep working in Organize")
+        #expect(card.progressLine(elapsed: nil) == "Keep working in Organize")
     }
 
     @Test func aChangedRequestShowsTheNewPlanAndSendsNothing() async throws {
@@ -343,7 +395,7 @@ import Testing
         let saved = try JSONDecoder().decode(AskClaudeRefineCard.self, from: JSONEncoder().encode(waiting))
         #expect(saved.planID == nil && !saved.canSend, "a plan does not outlive the app: its id is not saved")
         let back = saved.restored
-        #expect(back.phase == .expired && back.closedLine == "This plan is out of date, so it can’t send. Press Refine in Organize to make a new one.")
+        #expect(back.phase == .expired && back.closedLine == "This Refine plan is out of date, so it can’t send. Press Refine in Organize to make a new one.")
 
         var sending = waiting; sending.phase = .sending(answered: 2)
         #expect(sending.restored.phase == .expired, "a request that ran when the app quit has no card to finish")
@@ -363,4 +415,5 @@ import Testing
         let card = try JSONDecoder().decode(AskClaudeRefineCard.self, from: Data(json.utf8))
         #expect(card.sourceName == "Cloud Drive" && card.notice == nil && card.answers == nil)
     }
+}
 }

@@ -38,6 +38,17 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         public var askedAgain = false
         /// The model cannot take the request: the plan says which to switch to.
         public var blocked = false
+        /// The pass reaches Claude and is billed; false when it runs on this Mac.
+        public var routesToClaude = true
+        /// The files not answered before, and what the pass does with each ("Which files").
+        public var files: [File] = []
+
+        public struct File: Codable, Equatable, Sendable, Identifiable {
+            public var id: String { name }
+            public var name: String
+            public var status: FileSyncManager.FilingRefinePlanFile.Status
+            public init(name: String, status: FileSyncManager.FilingRefinePlanFile.Status) { self.name = name; self.status = status }
+        }
 
         public init() {}
 
@@ -68,6 +79,8 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             ticked = try c.decodeIfPresent(Bool.self, forKey: .ticked) ?? false
             askedAgain = try c.decodeIfPresent(Bool.self, forKey: .askedAgain) ?? false
             blocked = try c.decodeIfPresent(Bool.self, forKey: .blocked) ?? false
+            files = try c.decodeIfPresent([File].self, forKey: .files) ?? []
+            routesToClaude = try c.decodeIfPresent(Bool.self, forKey: .routesToClaude) ?? true
         }
 
         public init(_ plan: FileSyncManager.FilingRefinePlan) {
@@ -89,19 +102,21 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             tickGainCostUSD = plan.tickGain?.costUSD
             ticked = plan.options.pagesFromAskEachTime
             askedAgain = plan.options.askAgain
+            files = plan.files.map { .init(name: $0.name, status: $0.status) }
+            routesToClaude = plan.routesToClaude
+            spentUSD = plan.monthSpentUSD
+            limitUSD = plan.monthLimitUSD
             switch plan.billing {
             case .notBilled: costUSD = nil
             case .blocked: blocked = true
             case .quote(let q):
                 costUSD = q.estCostUSD
-                spentUSD = q.monthlySpentUSD
-                limitUSD = q.monthlyCapUSD
                 exceedsLimit = q.wouldExceedCap
             }
         }
 
         /// Every eligible file was answered before and nothing is left to ask.
-        public var nothingNew: Bool { toSend == 0 && reused > 0 }
+        public var nothingNew: Bool { toSend == 0 && waitingForPage == 0 && reused > 0 }
     }
 
     /// What came back, kept on the card.
@@ -141,6 +156,8 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         public var kept = 0
         /// Files whose home stood while Claude picked another folder, next under Try Another Folder.
         public var offered = 0
+        /// Files still waiting for the tick after this pass.
+        public var waitingForPage = 0
         public var ending = Ending.answered
         /// Undo Refine put the on-device suggestions back.
         public var undone = false
@@ -162,6 +179,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             modelName = try c.decodeIfPresent(String.self, forKey: .modelName) ?? ""
             kept = try c.decodeIfPresent(Int.self, forKey: .kept) ?? 0
             offered = try c.decodeIfPresent(Int.self, forKey: .offered) ?? 0
+            waitingForPage = try c.decodeIfPresent(Int.self, forKey: .waitingForPage) ?? 0
             ending = try c.decodeIfPresent(Ending.self, forKey: .ending) ?? .answered
             undone = try c.decodeIfPresent(Bool.self, forKey: .undone) ?? false
         }
@@ -180,6 +198,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             modelName = report.modelName
             kept = report.keptForNextPress
             offered = report.offered
+            waitingForPage = report.waitingForPage
             switch report.ending {
             case .answered: ending = .answered
             case .stopped: ending = .stopped
@@ -211,6 +230,8 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var answers: Answers?
     /// The open plan this card controls; not saved (a plan does not outlive the app).
     public var planID: UUID?
+    /// When Send was clicked; not saved.
+    public var startedAt: Date?
     /// Said above the plan when it was quoted again: what changed, and that nothing was sent.
     public var notice: String?
 
@@ -287,12 +308,13 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
 
     // MARK: Words: the plan
 
+    public static let promise = "A second look at the suggested folders. Nothing moves until you File them."
+    public static let promiseInfo = "Claude re-checks the folders suggested for these files. The answers appear here and on the cards in Organize. Nothing moves until you click File in Organize."
+
     public var title: String {
         let files = plan.eligible == 1 ? "1 file" : "\(plan.eligible) files"
         return "Refine \(files) in \(sourceName)"
     }
-
-    public static let promise = "Claude looks again at the on-device suggestions. Nothing moves until you File it in Organize."
 
     /// "150 of 212 this pass. The other 62 stay for the next Refine." when the request cuts it.
     public var cutNote: String? {
@@ -300,92 +322,175 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         return "\(plan.toSend) of \(plan.toSend + plan.keptForNextPress) this pass. The other \(plan.keptForNextPress) stay for the next Refine."
     }
 
-    /// What goes to Claude, a line each. `tick` marks the one the person can switch.
-    public struct Line: Equatable, Sendable {
-        public enum Kind: Equatable, Sendable { case goes, tick, notSent, reused }
-        public var kind: Kind
-        public var text: String
-        public var detail: String?
+    /// Which of the card's shapes this plan is.
+    public enum Layout: Equatable, Sendable {
+        /// Files go, perhaps with a tick for more.
+        case normal
+        /// Nothing can go until the tick: every file waits for its first page.
+        case needsFirstPages
+        /// Every file was answered before.
+        case nothingNew
+        /// Sending the plan would pass the monthly limit.
+        case overLimit
+        /// The model has no known price.
+        case blocked
     }
 
-    public var lines: [Line] {
-        var out: [Line] = []
-        guard !plan.nothingNew else { return out }
+    public var layout: Layout {
+        if plan.blocked { return .blocked }
+        if plan.nothingNew { return .nothingNew }
+        if plan.toSend == 0 && plan.waitingForPage > 0 { return .needsFirstPages }
+        if plan.exceedsLimit { return .overLimit }
+        return .normal
+    }
+
+    /// One counted line: a number, a few words, and the reason behind its ⓘ.
+    public struct CountLine: Equatable, Sendable {
+        public enum Action: Equatable, Sendable { case whichFiles, customize, askAgain }
+        public var count: String
+        public var text: String
+        public var info: String?
+        public var action: Action?
+        public init(count: String, text: String, info: String?, action: Action?) {
+            self.count = count; self.text = text; self.info = info; self.action = action
+        }
+    }
+
+    private static func files(_ n: Int) -> String { n == 1 ? "file" : "files" }
+
+    /// What goes to Claude.
+    public var goesLines: [CountLine] {
+        var out: [CountLine] = []
+        guard plan.toSend > 0 else { return out }
+        out.append(.init(count: "\(plan.toSend)", text: "\(Self.files(plan.toSend)): name, type, year", info: nil, action: .whichFiles))
+        let pages = plan.pagesShared + plan.pagesAskEachTime
+        if pages > 0 {
+            out.append(.init(count: "\(pages)", text: pages == 1 ? "first page" : "first pages",
+                             info: "Up to 800 characters of text from the first page of each file.", action: nil))
+        }
+        if plan.downloads > 0 {
+            out.append(.init(count: "\(plan.downloads)", text: "cloud-only \(Self.files(plan.downloads)) download first",
+                             info: "They stay downloaded, so their first pages can be read.", action: nil))
+        }
         if plan.folderNames > 0 {
-            out.append(.init(kind: .goes, text: "Your folder names (\(plan.folderNames)), so Claude can pick one",
-                             detail: plan.folderNamesLeftOut > 0 ? "\(plan.folderNamesLeftOut) left out" : nil))
-        }
-        let files = plan.toSend
-        out.append(.init(kind: .goes, text: "Names, types and years of \(files) \(files == 1 ? "file" : "files")"))
-        if plan.pagesShared > 0 {
-            out.append(.init(kind: .goes, text: "Page-1 text, up to 800 characters, from \(plan.pagesShared) \(plan.pagesShared == 1 ? "file" : "files") in folders shared without asking"))
-        }
-        if plan.ticked {
-            if plan.pagesAskEachTime > 0 {
-                out.append(.init(kind: .tick, text: "Also page-1 text from \(plan.pagesAskEachTime) \(plan.pagesAskEachTime == 1 ? "file" : "files") in folders that ask each time",
-                                 detail: plan.downloads > 0 ? downloadsText : nil))
-            } else {
-                out.append(.init(kind: .tick, text: "Also page-1 text from files in folders that ask each time"))
-            }
-        } else if plan.pagesWaiting > 0 || plan.waitingForPage > 0 {
-            var detail = "Unticked: those files go by name"
-            if plan.waitingForPage > 0 {
-                detail = "\(plan.waitingForPage) wait for their page text"
-            }
-            if let tick = tickBuys { detail += " · " + tick }
-            out.append(.init(kind: .tick, text: "Also page-1 text from files in folders that ask each time", detail: detail))
-        }
-        if plan.downloads > 0 && !plan.ticked {
-            out.append(.init(kind: .goes, text: downloadsText))
-        }
-        if plan.hidden > 0 {
-            out.append(.init(kind: .notSent,
-                             text: "\(plan.hidden) \(plan.hidden == 1 ? "file" : "files") in a folder hidden from Claude",
-                             detail: "Not named anywhere"))
-        }
-        if plan.reused > 0 {
-            out.append(.init(kind: .reused, text: "\(plan.reused) answered before · reused free",
-                             detail: "Ask Again About the \(plan.reused)"))
+            out.append(.init(count: "\(plan.folderNames)",
+                             text: "folder names" + (plan.folderNamesLeftOut > 0 ? " (\(plan.folderNamesLeftOut) left out)" : ""),
+                             info: "So Claude can pick a home for each file. Customize leaves folders out until you quit, for Refine, Try Another and Refine Names.",
+                             action: .customize))
         }
         return out
     }
 
-    private var downloadsText: String {
-        "\(plan.downloads) cloud-only \(plan.downloads == 1 ? "file" : "files") will download and stay downloaded"
-    }
-
-    /// What ticking buys, for the card: "+2 files, can name new folders, +1¢".
-    public var tickBuys: String? {
-        guard let files = plan.tickGainFiles else { return nil }
-        var parts: [String] = []
-        if files > 0 { parts.append("+\(files) \(files == 1 ? "file" : "files")") }
-        parts.append("pages can name new folders")
-        if let cost = plan.tickGainCostUSD, cost > 0 { parts.append("+" + AskClaudeSpend.format(cost)) }
-        return "tick to include: " + parts.joined(separator: ", ")
-    }
-
-    /// The quote line: "Opus 5.5 · this chat's model ≈ 4¢".
-    public var quoteLine: String {
-        guard let cost = plan.costUSD else { return "\(plan.modelName) · this chat’s model · nothing is billed" }
-        return "\(plan.modelName) · this chat’s model ≈ \(AskClaudeSpend.format(cost))"
-    }
-
-    /// "This month $3.12 of $25", or nil with no limit.
-    public var monthLine: String? {
-        guard plan.costUSD != nil else { return nil }
-        if plan.limitUSD > 0 {
-            return "This month \(AskClaudeSpend.format(plan.spentUSD)) of \(AskClaudeSpend.format(plan.limitUSD))"
+    /// What is left out of this pass.
+    public var notSentLines: [CountLine] {
+        var out: [CountLine] = []
+        if plan.hidden > 0 {
+            out.append(.init(count: "\(plan.hidden)", text: "hidden from Claude",
+                             info: "Files in folders you hid from Claude are never sent or named, not even their folder names.", action: nil))
         }
-        return "This month \(AskClaudeSpend.format(plan.spentUSD)) · no limit"
+        if plan.reused > 0 && !plan.nothingNew {
+            out.append(.init(count: "\(plan.reused)", text: "answered before, free", info: nil, action: .askAgain))
+        }
+        if plan.keptForNextPress > 0 {
+            out.append(.init(count: "\(plan.keptForNextPress)", text: "wait for the next Refine",
+                             info: "One request carries at most \(CloudFilingRefiner.maxFiles) files.", action: nil))
+        }
+        return out
     }
 
-    /// Said when the pass would pass the limit.
+    /// The one decision on the plan: the tick that sends first pages from folders Claude isn't shared.
+    public struct OKBlock: Equatable, Sendable {
+        public var title: String
+        public var detail: String?
+        public var info: String
+        public var checked: Bool
+    }
+
+    public var ok: OKBlock? {
+        guard plan.pagesWaiting > 0 || plan.waitingForPage > 0 || plan.ticked else { return nil }
+        let gain = plan.tickGainCostUSD.flatMap { $0 > 0 ? ($0 < 0.01 ? "under 1¢ more" : "about +" + AskClaudeSpend.format($0)) : nil }
+        if layout == .needsFirstPages {
+            let one = plan.waitingForPage == 1
+            return .init(title: one ? "Send its first page" : "Send their first pages",
+                         detail: plan.tickGainCostUSD.map { Self.priceWords($0) }.map { $0.prefix(1).uppercased() + $0.dropFirst() },
+                         info: "Up to 800 characters of text from each first page, once, for this pass only.", checked: plan.ticked)
+        }
+        let n = plan.ticked ? plan.pagesAskEachTime : plan.pagesWaiting
+        guard n > 0 else { return nil }
+        var detail: String?
+        if plan.ticked {
+            detail = "Included in the price below"
+        } else if let files = plan.tickGainFiles, files > 0 {
+            detail = "Improves \(files) more \(Self.files(files))" + (gain.map { " · " + $0 } ?? "")
+        } else {
+            detail = gain.map { "Adds first pages · " + $0 } ?? "Adds first pages"
+        }
+        return .init(title: "Send first pages for \(n) more \(Self.files(n))", detail: detail,
+                     info: "Their folders aren’t shared with Claude, so a first page goes only if you tick this. It counts for this pass only.",
+                     checked: plan.ticked)
+    }
+
+    /// When nothing can go until the tick: what is wrong, in a few words, and why behind its ⓘ.
+    public var needsFirstPagesNote: (text: String, info: String)? {
+        guard layout == .needsFirstPages else { return nil }
+        if plan.waitingForPage == 1 {
+            return ("A name alone can’t improve this file.",
+                    "Its suggested folder came from reading its first page, and its folder isn’t shared with Claude, so Claude hasn’t seen that page.")
+        }
+        return ("A name alone can’t improve these files.",
+                "Their suggested folders came from reading their first pages, and their folders aren’t shared with Claude, so Claude hasn’t seen those pages.")
+    }
+
+    /// The files that wait, by name, for the zero-send card (the first few).
+    public var waitingNames: [String] {
+        plan.files.filter { $0.status == .needsOK }.prefix(3).map(\.name)
+    }
+
+    /// "Tick the box to send this file." under a Send that is off for want of the tick.
+    public var tickHint: String? {
+        guard layout == .needsFirstPages, !plan.ticked else { return nil }
+        return plan.waitingForPage == 1 ? "Tick the box to send this file." : "Tick the box to send these files."
+    }
+
+    /// The price in a few words: "about 4¢", or "under 1¢".
+    public static func priceWords(_ usd: Double) -> String {
+        usd > 0 && usd < 0.01 ? "under 1¢" : "about " + AskClaudeSpend.format(usd)
+    }
+
+    /// "Sonnet 5.5 · $3.12 of $25 this month"; "Runs on this Mac · nothing is billed" off the Claude route.
+    public var monthLine: String {
+        guard plan.routesToClaude else { return "Runs on this Mac · nothing is billed" }
+        let month = plan.limitUSD > 0
+            ? "\(AskClaudeSpend.format(plan.spentUSD)) of \(AskClaudeSpend.format(plan.limitUSD)) this month"
+            : "\(AskClaudeSpend.format(plan.spentUSD)) this month, no limit"
+        return "\(plan.modelName) · \(month)"
+    }
+    public static let monthInfo = "The chat’s model. One monthly limit covers the chat, Refine, Try Another and Refine Names."
+
+    /// How full the month is, 0...1; nil with no limit.
+    public var monthFraction: Double? {
+        guard plan.limitUSD > 0 else { return nil }
+        return min(1, max(0, (plan.spentUSD + (plan.exceedsLimit ? 0 : (plan.costUSD ?? 0))) / plan.limitUSD))
+    }
+
+    /// "Over your $25 limit by about 1¢. You’ve used $24.97."
     public var limitMessage: String? {
         guard plan.exceedsLimit, let cost = plan.costUSD else { return nil }
         let over = plan.spentUSD + cost - plan.limitUSD
         let by = over >= 0.01 ? "about \(AskClaudeSpend.format(over))" : "a cent or less"
-        return "This pass would pass your \(AskClaudeSpend.format(plan.limitUSD)) limit by \(by). Raise the limit"
-            + (plan.fits.map { $0 > 0 ? ", or send the smaller part that fits." : "." } ?? ".")
+        return "Over your \(AskClaudeSpend.format(plan.limitUSD)) limit by \(by). You’ve used \(AskClaudeSpend.format(plan.spentUSD))."
+    }
+    public static let limitInfo = "One monthly limit covers the chat, Refine, Try Another and Refine Names. Change it in Settings, Ask Claude, Key & Spending."
+
+    /// The whole plan, and the part that fits, for the over-limit card.
+    public var wholePlanLine: CountLine {
+        .init(count: "\(plan.toSend)", text: "\(Self.files(plan.toSend)) in the plan" + (plan.costUSD.map { " · " + Self.priceWords($0) } ?? ""),
+              info: nil, action: .whichFiles)
+    }
+    public var fitLine: CountLine? {
+        guard plan.exceedsLimit, let fits = plan.fits, fits > 0, let cost = plan.costUSD, plan.toSend > 0 else { return nil }
+        let part = cost * Double(fits) / Double(plan.toSend)
+        return .init(count: "\(fits)", text: "fit under the limit · \(Self.priceWords(part))", info: nil, action: nil)
     }
 
     /// Why nothing can be sent: no price for the model.
@@ -394,24 +499,26 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     }
 
     public var nothingNewTitle: String { "Nothing new to ask" }
-
     public var nothingNewMessage: String {
-        let all = plan.reused == 1 ? "The file was" : "All \(plan.reused) files were"
-        var text = "\(all) answered before and \(plan.reused == 1 ? "is" : "are") reused free."
-        if plan.hidden > 0 {
-            text += " \(plan.hidden) \(plan.hidden == 1 ? "file" : "files") in a folder hidden from Claude \(plan.hidden == 1 ? "is" : "are") left out."
-        }
-        return text
+        plan.reused == 1 ? "The file was answered before. Nothing to send, nothing billed."
+                         : "All \(plan.reused) were answered before. Nothing to send, nothing billed."
+    }
+    public var nothingNewInfo: String {
+        "Their suggested folders are already on the cards in Organize. Asking again sends \(plan.reused == 1 ? "it" : "all \(plan.reused)") to Claude and bills the usual price."
     }
 
+    /// "Send 4 files · about 4¢"; "Send 0 files" when nothing can go yet.
     public var sendTitle: String {
-        plan.toSend == 1 ? "Send 1 file" : "Send \(plan.toSend) files"
+        let n = plan.toSend
+        guard n > 0 else { return "Send 0 files" }
+        return "Send \(n) \(Self.files(n))" + (plan.costUSD.map { " · " + Self.priceWords($0) } ?? "")
     }
 
-    /// "Send the 3 that fit".
+    /// "Send 3 Files · about 3¢" for the part that fits under the limit.
     public var sendFitTitle: String? {
-        guard plan.exceedsLimit, let fits = plan.fits, fits > 0 else { return nil }
-        return "Send the \(fits) that fit"
+        guard let line = fitLine, let fits = plan.fits else { return nil }
+        let price = line.text.components(separatedBy: " · ").last.map { " · " + $0 } ?? ""
+        return "Send \(fits) \(Self.files(fits))" + price
     }
 
     // MARK: Words: sending and after
@@ -419,22 +526,30 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var sendingTitle: String {
         "Asking \(plan.modelName) about \(plan.toSend) \(plan.toSend == 1 ? "file" : "files")"
     }
+    public static let sendingInfo = "The answers appear here and on the cards in Organize. Stop keeps any answers that already arrived."
 
-    public func progressLine(answered: Int?) -> String {
-        let one = "One request · Organize keeps working"
-        guard let answered else { return one }
-        return "\(answered) of \(plan.toSend) answered · " + one
+    /// "12 s · keep working in Organize".
+    public func progressLine(elapsed seconds: Int?) -> String {
+        guard let seconds else { return "Keep working in Organize" }
+        return "\(seconds) s · keep working in Organize"
     }
 
     public var answersTitle: String {
         guard let a = answers else { return "" }
-        let files = a.sent == 1 ? "1 file" : "\(a.sent) files"
-        let homes = a.rows.count == 1 ? "1 home changed" : "\(a.rows.count) homes changed"
-        guard a.rows.isEmpty else { return "Refined \(files) · \(homes)" }
-        return a.offered > 0 ? "Refined \(files) · no home changed" : "Refined \(files) · no better homes found"
+        if a.rows.isEmpty { return a.offered > 0 ? "No home changed" : "No better homes found" }
+        return a.rows.count == 1 ? "1 home changed" : "\(a.rows.count) homes changed"
     }
 
-    /// The line under the rows: what was reused, left out and kept.
+    /// "4 files checked · about 4¢ · nothing has moved yet".
+    public var answersSub: String? {
+        guard let a = answers else { return nil }
+        var parts = ["\(a.sent) \(Self.files(a.sent)) checked"]
+        if a.costUSD > 0 { parts.append(Self.priceWords(a.costUSD)) }
+        parts.append("nothing has moved yet")
+        return parts.joined(separator: " · ")
+    }
+
+    /// "1 kept · 2 reused · 1 hidden from Claude".
     public var answersFootnote: String? {
         guard let a = answers else { return nil }
         var parts: [String] = []
@@ -442,24 +557,29 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             parts.append(a.offered == 1 ? "Claude picked another folder for 1 file: Try Another Folder shows it"
                                         : "Claude picked another folder for \(a.offered) files: Try Another Folder shows each")
         }
-        if a.reused > 0 { parts.append("\(a.reused) answered before \(a.reused == 1 ? "was" : "were") reused") }
-        if a.hidden > 0 { parts.append("\(a.hidden) left out: hidden from Claude") }
-        if a.kept > 0 { parts.append("\(a.kept) kept for the next Refine") }
+        let keptAsWas = a.ending == .answered ? max(0, a.sent - a.rows.count) : 0
+        if keptAsWas > 0 { parts.append("\(keptAsWas) kept") }
+        if a.reused > 0 { parts.append("\(a.reused) reused") }
+        if a.hidden > 0 { parts.append("\(a.hidden) hidden from Claude") }
+        if a.kept > 0 { parts.append("\(a.kept) wait for the next Refine") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// The receipt: what was sent, how many requests, the cost and the model.
-    public var receiptLine: String? {
+    /// "2 files still need a first page."
+    public var answersWaitingNote: String? {
+        guard let a = answers, a.waitingForPage > 0, a.ending == .answered else { return nil }
+        return "\(a.waitingForPage) \(Self.files(a.waitingForPage)) still need\(a.waitingForPage == 1 ? "s" : "") a first page."
+    }
+    public static let answersWaitingInfo = "Refine again and tick the box to include them."
+
+    /// The receipt, behind its ⓘ.
+    public var receiptInfo: String? {
         guard let a = answers, a.requests > 0 else { return nil }
-        var sent = "\(a.sent) file \(a.sent == 1 ? "name" : "names")"
-        sent += a.pagesSent > 0 ? ", \(a.pagesSent) page-1 \(a.pagesSent == 1 ? "excerpt" : "excerpts")" : ""
-        sent += a.folderNames > 0 ? " and your folder list (\(a.folderNames))" : ""
-        let finished: String
-        switch a.ending {
-        case .answered: finished = "1 request"
-        default: finished = "1 request, not finished"
-        }
-        return "Sent \(sent) · \(finished) · \(a.costUSD > 0 ? AskClaudeSpend.format(a.costUSD) : "no cost recorded") · \(a.modelName)"
+        var sent = "\(a.sent) \(a.sent == 1 ? "name" : "names")"
+        if a.pagesSent > 0 { sent += ", \(a.pagesSent) first \(a.pagesSent == 1 ? "page" : "pages")" }
+        if a.folderNames > 0 { sent += " and \(a.folderNames) folder names" }
+        let finished = a.ending == .answered ? "1 request" : "1 request, not finished"
+        return "\(finished) · \(sent) sent · \(a.modelName) · \(a.costUSD > 0 ? Self.priceWords(a.costUSD) : "no cost recorded")."
     }
 
     /// What the card says when the pass ended without all of its answers, or without Claude.
@@ -468,36 +588,55 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         switch a.ending {
         case .answered: return nil
         case .stopped: return "Stopped after \(a.answered) of \(a.sent) answers"
-        case .failed: return a.requests > 0 ? "Claude didn’t finish: \(a.answered) of \(a.sent) answers arrived" : "Couldn’t ask Claude"
+        case .failed(let why):
+            guard a.requests > 0 else { return "Couldn’t ask Claude" }
+            guard a.answered > 0 else { return "Claude didn’t answer" }
+            let reason = why.hasSuffix(".") ? String(why.dropLast()) : why
+            return "\(reason) after \(a.answered) of \(a.sent) answers"
         case .unreadableKey: return "Couldn’t reach Claude"
         case .notSent: return "Nothing was sent"
         }
     }
 
+    /// The sentence under that title.
     public var endingMessage: String? {
         guard let a = answers else { return nil }
+        let left = max(0, a.sent - a.answered)
+        let kept = a.answered > 0
+            ? "The \(a.answered) \(a.answered == 1 ? "answer is" : "answers are") kept in Organize. \(left) \(Self.files(left)) \(left == 1 ? "wasn’t" : "weren’t") answered."
+            : "Nothing came back, so the suggestions are unchanged."
         switch a.ending {
         case .answered: return nil
-        case .stopped:
-            var text = a.answered > 0
-                ? "The \(a.answered) \(a.answered == 1 ? "answer" : "answers") that arrived \(a.answered == 1 ? "is" : "are") kept and shown in Organize."
-                : "Nothing came back, so the suggestions are unchanged."
-            if a.costUSD > 0 { text += " About \(AskClaudeSpend.format(a.costUSD)) was billed for what ran." }
-            return text
+        case .stopped: return kept
         case .failed(let why):
-            var text = why
-            if a.requests > 0 {
-                text += a.answered > 0
-                    ? " The \(a.answered) \(a.answered == 1 ? "answer" : "answers") that arrived \(a.answered == 1 ? "is" : "are") kept and shown in Organize. Nothing is called Claude’s that Claude did not answer."
-                    : " Nothing came back, so the suggestions are unchanged."
-                text += " A request had started, so up to about \(AskClaudeSpend.format(max(a.costUSD, 0.01))) may have been billed."
-            } else {
-                text += " Nothing was sent, and the suggestions are unchanged."
-            }
-            return text
+            guard a.requests > 0 else { return "\(why) Nothing was sent, and the suggestions are unchanged." }
+            return a.answered > 0 ? kept : "\(why) \(kept)"
         case .unreadableKey:
-            return "Your saved API key couldn’t be read, so nothing was sent or billed. These are the on-device suggestions. Check the key in Settings ▸ Ask Claude."
+            return "Your saved API key couldn’t be read, so nothing was sent or billed. These are the on-device suggestions. Check the key in Settings, Ask Claude."
         case .notSent(let why): return why
+        }
+    }
+
+    /// Why the ending may have cost something, behind its ⓘ.
+    public var endingInfo: String? {
+        guard let a = answers, a.requests > 0 else { return nil }
+        switch a.ending {
+        case .failed:
+            return "A request had started, so up to about \(AskClaudeSpend.format(max(a.costUSD, 0.01))) may have been billed even though it didn’t finish. Nothing is called Claude’s that Claude didn’t answer."
+        case .stopped:
+            return a.costUSD > 0 ? "About \(AskClaudeSpend.format(a.costUSD)) was billed for what ran." : nil
+        default: return nil
+        }
+    }
+
+    /// "Try Again for the 1": a new plan; what Claude already answered is reused, not asked again.
+    public var retryTitle: String? {
+        guard let a = answers, a.requests > 0 else { return nil }
+        switch a.ending {
+        case .stopped, .failed:
+            let left = max(0, a.sent - a.answered)
+            return left > 0 ? "Try Again for the \(left)" : nil
+        default: return nil
         }
     }
 
@@ -542,14 +681,18 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
 
     // MARK: Words: closed
 
+    /// The one muted line a closed plan shrinks to; nil while the card is a card.
     public var closedLine: String? {
         switch phase {
-        case .closed: return notice ?? "Canceled. Nothing was sent."
+        case .closed: return notice ?? "Refine plan canceled. Nothing was sent."
         case .replaced: return "Replaced by a newer plan. Nothing was sent."
-        case .expired: return "This plan is out of date, so it can’t send. Press Refine in Organize to make a new one."
+        case .expired: return "This Refine plan is out of date, so it can’t send. Press Refine in Organize to make a new one."
         default: return nil
         }
     }
+
+    /// When Send was clicked, for the running time. Not saved: a request does not outlive the app.
+    public var startedAtForDisplay: Date? { startedAt }
 
     /// The tick and Customize… work only while the plan is open to change.
     public var canTick: Bool {

@@ -5,12 +5,13 @@ import Testing
 /// What the plan card lets the person choose for one Refine pass (TE335, C3): which pages go, which
 /// files wait for them, saved answers asked again, the pass cut to what fits, and folders left out of
 /// the list. Each choice is shown changing what the request holds, and what the plan says about it.
+extension HandBuiltRefineSuites {
 @MainActor
-@Suite(.serialized) struct FilingRefinePagesTests {
+@Suite struct FilingRefinePagesTests {
 
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
-    private static let shared = FileSyncManager()
-    private static let defaults = ScratchDefaults("FilingRefinePagesTests")
+    private static var shared: FileSyncManager { HandBuiltFiling.manager }
+    private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
 
 
     /// What each request carried.
@@ -259,4 +260,5 @@ import Testing
         #expect(ticked.options.pagesFromAskEachTime)
         #expect(plan.fingerprint != ticked.fingerprint, "a tick changes what the request is, so a plan made without it cannot send with it")
     }
+}
 }
