@@ -1510,6 +1510,57 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(printer.isError && printer.step == "No place called printer")
     }
 
+    /// Eject names a disk from the screen's disks line, asks them through the app's confirmation,
+    /// and says what came of it: ejected, canceled or refused, never ejected before it was.
+    @Test func ejectAsksThroughTheConfirmationAndSaysWhatCameOfIt() async {
+        var asked: [String] = []
+        var answer = AskClaudeBrowseTools.EjectOutcome.ejected
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
+            ctx.disks = [.init(name: "Foresight 1.1.0.42", path: "/Volumes/Foresight 1.1.0.42"),
+                         .init(name: "SD Card", path: "/Volumes/SD Card", losesItsSource: true)]
+            ctx.eject = { disk in asked.append(disk.path); return answer }
+        })
+        var handles = AskClaudeHandles()
+        // The name Claude has from "the Foresight installer": one disk holds it.
+        let ejected = await runner.run(call("eject", ["disk": .string("foresight")]), handles: &handles)
+        #expect(!ejected.isError && ejected.step == "Ejected Foresight 1.1.0.42")
+        answer = .canceled
+        let canceled = await runner.run(call("eject", ["disk": .string("SD Card")]), handles: &handles)
+        #expect(!canceled.isError && canceled.result.contains("still mounted"))
+        answer = .refused("The volume is in use.")
+        let refused = await runner.run(call("eject", ["disk": .string("SD Card")]), handles: &handles)
+        #expect(refused.isError && refused.result.contains("The volume is in use."))
+        #expect(asked == ["/Volumes/Foresight 1.1.0.42", "/Volumes/SD Card", "/Volumes/SD Card"])
+    }
+
+    /// A name that is no disk, or could be two, asks nothing and lists the disks there are.
+    @Test func ejectRefusesANameThatIsNoOneDisk() async {
+        var asked = 0
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
+            ctx.disks = [.init(name: "Backup A", path: "/Volumes/Backup A"), .init(name: "Backup B", path: "/Volumes/Backup B")]
+            ctx.eject = { _ in asked += 1; return .ejected }
+        })
+        var handles = AskClaudeHandles()
+        let none = await runner.run(call("eject", ["disk": .string("Macintosh HD")]), handles: &handles)
+        #expect(none.isError && none.result.contains("Disks you can eject: Backup A, Backup B"))
+        let two = await runner.run(call("eject", ["disk": .string("Backup")]), handles: &handles)
+        #expect(two.isError)
+        #expect(asked == 0)
+    }
+
+    /// With the chat off screen they wouldn't see the confirmation, so nothing is asked.
+    @Test func ejectAsksNothingWhileTheChatIsOffScreen() async {
+        var asked = 0
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
+            ctx.disks = [.init(name: "SD Card", path: "/Volumes/SD Card")]
+            ctx.eject = { _ in asked += 1; return .ejected }
+            ctx.chatIsOpen = false
+        })
+        var handles = AskClaudeHandles()
+        let outcome = await runner.run(call("eject", ["disk": .string("SD Card")]), handles: &handles)
+        #expect(outcome.isError && asked == 0)
+    }
+
     @Test func viewChangesSortHiddenFilesAndMode() async {
         var sorts: [String] = []; var hiddenShown: [Bool] = []; var modes: [String] = []
         let runner = browseTools(browseContext(root: Self.root) { ctx in

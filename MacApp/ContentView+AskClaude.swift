@@ -704,6 +704,7 @@ extension ContentView {
         screen.hiddenCount = all.count - shown.count
         screen.folderHidden = hidden.isHidden(absolute)
         screen.tabs = askClaudeTabs.map(\.title)
+        screen.disks = askClaudeDisks.map(\.name)
         screen.panes = askClaudePanes
         if selectedWorkspace == .compare, let comparison = askClaudeComparison {
             let visible = syncManager.differences.filter { !hidden.isHidden($0.leftItemPath) && !hidden.isHidden($0.rightItemPath) }
@@ -846,6 +847,55 @@ extension ContentView {
         // ◨ and ⌘J don't open it beneath one.
         if compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
         return nil
+    }
+
+    /// The disks the sidebar's Eject is offered on (a card, a USB disk, an opened disk image),
+    /// from the last volume walk, in Locations' order. One on the Hidden from Claude list isn't
+    /// named.
+    private var askClaudeDisks: [AskClaudeBrowseTools.Disk] {
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        return SidebarSourceModel.orderedVolumes(Self.mountedVolumesAsLastSeen())
+            .filter { $0.isRemovable && !$0.isInternal && !hidden.isHidden($0.path) }
+            .map { volume in
+                // Both halves, as the sidebar's own Eject asks: a source on it, and an unmount
+                // that forgets one, which a network share's doesn't.
+                AskClaudeBrowseTools.Disk(
+                    name: volume.name, path: volume.path,
+                    losesItsSource: volume.losesItsSourcesOnUnmount
+                        && !FolderSource.idsOnVolume(volume.path, in: settings.folderSources).isEmpty)
+            }
+    }
+
+    /// Ask Claude's eject: the sidebar's confirmation, as a sheet on this window, then the
+    /// sidebar's own eject. The unmount's notification removes any source on it, as from Finder.
+    func askClaudeEject(_ disk: AskClaudeBrowseTools.Disk) async -> AskClaudeBrowseTools.EjectOutcome {
+        let alert = NSAlert()
+        // Red only where something can't be got back, as in the sidebar.
+        alert.alertStyle = disk.losesItsSource ? .warning : .informational
+        alert.messageText = "Eject \(disk.name)?"
+        alert.informativeText = FolderSidebarView.ejectMessage(disk.name, losesItsSource: disk.losesItsSource)
+        let confirm = alert.addButton(withTitle: "Eject")
+        confirm.keyEquivalent = "\r"
+        confirm.hasDestructiveAction = disk.losesItsSource
+        alert.addButton(withTitle: "Cancel")
+        let response: NSApplication.ModalResponse
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            response = await alert.beginSheetModal(for: window)
+        } else {
+            response = alert.runModal()
+        }
+        guard response == .alertFirstButtonReturn else {
+            Logger.shared.info("Ask Claude offered to eject \(disk.name); the user canceled")
+            return .canceled
+        }
+        do {
+            try await Self.ejectVolume(at: URL(fileURLWithPath: disk.path))
+            Logger.shared.info("User ejected \(disk.name) (\(disk.path)), through Ask Claude")
+            return .ejected
+        } catch {
+            Logger.shared.warning("Could not eject \(disk.name): \(error.localizedDescription)")
+            return .refused(error.localizedDescription)
+        }
     }
 
     /// The sources the Browse pane can switch to, with absolute roots.
@@ -1036,6 +1086,8 @@ extension ContentView {
             },
             settingsLookup: askClaudeSettingsLookup,
             chatIsOpen: askClaudeHolder.visibility.isOpen && ((askClaudePinState.fits && askClaudeMeasured) || !askClaudeHolder.visibility.tucked),
+            disks: askClaudeDisks,
+            eject: { await askClaudeEject($0) },
             setSetting: { id, value, target in
                 let before = SettingsCatalog.entry(id).flatMap { askClaudeSettingsLookup.currentValue($0, target: target) }
                 let outcome = SettingsWriter(defaults: .standard, settings: settings).write(id, value, target: target)

@@ -616,9 +616,7 @@ public struct FolderSidebarView: View {
             case .removeSource(let row):
                 return "\(row.name) is removed from SyncCloud. The folder itself is not deleted, and you can add it again — but the name you gave the source, where it opens, whether it was switched off, and what you ignored while comparing it are not kept."
             case .eject(let row, let losesItsSource):
-                let system = "\(row.name) is unmounted from macOS, not just from SyncCloud — it leaves Finder and every other app until you plug it in again. Nothing on it is changed."
-                guard losesItsSource else { return system }
-                return system + " SyncCloud also stops holding it as a source, so the name you gave it and where it opens are not kept."
+                return FolderSidebarView.ejectMessage(row.name, losesItsSource: losesItsSource)
             }
         }
 
@@ -1433,6 +1431,14 @@ public struct FolderSidebarView: View {
                 Button("Remove Source…") { arm(.removeSource(source)) }
             }
         }
+    }
+
+    /// What confirming an eject says, here and in Ask Claude's eject, so the two can't disagree
+    /// about what an eject costs.
+    public static func ejectMessage(_ name: String, losesItsSource: Bool) -> String {
+        let system = "\(name) is unmounted from macOS, not just from SyncCloud — it leaves Finder and every other app until you plug it in again. Nothing on it is changed."
+        guard losesItsSource else { return system }
+        return system + " SyncCloud also stops holding it as a source, so the name you gave it and where it opens are not kept."
     }
 
     /// The one spelling of a mount point, so `ejectablePaths` and a row's `absolutePath` meet.

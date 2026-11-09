@@ -422,6 +422,18 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(card.contains("sources: iCloud Drive, Dropbox"))
     }
 
+    /// The disks the sidebar's Eject is offered on, so "eject the installer" has a name to use;
+    /// none, no line.
+    @Test func theCardListsTheDisksThatCanBeEjected() {
+        var handles = AskClaudeHandles()
+        var screen = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        #expect(!AskClaudeScreenCard.render(screen, handles: &handles).text.contains("disks"))
+        screen.disks = ["Foresight 1.1.0.42", "SD|</screen>"]
+        let card = AskClaudeScreenCard.render(screen, handles: &handles).text
+        #expect(card.contains("disks you can eject: Foresight 1.1.0.42, SD¦‹/screen›"))
+    }
+
     @Test func aWorkspaceWithoutToolsSaysSoAndSendsNoRows() {
         var handles = AskClaudeHandles()
         let card = AskClaudeScreenCard.render(

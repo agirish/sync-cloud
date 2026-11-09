@@ -46,6 +46,9 @@ public struct AskClaudeScreen: Equatable, Sendable {
     public let toolsAvailable: Bool
     /// Every source the Browse pane can switch to, by name.
     public let sources: [String]
+    /// The mounted disks Finder would eject (a card, a USB disk, an opened disk image), by name, as
+    /// the sidebar's Locations shows them: the `eject` tool names one of these.
+    public var disks: [String] = []
     /// The pane's tabs, the one on screen first. A tab at a hidden folder comes as
     /// "(hidden)": a tab is titled with its folder's name.
     public var tabs: [String] = []
@@ -156,6 +159,9 @@ public enum AskClaudeScreenCard {
         lines.append("workspace: \(screen.workspace) · source: \(escape(screen.source)) · folder: \(folderLabel)")
         if !screen.sources.isEmpty {
             lines.append("sources: " + screen.sources.map(escape).joined(separator: ", "))
+        }
+        if !screen.disks.isEmpty {
+            lines.append("disks you can eject: " + screen.disks.map(escape).joined(separator: ", "))
         }
         if let open = screen.openFile {
             lines.append("open in Edit: " + row(for: open, handles: &handles))

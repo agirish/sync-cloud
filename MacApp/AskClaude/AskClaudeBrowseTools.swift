@@ -153,6 +153,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var settingsLookup: SettingsLookup?
         /// Whether the chat panel is on screen; Claude changes nothing itself while it isn't.
         var chatIsOpen = true
+        /// The mounted disks Finder would eject, as the screen's disks line names them.
+        var disks: [Disk] = []
+        /// Asks them to confirm ejecting a disk, then ejects it: what came of it.
+        var eject: (_ disk: Disk) async -> EjectOutcome = { _ in .canceled }
         /// Writes a setting Claude may change itself, through its owner.
         var setSetting: (_ id: String, _ value: SettingValue, _ target: String?) -> SettingsWriter.Outcome = { _, _, _ in
             .refused("Settings can’t be changed here.")
@@ -166,6 +170,25 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var isPinned = false
         /// At a hidden folder: titled "(hidden)", and never switched to.
         var isHidden = false
+    }
+
+    /// A disk that can be ejected: a card, a USB disk, an opened disk image.
+    struct Disk: Equatable {
+        let name: String
+        /// Its mount point. Never sent.
+        let path: String
+        /// SyncCloud holds a folder on it as a source, and an unmount forgets that source, as the
+        /// sidebar's confirmation says.
+        var losesItsSource = false
+    }
+
+    /// How an eject ended.
+    enum EjectOutcome: Equatable {
+        case ejected
+        /// They chose Cancel in the confirmation.
+        case canceled
+        /// macOS refused, in its words: a file on it is open, most often.
+        case refused(String)
     }
 
     struct Pane: Equatable {
@@ -648,6 +671,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .proposeChanges: return proposeChanges(call, ctx, handles)
         case .offerRule: return await offerRule(call, ctx, handles)
         case .pdf: return await pdf(call, ctx, handles)
+        case .eject: return await eject(call, ctx)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")
@@ -2224,6 +2248,49 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "Give a sort, hidden_files or mode.", isError: true, step: "view had nothing to change")
         }
         return AskClaudeToolOutcome(result: done.joined(separator: "; ") + ".", step: done.joined(separator: " · "))
+    }
+
+    // MARK: Disks
+
+    /// Ejects a disk after they confirm it in the sidebar's own words. The confirmation is theirs,
+    /// whoever asked: a file name that reads like an instruction can't unmount anything.
+    private func eject(_ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
+        let asked = call.string("disk")?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard let disk = Self.disk(named: asked, in: ctx.disks) else {
+            let result = ctx.disks.isEmpty
+                ? "No disk that can be ejected is mounted."
+                : "There is no disk called \(asked). Disks you can eject: \(ctx.disks.map(\.name).joined(separator: ", "))."
+            return AskClaudeToolOutcome(result: result, isError: true, step: "No disk \(asked)",
+                                        logStep: "No disk that (no match, \(asked.count) characters)")
+        }
+        guard ctx.chatIsOpen else {
+            return AskClaudeToolOutcome(result: "Not ejected: the chat isn’t on screen, so they wouldn’t see the confirmation.",
+                                        isError: true, step: "Left \(disk.name) alone: the chat isn’t on screen")
+        }
+        if let busy = ctx.busyReason {
+            return AskClaudeToolOutcome(result: "Not ejected: \(busy). Say so; it can be ejected once that’s closed.",
+                                        isError: true, step: "Left \(disk.name) alone: \(busy)")
+        }
+        switch await ctx.eject(disk) {
+        case .ejected:
+            return AskClaudeToolOutcome(result: "Ejected \(disk.name).", step: "Ejected \(disk.name)")
+        case .canceled:
+            return AskClaudeToolOutcome(result: "They chose Cancel: \(disk.name) is still mounted. Don’t ask again unless they do.",
+                                        step: "Didn’t eject \(disk.name): canceled")
+        case .refused(let why):
+            return AskClaudeToolOutcome(result: "macOS didn’t eject \(disk.name): \(why) Usually a file on it is open in an app; they can quit that app and ask again.",
+                                        isError: true, step: "Couldn’t eject \(disk.name)")
+        }
+    }
+
+    /// The disk a name means: its exact name, ignoring case and accents, else the one disk whose
+    /// name holds it ("Foresight" for "Foresight 1.1.0.42"). Two that hold it are no answer.
+    static func disk(named name: String, in disks: [Disk]) -> Disk? {
+        guard !name.isEmpty else { return nil }
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        if let exact = disks.first(where: { $0.name.compare(name, options: options) == .orderedSame }) { return exact }
+        let holding = disks.filter { $0.name.range(of: name, options: options) != nil }
+        return holding.count == 1 ? holding[0] : nil
     }
 
     // MARK: Shared

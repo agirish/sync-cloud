@@ -14998,3 +14998,19 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | none of the reviewed code | CLOSED — does not apply |
+
+## Ask Claude ejects a disk — main only
+
+2026-11-08, for v7.1. On `main`: the screen Ask Claude is sent lists the disks the sidebar's Eject
+is offered on, and its `eject` tool ejects one after the sidebar's own confirmation
+(`AskClaudeBrowseTools.eject`, `FolderSidebarView.ejectMessage`). No maintenance line has Ask Claude:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeBrowseTools')"; done
+# measured 2026-11-08, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

@@ -171,6 +171,9 @@ public enum AskClaudeRequest {
     - To file a folder’s loose files, use file_loose_files. If they haven’t said where in this chat, \
     call it without into first: it counts the files and gives them buttons. Ask where in one short \
     sentence and stop. Once they say, call it with into; it shows them one card, up to \(AskClaudeLooseFiles.perCard) files.
+    - Eject a disk (a card, a USB disk, an opened installer or disk image) with eject, when they ask. \
+    The screen’s disks line names the ones that can be ejected; they confirm first. Say it ejected \
+    only after eject says so.
     - Your look-up tools and open work from any workspace. Tools that move or select in the Browse \
     pane take them to Browse first; in Edit, prefer answering without moving them.
 
@@ -244,6 +247,7 @@ public enum AskClaudeToolCatalog {
         case showInApp = "show_in_app"
         case settings = "settings"
         case pdf = "pdf"
+        case eject = "eject"
     }
 
     public static let definitions: [JSONFragment] = [
@@ -407,6 +411,10 @@ public enum AskClaudeToolCatalog {
                 "under_mb": number("For compress: come in under this many megabytes, when they named a size."),
                 "mode": string("For protect: lock_to_open or restrict_editing. Leave it out for lock_to_open. Never a password: they type it on the card."),
              ], required: ["action", "handles"]),
+        tool(.eject,
+             "Eject a disk from the screen’s disks line: a card, a USB disk, or an opened disk image such as an installer. They confirm in SyncCloud’s own dialog first, the one the sidebar’s Eject shows; it says whether the disk ejected, they canceled, or macOS refused (a file on it is in use).",
+             properties: ["disk": string("The disk’s name, as the disks line has it.")],
+             required: ["disk"]),
     ]
 
     private static func tool(_ name: Name, _ description: String, properties: [String: JSONFragment],
