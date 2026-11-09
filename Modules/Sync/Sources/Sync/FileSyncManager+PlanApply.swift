@@ -15,6 +15,8 @@ public struct AskClaudePlanOutcome: Sendable, Equatable {
     }
 
     public var rows: [Int: Row] = [:]
+    /// Where each move landed, by row, absolute (TE331: a rule taught by the card reads it there).
+    public var landed: [Int: String] = [:]
     /// The undo step's name when anything changed; the card's Undo acts only while it tops the
     /// stack.
     public var undoName: String?
@@ -168,6 +170,7 @@ extension FileSyncManager {
 
         struct Done: Sendable {
             var rows: [Int: AskClaudePlanOutcome.Row] = [:]
+            var landed: [Int: String] = [:]
             var created: [URL] = []
             /// Renames, as they ran.
             var renames: [MoveItemState] = []
@@ -237,6 +240,7 @@ extension FileSyncManager {
                                            to: URL(fileURLWithPath: cardFolder).appendingPathComponent(dst.lastPathComponent),
                                            overwritten: overwritten))
                         done.movedTo.append(dst.path)
+                        done.landed[id] = dst.path
                         if isFile { done.filed.append((from: src, to: dst)) }
                         done.rows[id] = .done(dst.lastPathComponent == src.lastPathComponent ? "Moved" : "Moved, as \(dst.lastPathComponent)")
                     case .trash(let path, let copyOf):
@@ -275,6 +279,7 @@ extension FileSyncManager {
             return done
         }
         outcome.rows.merge(done.rows) { _, new in new }
+        outcome.landed = done.landed
 
         // One undo step, registered in this turn with no await inside the group. Undo runs the
         // registrations last first, which is the apply backwards: out of the Trash, renames back

@@ -80,6 +80,38 @@ extension FileSyncManager {
         }
     }
 
+    /// The rules taught by picks on Ask Claude's card, after Apply (TE331): each file they sent to
+    /// a folder of their own choosing, by its name on the card, where it is now, and page 1 as read
+    /// on this Mac. Nothing is saved. A pick outside every survey teaches nothing.
+    public func rulesFromCard(_ picks: [AskClaudeCardPick], isHidden: (String) -> Bool,
+                              limit: Int = 3) async -> (offers: [AutomationRuleProposer.CardOffer], more: Int) {
+        ensureAutomationRulesLoaded()
+        var examples: [AutomationRuleProposer.CardExample] = []
+        var indexes: [String: FilingRouter.Index] = [:]
+        for pick in picks {
+            guard let survey = filingHelpSurvey(for: pick.folder),
+                  let relative = Self.relative(pick.folder, toRoot: survey.root), !relative.isEmpty else { continue }
+            let index: FilingRouter.Index
+            if let known = indexes[survey.root] {
+                index = known
+            } else {
+                index = await filingHelpIndex(survey, isHidden: isHidden)
+                indexes[survey.root] = index
+            }
+            let modified = (try? FileManager.default.attributesOfItem(atPath: pick.path))?[.modificationDate] as? Date
+            guard let words = AutomationRuleProposer.cardWords(fileName: pick.fileName, destinationRelativePath: relative,
+                                                               pageSample: pick.pageSample, index: index,
+                                                               modificationDate: modified) else { continue }
+            examples.append(.init(fileName: pick.fileName, destinationRelativePath: relative, surveyRoot: survey.root,
+                                  pageSample: pick.pageSample, modificationDate: modified,
+                                  phrase: words.phrase, ruleName: words.ruleName))
+        }
+        let offered = AutomationRuleProposer.cardOffers(examples, existingRules: automationRules, limit: limit)
+        Logger.shared.info("Ask Claude card picks: \(picks.count) taught \(offered.offers.count) rule offer\(offered.offers.count == 1 ? "" : "s")"
+            + (offered.more > 0 ? ", \(offered.more) more not offered" : ""))
+        return offered
+    }
+
     /// Saves a correction's rule on his click: a new rule at the end, words added in place, a
     /// sibling just before the rule it stands beside, so it is tried first for the files it matches.
     public func saveCorrectionRule(_ correction: AutomationRuleProposer.Correction) {
@@ -108,5 +140,24 @@ extension FileSyncManager {
             persistedAutomationRules = automationRules
             Logger.shared.info("Automation rule created: “\(correction.rule.name)” → \(correction.rule.destinationTemplate), before the rule it stands beside")
         }
+    }
+}
+
+/// A file they sent to a folder of their own choosing on Ask Claude's card, once Apply moved it.
+public struct AskClaudeCardPick: Sendable, Equatable {
+    /// As the card showed it.
+    public let fileName: String
+    /// Where it is now, absolute.
+    public let path: String
+    /// The folder it went into, absolute.
+    public let folder: String
+    /// Page 1 as read on this Mac, nil when unread.
+    public let pageSample: String?
+
+    public init(fileName: String, path: String, folder: String, pageSample: String?) {
+        self.fileName = fileName
+        self.path = path
+        self.folder = folder
+        self.pageSample = pageSample
     }
 }

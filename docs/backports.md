@@ -15090,3 +15090,20 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## A pick on Ask Claude's filing card offers a rule (TE331) — main only
+
+2026-11-09, for v7.1 (decisions JA–JD). On `main`: a row sent to a folder of their own choosing on
+Ask Claude's filing card offers a Save Rule card after Apply, with words the Mac picks from the
+file's name (`AutomationRuleProposer.cardWords`, `cardOffers`), updating the closest saved rule as
+a typed correction does. No maintenance line has Ask Claude's cards:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudePlan.swift')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

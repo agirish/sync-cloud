@@ -91,6 +91,12 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         /// A new folder the card makes for its own moves (a saved rule's month folder): ticked
         /// only while a ticked move goes into it.
         public var forMoves: Bool?
+        /// Where it was going before their first pick, absolute, and its label (TE331): a row they
+        /// sent elsewhere teaches a rule at Apply. Nil until they pick.
+        public var pickedFrom: String?
+        public var pickedFromLabel: String?
+        /// It needed their pick (no folder was sure) before they chose one.
+        public var wasUnsure: Bool?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
@@ -108,6 +114,23 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             self.alreadyFiled = alreadyFiled
             self.refusal = refusal
             if refusal != nil { self.ticked = false }
+        }
+
+        /// A folder they set teaches a rule (TE331, decision JC): any pick for a row that was
+        /// unsure, and otherwise a folder other than the one the card had.
+        public var teaches: Bool {
+            guard chosen, case .move(_, let to) = change else { return false }
+            if wasUnsure == true { return true }
+            guard let pickedFrom else { return false }
+            return (pickedFrom as NSString).standardizingPath != (to as NSString).standardizingPath
+        }
+
+        /// Marks the row as set by them, from where it was going: on the first pick only.
+        public mutating func notePick() {
+            guard !chosen, case .move(_, let to) = change else { return }
+            pickedFrom = to
+            pickedFromLabel = folderLabel
+            wasUnsure = group == .needsPick
         }
 
         public var group: Group {
@@ -254,6 +277,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// and is ticked.
     public mutating func choose(_ choice: Choice, forRow id: Int) {
         guard let index = rows.firstIndex(where: { $0.id == id }), case .move(let from, _) = rows[index].change else { return }
+        rows[index].notePick()
         rows[index].change = .move(from: from, toFolder: choice.path)
         rows[index].folderLabel = choice.label
         rows[index].confidence = choice.confidence ?? rows[index].confidence

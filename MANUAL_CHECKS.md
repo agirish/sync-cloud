@@ -965,3 +965,23 @@ installed app with a key saved and a To File list. Nothing here was clicked agai
   arrived and offers “Try Again for the N”.
 - [ ] **Not drawn exactly:** “Ask Again” on the nothing-new card has no price (the plan has no quote when nothing
   is sent); its ⓘ says the usual price applies.
+
+## Ask Claude learns from a card pick (TE331, 2026-11-09)
+
+- [ ] **A pick shows Your pick.** In Downloads, ask “file the loose files” into Documents. Open a
+  row and pick its runner-up from Folders, or use Choose Folder…. The row moves to that folder's
+  group with a “Your pick” tag, and its details show Was with the folder it had.
+- [ ] **Apply offers one rule card.** Click Apply. Under the card, a Save a Rule card names the
+  words from the file, the folder (year and month as “year of travel”/“month of travel” for a trip
+  folder), where the file went, and “From your pick on …”. No question is sent to Claude.
+- [ ] **Two picks to one folder share a card.** Send two tickets to the same trip folder and
+  Apply: one card, “Checked on all 2 you moved”.
+- [ ] **A later pick adds to the rule.** Save that rule, then on a new card send another airline's
+  ticket to the same trip folder and Apply: the card asks “Add to your rule …?” with the new words
+  in bold.
+- [ ] **Move Here on the runner-up teaches too.** Ask “where should this go?” about a file and
+  click Move Here on the runner-up, then Apply: a rule card follows. Move Here on the best folder
+  offers none.
+- [ ] **Save and Not Now.** Save stores the rule in Organize ▸ Rules; Not Now stores nothing. Ask
+  a question after each: Claude knows of a saved one only, by name when the folder is shared
+  without asking.

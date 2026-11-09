@@ -1408,6 +1408,21 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// Rule cards taught by picks on the card `id`, just after it (TE331); `more` rules weren't
+    /// offered. Claude isn't told: the app made them.
+    func addRuleCards(_ cards: [AskClaudeRuleCard], after id: UUID, more: Int) {
+        guard !cards.isEmpty || more > 0 else { return }
+        var at = (items.firstIndex { $0.id == id }).map { $0 + 1 } ?? items.endIndex
+        for card in cards {
+            items.insert(Item(kind: .rule(card)), at: at)
+            at += 1
+        }
+        if more > 0 {
+            items.insert(Item(kind: .note("Your picks taught \(more) more rule\(more == 1 ? "" : "s") than a card offers at once. Tell Claude where those files go to offer \(more == 1 ? "it" : "them").")), at: at)
+        }
+        if !isRunning { save() }
+    }
+
     /// The rule card `id`, while it is still offered.
     func offeredRule(_ id: UUID) -> AskClaudeRuleCard? {
         guard let item = items.first(where: { $0.id == id }), case .rule(let card) = item.kind, card.state == .offered else { return nil }

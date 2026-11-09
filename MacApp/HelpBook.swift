@@ -399,6 +399,7 @@ enum HelpBook {
                         "On that card, a file already put away byte for byte, and a subfolder the files would leave empty, get Trash rows, never ticked for you. A taken name is shown as the name the file would get. Hidden files, unfinished downloads and installers stay where they are. Apply moves what’s ticked, with one Undo.",
                         "Tell Claude a file goes somewhere else — “no, JAL tickets go in Travel/Trips” — and it offers a rule for every file of that kind: JAL is an airline, so any airline’s ticket. The card shows the words, the folder, and where this file goes, and nothing is saved until you click Save Rule. Year and month folders are filled in from the first travel date on the file’s first page.",
                         "A later correction adds words to your closest rule when its folder fits, or offers a rule beside it. Rules run free on this Mac, in To File and here, and Organize ▸ Rules is where you edit them.",
+                        "Send a row to another folder on a card yourself, or choose for one that needs your pick, and the row says Your pick. After Apply, the card offers a rule for files like it, made on this Mac from the file’s own name and first page, so nothing is sent to Claude. Rows that make one rule share one card. Your next pick adds its words to the same rule.",
                     ]),
                 ],
                 related: ["ask-claude", "ask-claude-changes", "file-loose-items", "automation-rules"]
@@ -723,7 +724,7 @@ enum HelpBook {
                         "The destination is relative to the provider root and can carry tokens like {year}, filled from each file. A file that can’t supply one is flagged as needing a look rather than guessed at.",
                         "Preview the rule against the folder you’re standing in before keeping it, so one that’s too broad shows itself immediately. A word too generic to match on is refused with a reason.",
                         "Conditions include Mentions the words, which needs every word, and Mentions any of, which needs one of them — “JAL, ANA, Emirates” for any airline’s ticket.",
-                        "A rule can also start in Ask Claude: tell it a file goes somewhere else and it offers one, which lands here once you click Save Rule.",
+                        "A rule can also start in Ask Claude: tell it a file goes somewhere else, or send a row to another folder on its card, and it offers one, which lands here once you click Save Rule.",
                         "A rule is written once and steers every scan of that provider’s tree, not one folder’s.",
                         "The To File page of Settings ▸ Organize holds the inbox, and Open Rules there brings you back here.",
                     ]),

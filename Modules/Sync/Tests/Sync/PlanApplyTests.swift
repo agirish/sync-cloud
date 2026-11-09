@@ -68,6 +68,8 @@ import Events
         ])
         #expect(out.doneCount == 7, "\(out.rows)")
         #expect(out.rows[2] == .done("Moved, as Ticket 2.pdf"), "a taken name keeps both")
+        #expect(out.landed[2] == dir + "/Documents/Travel/Trips/Ticket 2.pdf", "where a move landed, for a rule its pick teaches")
+        #expect(out.landed[1] == dir + "/Documents/Travel/Trips/Japan 2026/JAL Ticket.pdf" && out.landed[4] == nil)
         #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Trips/Japan 2026/JAL Ticket.pdf"))
         #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Trips/Ticket 2.pdf"))
         #expect(FileManager.default.fileExists(atPath: dir + "/Documents/Taxes/W-2 2025.pdf"))

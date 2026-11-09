@@ -104,26 +104,8 @@ extension FileSyncManager {
             Logger.shared.info("Filing help: “\((path as NSString).lastPathComponent)” → \(ruled.relativePath) by a saved rule")
             return FilingHelpAnswer(outcome: .suggested([ruled]), surveyedAt: surveyedAt)
         }
-        let memory = survey.memory, registry = filingPersonRegistry
-        // The satellite map is the primary survey's tree, and only when the last To File scan
-        // built it for that tree: after a Dropbox scan it names Dropbox's folders, and the same
-        // relative paths in iCloud would be demoted as copies. A source's own survey has none.
-        let satellites = survey.profile.profileId == filingFolderProfile?.profileId
-            && filingSatelliteRoot.map({ SourceSurveyStore.sameFolder($0, root) }) == true ? filingSatelliteHomes : [:]
-        // Asked here, once per folder: the list's matcher reads the disk and stays on this actor.
-        let hidden = Set(profile.folders.keys.filter { isHidden(root + "/" + $0) })
-        let key = FilingHelpIndexCache.Key(profileId: profile.profileId,
-                                           generation: filingHelpStamp(memory: memory, surveyedAt: surveyedAt,
-                                                                       satellites: satellites),
-                                           hidden: hidden)
-        let index = await Task.detached(priority: .userInitiated) {
-            FilingHelpIndexCache.shared.index(for: key) {
-                // Hidden folders never enter the index: a folder that can't be ranked can't be named.
-                let destinations = profile.folders.keys.filter { !hidden.contains($0) }
-                return FilingRouter.makeIndex(destinations: Array(destinations), profile: profile,
-                                              memory: memory, registry: registry, satelliteHomes: satellites)
-            }
-        }.value
+        let registry = filingPersonRegistry
+        let index = await filingHelpIndex(survey, isHidden: isHidden)
         let fileName = (path as NSString).lastPathComponent
         let ranking = await Task.detached(priority: .userInitiated) {
             // Deeper with a place named, so its folders are among the ranked even when others lead.
@@ -167,6 +149,31 @@ extension FileSyncManager {
         }
         Logger.shared.info("Filing help: “\(fileName)” → \(shown.map(\.relativePath).joined(separator: ", ")) (\(confidence.rawValue)\(snippet == nil ? ", by name" : ""))")
         return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt)
+    }
+
+    /// The survey's router index for filing help, its hidden folders left out, kept per survey.
+    func filingHelpIndex(_ survey: (profile: FolderProfile, memory: FilingMemory?, root: String, surveyedAt: Date?),
+                         isHidden: (String) -> Bool) async -> FilingRouter.Index {
+        let (profile, root, memory, registry) = (survey.profile, survey.root, survey.memory, filingPersonRegistry)
+        // The satellite map is the primary survey's tree, and only when the last To File scan
+        // built it for that tree: after a Dropbox scan it names Dropbox's folders, and the same
+        // relative paths in iCloud would be demoted as copies. A source's own survey has none.
+        let satellites = survey.profile.profileId == filingFolderProfile?.profileId
+            && filingSatelliteRoot.map({ SourceSurveyStore.sameFolder($0, root) }) == true ? filingSatelliteHomes : [:]
+        // Asked here, once per folder: the list's matcher reads the disk and stays on this actor.
+        let hidden = Set(profile.folders.keys.filter { isHidden(root + "/" + $0) })
+        let key = FilingHelpIndexCache.Key(profileId: profile.profileId,
+                                           generation: filingHelpStamp(memory: memory, surveyedAt: survey.surveyedAt,
+                                                                       satellites: satellites),
+                                           hidden: hidden)
+        return await Task.detached(priority: .userInitiated) {
+            FilingHelpIndexCache.shared.index(for: key) {
+                // Hidden folders never enter the index: a folder that can't be ranked can't be named.
+                let destinations = profile.folders.keys.filter { !hidden.contains($0) }
+                return FilingRouter.makeIndex(destinations: Array(destinations), profile: profile,
+                                              memory: memory, registry: registry, satelliteHomes: satellites)
+            }
+        }.value
     }
 
     /// A named place's folders first: prefer it, allow others. A High answer outside it stands,

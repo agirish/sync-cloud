@@ -405,11 +405,18 @@ extension ContentView {
             askClaudeChat.answerRule(id, .saved)
             // A held card (one Claude wasn't told of) says no more when answered: its words
             // matched the file's first page, which is the very thing kept from Claude.
-            askClaudeChat.tellClaude(card.held == true ? "They saved a rule from a card." : "They saved your rule “\(card.rule.name)”.")
+            if card.held == true {
+                askClaudeChat.tellClaude("They saved a rule from a card.")
+            } else if let from = card.fromCard {
+                askClaudeChat.tellClaude("Their picks on your card “\(from)” taught a rule, which they saved: “\(card.rule.name)”.")
+            } else {
+                askClaudeChat.tellClaude("They saved your rule “\(card.rule.name)”.")
+            }
         } else {
             askClaudeChat.answerRule(id, .declined)
             Logger.shared.info("Ask Claude rule card: Not Now on “\(card.rule.name)”")
-            if card.held != true {
+            // A card the app made says nothing: Claude never heard of it.
+            if card.held != true, card.fromCard == nil {
                 askClaudeChat.tellClaude("They chose Not Now on your rule “\(card.rule.name)”; nothing was saved.")
             }
         }
@@ -505,7 +512,42 @@ extension ContentView {
                                                       protected: protected)
             askClaudeChat.updatePlan(id) { $0.record(outcome) }
             if let applied = askClaudeChat.plan(id) { askClaudeChat.tellClaude(AskClaudeChat.applyReport(applied)) }
+            await askClaudeOfferCardRules(id, landed: outcome.landed)
         }
+    }
+
+    /// TE331: rows they sent to a folder of their own choosing teach a rule, offered after Apply
+    /// (decisions JA–JD). The words are the Mac's, from each file's name and page 1, so nothing is
+    /// sent; Claude hears of a rule only when it is saved.
+    private func askClaudeOfferCardRules(_ id: UUID, landed: [Int: String]) async {
+        guard let plan = askClaudeChat.plan(id) else { return }
+        let taught: [(row: AskClaudePlan.Row, path: String, folder: String)] = plan.rows.compactMap { row in
+            guard row.teaches, row.applied == true, let path = landed[row.id],
+                  case .move(_, let folder) = row.change else { return nil }
+            return (row, path, folder)
+        }
+        guard !taught.isEmpty else { return }
+        var picks: [AskClaudeCardPick] = []
+        for pick in taught {
+            // Page 1 only from a file here: reading one only in the cloud would download it.
+            let page = MaterializationStatus.isCloudOnlyIfKnown(atPath: pick.path) == true
+                ? nil : await AskClaudeReading.extract(pick.path)?.first
+            picks.append(AskClaudeCardPick(fileName: pick.row.name, path: pick.path, folder: pick.folder, pageSample: page))
+        }
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        let shared = AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: .standard))
+        let (offers, more) = await syncManager.rulesFromCard(picks, isHidden: { hidden.isHidden($0) })
+        let cards = offers.map { offer -> AskClaudeRuleCard in
+            var card = AskClaudeRuleCard(fileName: offer.fileNames[0], correction: offer.correction)
+            card.fromCard = plan.title
+            card.others = Array(offer.fileNames.dropFirst())
+            // Its words may come from page 1: Claude hears the rule's name on Save only when every
+            // file it was taught on is in a folder shared without asking.
+            let paths = offer.fileNames.compactMap { name in picks.first { $0.fileName == name }?.path }
+            card.held = !paths.allSatisfy { !hidden.isHidden($0) && shared.holds($0) }
+            return card
+        }
+        askClaudeChat.addRuleCards(cards, after: id, more: more)
     }
 
     /// Filing help's card buttons.
@@ -532,9 +574,22 @@ extension ContentView {
             let refusal = syncManager.planRefusal(change, isHidden: { hidden.isHidden($0) }, protected: Set(askClaudeSources.map(\.root)))
             let name = (file as NSString).lastPathComponent
             let landing = AskClaudeLooseFiles.landingName(for: name, in: folder)
-            let row = AskClaudePlan.Row(id: 0, name: name, change: change, ticked: true,
+            var row = AskClaudePlan.Row(id: 0, name: name, change: change, ticked: true,
                                         note: landing == name ? nil : "Kept as \(landing): the name is taken",
                                         folderLabel: label, refusal: refusal)
+            // TE331 (decision JC): Move Here on the runner-up, or on any folder of an unsure
+            // answer, is their pick, and teaches a rule at Apply.
+            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind,
+               let best = card.folders.first {
+                let unsure = best.confidence == AskClaudeFiling.label(.low)
+                if unsure || best.path != folder {
+                    row.pickedFrom = best.path
+                    row.pickedFromLabel = best.label
+                    row.wasUnsure = unsure
+                    row.chosen = true
+                    row.reason = "Your pick"
+                }
+            }
             askClaudeChat.replace(item, with: .plan(AskClaudePlan(title: "Move \(name)", subtitle: "", rows: [row])))
         }
     }

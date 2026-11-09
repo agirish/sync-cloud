@@ -32,6 +32,11 @@ public struct AskClaudeRuleCard: Codable, Equatable, Sendable {
     /// the card can't tell Claude either. Not Now says nothing; Save says only that a rule was
     /// saved. Nil on a card Claude knows of.
     public var held: Bool?
+    /// Taught by their picks on this card, by its title, not by Claude (TE331): Claude hears
+    /// nothing of it until Save.
+    public var fromCard: String?
+    /// The other files it was checked on, by name.
+    public var others: [String]?
 
     public init(fileName: String, correction: AutomationRuleProposer.Correction) {
         self.fileName = fileName
@@ -63,6 +68,18 @@ public struct AskClaudeRuleCard: Codable, Equatable, Sendable {
         case .addWords: return "Add to your rule “\(rule.name)”?"
         case .sibling(_, let ruleName): return "Like “\(ruleName)”, for another folder?"
         }
+    }
+
+    /// Where the files it was taught on go, under the words.
+    public var exampleLine: String {
+        let unchecked = checkedDate ? "." : ". Page 1 wasn’t read, so the year and month weren’t checked."
+        guard let others, !others.isEmpty else { return "\(fileName) goes to \(Self.readable(example))" + unchecked }
+        return "Checked on all \(others.count + 1) you moved: each goes where you put it" + unchecked
+    }
+
+    /// What taught it, for a card the app made: "From your pick on “File 6 Loose Files”."
+    public var sourceLine: String? {
+        fromCard.map { "From your pick\((others ?? []).isEmpty ? "" : "s") on “\($0)”." }
     }
 
     /// The rule's any-of words, as written in it.

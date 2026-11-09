@@ -1485,8 +1485,7 @@ private struct AskClaudeThreadRow: View, Equatable {
             Label(card.destination, systemImage: "folder")
                 .scaledFont(.callout)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("\(card.fileName) goes to \(AskClaudeRuleCard.readable(card.example))"
-                 + (card.checkedDate ? "." : ". Page 1 wasn’t read, so the year and month weren’t checked."))
+            Text(card.exampleLine + (card.sourceLine.map { " " + $0 } ?? ""))
                 .scaledFont(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             switch card.state {
@@ -1620,6 +1619,14 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
                 // Its own width, never squeezed by the name: shortened here, so the name takes what's left.
                 HStack(spacing: 5) {
+                    // TE331: a folder they set, which teaches a rule at Apply.
+                    if row.teaches {
+                        // Label-colour words; the accent is the hairline (DS1).
+                        Text("Your pick").scaledFont(.footnote).foregroundStyle(.primary)
+                            .padding(.horizontal, 4)
+                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(accent.opacity(0.6), lineWidth: 1))
+                            .help("You chose this folder. After Apply, the card offers a rule for files like it.")
+                    }
                     Circle().fill(dotColor).frame(width: 7, height: 7)
                     Text(AskClaudeThreadRowShortening.shortened(AskClaudeThreadRowShortening.destinationWord(row), to: 18))
                         .scaledFont(.callout)
@@ -1686,6 +1693,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 line("Goes to", destination)
             }
             if let reason = row.reason { line("Why", reason) }
+            if row.teaches, row.wasUnsure != true, let was = row.pickedFromLabel { line("Was", was) }
             if let note = row.note { line("Note", note) }
             if !fileFacts.isEmpty { line("File", fileFacts.joined(separator: " · ")) }
             // Only a real choice: one folder is already said by Goes To.
