@@ -1596,6 +1596,87 @@ final class AskClaudeChat: ObservableObject {
         }
     }
 
+    /// Claude's last word in the chat is a question, or buttons under one, waiting on theirs: their
+    /// next words answer it, so they go to Claude, never to the on-device lane ("Downloads" there
+    /// is a reply, not a go-to).
+    var awaitsAnswer: Bool {
+        for item in items.reversed() {
+            switch item.kind {
+            case .choices(_, let used): return !used
+            case .assistant(let text): return text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
+            case .user: return false
+            default: continue
+            }
+        }
+        return false
+    }
+
+    /// A simple command run on this Mac before Claude is asked (TE338): `decide` asks the on-device
+    /// model and gives the tool call, or nil for Claude. A call runs through Ask Claude's own tools,
+    /// shows as the question and its step line only (no receipt: nothing was sent), and Claude
+    /// hears of it with the next question. A call the tool refuses goes to Claude after all, who
+    /// can say why or find another way; so does nil, through `otherwise`, as if typed there.
+    func tryOnDevice(_ question: String, spoken: Bool = false,
+                     decide: @escaping @MainActor () async -> AskClaudeToolCall?,
+                     tools: AskClaudeToolRunning, otherwise: @escaping @MainActor () -> Void) {
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, !isRunning else { return }
+        // Shown at once, as a question sent to Claude is, and taken back if it goes there. Asked
+        // as from the box: a question without that record would stop Edit and Retry on every
+        // question before it (`canRewind`); Retry asks Claude.
+        let questionItem = Item(kind: .user(question), spoken: spoken ? true : nil,
+                                asked: Asked(question: question, attachments: [], editable: true))
+        // A chat this opens starts from what is hidden now, as `ask` starts one: an older baseline
+        // would count a folder hidden before it as hidden since, and start the chat over.
+        if items.isEmpty { hiddenAtStart = Set(AskClaudePrivacy.hiddenFolders(in: defaults)) }
+        items.append(questionItem)
+        isRunning = true
+        isThinking = true
+        stoppedThisRun = false
+        problemThisRun = false
+        run += 1
+        let thisRun = run
+        task = Task { [weak self] in
+            let call = await decide()
+            guard let self, self.run == thisRun else { return }
+            @MainActor func end() {
+                self.isRunning = false
+                self.isThinking = false
+                self.task = nil
+            }
+            if Task.isCancelled {
+                self.items.append(Item(kind: .note("Stopped.")))
+                end()
+                self.save()
+                return
+            }
+            guard let call else {
+                self.items.removeAll { $0.id == questionItem.id }
+                end()
+                otherwise()
+                return
+            }
+            var handles = self.engine.handles
+            let outcome = await tools.run(call, handles: &handles)
+            guard self.run == thisRun else { return }
+            guard !outcome.isError else {
+                Logger.shared.info("Ask Claude’s on-device command was refused (\(outcome.logStep ?? outcome.step)); asking Claude")
+                self.items.removeAll { $0.id == questionItem.id }
+                end()
+                otherwise()
+                return
+            }
+            self.engine.handles = handles
+            Logger.shared.info("Ask Claude ran \(call.name) on this Mac: \(outcome.logStep ?? outcome.step)")
+            self.items.append(Item(kind: outcome.movedView.map { .moved($0) } ?? .step(outcome.step, isError: false)))
+            self.sinceLastAnswer.append(AskClaudeQuickCommand.toldClaude(question: question, result: outcome.result))
+            self.lastActivity = self.now()
+            end()
+            self.save()
+            if self.queued != nil { Task { @MainActor [weak self] in self?.sendQueuedNow() } }
+        }
+    }
+
     /// Stops the question running. What already ran stays done.
     func stop() {
         if isRunning { stoppedThisRun = true }

@@ -15074,3 +15074,19 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | none of the reviewed code; a Replace logged by its Info collision line | CLOSED — does not apply |
+
+## Ask Claude runs simple commands on this Mac (TE338) — main only
+
+2026-11-09, for v7.1. On `main`: a short command typed or said in Ask Claude goes first to Apple's
+on-device model (`AskClaudeQuickCommand`, `AskClaudeOnDevice`), which runs it through Ask Claude's
+own tools without sending anything. No maintenance line has Ask Claude:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeBrowseTools')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

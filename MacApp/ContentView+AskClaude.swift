@@ -155,7 +155,7 @@ extension ContentView {
         // Once: a question typed while Claude answers is sent from here when the answer ends,
         // with the panel open or not.
         if askClaudeChat.sendQueued == nil {
-            askClaudeChat.sendQueued = { waiting in askClaudeSend(waiting.text, attached: waiting.attachments, spoken: waiting.spoken) }
+            askClaudeChat.sendQueued = { waiting in askClaudeSend(waiting.text, attached: waiting.attachments, spoken: waiting.spoken, onDevice: true) }
         }
         // Retry: a question from the box goes as the box sends; any other as it went, minus any
         // chip hidden since.
@@ -284,15 +284,30 @@ extension ContentView {
     /// since it was attached is dropped, never sent.
     func askClaudeSend(_ question: String, spoken: Bool = false) {
         guard !askClaudeChat.isRunning else { return }
-        askClaudeSend(question, attached: askClaudeChat.takeAttachments(), spoken: spoken)
+        askClaudeSend(question, attached: askClaudeChat.takeAttachments(), spoken: spoken, onDevice: true)
     }
 
     /// A question with the chips it was asked about: the box's, or a queued question's own.
-    func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool) {
+    /// `onDevice`: typed or said in the box, so a simple command may run on this Mac first
+    /// (TE338). A button's words, Retry and a card's Next go to Claude: they answer it.
+    func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool, onDevice: Bool = false) {
         guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = chips.filter { !hidden.isHidden($0.path) }
         let shown = attached.isEmpty ? nil : question + "\nAbout " + attached.map(\.name).joined(separator: ", ")
+        if onDevice, AskClaudeQuickCommand.worthTrying(question, hasAttachments: !attached.isEmpty),
+           !askClaudeChat.awaitsAnswer, AskClaudeOnDevice.isAvailable {
+            // The names the screen card would give Claude, so nothing hidden from Claude is one.
+            let lists = AskClaudeQuickCommand.Lists(screen: askClaudeScreen(),
+                                                    settingsTabs: SettingsView.SettingsTab.allCases.map(\.displayName))
+            askClaudeChat.tryOnDevice(question, spoken: spoken, decide: {
+                guard let route = await AskClaudeOnDevice.route(question, lists: lists) else { return nil }
+                return AskClaudeQuickCommand.call(for: route, lists: lists)
+            }, tools: askClaudeTools(), otherwise: {
+                askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true)
+            })
+            return
+        }
         askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true)
     }
 

@@ -1817,6 +1817,59 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(receipt.screenText.hasPrefix("<screen>"))
     }
 
+
+    // MARK: The on-device lane (TE338)
+
+    /// A command run here shows the question and its step only, sends nothing, and Claude hears of
+    /// it with the next question.
+    @Test func aCommandRunOnThisMacShowsItsStepAndSendsNothing() async {
+        let d = defaults()
+        let transport = RecordingTransport()
+        let chat = makeChat(transport, defaults: d)
+        let tools = RecordsCalls(AskClaudeToolOutcome(result: "Ejected SD Card.", step: "Ejected SD Card"))
+        var wentToClaude = false
+        chat.tryOnDevice("eject the sd card", decide: { AskClaudeToolCall(id: "on-device", name: "eject", input: .object(["disk": .string("SD Card")])) },
+                         tools: tools, otherwise: { wentToClaude = true })
+        await waitUntilIdle(chat)
+        #expect(chat.items.map(\.kind) == [.user("eject the sd card"), .step("Ejected SD Card", isError: false)])
+        #expect(tools.calls == ["eject"])
+        #expect(!wentToClaude && transport.bodies.isEmpty)
+        // A question like any other: Edit takes it, and every question before it, back.
+        #expect(chat.canEdit(chat.items[0].id))
+        // The next question to Claude carries it, as data.
+        chat.ask("thanks", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        let sent = transport.bodies.last ?? ""
+        #expect(sent.contains("On this Mac, without you, they asked") && sent.contains("eject the sd card") && sent.contains("Ejected SD Card."))
+    }
+
+    /// No command, or one its tool refuses: the question goes to Claude, once, with nothing left
+    /// behind in the chat from the try.
+    @Test func noCommandOrARefusedOneGoesToClaude() async {
+        for refused in [false, true] {
+            let d = defaults("noCommandOrARefusedOneGoesToClaude\(refused)")
+            let chat = makeChat(OneLineTransport(text: "x"), defaults: d)
+            let tools = RecordsCalls(AskClaudeToolOutcome(result: "There is no disk called X.", isError: true, step: "No disk X"))
+            var wentToClaude = 0
+            chat.tryOnDevice("eject X", decide: { refused ? AskClaudeToolCall(id: "on-device", name: "eject", input: .object(["disk": .string("X")])) : nil },
+                             tools: tools, otherwise: { wentToClaude += 1 })
+            await waitUntilIdle(chat)
+            #expect(wentToClaude == 1)
+            #expect(chat.items.isEmpty)
+            #expect(tools.calls == (refused ? ["eject"] : []))
+        }
+    }
+
+    /// A reply to Claude's question goes to Claude: "Downloads" after "Into which folder?" isn't a go-to.
+    @Test func aReplyToClaudesQuestionIsNotTriedOnThisMac() async {
+        let d = defaults()
+        let chat = makeChat(OneLineTransport(text: "Into which folder?"), defaults: d)
+        #expect(!chat.awaitsAnswer)
+        chat.ask("file these", screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(chat.awaitsAnswer)
+    }
+
     @Test func withNoKeyThePanelSaysWhereToAddOne() async {
         let d = defaults()
         let chat = makeChat(OneLineTransport(text: "x"), defaults: d, readKey: { nil })
@@ -2543,6 +2596,21 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(!chat.startsOverAtNextQuestion)
         chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         #expect(chat.items.first?.kind == .user("one"))
+    }
+
+    /// The same when a command run on this Mac opens the chat (TE338): it starts from what is
+    /// hidden then, so the next change to the list doesn't restart the chat.
+    @Test func aFolderHiddenBeforeAnOnDeviceCommandIsHiddenFromTheStart() async {
+        let d = defaults()
+        let center = NotificationCenter()
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
+        AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        chat.tryOnDevice("show hidden files", decide: { AskClaudeToolCall(id: "on-device", name: "view", input: .object(["hidden_files": .bool(true)])) },
+                         tools: NoTools(), otherwise: {})
+        await waitUntilIdle(chat)
+        center.post(name: AskClaudePrivacy.didChange, object: nil)
+        #expect(!chat.startsOverAtNextQuestion)
     }
 
     /// A share of the first page of a long list says so, and how to see the rest; a card saved
@@ -4025,5 +4093,17 @@ private final class OffersADownload: AskClaudeToolRunning {
                 try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("refine-\(name).png"))
             }
         }
+    }
+}
+
+/// Answers every call with one outcome, and keeps the tool names it was asked for.
+@MainActor
+private final class RecordsCalls: AskClaudeToolRunning {
+    let outcome: AskClaudeToolOutcome
+    private(set) var calls: [String] = []
+    init(_ outcome: AskClaudeToolOutcome) { self.outcome = outcome }
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        calls.append(call.name)
+        return outcome
     }
 }
