@@ -154,6 +154,9 @@ extension ContentView {
     func askClaudePanel() -> some View {
         // Once: a question typed while Claude answers is sent from here when the answer ends,
         // with the panel open or not.
+        if askClaudeChat.draftStarted == nil {
+            askClaudeChat.draftStarted = { askClaudePrewarmOnDevice() }
+        }
         if askClaudeChat.sendQueued == nil {
             askClaudeChat.sendQueued = { waiting in askClaudeSend(waiting.text, attached: waiting.attachments, spoken: waiting.spoken, onDevice: true) }
         }
@@ -209,6 +212,8 @@ extension ContentView {
                               refineBridge: askClaudeRefineBridge,
                               onAskSpoken: { askClaudeSend($0, spoken: true) },
                               voiceHints: { askClaudeVoiceHints() })
+            // Shown at launch with the column already open, where `onOpenChange` never fires.
+            .onAppear { askClaudePrewarmOnDevice() }
     }
 
     /// The panel's host, built here rather than in `body`: the window's modifier chain is at the
@@ -220,7 +225,7 @@ extension ContentView {
                       foldHeld: askClaudePinFoldHeld, onFoldEnded: { askClaudePinFoldEnded() },
                       isBusy: askClaudeStateBusy != nil,
                       panel: { AnyView(askClaudePanel()) }, toggle: askClaudeChordBinding,
-                      onOpenChange: { open in askClaudeOpen = open; UserDefaults.standard.set(open ? "open" : "closed", forKey: AskClaudePanelSettings.openKey) },
+                      onOpenChange: { open in askClaudeOpen = open; if open { askClaudePrewarmOnDevice() }; UserDefaults.standard.set(open ? "open" : "closed", forKey: AskClaudePanelSettings.openKey) },
                       onFirstUse: { askClaudeOpenOnFirstUse() },
                       onPrivacyChange: { askClaudePrivacyChanges += 1 })
     }
@@ -295,8 +300,9 @@ extension ContentView {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = chips.filter { !hidden.isHidden($0.path) }
         let shown = attached.isEmpty ? nil : question + "\nAbout " + attached.map(\.name).joined(separator: ", ")
+        // Apple Intelligence is asked inside `route`, off the main thread: its probe can block.
         if onDevice, AskClaudeQuickCommand.worthTrying(question, hasAttachments: !attached.isEmpty),
-           !askClaudeChat.awaitsAnswer, AskClaudeOnDevice.isAvailable {
+           !askClaudeChat.awaitsAnswer {
             // The names the screen card would give Claude, so nothing hidden from Claude is one.
             let lists = AskClaudeQuickCommand.Lists(screen: askClaudeScreen(),
                                                     settingsTabs: SettingsView.SettingsTab.allCases.map(\.displayName))
@@ -921,6 +927,13 @@ extension ContentView {
         // ◨ and ⌘J don't open it beneath one.
         if compareDifferencePair != nil || compareFilePair != nil { return "a comparison is open" }
         return nil
+    }
+
+    /// Warms the on-device model for what is on screen now, so a command sent soon after finds
+    /// it loaded (TE338).
+    func askClaudePrewarmOnDevice() {
+        AskClaudeOnDevice.prewarm(AskClaudeQuickCommand.Lists(screen: askClaudeScreen(),
+                                                              settingsTabs: SettingsView.SettingsTab.allCases.map(\.displayName)))
     }
 
     /// The disks the sidebar's Eject is offered on (a card, a USB disk, an opened disk image),

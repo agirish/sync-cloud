@@ -1860,6 +1860,20 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         }
     }
 
+    /// A question's first key warms the on-device model, once per question: not every key, and
+    /// not clearing the box.
+    @Test func aQuestionsFirstKeyWarmsTheOnDeviceModelOnce() {
+        let chat = makeChat(OneLineTransport(text: "x"), defaults: defaults())
+        var warmed = 0
+        chat.draftStarted = { warmed += 1 }
+        chat.draft = "s"; chat.draft = "sh"; chat.draft = "show"
+        #expect(warmed == 1)
+        chat.draft = ""
+        #expect(warmed == 1)
+        chat.draft = "g"
+        #expect(warmed == 2)
+    }
+
     /// A reply to Claude's question goes to Claude: "Downloads" after "Into which folder?" isn't a go-to.
     @Test func aReplyToClaudesQuestionIsNotTriedOnThisMac() async {
         let d = defaults()

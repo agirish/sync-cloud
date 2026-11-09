@@ -179,7 +179,11 @@ final class AskClaudeChat: ObservableObject {
     private var receipt: Receipt?
     private var warnedNearLimit = false
     /// What was typed and not sent when the panel closed; Esc or ✕ doesn't throw it away.
-    var draft = ""
+    var draft = "" {
+        didSet { if oldValue.isEmpty, !draft.isEmpty { draftStarted?() } }
+    }
+    /// A question's first key: the window warms the on-device model for it (TE338).
+    var draftStarted: (() -> Void)?
     /// Apple Intelligence's answers go without a card for the rest of this chat (the held-answer
     /// card's tick). A new chat starts asking again.
     @Published private(set) var sharesAnswers = false
