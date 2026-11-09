@@ -303,16 +303,22 @@ extension FileSyncManager {
     public var filingHelpCanRefine: Bool { filingCloudRefineAvailable && filingUsesAI && filingClassifier != nil }
 
     /// Refine with Claude for one file, from filing help's card, after the Organize scan of its
-    /// folder that the card's button started. Organize's own pass on this file alone: the price is
-    /// shown and agreed to before anything is sent, and the answer lands on Organize's card. Nil
-    /// when it didn't run.
+    /// folder that the card's button started. Organize's own pass on this file alone. The app does
+    /// not call this (its click is Send on a plan card in the chat); it stays for hosts without one.
     public func refineAfterScan(filePath: String) async -> FilingRefineSummary? {
+        guard let suggestion = await suggestionAfterScan(filePath: filePath) else { return nil }
+        return await refineFilingSuggestions([suggestion])
+    }
+
+    /// The card for `filePath` once the Organize scan of its folder has finished, for the chat to
+    /// make a Refine plan for (TE335); nil when the scan found none.
+    public func suggestionAfterScan(filePath: String) async -> FilingSuggestion? {
         await latestFilingScan()
         guard let suggestion = filingSuggestions.first(where: { $0.filePath == filePath }) else {
             Logger.shared.info("Filing help: Refine found no card for “\((filePath as NSString).lastPathComponent)” after the scan")
             return nil
         }
-        return await refineFilingSuggestions([suggestion])
+        return suggestion
     }
 
     /// Returns once the latest Organize scan has finished, not only the one running when this was

@@ -68,6 +68,8 @@ struct AskClaudePanel: View {
     var settingsBridge = AskClaudeSettingsBridge()
     /// What a PDF card reads and does.
     var pdfBridge = AskClaudePDFBridge()
+    /// What a Refine card does and reads.
+    var refineBridge = AskClaudeRefineBridge()
     /// Where the panel wants its window, top-left within `container` (AskClaudeWindow.swift).
     var onPlace: (CGRect) -> Void = { _ in }
     /// A spoken question's Send, so its bubble shows it was spoken; `onAsk` without it.
@@ -528,7 +530,7 @@ struct AskClaudePanel: View {
                            onDownloadCard: onDownloadCard,
                            onFilingCard: onFilingCard,
                            onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
-                           settingsBridge: settingsBridge, pdfBridge: pdfBridge,
+                           settingsBridge: settingsBridge, pdfBridge: pdfBridge, refineBridge: refineBridge,
                            pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning,
                            isGrowing: chat.isRunning && item.id == chat.items.last?.id,
@@ -1077,6 +1079,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let onRuleCard: (UUID, Bool) -> Void
     let settingsBridge: AskClaudeSettingsBridge
     let pdfBridge: AskClaudePDFBridge
+    let refineBridge: AskClaudeRefineBridge
     var pdfThumbnails: [Int: CGImage] = [:]
     /// The newest receipt shows its summary; older ones fold to an icon, so the thread doesn't
     /// repeat “Sent screen …” under every answer.
@@ -1236,6 +1239,12 @@ private struct AskClaudeThreadRow: View, Equatable {
             ruleCard(card)
         case .settings(let card):
             AskClaudeSettingCardView(itemID: item.id, card: card, bridge: settingsBridge, accent: accent, hue: hue)
+        case .tryAnother(let line):
+            Label(line.text, systemImage: "arrow.triangle.2.circlepath")
+                .scaledFont(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .refine(let card):
+            AskClaudeRefineCardView(itemID: item.id, card: card, bridge: refineBridge, accent: accent, hue: hue, isRunning: isRunning)
         case .pdf(let card):
             AskClaudePDFCardView(itemID: item.id, card: card, bridge: pdfBridge, accent: accent, hue: hue,
                                  isRunning: isRunning, thumbnails: pdfThumbnails)

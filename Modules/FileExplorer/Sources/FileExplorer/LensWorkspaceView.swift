@@ -368,6 +368,13 @@ public struct LensWorkspaceView: View {
     /// withholds the "Refine with Claude…" invitation, the honest outcome for a host with no
     /// Settings to open.
     private let onConfigureCloudRefine: (() -> Void)?
+    /// Refine's click: opens its plan in the Ask Claude chat, where Send is (TE335). nil (a host with
+    /// no chat) runs the pass here in one go, as before.
+    private let onRefineInChat: (([FilingSuggestion]) -> Void)?
+    /// Opens Settings ▸ Ask Claude ▸ Key & Spending, for a limit Refine Names would pass.
+    private let onChangeLimit: (() -> Void)?
+    /// The way from Organize's refined results to the chat card that holds the pass.
+    private let refineChatLink: LensRefineChatLink?
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
     /// Applies whole folder rename plans. Takes the plans explicitly for the same reason
@@ -467,6 +474,9 @@ public struct LensWorkspaceView: View {
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
         onUpdateFolderMemory: (() -> Void)? = nil,
         onConfigureCloudRefine: (() -> Void)? = nil,
+        onRefineInChat: (([FilingSuggestion]) -> Void)? = nil,
+        refineChatLink: LensRefineChatLink? = nil,
+        onChangeLimit: (() -> Void)? = nil,
         onOpenHelp: ((String) -> Void)? = nil,
         restructureVerbRequest: Binding<RestructureVerbRequest?> = .constant(nil),
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
@@ -521,6 +531,9 @@ public struct LensWorkspaceView: View {
         self.onOpenHelp = onOpenHelp
         self._restructureVerbRequest = restructureVerbRequest
         self.onConfigureCloudRefine = onConfigureCloudRefine
+        self.onRefineInChat = onRefineInChat
+        self.refineChatLink = refineChatLink
+        self.onChangeLimit = onChangeLimit
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
@@ -1924,6 +1937,7 @@ public struct LensWorkspaceView: View {
                     // While a pass runs the button is its Stop: it ends the request and keeps what
                     // had arrived.
                     if syncManager.isRefiningFilingSuggestions { syncManager.stopFilingRefine() }
+                    else if let onRefineInChat { onRefineInChat(scope) }
                     else { refineFilingSuggestions(scope) }
                 } label: {
                     if syncManager.isRefiningFilingSuggestions {
@@ -1958,8 +1972,8 @@ public struct LensWorkspaceView: View {
             .buttonStyle(.bordered)
             .chromeHover()
             .controlSize(.small)
-            .help("These suggestions came from the free on-device pass. Set up Claude in "
-                  + "Settings ▸ Organize to re-ask a stronger model about them — billed to your "
+            .help("These suggestions came from the free on-device pass. Add your Claude key in the "
+                  + "Ask Claude panel to re-ask a stronger model about them — billed to your "
                   + "own API key, and never used by a scan.")
         }
     }
@@ -1976,10 +1990,10 @@ public struct LensWorkspaceView: View {
         let model = refineModelName
         let files = count == 1 ? "1 suggestion" : "\(count) suggestions"
         let scope = isFiltered ? " — the ones your search left showing" : ""
-        return "Re-asks Claude (\(model)) about \(files)\(scope). This one is billed to your API "
-            + "key; you’ll see an estimate first. Suggestions your own rules steered are left "
-            + "alone, files hidden from Claude aren’t sent, and files already answered by this "
-            + "model aren’t sent again."
+        return "Opens a plan in the Ask Claude chat for \(files)\(scope), to ask Claude (\(model)) about them. "
+            + "It is billed to your API key, and the plan shows what goes and what it costs; nothing is "
+            + "sent until you click Send. Suggestions your own rules steered are left alone, files "
+            + "hidden from Claude aren’t sent, and files already answered aren’t sent again."
     }
 
     /// The disabled Refine button's tooltip when every file listed is hidden from Claude.
@@ -2323,6 +2337,18 @@ public struct LensWorkspaceView: View {
                 SummaryRun(count: refine.changed, label: "refined", color: glassHue.accentColor,
                            systemImage: "sparkles")
                     .help(Self.refineHelp(refine))
+                // Undo is here as well as on the chat's card: the chat restarts after an hour, and
+                // Organize's own results are where the pass is felt (TE335).
+                if syncManager.canUndoFilingRefine {
+                    Button("Undo Refine") { syncManager.undoFilingRefine() }
+                        .buttonStyle(.link).controlSize(.small)
+                        .help("Puts back the on-device suggestions this Refine replaced. Homes you chose since stay as you chose them.")
+                }
+                if let link = refineChatLink, link.isAvailable() {
+                    Button("In Chat ↗") { link.show() }
+                        .buttonStyle(.link).controlSize(.small)
+                        .help("Shows this Refine’s answers in the Ask Claude chat.")
+                }
             }
         }
     }
@@ -3343,6 +3369,8 @@ public struct LensWorkspaceView: View {
                 onRefineMapping: { await syncManager.refineMapping($0, under: Self.planDiskRoot(profile.root).path) },
                 refineOffered: syncManager.filingCloudRefineAvailable,
                 refineModelLabel: refineModelName,
+                refineQuote: { syncManager.mappingRefineQuote(for: $0) },
+                onChangeLimit: onChangeLimit,
                 onConfigureRefine: onConfigureCloudRefine,
                 // Straight from the manager: the checklist shows only stages the engine actually
                 // reached, and clears itself when the landing ends either way.
@@ -4451,6 +4479,10 @@ public struct LensWorkspaceView: View {
             },
             onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
+            tryAnotherNote: syncManager.filingTryAnotherNotes[suggestion.filePath],
+            onAskClaudeWithPage: syncManager.filingTryAnotherNotes[suggestion.filePath]?.offersClaudeWithPage == true
+                && syncManager.canAskClaudeWithPage(suggestion)
+                ? { Task { await syncManager.tryAnotherFolder(for: suggestion, askingClaudeWithPage: true) } } : nil,
             isTryAnotherBusy: syncManager.filingTryAnotherInFlight.keys.contains(suggestion.id),
             // Offered only for files the scan read and got nothing from; see
             // `FileSyncManager.readScan(for:)` for why it is an offer, not a scan step.
@@ -4972,5 +5004,17 @@ private struct ReclaimPill: View {
             glow = 1
             withAnimation(.easeOut(duration: 1.0)) { glow = 0 }
         }
+    }
+}
+
+
+/// Where Organize's refined results link to: the Ask Claude chat card that holds the pass. Shown only
+/// while a chat holds one (the chat restarts after an hour; the results and Undo stay).
+public struct LensRefineChatLink {
+    public var isAvailable: () -> Bool
+    public var show: () -> Void
+    public init(isAvailable: @escaping () -> Bool, show: @escaping () -> Void) {
+        self.isAvailable = isAvailable
+        self.show = show
     }
 }

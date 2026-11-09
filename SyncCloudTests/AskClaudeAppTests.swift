@@ -3818,3 +3818,200 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(kept.correction.rule == card.rule && kept.correction.kind == .new)
     }
 }
+
+/// Refine's cards in the chat (TE335, C2): kept with the chat, one open plan per source, and a card
+/// that comes back from a saved chat cannot send.
+@MainActor
+@Suite struct AskClaudeRefineCardsInChatTests {
+
+    private func defaults(_ test: String = #function) -> UserDefaults {
+        ScratchDefaults("AskClaudeRefineCardsInChatTests." + test.prefix { $0 != "(" })
+    }
+
+    private func card(_ source: String = "Cloud Drive", planned: Bool = true) -> AskClaudeRefineCard {
+        var plan = AskClaudeRefineCard.Plan()
+        plan.eligible = 4; plan.toSend = 4; plan.modelName = "Opus 5.5"; plan.costUSD = 0.04
+        var card = AskClaudeRefineCard(sourceName: source, plan: plan, phase: .planned)
+        card.planID = planned ? UUID() : nil
+        return card
+    }
+
+    private func store() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeRefineCards-\(UUID().uuidString)/chat.json")
+    }
+
+    @Test func aCardIsAddedAsOneItemAndFoundAgain() throws {
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: defaults())
+        let id = chat.addRefineCard(card())
+        #expect(chat.items.count == 1 && chat.refineCard(id)?.sourceName == "Cloud Drive")
+        chat.updateRefine(id) { $0.plan.ticked = true }
+        #expect(chat.refineCard(id)?.plan.ticked == true)
+        #expect(chat.refineCard(UUID()) == nil)
+    }
+
+    @Test func aNewPlanForTheSameSourceReplacesTheWaitingOne() throws {
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: defaults())
+        let first = chat.addRefineCard(card("Cloud Drive"))
+        let other = chat.addRefineCard(card("Backup Drive"))
+        let second = chat.addRefineCard(card("Cloud Drive"))
+
+        #expect(chat.refineCard(first)?.phase == .replaced && chat.refineCard(first)?.canSend == false,
+                "the older plan can no longer send")
+        #expect(chat.refineCard(first)?.closedLine == "Replaced by a newer plan. Nothing was sent.")
+        #expect(chat.refineCard(other)?.phase == .planned, "another source's plan is its own")
+        #expect(chat.refineCard(second)?.phase == .planned)
+    }
+
+    @Test func aPlanThatWasAlreadySentIsNotReplacedByTheNextOne() throws {
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: defaults())
+        let first = chat.addRefineCard(card())
+        chat.updateRefine(first) { $0.phase = .done }
+        _ = chat.addRefineCard(card())
+        #expect(chat.refineCard(first)?.phase == .done, "answers stay answers")
+    }
+
+    @Test func aSavedChatBringsAWaitingCardBackExpiredAndAnAnsweredOneBackAsItWas() throws {
+        let d = defaults()
+        let url = store()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: url)
+        let waiting = chat.addRefineCard(card("Cloud Drive"))
+        let sending = chat.addRefineCard(card("Backup Drive"))
+        chat.updateRefine(sending) { $0.phase = .sending(answered: 1) }
+        let done = chat.addRefineCard(card("Third Drive"))
+        chat.updateRefine(done) { $0.phase = .done; $0.answers = .init() }
+
+        let back = makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: url)
+        #expect(back.refineCard(waiting)?.phase == .expired && back.refineCard(waiting)?.canSend == false)
+        #expect(back.refineCard(sending)?.phase == .expired, "the request ended with the app")
+        #expect(back.refineCard(done)?.phase == .done)
+    }
+
+    @Test func aCardKindThisBuildDoesNotKnowCostsANoteNotTheChat() throws {
+        // What an older build does with the card: its chat decodes, the card is a note. Shown here by
+        // decoding a chat whose item has a kind nothing knows, which is what the older build sees.
+        let item = AskClaudeChat.Item(kind: .refine(card()))
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any])
+        json["kind"] = ["refineFromTheFuture": ["_0": ["x": 1]]]
+        let data = try JSONSerialization.data(withJSONObject: [json, json])
+        struct Wrapper: Decodable { let items: AskClaudeChat.TolerantItems }
+        let wrapped = try JSONDecoder().decode(Wrapper.self, from: Data(#"{"items":"#.utf8) + data + Data("}".utf8))
+        #expect(wrapped.items.items.count == 1)
+        if case .note(let text)? = wrapped.items.items.first?.kind {
+            #expect(text == AskClaudeChat.TolerantItems.unreadableNote)
+        } else { Issue.record("not a note") }
+    }
+
+    @Test func tryAnotherKeepsOneRunningLineMovedToTheBottomAsItUpdates() throws {
+        let d = defaults()
+        let url = store()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: url)
+        func report(_ name: String, _ outcome: FilingTryAnotherReport.Outcome = .answered) -> FilingTryAnotherReport {
+            FilingTryAnotherReport(fileName: name, outcome: outcome, costUSD: 0.01, modelName: "Opus 5.5")
+        }
+        chat.noteTryAnother(report("a.pdf"))
+        chat.addNote("A note in between.")
+        #expect(chat.items.count == 2)
+        chat.noteTryAnother(report("b.pdf", .failed))
+
+        #expect(chat.items.count == 2, "one line, however many requests")
+        guard case .tryAnother(let line)? = chat.items.last?.kind else { Issue.record("the line is not last"); return }
+        #expect(line.text == "Try Another · 2 files · 2 requests, 1 failed · 2¢ this hour · Opus 5.5")
+
+        let back = makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: url)
+        guard case .tryAnother(let kept)? = back.items.last?.kind else { Issue.record("not kept"); return }
+        #expect(kept == line, "the line is kept with the chat")
+        #expect(!AskClaudeChat.lasts(.tryAnother(line)), "and goes with it")
+    }
+
+    /// Refine's card is not one of the cards that outlive a new chat: the answers stay on Organize's
+    /// cards, and the chat is free to start over.
+    @Test func aRefineCardDoesNotOutliveItsChat() {
+        #expect(!AskClaudeChat.lasts(.refine(card())))
+        var done = card(); done.phase = .done
+        #expect(!AskClaudeChat.lasts(.refine(done)))
+    }
+}
+
+/// The Refine card at the panel's narrowest, in each state it can be in.
+@MainActor
+@Suite struct AskClaudeRefineCardFitTests {
+
+    private func plan(_ configure: (inout AskClaudeRefineCard.Plan) -> Void = { _ in }) -> AskClaudeRefineCard.Plan {
+        var plan = AskClaudeRefineCard.Plan()
+        plan.eligible = 8; plan.toSend = 6; plan.reused = 2; plan.hidden = 1; plan.downloads = 2
+        plan.folderNames = 238; plan.pagesShared = 2; plan.pagesWaiting = 4; plan.waitingForPage = 2
+        plan.modelName = "Opus 5.5"; plan.costUSD = 0.05; plan.spentUSD = 3.12; plan.limitUSD = 25
+        plan.tickGainFiles = 2; plan.tickGainCostUSD = 0.01
+        configure(&plan)
+        return plan
+    }
+
+    private func answers() -> AskClaudeRefineCard.Answers {
+        var a = AskClaudeRefineCard.Answers()
+        a.rows = (0..<8).map { .init(path: "/r/Boarding pass to Porto number \($0).pdf", name: "Boarding pass to Porto number \($0).pdf",
+                                     before: "Receipts/2026/Quarter 2", after: "Work/Invoices/Clients/Northwind/2026", reason: "Page 1 is an invoice to Northwind Ltd, due 30 April") }
+        a.asked = 8; a.sent = 6; a.answered = 6; a.reused = 2; a.hidden = 1; a.pagesSent = 6; a.folderNames = 238
+        a.requests = 1; a.costUSD = 0.05; a.modelName = "Opus 5.5"
+        return a
+    }
+
+    private func cards() -> [(String, AskClaudeRefineCard)] {
+        func make(_ plan: AskClaudeRefineCard.Plan, _ phase: AskClaudeRefineCard.Phase = .planned, answers: AskClaudeRefineCard.Answers? = nil,
+                  notice: String? = nil) -> AskClaudeRefineCard {
+            var card = AskClaudeRefineCard(sourceName: "Cloud Drive Backup", plan: plan, phase: phase, answers: answers)
+            card.planID = phase == .planned ? UUID() : nil
+            card.notice = notice
+            return card
+        }
+        var failed = answers(); failed.ending = .failed("The connection dropped."); failed.answered = 4
+        var stopped = answers(); stopped.ending = .stopped; stopped.answered = 3
+        return [
+            ("plan", make(plan())),
+            ("ticked", make(plan { $0.ticked = true; $0.pagesAskEachTime = 4; $0.pagesWaiting = 0; $0.waitingForPage = 0; $0.tickGainFiles = nil })),
+            ("big", make(plan { $0.eligible = 212; $0.toSend = 150; $0.keptForNextPress = 62 })),
+            ("limit", make(plan { $0.exceedsLimit = true; $0.spentUSD = 24.97; $0.fits = 3 })),
+            ("limit-none-fit", make(plan { $0.exceedsLimit = true; $0.spentUSD = 24.999; $0.fits = 0 })),
+            ("nothing-new", make(plan { $0.toSend = 0; $0.waitingForPage = 0; $0.pagesWaiting = 0 })),
+            ("blocked", make(plan { $0.blocked = true; $0.modelName = "A Model With A Rather Long Name 5.5" })),
+            ("notice", make(plan(), notice: "Something changed since this plan (the list, a folder hidden from Claude, or the price), so it was quoted again. Nothing was sent.")),
+            ("sending", make(plan(), .sending(answered: 3))),
+            ("answers", make(plan(), .done, answers: answers())),
+            ("failed", make(plan(), .done, answers: failed)),
+            ("stopped", make(plan(), .done, answers: stopped)),
+            ("expired", make(plan(), .expired)),
+            ("closed", make(plan(), .closed)),
+        ]
+    }
+
+    private func host(_ card: AskClaudeRefineCard, width: CGFloat) -> NSHostingController<AskClaudeRefineCardView> {
+        NSHostingController(rootView: AskClaudeRefineCardView(itemID: UUID(), card: card, bridge: AskClaudeRefineBridge(), accent: .blue, hue: .blue))
+    }
+
+    @Test func everyStateFitsTheNarrowestPanel() {
+        for (name, card) in cards() {
+            let size = host(card, width: 240).sizeThatFits(in: CGSize(width: 240, height: 4_000))
+            #expect(size.width <= 240, "\(name) asks for \(size.width) pt of 240")
+            #expect(size.height > 20, "\(name) drew nothing")
+        }
+    }
+
+    /// Pictures of each state, for looking at: written beside the other test output when
+    /// `ASK_CLAUDE_CARD_SHOTS` names a folder. Nothing is asserted about them.
+    @Test func eachStateDrawsSomething() throws {
+        for (name, card) in cards() {
+            let controller = host(card, width: 300)
+            let size = controller.sizeThatFits(in: CGSize(width: 300, height: 4_000))
+            controller.view.frame = CGRect(origin: .zero, size: size)
+            controller.view.layoutSubtreeIfNeeded()
+            let rep = try #require(controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds))
+            controller.view.cacheDisplay(in: controller.view.bounds, to: rep)
+            if let folder = ProcessInfo.processInfo.environment["ASK_CLAUDE_CARD_SHOTS"],
+               let png = rep.representation(using: .png, properties: [:]) {
+                try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+                try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("refine-\(name).png"))
+            }
+        }
+    }
+}

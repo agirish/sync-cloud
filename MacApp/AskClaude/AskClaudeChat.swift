@@ -65,6 +65,12 @@ final class AskClaudeChat: ObservableObject {
             case found(AskClaudeFoundNames)
             /// Every file one question read, on one card.
             case reads(AskClaudeReadGroup)
+            /// Organize's Refine as a card: the plan waiting for Send, the request, the answers
+            /// (TE335). A chat from before this build shows a note where one would be; a build
+            /// that holds one and meets it cold shows it as out of date.
+            case refine(AskClaudeRefineCard)
+            /// Try Another's running line for the hour, kept at the bottom as it updates.
+            case tryAnother(AskClaudeTryAnotherLine)
         }
         var id = UUID()
         var kind: Kind
@@ -413,6 +419,16 @@ final class AskClaudeChat: ObservableObject {
     /// The card buttons being pressed now, so a second click while one runs does nothing.
     var pressing: Set<String> = []
 
+    /// Told when the key changes, for the Refine that waited for one (TE335, LU-A).
+    var onKeyChanged: (() -> Void)?
+    /// Organize's Refine, pressed with no key: the files it was about, until the key is saved and its
+    /// plan card appears. In memory only.
+    var pendingRefine: (source: String, paths: [String])?
+
+    /// The files each Refine card was made for, by card. In memory only: a plan does not outlive the
+    /// app, and a card that comes back from a saved chat cannot send.
+    var refineScopes: [UUID: [String]] = [:]
+
     /// Holds back a message with an API key in it, putting a card in its place.
     /// - Returns: Whether it held the message back.
     func catchKey(_ message: String) -> Bool {
@@ -540,6 +556,7 @@ final class AskClaudeChat: ObservableObject {
             MainActor.assumeIsolated {
                 self?.cachedKey = nil
                 self?.keyChanges += 1
+                self?.onKeyChanged?()
             }
         }
     }
@@ -628,6 +645,9 @@ final class AskClaudeChat: ObservableObject {
             // Read again before the button wakes: the files may have changed since.
             card.state = .checking
             item.kind = .pdf(card)
+        case .refine(let card):
+            // The plan it waited on, or the request it ran, ended with the app: it cannot send now.
+            item.kind = .refine(card.restored)
         case .plan(var plan) where plan.state == .applying:
             // The app quit while it applied: what ran is on disk, and its Undo went with the app.
             plan.state = .partlyApplied
@@ -1219,6 +1239,62 @@ final class AskClaudeChat: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }), case .plan(var plan) = items[index].kind else { return }
         change(&plan)
         items[index].kind = .plan(plan)
+        if !isRunning { save() }
+    }
+
+    // MARK: Refine cards (TE335)
+
+    /// Puts a Refine plan in the thread. A plan still waiting for the same source is replaced by
+    /// it, and says so: one plan is open per source, and the older one could no longer send.
+    @discardableResult
+    func addRefineCard(_ card: AskClaudeRefineCard) -> UUID {
+        for index in items.indices {
+            guard case .refine(var old) = items[index].kind, old.sourceName == card.sourceName,
+                  case .planned = old.phase else { continue }
+            old.phase = .replaced
+            old.planID = nil
+            items[index].kind = .refine(old)
+        }
+        streamingItem = nil
+        let item = Item(kind: .refine(card))
+        items.append(item)
+        lastActivity = now()
+        if !isRunning { save() }
+        return item.id
+    }
+
+    /// Adds one Try Another that reached Claude to its running line: updated in place, and moved to the
+    /// bottom so it is not lost up the thread, except while a question is streaming, whose own item
+    /// must stay last.
+    func noteTryAnother(_ report: FilingTryAnotherReport) {
+        if let index = items.firstIndex(where: { if case .tryAnother = $0.kind { true } else { false } }),
+           case .tryAnother(var line) = items[index].kind {
+            line.add(report)
+            items[index].kind = .tryAnother(line)
+            if !isRunning, index != items.count - 1 {
+                let item = items.remove(at: index)
+                items.append(item)
+            }
+        } else {
+            var line = AskClaudeTryAnotherLine()
+            line.add(report)
+            items.append(Item(kind: .tryAnother(line)))
+        }
+        lastActivity = now()
+        if !isRunning { save() }
+    }
+
+    func refineCard(_ id: UUID) -> AskClaudeRefineCard? {
+        guard let item = items.first(where: { $0.id == id }), case .refine(let card) = item.kind else { return nil }
+        return card
+    }
+
+    /// Changes the Refine card `id` in place: a tick, the request's progress, how it ended.
+    func updateRefine(_ id: UUID, _ change: (inout AskClaudeRefineCard) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .refine(var card) = items[index].kind else { return }
+        change(&card)
+        items[index].kind = .refine(card)
+        lastActivity = now()
         if !isRunning { save() }
     }
 

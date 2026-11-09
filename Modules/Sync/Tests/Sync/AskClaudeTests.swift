@@ -900,6 +900,18 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(AskClaudeEngine.isCurrent(setting: "claude-opus-5-5|detailed|" + AskClaudeRequest.fixedDigest))
     }
 
+    /// Refine is Organize's, and Send is the person's click (TE335, KE): the system text says Claude cannot
+    /// press it and must not call a suggestion moved before it is filed. It moved the digest once, so a
+    /// chat saved before this build starts over once.
+    @Test func theSystemTextSaysRefineIsASeparateRequestWhoseSendIsAClick() {
+        let text = AskClaudeRequest.systemText
+        #expect(text.contains("Organize’s Refine with Claude is a separate request that SyncCloud makes itself"))
+        #expect(text.contains("You can’t start it, send it or change it"))
+        #expect(text.contains("saying “go ahead” doesn’t send it"))
+        #expect(text.contains("say a suggestion moved only after they File it in Organize"))
+        #expect(!AskClaudeEngine.isCurrent(setting: "claude-sonnet-5-5|brief|0123456789ab"), "an older chat starts over")
+    }
+
     @Test func theStyleLinesStartOnTheirOwnLine() throws {
         let body = AskClaudeRequest.body(model: AskClaudeModels.sonnet, messages: [])
         let system = try #require(body["system"]?.arrayValue?.first?["text"]?.stringValue)

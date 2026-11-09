@@ -57,6 +57,11 @@ struct RestructurePlanSheet: View {
     /// The model the button names, resolved the way the transport resolves it so the button
     /// cannot name one model and send another.
     var refineModelLabel: String = "Claude"
+    /// The price of asking, shown beside the button where the dialog used to be (TE335): the chat's
+    /// model, what it would cost, and this month against Ask Claude's limit. nil when it cannot run.
+    var refineQuote: ((MappingRefineRequest) -> FileSyncManager.MappingRefineQuote?)?
+    /// Opens Ask Claude's Key & Spending page, for a limit that would be passed.
+    var onChangeLimit: (() -> Void)?
     /// Opens Settings on the key row — the invitation's action.
     var onConfigureRefine: (() -> Void)?
     /// Where the landing has got to while it runs, nil otherwise. Straight from the manager's
@@ -809,9 +814,37 @@ struct RestructurePlanSheet: View {
 
     // MARK: - 2b. Refine with Claude (§5.6)
 
+    /// The price beside the button, and why it is off when it is: over the limit, or no price for the
+    /// model. Never a dead end: Change Limit… is here.
+    @ViewBuilder
+    private func refinePriceLine(_ quote: FileSyncManager.MappingRefineQuote?) -> some View {
+        if let quote {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("≈ \(AskClaudeSpend.format(quote.costUSD)) on \(quote.modelName), the chat’s model"
+                     + (quote.limitUSD > 0 ? " · this month \(AskClaudeSpend.format(quote.spentUSD)) of \(AskClaudeSpend.format(quote.limitUSD))" : ""))
+                    .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if quote.exceedsLimit {
+                    HStack(spacing: 8) {
+                        Text("This would pass your monthly limit. Raise it, or wait for the month to turn.")
+                            .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let onChangeLimit { Button("Change Limit…", action: onChangeLimit).controlSize(.small) }
+                    }
+                }
+            }
+        } else if refineQuote != nil {
+            Text("Refine Names isn’t available on \(refineModelLabel): no price is known for it, so the cost can’t be checked. "
+                 + "Switch the chat to another model in the Ask Claude panel.")
+                .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     @ViewBuilder
     private var refineSection: some View {
         if onRefineMapping != nil {
+            let quote = refineQuote?(refineRequest())
             VStack(alignment: .leading, spacing: 6) {
                 if refineOffered {
                     HStack(spacing: 10) {
@@ -828,7 +861,7 @@ struct RestructurePlanSheet: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(rows.isEmpty)
+                        .disabled(rows.isEmpty || (!refining && quote?.exceedsLimit == true) || (!refining && refineQuote != nil && quote == nil))
                         .help(refining
                               ? "Stop waiting for the answer — a request already sent may still bill"
                               : "Send these folder names to \(refineModelLabel) for proposed names — "
@@ -840,6 +873,7 @@ struct RestructurePlanSheet: View {
                             .help("Also send up to 5 file names from each folder, so the model can "
                                   + "see what’s inside. File contents are never sent.")
                     }
+                    refinePriceLine(quote)
                     // The itemised payload disclosure, at the button rather than behind it; the
                     // toggle's clause appears only when the toggle is on.
                     Text(Self.payloadDisclosure(includesFileNames: includeFileSamples,
@@ -969,9 +1003,9 @@ struct RestructurePlanSheet: View {
             switch outcome {
             case .proposals(let result):
                 proposals = result
-            case .declined:
-                // Their choice, not a failure — "check your key" would be the wrong sentence.
-                refineFailedText = "Declined at the estimate — nothing was sent."
+            case .overLimit:
+                refineFailedText = "Nothing was sent — it would pass your monthly Claude limit. "
+                    + "Raise it in Settings ▸ Ask Claude, or wait for the month to turn."
             case .hiddenFromClaude:
                 refineFailedText = "Nothing was sent — part of this family is hidden from Claude."
             case .unavailable:

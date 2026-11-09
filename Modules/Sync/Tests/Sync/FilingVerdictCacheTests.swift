@@ -263,6 +263,8 @@ private final class Quotes: @unchecked Sendable {
                          identity: String = "test-model",
                          refineIdentity: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
+        // The single-call pass asks this where the app's plan card has a Send (TE335); these tests are the click.
+        m.filingCloudSpendConfirmer = { _ in true }
         m.filingVerdictCacheURL = url
         m.filingBackendIdentity = { tier in tier == .refine ? (refineIdentity ?? identity) : identity }
         m.filingClassifier = { _, files, _ in

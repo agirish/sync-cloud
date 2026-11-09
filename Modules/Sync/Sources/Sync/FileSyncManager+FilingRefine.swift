@@ -142,9 +142,11 @@ extension FileSyncManager {
     /// Re-asks the preferred backend about `scope`, and republishes the list with whatever it
     /// improves. Returns what it did, or nil when it declined to run at all.
     ///
-    /// This is the whole pass in one go: build the request, put today's spend dialog in front of it,
-    /// send it. The same three halves are also exposed apart, as ``prepareFilingRefine(_:)`` and
-    /// ``sendFilingRefine(_:scope:)``, for a plan that waits for a click (TE335).
+    /// This is the whole pass in one go: build the request, ask ``filingCloudSpendConfirmer`` (which
+    /// stands in for the plan card's Send where there is no chat), send it. **The app does not use
+    /// this for Refine** (TE335): its click is Send on the plan card in the Ask Claude chat, through
+    /// ``prepareFilingRefine(_:options:)`` and ``sendFilingRefine(_:scope:)``. This stays for hosts
+    /// with no card and for tests.
     ///
     /// Mirrors the scan's phase 3 (cache split, snippets, spend pre-flight, classify, record,
     /// apply), with three differences from running against a list already on screen:
@@ -156,7 +158,8 @@ extension FileSyncManager {
     /// - A stale result is dropped, not applied: if a rescan republished meanwhile, the cards on
     ///   screen belong to that scan, and these verdicts are about the previous list.
     @discardableResult
-    public func refineFilingSuggestions(_ scope: [FilingSuggestion]) async -> FilingRefineSummary? {
+    public func refineFilingSuggestions(_ scope: [FilingSuggestion],
+                                        options: FilingRefineOptions = FilingRefineOptions()) async -> FilingRefineSummary? {
         guard canRefineFilingSuggestions, let classifier = filingClassifier,
               let root = filingLastProviderRoot else { return nil }
         let eligible = filingSuggestionsEligibleForRefine(scope)
@@ -183,7 +186,7 @@ extension FileSyncManager {
             if filingRefineInFlight == invocation { filingRefineInFlight = nil }
         }
         guard let work = await buildRefineWork(eligible: eligible, hiddenCount: hiddenCount, root: root,
-                                               classifier: classifier) else { return nil }
+                                               classifier: classifier, options: options) else { return nil }
         // Whether the pass was declined, not just whether it ran. `cloudSpendAllows` returns false
         // for both refusals (Cancel, and the over-cap dialog whose only button is "Use On-Device
         // Instead"), which downstream would look like "nothing to send", and a user who declined
@@ -218,16 +221,48 @@ extension FileSyncManager {
         let context: FilingContext
         /// The request from a set of pages: built again once cloud-only files are downloaded.
         let request: @MainActor ([String: String]) -> Request
+        /// What the plan card was told it could choose, and what the choice left out.
+        let options: FilingRefineOptions
+        let facts: RefineFacts
+        /// The same pass with the tick on: priced for the card's "what the tick buys". nil when it
+        /// is the pass already.
+        let tickedAlternative: (files: [FilingCandidateFile], context: FilingContext, cloudOnly: Int)?
+    }
+
+    /// What a pass sends beyond names, counted for the plan card.
+    struct RefineFacts: Sendable, Equatable {
+        /// Files whose page 1 goes because their folder is shared without asking.
+        var pagesShared = 0
+        /// Files in folders that ask each time whose page 1 goes: the tick is on.
+        var pagesAskEachTime = 0
+        /// Files in folders that ask each time that have a page to send and whose page waits for the tick.
+        var pagesWaiting = 0
+        /// Files left out until the tick, because their home was read from their text and a
+        /// verdict from the name alone would be refused.
+        var waitingForPage = 0
+        /// Folder names that go, and names left out by Customize….
+        var folderNames = 0
+        var folderNamesLeftOut = 0
+        /// Files the request cap or "Send the N that fit" kept for the next press.
+        var keptForNextPress = 0
     }
 
     /// Everything up to the price: the hidden list, the snapshot the answers are read against, the
     /// rejections, the cache split, the pages, and the request. Sends and downloads nothing. nil
     /// when it was cancelled.
     func buildRefineWork(eligible: [FilingSuggestion], hiddenCount: Int, root: String,
-                         classifier: @escaping FilingClassifier) async -> RefineWork? {
+                         classifier: @escaping FilingClassifier,
+                         options: FilingRefineOptions = FilingRefineOptions()) async -> RefineWork? {
         // Once per pass: the matcher resolves each parent folder once and keeps it.
         let hidden = claudeHiddenMatcher()
-        func shown(_ relative: String) -> Bool { Self.shownToClaude(relative, under: root, hidden: hidden) }
+        // Folders left out by Customize… on the plan card, for the session: they go nowhere, like a
+        // hidden folder's name, but the shortlists and the cache are not about a privacy list.
+        let leftOut = filingRefineLeftOutFolders
+        func shown(_ relative: String) -> Bool {
+            Self.shownToClaude(relative, under: root, hidden: hidden) && !Self.isLeftOut(relative, in: leftOut)
+        }
+        // Folders shared without asking send their files' page 1; the others wait for the tick.
+        let shared = AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: filingContentDefaults))
         // Snapshot everything the verdicts are interpreted against, where `root` was validated. A
         // scan of another provider during the round-trip swaps these; read live afterwards they
         // would mark segments new against the wrong tree, and the "creates N new folders"
@@ -236,7 +271,8 @@ extension FileSyncManager {
         let allTaxonomyFolders = filingLastTaxonomyFolders
         let existingRelative = filingLastExistingFolders.isEmpty
             ? Set(allTaxonomyFolders) : filingLastExistingFolders
-        let taxonomyFolders = hidden.isEmpty ? allTaxonomyFolders : allTaxonomyFolders.filter(shown)
+        let taxonomyFolders = hidden.isEmpty && leftOut.isEmpty ? allTaxonomyFolders : allTaxonomyFolders.filter(shown)
+        let folderNamesLeftOut = allTaxonomyFolders.count - taxonomyFolders.count
         let preAwaitGeneration = filingSuggestionsGeneration
 
         // Rejections as the scan builds them: persisted (token-keyed) plus this session's
@@ -255,6 +291,11 @@ extension FileSyncManager {
         let identity = resolvedFilingVerdictIdentity(for: .refine)
         let downloadsBeforeAsking = filingReadsContents && filingSnippetExtractor != nil
             && filingRoutesToCloud(.refine)
+        let hadReader = filingReadsContents && filingSnippetExtractor != nil
+        func isShared(_ s: FilingSuggestion) -> Bool { shared.holds(s.filePath) }
+        /// Whether this file's page 1 would go with its name: its folder is shared without asking,
+        /// or the tick is on.
+        func pageGoes(_ s: FilingSuggestion, ticked: Bool) -> Bool { isShared(s) || ticked }
         var keysByFile: [String: FilingVerdictKey] = [:]
         var cachedVerdicts: [String: FilingVerdict] = [:]
         var misses = eligible
@@ -275,7 +316,8 @@ extension FileSyncManager {
                     filePath: s.filePath, modificationDate: s.modificationDate, size: s.size,
                     model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                     excludedRelativePaths: excludedByFile[s.filePath] ?? [],
-                    artifacts: artifacts, pageSent: downloadsBeforeAsking) else {
+                    artifacts: artifacts,
+                    pageSent: downloadsBeforeAsking && pageGoes(s, ticked: options.pagesFromAskEachTime)) else {
                     misses.append(s)
                     continue
                 }
@@ -283,7 +325,9 @@ extension FileSyncManager {
                 // A cloud-only file's cached answer came from its name alone; this pass is about to
                 // read it, so it is asked again.
                 var hit: FilingVerdict?
-                if !(downloadsBeforeAsking && filingNotDownloaded.contains(s.filePath)) {
+                // "Ask again": the saved answers are not looked at, so every file is asked.
+                if !options.askAgain,
+                   !(key.pageSent && filingNotDownloaded.contains(s.filePath)) {
                     hit = cache.verdict(for: key, providerRoot: root, existingRelative: existingRelative)
                     // An answer given with the page also answers a pass that would send the name
                     // alone; the reverse is not true.
@@ -318,16 +362,35 @@ extension FileSyncManager {
             snippets = await Self.extractSnippets(for: misses.map { $0.filePath }, using: extractor)
             if Task.isCancelled { return nil }
         }
+        // Who goes. With the tick off, a file in a folder that asks each time goes by name alone,
+        // and one whose home was read from its text waits: a verdict from the name alone is one the
+        // overlay refuses for it (`contentBlind`), a paid answer that changes nothing.
+        func waits(_ s: FilingSuggestion, ticked: Bool) -> Bool {
+            hadReader && !ticked && !isShared(s) && s.best?.fromContent == true
+        }
+        /// The files a pass would send, in order, then cut to what one request carries and to the
+        /// "N that fit" the card offered.
+        func sendList(ticked: Bool) -> (send: [FilingSuggestion], waiting: Int, kept: Int) {
+            let ready = misses.filter { !waits($0, ticked: ticked) }
+            let cap = min(options.limitTo ?? .max, CloudFilingRefiner.maxFiles)
+            let send = Array(ready.prefix(cap))
+            return (send, misses.count - ready.count, ready.count - send.count)
+        }
+        let chosen = sendList(ticked: options.pagesFromAskEachTime)
+        let sending = chosen.send
         /// The request this pass would send, from the pages in hand. Built twice when cloud-only
         /// files are downloaded after the price is agreed.
-        func request(_ snippets: [String: String]) -> (files: [FilingCandidateFile],
-                                                       shortlists: [String: [String]],
-                                                       context: FilingContext) {
-            let files = misses.map { s in
+        func request(_ snippets: [String: String], ticked: Bool? = nil,
+                     list: [FilingSuggestion]? = nil) -> (files: [FilingCandidateFile],
+                                                          shortlists: [String: [String]],
+                                                          context: FilingContext) {
+            let ticked = ticked ?? options.pagesFromAskEachTime
+            let inRequest = list ?? sending
+            let files = inRequest.map { s in
                 FilingCandidateFile(filePath: s.filePath, fileName: s.fileName,
                                     ext: (s.fileName as NSString).pathExtension.lowercased(),
                                     year: Self.modificationYear(s.modificationDate),
-                                    contentSnippet: snippets[s.filePath],
+                                    contentSnippet: pageGoes(s, ticked: ticked) ? snippets[s.filePath] : nil,
                                     excludedRelativePaths: excludedByFile[s.filePath] ?? [])
             }
 
@@ -348,8 +411,9 @@ extension FileSyncManager {
                 // opposite orders by the scan and a refine of the same file, handing the paid
                 // classifier a different menu for one question.
                 let peerNames = peerNameLookup()
-                shortlists = Dictionary(uniqueKeysWithValues: misses.map { s in
-                    let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
+                shortlists = Dictionary(uniqueKeysWithValues: inRequest.map { s in
+                    let ranked = FilingRouter.rank(fileName: s.fileName,
+                                                   contentSnippet: pageGoes(s, ticked: ticked) ? snippets[s.filePath] : nil,
                                                    index: index,
                                                    excluding: Set(excludedByFile[s.filePath] ?? []),
                                                    limit: 8)
@@ -371,20 +435,51 @@ extension FileSyncManager {
         // so a file only in iCloud would reach the model as its name alone. The quote prices their
         // first pages as though read and says how many will download; nothing is fetched before
         // the user agrees, nor when the pass isn't going to Claude at all.
-        let cloudOnly = downloadsBeforeAsking
-            ? misses.filter { filingNotDownloaded.contains($0.filePath) && snippets[$0.filePath] == nil }
-            : []
-        var priced = snippets
-        for s in cloudOnly {
-            priced[s.filePath] = String(repeating: "x ", count: CloudFilingProtocol.maxSnippetChars / 2)
+        /// Cloud-only files in `list` whose page would go, and the pages priced as though read.
+        func cloudOnlyPages(_ list: [FilingSuggestion], ticked: Bool) -> (files: [FilingSuggestion], priced: [String: String]) {
+            let files = downloadsBeforeAsking
+                ? list.filter { pageGoes($0, ticked: ticked) && filingNotDownloaded.contains($0.filePath) && snippets[$0.filePath] == nil }
+                : []
+            var priced = snippets
+            for s in files {
+                priced[s.filePath] = String(repeating: "x ", count: CloudFilingProtocol.maxSnippetChars / 2)
+            }
+            return (files, priced)
         }
+        let (cloudOnly, priced) = cloudOnlyPages(sending, ticked: options.pagesFromAskEachTime)
         let (files, shortlists, context) = request(priced)
+
+        // What the card says about the pages, counted from the same lists the request was built from.
+        let cloudOnlyPaths = Set(cloudOnly.map(\.filePath))
+        func hasPage(_ s: FilingSuggestion) -> Bool { snippets[s.filePath] != nil || cloudOnlyPaths.contains(s.filePath) }
+        var facts = RefineFacts()
+        facts.pagesShared = sending.filter { isShared($0) && hasPage($0) }.count
+        facts.pagesAskEachTime = options.pagesFromAskEachTime ? sending.filter { !isShared($0) && hasPage($0) }.count : 0
+        if !options.pagesFromAskEachTime {
+            // Pages the tick would add: those on the files that go by name, and those held back.
+            let heldBack = misses.filter { waits($0, ticked: false) }
+            facts.pagesWaiting = sending.filter { !isShared($0) && (snippets[$0.filePath] != nil || filingNotDownloaded.contains($0.filePath)) }.count
+                + heldBack.count
+        }
+        facts.waitingForPage = chosen.waiting
+        facts.folderNames = context.destinations.count
+        facts.folderNamesLeftOut = folderNamesLeftOut
+        facts.keptForNextPress = chosen.kept
+
+        var alternative: (files: [FilingCandidateFile], context: FilingContext, cloudOnly: Int)?
+        if !options.pagesFromAskEachTime, facts.pagesWaiting > 0 || facts.waitingForPage > 0 {
+            let altList = sendList(ticked: true).send
+            let (altCloudOnly, altPriced) = cloudOnlyPages(altList, ticked: true)
+            let alt = request(altPriced, ticked: true, list: altList)
+            alternative = (alt.files, alt.context, altCloudOnly.count)
+        }
         return RefineWork(root: root, classifier: classifier, eligible: eligible, hiddenCount: hiddenCount,
                           hidden: hidden, existingRelative: existingRelative,
                           preAwaitGeneration: preAwaitGeneration, excludedByFile: excludedByFile,
                           keysByFile: keysByFile, cachedVerdicts: cachedVerdicts, cloudOnly: cloudOnly,
                           snippets: snippets, files: files, shortlists: shortlists, context: context,
-                          request: { request($0) })
+                          request: { request($0) }, options: options, facts: facts,
+                          tickedAlternative: alternative)
     }
 
     /// Downloads, sends, records and applies a built pass. `declined` is the spend dialog's refusal.
@@ -479,9 +574,11 @@ extension FileSyncManager {
         // `uniqueKeysWithValues` is safe here, unlike on `scope`: this maps the manager's own
         // published list, whose ids come from a directory walk.
         let before = Dictionary(uniqueKeysWithValues: filingSuggestions.map { ($0.id, $0.best?.path) })
+        let candidatesBefore = Dictionary(uniqueKeysWithValues: filingSuggestions.map { ($0.filePath, $0.candidates) })
         // The scan's rule, as the same expression: see `FilingEngine.contentBlindFiles`.
         let contentBlind = FilingEngine.contentBlindFiles(
-            handedOver: eligible.map { $0.filePath }, read: Set(snippets.keys),
+            handedOver: eligible.map { $0.filePath },
+            read: Set(files.filter { $0.contentSnippet != nil }.map(\.filePath)),
             hadReader: filingReadsContents && filingSnippetExtractor != nil)
         // The profile and registry are passed here as on the scan, so the cross-person veto also
         // guards Refine, the pass most likely to name a confident wrong person, and one family
@@ -518,7 +615,19 @@ extension FileSyncManager {
                                                      self?.recordPersonVeto(refusal)
                                                  })
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
+        let changes: [FilingRefineReport.Change] = refined.compactMap { s in
+            guard before[s.id] != s.best?.path, let now = s.best?.path else { return nil }
+            return FilingRefineReport.Change(
+                filePath: s.filePath, fileName: s.fileName,
+                before: (before[s.id] ?? nil).flatMap { Self.relativePath($0, under: root) },
+                after: Self.relativePath(now, under: root) ?? now,
+                reason: verdicts[s.filePath]?.reason)
+        }
         publishFilingSuggestions(refined)
+        filingRefineUndo = changes.isEmpty ? nil
+            : FilingRefineUndo(generation: filingSuggestionsGeneration,
+                               before: Dictionary(uniqueKeysWithValues: changes.compactMap { c in candidatesBefore[c.filePath].map { (c.filePath, $0) } }),
+                               after: Dictionary(uniqueKeysWithValues: refined.compactMap { s in s.best.map { (s.filePath, $0.path) } }))
         // Resolved once here, so the pill's summary and the banners below can't describe the same
         // pass differently. `downgraded` outranks `declined`: the spend prompt is only reached with
         // the cloud route selected, and if that route is unreachable the pass ran on-device.
@@ -535,6 +644,24 @@ extension FileSyncManager {
                                           outcome: outcome, hiddenFromClaude: hiddenCount)
         let hiddenNote = Self.hiddenFromClaudeNote(hiddenCount)
         filingLastRefine = summary
+        let ending: FilingRefineReport.Ending
+        switch outcome {
+        case .downgraded: ending = .downgraded
+        case .declined: ending = .declined
+        default:
+            switch result?.ending {
+            case .stopped?: ending = .stopped
+            case .failed(let why)?: ending = .failed(why)
+            default: ending = .answered
+            }
+        }
+        filingLastRefineReport = FilingRefineReport(
+            changes: changes, asked: eligible.count, reused: cachedVerdicts.count, hiddenFromClaude: hiddenCount,
+            sent: result?.sent ?? sentToBackend, answered: result?.answered ?? 0,
+            pagesSent: files.filter { $0.contentSnippet != nil }.count, folderNames: context.destinations.count,
+            requests: (result?.started ?? false) ? 1 : 0, costUSD: result?.costUSD ?? 0,
+            modelName: filingRefineModelName, ending: ending,
+            keptForNextPress: work.facts.keptForNextPress)
         // `sentToBackend`, not `classifiedCount` (see the declaration). The route is named because
         // the number alone can't tell a pass nobody paid for from one nobody ran.
         Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(sentToBackend) sent to "
@@ -550,8 +677,10 @@ extension FileSyncManager {
         if filingCloudRefineIsDowngraded {
             Logger.shared.warning("Filing: refine ran on-device — Claude is switched on but the "
                 + "saved key could not be read, so nothing was sent or billed")
-            banner = .warning("Couldn’t reach Claude — your saved API key couldn’t be read. "
-                              + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.", log: .loggedAtSite)
+            if filingRefineShowsBanner {
+                banner = .warning("Couldn’t reach Claude — your saved API key couldn’t be read. "
+                                  + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.", log: .loggedAtSite)
+            }
             return summary
         }
         // A declined charge is not a result. Nothing was sent or re-routed, so only cached answers
@@ -572,13 +701,14 @@ extension FileSyncManager {
                     ? ", and no home changed."
                     : ", moving \(changed) home\(changed == 1 ? "" : "s")."
             }
-            banner = .warning(text + hiddenNote, log: .warn)
+            if filingRefineShowsBanner { banner = .warning(text + hiddenNote, log: .warn) }
             return summary
         }
         // Stopped or failed: say what came of it, what was kept and whether anything may have been
         // billed. Not a success banner over a pass that didn't finish.
         if let result, result.ending != .answered {
-            banner = .warning(Self.refineEndingText(result, changed: changed) + hiddenNote, log: .warn)
+            let ending = Self.refineEndingText(result, changed: changed) + hiddenNote
+            if filingRefineShowsBanner { banner = .warning(ending, log: .warn) } else { Logger.shared.warning("Filing: \(ending)") }
             return summary
         }
         // Success in both directions: "no better homes found" is a complete, correct answer to
@@ -587,11 +717,13 @@ extension FileSyncManager {
         if let result, result.sent < files.count {
             capNote = " \(result.sent) of \(files.count) went in this request; press Refine again for the rest."
         }
-        banner = .success((changed > 0
-            ? "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
-              + "\(changed) home\(changed == 1 ? "" : "s") changed."
-            : "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
-              + "no better homes found.") + capNote + hiddenNote)
+        if filingRefineShowsBanner {
+            banner = .success((changed > 0
+                ? "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
+                  + "\(changed) home\(changed == 1 ? "" : "s") changed."
+                : "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
+                  + "no better homes found.") + capNote + hiddenNote)
+        }
         return summary
     }
 
@@ -648,6 +780,103 @@ extension FileSyncManager {
 
 extension FileSyncManager {
 
+    /// What the plan card lets the person choose for one pass.
+    public struct FilingRefineOptions: Sendable, Equatable {
+        /// The tick: page 1 goes for files in folders that ask each time, and so do the files whose
+        /// home was read from their text (TE335, KO-B and KS-A). Unticked every pass.
+        public var pagesFromAskEachTime = false
+        /// "Ask again": saved answers are not looked at, so every file is asked.
+        public var askAgain = false
+        /// "Send the N that fit": the pass is cut to its first N files.
+        public var limitTo: Int?
+
+        public init(pagesFromAskEachTime: Bool = false, askAgain: Bool = false, limitTo: Int? = nil) {
+            self.pagesFromAskEachTime = pagesFromAskEachTime
+            self.askAgain = askAgain
+            self.limitTo = limitTo
+        }
+    }
+
+    /// What a pass did, file by file: the homes it changed and what was sent, for the chat's answers
+    /// card. Made at the end of every pass that reached its end, whatever the ending.
+    public struct FilingRefineReport: Sendable, Equatable {
+        public struct Change: Sendable, Equatable, Identifiable {
+            public var id: String { filePath }
+            public let filePath: String
+            public let fileName: String
+            /// Where the card pointed before, relative to the source; nil when it had no home.
+            public let before: String?
+            public let after: String
+            /// Claude's reason, when this pass's answer gave one.
+            public let reason: String?
+        }
+        public enum Ending: Sendable, Equatable {
+            case answered, stopped, failed(String), declined, downgraded
+        }
+        public let changes: [Change]
+        /// Suggestions the pass was about, answered before (reused), and left out as hidden.
+        public let asked: Int
+        public let reused: Int
+        public let hiddenFromClaude: Int
+        /// Files in the request, those Claude answered, and how many of the request carried a page.
+        public let sent: Int
+        public let answered: Int
+        public let pagesSent: Int
+        /// Folder names that went with them.
+        public let folderNames: Int
+        /// 1 when a request reached the API, whatever came of it.
+        public let requests: Int
+        public let costUSD: Double
+        public let modelName: String
+        public let ending: Ending
+        /// Files in the request beyond what went: kept for the next press.
+        public let keptForNextPress: Int
+    }
+
+    /// The on-device suggestions a pass replaced, kept so Undo Refine can put them back. Valid only
+    /// while the list on screen is the one the pass published: a rescan makes it a different list.
+    public struct FilingRefineUndo: Sendable, Equatable {
+        let generation: Int
+        let before: [String: [FilingDestination]]
+        let after: [String: String]
+        public var count: Int { before.count }
+    }
+
+    /// Whether Undo Refine can put the suggestions back now.
+    public var canUndoFilingRefine: Bool {
+        guard let undo = filingRefineUndo else { return false }
+        return undo.generation == filingSuggestionsGeneration
+    }
+
+    /// Puts the on-device suggestions back for the files the latest pass moved, except any the person
+    /// has chosen differently since (Try Another, a folder picked, a rejection): theirs stay. The
+    /// answers stay saved, so asking again is free. Returns how many were put back.
+    @discardableResult
+    public func undoFilingRefine() -> Int {
+        guard let undo = filingRefineUndo, canUndoFilingRefine else { filingRefineUndo = nil; return 0 }
+        var restored = 0
+        for card in filingSuggestions {
+            guard let candidates = undo.before[card.filePath], card.best?.path == undo.after[card.filePath] else { continue }
+            replaceFilingSuggestion(card.id, candidates: candidates)
+            restored += 1
+        }
+        filingRefineUndo = nil
+        filingLastRefine = nil
+        Logger.shared.info("Filing: Undo Refine put back \(restored) on-device suggestion(s)")
+        return restored
+    }
+
+    /// `relative` is a left-out folder or lies under one.
+    nonisolated static func isLeftOut(_ relative: String, in leftOut: Set<String>) -> Bool {
+        guard !leftOut.isEmpty else { return false }
+        var path = relative
+        while true {
+            if leftOut.contains(path) { return true }
+            guard let slash = path.lastIndex(of: "/") else { return false }
+            path = String(path[..<slash])
+        }
+    }
+
     /// What a Refine pass would send and what it would cost, worked out and shown before anything
     /// leaves the Mac. One is open per source: ``prepareFilingRefine(_:)`` replaces the last, and
     /// ``sendFilingRefine(_:scope:)`` takes it, so a second click on Send finds nothing.
@@ -676,6 +905,33 @@ extension FileSyncManager {
         /// Cloud-only files that would download, and stay downloaded, so page 1 can be read.
         public let downloads: Int
         public let billing: Billing
+        /// What the person chose for this pass.
+        public let options: FilingRefineOptions
+        /// The model the pass runs on (the chat's) and its short name.
+        public let modelID: String
+        public let modelName: String
+        /// Folder names that go, and the ones Customize… left out.
+        public let folderNames: Int
+        public let folderNamesLeftOut: Int
+        /// Files whose page 1 goes from a folder shared without asking; and from a folder that asks
+        /// each time, because the tick is on.
+        public let pagesShared: Int
+        public let pagesAskEachTime: Int
+        /// Pages that wait for the tick, and files left out until it (their home was read from their
+        /// text).
+        public let pagesWaiting: Int
+        public let waitingForPage: Int
+        /// Files the request cap or "Send the N that fit" kept for the next press.
+        public let keptForNextPress: Int
+        /// What ticking would add: files and cost. nil when the tick changes nothing.
+        public let tickGain: TickGain?
+        /// When the quote passes the limit: how many of these files would fit under it.
+        public let fits: Int?
+
+        public struct TickGain: Sendable, Equatable {
+            public let files: Int
+            public let costUSD: Double
+        }
         /// The list on screen when the plan was made.
         let generation: Int
         /// What the request is made of: the files, the folders each rejected, which ones download,
@@ -703,13 +959,14 @@ extension FileSyncManager {
 
     /// Works out the request and its price without sending, downloading or asking anything, and
     /// keeps the result as this source's open plan. nil when Refine can't run or has nothing to ask.
-    public func prepareFilingRefine(_ scope: [FilingSuggestion]) async -> FilingRefinePlan? {
+    public func prepareFilingRefine(_ scope: [FilingSuggestion],
+                                    options: FilingRefineOptions = FilingRefineOptions()) async -> FilingRefinePlan? {
         guard canRefineFilingSuggestions, let classifier = filingClassifier,
               let root = filingLastProviderRoot else { return nil }
         let eligible = filingSuggestionsEligibleForRefine(scope)
         guard !eligible.isEmpty else { return nil }
         guard let work = await buildRefineWork(eligible: eligible, hiddenCount: filingSuggestionsHiddenFromClaude(scope),
-                                               root: root, classifier: classifier) else { return nil }
+                                               root: root, classifier: classifier, options: options) else { return nil }
         // The list moved on while the pages were read: this plan is about the old one.
         guard filingSuggestionsGeneration == work.preAwaitGeneration, filingLastProviderRoot == root else { return nil }
         let plan = refinePlan(from: work)
@@ -736,7 +993,7 @@ extension FileSyncManager {
         let eligible = filingSuggestionsEligibleForRefine(scope)
         guard !eligible.isEmpty else { return .nothingToSend }
         guard let work = await buildRefineWork(eligible: eligible, hiddenCount: filingSuggestionsHiddenFromClaude(scope),
-                                               root: root, classifier: classifier) else { return .stale }
+                                               root: root, classifier: classifier, options: plan.options) else { return .stale }
         let fresh = refinePlan(from: work)
         guard fresh.generation == plan.generation, fresh.fingerprint == plan.fingerprint else {
             // A different list (a rescan) means a different plan, not an amended one.
@@ -784,9 +1041,42 @@ extension FileSyncManager {
         case .blocked: fingerprint.append("blocked")
         case .notBilled: fingerprint.append("notBilled")
         }
+        fingerprint.append("options \(work.options.pagesFromAskEachTime) \(work.options.askAgain) \(work.options.limitTo ?? -1)")
+        fingerprint.append("folders \(work.facts.folderNames) leftOut \(work.facts.folderNamesLeftOut)")
+
+        // What ticking would add, priced the same way.
+        var tickGain: FilingRefinePlan.TickGain?
+        if let alt = work.tickedAlternative, case .quote(let now) = billing,
+           case .billable(let altQuote) = filingSpendGate(files: alt.files, taxonomyFolders: alt.context.destinations,
+                                                          downloading: alt.cloudOnly) {
+            tickGain = .init(files: alt.files.count - work.files.count,
+                             costUSD: max(0, altQuote.estCostUSD - now.estCostUSD))
+        } else if let alt = work.tickedAlternative, case .notBilled = billing {
+            tickGain = .init(files: alt.files.count - work.files.count, costUSD: 0)
+        }
+
+        // How many would fit under the limit, when this pass would pass it.
+        var fits: Int?
+        if case .quote(let q) = billing, q.wouldExceedCap, q.monthlyCapUSD > 0 {
+            let room = q.monthlyCapUSD - q.monthlySpentUSD
+            var low = 0, high = work.files.count - 1
+            while low < high {
+                let mid = (low + high + 1) / 2
+                let cost = CloudFilingProtocol.estimatedCostUSD(model: q.model, taxonomyFolders: work.context.destinations,
+                                                                files: Array(work.files.prefix(mid))) ?? .infinity
+                if cost <= room { low = mid } else { high = mid - 1 }
+            }
+            fits = low
+        }
+        let model = filingRefineModelID
         return FilingRefinePlan(id: UUID(), providerRoot: work.root, eligible: work.eligible.count,
                                 hiddenFromClaude: work.hiddenCount, reused: work.cachedVerdicts.count,
                                 toSend: work.files.count, downloads: work.cloudOnly.count, billing: billing,
+                                options: work.options, modelID: model, modelName: filingRefineModelName,
+                                folderNames: work.facts.folderNames, folderNamesLeftOut: work.facts.folderNamesLeftOut,
+                                pagesShared: work.facts.pagesShared, pagesAskEachTime: work.facts.pagesAskEachTime,
+                                pagesWaiting: work.facts.pagesWaiting, waitingForPage: work.facts.waitingForPage,
+                                keptForNextPress: work.facts.keptForNextPress, tickGain: tickGain, fits: fits,
                                 generation: work.preAwaitGeneration, fingerprint: fingerprint)
     }
 }
@@ -795,18 +1085,50 @@ extension FileSyncManager {
 
 extension FileSyncManager {
 
-    /// What a mapping refine came back with, three outcomes the sheet must not conflate:
-    /// proposals, the user declining the quote, and a pass that couldn't run.
+    /// What a mapping refine came back with, outcomes the sheet must not conflate: proposals, a pass
+    /// that would pass the monthly limit, and one that couldn't run.
     public enum MappingRefineOutcome: Sendable, Equatable {
         case proposals([MappingRefineProposal])
-        /// The spend prompt was refused: nothing was sent, and "check your key" would be the wrong
-        /// sentence.
-        case declined
+        /// The quote would pass Ask Claude's monthly limit: nothing was sent, and "check your key"
+        /// would be the wrong sentence. The sheet says so beside the button before it is clicked.
+        case overLimit
         /// No transport, an unpriced model, or a hard failure: the sheet says the pass couldn't
         /// run.
         case unavailable
         /// The family, a member or a mapped folder is hidden from Claude: nothing was sent.
         case hiddenFromClaude
+    }
+
+    /// What Refine Names would cost, shown beside its button (TE335): the sheet's own price line,
+    /// where the dialog used to be. The click on that button is the consent.
+    public struct MappingRefineQuote: Sendable, Equatable {
+        public let costUSD: Double
+        public let spentUSD: Double
+        /// Ask Claude's monthly limit, 0 for none.
+        public let limitUSD: Double
+        public let exceedsLimit: Bool
+        public let modelName: String
+    }
+
+    /// What a Refine Names request sent and cost, for the chat's receipt.
+    public struct MappingRefineReport: Sendable, Equatable {
+        public let folderNames: Int
+        public let fileNames: Int
+        public let costUSD: Double
+        public let modelName: String
+        public let answered: Bool
+    }
+
+    /// The quote for `request`, or nil when naming cannot run here: no Claude route, or a model with
+    /// no known price. Read per render, so it asks the cheap seam first.
+    public func mappingRefineQuote(for request: MappingRefineRequest) -> MappingRefineQuote? {
+        guard filingCloudRefineAvailable else { return nil }
+        let model = filingRefineModelID
+        guard let cost = MappingRefineProtocol.estimatedCostUSD(model: model, request: request) else { return nil }
+        let spent = AskClaudeSpend.spent(in: filingContentDefaults)
+        let limit = AskClaudeSpend.limit(in: filingContentDefaults)
+        return MappingRefineQuote(costUSD: cost, spentUSD: spent, limitUSD: limit,
+                                  exceedsLimit: limit > 0 && spent + cost > limit, modelName: filingRefineModelName)
     }
 
     /// Whether `request` names a folder hidden from Claude: the family, a folder its rows were
@@ -866,23 +1188,22 @@ extension FileSyncManager {
             monthlyCapUSD: AskClaudeSpend.limit(in: filingContentDefaults),
             totalSpentUSD: 0, totalCapUSD: 0,
             unit: "folder name")
-        guard filingCloudSpendConfirmer(preflight) else {
-            // Two cases end in `false`, and the sheet words them differently on purpose: over the
-            // cap the dialog offered no proceed button, so the budget said no (`.unavailable`,
-            // whose sentence names the caps), and "Declined at the estimate" would blame the
-            // person for a refusal they never made.
-            if preflight.wouldExceedCap {
-                Logger.shared.info("Mapping refine blocked at the budget cap "
-                    + "(\(FilingSpendFormat.cost(estCost)) for \(request.rows.count) name(s)) "
-                    + "— nothing was sent")
-                return .unavailable
-            }
-            Logger.shared.info("Mapping refine declined at the estimate "
-                + "(\(FilingSpendFormat.cost(estCost)) for \(request.rows.count) name(s)) "
-                + "— nothing was sent")
-            return .declined
+        // No dialog: the sheet showed this price beside its button, and the click was the consent. Over
+        // Ask Claude's limit nothing runs, and nothing answers in Claude's place.
+        guard !preflight.wouldExceedCap else {
+            Logger.shared.info("Mapping refine blocked at the monthly limit "
+                + "(\(FilingSpendFormat.cost(estCost)) for \(request.rows.count) name(s)) — nothing was sent")
+            return .overLimit
         }
-        guard let proposals = await mappingRefiner(request) else { return .unavailable }
+        let spentBefore = AskClaudeSpend.organizeSpent(in: filingContentDefaults)
+        let reply = await mappingRefiner(request)
+        // What the request cost is what it added to Organize's share, which the transport records
+        // whether or not it finished.
+        let cost = max(0, AskClaudeSpend.organizeSpent(in: filingContentDefaults) - spentBefore)
+        filingMappingRefineReports?(MappingRefineReport(
+            folderNames: request.rows.count, fileNames: request.sampleFileNames.values.reduce(0) { $0 + $1.count },
+            costUSD: cost, modelName: filingRefineModelName, answered: reply != nil))
+        guard let proposals = reply else { return .unavailable }
         return .proposals(proposals)
     }
 }

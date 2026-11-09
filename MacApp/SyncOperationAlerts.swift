@@ -281,62 +281,6 @@ struct SyncOperationAlerts {
         return isConfirmed(alert.runModal())
     }
 
-    /// Message line of the cloud-spend pre-flight: what's about to be classified and by which model,
-    /// e.g. `Classify 12 files with Haiku?`. Over budget it leads with the block so the headline
-    /// itself says the call won't run. Pure so the wording is unit-testable.
-    nonisolated static func filingSpendMessage(_ p: FilingSpendPreflight) -> String {
-        let noun = p.fileCount == 1 ? p.unit : p.unit + "s"
-        if p.wouldExceedCap { return "This would pass your monthly Claude limit" }
-        // "Classify" is the filing refine's verb; any other unit is a send, said as one.
-        return p.unit == "file"
-            ? "Classify \(p.fileCount) \(noun) with \(FilingSpendFormat.model(p.model))?"
-            : "Send \(p.fileCount) \(noun) to \(FilingSpendFormat.model(p.model))?"
-    }
-
-    /// Body of the cloud-spend pre-flight: the estimated cost of this call, plus — when a monthly cap
-    /// is set — this month's spend against the cap and whether this call would push past it. Pure (no
-    /// AppKit) so it's unit-testable and the estimate wording can't drift.
-    nonisolated static func filingSpendInformativeText(_ p: FilingSpendPreflight) -> String {
-        var text = "Estimated cost: \(FilingSpendFormat.cost(p.estCostUSD)) "
-            + "(\(FilingSpendFormat.tokens(p.estInputTokens)) in / \(FilingSpendFormat.tokens(p.estOutputTokens)) out). "
-            + "The exact cost is billed to your Anthropic API key and known only after the call."
-        if p.downloadCount > 0 {
-            let n = p.downloadCount
-            text += "\n\n\(n) of these \(n == 1 ? "file is" : "files are") only in the cloud. "
-                + "\(n == 1 ? "It downloads" : "They download") first so Claude can read page 1, "
-                + "and \(n == 1 ? "stays" : "stay") downloaded."
-        }
-        // Ask Claude's one limit, shared by the chat, Refine, Try Another and Refine Names.
-        if p.monthlyCapUSD > 0 {
-            text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of your \(FilingSpendFormat.cost(p.monthlyCapUSD)) monthly limit for Ask Claude and Organize."
-        }
-        if p.wouldExceedCap {
-            // Nothing is sent and nothing changes: no other model answers in Claude's place.
-            text += " Running this would pass the limit, so it’s blocked and nothing will be sent. "
-                + "Raise the limit in Settings ▸ Ask Claude, under Key & Spending."
-        }
-        return text
-    }
-
-    /// Asks the user to confirm a cloud (Claude) Filing classify, showing the cost estimate and any
-    /// budget. Over the cap the proceed button is withheld, so the dialog honours the cap too.
-    /// Otherwise "Classify" proceeds and "Cancel" (Escape) falls back on-device.
-    /// - Returns: True only when the user chose to proceed with the cloud call.
-    static func promptForFilingSpend(_ p: FilingSpendPreflight) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = filingSpendMessage(p)
-        alert.informativeText = filingSpendInformativeText(p)
-        if p.wouldExceedCap {
-            // Over the limit: no proceed path, and nothing else runs in its place.
-            alert.addButton(withTitle: "OK")
-            _ = alert.runModal()
-            return false
-        }
-        alert.addButton(withTitle: p.unit == "file" ? "Classify" : "Send")   // Return key default
-        alert.addButton(withTitle: "Cancel")      // Escape
-        return isConfirmed(alert.runModal())
-    }
-
     /// Confirms a whole-tree pass whose probe found the folder too large to analyse quickly.
     ///
     /// The message says "more than", never a total: the probe stopped, so it does not know how much

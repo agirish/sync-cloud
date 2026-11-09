@@ -127,10 +127,11 @@ public class FileSyncManager: ObservableObject {
     /// (`filingUsesAI && filingUsesCloud`), just before the classifier runs; never by a scan, which
     /// classifies at ``FilingClassifierTier/free`` and can't spend. The real cost is known only
     /// afterwards, so this is the only chance to show a figure. False skips the cloud call and
-    /// keeps the free scan's suggestions. Defaults to `true`; the app wires an estimate and budget
-    /// prompt.
+    /// keeps the free scan's suggestions. **Defaults to `false`**, the fail-safe: the app wires none,
+    /// because its Refine is a plan card in the Ask Claude chat whose Send is the click (TE335). This
+    /// is for a host with no chat that calls ``FileSyncManager/refineFilingSuggestions(_:options:)``.
     public var filingCloudSpendConfirmer: @MainActor (FilingSpendPreflight) -> Bool = { _ in
-        return true
+        return false
     }
 
     /// Confirms a whole-tree pass whose probe ran out of budget: the tree is too big to analyse
@@ -695,6 +696,21 @@ public class FileSyncManager: ObservableObject {
     /// Published with the refined results and cleared by ``clearFiling()`` and by every scan, so
     /// like ``filingLastCacheReuse`` it always describes the list currently shown.
     @Published public internal(set) var filingLastRefine: FilingRefineSummary?
+    /// What the latest pass did, file by file, for the answers card in the chat (TE335).
+    @Published public internal(set) var filingLastRefineReport: FilingRefineReport?
+    /// What Undo Refine puts back: the on-device suggestions of the files the latest pass moved.
+    @Published public internal(set) var filingRefineUndo: FilingRefineUndo?
+    /// What Try Another says on a card, by file path: why it stayed on this Mac, why Claude did not
+    /// answer, that the limit is reached. Each card shows its own (TE335); cleared when the person
+    /// asks again for that file, and when the list is replaced.
+    @Published public internal(set) var filingTryAnotherNotes: [String: FilingTryAnotherNote] = [:]
+    /// Told after each Refine Names request, for the chat's receipt.
+    public var filingMappingRefineReports: (@MainActor (MappingRefineReport) -> Void)?
+    /// Told after each Try Another that reached Claude, for the chat's running line.
+    public var filingTryAnotherReports: (@MainActor (FilingTryAnotherReport) -> Void)?
+    /// Whether a pass reports itself in the Organize banner. On where there is no chat to show the
+    /// card; the app turns it off, since the card in the Ask Claude chat says it (TE335).
+    public var filingRefineShowsBanner = true
 
     /// The running refine pass's token, or nil when none is running: the only stored fact for "a
     /// refine is running". It is both the re-entrancy guard and the ownership stamp. It is compared
@@ -706,6 +722,12 @@ public class FileSyncManager: ObservableObject {
     /// The Refine plan each source has open, waiting for Send: one per source, replaced by the next
     /// prepare and taken by a send. Cleared with the filing state.
     @Published public internal(set) var filingOpenRefinePlans: [String: FilingRefinePlan] = [:]
+
+    /// Folders (relative to the source) the person left out of the folder list with Customize… on
+    /// the plan card, and everything under them. Kept until the app quits, and read by Refine, Try
+    /// Another and Refine Names alike (TE335, LY-A), so there is one rule and nothing to manage in
+    /// Settings. Never saved.
+    @Published public var filingRefineLeftOutFolders: Set<String> = []
 
     /// How Refine and Try Another reach Claude: a request that says how it ended, so a failure shows
     /// as one and nothing stands in for Claude's answer (TE335, E2). The app installs it; where it is
@@ -3706,4 +3728,29 @@ public class FileSyncManager: ObservableObject {
     // File operations live in FileOperations.swift.
 
     // Diff algorithms live in FileDiffEngine.swift.
+}
+
+
+/// What Try Another says on one card.
+public struct FilingTryAnotherNote: Equatable, Sendable {
+    public let text: String
+    /// This file's folder asks each time, so Try Another used this Mac; the card may offer to send
+    /// its first page to Claude, on a click.
+    public let offersClaudeWithPage: Bool
+    public init(text: String, offersClaudeWithPage: Bool = false) {
+        self.text = text
+        self.offersClaudeWithPage = offersClaudeWithPage
+    }
+}
+
+/// One Try Another that reached Claude, for the chat's running line.
+public struct FilingTryAnotherReport: Sendable, Equatable {
+    public enum Outcome: Sendable, Equatable { case answered, failed, stopped }
+    public let fileName: String
+    public let outcome: Outcome
+    public let costUSD: Double
+    public let modelName: String
+    public init(fileName: String, outcome: Outcome, costUSD: Double, modelName: String) {
+        self.fileName = fileName; self.outcome = outcome; self.costUSD = costUSD; self.modelName = modelName
+    }
 }

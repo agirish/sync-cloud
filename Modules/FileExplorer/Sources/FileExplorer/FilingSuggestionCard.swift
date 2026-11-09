@@ -18,6 +18,12 @@ struct FilingSuggestionCard: View {
     var onPreview: (() -> Void)? = nil
     /// Reject the current folder and get a different suggestion. nil hides the button.
     var onTryAnother: (() -> Void)? = nil
+    /// What Try Another said about this card: why it stayed on this Mac, why Claude did not answer
+    /// (TE335). nil says nothing.
+    var tryAnotherNote: FilingTryAnotherNote? = nil
+    /// "Ask Claude with Page 1…", the click that sends this one file's first page to Claude from a
+    /// folder that asks each time. nil hides it.
+    var onAskClaudeWithPage: (() -> Void)? = nil
     /// True while this card's re-ask is out at the classifier. The manager ignores a second "Try
     /// another" meanwhile, so the button must look busy rather than ready.
     var isTryAnotherBusy: Bool = false
@@ -88,6 +94,7 @@ struct FilingSuggestionCard: View {
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
                     if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
+                    if let note = tryAnotherNote { tryAnotherNoteRow(note) }
                     if let best, best.isNew { newFolderNameField(best) }
                 }
                 Spacer(minLength: 8)
@@ -104,6 +111,22 @@ struct FilingSuggestionCard: View {
         // under this card and `@State` survives. Keyed on the proposed leaf, the string the field
         // edits, so the same name under a different parent keeps what the user typed.
         .onChange(of: best?.newSegments.last) { _, _ in editedFolderName = "" }
+    }
+
+    /// What Try Another said, under the card's reason: a sentence, and where it applies the click that
+    /// sends this file's page to Claude. The first page is sent only on that click.
+    private func tryAnotherNoteRow(_ note: FilingTryAnotherNote) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label { Text(note.text).fixedSize(horizontal: false, vertical: true) } icon: { Image(systemName: "info.circle") }
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+            if note.offersClaudeWithPage, let onAskClaudeWithPage {
+                Button("Ask Claude with Page 1…", action: onAskClaudeWithPage)
+                    .buttonStyle(.link).controlSize(.small)
+                    .disabled(isTryAnotherBusy)
+                    .help("Sends this file’s first page to Claude, once, to ask for another folder. It is billed to your API key and counts against Ask Claude’s monthly limit.")
+            }
+        }
     }
 
     private var sourceRow: some View {

@@ -4805,7 +4805,11 @@ struct ContentView: View {
                 // The way in to the paid pass for someone who has never set it up: Organize's
                 // results offer it, and this deep-links Organize ▸ Suggestions, where the toggle and
                 // model are, with a jump to the key (`theCloudRefineOfferLandsOnThePageThatHoldsItsSwitch`).
-                onConfigureCloudRefine: { openSettings(on: SettingsView.SettingsTab.cloudRefineSetup) },
+                onConfigureCloudRefine: { askClaudeRefineSetup() },
+                // Refine's click opens its plan in the Ask Claude chat, where Send is (TE335).
+                onRefineInChat: { askClaudeRefine(scope: $0) },
+                refineChatLink: askClaudeRefineChatLink,
+                onChangeLimit: { openSettings(on: SettingsView.SettingsTab.cloudRefineSetup) },
                 // The app's one Help front door, opened at a named page: Settings and Help never
                 // stack, and this must not grow a second overlay beside them.
                 onOpenHelp: { topic in

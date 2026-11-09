@@ -114,8 +114,9 @@ One provider, six lenses:
 
 **Optional AI filing.** Suggestions come from a fast offline engine. You can add **Apple
 Intelligence** (on-device) or **Claude** (cloud, opt-in, API key in the Keychain). Claude is used
-only when you press **Refine with Claude**, with a cost estimate first, on Ask Claude's model and
-under its one monthly limit ($25 by default).
+only when you press **Refine with Claude** and then click **Send** on the plan that appears in the
+Ask Claude chat, which shows what goes and what it costs first, on Ask Claude's model and under its
+one monthly limit ($25 by default).
 
 ### ✏️ Edit — text and Markdown
 - **Source, Preview or Split**, with a **format bar** for headings, emphasis, lists, code, links

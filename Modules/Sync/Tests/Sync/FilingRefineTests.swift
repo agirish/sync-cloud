@@ -38,6 +38,8 @@ import Testing
     private func manager(_ asked: Asked, freeDestination: String = "Documents/Family",
                          refineDestination: String = "Archive/2026") -> FileSyncManager {
         let m = FileSyncManager()
+        // The single-call pass asks this where the app's plan card has a Send (TE335); these tests are the click.
+        m.filingCloudSpendConfirmer = { _ in true }
         m.filingBackendIdentity = { tier in
             tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity
         }

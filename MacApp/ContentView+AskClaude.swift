@@ -193,6 +193,7 @@ extension ContentView {
                               onRuleCard: { askClaudeRuleCard($0, save: $1) },
                               settingsBridge: askClaudeSettingsBridge,
                               pdfBridge: askClaudePDFBridge,
+                              refineBridge: askClaudeRefineBridge,
                               onPlace: onPlace,
                               onAskSpoken: { askClaudeSend($0, spoken: true) },
                               voiceHints: { askClaudeVoiceHints() })
@@ -507,8 +508,8 @@ extension ContentView {
         }
     }
 
-    /// Refine with Claude from filing help's card: Organize scans the file's folder, then refines
-    /// this one file there, with its own price check first. The answer is Organize's.
+    /// Refine with Claude from filing help's card: Organize scans the file's folder, then a plan for
+    /// this one file is a card in the chat. The answer is Organize's.
     private func askClaudeRefineFiling(_ file: String) {
         if let busy = askClaudeStateBusy {
             askClaudeChat.addNote("Couldn’t open Organize: \(busy).")
@@ -523,7 +524,14 @@ extension ContentView {
         organizeFolderAction(FileNode(id: folder, name: (folder as NSString).lastPathComponent, isDirectory: true),
                              providerRoot: providerRootExpanded(forProviderId: source.id),
                              providerAnchor: providerAnchorExpanded(forProviderId: source.id))
-        Task { @MainActor in _ = await syncManager.refineAfterScan(filePath: file) }
+        // Organize scans the file's folder first; then the plan for this one file is a card here.
+        Task { @MainActor in
+            guard let suggestion = await syncManager.suggestionAfterScan(filePath: file) else {
+                askClaudeChat.addNote("Refine couldn’t find \((file as NSString).lastPathComponent) in Organize’s results.")
+                return
+            }
+            askClaudeRefine(scope: [suggestion])
+        }
     }
 
     private func askClaudeDownloaded(_ download: AskClaudeDownload) {

@@ -745,6 +745,7 @@ extension FileSyncManager {
         // longer on screen. Cleared in the same publish so the summary and its rows are never one
         // scan apart.
         filingLastRefine = nil
+        filingLastRefineReport = nil
         hasSuggestedFiling = true
         // Remembered only on completion: the auto-rescan consent is "the user scanned exactly
         // this before", and a cancelled or stopped scan is not that.
@@ -831,9 +832,11 @@ extension FileSyncManager {
                 + "\(FilingSpendFormat.cost(preflight.monthlyCapUSD))). Keeping the card's suggestion; "
                 + "raise the limit in Settings ▸ Ask Claude to keep using Claude.")
             // As for `.blocked` above, with a different remedy, so a different sentence.
-            banner = .warning("Couldn’t ask Claude for another folder — it would pass your monthly Claude "
-                              + "limit. Keeping the earlier suggestion; raise the limit in "
-                              + "Settings ▸ Ask Claude to keep using Claude.", log: .warn)
+            if filingRefineShowsBanner {
+                banner = .warning("Couldn’t ask Claude for another folder — it would pass your monthly Claude "
+                                  + "limit. Keeping the earlier suggestion; raise the limit in "
+                                  + "Settings ▸ Ask Claude to keep using Claude.", log: .warn)
+            }
             return false
         }
     }
@@ -1233,7 +1236,10 @@ extension FileSyncManager {
     /// "Try another": the user rejected the suggested folder. Records the rejection, then shows the
     /// next non-rejected candidate the file already has, or, when those run out, re-asks the
     /// backend for a different folder (excluding everything rejected).
-    public func tryAnotherFolder(for suggestion: FilingSuggestion) async {
+    ///
+    /// `askingClaudeWithPage` is the click on "Ask Claude with Page 1…": for a file in a folder that
+    /// asks each time it sends this one file's first page to Claude, because the person said to.
+    public func tryAnotherFolder(for suggestion: FilingSuggestion, askingClaudeWithPage: Bool = false) async {
         guard let rejected = suggestion.best else { return }
         // One re-ask per card at a time: each click fires an unstructured Task, and a second
         // round-trip's late result would overwrite the first's. Re-entrant calls for the same
@@ -1241,6 +1247,7 @@ extension FileSyncManager {
         guard filingTryAnotherInFlight[suggestion.id] == nil else { return }
         let invocation = UUID()
         filingTryAnotherInFlight[suggestion.id] = invocation
+        filingTryAnotherNotes[suggestion.filePath] = nil
         defer {
             // Release only what this invocation still owns. The id is the file's absolute path,
             // stable across scans and provider switches, so after `clearFiling()` releases the
@@ -1297,7 +1304,7 @@ extension FileSyncManager {
         // Claude request (the CLI, tests) a pass that routes to Claude goes through the classifier.
         let routesToClaude = filingRoutesToCloud(.refine)
         let useClaude = routesToClaude
-            && (filingRefineClassifier == nil
+            && (filingRefineClassifier == nil || askingClaudeWithPage
                 || AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: filingContentDefaults)).holds(suggestion.filePath))
         let hidden = useClaude ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
         if hidden.isHidden(suggestion.filePath) {
@@ -1307,8 +1314,11 @@ extension FileSyncManager {
             return
         }
         let allTaxonomyFolders = filingLastTaxonomyFolders
+        // Folders left out with Customize… on a plan card stay out for Try Another too (TE335, LY-A),
+        // when the request goes to Claude: on this Mac nothing leaves it.
+        let leftOut = useClaude ? filingRefineLeftOutFolders : []
         let taxonomyFolders = allTaxonomyFolders.filter {
-            Self.shownToClaude($0, under: root, hidden: hidden)
+            Self.shownToClaude($0, under: root, hidden: hidden) && !Self.isLeftOut($0, in: leftOut)
         }
         let existingFoldersSnapshot = filingLastExistingFolders
         let nameProvider = filingLastNameProvider   // same snapshot rule, for a new folder's name
@@ -1356,6 +1366,8 @@ extension FileSyncManager {
         // nothing), and the card keeps its free on-device suggestion. The refine pass keeps its
         // dialog: it is a bulk action the user asked to price.
         guard !useClaude || cloudSpendWithinCapsWithoutPrompting(files: [file], taxonomyFolders: taxonomyFolders) else {
+            filingTryAnotherNotes[suggestion.filePath] = FilingTryAnotherNote(
+                text: "Claude wasn’t asked: it would pass your monthly limit, or the model has no known price. This card keeps its suggestion. Settings ▸ Ask Claude has the limit.")
             return
         }
         // Claude when the pass routes there, through the request that says how it ended; otherwise
@@ -1370,6 +1382,15 @@ extension FileSyncManager {
             case .answered: break
             case .stopped: cloudFailure = "It was stopped."
             case .failed(let why): cloudFailure = why
+            }
+            if reply.started {
+                let outcome: FilingTryAnotherReport.Outcome = switch reply.ending {
+                case .answered: .answered
+                case .stopped: .stopped
+                case .failed: .failed
+                }
+                filingTryAnotherReports?(FilingTryAnotherReport(fileName: suggestion.fileName, outcome: outcome,
+                                                                costUSD: reply.costUSD, modelName: filingRefineModelName))
             }
         } else {
             // This Mac: the free tier when Claude is the pass's route but not this file's, so nothing
@@ -1387,8 +1408,10 @@ extension FileSyncManager {
               filingSuggestionsGeneration == preAwaitGeneration else { return }
         // Claude didn't answer: keep the card as it was and say why, rather than blank it.
         if let cloudFailure, verdicts[suggestion.filePath] == nil {
-            banner = .warning("Claude didn’t answer for \(suggestion.fileName): \(cloudFailure) "
-                              + "Keeping its earlier suggestion.", log: .warn)
+            filingTryAnotherNotes[suggestion.filePath] = FilingTryAnotherNote(
+                text: "Claude didn’t answer: \(cloudFailure) This card keeps its earlier suggestion. Nothing was saved as Claude’s.")
+            let text = "Claude didn’t answer for \(suggestion.fileName): \(cloudFailure) Keeping its earlier suggestion."
+            if filingRefineShowsBanner { banner = .warning(text + "", log: .warn) } else { Logger.shared.warning("Filing: \(text)") }
             return
         }
         // Mark new-vs-existing against the full, uncapped folder set, hidden folders included
@@ -1428,6 +1451,20 @@ extension FileSyncManager {
         } else {
             replaceFilingSuggestion(suggestion.id, candidates: [])
         }
+        // A folder that asks each time kept this on this Mac: say so, and offer the one page to Claude.
+        if routesToClaude, filingRefineClassifier != nil, !useClaude {
+            filingTryAnotherNotes[suggestion.filePath] = FilingTryAnotherNote(
+                text: "This folder asks before Claude reads files, so Try Another used this Mac.", offersClaudeWithPage: true)
+        }
+    }
+
+    /// Whether the card for `suggestion` may offer "Ask Claude with Page 1…": Claude is set up, the
+    /// file is not hidden from it, and its folder asks each time (a shared folder's Try Another
+    /// already asks Claude).
+    public func canAskClaudeWithPage(_ suggestion: FilingSuggestion) -> Bool {
+        guard filingRefineClassifier != nil, filingCloudRefineAvailable else { return false }
+        if claudeHiddenMatcher().isHidden(suggestion.filePath) { return false }
+        return !AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: filingContentDefaults)).holds(suggestion.filePath)
     }
 
     /// The one way to replace the published suggestion list wholesale. Bumps
@@ -1437,6 +1474,7 @@ extension FileSyncManager {
     /// there is no other way, since a setter that skipped the bump would silently disarm every
     /// staleness guard that reads it.
     public func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
+        filingTryAnotherNotes = [:]
         filingSuggestions = suggestions
         filingSuggestionsGeneration &+= 1
     }
@@ -1495,6 +1533,7 @@ extension FileSyncManager {
         filingScanFolder = nil
         filingLastCacheReuse = nil
         filingLastRefine = nil
+        filingLastRefineReport = nil
         hasSuggestedFiling = false
         // Re-arm the auto-rescan: switching back to this provider behaves like a fresh launch, as
         // Storage's restore does after `clearStorageLens()`.

@@ -14890,3 +14890,25 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Organize's own switch, caps, spend history and cloud model | NOT OWED — no backporting; recorded |
+
+## Refine is a plan card in the Ask Claude chat (TE335, C2–C5) — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, Organize's Refine opens a plan card in the Ask Claude chat that shows
+what goes to Claude, what waits for a tick, what is left out and the price, and only a click on Send
+sends it; answers, Undo Refine and a receipt come back on the card. There is no spend dialog: Refine Names
+shows its price beside its button, and Try Another keeps one running line in the chat and says why on its
+own card. Page 1 goes only from folders shared without asking, or when ticked. The system text gained one
+line about Refine, which moves `AskClaudeRequest.fixedDigest` once. The maintenance lines keep the
+dialog, send page 1 for every file when Read file contents is on, and have no chat cards.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s dialog=%s card=%s\n' $l \
+    "$(git show origin/$l:MacApp/SyncOperationAlerts.swift | grep -c 'promptForFilingSpend')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeRefineCard')"; done
+# measured 2026-11-08, against origin, before this landed: each line has the dialog and no card
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | the spend dialog, no Refine card | NOT OWED — no backporting; recorded |

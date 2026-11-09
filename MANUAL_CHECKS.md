@@ -838,3 +838,43 @@ tidyFiling` shows the old caps and history.
   and its cost joins the month.
 - [ ] **Reset All Settings** keeps the monthly limit, the carried spend and an unread notice.
 - [ ] **Search.** Typing “refine” or “cloud” in Settings finds Key & Spending.
+
+## Refine in the Ask Claude chat (TE335, C2–C5, 2026-11-08)
+
+Run in the installed app, with a key saved and a To File list. The tests draw each card state and run
+the plan, send, undo and Try Another logic on scripted requests; none of it was clicked in the real app
+with the real API. **Never click Send in a test copy of your data you would mind paying for**: a pass is
+one request, a few cents.
+
+- [ ] **Refine opens a plan, sends nothing.** “Refine N with Claude…” opens the Ask Claude panel (floating or
+  pinned) with a plan card: “Refine N files in …”, what goes (your folder names with Customize…, names,
+  types and years, page-1 text from shared folders), what waits for the tick, hidden and answered-before
+  files counted but not named, the chat's model and the price, “This month … of $25”. Organize does not
+  change. Nothing is billed until you click Send.
+- [ ] **The tick.** Tick “Also page-1 text from files in folders that ask each time”: the counts, the price
+  and the files change; the line under it said what it buys. Press Refine again: it starts unticked.
+- [ ] **Customize….** Untick a folder: the folder-name count drops and “N left out” shows. It stays out for
+  Try Another and Refine Names until you quit (a Try Another that asks Claude does not name it).
+- [ ] **Send is a click.** Type “go ahead” in the chat: it is an ordinary question and nothing is sent. Click
+  Send: the card becomes “Asking …”, Organize keeps working and Stop works; then the answers card lists the
+  homes that changed, “Show all N”, a receipt. The Claude badge and “refined” pill show on Organize's cards.
+- [ ] **Undo Refine**, on the card and beside the pill in Organize: the on-device suggestions come back, except any
+  you changed since. After a rescan Undo is gone. “In chat ↗” beside the pill opens the panel.
+- [ ] **Nothing new / the limit.** Press Refine when every file was answered: “Nothing new to ask” with
+  “Ask again about the N”. Lower the limit (Settings ▸ Ask Claude) below the quote: Send is off, the card offers
+  Change Limit… and “Send the N that fit”.
+- [ ] **A plan does not outlive the app.** Quit and relaunch within the hour: the waiting plan comes back as
+  out of date and cannot send; an answered card keeps its answers.
+- [ ] **No key.** With no key saved, “Refine with Claude…” opens the panel on its key setup; after you save the key
+  the plan card appears.
+- [ ] **Try Another.** In a folder that asks each time it stays on this Mac, says so under the card, and offers “Ask
+  Claude with Page 1…”; the click sends that one page. In a shared folder it asks Claude. One running line
+  (“Try Another · 2 files · 3 requests, 1 failed · 3¢ this hour · …”) sits at the bottom of the chat and moves
+  down as it updates. A failure or the limit is the card's own sentence, not a banner.
+- [ ] **Refine Names.** In a Restructure plan the Ask button shows its price, the model and this month against the
+  limit; over the limit it is off and Change Limit… is beside it. After it runs, the chat has a one-line receipt.
+- [ ] **Claude knows.** After a pass, ask “why did you move the invoice?”: Claude answers from the reasons of that
+  pass and says nothing moved until you File it. (Your next question restarts a chat saved before this
+  build, once.)
+- [ ] **Not built, on purpose:** the “Claude agrees” badge and a per-card “In chat” link (the link is beside the
+  pill); progress is “One request” with no running count.

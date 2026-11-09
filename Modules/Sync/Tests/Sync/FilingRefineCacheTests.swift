@@ -78,6 +78,7 @@ import Testing
         let asked = Asked()
         // First, the page goes.
         let withPage = manager(asked, cacheDir: cache, reads: true)
+        AskClaudePrivacy.shareWithoutAsking(root.path, in: withPage.filingContentDefaults)   // so its page goes
         await scan(withPage, root: root)
         _ = await withPage.refineFilingSuggestions(withPage.filingSuggestions)
         FilingVerdictStore.waitForPendingWrites()
@@ -101,6 +102,7 @@ import Testing
         #expect(asked.all.count == 1)
 
         let withPage = manager(asked, cacheDir: cache, reads: true)
+        AskClaudePrivacy.shareWithoutAsking(root.path, in: withPage.filingContentDefaults)   // so its page goes
         await scan(withPage, root: root)
         let summary = try #require(await withPage.refineFilingSuggestions(withPage.filingSuggestions))
         #expect(summary.reused == 0 && asked.all.count == 2, "the page changes the question, so it is asked again")

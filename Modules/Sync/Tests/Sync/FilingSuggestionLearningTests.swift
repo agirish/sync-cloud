@@ -395,6 +395,8 @@ import Testing
         let seen = Seen()
         let settings = ScratchDefaults("gz-\(UUID().uuidString)")
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
+        // Its page goes with its name only because its folder is shared without asking (TE335).
+        AskClaudePrivacy.shareWithoutAsking(root.path, in: settings)
         m.filingContentDefaults = settings
         m.filingBackendIdentity = { tier in tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity }
         m.filingCloudSpendConfirmer = { p in seen.prompt(p); return agree }

@@ -330,12 +330,10 @@ struct SyncCloudApp: App {
                 }
             }
         }
-        // Cloud (Claude) Filing spend guardrail: before a cloud classify, show the cost estimate and
-        // budget, and let the user or the cap decline, falling back on-device. Only consulted when
-        // cloud Filing is on.
-        manager.filingCloudSpendConfirmer = { preflight in
-            SyncOperationAlerts.promptForFilingSpend(preflight)
-        }
+        // No spend dialog (TE335): Refine's plan card and Refine Names' price line show the cost, and the
+        // click on Send, or on the Ask button, is the consent. So `filingCloudSpendConfirmer` stays unwired.
+        // The Ask Claude chat says how a Refine went, on the card; the banner is for hosts without one.
+        manager.filingRefineShowsBanner = false
         // Whole-tree passes (Storage, Find Duplicates) probe the folder's size first and ask when
         // the real pass would take minutes. The Sync default is to refuse, so this wiring is what
         // makes a large folder analysable at all; see `largeWalkConfirmer`.
