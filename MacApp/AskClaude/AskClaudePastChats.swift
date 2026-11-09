@@ -416,6 +416,8 @@ final class AskClaudePastChats: ObservableObject {
                 return .card(symbol: "sparkles", text: card.title)
             case .tryAnother(let line):
                 return .meta(line.text)
+            case .noted(let noted, let undone):
+                return .meta(noted.line + (undone ? " · undone" : ""))
             }
         }
     }

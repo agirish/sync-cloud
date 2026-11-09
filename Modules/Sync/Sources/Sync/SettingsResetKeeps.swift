@@ -22,6 +22,10 @@ public enum SettingsResetKeeps {
 
     public static let keys: Set<String> = [
         AskClaudePrivacy.hiddenFoldersKey,
+        // Notes for Claude are something they made (TE307); the file itself is outside the
+        // defaults, so only the switch and each line's record need keeping.
+        AskClaudeNotes.onKey,
+        AskClaudeNotes.originsKey,
         AskClaudeSpend.limitDefaultsKey,
         // A reset to 30 days would delete chats kept "until I delete them" (decision LL).
         AskClaudePastChatKeep.defaultsKey,

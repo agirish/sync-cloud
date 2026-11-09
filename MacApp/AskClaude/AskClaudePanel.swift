@@ -290,7 +290,8 @@ struct AskClaudePanel: View {
                            turnActions: turnActions(for: item, turns: turns, retries: retries),
                            showsBar: key != nil && hovered == key,
                            onTurnAction: { turnAction($0, on: item.id) },
-                           onHover: { inside in if let key { hover(key, inside) } })
+                           onHover: { inside in if let key { hover(key, inside) } },
+                           onUndoNote: { chat.undoNote($0) })
             // Rows that didn't change aren't redrawn as each word streams in.
             .equatable()
     }
@@ -875,6 +876,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     var onTurnAction: (AskClaudeTurnAction) -> Void = { _ in }
     /// The mouse entering or leaving the row, for which turn's bar shows.
     var onHover: (Bool) -> Void = { _ in }
+    /// Undo on a ✎ Noted line (TE307).
+    var onUndoNote: (UUID) -> Void = { _ in }
     @State private var showsSent = false
     /// The card row whose details are open; one at a time.
     @State private var openRow: Int?
@@ -1036,6 +1039,8 @@ private struct AskClaudeThreadRow: View, Equatable {
             ruleCard(card)
         case .settings(let card):
             AskClaudeSettingCardView(itemID: item.id, card: card, bridge: settingsBridge, accent: accent, hue: hue)
+        case .noted(let noted, let undone):
+            AskClaudeNotedRow(noted: noted, undone: undone, accent: accent, isRunning: isRunning) { onUndoNote(item.id) }
         case .tryAnother(let line):
             Label(line.text, systemImage: "arrow.triangle.2.circlepath")
                 .scaledFont(.footnote).foregroundStyle(.secondary)
@@ -2089,7 +2094,8 @@ extension AskClaudeChat.Receipt {
             : (rowsSent == rowsTotal ? "screen · \(rowsSent) rows" : "screen · \(rowsSent) of \(rowsTotal) rows")
         let tokens = (promptTokens + outputTokens).formatted(.number.notation(.compactName))
         let named = showsModel == true ? modelName.map { $0 + " · " } ?? "" : ""
-        return "\(named)Sent \(screen) · \(tokens) tokens · \(AskClaudeSpend.format(costUSD))"
+        let notes = self.notes.map { $0.receiptWords + " · " } ?? ""
+        return "\(named)Sent \(notes)\(screen) · \(tokens) tokens · \(AskClaudeSpend.format(costUSD))"
     }
 
     /// The model that answered, by its short name; the fallback's, marked, when one answered any

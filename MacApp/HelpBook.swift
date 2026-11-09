@@ -337,11 +337,12 @@ enum HelpBook {
                         "What is inside a file is read on this Mac, and only when Claude needs it: renaming, moving or a PDF tool never reads one. Apple Intelligence, Apple’s model built into macOS, answers Claude’s question about the file on this Mac, and a card shows the answer, word for word. Nothing from the file goes to Claude until you click Share This Answer, or Share Content from Page 2 (the card names the page) for the text the answer came from. Share All Content from the Document sends all the text read from it, up to about 40,000 tokens, and the card says how much that is first; past that, or when part of the file wasn’t read, it names the pages it sends instead. Only text goes, never the file itself. If the answer is all you wanted, you’re done: share it only when Claude should use it, to compare it with something or act on it. When one question reads several files, they share one card: each file’s answer with a tick, then Share Answers, Share Content and Share All Content for the ticked files. In a folder shared without asking, the answer and the content it came from go without a card; all of a document still waits for your click. A scanned PDF is read too: its pages with little or no text are read by recognizing the words in their picture, up to 10 of them, and Claude is told which, and that a word may be misread.",
                         "A file only in the cloud and over 25 MB is downloaded only when you click. Claude shows a card with the file’s size and where it lives; Download and Read, or Download and Open, fetches it and carries on. Smaller files download as part of the read, as opening them does.",
                         "Hide from Claude, on a file or folder’s right-click menu, puts it on the Hidden from Claude list, and Show to Claude takes it off; the list is on the Privacy page of Settings ▸ Ask Claude, where Remove takes one off it after asking. Hiding a file or folder during a chat starts a new chat, so nothing Claude saw of it stays. What you did on cards carries over, less anything that names what you hid.",
-                        "Reset All Settings keeps the Hidden from Claude list, Claude’s spending limits and record, and your past chats with how long they’re kept.",
+                        "Reset All Settings keeps the Hidden from Claude list, Notes for Claude, Claude’s spending limits and record, and your past chats with how long they’re kept.",
+                        "Notes for Claude go with every new chat, and with the next question after you change them. They say only what you told Claude.",
                     ]),
                     .tip("Everything Ask Claude sends goes to Anthropic’s API, with the API key you supply, kept in your Keychain. Reading your documents says what Organize reads on this Mac, and why none of that leaves it."),
                 ],
-                related: ["ask-claude", "ask-claude-past", "on-device-reading", "intelligence", "staying-safe"]
+                related: ["ask-claude", "ask-claude-past", "ask-claude-notes", "on-device-reading", "intelligence", "staying-safe"]
             )),
             Topic(id: "ask-claude-past", title: "Past chats", systemImage: "clock", article: Article(
                 intro: "Every chat is kept on this Mac when a new one starts, so yesterday’s answer is still there. Click the clock button at the top of the Ask Claude column for Past Chats, by day.",
@@ -358,6 +359,22 @@ enum HelpBook {
                     .tip("Past chats stay on this Mac. Nothing in them is sent unless you click Continue and ask a question."),
                 ],
                 related: ["ask-claude", "ask-claude-privacy"]
+            )),
+            Topic(id: "ask-claude-notes", title: "Notes for Claude", systemImage: "square.and.pencil", article: Article(
+                intro: "Claude keeps short notes about you across chats: who your people are, how your folders are laid out, how you like answers. Every new chat starts with them, so you don’t say the same things again.",
+                blocks: [
+                    .bullets([
+                        "Claude adds a note when you ask it to remember something, or when your own words show something you’ll want next time. Each one shows in the chat as a line starting Noted, with Undo, which takes it back while the line is still as Claude wrote it. Editing or retrying the question that wrote a note takes it back too.",
+                        "A note quotes the words of yours it came from, and SyncCloud keeps it only if you typed or said those words in the chat. Nothing in a file, a shared passage or the screen can become a note, and a note’s email address, link or number must be in your words.",
+                        "Notes are preferences, never permission: a note can’t let Claude move, rename or trash anything without your click on a card. They never hold a key, a password, or an account or card number.",
+                        "Where files go stays with Rules. When you correct where a file goes, Claude offers a rule; it doesn’t note it.",
+                        "The notes are on the General page of Settings ▸ Ask Claude, line by line, each saying who wrote it, when, and from which of your words. Edit… changes them, Show in Finder shows the file, and Clear Notes… deletes them after asking. Let Claude add to its notes, off, keeps them as they are; Claude still reads them. Notes for Claude… in the menu under the text box opens that page.",
+                        "They’re a Markdown file in your home folder, Notes for Claude.md, up to 4,000 characters, and any editor can change it. Ask Claude’s file tools leave that file alone.",
+                        "Hiding a folder that your notes name offers to remove those lines. Kept, they still tell Claude the name, never what’s in the folder.",
+                        "The first question of a chat sends them, and its receipt says Sent your notes; later questions don’t repeat them unless you change them. At most about 1,000 tokens, that’s under a cent a chat.",
+                    ]),
+                ],
+                related: ["ask-claude", "ask-claude-privacy", "ask-claude-settings"]
             )),
             Topic(id: "ask-claude-changes", title: "Changes Claude proposes", systemImage: "checklist.checked", article: Article(
                 intro: "Ask Claude to move, rename, make a folder or move something to the Trash, and it shows a card of the changes. Nothing happens until you click Apply.",

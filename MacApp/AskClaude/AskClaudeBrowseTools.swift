@@ -59,7 +59,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Built from `hidden` at first use and kept with this context, so a folder's rows share
         /// their parent's resolved spelling.
         var hiddenMatcher = MatcherBox()
-        func isHidden(_ path: String) -> Bool { hiddenMatcher.matcher(for: hidden).isHidden(path) }
+        /// Hidden, or Notes for Claude's own file (TE307), which Claude changes only with its notes
+        /// tool: never listed, searched, read, moved or trashed by the file tools.
+        func isHidden(_ path: String) -> Bool {
+            hiddenMatcher.matcher(for: hidden + [AskClaudeNotes.defaultFileURL().path]).isHidden(path)
+        }
         /// The folders shared without asking, absolute; hidden wins over them.
         var shared: [String] = []
         var sharedMatcher = MatcherBox()
@@ -157,6 +161,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var disks: [Disk] = []
         /// Asks them to confirm ejecting a disk, then ejects it: what came of it.
         var eject: (_ disk: Disk) async -> EjectOutcome = { _ in .canceled }
+        /// The questions they typed or said in this chat: what a note must quote (TE307).
+        var ownWords: [String] = []
+        /// Haiku notes only what they ask it to remember.
+        var notesOnlyWhenAsked = false
+        /// Their notes file.
+        var notesStore: () -> AskClaudeNotes = { AskClaudeNotes() }
         /// Writes a setting Claude may change itself, through its owner.
         var setSetting: (_ id: String, _ value: SettingValue, _ target: String?) -> SettingsWriter.Outcome = { _, _, _ in
             .refused("Settings can’t be changed here.")
@@ -677,6 +687,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .offerRule: return await offerRule(call, ctx, handles)
         case .pdf: return await pdf(call, ctx, handles)
         case .eject: return await eject(call, ctx)
+        case .notes: return notes(call, ctx)
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")

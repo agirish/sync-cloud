@@ -112,6 +112,25 @@ public struct RemovalPrompt: Equatable, Sendable {
             confirmTitle: "Show to Claude")
     }
 
+    /// Ask Claude ▸ General ▸ Notes for Claude ▸ Clear Notes… (TE307).
+    public static func clearNotesForClaude(lines: Int) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: lines == 1 ? "Clear the 1 line in Notes for Claude?" : "Clear all \(lines.formatted()) lines in Notes for Claude?",
+            informativeText: "Claude forgets what it noted about you, from its next question on, and "
+                + "the file Notes for Claude.md in your home folder is deleted. This can’t be undone.",
+            confirmTitle: "Clear Notes")
+    }
+
+    /// Hiding a folder that Notes for Claude names (TE307).
+    public static func removeNoteLines(count: Int, naming names: [String]) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: (count == 1 ? "1 line in Notes for Claude names " : "\(count.formatted()) lines in Notes for Claude name ")
+                + names.joined(separator: ", ") + ". Remove " + (count == 1 ? "it?" : "them?"),
+            informativeText: "Claude reads your notes in every chat. Kept, they still tell Claude the name, "
+                + "though never what’s in the folder.",
+            confirmTitle: count == 1 ? "Remove Line" : "Remove Lines")
+    }
+
     /// Organize ▸ Duplicates ▸ Groups kept separate ▸ Show Again….
     public static func showKeptSeparateAgain(count: Int) -> RemovalPrompt {
         RemovalPrompt(

@@ -796,6 +796,11 @@ enum SettingsSearchIndex {
               keywords: ["model", "ask claude model", "sonnet", "opus", "haiku", "default model"]),
         .init(at: .claudeGeneral, title: "Answers",
               keywords: ["brief", "detailed", "verbose", "answer length", "concise", "ask claude answers"]),
+        .init(at: .claudeGeneral, title: "Notes for Claude",
+              keywords: ["notes", "memory", "remember", "about me", "instructions", "custom instructions", "preferences",
+                         "what claude knows", "claude.md"]),
+        .init(at: .claudeGeneral, title: "Let Claude add to its notes",
+              keywords: ["notes", "memory", "remember", "learn"]),
 
         // Ask Claude ▸ Privacy
         .init(at: .privacy, title: "Hidden from Claude",
@@ -2833,6 +2838,13 @@ struct IntelligenceSettingsTab: View {
     }
 
     private var general: some View {
+        Group {
+            modelAndAnswers
+            NotesForClaudeSection()
+        }
+    }
+
+    private var modelAndAnswers: some View {
         SettingsSection(caption: "Model and answers apply from the next question, in an open chat too.") {
             SettingsRow("Model") {
                 Picker("Model", selection: Binding(
@@ -2908,6 +2920,7 @@ struct IntelligenceSettingsTab: View {
                         panel.prompt = "Hide from Claude"
                         if panel.runModal() == .OK {
                             for url in panel.urls { AskClaudePrivacy.hide(url.path, in: .standard) }
+                            NotesForClaudeSection.offerToRemoveLines(naming: panel.urls.map(\.path))
                             askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
                         }
                     }
@@ -4148,7 +4161,7 @@ struct AdvancedSettingsTab: View {
         informativeText: "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay.")
 
     /// What Reset All Settings takes and what it keeps, in the confirmation.
-    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude; and your spending limits for Claude and the record of what it has cost. One-Way Sync stays set up as it is, with its choices for a Dropbox file deleted, renamed, moved or edited, and Launch at login stays as it is: macOS holds it. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
+    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude, and Notes for Claude; and your spending limits for Claude and the record of what it has cost. One-Way Sync stays set up as it is, with its choices for a Dropbox file deleted, renamed, moved or edited, and Launch at login stays as it is: macOS holds it. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
 
     /// The confirmation's words, with what the reset would raise for Claude from the values now
     /// (`SettingsActions.resetAllRaises`) — the same in Settings and on an Ask Claude card.

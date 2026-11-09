@@ -689,6 +689,7 @@ extension ContentView {
         if hidden {
             AskClaudePrivacy.hide(folder, in: .standard)
             askClaudeChat.addNote("Hid \(name) from Claude. Your next question starts a new chat, so nothing Claude saw of it stays.")
+            NotesForClaudeSection.offerToRemoveLines(naming: [folder])
         } else {
             let covering = askClaudeHiddenEntries(covering: folder)
             covering.forEach { AskClaudePrivacy.unhide($0, in: .standard) }
@@ -1175,6 +1176,9 @@ extension ContentView {
             chatIsOpen: askClaudeHolder.visibility.isOpen && ((askClaudePinState.fits && askClaudeMeasured) || !askClaudeHolder.visibility.tucked),
             disks: askClaudeDisks,
             eject: { await askClaudeEject($0) },
+            ownWords: askClaudeChat.ownWords,
+            notesOnlyWhenAsked: askClaudeChat.model.id == AskClaudeModels.haiku.id,
+            notesStore: { [askClaudeChat] in askClaudeChat.notes },
             setSetting: { id, value, target in
                 let before = SettingsCatalog.entry(id).flatMap { askClaudeSettingsLookup.currentValue($0, target: target) }
                 let outcome = SettingsWriter(defaults: .standard, settings: settings).write(id, value, target: target)

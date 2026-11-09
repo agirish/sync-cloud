@@ -1165,3 +1165,95 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(off.object(forKey: AskClaudePrivacy.retiredReadsFilesKey) == nil)
     }
 }
+
+/// Notes for Claude in the request (TE307): once a chat, again only when they change them.
+@MainActor
+@Suite struct AskClaudeNotesInRequestTests {
+
+    /// The notes file as the engine reads it, changed between questions.
+    private final class NotesFile { var text = "" }
+
+    private func texts(_ transport: ScriptedTransport, _ index: Int) throws -> [String] {
+        try #require(try transport.body(index)["messages"]?.arrayValue?.last?["content"]?.arrayValue).compactMap { $0["text"]?.stringValue }
+    }
+
+    @Test func notesGoWithAChatsFirstQuestionAndAgainOnlyWhenChanged() async throws {
+        let transport = ScriptedTransport([], repeating: .init(status: 200, lines: textResponse("ok")))
+        let file = NotesFile()
+        file.text = "## About you\n- Amma is your mother.\n"
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day }, notes: { file.text })
+        var sent: [AskClaudeNotesSent] = []
+        func ask(_ q: String) async {
+            await engine.ask(q, card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) {
+                if case .notesSent(let kind) = $0 { sent.append(kind) }
+            }
+        }
+        await ask("a")
+        #expect(try texts(transport, 0) == [#"<setting model="Claude Sonnet 5.5" answers="brief"/>"#,
+                                            "<notes>\n1 ## About you\n2 - Amma is your mother.\n</notes>", "c", "a"])
+        await ask("b")
+        #expect(try texts(transport, 1).contains { $0.hasPrefix("<notes") } == false)
+        file.text += "- Brief answers.\n"
+        await ask("c")
+        #expect(try texts(transport, 2)[1].hasSuffix("3 - Brief answers.\n</notes>"))
+        file.text = ""
+        await ask("d")
+        #expect(try texts(transport, 3)[1] == "<notes/>")
+        await ask("e")
+        #expect(try texts(transport, 4).contains { $0.hasPrefix("<notes") } == false)
+        #expect(sent == [.first, .changed, .cleared])
+    }
+
+    @Test func aQuestionThatNeverJoinedLeavesTheNotesToSendAgain() async throws {
+        let transport = ScriptedTransport([.init(status: 500, lines: [])], repeating: .init(status: 200, lines: textResponse("ok")))
+        let file = NotesFile()
+        file.text = "- Amma is your mother."
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day }, notes: { file.text })
+        await engine.ask("a", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        await engine.ask("b", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        #expect(try texts(transport, 1).contains { $0.hasPrefix("<notes>") })
+        #expect(engine.snapshot.notesKnown != nil)
+    }
+
+    @Test func claudesOwnNoteIsntSentBackToIt() async throws {
+        let transport = ScriptedTransport([.init(status: 200, lines: toolResponse(id: "toolu_n", name: "notes", inputJSON: "{}"))],
+                                          repeating: .init(status: 200, lines: textResponse("ok")))
+        let file = NotesFile()
+        let tools = NotingTools { file.text = "## About you\n- Amma is your mother.\n" }
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day }, notes: { file.text })
+        var noted: [AskClaudeNoted] = []
+        await engine.ask("Remember Amma is my mom", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: tools) {
+            if case .noted(let change) = $0 { noted.append(change) }
+        }
+        #expect(noted.map(\.after) == ["Amma is your mother."])
+        await engine.ask("b", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        #expect(try texts(transport, 2).contains { $0.hasPrefix("<notes") } == false, "Claude has it from its own call")
+    }
+
+    @Test func rewindingAQuestionTakesBackWhatClaudeHad() async throws {
+        let transport = ScriptedTransport([], repeating: .init(status: 200, lines: textResponse("ok")))
+        let file = NotesFile()
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day }, notes: { file.text })
+        await engine.ask("a", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        file.text = "- Amma is your mother."
+        await engine.ask("b", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        #expect(engine.rewind(toTurn: 1))
+        #expect(engine.snapshot.notesKnown == nil, "back to before b, which carried them")
+        await engine.ask("b again", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        #expect(try texts(transport, 2).contains { $0.hasPrefix("<notes>") })
+    }
+}
+
+/// Answers a notes call as the app's runner would after a write, running `write` first.
+@MainActor
+private final class NotingTools: AskClaudeToolRunning {
+    let write: () -> Void
+    init(write: @escaping () -> Void) { self.write = write }
+
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        write()
+        return AskClaudeToolOutcome(result: "Saved: 37 of 4000 characters.", step: "Noted: Amma is your mother.",
+                                    noted: AskClaudeNoted(change: .added, section: .about, before: nil,
+                                                          after: "Amma is your mother.", quote: "Remember Amma is my mom"))
+    }
+}

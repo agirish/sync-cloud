@@ -83,6 +83,8 @@ final class AskClaudeChat: ObservableObject {
             case refine(AskClaudeRefineCard)
             /// Try Another's running line for the hour, kept at the bottom as it updates.
             case tryAnother(AskClaudeTryAnotherLine)
+            /// A change Claude made to its notes (TE307): the ✎ line, with Undo until it's used.
+            case noted(AskClaudeNoted, undone: Bool)
         }
         var id = UUID()
         var kind: Kind
@@ -149,6 +151,8 @@ final class AskClaudeChat: ObservableObject {
         /// Whether the question joined the chat. A declined or stopped one's receipt doesn't count
         /// as the model the chat was last answered on.
         var kept: Bool?
+        /// Their notes went with the question (TE307).
+        var notes: AskClaudeNotesSent?
     }
 
     /// An hour away starts a new chat; the cache would be cold by then anyway.
@@ -1948,7 +1952,12 @@ final class AskClaudeChat: ObservableObject {
         let gone = Array(items[index...])
         let firstTurn = gone.lazy.compactMap(\.turn).first
         if let firstTurn, !engine.rewind(toTurn: firstTurn) { return false }
-        let kept = gone.filter { Self.lasts($0.kind) }
+        // Notes those questions wrote go with them, newest first; one changed since stays, with its line.
+        var notesKept: Set<UUID> = []
+        for item in gone.reversed() {
+            if case .noted(let noted, undone: false) = item.kind, !notes.undo(noted) { notesKept.insert(item.id) }
+        }
+        let kept = gone.filter { Self.lasts($0.kind) || notesKept.contains($0.id) }
         if firstTurn != nil {
             var lines: [String] = []
             for line in gone.flatMap({ $0.told ?? [] }) + kept.flatMap({ Self.claudesOwnChanges($0.kind) })
@@ -1976,6 +1985,31 @@ final class AskClaudeChat: ObservableObject {
         save()
         Logger.shared.info("Ask Claude took back \(gone.count) item\(gone.count == 1 ? "" : "s"), kept \(kept.count) card\(kept.count == 1 ? "" : "s")"
             + (firstTurn.map { ", transcript back to question \($0 + 1)" } ?? ""))
+        return true
+    }
+
+    /// The questions they typed or said in this chat, never a share or a card's button: what a
+    /// note of Claude's must quote (TE307).
+    var ownWords: [String] {
+        items.compactMap { item in item.asked?.editable == true ? item.asked?.question : nil }
+    }
+
+    /// Their notes, the file Claude's ✎ lines change; a test points it elsewhere.
+    var notesFileURL = AskClaudeNotes.defaultFileURL()
+    var notes: AskClaudeNotes { AskClaudeNotes(fileURL: notesFileURL, defaults: defaults) }
+
+    /// Undo on a ✎ Noted line: takes the change back if its line is still as Claude left it.
+    @discardableResult
+    func undoNote(_ id: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), case .noted(let noted, undone: false) = items[index].kind else {
+            return false
+        }
+        guard notes.undo(noted) else {
+            addNote("That line has changed since. Edit it in Notes for Claude, on the General page of Settings ▸ Ask Claude.")
+            return false
+        }
+        items[index].kind = .noted(noted, undone: true)
+        save()
         return true
     }
 
@@ -2137,6 +2171,16 @@ final class AskClaudeChat: ObservableObject {
             let item = Item(kind: .pdf(card))
             items.append(item)
             pdfCardOffered?(item.id)
+        case .noted(let noted):
+            streamingItem = nil
+            // The ✎ line says what the step said, so it takes the step's place.
+            if let last = items.last, case .step(_, isError: false) = last.kind { items.removeLast() }
+            items.append(Item(kind: .noted(noted, undone: false)))
+        case .notesSent(let sent):
+            receipt?.notes = sent
+            if sent != .first, let at = askedItem.flatMap({ id in items.firstIndex { $0.id == id } }) {
+                items.insert(Item(kind: .note(sent == .cleared ? "You cleared Notes for Claude." : "You changed Notes for Claude.")), at: at)
+            }
         case .kept(let previous, let now):
             // A switch is noted once it reached Claude, at the question that made it. A
             // question that failed, was declined or stopped before joining the chat notes nothing,

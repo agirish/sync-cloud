@@ -15125,3 +15125,20 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Notes for Claude (TE307) — main only
+
+2026-11-09, for v7.1 (decisions IO, IX, JI, JM). On `main`: Ask Claude keeps notes about them in
+`~/Notes for Claude.md` (`AskClaudeNotes`), written by its `notes` tool only from words they typed or
+said, sent as a `<notes>` block on a chat's first question and when they change, and shown line by
+line in Settings ▸ Ask Claude ▸ General. No maintenance line has Ask Claude:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeEngine')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

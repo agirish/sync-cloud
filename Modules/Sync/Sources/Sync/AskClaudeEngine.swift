@@ -1,3 +1,4 @@
+import CryptoKit
 import Events
 import Foundation
 
@@ -72,6 +73,8 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let pdf: AskClaudePDFCard?
     /// Names a content search found, held for their click.
     public let found: AskClaudeFoundNames?
+    /// A change Claude made to its notes, for the ✎ line and its Undo (TE307).
+    public let noted: AskClaudeNoted?
     /// The step as the log writes it, when the panel's `step` carries words from the question
     /// (a search's terms, an argument that matched nothing). Nil logs `step` itself.
     public let logStep: String?
@@ -80,7 +83,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
                 filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
                 rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil, pdf: AskClaudePDFCard? = nil,
-                found: AskClaudeFoundNames? = nil) {
+                found: AskClaudeFoundNames? = nil, noted: AskClaudeNoted? = nil) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -95,6 +98,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.settings = settings
         self.pdf = pdf
         self.found = found
+        self.noted = noted
     }
 }
 
@@ -242,6 +246,11 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case settings(AskClaudeSettingCard)
     /// A card that runs a PDF tool on their click.
     case pdf(AskClaudePDFCard)
+    /// Claude changed its notes (TE307).
+    case noted(AskClaudeNoted)
+    /// The question joined carrying their notes (TE307): sent once a chat, and again when they
+    /// change them.
+    case notesSent(AskClaudeNotesSent)
     /// The question joined the transcript with this model and style; `previous` is the
     /// last question's, nil in a new chat.
     case kept(previous: AskClaudeKeptSetting?, now: AskClaudeKeptSetting)
@@ -271,6 +280,9 @@ public final class AskClaudeEngine {
     public var handles = AskClaudeHandles()
     /// The last screen card sent, so an unchanged screen goes as one line.
     private var lastCard: String?
+    /// A digest of the notes Claude has (TE307), so they go once a chat and again only when they
+    /// change: nil while Claude has none. A digest, so the chat's file holds no second copy.
+    private var notesKnown: String?
     /// Tool results owed to the transcript’s last assistant turn when a question stopped before
     /// sending them (stopped by the person, or past the tool limit). The API needs every tool call
     /// answered before anything else, so they lead the next question’s turn.
@@ -304,6 +316,9 @@ public final class AskClaudeEngine {
         public let start: Int
         public let lastKept: AskClaudeKeptSetting?
         public let contextTokens: Int?
+        /// The notes Claude had before it (TE307); nil in an older saved chat, which then sends
+        /// them again after a rewind, as harmless as it is rare.
+        public var notesKnown: String?
     }
 
     /// One per question that joined, in order. Empty in an older saved chat, which can't be
@@ -313,6 +328,8 @@ public final class AskClaudeEngine {
     private let transport: AskClaudeTransport
     private let defaults: UserDefaults
     private let now: () -> Date
+    /// Their notes as the file holds them now, read at each question.
+    private let notes: () -> String
 
     /// Everything a chat needs to carry on after the app quits.
     public struct Snapshot: Codable, Equatable, Sendable {
@@ -325,11 +342,13 @@ public final class AskClaudeEngine {
         public var lastKept: AskClaudeKeptSetting?
         public var contextTokens: Int?
         public var turns: [Turn]?
+        public var notesKnown: String?
     }
 
     public var snapshot: Snapshot {
         Snapshot(transcript: transcript, handles: handles, lastCard: lastCard, owedResults: owedResults, setting: setting,
-                 lastKept: lastKept, contextTokens: contextTokens, turns: turns.isEmpty ? nil : turns)
+                 lastKept: lastKept, contextTokens: contextTokens, turns: turns.isEmpty ? nil : turns,
+                 notesKnown: notesKnown)
     }
 
     public func restore(_ snapshot: Snapshot) {
@@ -341,6 +360,7 @@ public final class AskClaudeEngine {
         lastKept = snapshot.lastKept
         contextTokens = snapshot.contextTokens
         turns = snapshot.turns ?? []
+        notesKnown = snapshot.notesKnown
     }
 
     /// Takes the chat back to just before question `turn`, for Edit on a question or Retry on the
@@ -359,21 +379,40 @@ public final class AskClaudeEngine {
         turns.removeSubrange(turn...)
         lastKept = mark.lastKept
         contextTokens = mark.contextTokens
+        notesKnown = mark.notesKnown
         lastCard = nil
         return true
     }
 
     public init(transport: AskClaudeTransport = AskClaudeURLSessionTransport(),
-                defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+                defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
+                notes: @escaping () -> String = { AskClaudeNotes().read() }) {
         self.transport = transport
         self.defaults = defaults
         self.now = now
+        self.notes = notes
     }
 
     /// The text of the screen block for this question: the full card, or one line when nothing
     /// changed since the last question.
     public func screenBlock(for card: String) -> String {
         card == lastCard ? "<screen unchanged/>" : card
+    }
+
+    /// Their notes for this question (TE307): the block to send and what Claude has once it joins,
+    /// or nil when Claude already has them as they are.
+    func notesBlock(for text: String) -> (block: JSONFragment, sent: AskClaudeNotesSent, known: String?)? {
+        let now = Self.notesDigest(text)
+        guard now != notesKnown else { return nil }
+        guard let now else { return (AskClaudeRequest.notesBlock(""), .cleared, nil) }
+        return (AskClaudeRequest.notesBlock(text), notesKnown == nil ? .first : .changed, now)
+    }
+
+    /// Nil for no notes, so an empty file and a missing one read the same.
+    static func notesDigest(_ text: String) -> String? {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+        return SHA256.hash(data: Data(body.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Runs one question. `card` is the rendered screen; `onEvent` hears progress on the main actor.
@@ -424,17 +463,22 @@ public final class AskClaudeEngine {
         let detail = chosenDetail ?? AskClaudeDetail.stored(in: defaults)
         let kept = AskClaudeKeptSetting(model: model.id, detail: detail.rawValue)
         if transcript.isEmpty { setting = AskClaudeRequest.fixedDigest }
+        // Their notes go once a chat and again when they change: read now, so every round agrees.
+        let notesNow = notesBlock(for: notes())
         // Tool results owed to the last turn must lead (the API answers every call first); then
         // which model and style this question is for, the screen, and the question.
         var pending: JSONFragment = .object([
             "role": .string("user"),
             "content": .array(owedResults + [
                 AskClaudeRequest.settingBlock(model: model, detail: detail),
+            ] + (notesNow.map { [$0.block] } ?? []) + [
                 .object(["type": .string("text"), "text": .string(screen)]),
                 .object(["type": .string("text"), "text": .string(AskClaudeRequest.defused(question))]),
             ]),
         ])
         var round = 0
+        // What Claude's own notes change leaves the notes as, applied once its result joins.
+        var notesAfterTools: String??
         var joined = false
         let askedAt = Date()
         var spent = 0.0
@@ -527,7 +571,16 @@ public final class AskClaudeEngine {
             if round == 1 {
                 lastCard = card
                 owedResults = []
-                turns.append(Turn(start: transcript.count, lastKept: lastKept, contextTokens: contextTokens))
+                turns.append(Turn(start: transcript.count, lastKept: lastKept, contextTokens: contextTokens,
+                                  notesKnown: notesKnown))
+                if let notesNow {
+                    notesKnown = notesNow.known
+                    emit(.notesSent(notesNow.sent))
+                }
+            } else if let known = notesAfterTools {
+                // Claude has its own change now: the results that carry it joined.
+                notesKnown = known
+                notesAfterTools = nil
             }
             transcript.append(pending)
             joined = true
@@ -596,6 +649,10 @@ public final class AskClaudeEngine {
                 if let rule = outcome.rule { emit(.rule(rule)) }
                 if let settings = outcome.settings { emit(.settings(settings)) }
                 if let pdf = outcome.pdf { emit(.pdf(pdf)) }
+                if let noted = outcome.noted {
+                    notesAfterTools = Self.notesDigest(notes())
+                    emit(.noted(noted))
+                }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {

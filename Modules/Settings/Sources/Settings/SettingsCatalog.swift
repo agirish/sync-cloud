@@ -466,6 +466,15 @@ public enum SettingsCatalog {
           control: .segmented(AskClaudeDetail.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
           default: .string(AskClaudeDetail.brief.rawValue), tier: .suggested,
           raises: .laterIn([.string(AskClaudeDetail.brief.rawValue), .string(AskClaudeDetail.detailed.rawValue)])),
+        // Claude reads them in every chat's <notes>; only its notes tool changes them, under its
+        // own guards, so the catalog only shows where they are (TE307).
+        e("intelligence.notes", .claudeGeneral, "Notes for Claude", indexed: true,
+          others: ["Edit…", "Show in Finder", "Clear Notes…"],
+          storage: .owner("AskClaudeNotes"), control: .readout, tier: .readOnly),
+        e("intelligence.notesOn", .claudeGeneral, "Let Claude add to its notes", indexed: true,
+          storage: app(AskClaudeNotes.onKey, "AskClaudeNotes.onKey", "true"),
+          control: .toggle, default: .bool(true), tier: .directWhenTightening, raises: .turningOn,
+          help: "Off, Claude still reads your notes but can’t change them."),
         e("intelligence.hidden", .privacy, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
         // Never in chat: a folder shared without asking loosens what reaches Claude, so only the

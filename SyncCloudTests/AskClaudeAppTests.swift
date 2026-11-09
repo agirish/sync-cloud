@@ -2068,7 +2068,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         menu.update()
         let items = menu.items.filter { !$0.isSeparatorItem && !$0.isSectionHeader }
         let titles = items.map(\.title)
-        #expect(titles == ["Sonnet 5.5", "Opus 5.5", "Haiku 5.5", "Brief", "Detailed", "Ask Claude Settings…"], "\(titles)")
+        #expect(titles == ["Sonnet 5.5", "Opus 5.5", "Haiku 5.5", "Brief", "Detailed", "Notes for Claude…", "Ask Claude Settings…"], "\(titles)")
         #expect(items.first { $0.title == "Opus 5.5" }?.subtitle == "Strongest · about 2¢ a question · catching up on this chat: up to 15¢")
         #expect(items.first { $0.title == "Haiku 5.5" }?.subtitle == AskClaudeModels.haiku.menuLine)
         #expect(items.first { $0.title == "Sonnet 5.5" }?.state == .on)

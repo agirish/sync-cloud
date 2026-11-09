@@ -76,6 +76,7 @@ public struct SettingsLists {
             store.keep(item)
         case "intelligence.hidden":
             AskClaudePrivacy.hide(item, in: defaults)
+            NotesForClaudeSection.offerToRemoveLines(naming: [item])
         default:
             return .refused("That isn’t a list.")
         }

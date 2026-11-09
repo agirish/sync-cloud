@@ -94,6 +94,8 @@ struct AskClaudeModelMenuItems: View {
         }
         .pickerStyle(.inline)
         Divider()
+        // On the same page as Model and Answers (TE307), so one place serves both.
+        Button("Notes for Claude…", action: onOpenSettings)
         Button("Ask Claude Settings…", action: onOpenSettings)
     }
 }
