@@ -472,6 +472,13 @@ public enum SettingsCatalog {
         // person sets it, from the shield menu or Add… here, and only they take one off.
         e("intelligence.shared", .privacy, "Shared without asking", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .notInChat, privacy: .countOnly),
+        // Never in chat: a shorter keep, or Clear All, deletes past chats (TE306).
+        e("intelligence.keepPastChats", .privacy, "Keep past chats", indexed: true,
+          storage: app(AskClaudePastChatKeep.defaultsKey, "AskClaudePastChatKeep.defaultsKey", "AskClaudePastChatKeep.standard.rawValue"),
+          control: .menu(AskClaudePastChatKeep.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
+          default: .string(AskClaudePastChatKeep.standard.rawValue), tier: .notInChat),
+        e("intelligence.pastChatsClearAll", .privacy, "Clear All past chats", others: ["Clear All…"],
+          control: .button("Clear All…"), tier: .notInChat, lessSafe: .always),
         e("intelligence.monthlyLimit", .keyAndSpending, "Monthly limit", indexed: true,
           storage: app(AskClaudeSpend.limitDefaultsKey, "AskClaudeSpend.limitDefaultsKey", "AskClaudeSpend.defaultLimitUSD"),
           control: .menu(AskClaudeSpend.limitChoices.map { SettingChoice(.double($0), $0 == 0 ? "No limit" : AskClaudeSpend.format($0)) }),

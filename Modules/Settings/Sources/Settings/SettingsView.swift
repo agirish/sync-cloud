@@ -803,6 +803,9 @@ enum SettingsSearchIndex {
         .init(at: .privacy, title: "Shared without asking",
               keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time", "share folder",
                          "let claude read files", "read files", "file contents", "passage", "send text"]),
+        .init(at: .privacy, title: "Keep past chats",
+              keywords: ["past chats", "chat history", "history", "old chats", "retention", "delete chats",
+                         "clear all chats", "30 days", "7 days", "conversations"]),
 
         // Ask Claude ▸ Key & Spending: the key and the one monthly limit.
         // "claude" belongs on the key too, not only the toggle: someone pasting an `sk-ant-…`
@@ -2858,6 +2861,7 @@ struct IntelligenceSettingsTab: View {
         }
     }
 
+    @ViewBuilder
     private var privacy: some View {
         SettingsSection(
             "What Claude may see",
@@ -2960,6 +2964,8 @@ struct IntelligenceSettingsTab: View {
             askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
             askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
         }
+
+        AskClaudePastChatsSettings()
     }
 
     @ViewBuilder

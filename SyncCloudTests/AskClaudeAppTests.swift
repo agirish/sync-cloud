@@ -2798,7 +2798,8 @@ private final class Counter: @unchecked Sendable {
                           .moved("Opened Activity"), .step("Read Taxes", isError: false)])
     }
 
-    @Test func aChatSurvivesQuittingWithinTheHourAndNotAfter() async throws {
+    /// After an hour it comes back too (decision JK), and the next question starts afresh.
+    @Test func aChatSurvivesQuittingWithinTheHourAndAfter() async throws {
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeStore-\(UUID().uuidString)/chat.json")
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
         let d = ScratchDefaults("AskClaudeChatStoreTests.aChatSurvivesQuitting")
@@ -2812,8 +2813,8 @@ private final class Counter: @unchecked Sendable {
         #expect(again.items.first?.kind == .user("remember me"))
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
         let later = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock }, storeURL: store)
-        #expect(later.items.isEmpty)
-        #expect(!FileManager.default.fileExists(atPath: store.path))
+        #expect(later.items.first?.kind == .user("remember me"))
+        #expect(later.startsOverAtNextQuestion)
     }
 
     /// A saved card this build can't read costs a note, not the chat. Two unknown cards side by

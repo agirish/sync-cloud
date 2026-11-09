@@ -985,3 +985,34 @@ installed app with a key saved and a To File list. Nothing here was clicked agai
 - [ ] **Save and Not Now.** Save stores the rule in Organize ▸ Rules; Not Now stores nothing. Ask
   a question after each: Claude knows of a saved one only, by name when the folder is shared
   without asking.
+
+## Ask Claude's Past Chats (TE306, 2026-11-09)
+
+For the after-GA-prep sitting. Ask two short questions in one chat first, then New Chat.
+
+- [ ] **Kept.** Click the clock at the top of the column: the chat you left is under Today, with
+  its first question, time, folder, “2 questions” and its cost. The column's title reads Past Chats.
+- [ ] **Open.** Click it: the chat reads as it was, its cards as one line each, with New Chat and
+  “Continue · N¢” at the bottom. ‹ Past Chats and Esc go back to the list; Esc again, back to the chat.
+- [ ] **Continue.** Click Continue: it's the chat you're in again, a line over the box says the
+  next question reads it back in, and the next answer's receipt costs about what the button said.
+- [ ] **An hour away.** Leave a chat for over an hour (or quit and relaunch after an hour): a line
+  under it reads “Your next question starts a new chat” with Continue. Ask without Continue: the old
+  chat stays above “Earlier · Claude doesn't see this”, greyed, and the new answer is below.
+- [ ] **Search.** Opening the list puts the keyboard in its search field (⌘F still finds in the
+  pane). Type a word from an answer: only matching chats stay, each with the matching line. Return
+  opens the first. Esc from the field, and from an opened chat, goes back.
+- [ ] **Delete and Undo.** Hover a row, click the bin: the chat is deleted, not opened, and
+  “Deleted …” shows with Undo; Undo brings it back. Right-click ▸ Delete Chat does the same.
+- [ ] **Old cards.** Quit with a card offered (a plan, say), relaunch after an hour: the chat is
+  back with the card's buttons off and “From an earlier session, so its buttons are off.”
+- [ ] **Hidden later.** Hide a folder a past chat named: its row says “hid 1 item”, the name reads
+  “a hidden item” in the chat, search for it finds nothing, and Continue reads “Continue in a New
+  Chat · N¢”. Press it: the note over the box has Cancel, and the next question carries only your
+  questions.
+- [ ] **Settings.** Settings ▸ Ask Claude ▸ Privacy ▸ Past chats: 30 days, the count and size. Pick
+  7 days with an older chat present: it asks before deleting. Clear All… asks, then the list is
+  empty and says how chats get there.
+- [ ] **Empty.** With none kept, the list says “No past chats yet” and how chats get there.
+- [ ] **VoiceOver.** Rows read their question and details, with Delete and Continue actions; the
+  past chat's question bubbles read “You: …”.

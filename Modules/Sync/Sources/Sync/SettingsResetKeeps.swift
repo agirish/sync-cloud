@@ -23,6 +23,8 @@ public enum SettingsResetKeeps {
     public static let keys: Set<String> = [
         AskClaudePrivacy.hiddenFoldersKey,
         AskClaudeSpend.limitDefaultsKey,
+        // A reset to 30 days would delete chats kept "until I delete them" (decision LL).
+        AskClaudePastChatKeep.defaultsKey,
         // Refine's retirement (RefineSpendMigration): run again after a reset it would carry nothing
         // and show nothing, and a notice not yet read must survive one.
         RefineSpendMigration.doneKey,

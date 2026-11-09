@@ -78,6 +78,9 @@ struct AskClaudePanel: View {
     @State private var caret = AskClaudeComposerCaret()
     @State private var spentText = ""
     @State private var showsPlace = false
+    /// Past Chats in place of the thread (TE306), and the past chat opened from it.
+    @State private var showsPast = false
+    @State private var pastOpened: UUID?
     /// Whether an API key is saved, asked without reading it: when the panel opens and whenever the
     /// Keychain item changes, not on every draw. Nil until asked.
     @State private var keySaved: Bool?
@@ -175,9 +178,7 @@ struct AskClaudePanel: View {
                     .frame(height: LiquidGlass.headerHeight)
                     .bottomSectionCard(.cards, level: level, hue: hue, tint: tint)
                 VStack(spacing: 0) {
-                    thread
-                    hairline
-                    composer
+                    content
                 }
                 .bottomSectionCard(.cards, level: level, hue: hue, tint: tint)
             }
@@ -186,11 +187,30 @@ struct AskClaudePanel: View {
                 header
                     .frame(height: LiquidGlass.headerHeight)
                     .columnHeaderRule(.unified)
-                thread
-                hairline
-                composer
+                content
             }
         }
+    }
+
+    /// The thread and the box, or Past Chats in their place.
+    @ViewBuilder private var content: some View {
+        if showsPast, let past = chat.pastChats {
+            AskClaudePastChatsView(past: past, opened: $pastOpened, accentFill: accentFill, onAccent: onAccent,
+                                   isRunning: chat.isRunning,
+                                   onContinue: { id in if chat.continuePast(id) { closePast() } },
+                                   onNewChat: { chat.newChat(); closePast() },
+                                   onOpenSettings: { onOpenSettings(.privacy) })
+        } else {
+            thread
+            hairline
+            composer
+        }
+    }
+
+    private func closePast() {
+        showsPast = false
+        pastOpened = nil
+        composerFocused = true
     }
 
     private var header: some View {
@@ -202,8 +222,8 @@ struct AskClaudePanel: View {
                         .scaledFont(.headline)
                     // The title, and under it what the next question will describe.
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("Claude").scaledFont(.headline)
-                        Text(place.subtitle)
+                        Text(showsPast ? "Past Chats" : "Claude").scaledFont(.headline)
+                        Text(showsPast ? (chat.pastChats?.keep.subtitle ?? "") : place.subtitle)
                             .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -223,7 +243,13 @@ struct AskClaudePanel: View {
                                        onEditHiddenList: { showsPlace = false; onOpenSettings(.privacy) })
                         .presentedNativeControlAccent()
                 }
-            AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat() }
+            if chat.pastChats != nil, keySaved != false {
+                AskClaudeHeaderButton(symbol: "clock", help: showsPast ? "Back to the chat" : "Past chats", label: "Past Chats",
+                                      isOn: showsPast) {
+                    if showsPast { closePast() } else { showsPast = true }
+                }
+            }
+            AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat(); closePast() }
                 .disabled(chat.items.isEmpty && !chat.isRunning)
             AskClaudeHeaderButton(symbol: "xmark", help: ShortcutHint.tooltip("Close", AppChord.askClaude.display), label: "Close", action: onClose)
         }
@@ -259,6 +285,7 @@ struct AskClaudePanel: View {
                            settingsBridge: settingsBridge, pdfBridge: pdfBridge, refineBridge: refineBridge,
                            pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
                            isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning,
+                           isExpired: chat.cardIsExpired(item.id),
                            isGrowing: chat.isRunning && item.id == chat.items.last?.id,
                            turnActions: turnActions(for: item, turns: turns, retries: retries),
                            showsBar: key != nil && hovered == key,
@@ -273,7 +300,16 @@ struct AskClaudePanel: View {
                 // The outer stack is plain: a lazy one can go blank after scrolling to the bottom
                 // while an answer grows. The older rows inside it are lazy (below).
                 VStack(alignment: .leading, spacing: 10) {
-                    if chat.items.isEmpty {
+                    if let earlier = chat.earlier {
+                        AskClaudePastLinesView(lines: earlier.lines, accentFill: accentFill, onAccent: onAccent)
+                            // Not drawn again as each word of the new answer streams in.
+                            .equatable()
+                            .opacity(0.6)
+                        AskClaudeEarlierLine(title: "Earlier · Claude doesn’t see this",
+                                             resume: chat.isRunning || chat.items.contains(where: Self.isQuestion) ? nil : earlier.resume,
+                                             onContinue: { chat.continuePast(earlier.id) })
+                    }
+                    if chat.items.isEmpty && chat.earlier == nil {
                         AskClaudeEmptyState(keySaved: keySaved, starters: AskClaudeStarters.questions(for: place.starterScreen),
                                             startersEnabled: !chat.isRunning && !voice.isActive, bridge: settingsBridge,
                                             accent: accent, hue: hue, onStarter: { send($0, spoken: false) })
@@ -299,6 +335,10 @@ struct AskClaudePanel: View {
                     ForEach(chat.items.dropFirst(lazy)) { item in
                         threadRow(item, turns: turns, retries: retries, latestReceipt: latestReceipt)
                     }
+                    if let resume = chat.currentResume {
+                        AskClaudeEarlierLine(title: "Your next question starts a new chat · Claude won’t see what’s above",
+                                             resume: resume, onContinue: { chat.continueThisChat() })
+                    }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
@@ -315,8 +355,33 @@ struct AskClaudePanel: View {
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
     }
 
+    static func isQuestion(_ item: AskClaudeChat.Item) -> Bool {
+        if case .user = item.kind { true } else { false }
+    }
+
+    /// What the next question carries after Continue.
+    private var continueNote: String? {
+        if chat.carryingText != nil { return "Your next question carries the earlier chat to Claude as text." }
+        guard chat.continuing else { return nil }
+        let cost = chat.contextTokens.map { AskClaudeModels.catchUpCost(contextTokens: $0, to: chat.model) } ?? 0
+        return cost > 0 ? "Your next question reads this chat back in to Claude once, about \(AskClaudeSpend.format(cost))."
+                        : "Your next question carries this chat on."
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let note = continueNote {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Label(note, systemImage: "arrow.uturn.forward")
+                        .fixedSize(horizontal: false, vertical: true)
+                    if chat.carryingText != nil {
+                        Spacer(minLength: 4)
+                        Button("Cancel") { chat.cancelCarry() }.buttonStyle(.link)
+                            .help("Ask without the earlier chat")
+                    }
+                }
+                .scaledFont(.caption).foregroundStyle(.secondary)
+            }
             if chat.editing != nil { editingLine }
             if let waiting = chat.queued { queuedLine(waiting) }
             if !chat.attachments.isEmpty { attachmentChips }
@@ -649,6 +714,10 @@ struct AskClaudePanel: View {
     /// Esc, with nothing spoken: stops an edit, and does nothing else. It never closes the panel,
     /// which its Close button, ⌘W and ⌘J do.
     private func escape() -> Bool {
+        if showsPast {
+            if pastOpened != nil { pastOpened = nil } else { closePast() }
+            return true
+        }
         guard chat.editing != nil else { return false }
         chat.cancelEdit()
         draft = draftBeforeEdit
@@ -795,6 +864,8 @@ private struct AskClaudeThreadRow: View, Equatable {
     var isLatestReceipt = false
     /// While a question runs, an offer's Send waits: the send would be refused.
     var isRunning = false
+    /// A card from an earlier session: drawn with its buttons off (TE306).
+    var isExpired = false
     /// The answer still arriving: the newest item while a question runs.
     var isGrowing = false
     /// Copy, Edit and Retry, as this row offers them: on the bar a question or receipt shows while
@@ -812,7 +883,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     /// What the row draws from; the closures never change what it shows.
     static func == (a: Self, b: Self) -> Bool {
         a.item == b.item && a.linkTargets == b.linkTargets && a.isLatestReceipt == b.isLatestReceipt && a.sharesAnswers == b.sharesAnswers
-            && a.sharesNames == b.sharesNames
+            && a.sharesNames == b.sharesNames && a.isExpired == b.isExpired
             && a.isRunning == b.isRunning && a.isGrowing == b.isGrowing && a.accent == b.accent && a.accentFill == b.accentFill && a.onAccent == b.onAccent
             && a.hue == b.hue && a.pdfThumbnails == b.pdfThumbnails && a.turnActions == b.turnActions && a.showsBar == b.showsBar
     }
@@ -848,7 +919,24 @@ private struct AskClaudeThreadRow: View, Equatable {
                     }
                 }
         default:
-            content.onHover(perform: onHover)
+            if isExpired && Self.expires(item.kind) {
+                VStack(alignment: .leading, spacing: 4) {
+                    content.disabled(true).opacity(0.75)
+                    Text("From an earlier session, so its buttons are off.")
+                        .scaledFont(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                content.onHover(perform: onHover)
+            }
+        }
+    }
+
+    /// The cards whose buttons go off once their session has passed. Refine and Try Another run on
+    /// Organize's clock, not the chat's, and keep theirs.
+    static func expires(_ kind: AskClaudeChat.Item.Kind) -> Bool {
+        switch kind {
+        case .user, .assistant, .step, .moved, .receipt, .problem, .note, .refine, .tryAnother: false
+        default: true
         }
     }
 

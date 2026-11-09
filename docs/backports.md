@@ -15107,3 +15107,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Ask Claude keeps past chats (TE306) — main only
+
+2026-11-09, for v7.1. On `main`: a chat that New Chat, an hour away, an update or a hidden folder
+ends is kept in `Application Support/SyncCloud/AskClaude/Past` (`AskClaudePastChatFiles`,
+`AskClaudePastChats`) for 30 days by default, listed and searched in the column, and carried on with
+Continue. A saved chat over an hour old is no longer deleted at launch. No maintenance line has
+Ask Claude:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeChat.swift')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

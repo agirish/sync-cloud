@@ -58,6 +58,22 @@ public struct RemovalPrompt: Equatable, Sendable {
             confirmTitle: "Clear All")
     }
 
+    /// Ask Claude ▸ Privacy ▸ Past chats ▸ Clear All.
+    public static func clearPastChats(count: Int) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: count == 1 ? "Delete 1 past chat?" : "Delete all \(count.formatted()) past chats?",
+            informativeText: "They’re deleted from this Mac and can’t be opened again. The chat you’re in stays.",
+            confirmTitle: "Delete All")
+    }
+
+    /// Ask Claude ▸ Privacy ▸ Keep past chats, set shorter than some chats already are.
+    public static func shortenPastChats(count: Int, keep: String) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: count == 1 ? "Delete 1 chat older than \(keep)?" : "Delete \(count.formatted()) chats older than \(keep)?",
+            informativeText: "Past chats are kept for \(keep) from now on, so these go now and can’t be opened again.",
+            confirmTitle: "Delete")
+    }
+
     /// Organize ▸ Kept names ▸ Clear All.
     public static func clearKeptNames(count: Int) -> RemovalPrompt {
         RemovalPrompt(

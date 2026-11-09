@@ -401,6 +401,42 @@ import Testing
         }.joined(separator: "\n")
     }
 
+    // MARK: Past chats (TE306)
+
+    private func pastChats() throws -> (AskClaudePastChatsSettings, AskClaudePastChatFiles, UserDefaults) {
+        let files = AskClaudePastChatFiles(folder: FileManager.default.temporaryDirectory.appendingPathComponent("PastChats-\(UUID().uuidString)"))
+        let d = UserDefaults(suiteName: "SettingsAsksBeforeRemovingTests.pastChats-\(UUID().uuidString)")!
+        let now = Date(timeIntervalSince1970: 1_793_000_000)
+        try files.write(Data("{}".utf8), id: UUID(), lastAsked: now.addingTimeInterval(-20 * 86_400))
+        try files.write(Data("{}".utf8), id: UUID(), lastAsked: now)
+        return (AskClaudePastChatsSettings(files: files, defaults: d, now: { now }), files, d)
+    }
+
+    @Test func decliningClearAllKeepsThePastChats() throws {
+        let (section, files, _) = try pastChats()
+        defer { try? FileManager.default.removeItem(at: files.folder) }
+        #expect(!section.clearAll(confirm: { false }))
+        #expect(files.entries().count == 2)
+        #expect(section.clearAll(confirm: { true }))
+        #expect(files.entries().isEmpty)
+    }
+
+    @Test func aShorterKeepAsksBeforeDeletingOlderChats() throws {
+        let (section, files, d) = try pastChats()
+        defer { try? FileManager.default.removeItem(at: files.folder) }
+        var asked: [Int] = []
+        section.choose(.week) { asked.append($0); return false }
+        #expect(asked == [1])
+        #expect(files.entries().count == 2)
+        #expect(AskClaudePastChatKeep.stored(in: d) == .month)
+        section.choose(.week) { _ in true }
+        #expect(files.entries().count == 1)
+        #expect(AskClaudePastChatKeep.stored(in: d) == .week)
+        // Longer deletes nothing, so it doesn't ask.
+        section.choose(.forever) { _ in Issue.record("asked for a longer keep"); return false }
+        #expect(AskClaudePastChatKeep.stored(in: d) == .forever)
+    }
+
     @Test func commentsAreStrippedAndStringsKept() {
         let stripped = Self.withoutComments("""
             a() // b()
