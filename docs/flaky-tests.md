@@ -5221,3 +5221,33 @@ test rests on never comes. Not reproduced; the app's own check is not involved.
 
 **Tell.** `arriving.arrived` false, red once under load, green alone. Rerun before suspecting the
 writer.
+
+### 55. A scan's text layer counted seconds while it waited in the PDFKit lane — FIXED
+
+**Symptom.** Hosted CI's App target red twice on 5dbe8859a (run 42680973238, 2026-11-09): first
+`AskClaudeScanResultTests.aLockedPDFIsSaidToBeLocked`, then on the rerun
+`blankAndFailedPagesAreSaid`, `nothingReadInTimeSaysAskAgain` and
+`aScanOCRFindsNothingInStillSaysWhy`, each at `#require(await AskClaudeReading.read(…))` getting nil
+about 34 s in. The same tests take 1.6 s under `-only-testing`, but 29.7–38.6 s on green full runs
+(42679262282, 42664052684). On the red rerun, the suite's tests that passed did so at 34.4–35.1 s.
+
+**Mechanism.** The one in "A mounted PDF's wait counted seconds while its document waited in the
+PDFKit lane", in a function rather than a view. `read` bounds the text-layer read with
+`extractTimeout`, 30 s, and that read waits its turn in `PDFKitSerialAccess`'s lane, which every
+PDF suite in a full app run shares. All 2034 tests start together on 3 vCPUs, and the scan read's
+turn came about 30 s after it was asked: some reads made it and some came back nil. The bound is
+production's guard on a question; none of these tests checks it.
+
+**Fix.** `read(_:extractWithin:…)` and `extract(_:within:)` take the bound, defaulting to
+`extractTimeout`, so the app is untouched. Both scan suites pass `ScanFixture.laneWait`, 180 s:
+past a whole app-target run (55 s on hosted CI), so a lane that serves the run can't outlast it,
+while a read that never comes still fails rather than hanging the run. The cancel test's wait for
+its first page, two lane turns, is 360 s. **Reproduced** by holding the lane 40 s from a test in
+the suite: at 30 s the reads came back nil; at 180 s every test passed.
+
+**Left exposed.** `ocrStopsWhenItsTimeRunsOut` gives OCR 10 s, and that includes page 1's lane
+turn to be drawn. The 10 s is what it tests, so a longer one would make it slower by as much.
+
+**Tell.** A PDF-reading test that is not about time, red with nil at a production seconds bound,
+green under a filter and slow on green runs. Give the test its own bound past the run, or pace it
+on the lane.

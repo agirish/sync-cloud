@@ -123,15 +123,16 @@ enum AskClaudeReading {
     }
 
     /// A file's text, one string per page (cut into parts for a file without pages), or nil for a
-    /// kind it can't read, or one that takes longer than `extractTimeout`.
+    /// kind it can't read, or one that takes longer than `extractTimeout` (`within`, for a test that
+    /// waits on a full run's PDFKit lane).
     ///
     /// The question stops waiting; the read can't be stopped. A task group would wait for its slow
     /// child however it was cancelled, so the first of the read and a timer wins, and a read past
     /// the limit finishes on its own and is dropped. A PDF's read still holds the app's one PDFKit
     /// lane until it ends. A question stopped while it waits lets go the same way, at once.
-    nonisolated static func extract(_ path: String) async -> [String]? {
-        await bounded(extractTimeout, work: { await extractNow(path) }) { stopped in
-            if !stopped { Logger.shared.warning("Ask Claude: reading \((path as NSString).lastPathComponent) took over \(extractTimeout) and was left to finish") }
+    nonisolated static func extract(_ path: String, within limit: Duration = extractTimeout) async -> [String]? {
+        await bounded(limit, work: { await extractNow(path) }) { stopped in
+            if !stopped { Logger.shared.warning("Ask Claude: reading \((path as NSString).lastPathComponent) took over \(limit) and was left to finish") }
             return nil
         }
     }
@@ -164,14 +165,15 @@ enum AskClaudeReading {
     /// can't be read at all, as `extract` is; a PDF OCR found nothing in comes back with no text,
     /// saying why.
     ///
-    /// `ocrWithin` and `recognize` are for tests: a time limit that can run out, and a reading
-    /// that can be slow, fail (nil) or find nothing.
-    nonisolated static func read(_ path: String, ocrWithin limit: Duration = ocrTimeout,
+    /// `extractWithin`, `ocrWithin` and `recognize` are for tests: a text layer's wait that a full
+    /// test run's queue in the PDFKit lane can't run out, a time limit that can run out, and a
+    /// reading that can be slow, fail (nil) or find nothing.
+    nonisolated static func read(_ path: String, extractWithin layerLimit: Duration = extractTimeout, ocrWithin limit: Duration = ocrTimeout,
                                  recognize: @escaping @Sendable (CGImage) -> String? = { PictureText.text(in: $0, reader: "Ask Claude") }) async -> Read? {
         guard isPaged(path) else { return await extract(path).map { Read(pages: $0, pageCount: $0.count) } }
         let url = URL(fileURLWithPath: path)
-        let layer = await bounded(extractTimeout, work: { await textLayer(url) }) { stopped in
-            if !stopped { Logger.shared.warning("Ask Claude: reading \(url.lastPathComponent) took over \(extractTimeout) and was left to finish") }
+        let layer = await bounded(layerLimit, work: { await textLayer(url) }) { stopped in
+            if !stopped { Logger.shared.warning("Ask Claude: reading \(url.lastPathComponent) took over \(layerLimit) and was left to finish") }
             return nil
         }
         guard let layer else { return nil }

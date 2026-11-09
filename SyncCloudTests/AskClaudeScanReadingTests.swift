@@ -51,6 +51,12 @@ enum ScanFixture {
         return url
     }
 
+    /// How long a test lets a PDF's text layer take, not `extractTimeout`'s 30 seconds. The read
+    /// waits its turn in the PDFKit lane, which every PDF suite in a full app run shares: on hosted
+    /// CI the turn came after 30 s and the read came back nil, though nothing was wrong. These check
+    /// what is read, not how fast; a read that never comes still fails, rather than hanging the run.
+    static let laneWait: Duration = .seconds(180)
+
     private static func draw(_ words: String, at y: CGFloat, font name: String, in context: CGContext) {
         let font = CTFontCreateWithName(name as CFString, 20, nil)
         let line = CTLineCreateWithAttributedString(NSAttributedString(
@@ -77,10 +83,10 @@ enum ScanFixture {
         let url = try ScanFixture.pdf([.picture("Parking space number 17 is assigned to apartment 4B"),
                                        .text("Monthly rent of 2400 dollars is due on the first of the month")])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let layer = try #require(await AskClaudeReading.extract(url.path))
+        let layer = try #require(await AskClaudeReading.extract(url.path, within: ScanFixture.laneWait))
         #expect(layer[0].isEmpty && layer[1].contains("Monthly rent"))
 
-        let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: Self.patience))
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: Self.patience))
         #expect(read.recognized == [0] && read.timedOut.isEmpty && read.pastLimit.isEmpty)
         #expect(read.pages[0].contains("Parking space number 17"), "OCR read: \(read.pages[0])")
         #expect(read.pages[1] == layer[1])
@@ -94,7 +100,7 @@ enum ScanFixture {
         pages[1] = .text("This page has a real text layer with plenty of words in it")
         let url = try ScanFixture.pdf(pages)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: Self.patience))
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: Self.patience))
         #expect(read.recognized == [0] + Array(2...10))
         #expect(read.pastLimit == [11] && read.timedOut.isEmpty)
         #expect(read.pages[10].contains("page number 11"), "OCR read: \(read.pages[10])")
@@ -108,7 +114,7 @@ enum ScanFixture {
     @Test func aCroppedAwayLineIsNotRead() async throws {
         let url = try ScanFixture.pdf([.picture("Statement for the month of October", below: "Account number 4417 9921 0006", cropTop: true)])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: Self.patience))
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: Self.patience))
         #expect(read.pages[0].contains("Statement for the month"), "OCR read: \(read.pages[0])")
         #expect(!read.pages[0].contains("4417"), "OCR read the cropped-away line: \(read.pages[0])")
     }
@@ -118,7 +124,7 @@ enum ScanFixture {
     @Test func aChinesePageIsRead() async throws {
         let url = try ScanFixture.pdf([.picture("租赁合同第十七号停车位", font: "PingFang SC")])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: Self.patience))
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: Self.patience))
         #expect(read.pages[0].contains("停车位"), "OCR read: \(read.pages[0])")
     }
 }
@@ -134,7 +140,7 @@ enum ScanFixture {
         let url = try ScanFixture.pdf((1...3).map { .picture("Scanned page \($0) of the insurance policy") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let calls = Calls()
-        let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: .seconds(10)) { _ in
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: .seconds(10)) { _ in
             if calls.next() > 1 { Thread.sleep(forTimeInterval: 15) }
             return "Words read from page one"
         })
@@ -148,7 +154,7 @@ enum ScanFixture {
     @Test func nothingReadInTimeSaysAskAgain() async throws {
         let url = try ScanFixture.pdf((1...12).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path, ocrWithin: .seconds(1)) { _ in
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: .seconds(1)) { _ in
             Thread.sleep(forTimeInterval: 4)
             return "Too late"
         })
@@ -163,13 +169,14 @@ enum ScanFixture {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let calls = Calls()
         let reading = Task {
-            await AskClaudeReading.read(url.path, ocrWithin: .seconds(120)) { _ in
+            await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, ocrWithin: .seconds(120)) { _ in
                 _ = calls.next()
                 Thread.sleep(forTimeInterval: 1)
                 return "Words"
             }
         }
-        let deadline = Date().addingTimeInterval(60)
+        // Two lane turns before the first page begins: the text layer's, then the page's drawing.
+        let deadline = Date().addingTimeInterval(2 * TimeInterval(ScanFixture.laneWait.components.seconds))
         while calls.count == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         try #require(calls.count == 1, "the first page never began")
         let stoppedAt = Date()
@@ -187,7 +194,7 @@ enum ScanFixture {
         let url = try ScanFixture.pdf([.picture("Statement for the month of October", cropTop: true)])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let sizes = Sizes()
-        _ = await AskClaudeReading.read(url.path) { image in
+        _ = await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait) { image in
             sizes.add(image.width, image.height)
             return "Statement for the month of October"
         }
@@ -199,7 +206,7 @@ enum ScanFixture {
     @Test func aShortTextLayerStandsWhenOCRReadsNoMore() async throws {
         let url = try ScanFixture.pdf([.text("Lease 2025")])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path) { _ in "Lease" })
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait) { _ in "Lease" })
         #expect(read.pages[0].contains("Lease 2025"))
         #expect(read.recognized.isEmpty && read.blank.isEmpty && read.failed.isEmpty && read.ocrNote == nil)
     }
@@ -209,7 +216,7 @@ enum ScanFixture {
         let url = try ScanFixture.pdf((1...3).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let calls = Calls()
-        let read = try #require(await AskClaudeReading.read(url.path) { _ in
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait) { _ in
             switch calls.next() {
             case 1: ""
             case 2: nil
@@ -225,7 +232,7 @@ enum ScanFixture {
     @Test func aScanOCRFindsNothingInStillSaysWhy() async throws {
         let url = try ScanFixture.pdf((1...12).map { .picture("Scanned page \($0)") })
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path) { _ in "" })
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait) { _ in "" })
         #expect(!read.hasText && read.blank == Array(0..<10) && read.pastLimit == [10, 11])
         #expect(read.ocrNote == "OCR found no words on pages 1–10. OCR reads at most 10 pages of a file, so pages 11–12 weren’t read.")
     }
@@ -234,7 +241,7 @@ enum ScanFixture {
     @Test func aLockedPDFIsSaidToBeLocked() async throws {
         let url = try ScanFixture.pdf([.picture("Scanned page")], password: "secret")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let read = try #require(await AskClaudeReading.read(url.path) { _ in
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait) { _ in
             Issue.record("read a locked PDF")
             return nil
         })
