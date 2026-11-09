@@ -489,10 +489,8 @@ struct PaneColumnsView: View {
                     budget, Double(budget) * WheelGestureTracker.staleness))
             }
             guard let deepest = browsePath.columnDirectories(treeRoot: treeRoot).last else { return }
-            withAnimation(animation) {
-                if toInfo { proxy.scrollTo(PaneInfoSlot.stackID, anchor: .trailing) }
-                else { proxy.scrollTo(deepest, anchor: .trailing) }
-            }
+            let target: AnyHashable = toInfo ? AnyHashable(PaneInfoSlot.stackID) : AnyHashable(deepest)
+            withAnimation(animation) { proxy.scrollTo(target, anchor: .trailing) }
             // The gate answer above is a snapshot: a main-thread hitch can open a gap in momentum
             // delivery, so this scrolls, the next event re-engages the lock and `enforceHold`
             // reverts it. So ask again, `staleness` later. Not zero: a zero-delay re-ask lands
