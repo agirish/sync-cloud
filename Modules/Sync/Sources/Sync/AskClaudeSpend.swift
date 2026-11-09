@@ -1,10 +1,10 @@
 import Foundation
 
-/// Ask Claude’s own monthly spending limit: $25 to start, a warning at 80%, and no new questions
+/// Ask Claude’s monthly spending limit: $25 to start, a warning at 80%, and no new questions
 /// once it’s reached, until the month turns.
 ///
-/// Separate from Filing’s spend record: the two features have different limits and are read
-/// separately in Settings; folding them into one would make either limit mean something else.
+/// One limit for every Claude request the app makes: the chat, and Organize’s Refine, Try Another
+/// and Refine Names, whose share of the total is also kept on its own (`recordOrganize`).
 /// Estimates only, from list prices: what Anthropic bills is in the Console.
 public enum AskClaudeSpend {
 
@@ -47,11 +47,18 @@ public enum AskClaudeSpend {
         defaults.double(forKey: monthKey(now))
     }
 
+    /// Held for each read-add-write: the chat records on the main actor and Organize's requests off
+    /// it, and two records at once would otherwise each add to the same old total, dropping one.
+    private static let recordLock = NSLock()
+
     public static func record(_ costUSD: Double, in defaults: UserDefaults, now: Date = Date()) {
         guard costUSD > 0 else { return }
-        let key = monthKey(now)
-        defaults.set(defaults.double(forKey: key) + costUSD, forKey: key)
+        recordLock.withLock { add(costUSD, to: monthKey(now), in: defaults) }
         NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    private static func add(_ costUSD: Double, to key: String, in defaults: UserDefaults) {
+        defaults.set(defaults.double(forKey: key) + costUSD, forKey: key)
     }
 
     /// What Organize's Claude requests have cost this month: part of ``spent(in:now:)``, not added to it.
@@ -63,8 +70,11 @@ public enum AskClaudeSpend {
     /// and in Organize's share of it.
     public static func recordOrganize(_ costUSD: Double, in defaults: UserDefaults, now: Date = Date()) {
         guard costUSD > 0 else { return }
-        defaults.set(organizeSpent(in: defaults, now: now) + costUSD, forKey: organizeKey(now))
-        record(costUSD, in: defaults, now: now)
+        recordLock.withLock {
+            add(costUSD, to: organizeKey(now), in: defaults)
+            add(costUSD, to: monthKey(now), in: defaults)
+        }
+        NotificationCenter.default.post(name: didChange, object: nil)
     }
 
     public static func state(in defaults: UserDefaults, now: Date = Date()) -> State {

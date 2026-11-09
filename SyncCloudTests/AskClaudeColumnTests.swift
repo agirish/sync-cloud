@@ -135,6 +135,24 @@ private struct ColumnProbeView: View {
         #expect(AskClaudePanel.pinnedDragWidth(base: 372, translation: -200, room: 500) == 500)
         #expect(AskClaudePanel.pinnedDragWidth(base: 372, translation: -200, room: 250) == 300)
     }
+
+    /// The lazy stack's boundary moves 12 rows at a time, so a row crosses into it (and loses its
+    /// state) once every 12 new items, and the plain stack keeps 12 to 23 rows.
+    @Test func theLazyBoundaryMovesInWholeSteps() {
+        let recent = AskClaudePanel.recentRows
+        #expect(recent == 12)
+        let counts = [0, 1, 11, 12, 13, 23, 24, 25, 35, 36, 47, 48, 200]
+        #expect(counts.map { AskClaudePanel.lazyRowCount($0) } == [0, 0, 0, 0, 0, 0, 12, 12, 12, 24, 24, 36, 180])
+        var crossings = 0
+        for count in 1...240 {
+            let lazy = AskClaudePanel.lazyRowCount(count)
+            if lazy != AskClaudePanel.lazyRowCount(count - 1) { crossings += 1 }
+            #expect(lazy % recent == 0)
+            if count >= recent { #expect((recent...(2 * recent - 1)).contains(count - lazy), "\(count)") }
+        }
+        // 24, 36, … 240: 19 moves over 240 items, not one per item.
+        #expect(crossings == 19)
+    }
 }
 
 /// The column's keys: typing, undo, ⌘W, Esc and ⌥Space, answered wherever in it the keyboard is.

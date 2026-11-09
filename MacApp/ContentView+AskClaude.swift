@@ -1023,7 +1023,7 @@ extension ContentView {
                 return true
             },
             settingsLookup: askClaudeSettingsLookup,
-            chatIsOpen: askClaudeHolder.visibility.isOpen,
+            chatIsOpen: askClaudeHolder.visibility.isOpen && ((askClaudePinState.fits && askClaudeMeasured) || !askClaudeHolder.visibility.tucked),
             setSetting: { id, value, target in
                 let before = SettingsCatalog.entry(id).flatMap { askClaudeSettingsLookup.currentValue($0, target: target) }
                 let outcome = SettingsWriter(defaults: .standard, settings: settings).write(id, value, target: target)
@@ -1527,8 +1527,10 @@ extension ContentView {
         // goes on no undo stack.
         let releases = entry.id == "readability.columnWidths" && value == .string(ColumnResizeMode.allColumns.rawValue)
             && askClaudeActions.prompt(entry.id, target: nil) != nil
-        let outcome = write?() ?? value.map { askClaudeWriter(card: id, row: index, confirmed: confirmed).write(entry.id, $0, target: target) }
-            ?? .refused("Nothing to change.")
+        // Cause `.card`: his click, which the log must not file as Claude's own `set`.
+        let outcome = write?() ?? value.map {
+            askClaudeWriter(card: id, row: index, confirmed: confirmed).write(entry.id, $0, target: target, cause: .card)
+        } ?? .refused("Nothing to change.")
         let finish = {
             askClaudeSettingChanged(id, index, entry, target: target, outcome: outcome, before: before, wrote: value, undoable: !releases)
         }

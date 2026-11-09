@@ -387,7 +387,7 @@ public final class AskClaudeEngine {
         // Every problem and the way the question ended go in the log as well as the panel, so a
         // failed question's summary line never reads like a success.
         var ended = "none"
-        // Set when a problem came back from an HTTP reply, whose line (`stream`) already carries
+        // Set when a problem came back from a non-200 HTTP reply, whose line (`stream`) already carries
         // Anthropic's own message: the problem line then names the kind alone, so it's written once.
         var fromHTTPReply = false
         func emit(_ event: AskClaudeEvent) {
@@ -476,8 +476,10 @@ public final class AskClaudeEngine {
                 // Stopping ends the stream quietly or with a cancellation; either way it's a stop.
                 if Task.isCancelled || error is CancellationError {
                     emit(.finished(stopReason: "canceled"))
-                } else if let problem = error as? AskClaudeProblem {
+                } else if let refused = error as? RefusedReply {
                     fromHTTPReply = true
+                    emit(.problem(refused.problem))
+                } else if let problem = error as? AskClaudeProblem {
                     emit(.problem(problem))
                 } else {
                     emit(.problem(AskClaudeProblem.from(error)))
@@ -645,6 +647,12 @@ public final class AskClaudeEngine {
         return attempts.count > 1 ? attempts.reduce(0, +) : AskClaudeModels.cost(of: accumulator.usage, at: served)
     }
 
+    /// A problem from a non-200 reply, whose log line `stream` has already written. Problems after
+    /// a 200 (an error event mid-answer, a stream cut off) are thrown bare and log their own words.
+    private struct RefusedReply: Error {
+        let problem: AskClaudeProblem
+    }
+
     private func stream(_ request: URLRequest, into accumulator: inout AskClaudeStreamAccumulator,
                         onEvent: (AskClaudeEvent) -> Void) async throws {
         let response = try await transport.send(request)
@@ -660,7 +668,7 @@ public final class AskClaudeEngine {
             case .warning: Logger.shared.warning(line)
             default: Logger.shared.info(line)
             }
-            throw problem
+            throw RefusedReply(problem: problem)
         }
         for try await line in response.lines {
             try Task.checkCancellation()

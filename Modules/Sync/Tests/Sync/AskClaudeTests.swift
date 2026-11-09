@@ -487,6 +487,23 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         defaults.set(0.0, forKey: AskClaudeSpend.limitDefaultsKey)
         #expect(AskClaudeSpend.state(in: defaults, now: day) == .ok)
     }
+
+    /// The chat records on the main actor and Organize off it: records at once lose no cost.
+    /// Quarters add exactly, so the totals compare exactly.
+    @Test func recordsAtOnceLoseNoCost() {
+        let scratch = freshDefaults()
+        // UserDefaults is documented thread-safe; this SDK doesn't mark it Sendable.
+        nonisolated(unsafe) let shared: UserDefaults = scratch
+        DispatchQueue.concurrentPerform(iterations: 800) { index in
+            if index.isMultiple(of: 2) {
+                AskClaudeSpend.record(0.25, in: shared, now: day)
+            } else {
+                AskClaudeSpend.recordOrganize(0.25, in: shared, now: day)
+            }
+        }
+        #expect(AskClaudeSpend.spent(in: scratch, now: day) == 200)
+        #expect(AskClaudeSpend.organizeSpent(in: scratch, now: day) == 100)
+    }
 }
 
 // MARK: - Engine
@@ -533,6 +550,45 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(entries.contains { $0.messageBody == "Ask Claude problem (keyRejected), from the HTTP reply above" && $0.level == .warning },
                 "\(entries.filter { $0.message.hasPrefix("Ask Claude problem") }.map(\.message))")
         #expect(!entries.contains { $0.message.contains(key) }, "the key reached the log")
+    }
+
+    /// A problem after a 200 reply has no HTTP line above it, so its own line must carry the
+    /// reason. An error event mid-answer: the line names Anthropic's message, unique to this case.
+    @Test func anErrorEventAfterA200ReplyLogsItsOwnReason() async throws {
+        let log = LogCapture()
+        let token = "mid-answer-\(UUID().uuidString.prefix(8))"
+        let started = Array(textResponse("Partly").dropLast(3))
+        let lines = started + sse(#"{"type":"error","error":{"type":"api_error","message":"\#(token)"}}"#)
+        let transport = ScriptedTransport([.init(status: 200, lines: lines)])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        await engine.ask("hello", card: "<screen/>", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let entries = await log.entries
+        let problems = entries.filter { $0.message.hasPrefix("Ask Claude problem") }.map(\.messageBody)
+        #expect(problems.contains("Ask Claude problem (failed): Claude stopped partway: \(token)"), "\(problems)")
+    }
+
+    /// A 200 stream that ends before `message_stop`: the line says it was cut off. Its words are
+    /// fixed, so the case is told apart by its question's summary line, which names a model id
+    /// unique to it and is written straight after the problem line, with no await between.
+    @Test func aStreamEndingWithoutMessageStopLogsItsOwnReason() async throws {
+        let log = LogCapture()
+        let s = AskClaudeModels.sonnet
+        let model = AskClaudeModels.Option(id: "claude-cutoff-\(UUID().uuidString.prefix(8))", label: s.label,
+                                           menuLine: s.menuLine, price: s.price, sendsFallbacks: s.sendsFallbacks)
+        let lines = Array(textResponse("Partly").dropLast(3))
+        let transport = ScriptedTransport([.init(status: 200, lines: lines)])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        var problems: [AskClaudeProblem] = []
+        await engine.ask("hello", card: "<screen/>", key: "k", model: model, tools: StubTools()) {
+            if case .problem(let problem) = $0 { problems.append(problem) }
+        }
+        #expect(problems.map(\.message) == ["The answer was cut off before it finished. Try again."])
+        let entries = await log.entries
+        guard let done = entries.firstIndex(where: { $0.message.hasPrefix("Ask Claude question done: \(model.id) ") }) else {
+            Issue.record("this case's question was not logged"); return
+        }
+        let before = entries[..<done].last { $0.message.hasPrefix("Ask Claude problem") }?.messageBody
+        #expect(before == "Ask Claude problem (failed): The answer was cut off before it finished. Try again.", "\(before ?? "none")")
     }
 
     @Test func theHTTPLineCapsAnthropicsMessageAndSizesAPageThatIsntJSON() {

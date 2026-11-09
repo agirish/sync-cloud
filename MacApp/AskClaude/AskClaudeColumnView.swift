@@ -157,14 +157,14 @@ final class AskClaudeColumnView: NSView, NSUserInterfaceValidations {
     private var settings: AskClaudeSettingsUndo? { AskClaudeDock.settingsUndo() }
 
     /// Whether Undo belongs to the draft: the box holds text with a step to take, and it is newer
-    /// than the latest settings change. Steps come back in the order they were made, so a setting
-    /// applied after typing is undone first.
+    /// than the settings change ⌘Z would take. Steps come back in the order they were made, so a
+    /// setting applied after typing is undone first.
     private var typingTakesUndo: Bool {
         guard let text = window?.firstResponder as? NSTextView, !text.string.isEmpty, typingUndo.canUndo else { return false }
-        return Self.typingIsNewer(typingChangedAt: typingChangedAt, settingsLatest: settings?.undoSteps.last?.recordedAt)
+        return Self.typingIsNewer(typingChangedAt: typingChangedAt, settingsLatest: settings?.undoRecordedAt)
     }
 
-    /// Typing goes first when it is at least as new as the latest settings change.
+    /// Typing goes first when it is at least as new as the settings change ⌘Z would take.
     static func typingIsNewer(typingChangedAt: Date, settingsLatest: Date?) -> Bool {
         typingChangedAt >= (settingsLatest ?? .distantPast)
     }

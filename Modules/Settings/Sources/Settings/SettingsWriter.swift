@@ -52,13 +52,14 @@ public struct SettingsWriter {
     public static let appliedByDiscovery: Set<String> = ["sources.name", "sources.path", "sources.openAt"]
 
     /// Who asked for a write, so the log says so: an Undo or a Revert of Claude's change goes
-    /// through this writer too, and is not Claude's doing.
+    /// through this writer too, and is not Claude's doing; nor is his own click on a card's row.
     public enum Cause: Sendable {
-        case askClaude, undo, revert
+        case askClaude, card, undo, revert
 
         var words: String {
             switch self {
             case .askClaude: return "from Ask Claude"
+            case .card: return "by a click on an Ask Claude card"
             case .undo: return "by Undo or Redo of an Ask Claude change"
             case .revert: return "by Revert in Activity"
             }

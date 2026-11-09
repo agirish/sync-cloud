@@ -232,8 +232,17 @@ struct AskClaudePanel: View {
         .padding(.bottom, 4)
     }
 
-    /// How many of the newest rows are laid out as a plain stack; the rest are lazy.
+    /// The step the plain stack of newest rows moves by; the rest are lazy.
     static let recentRows = 12
+
+    /// How many of `count` rows go in the lazy stack. The boundary moves a whole `recent` rows at a
+    /// time, so the plain stack holds `recent` to `2 * recent - 1` rows once there are that many:
+    /// a row crossing into the lazy stack is a new view and loses its state (an open disclosure,
+    /// say), and this way rows cross once every `recent` items, not with each new one.
+    static func lazyRowCount(_ count: Int, recent: Int = recentRows) -> Int {
+        guard recent > 0, count >= 2 * recent else { return 0 }
+        return (count - recent) / recent * recent
+    }
 
     /// One row of the thread, with what it needs from its neighbours (`turns`, the latest receipt).
     private func threadRow(_ item: AskClaudeChat.Item, turns: AskClaudeTurns, retries: Bool, latestReceipt: UUID?) -> some View {
@@ -260,8 +269,8 @@ struct AskClaudePanel: View {
 
     private var thread: some View {
         ScrollView {
-                // A plain VStack, not a lazy one: a lazy stack can go blank after scrolling to the
-                // bottom while an answer grows, and a chat's few hundred rows don't need laziness.
+                // The outer stack is plain: a lazy one can go blank after scrolling to the bottom
+                // while an answer grows. The older rows inside it are lazy (below).
                 VStack(alignment: .leading, spacing: 10) {
                     if chat.items.isEmpty {
                         AskClaudeEmptyState(keySaved: keySaved, starters: AskClaudeStarters.questions(for: place.starterScreen),
@@ -276,8 +285,9 @@ struct AskClaudePanel: View {
                     // on screen, not of every row (200 answers took 117 ms a scroll step, and 900 ms to
                     // lay out, as one plain stack). The newest rows stay a plain stack: a lazy stack
                     // can go blank after scrolling to the bottom while an answer grows, and that is
-                    // where answers grow.
-                    let older = chat.items.dropLast(Self.recentRows)
+                    // where answers grow. The boundary moves in steps (`lazyRowCount`).
+                    let lazy = Self.lazyRowCount(chat.items.count)
+                    let older = chat.items.prefix(lazy)
                     if !older.isEmpty {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(older) { item in
@@ -285,7 +295,7 @@ struct AskClaudePanel: View {
                             }
                         }
                     }
-                    ForEach(chat.items.suffix(Self.recentRows)) { item in
+                    ForEach(chat.items.dropFirst(lazy)) { item in
                         threadRow(item, turns: turns, retries: retries, latestReceipt: latestReceipt)
                     }
                     if chat.isRunning && chat.isThinking {

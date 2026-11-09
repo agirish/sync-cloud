@@ -147,6 +147,9 @@ final class AskClaudeSettingsUndo {
     var canUndo: Bool { menuIndex(in: undoSteps) != nil }
     var canRedo: Bool { menuIndex(in: redoSteps, redoing: true) != nil }
     var undoTitle: String? { menuIndex(in: undoSteps).map { "Undo \(undoSteps[$0].name)" } }
+    /// When the step ⌘Z would take was made: not always the newest step, which may be one only its
+    /// card takes back, or no longer current. The column weighs typing against this one.
+    var undoRecordedAt: Date? { menuIndex(in: undoSteps).map { undoSteps[$0].recordedAt } }
     var redoTitle: String? { menuIndex(in: redoSteps, redoing: true).map { "Redo \(redoSteps[$0].name)" } }
 
     /// Edit ▸ Undo and ⌘Z.
@@ -166,11 +169,13 @@ final class AskClaudeSettingsUndo {
     func redo() {
         guard let index = menuIndex(in: redoSteps, redoing: true) else { return }
         let step = redoSteps.remove(at: index)
-        guard let done = apply(step, undoing: false) else {
+        guard var done = apply(step, undoing: false) else {
             redoSteps.insert(step, at: index)
             didRefuse(step)
             return
         }
+        // Made again now: it is the newest change, for the column's weighing against typing.
+        done.recordedAt = Date()
         undoSteps.append(done)
         didStep(done, false)
     }

@@ -2,8 +2,8 @@ import Foundation
 
 /// Where a store's unreadable file is kept when it is moved out of the way of a fresh write.
 ///
-/// Shared by `PersonTagStore`, `FilingVerdictStore`, `StorageLensStore` and `SettingsChangeLog`,
-/// which each rescue a file this build can't read by renaming it before writing beside it. One
+/// Shared by `PersonTagStore`, `FilingVerdictStore`, `StorageLensStore`, `SettingsChangeLog` and
+/// the app's saved Ask Claude chat, which each rescue a file this build can't read by renaming it before writing beside it. One
 /// implementation, so the stores can't drift apart.
 ///
 /// **A set-aside is never read back**, so it is the only copy of what it holds: paid answers for the
@@ -17,7 +17,7 @@ import Foundation
 /// so `StorageLensStore.Read` and `FilingVerdictStore.load` never route one here. Most live in
 /// `~/Library/Application Support/SyncCloud/`, which no pane or scan lists; the cost is disk.
 /// `SettingsChangeLog`'s lives beside its file in the home folder, as the old fixed-name one did.
-enum UnreadableSetAside {
+public enum UnreadableSetAside {
 
     /// How many numbered candidates are probed before the disambiguator stops asking. The loop must
     /// end on what the probe answers, or a manager that never says "absent" spins forever. Reaching
@@ -31,7 +31,7 @@ enum UnreadableSetAside {
     /// episodes in one second get a numeric disambiguator, probed with `attributesOfItem` rather
     /// than `fileExists`, which follows symlinks and would call a dangling link free. The caller
     /// injects `now` so a test can pin the disambiguation.
-    static func destination(for fileURL: URL, at now: Date, fileManager: FileManager) -> URL {
+    public static func destination(for fileURL: URL, at now: Date, fileManager: FileManager) -> URL {
         let stamp = FilingArtifactStamp.string(from: now)
             .replacingOccurrences(of: ":", with: ".")
         let dir = fileURL.deletingLastPathComponent()

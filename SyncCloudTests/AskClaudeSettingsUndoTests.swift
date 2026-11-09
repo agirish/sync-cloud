@@ -81,6 +81,40 @@ import Sync
         #expect(store.values["intelligence.readContents"] == .bool(true))
     }
 
+    /// The column weighs typing against the step ⌘Z would take, not the newest step: a newer
+    /// card-only step doesn't make an older setting outrank what was typed since. A redo makes its
+    /// step the newest change again.
+    @Test func typingIsWeighedAgainstTheStepUndoWouldTake() {
+        let store = Store()
+        store.values["appearance.theme"] = .string("system")
+        store.values["intelligence.readContents"] = .bool(true)
+        let undo = stack(store)
+        let themeAt = Date(timeIntervalSinceNow: -100), readingAt = Date(timeIntervalSinceNow: -10)
+        let theme = AskClaudeSettingsLedger.Key(id: "appearance.theme", target: nil)
+        store.values["appearance.theme"] = .string("dark")
+        undo.record(AskClaudeSettingsStep(card: UUID(), rows: [0], changes: [.init(key: theme, before: .string("system"), after: .string("dark"),
+                                                                                   token: undo.token(theme))],
+                                          recordedAt: themeAt, name: "Theme", cardOnly: false))
+        let reading = AskClaudeSettingsLedger.Key(id: "intelligence.readContents", target: nil)
+        store.values["intelligence.readContents"] = .bool(false)
+        undo.record(AskClaudeSettingsStep(card: UUID(), rows: [0], changes: [.init(key: reading, before: .bool(true), after: .bool(false),
+                                                                                   token: undo.token(reading))],
+                                          recordedAt: readingAt, name: "Read file contents on this Mac", cardOnly: true))
+        #expect(undo.undoTitle == "Undo Theme")
+        #expect(undo.undoRecordedAt == themeAt)
+        // Typed between the two: newer than the theme, which is what ⌘Z would take.
+        let typedAt = Date(timeIntervalSinceNow: -50)
+        #expect(AskClaudeColumnView.typingIsNewer(typingChangedAt: typedAt, settingsLatest: undo.undoRecordedAt))
+
+        undo.undo()
+        #expect(undo.undoRecordedAt == nil)
+        let redoneAfter = Date()
+        undo.redo()
+        #expect(store.values["appearance.theme"] == .string("dark"))
+        #expect((undo.undoRecordedAt ?? .distantPast) >= redoneAfter, "a redone step kept its old time")
+        #expect(!AskClaudeColumnView.typingIsNewer(typingChangedAt: typedAt, settingsLatest: undo.undoRecordedAt))
+    }
+
     /// Claude's own change goes on the stack as a click's would, once its card is in the chat. Its
     /// tightening comes back only by the card's Undo: that would raise again.
     @Test func claudesOwnChangesAreUndoneLikeAClicks() {

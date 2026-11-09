@@ -536,8 +536,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         step: "No such setting")
         }
         guard ctx.chatIsOpen else {
-            return AskClaudeToolOutcome(result: "Not changed: the chat is closed, so they wouldn’t see the change or its Undo.",
-                                        isError: true, step: "Left \(entry.label) alone: the chat is closed")
+            return AskClaudeToolOutcome(result: "Not changed: the chat isn’t on screen, so they wouldn’t see the change or its Undo.",
+                                        isError: true, step: "Left \(entry.label) alone: the chat isn’t on screen")
         }
         if let busy = ctx.busyReason {
             return AskClaudeToolOutcome(
@@ -767,7 +767,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard total > 0 else {
             let scope = searchedIndex ? "" : " Spotlight didn’t answer, so only folders the pane has open were searched."
             return AskClaudeToolOutcome(result: "Nothing under \(folder.label) matches “\(label)”.\(scope)",
-                                        step: "Found nothing for “\(label)”")
+                                        step: "Found nothing for “\(label)”",
+                                        logStep: "Found nothing by name under \(folder.label)" + (searchedIndex ? " (Spotlight)" : " (open folders only)"))
         }
         var lines = ["\(total) match\(total == 1 ? "" : "es") under \(AskClaudeScreenCard.escape(folder.label)), newest period first:",
                      "rows: handle|name|kind|size|modified|tags|folder"]
@@ -1211,7 +1212,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let workspaceArg {
             guard ctx.switchWorkspace(workspaceArg) else {
                 return AskClaudeToolOutcome(result: "There is no workspace called \(workspaceArg). Workspaces: Browse, Compare, Organize, Edit.",
-                                            isError: true, step: "No workspace \(workspaceArg)")
+                                            isError: true, step: "No workspace \(workspaceArg)",
+                                            logStep: "No workspace called that (no match, \(workspaceArg.count) characters)")
             }
             steps.append("Switched to \(workspaceArg.capitalized)")
             moved = "Moved you to \(workspaceArg.capitalized)"
@@ -1228,7 +1230,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// workspace is named.
     private func goToPane(_ paneArg: String, _ call: AskClaudeToolCall, _ ctx: Context) async -> AskClaudeToolOutcome {
         guard paneArg == "left" || paneArg == "right" else {
-            return AskClaudeToolOutcome(result: "pane is left or right.", isError: true, step: "No pane \(paneArg)")
+            return AskClaudeToolOutcome(result: "pane is left or right.", isError: true, step: "No pane \(paneArg)", logStep: "No pane that (no match, \(paneArg.count) characters)")
         }
         if let busy = ctx.busyReason {
             return AskClaudeToolOutcome(result: "Can’t move the view right now: \(busy).", isError: true, step: "Didn’t move the view: \(busy)")
@@ -1262,7 +1264,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         isError: true, step: "pane is for Compare")
         }
         guard ctx.switchWorkspace(workspace) else {
-            return AskClaudeToolOutcome(result: "There is no workspace called \(workspace).", isError: true, step: "No workspace \(workspace)")
+            return AskClaudeToolOutcome(result: "There is no workspace called \(workspace).", isError: true, step: "No workspace \(workspace)",
+                                        logStep: "No workspace called that (no match, \(workspace.count) characters)")
         }
         ctx.movePane(isLeft, source.id == before.sourceID ? nil : source.id, target?.absolute)
         var landed = false
@@ -1522,9 +1525,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 // a count of 0 or 1 in a folder of one file is the answer.
                 let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: [], count: 0, rows: noMatch,
                                                 paths: [], files: [], header: noMatch)
-                return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: "Found no text matching “\(label)”", found: found)
+                return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: "Found no text matching “\(label)”",
+                                            logStep: "Searched contents under \(folder.label): 0 hit(s), held on a card", found: found)
             }
-            return AskClaudeToolOutcome(result: noMatch, step: "Found no text matching “\(label)”")
+            return AskClaudeToolOutcome(result: noMatch, step: "Found no text matching “\(label)”",
+                                        logStep: "Searched contents under \(folder.label): 0 hit(s)")
         }
         var lines = ["\(nodes.count) file\(nodes.count == 1 ? "" : "s") under \(AskClaudeScreenCard.escape(folder.label)) contain “\(label)”, newest period first:",
                      "rows: handle|name|kind|size|modified|tags|folder" + (free ? "|line" : "")]
@@ -1645,7 +1650,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let page = largeCloudOnly(node, path) == nil ? await extract(path)?.first : nil
         guard let answer = ctx.ruleFromCorrection(path, folder, call.string("name") ?? "", words, also, page) else {
             return AskClaudeToolOutcome(result: "Rules file into their folder survey, and \(into) isn’t in it. Offer no rule.",
-                                        isError: true, step: "\(into) is outside the folder survey")
+                                        isError: true, step: "\(into) is outside the folder survey",
+                                        logStep: "That folder is outside the folder survey (\(into.count) characters)")
         }
         // A rule is checked against the file's first page: its words, its date. Unless the file
         // shares freely, Claude mustn't learn what that check found: one call per word would tell

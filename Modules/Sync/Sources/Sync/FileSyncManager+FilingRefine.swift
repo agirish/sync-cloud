@@ -1311,8 +1311,8 @@ extension FileSyncManager {
         guard let estCost = MappingRefineProtocol.estimatedCostUSD(model: model,
                                                                    request: request) else {
             Logger.shared.warning("Mapping refine skipped — no price is known for model "
-                + "“\(model)”, so the cost could not be quoted. Pick one of the offered "
-                + "models in Settings ▸ Organize.")
+                + "“\(model)”, so the cost could not be quoted. Pick another model in the "
+                + "Ask Claude chat’s menu under the text box.")
             return .unavailable
         }
         let tokens = MappingRefineProtocol.estimateTokens(request: request)

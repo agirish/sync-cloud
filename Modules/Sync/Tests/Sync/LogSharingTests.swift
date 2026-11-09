@@ -39,6 +39,17 @@ import Testing
         #expect(mask("mom") == "mom")
     }
 
+    /// An account named for its owner, who is also on the roster: the full name is masked whole,
+    /// so no surname is left beside a masked first name.
+    @Test func anAccountThatIsAlsoAPersonLeavesNoSurname() {
+        let masked = LogSharing.mask("Filed for Anna Smith in /Users/anna/Taxes; -Users-anna-x; anna signed in",
+                                     home: "/Users/anna", people: Self.people)
+        #expect(!masked.contains("Smith"), "\(masked)")
+        #expect(masked == "Filed for <person 1> in ~/Taxes; -Users-<you>-x; <person 1> signed in")
+        // An account that isn't a name is still masked, last.
+        #expect(LogSharing.mask("anna and jdoe", home: "/Users/jdoe", people: Self.people) == "<person 1> and <you>")
+    }
+
     @Test func theFallbackIdPersonIsNeverMasked() {
         let people = [Person(id: "person", displayName: "Ωμέγα")]
         #expect(LogSharing.mask("person Ωμέγα", home: "/Users/jdoe", people: people) == "person <person 1>")

@@ -594,15 +594,18 @@ final class AskClaudeChat: ObservableObject {
     private func restore() {
         guard let storeURL, FileManager.default.fileExists(atPath: storeURL.path) else { return }
         guard let data = try? Data(contentsOf: storeURL) else {
-            Logger.shared.warning("Ask Claude: the saved chat couldn’t be read and starts fresh")
+            storeIsUnreadable = true
+            setAsideUnreadableStore(storeURL, why: "it couldn’t be opened")
             return
         }
         let stored: Stored
         do {
             stored = try JSONDecoder().decode(Stored.self, from: data)
         } catch {
-            // Said, not silent: the chat he expected back is gone, and this is why.
-            Logger.shared.warning("Ask Claude: the saved chat couldn’t be read and starts fresh — \(error.localizedDescription)")
+            // Said, not silent: the chat he expected back is gone, and this is why. Kept, not
+            // overwritten by the next save: a newer build's file, say, still holds the chat.
+            storeIsUnreadable = true
+            setAsideUnreadableStore(storeURL, why: error.localizedDescription)
             return
         }
         guard now().timeIntervalSince(stored.lastActivity) <= Self.idleReset else {
@@ -690,8 +693,38 @@ final class AskClaudeChat: ObservableObject {
         }
     }
 
+    /// Set while the saved chat on disk couldn't be read and is still there: no save may write
+    /// over it or remove it until it has been moved aside.
+    private var storeIsUnreadable = false
+
+    /// Moves the unreadable saved chat out of the way, under a name of its own
+    /// (`UnreadableSetAside`), so the chat it held survives the fresh one. A move that fails leaves
+    /// `storeIsUnreadable` set, and saves wait; a file gone since leaves nothing to keep.
+    @discardableResult
+    private func setAsideUnreadableStore(_ storeURL: URL, why: String? = nil) -> Bool {
+        let fileManager = FileManager.default
+        let reason = why.map { " (\($0))" } ?? ""
+        let kept = UnreadableSetAside.destination(for: storeURL, at: now(), fileManager: fileManager)
+        do {
+            try fileManager.moveItem(at: storeURL, to: kept)
+            storeIsUnreadable = false
+            Logger.shared.warning("Ask Claude: the saved chat couldn’t be read\(reason), so it has been kept as "
+                                  + "\(kept.lastPathComponent) and a new chat starts")
+            return true
+        } catch {
+            if (try? fileManager.attributesOfItem(atPath: storeURL.path)) == nil {
+                storeIsUnreadable = false
+                return true
+            }
+            Logger.shared.error("Ask Claude: the saved chat couldn’t be read\(reason) nor set aside "
+                                + "(\(error.localizedDescription)); it is NOT overwritten, so this chat isn’t saved until it can be moved")
+            return false
+        }
+    }
+
     private func save() {
         guard let storeURL else { return }
+        if storeIsUnreadable, !setAsideUnreadableStore(storeURL) { return }
         guard let lastActivity, !items.isEmpty else {
             Self.removeIfPresent(storeURL, what: "the emptied saved chat")
             return

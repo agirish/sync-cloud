@@ -7,11 +7,13 @@ import Foundation
 ///
 /// 1. **Emails**, keeping a provider's prefix: `GoogleDrive-a.b@x.com` becomes
 ///    `GoogleDrive-<account>`. First, because a person's name can sit inside an address.
-/// 2. **The home folder** in each form it takes: `/Users/<you>`, the `-Users-<you>-` spelling some
-///    tools use for paths, and the bare account name.
+/// 2. **The home folder's paths**: `/Users/<you>` and the `-Users-<you>-` spelling some tools use
+///    for paths.
 /// 3. **People's names**: every name form of everyone in every filing profile's People list
 ///    (display names, full names, aliases, and the ids, which are built from names), as
 ///    `<person N>`, numbered in roster order and the same number throughout one copy.
+/// 4. **The bare account name**, last: an account named for its owner is often a People name too,
+///    and masked first it would split "Anna Smith" into "<you> Smith" before the full form matched.
 ///
 /// Names match on letter boundaries (`_`, digits and punctuation count as boundaries), ignoring
 /// case for forms of 4 letters or more, after NFC on both sides; the fallback id `person` is never
@@ -60,8 +62,9 @@ public enum LogSharing {
     public static func mask(_ text: String, home: String, people: [Person]) -> String {
         var out = text.precomposedStringWithCanonicalMapping
         out = maskEmails(out)
-        out = maskHome(out, home: home)
+        out = maskHomePaths(out, home: home)
         out = maskPeople(out, people: people)
+        out = maskAccount(out, home: home)
         return out
     }
 
@@ -74,15 +77,25 @@ public enum LogSharing {
         email.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1<account>")
     }
 
-    static func maskHome(_ text: String, home: String) -> String {
+    /// The account name `home` ends in; nil for a home that names none.
+    private static func homeAndAccount(_ home: String) -> (home: String, account: String)? {
         let home = (home as NSString).standardizingPath
         let account = (home as NSString).lastPathComponent
-        guard !account.isEmpty, account != "/" else { return text }
+        guard !account.isEmpty, account != "/" else { return nil }
+        return (home, account)
+    }
+
+    static func maskHomePaths(_ text: String, home: String) -> String {
+        guard let found = homeAndAccount(home) else { return text }
         // Only the folder itself: `/Users/jdoe` must not turn `/Users/jdoely` into `~ly`.
-        let path = try! NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: home) + #"(?![\p{L}\p{N}._-])"#)
-        var out = path.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "~")
-        out = out.replacingOccurrences(of: "-Users-\(account)-", with: "-Users-<you>-")
-        return replaceWord(account, with: "<you>", in: out, ignoringCase: account.count >= 4)
+        let path = try! NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: found.home) + #"(?![\p{L}\p{N}._-])"#)
+        let out = path.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "~")
+        return out.replacingOccurrences(of: "-Users-\(found.account)-", with: "-Users-<you>-")
+    }
+
+    static func maskAccount(_ text: String, home: String) -> String {
+        guard let account = homeAndAccount(home)?.account else { return text }
+        return replaceWord(account, with: "<you>", in: text, ignoringCase: account.count >= 4)
     }
 
     static func maskPeople(_ text: String, people: [Person]) -> String {

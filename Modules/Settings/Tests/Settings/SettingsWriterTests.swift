@@ -43,11 +43,15 @@ import EventsTestSupport
         let w = writer(defaults, nil, Calls())
         let log = LogCapture()
         #expect(w.write("appearance.theme", .string(AppearanceMode.dark.rawValue), cause: .revert) == .done)
+        #expect(w.write("appearance.theme", .string(AppearanceMode.light.rawValue), cause: .card) == .done)
         guard case .refused = w.write("appearance.theme", .string("purple-\(name)"), cause: .undo) else {
             Issue.record("the bad value was accepted"); return
         }
         let lines = await log.entries.map(\.message).filter { $0.hasPrefix("Settings: ") }
         #expect(lines.contains { $0.contains("by Revert in Activity") }, "\(lines)")
+        // His own click on a card is his doing, not Claude's.
+        #expect(lines.contains { $0.contains("set to \(SettingValue.string(AppearanceMode.light.rawValue)) by a click on an Ask Claude card") },
+                "\(lines)")
         #expect(lines.contains { $0.contains("not changed by Undo or Redo of an Ask Claude change") && $0.contains("purple-\(name)") },
                 "\(lines)")
     }

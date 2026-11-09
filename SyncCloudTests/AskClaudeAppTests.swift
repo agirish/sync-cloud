@@ -188,7 +188,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
 
         let closed = await tools(settingsLookup: lookup, chatIsOpen: false, setSetting: write)
             .run(call("settings", ["action": .string("set"), "id": .string("appearance.theme"), "value": .string("Light")]), handles: &handles)
-        #expect(closed.isError && closed.result.hasPrefix("Not changed: the chat is closed"))
+        #expect(closed.isError && closed.result.hasPrefix("Not changed: the chat isn’t on screen"))
         let hidden = await set("appearance.theme", "Light", busy: "Settings is open")
         #expect(hidden.isError && hidden.result.hasPrefix("Not changed: Settings is open"))
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
@@ -945,6 +945,42 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(Set(found.paths) == [receipt, biopsy])
         let on = await runner(sharesRoot: true).run(search, handles: &handles)
         #expect(on.found == nil && on.result.contains("Biopsy results.txt") && on.result.contains("benign"))
+    }
+
+    /// A search that finds nothing keeps its words out of the log, as one that finds something
+    /// does: the engine logs `logStep ?? step`, and the step names the words for the chat. So do
+    /// refusals that would repeat a name Claude was given.
+    @Test func zeroHitSearchesAndUnknownNamesKeepTheirWordsOutOfTheLog() async throws {
+        let words = "zq\(UUID().uuidString.prefix(6).lowercased())"
+        var handles = AskClaudeHandles()
+        func logged(_ out: AskClaudeToolOutcome) -> String { out.logStep ?? out.step }
+        var outcomes: [(String, AskClaudeToolOutcome)] = []
+        // By name: Spotlight answering nothing, and Spotlight not answering (open folders only).
+        for spotlight in [[], nil] as [[String]?] {
+            let out = await tools(spotlight: spotlight).run(call("find_by_name", ["words": .string(words)]), handles: &handles)
+            outcomes.append(("find_by_name \(spotlight == nil ? "open folders" : "Spotlight")", out))
+        }
+        // Inside files: in a folder shared without asking, and one whose "none" waits on a card.
+        for shared in [true, false] {
+            let runner = AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes") { ctx in
+                ctx.shared = shared ? [Self.root] : []
+            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+               searchContents: { _, _ in [] })
+            let out = await runner.run(call("find_in_contents", ["words": .string(words)]), handles: &handles)
+            outcomes.append(("find_in_contents \(shared ? "shared" : "held")", out))
+        }
+        // A workspace that doesn't exist.
+        outcomes.append(("go_to workspace", await tools().run(call("go_to", ["workspace": .string(words)]), handles: &handles)))
+        for (name, out) in outcomes {
+            // The step names them, so the log would have them without a logStep.
+            #expect(out.step.contains(words) || out.found != nil, "\(name): \(out.step)")
+            #expect(!logged(out).contains(words), "\(name) logs the words: \(logged(out))")
+        }
+        #expect(logged(outcomes[0].1) == "Found nothing by name under Documents/Taxes (Spotlight)")
+        #expect(logged(outcomes[1].1) == "Found nothing by name under Documents/Taxes (open folders only)")
+        #expect(logged(outcomes[2].1) == "Searched contents under Documents/Taxes: 0 hit(s)")
+        #expect(logged(outcomes[3].1) == "Searched contents under Documents/Taxes: 0 hit(s), held on a card")
+        #expect(logged(outcomes[4].1) == "No workspace called that (no match, \(words.count) characters)")
     }
 
     /// A folder shared without asking reads and searches without a card, and hidden wins:
@@ -1958,6 +1994,31 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         chat.tellClaude("They set Enable for Dropbox back to On on your card.", replacing: "They set Enable for Dropbox ")
         #expect(chat.sinceLastAnswer == ["They set Enable for Dropbox (Work) to Off on your card (was On).",
                                          "They set Enable for Dropbox back to On on your card."])
+    }
+
+    /// A saved chat that doesn't read is kept under a name of its own before a new chat starts,
+    /// so the next save can't write over the only copy of it.
+    @Test func anUnreadableSavedChatIsSetAsideNotOverwritten() throws {
+        let d = defaults()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeUnreadable-\(UUID().uuidString)")
+        let store = dir.appendingPathComponent("chat.json")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let corrupt = Data("{\"items\": [not json \(UUID().uuidString)".utf8)
+        try corrupt.write(to: store)
+
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: store)
+        #expect(chat.items.isEmpty)
+        // Something to save: a held-back key's card.
+        #expect(chat.catchKey("my key sk-ant-api03-" + String(repeating: "Ab3_", count: 6)))
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        let kept = names.filter { $0.hasPrefix("chat.json.unreadable-") }
+        try #require(kept.count == 1, "\(names)")
+        #expect(try Data(contentsOf: dir.appendingPathComponent(kept[0])) == corrupt)
+        // The fresh chat saved beside it.
+        let saved = try String(contentsOf: store, encoding: .utf8)
+        #expect(saved.contains("sk-ant-api03-••••"))
     }
 
     /// A message holding an API key is held back in favour of a card. The key stays in memory:
