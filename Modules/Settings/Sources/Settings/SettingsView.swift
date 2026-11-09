@@ -2805,6 +2805,20 @@ struct IntelligenceSettingsTab: View {
     /// What Refine's old caps and history said, until it is read (``RefineSpendMigration``).
     @State private var refineNotice: RefineSpendMigration.Notice?
 
+    @ViewBuilder private func refineNoticeBody(_ notice: RefineSpendMigration.Notice) -> some View {
+        Text(notice.text)
+            .scaledFont(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        HStack {
+            Spacer(minLength: 0)
+            Button("Got It") {
+                RefineSpendMigration.dismissNotice()
+                refineNotice = nil
+            }
+            .controlSize(.small)
+        }
+    }
+
     var body: some View {
         SettingsPage {
             switch page {
@@ -2958,18 +2972,11 @@ struct IntelligenceSettingsTab: View {
         }
 
         if let notice = refineNotice {
-            SettingsSection("Refine’s own limits are gone") {
-                Text(notice.text)
-                    .scaledFont(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Spacer(minLength: 0)
-                    Button("Got It") {
-                        RefineSpendMigration.dismissNotice()
-                        refineNotice = nil
-                    }
-                    .controlSize(.small)
-                }
+            // Headed by what it mostly says: the old limits, or only Try Another's change.
+            if notice.hadLimits == false {
+                SettingsSection("Try Another asks Claude now") { refineNoticeBody(notice) }
+            } else {
+                SettingsSection("Refine’s own limits are gone") { refineNoticeBody(notice) }
             }
         }
 

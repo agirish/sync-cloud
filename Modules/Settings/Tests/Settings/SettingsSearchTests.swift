@@ -302,8 +302,9 @@ import Testing
         // Organize ▸ Suggestions' "Refine": a group header over one jump row to Key & Spending,
         // where "refine" is a keyword of the key and the limit (TE335).
         "Refine",
-        // A notice that shows once, after Refine's own limits were retired (TE335, E5).
-        "Refine’s own limits are gone",
+        // A notice that shows once, after Refine's own limits were retired (TE335, E5), under one
+        // heading or the other.
+        "Refine’s own limits are gone", "Try Another asks Claude now",
     ]
 
     /// Whether some entry's title and this on-screen label name the same control. Containment runs

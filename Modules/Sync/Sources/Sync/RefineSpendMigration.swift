@@ -7,7 +7,8 @@ import Foundation
 /// - this month's Refine spend joins Ask Claude's total, and Organize's share of it, so the limit
 ///   counts it from the first day;
 /// - what the old caps and history said is kept in one notice, shown in Ask Claude ▸ Key & Spending
-///   until it is dismissed, naming both old caps and what Refine had cost;
+///   until it is dismissed, naming both old caps and what Refine had cost, and, where Refine's
+///   Claude switch was off and a folder is shared without asking, that Try Another now asks Claude;
 /// - the old history, totals, caps, model and switch are then deleted (KZ-B).
 ///
 /// Stamped, and the stamp and the notice are kept by Reset All, so neither repeats nor vanishes.
@@ -39,9 +40,27 @@ public enum RefineSpendMigration {
         /// When its first recorded request was made.
         public var since: Date?
         public var requests: Int
+        /// Whether there were limits or spend to tell of; nil on a notice saved before this field,
+        /// which always had them.
+        public var hadLimits: Bool? = nil
+        /// Refine's Claude switch was off and a folder is shared without asking: Try Another, which
+        /// stayed on this Mac, now asks Claude for files there.
+        public var tryAnotherAsksClaude: Bool? = nil
 
-        /// The notice's words: the old caps named, what happens now, and what Refine had cost.
+        /// The notice's words: the old caps named, what happens now, what Refine had cost, and
+        /// Try Another's change when it applies.
         public var text: String {
+            var parts: [String] = []
+            if hadLimits != false { parts.append(limitsText) }
+            if tryAnotherAsksClaude == true {
+                parts.append("Try Another now asks Claude, with the file’s first page, about a file in a folder you share "
+                    + "without asking. Before, it stayed on this Mac, because Refine’s Claude switch was off. "
+                    + "To keep it on this Mac, take those folders off Shared without asking, on the Privacy page.")
+            }
+            return parts.joined(separator: " ")
+        }
+
+        private var limitsText: String {
             var caps: [String] = []
             if monthlyCapUSD > 0 { caps.append("\(AskClaudeSpend.format(monthlyCapUSD)) a month") }
             caps.append(totalCapUSD > 0 ? "\(AskClaudeSpend.format(totalCapUSD)) in total" : "no total limit")
@@ -71,14 +90,23 @@ public enum RefineSpendMigration {
         let totalCap = defaults.object(forKey: totalCapKey) == nil ? defaultTotalCapUSD : defaults.double(forKey: totalCapKey)
         let chosenCaps = (defaults.object(forKey: monthlyCapKey) != nil && monthlyCap > 0) || defaults.object(forKey: totalCapKey) != nil
 
+        // Off was the default. With it off, Try Another stayed on this Mac; now a folder shared without
+        // asking is the consent, and Let Claude read files (retired just before, at launch) shared the
+        // home folder. So say so, once.
+        let tryAnotherAsksClaude = !defaults.bool(forKey: switchKey)
+            && !AskClaudePrivacy.sharedFolders(in: defaults).isEmpty
+
         AskClaudeSpend.recordOrganize(month, in: defaults, now: now)
         var line = "Refine’s own limits retired"
-        if !entries.isEmpty || chosenCaps {
+        let hadLimits = !entries.isEmpty || chosenCaps
+        if hadLimits || tryAnotherAsksClaude {
             let notice = Notice(monthlyCapUSD: monthlyCap, totalCapUSD: totalCap, spentThisMonthUSD: month,
                                 spentTotalUSD: max(total, entries.reduce(0) { $0 + $1.estimatedCostUSD }),
-                                since: entries.map(\.timestamp).min(), requests: entries.count)
+                                since: entries.map(\.timestamp).min(), requests: entries.count,
+                                hadLimits: hadLimits, tryAnotherAsksClaude: tryAnotherAsksClaude ? true : nil)
             if let data = try? JSONEncoder().encode(notice) { defaults.set(data, forKey: noticeKey) }
-            line += ": \(AskClaudeSpend.format(month)) of this month carried into Ask Claude’s total, notice pending"
+            line += ": \(AskClaudeSpend.format(month)) of this month carried into Ask Claude’s total"
+                + (tryAnotherAsksClaude ? ", Try Another now asks Claude in shared folders" : "") + ", notice pending"
         }
         for key in [FilingSpendStore.historyKey, FilingSpendStore.totalsKey, FilingSpendStore.lastKey,
                     monthlyCapKey, totalCapKey, modelKey, switchKey] {

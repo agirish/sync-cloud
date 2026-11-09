@@ -71,6 +71,59 @@ import Testing
         #expect(defaults.bool(forKey: RefineSpendMigration.doneKey))
     }
 
+    // MARK: Try Another
+
+    /// Refine's Claude switch was off (the default), so Try Another stayed on this Mac; with a folder
+    /// shared without asking (Let Claude read files: on becomes the home folder shared, at the launch
+    /// step before this) it now asks Claude there. The notice says so, once, with no word of limits.
+    @Test func aSwitchThatWasOffWithASharedFolderSaysTryAnotherNowAsksClaude() throws {
+        let defaults = ScratchDefaults("RefineSpendMigration")
+        AskClaudePrivacy.setSharedFolders(["/Users/someone"], in: defaults)
+
+        let line = RefineSpendMigration.applyAtLaunch(defaults: defaults, now: now)
+
+        let notice = try #require(RefineSpendMigration.pendingNotice(in: defaults))
+        #expect(notice.hadLimits == false && notice.tryAnotherAsksClaude == true)
+        #expect(notice.text.hasPrefix("Try Another now asks Claude, with the file’s first page"), "\(notice.text)")
+        #expect(!notice.text.contains("Refine had its own limits"))
+        #expect(line?.contains("Try Another now asks Claude") == true)
+        #expect(defaults.object(forKey: RefineSpendMigration.switchKey) == nil)
+    }
+
+    /// The switch was on: Try Another already asked Claude, so there's nothing new to say.
+    @Test func aSwitchThatWasOnLeavesTryAnotherUnsaid() {
+        let defaults = ScratchDefaults("RefineSpendMigration")
+        AskClaudePrivacy.setSharedFolders(["/Users/someone"], in: defaults)
+        defaults.set(true, forKey: RefineSpendMigration.switchKey)
+        RefineSpendMigration.applyAtLaunch(defaults: defaults, now: now)
+        #expect(RefineSpendMigration.pendingNotice(in: defaults) == nil)
+    }
+
+    /// Nothing shared: Try Another still stays on this Mac, so nothing changed for it.
+    @Test func nothingSharedLeavesTryAnotherUnsaid() {
+        let defaults = ScratchDefaults("RefineSpendMigration")
+        RefineSpendMigration.applyAtLaunch(defaults: defaults, now: now)
+        #expect(RefineSpendMigration.pendingNotice(in: defaults) == nil)
+    }
+
+    /// Old limits and the change both: one notice, limits first.
+    @Test func limitsAndTryAnotherShareOneNotice() throws {
+        let defaults = ScratchDefaults("RefineSpendMigration")
+        AskClaudePrivacy.setSharedFolders(["/Users/someone"], in: defaults)
+        defaults.set(5.0, forKey: RefineSpendMigration.monthlyCapKey)
+        RefineSpendMigration.applyAtLaunch(defaults: defaults, now: now)
+        let text = try #require(RefineSpendMigration.pendingNotice(in: defaults)).text
+        #expect(text.hasPrefix("Refine had its own limits"))
+        #expect(text.contains(" Try Another now asks Claude"))
+    }
+
+    /// A notice saved before these fields reads as one about limits only.
+    @Test func aNoticeSavedBeforeTheFieldsReadsAsBefore() throws {
+        let old = #"{"monthlyCapUSD":5,"totalCapUSD":5,"spentThisMonthUSD":0,"spentTotalUSD":0,"requests":0}"#
+        let notice = try JSONDecoder().decode(RefineSpendMigration.Notice.self, from: Data(old.utf8))
+        #expect(notice.text.hasPrefix("Refine had its own limits") && !notice.text.contains("Try Another now"))
+    }
+
     // MARK: The notice
 
     @Test func theNoticeNamesBothOldCapsAndWhatRefineHadCost() throws {
