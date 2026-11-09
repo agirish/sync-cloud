@@ -1116,6 +1116,7 @@ public enum FilingEngine {
                                      contentBlind: Set<String> = [],
                                      routerShortlists: [String: [String]] = [:],
                                      shortlistVerdictsLead: Bool = false,
+                                     answersPastShortlistKept: Bool = false,
                                      satelliteHomes: [String: Set<String>] = [:],
                                      profile: Sync.FolderProfile? = nil,
                                      registry: PersonRegistry? = nil,
@@ -1143,15 +1144,18 @@ public enum FilingEngine {
             // answer from a backend whose confidence isn't comparable (the same document can come
             // back `.high` for three different folders on three scans). The router's margin is
             // calibrated: right about 93% of the time when it reports high. So a verdict inside the
-            // shortlist reorders a set the router vouched for, and leads by the rule below; one
-            // outside stays an alternate and the router's home keeps the card. Only when there is a
-            // shortlist: with no artifacts loaded the router never ran and the model is the only
-            // answer. A proposed new folder can't be on a list of existing folders, so it is
-            // governed by the two rules above instead.
+            // shortlist reorders a set the router vouched for, and leads by the rule below. One
+            // outside is dropped, except Claude's on Refine (`answersPastShortlistKept`): a paid
+            // answer, so it goes on through the rules below and then either leads over a weak home
+            // or sits second on the card (`pastShortlist`). Only when there is a shortlist: with no artifacts loaded the
+            // router never ran and the model is the only answer. A proposed new folder can't be on
+            // a list of existing folders, so it is governed by the two rules above instead.
+            var pastShortlist = false
             if let shortlist = routerShortlists[s.filePath], !shortlist.isEmpty,
                rawDest.newSegments.isEmpty, s.best != nil,
                !shortlist.contains(Self.relative(rawDest.path, under: providerRoot)) {
-                return s
+                guard answersPastShortlistKept else { return s }
+                pastShortlist = true
             }
             // **The model may re-rank the shortlist, but not past a folder's own copy stash.** The
             // router demotes a satellite below its home (``SatelliteFolders``), so a verdict naming
@@ -1203,6 +1207,22 @@ public enum FilingEngine {
                 // see the rule.
                 if let reported = refusal.reported { onVeto?(reported) }
                 return s
+            }
+            // **Past the shortlist, a paid answer that read the page beats a weak home.** The
+            // shortlist rule trusts the router because its High is calibrated; its Low is not a
+            // claim worth defending. A file named `DIVIT110226IMMZNRECORD.pdf` gives the router
+            // nothing, so its weak `Finance/US/Social Security/2026` (from "Age" on the page) kept
+            // the card while Claude, having read the page, said `Health/Medical/Kaiser`. Anything
+            // short of that (a medium or high home, a blind or low answer) keeps the card, and
+            // the answer goes second, so Try Another Folder shows it next without asking again.
+            if pastShortlist {
+                if dest.path == s.best?.path { return s }   // agrees with the card: nothing to do
+                let others = s.candidates.filter { $0.path != dest.path }
+                guard !contentBlind.contains(s.filePath), dest.confidence >= .medium,
+                      s.best?.confidence == .low else {
+                    return s.replacingCandidates(Array(others.prefix(1)) + [dest] + others.dropFirst())
+                }
+                return s.replacingCandidates([dest] + others)
             }
             // A verdict leads only when it is at least as confident as the current best home.
             // Otherwise a low-confidence guess would demote a strong filename or rule match and,

@@ -14912,3 +14912,25 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | the spend dialog, no Refine card | NOT OWED — no backporting; recorded |
+
+## Refine keeps Claude's answer past the router's shortlist — recorded, not owed
+
+2026-11-08, for v7.1. On `main`, a Refine answer from Claude naming a folder the router did not
+shortlist is no longer dropped: it leads when Claude read page 1, is at least Medium and the card's
+home is Low ("weak signal"), and otherwise goes second, where Try Another Folder reaches it without
+asking again. The card, banner and chat line say "no home changed" and where the pick is, rather than
+"no better homes found". The scan and an on-device Refine drop such answers as before. `v4.x`–`v6.x`
+carry the shortlist rule and drop every answer past it; `v2.x` and `v3.x` predate the rule.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s shortlistRule=%s pastKept=%s\n' $l \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingEngine.swift | grep -c 'routerShortlists\[s.filePath\]')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingEngine.swift | grep -c 'answersPastShortlistKept')"; done
+# measured 2026-11-08, against origin, before this landed: v6.x–v4.x 1/0, v3.x and v2.x 0/0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | drops Claude's answer past the shortlist | NOT OWED — no backporting; recorded |
+| `v3.x` / `v2.x` | no shortlist rule | CLOSED — does not apply |

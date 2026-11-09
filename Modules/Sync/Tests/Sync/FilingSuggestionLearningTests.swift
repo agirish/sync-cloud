@@ -193,6 +193,84 @@ import Testing
         #expect(Self.refine(unsure, shortlist: shortlist, leads: true)?.path == Self.root + "/Health/Medical/India")
     }
 
+    // MARK: Claude's answer past the shortlist, on Refine
+
+    /// The card from the screenshot: a weak router home, two alternates, and Claude naming a folder
+    /// the router never shortlisted.
+    static func pastShortlist(_ verdict: FilingVerdict, home: FilingConfidence = .low, kept: Bool = true,
+                              blind: Bool = false, homeEvidence: FilingDestination.Evidence = .content) -> FilingSuggestion? {
+        let weak = FilingDestination(path: root + "/Finance/US/Social Security/2026", base: home, evidence: homeEvidence,
+                                     reasons: ["Matched “age”"], newSegments: [])
+        let second = FilingDestination(path: root + "/Finance/US", base: .low, evidence: .content,
+                                       reasons: ["Matched “age”"], newSegments: [])
+        let third = FilingDestination(path: root + "/Health", base: .low, evidence: .name,
+                                      reasons: ["Matched “record”"], newSegments: [])
+        let s = FilingSuggestion(filePath: "/Inbox/DIVIT110226IMMZNRECORD.pdf", fileName: "DIVIT110226IMMZNRECORD.pdf",
+                                 size: 1, modificationDate: nil, candidates: [weak, second, third], providerRoot: root)
+        return FilingEngine.applyVerdicts([s.filePath: verdict], to: [s],
+                                          existingRelative: ["Finance", "Finance/US", "Finance/US/Social Security",
+                                                             "Finance/US/Social Security/2026", "Health",
+                                                             "Health/Medical", "Health/Medical/Kaiser"],
+                                          providerRoot: root,
+                                          contentBlind: blind ? [s.filePath] : [],
+                                          routerShortlists: [s.filePath: ["Finance/US/Social Security/2026",
+                                                                           "Finance/US", "Health"]],
+                                          shortlistVerdictsLead: true,
+                                          answersPastShortlistKept: kept).first
+    }
+
+    static let kaiser = FilingVerdict(relativePath: "Health/Medical/Kaiser", confidence: .medium,
+                                      reason: "Immunization record from Kaiser")
+
+    @Test func claudesReadAnswerPastTheShortlistLeadsOverAWeakHome() throws {
+        let card = try #require(Self.pastShortlist(Self.kaiser))
+        #expect(card.candidates.map(\.path) == [Self.root + "/Health/Medical/Kaiser",
+                                                 Self.root + "/Finance/US/Social Security/2026",
+                                                 Self.root + "/Finance/US", Self.root + "/Health"])
+    }
+
+    @Test func pastTheShortlistAnythingShortOfThatGoesSecond() throws {
+        let second = [Self.root + "/Finance/US/Social Security/2026", Self.root + "/Health/Medical/Kaiser",
+                      Self.root + "/Finance/US", Self.root + "/Health"]
+        // The router's home is not weak.
+        #expect(Self.pastShortlist(Self.kaiser, home: .medium)?.candidates.map(\.path) == second)
+        #expect(Self.pastShortlist(Self.kaiser, home: .high)?.candidates.map(\.path) == second)
+        // Claude didn't read the page, or wasn't sure.
+        let blind = try #require(Self.pastShortlist(Self.kaiser, blind: true, homeEvidence: .name))
+        #expect(blind.candidates.map(\.path) == second)
+        #expect(blind.candidates[1].confidence == .low, "a blind answer can't claim more than Low")
+        // Over a home read from the page, a blind answer is not even an alternate (the rule before).
+        #expect(Self.pastShortlist(Self.kaiser, blind: true)?.candidates.map(\.path)
+                == [Self.root + "/Finance/US/Social Security/2026", Self.root + "/Finance/US", Self.root + "/Health"])
+        let unsure = FilingVerdict(relativePath: "Health/Medical/Kaiser", confidence: .low, reason: "maybe")
+        #expect(Self.pastShortlist(unsure)?.candidates.map(\.path) == second)
+    }
+
+    @Test func pastTheShortlistAnAnswerThatIsNotClaudesIsDropped() {
+        // The scan, and a Refine that ran on this Mac: the card is as it was.
+        #expect(Self.pastShortlist(Self.kaiser, kept: false)?.candidates.map(\.path)
+                == [Self.root + "/Finance/US/Social Security/2026", Self.root + "/Finance/US", Self.root + "/Health"])
+    }
+
+    @Test func pastTheShortlistAnAnswerThatAgreesLeavesTheCardAlone() throws {
+        let agrees = FilingVerdict(relativePath: "Finance/US/Social Security/2026", confidence: .high, reason: "same")
+        // Off the shortlist, so the card's own home is the only way it matches.
+        let s = FilingSuggestion(filePath: "/Inbox/a.pdf", fileName: "a.pdf", size: 1, modificationDate: nil,
+                                 candidates: [FilingDestination(path: Self.root + "/Finance/US/Social Security/2026",
+                                                                base: .low, evidence: .content,
+                                                                reasons: ["Matched “age”"], newSegments: [])],
+                                 providerRoot: Self.root)
+        let card = try #require(FilingEngine.applyVerdicts([s.filePath: agrees], to: [s],
+                                                           existingRelative: ["Finance", "Finance/US",
+                                                                              "Finance/US/Social Security",
+                                                                              "Finance/US/Social Security/2026"],
+                                                           providerRoot: Self.root,
+                                                           routerShortlists: [s.filePath: ["Finance/US"]],
+                                                           shortlistVerdictsLead: true,
+                                                           answersPastShortlistKept: true).first)
+        #expect(card == s)
+    }
+
     // MARK: GU — a rejection teaches the word, for that folder
 
     @Test func aRejectedWordStopsMatchingThatFolderAloneForOtherFiles() throws {
@@ -465,5 +543,66 @@ import Testing
         let summary = await m.refineFilingSuggestions(m.filingSuggestions)
         #expect(summary?.changed == 1)
         #expect(m.filingSuggestions.first?.best?.path == root + "/Immigration/Customs/USA")
+    }
+
+    /// Claude names a folder the router never shortlisted. Against `home`, on the backend `refine`
+    /// routes to. Returns the manager after the pass.
+    private func refinePastTheShortlist(home: FilingConfidence, refine backend: String) async -> FileSyncManager {
+        let root = "/R"
+        let m = FileSyncManager()
+        let settings = ScratchDefaults("refine-past-shortlist-\(UUID().uuidString)")
+        settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
+        m.filingContentDefaults = settings
+        m.filingBackendIdentity = { tier in tier == .refine ? backend : FileSyncManager.onDeviceBackendIdentity }
+        m.filingCloudSpendConfirmer = { _ in true }
+        m.filingClassifier = { _, files, _ in
+            Dictionary(uniqueKeysWithValues: files.map {
+                ($0.filePath, FilingVerdict(relativePath: "Health/Medical/Kaiser", confidence: .medium, reason: "Kaiser record"))
+            })
+        }
+        let folders: Set<String> = ["Immigration", "Immigration/Customs", "Immigration/Customs/USA",
+                                    "Health", "Health/Medical", "Health/Medical/India", "Health/Medical/Kaiser"]
+        m.filingFolderProfile = FilingScanRouterWiringTests.profile(Array(folders), root: root)
+        m.filingMemory = FilingScanRouterWiringTests.memory("Immigration/Customs/USA", ["fedex", "courier", "invoice"])
+        m.filingLastProviderRoot = root
+        m.filingLastTaxonomyFolders = folders.sorted()
+        m.filingLastExistingFolders = folders
+        m.prepareFilingRouter(destinations: folders)
+        let card = [FilingDestination(path: root + "/Immigration/Customs/USA", base: home, evidence: .name,
+                                      reasons: ["Matches “courier”"], newSegments: []),
+                    FilingDestination(path: root + "/Health/Medical/India", base: .low, evidence: .name,
+                                      reasons: ["Matches “india”"], newSegments: [])]
+        m.filingSuggestions = [FilingSuggestion(filePath: "/Inbox/FedEx invoice - India courier .pdf",
+                                                fileName: "FedEx invoice - India courier .pdf", size: 1,
+                                                modificationDate: nil, candidates: card, providerRoot: root)]
+        _ = await m.refineFilingSuggestions(m.filingSuggestions)
+        return m
+    }
+
+    @Test func refineLetsClaudesAnswerPastTheShortlistReplaceAWeakHome() async {
+        let m = await refinePastTheShortlist(home: .low, refine: "cloud:claude-opus-5")
+        #expect(m.filingSuggestions.first?.best?.path == "/R/Health/Medical/Kaiser")
+        #expect(m.filingLastRefine?.changed == 1)
+        #expect(m.filingLastRefineReport?.offered == 0)
+    }
+
+    @Test func refineKeepsClaudesAnswerPastTheShortlistSecondAndSaysSo() async throws {
+        let m = await refinePastTheShortlist(home: .high, refine: "cloud:claude-opus-5")
+        let card = try #require(m.filingSuggestions.first)
+        #expect(card.candidates.map(\.path) == ["/R/Immigration/Customs/USA", "/R/Health/Medical/Kaiser",
+                                                 "/R/Health/Medical/India"])
+        #expect(m.filingLastRefine?.changed == 0)
+        #expect(m.filingLastRefineReport?.offered == 1)
+        #expect(m.banner?.message == "Refined 1 suggestion — no home changed. "
+                + "Claude picked another folder for 1 file: Try Another Folder shows it.")
+    }
+
+    /// The control: the same answer from this Mac's model is dropped, which is also what proves
+    /// Kaiser is off the router's shortlist (on it, the medium answer would lead either way).
+    @Test func refineOnThisMacStillDropsAnAnswerPastTheShortlist() async throws {
+        let m = await refinePastTheShortlist(home: .low, refine: FileSyncManager.onDeviceBackendIdentity)
+        let card = try #require(m.filingSuggestions.first)
+        #expect(card.candidates.map(\.path) == ["/R/Immigration/Customs/USA", "/R/Health/Medical/India"])
+        #expect(m.filingLastRefineReport?.offered == 0)
     }
 }

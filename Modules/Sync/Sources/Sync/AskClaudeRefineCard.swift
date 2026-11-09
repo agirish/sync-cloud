@@ -139,6 +139,8 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         public var costUSD = 0.0
         public var modelName = ""
         public var kept = 0
+        /// Files whose home stood while Claude picked another folder, next under Try Another Folder.
+        public var offered = 0
         public var ending = Ending.answered
         /// Undo Refine put the on-device suggestions back.
         public var undone = false
@@ -159,6 +161,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
             modelName = try c.decodeIfPresent(String.self, forKey: .modelName) ?? ""
             kept = try c.decodeIfPresent(Int.self, forKey: .kept) ?? 0
+            offered = try c.decodeIfPresent(Int.self, forKey: .offered) ?? 0
             ending = try c.decodeIfPresent(Ending.self, forKey: .ending) ?? .answered
             undone = try c.decodeIfPresent(Bool.self, forKey: .undone) ?? false
         }
@@ -176,6 +179,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             costUSD = report.costUSD
             modelName = report.modelName
             kept = report.keptForNextPress
+            offered = report.offered
             switch report.ending {
             case .answered: ending = .answered
             case .stopped: ending = .stopped
@@ -426,13 +430,18 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         guard let a = answers else { return "" }
         let files = a.sent == 1 ? "1 file" : "\(a.sent) files"
         let homes = a.rows.count == 1 ? "1 home changed" : "\(a.rows.count) homes changed"
-        return a.rows.isEmpty ? "Refined \(files) · no better homes found" : "Refined \(files) · \(homes)"
+        guard a.rows.isEmpty else { return "Refined \(files) · \(homes)" }
+        return a.offered > 0 ? "Refined \(files) · no home changed" : "Refined \(files) · no better homes found"
     }
 
     /// The line under the rows: what was reused, left out and kept.
     public var answersFootnote: String? {
         guard let a = answers else { return nil }
         var parts: [String] = []
+        if a.offered > 0 {
+            parts.append(a.offered == 1 ? "Claude picked another folder for 1 file: Try Another Folder shows it"
+                                        : "Claude picked another folder for \(a.offered) files: Try Another Folder shows each")
+        }
         if a.reused > 0 { parts.append("\(a.reused) answered before \(a.reused == 1 ? "was" : "were") reused") }
         if a.hidden > 0 { parts.append("\(a.hidden) left out: hidden from Claude") }
         if a.kept > 0 { parts.append("\(a.kept) kept for the next Refine") }
@@ -520,14 +529,15 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         case .failed: line += "It failed after \(a.answered) of \(a.sent) answers; "
         case .unreadableKey, .notSent: return nil
         }
-        guard !a.rows.isEmpty else { return line + "no suggestion changed." }
+        let offered = a.offered == 0 ? "" : " For \(a.offered) file\(a.offered == 1 ? "" : "s") you picked another folder, kept as the next choice under Try Another Folder."
+        guard !a.rows.isEmpty else { return line + "no suggestion changed." + offered }
         let shown = a.rows.prefix(Self.toldChanges).map { row -> String in
             let reason = (row.reason ?? "").isEmpty ? "" : " (" + String(row.reason!.prefix(90)) + ")"
             return "“\(row.name)” → \(row.after)\(reason)"
         }
         line += "It changed \(a.rows.count) suggested home\(a.rows.count == 1 ? "" : "s"): " + shown.joined(separator: "; ")
         if a.rows.count > shown.count { line += "; and \(a.rows.count - shown.count) more" }
-        return line + ". Nothing has moved: they still File it in Organize."
+        return line + "." + offered + " Nothing has moved: they still File it in Organize."
     }
 
     // MARK: Words: closed

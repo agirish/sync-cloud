@@ -522,9 +522,12 @@ extension FileSyncManager {
         // that stays 0, and the log should report the pass as run in full.
         var sentToBackend = 0
         var result: FilingRefineResult?
+        // Whose answers these are, the cached ones included: the cache is keyed by the backend, so
+        // a pass routed to Claude reuses only Claude's. An unreadable key routes on-device.
+        let answersAreClaudes = filingRoutesToCloud(.refine)
         if !files.isEmpty, !declined {
             let fresh: [String: FilingVerdict]
-            if filingRoutesToCloud(.refine), let refiner = filingRefineClassifier {
+            if answersAreClaudes, let refiner = filingRefineClassifier {
                 // Claude, streamed, and it says how it ended. No on-device answer stands in for a
                 // failed one. The task is kept so Stop can end the request; cancelling this pass's own
                 // task ends it too.
@@ -606,6 +609,7 @@ extension FileSyncManager {
                                                  // past them can't, as on the scan.
                                                  routerShortlists: shortlists,
                                                  shortlistVerdictsLead: true,
+                                                 answersPastShortlistKept: answersAreClaudes,
                                                  satelliteHomes: filingSatelliteHomes,
                                                  profile: filingRoutingProfile,
                                                  registry: filingPersonRegistry,
@@ -615,6 +619,18 @@ extension FileSyncManager {
                                                      self?.recordPersonVeto(refusal)
                                                  })
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
+        // Cards whose home stood while Claude named another folder, now next under Try Another
+        // Folder. Counted so "no better homes found" isn't said over an answer that is on the card.
+        let offered = refined.filter { s in
+            guard answersAreClaudes, before[s.id] == s.best?.path, s.candidates.count > 1,
+                  let v = usable[s.filePath],
+                  let dest = FilingEngine.destination(from: v, providerRoot: root,
+                                                      existingRelative: existingRelative,
+                                                      fileName: s.fileName,
+                                                      nameProvider: filingLastNameProvider)
+            else { return false }
+            return dest.path != s.best?.path && s.candidates[1].path == dest.path
+        }.count
         let changes: [FilingRefineReport.Change] = refined.compactMap { s in
             guard before[s.id] != s.best?.path, let now = s.best?.path else { return nil }
             return FilingRefineReport.Change(
@@ -661,7 +677,7 @@ extension FileSyncManager {
             pagesSent: files.filter { $0.contentSnippet != nil }.count, folderNames: context.destinations.count,
             requests: (result?.started ?? false) ? 1 : 0, costUSD: result?.costUSD ?? 0,
             modelName: filingRefineModelName, ending: ending,
-            keptForNextPress: work.facts.keptForNextPress)
+            keptForNextPress: work.facts.keptForNextPress, offered: offered)
         // `sentToBackend`, not `classifiedCount` (see the declaration). The route is named because
         // the number alone can't tell a pass nobody paid for from one nobody ran.
         Logger.shared.info("Filing: refined \(eligible.count) suggestion(s) — \(sentToBackend) sent to "
@@ -722,9 +738,18 @@ extension FileSyncManager {
                 ? "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
                   + "\(changed) home\(changed == 1 ? "" : "s") changed."
                 : "Refined \(eligible.count) suggestion\(eligible.count == 1 ? "" : "s") — "
-                  + "no better homes found.") + capNote + hiddenNote)
+                  + (offered > 0 ? "no home changed." : "no better homes found."))
+                + Self.offeredNote(offered) + capNote + hiddenNote)
         }
         return summary
+    }
+
+    /// The banner's line for cards where Claude's pick sits under Try Another Folder.
+    nonisolated static func offeredNote(_ offered: Int) -> String {
+        guard offered > 0 else { return "" }
+        return offered == 1
+            ? " Claude picked another folder for 1 file: Try Another Folder shows it."
+            : " Claude picked another folder for \(offered) files: Try Another Folder shows each."
     }
 
     /// Ends the refine request that is out, if one is. What had arrived is kept (LS).
@@ -831,6 +856,8 @@ extension FileSyncManager {
         public let ending: Ending
         /// Files in the request beyond what went: kept for the next press.
         public let keptForNextPress: Int
+        /// Cards whose home stood while Claude named another folder, next under Try Another Folder.
+        public var offered = 0
     }
 
     /// The on-device suggestions a pass replaced, kept so Undo Refine can put them back. Valid only

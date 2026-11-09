@@ -53,11 +53,13 @@ import Testing
     }
 
     private func report(sent: Int = 4, answered: Int = 4, changes: Int = 2, ending: FileSyncManager.FilingRefineReport.Ending = .answered,
-                        requests: Int = 1, cost: Double = 0.04) -> FileSyncManager.FilingRefineReport {
-        FileSyncManager.FilingRefineReport(
+                        requests: Int = 1, cost: Double = 0.04, offered: Int = 0) -> FileSyncManager.FilingRefineReport {
+        var report = FileSyncManager.FilingRefineReport(
             changes: (0..<changes).map { .init(filePath: "/r/f\($0).pdf", fileName: "f\($0).pdf", before: "Receipts/2026", after: "Work/Invoices", reason: "Page 1 is an invoice") },
             asked: sent, reused: 1, hiddenFromClaude: 1, sent: sent, answered: answered, pagesSent: 2, folderNames: 238,
             requests: requests, costUSD: cost, modelName: "Opus 5.5", ending: ending, keptForNextPress: 0)
+        report.offered = offered
+        return report
     }
 
     // MARK: The plan says what goes
@@ -196,6 +198,26 @@ import Testing
         var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
         card.finish(.sent(.init(asked: 3, reused: 0, classified: 3, changed: 0)), report: report(sent: 3, answered: 3, changes: 0))
         #expect(card.answersTitle == "Refined 3 files · no better homes found")
+    }
+
+    @Test func aPassWhoseAnswerWentUnderTryAnotherSaysWhereItIs() throws {
+        var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        card.finish(.sent(.init(asked: 1, reused: 0, classified: 1, changed: 0)),
+                    report: report(sent: 1, answered: 1, changes: 0, offered: 1))
+        #expect(card.answersTitle == "Refined 1 file · no home changed")
+        #expect(card.answersFootnote?.hasPrefix("Claude picked another folder for 1 file: Try Another Folder shows it · ") == true)
+        #expect(card.toldToClaude?.hasSuffix("no suggestion changed. For 1 file you picked another folder, "
+                                             + "kept as the next choice under Try Another Folder.") == true)
+        // Kept through a save.
+        let saved = try JSONDecoder().decode(AskClaudeRefineCard.self, from: JSONEncoder().encode(card))
+        #expect(saved.answers?.offered == 1)
+
+        var both = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
+        both.finish(.sent(.init(asked: 4, reused: 0, classified: 4, changed: 2)),
+                    report: report(changes: 2, offered: 2))
+        #expect(both.answersTitle == "Refined 4 files · 2 homes changed")
+        #expect(both.answersFootnote?.hasPrefix("Claude picked another folder for 2 files: Try Another Folder shows each") == true)
+        #expect(both.toldToClaude?.contains("(Page 1 is an invoice). For 2 files you picked another folder") == true)
     }
 
     @Test func aFailedPassKeepsWhatArrivedAndSaysItMayHaveBeenBilled() {
