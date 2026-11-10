@@ -609,7 +609,7 @@ struct ContentView: View {
     /// live — refused with the reason in the banner, as `FileActionHandler` does for its own.
     func refusedWhileRunLocked() -> Bool {
         guard let reason = runWriteLockReason else { return false }
-        syncManager.banner = .warning(reason, log: .warn)
+        syncManager.banner = .refusal(reason, log: .warn)
         return true
     }
     /// What is typed in the toolbar's Go-to field. Held here rather than in the panel's state so

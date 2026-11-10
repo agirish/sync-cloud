@@ -73,7 +73,7 @@ public class FileActionHandler {
         guard let run = syncManager.activeProgress else { return false }
         let reason = run.runLockReason ?? Progress.genericRunLockReason
         Logger.shared.info("File action refused while a run is going: \(run.localizedDescription ?? "a run") — \(reason)")
-        syncManager.banner = .warning(reason, log: .warn)
+        syncManager.banner = .refusal(reason, log: .warn)
         return true
     }
 

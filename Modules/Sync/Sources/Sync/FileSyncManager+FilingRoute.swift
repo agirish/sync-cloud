@@ -384,7 +384,7 @@ extension FileSyncManager {
             // rebuilds both.
             filingUnreadableScans.remove(suggestion.filePath)
             Logger.shared.info("Filing: Read scan of “\(suggestion.fileName)” refused — the cached index is from another scan (\(filingLastProviderRoot ?? "none"))")
-            banner = .warning("Couldn’t read “\(suggestion.fileName)” — this list is from an earlier scan. Scan this folder again to read it.", log: .warn)
+            banner = .refusal("Couldn’t read “\(suggestion.fileName)” — this list is from an earlier scan. Scan this folder again to read it.", log: .warn)
             return false
         }
         // One render per file at a time: a second click while Vision is out would start a second.

@@ -43,7 +43,7 @@ extension FileSyncManager {
         // syncFile (perhaps parked at its prompt) may target one of these rows, and this run's
         // defer would clear its syncing mark. Refuse visibly.
         guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before copying", log: .info)
+            banner = .refusal("Wait for the current operation to finish before copying", log: .info)
             return
         }
         isBulkSyncRunning = true
@@ -79,7 +79,7 @@ extension FileSyncManager {
         // `preCountFileOperation()` but bumps the epoch only once confirmed, so a pending one
         // shows in the count alone.
         guard fileOperationsEpoch == asOf, activeFileOperationsCount == 0 else {
-            banner = .warning("A file operation ran or is pending — run Verify All again", log: .warn)
+            banner = .refusal("A file operation ran or is pending — run Verify All again", log: .warn)
             return
         }
 
@@ -380,13 +380,13 @@ extension FileSyncManager {
         // A Verify All in flight is hashing the files this run would overwrite, and would read
         // them half-written. Tell the user rather than drop silently.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for the current operation to finish before syncing", log: .info)
+            banner = .refusal("Wait for the current operation to finish before syncing", log: .info)
             return []
         }
         // A single-row syncFile in flight (perhaps parked at its prompt) may target these rows,
         // and two flows could write one difference twice. Mirrors Verify All's guard.
         guard syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before syncing", log: .info)
+            banner = .refusal("Wait for the current operation to finish before syncing", log: .info)
             return []
         }
         // Latch the flag before the confirmation prompt: its modal spins the run loop, and a
@@ -711,7 +711,7 @@ extension FileSyncManager {
         // syncAll's own guards, up front: a refusal inside it would read here as "nothing
         // copied", and this banner would hide the reason.
         guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before syncing", log: .info)
+            banner = .refusal("Wait for the current operation to finish before syncing", log: .info)
             return nil
         }
         let held = remaining.filter { $0.heldBack != nil }

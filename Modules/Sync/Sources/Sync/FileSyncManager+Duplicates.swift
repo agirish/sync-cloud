@@ -956,7 +956,7 @@ extension FileSyncManager {
         guard keeperStillExists(group) else {
             // Logged with the path, as the gate and the batch log a keeper refusal.
             Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — the keeper (\(group.keeper.path)) is no longer what the scan saw")
-            banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.", log: .loggedAtSite)
+            banner = .refusal("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.", log: .loggedAtSite)
             return false
         }
         var driftedCopy = driftedRemovalCandidates(group).first
@@ -996,7 +996,7 @@ extension FileSyncManager {
             case .drifted:
                 banner = .warning("A copy of “\(group.keeper.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.", log: .warn)
             case .holdsKeeper:
-                banner = .warning("A copy of “\(group.keeper.name)” holds the copy another duplicate group keeps — rescan before removing it.", log: .warn)
+                banner = .refusal("A copy of “\(group.keeper.name)” holds the copy another duplicate group keeps — rescan before removing it.", log: .warn)
             }
             return false
         }
@@ -1210,7 +1210,7 @@ extension FileSyncManager {
     public func refuseRemovalIfHeld(copyAt path: String, keeping keeperPath: String? = nil) -> Bool {
         guard let hold = removalHold(onCopyAt: path, keeping: keeperPath) else { return false }
         let wording = Self.removalHoldWording(hold, name: (path as NSString).lastPathComponent, path: path)
-        banner = .warning(wording.banner, log: .loggedAtSite)
+        banner = .refusal(wording.banner, log: .loggedAtSite)
         Logger.shared.warning(wording.log)
         return true
     }
@@ -1666,12 +1666,12 @@ extension FileSyncManager {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): the merge copies into the keeper while Verify All may be hashing it.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before merging duplicates", log: .info)
+            banner = .refusal("Wait for Verify All to finish before merging duplicates", log: .info)
             return false
         }
         // A vanished keeper must refuse, not silently recreate itself from the copies being folded.
         guard keeperStillExists(group) else {
-            banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before merging.", log: .warn)
+            banner = .refusal("“\(group.keeper.name)” is no longer at its scanned location — rescan before merging.", log: .warn)
             return false
         }
         // Progress for the minutes-long run, published the way Verify All does it: an NSProgress

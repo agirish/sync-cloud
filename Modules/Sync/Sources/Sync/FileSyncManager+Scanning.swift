@@ -629,7 +629,7 @@ extension FileSyncManager {
         // The automatic pass declines silently during operations; a click must say so, or the
         // success banner would claim a check that never happened.
         guard activeFileOperationsCount == 0 else {
-            banner = .warning("Wait for the current operation to finish before checking for orphaned files", log: .info)
+            banner = .refusal("Wait for the current operation to finish before checking for orphaned files", log: .info)
             return
         }
         sweepOrphanedTempArtifacts()

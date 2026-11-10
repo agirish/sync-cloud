@@ -3233,7 +3233,7 @@ public struct LensWorkspaceView: View {
         case .run(let resolved):
             finding = resolved
         case .refuse(let sentence):
-            syncManager.banner = .warning(sentence, log: .warn)
+            syncManager.banner = .refusal(sentence, log: .warn)
             return
         case .unavailable:
             syncManager.banner = .warning(

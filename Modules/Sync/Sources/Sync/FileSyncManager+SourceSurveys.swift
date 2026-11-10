@@ -341,7 +341,7 @@ extension FileSyncManager {
             banner = report.isComplete ? .success(report.summary) : .warning(report.summary, log: .warn)
         case .failure(let refusal):
             Logger.shared.info("Document survey: not started — \(refusal.sentence)")
-            banner = .warning(refusal.sentence, log: .warn)
+            banner = .refusal(refusal.sentence, log: .warn)
         }
         return result
     }

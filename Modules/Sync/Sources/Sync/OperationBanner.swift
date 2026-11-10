@@ -3,7 +3,7 @@ import Foundation
 /// A transient in-app notification describing the outcome of a file operation.
 /// Pure data — how each severity is rendered (icon, tint, dismissal rules) is the UI layer's job.
 public struct OperationBanner: Equatable, Sendable {
-    public enum Severity: Equatable, Sendable {
+    public enum Severity: String, Codable, Equatable, Sendable {
         /// The operation completed fully.
         case success
         /// The operation was cancelled or completed only partially (e.g. some items failed or were skipped).
@@ -60,8 +60,13 @@ public struct OperationBanner: Equatable, Sendable {
     /// carries: a refusal, a failure that changed nothing, Edit's PDF tools.
     public var runId: UUID?
 
+    /// A refusal: something the reader asked for didn't start ("Wait for the current operation to
+    /// finish…", a scan that's out of date), so nothing happened. Shown like a warning, but never
+    /// kept past the session, where it would only bury what did happen. Set by ``refusal(_:log:)``.
+    public var isRefusal = false
+
     /// A door out of a finished result.
-    public enum FollowUp: Equatable, Sendable {
+    public enum FollowUp: Codable, Equatable, Sendable {
         /// "Open in Edit" — the file just written.
         case openInEdit(String)
         /// "Reveal in Browse" — the file or files just written, selected.
@@ -92,6 +97,13 @@ public struct OperationBanner: Equatable, Sendable {
 
     public static func error(_ message: String, log: LogLevel) -> OperationBanner {
         OperationBanner(message: message, severity: .error, log: log)
+    }
+
+    /// Something asked for that didn't start, and why: drawn as a warning, kept for the session only.
+    public static func refusal(_ message: String, log: LogLevel) -> OperationBanner {
+        var banner = OperationBanner(message: message, severity: .warning, log: log)
+        banner.isRefusal = true
+        return banner
     }
 
     /// This message, reporting `run`: the id ``FileSyncManager/recordSyncHistory(_:pairedWithUndo:)``

@@ -965,6 +965,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// after this point flushes the log.
     func applicationWillTerminate(_ notification: Notification) {
         ActivityCenter.shared.flushOneWaySync()
+        ActivityCenter.shared.flushMessages()
         for line in EditorAutosaveTally.closeOutAll() { Logger.shared.info(line) }
         MainThreadStallWatch.shared.writeCount(because: "the app is quitting")
         Logger.shared.flushToDisk()
@@ -995,6 +996,8 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // A background-completion notification's click opens its message in Activity.
         UNUserNotificationCenter.current().delegate = OperationNotificationClicks.shared
         startOneWaySyncNotices()
+        // Activity's messages from earlier sessions, under any this launch said already.
+        ActivityCenter.shared.attachMessages(ActivityMessageStore())
 
         // How this build is signed, on the very next line: ad-hoc means its first launch waits
         // behind the Documents-access dialog. A few milliseconds, so it runs inline and keeps the

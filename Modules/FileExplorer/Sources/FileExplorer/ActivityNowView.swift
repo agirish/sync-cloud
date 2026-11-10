@@ -93,8 +93,6 @@ public struct ActivityNowView: View {
             }
             Divider()
             HStack {
-                Text("Kept until SyncCloud quits")
-                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Open as Window", action: onOpenWindow)
                     .buttonStyle(.link)
@@ -158,7 +156,7 @@ public struct ActivityNowView: View {
     }
 
     private var nothingYet: some View {
-        Text("Nothing yet this session")
+        Text("Nothing yet")
             .scaledFont(.system(size: 12))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)

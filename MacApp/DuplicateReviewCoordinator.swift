@@ -514,7 +514,7 @@ struct DuplicateReviewCoordinator {
         // Before the confirmation: asking "Move to Trash?" and then refusing is worse than not
         // asking, and nothing the user answers changes this.
         if let refusal = Self.uniqueItemsRefusal(review) {
-            syncManager.banner = .warning(refusal.banner, log: .loggedAtSite)
+            syncManager.banner = .refusal(refusal.banner, log: .loggedAtSite)
             Logger.shared.warning(refusal.log)
             return
         }

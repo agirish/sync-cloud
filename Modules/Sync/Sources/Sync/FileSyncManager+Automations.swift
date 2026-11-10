@@ -261,7 +261,7 @@ extension FileSyncManager {
         // match nothing".
         if let only, let rule = automationRules.first(where: { $0.id == only }), isInert(rule) {
             let name = rule.name.isEmpty ? "This rule" : "“\(rule.name)”"
-            banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can’t act here.", log: .warn)
+            banner = .refusal("\(name) files into a folder outside \(providerName ?? "this provider"), so it can’t act here.", log: .warn)
             Logger.shared.info("Rules preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
             return
         }
@@ -417,7 +417,7 @@ extension FileSyncManager {
     public func applyAutomationFiling(rows: [AutomationDryRunRow]) async -> (filed: Int, failed: Int) {
         // Don't move files Verify All may be checksumming (same guard Filing uses).
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before filing", log: .info)
+            banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return (0, 0)
         }
         let fm = fileManager

@@ -3503,7 +3503,7 @@ public class FileSyncManager: ObservableObject {
         // `HeldBack` cases this one is refused here too, not only in bulk.
         if difference.heldBack == .sourceIsSymbolicLink {
             Logger.shared.info("Sync of \(difference.relativePath) refused: \(fromURL.path) is a symbolic link")
-            banner = .warning("“\(fromURL.lastPathComponent)” is a link, so a copy would be a link too, not what it points to — nothing was \(isMove ? "moved" : "copied")", log: .warn)
+            banner = .refusal("“\(fromURL.lastPathComponent)” is a link, so a copy would be a link too, not what it points to — nothing was \(isMove ? "moved" : "copied")", log: .warn)
             return false
         }
 
@@ -3512,7 +3512,7 @@ public class FileSyncManager: ObservableObject {
         // overwrite a file as it's hashed — the pair can read "identical" against bytes that
         // no longer exist, poisoning the copy-to-match-dates offer.
         guard !isVerifyAllRunning else {
-            banner = .warning("Wait for Verify All to finish before syncing", log: .info)
+            banner = .refusal("Wait for Verify All to finish before syncing", log: .info)
             return false
         }
 
@@ -3524,7 +3524,7 @@ public class FileSyncManager: ObservableObject {
         // owns, and a syncFile parked at its prompt becomes invisible to Verify All's exclusion
         // guard.
         guard !isBulkSyncRunning else {
-            banner = .warning("Wait for the current operation to finish before syncing", log: .info)
+            banner = .refusal("Wait for the current operation to finish before syncing", log: .info)
             return false
         }
 

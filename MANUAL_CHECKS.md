@@ -1099,8 +1099,11 @@ Copy a folder of a few files to another source first, so there is a run to look 
   clears and the run's row is shown, opened and highlighted. In the capsule's popover, Show in Events
   on a message does the same.
 - [ ] **One-way sync.** From a one-way sync sheet, History… opens Events showing one-way syncs alone.
-- [ ] **Quit and relaunch.** Runs, one-way syncs and settings changes are still there under their
-  days; messages are gone, and a run built its own sentence.
+- [ ] **Quit and relaunch.** Runs, one-way syncs, settings changes and messages are still there
+  under their days, and a copy's row still says "Copied 24 items…", with no Undo. Before quitting,
+  start a sync while another runs to get "Wait for the current operation to finish": after the
+  relaunch it is gone. The capsule's popover lists the kept messages too, with no "Kept until
+  SyncCloud quits" line.
 
 ## A new home when none fits (TE327, 2026-11-09)
 

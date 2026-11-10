@@ -9,8 +9,8 @@ import Sync
 /// Activity's Events: everything SyncCloud did, newest first and by day, one row for each thing
 /// done. A sync run is one row built from its Sync History records, led by the message that
 /// reported it when one did, and opens in place to its files. A message no run carries, a one-way
-/// sync, and a setting changed from Ask Claude's chat are rows beside it. Runs, one-way syncs and
-/// settings changes survive quitting; messages last the session, as Recent's do.
+/// sync, and a setting changed from Ask Claude's chat are rows beside it. All of it survives
+/// quitting, messages too, except refusals (`ActivityMessageStore`).
 ///
 /// The filters reach into runs: a path or action filter opens every run with a match and lists
 /// only the matching files ("3 of 24 records"). Pointing at a row (a notification's click, Show in
@@ -273,7 +273,10 @@ public struct ActivityEventsView: View {
         Menu {
             Button("Clear Messages") { center.clear() }
                 .disabled(center.recent.isEmpty)
-            Button("Clear Sync History…") { Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) }
+            Button("Clear Sync History…") {
+                // The messages that reported its runs go too: each would be a row with nothing behind it.
+                if Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) { center.forgetRunMessages() }
+            }
                 .disabled(store.records.isEmpty)
             if let settings {
                 Button("Clear Settings Changes…") { if settings.confirmClear() { settings.log.clear() } }
@@ -529,7 +532,7 @@ public struct ActivityEventsView: View {
             EmptyStateView(
                 icon: "clock.arrow.circlepath",
                 title: "Nothing yet",
-                message: "Every copy, move, delete, and date match is listed here as it happens, with what SyncCloud said about it. Runs stay after you quit; messages last until SyncCloud quits.",
+                message: "Every copy, move, delete, and date match is listed here as it happens, with what SyncCloud said about it. It stays after you quit.",
                 secondary: .init("Reveal History File", systemImage: "doc.text",
                                  help: "Show the file the sync history is saved in, \(store.fileURL.lastPathComponent), in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])

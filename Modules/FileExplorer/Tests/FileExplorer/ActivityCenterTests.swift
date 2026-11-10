@@ -12,12 +12,14 @@ import Sync
         ActivityMessage(message: text, severity: severity)
     }
 
-    /// Every message is kept, newest first, until there are fifty.
-    @Test func keepsTheNewestFiftyNewestFirst() {
+    /// Every message is kept, newest first, up to the store's cap, which is also what survives a quit.
+    @Test func keepsTheNewestUpToTheCapNewestFirst() {
         let center = ActivityCenter()
-        for index in 1...55 { center.record(message("Deleted “\(index).md”"), seen: true) }
-        #expect(center.recent.count == 50)
-        #expect(center.recent.first?.message == "Deleted “55.md”")
+        let over = ActivityCenter.keep + 5
+        for index in 1...over { center.record(message("Deleted “\(index).md”"), seen: true) }
+        #expect(ActivityCenter.keep == ActivityMessageStore.maxMessages)
+        #expect(center.recent.count == ActivityCenter.keep)
+        #expect(center.recent.first?.message == "Deleted “\(over).md”")
         #expect(center.recent.last?.message == "Deleted “6.md”")
     }
 

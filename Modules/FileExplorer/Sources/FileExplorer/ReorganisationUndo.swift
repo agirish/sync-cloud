@@ -66,7 +66,7 @@ public enum ReorganisationUndo {
         }
     ) async {
         if let refusal = manager.restructureLandingBlocker {
-            manager.banner = .warning(refusal, log: .warn)
+            manager.banner = .refusal(refusal, log: .warn)
             return
         }
         if let record = manager.restructureStore?.applied

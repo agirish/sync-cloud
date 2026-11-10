@@ -27,8 +27,10 @@ public struct ActivityMessage: Identifiable, Equatable {
     public var isStopped = false
     /// The repeats folded into this row; a notification names the one it reported.
     public var foldedIDs: [UUID] = []
+    /// A refusal (`OperationBanner.isRefusal`): shown this session, never kept past it.
+    public var isRefusal = false
 
-    public enum Source: Equatable {
+    public enum Source: String, Codable, Equatable {
         case window
         case edit
     }
@@ -71,7 +73,7 @@ public struct ActivityMessage: Identifiable, Equatable {
     func saysTheSame(as other: ActivityMessage) -> Bool {
         message == other.message && detail == other.detail && severity == other.severity
             && followUps == other.followUps && source == other.source && undoStep == nil && other.undoStep == nil
-            && runId == nil && other.runId == nil
+            && runId == nil && other.runId == nil && isRefusal == other.isRefusal
     }
 }
 
@@ -97,7 +99,7 @@ public struct ActivityDoors {
 }
 
 /// Activity's one owner for the whole app: the pane-launched PDF runs, Save as PDF, and Recent
-/// (every message this session, newest first). The capsule's popover and the Activity window read
+/// (every message, newest first: this session's, and the kept ones from earlier sessions). The capsule's popover and the Activity window read
 /// the same instance, so they list the same runs and messages.
 ///
 /// Recent is a copy, not a queue: the window still shows one message at a time, but each is written
@@ -108,8 +110,8 @@ public final class ActivityCenter: ObservableObject {
     /// The Activity window's scene.
     public static let windowID = "activity"
 
-    /// Recent keeps the newest fifty, until SyncCloud quits.
-    public static let keep = 50
+    /// Recent keeps as many as the store does: every message but a refusal is kept across quits.
+    public static let keep = ActivityMessageStore.maxMessages
 
     /// The PDF tools run from a pane's row menu.
     public let panePDFTools = PanePDFTools()
@@ -151,6 +153,8 @@ public final class ActivityCenter: ObservableObject {
 
     /// The main window's doors, set by it.
     public var doors = ActivityDoors()
+    /// Where Recent is kept across quits; nil until ``attachMessages(_:now:)``, as in tests.
+    private(set) var messageStore: ActivityMessageStore?
     /// The file operations' undo stack: the main window's.
     public private(set) weak var undoManager: UndoManager?
     private var undoObservers: [NSObjectProtocol] = []
@@ -175,6 +179,8 @@ public final class ActivityCenter: ObservableObject {
             recent.insert(message, at: 0)
             if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
         }
+        // The row as it now stands, folded or new; the store keeps all but a refusal.
+        messageStore?.save(recent[0])
         // A stop the reader asked for is not a problem they missed.
         if message.severity != .success, !message.isStopped, !seen {
             if dotWaits, !hasUnseenProblem { dotHeldFor = message.id }
@@ -222,6 +228,7 @@ public final class ActivityCenter: ObservableObject {
                                       span: start...now.addingTimeInterval(5))
         message.isStopped = ActivityMessage.isQuietStop(stopped: stoppedRun || ActivityMessage.saysStopped(banner.message),
                                                         message: banner.message, severity: banner.severity)
+        message.isRefusal = banner.isRefusal
         record(message, seen: seen, dotWaits: dotWaits)
     }
 
@@ -241,10 +248,37 @@ public final class ActivityCenter: ObservableObject {
         record(message, seen: seen)
     }
 
+    /// Clears every message, the kept ones from earlier sessions too. The runs keep their records.
     public func clear() {
         recent = []
         hasUnseenProblem = false
         dotHeldFor = nil
+        messageStore?.replaceAll(with: [])
+    }
+
+    // MARK: Kept across quits
+
+    /// Reads the kept messages in under any this session recorded before it: at launch. They light
+    /// no dot, whatever they say: they were seen, or not, in the session that showed them.
+    public func attachMessages(_ store: ActivityMessageStore, now: Date = Date()) {
+        messageStore = store
+        let mine = Set(recent.map(\.id))
+        recent += store.load(now: now).filter { !mine.contains($0.id) }
+        recent.sort { $0.date > $1.date }
+        if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
+    }
+
+    /// Sync History was cleared: the messages that reported its runs go with them, or Events would
+    /// list each as a row of its own with nothing behind it.
+    public func forgetRunMessages() {
+        guard recent.contains(where: { $0.runId != nil }) else { return }
+        recent.removeAll { $0.runId != nil }
+        messageStore?.replaceAll(with: recent)
+    }
+
+    /// Waits for the kept messages to reach the disk: at quit.
+    public func flushMessages() {
+        messageStore?.flush()
     }
 
     /// Activity was opened: whatever problem was waiting has been seen.

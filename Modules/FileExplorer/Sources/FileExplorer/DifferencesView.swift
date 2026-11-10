@@ -2009,7 +2009,7 @@ public struct DifferencesView: View {
         let found = DifferencesShortcutRules.rows(displayRows.sorted, matching: [id]).first
         if let refusal = DifferenceRowMenu.copyRefusal(for: found, direction: direction) {
             Logger.shared.info("Row copy from its menu did nothing: \(refusal)")
-            syncManager.banner = .warning(refusal, log: .warn)
+            syncManager.banner = .refusal(refusal, log: .warn)
             return
         }
         guard let live = found else { return }
@@ -2038,7 +2038,7 @@ public struct DifferencesView: View {
         let found = session.pending.first { $0.id == id }
         if let refusal = DifferenceRowMenu.copyRefusal(for: found, direction: direction) {
             Logger.shared.info("Review row copy from its menu did nothing: \(refusal)")
-            syncManager.banner = .warning(refusal, log: .warn)
+            syncManager.banner = .refusal(refusal, log: .warn)
             return
         }
         guard let item = found else { return }

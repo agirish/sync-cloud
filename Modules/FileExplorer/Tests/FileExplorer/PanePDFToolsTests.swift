@@ -530,7 +530,7 @@ private struct PDFToolDelegate: FileActionDelegate {
             .deletingLastPathComponent().appendingPathComponent("MacApp/ContentView+ResultMessage.swift"),
                                 encoding: .utf8)
         #expect(window.contains("let here = PaneToolResult.stillThere(paths)"), "the doors skip stillThere()")
-        #expect(window.contains("syncManager.banner = .warning(PaneToolResult.goneMessage(paths), log: .warn)"))
+        #expect(window.contains("syncManager.banner = .refusal(PaneToolResult.goneMessage(paths), log: .warn)"))
     }
 
     /// A run's ending is a result message with its doors: a copy offers Open in Edit and Reveal in

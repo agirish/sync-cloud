@@ -33,7 +33,7 @@ extension FileSyncManager {
         guard filingRouterIndex != nil, let root = filingLastProviderRoot,
               targets.allSatisfy({ $0.providerRoot == root }) else {
             Logger.shared.info("Filing: Download and Read refused — the cached index is from another scan (\(filingLastProviderRoot ?? "none"))")
-            banner = .warning("Couldn’t read these files — this list is from an earlier scan. Scan this folder again to read them.", log: .warn)
+            banner = .refusal("Couldn’t read these files — this list is from an earlier scan. Scan this folder again to read them.", log: .warn)
             return 0
         }
         isDownloadingFilingFiles = true

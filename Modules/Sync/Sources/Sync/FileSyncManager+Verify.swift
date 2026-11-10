@@ -156,7 +156,7 @@ extension FileSyncManager {
         // banner, not a silent no-op.
         guard !isVerifyAllRunning, !isBulkSyncRunning,
               activeFileOperationsCount == 0, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before verifying", log: .info)
+            banner = .refusal("Wait for the current operation to finish before verifying", log: .info)
             return
         }
         isVerifyAllRunning = true
@@ -352,7 +352,7 @@ extension FileSyncManager {
         // verified file was touched.
         guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else {
             verifiedIdenticalForCopy = nil
-            banner = .warning("A file operation ran or is pending — run Verify All again", log: .warn)
+            banner = .refusal("A file operation ran or is pending — run Verify All again", log: .warn)
             return nil
         }
         // The epoch and count can't see writers outside this app, and the dialog can stay open
@@ -368,7 +368,7 @@ extension FileSyncManager {
                 let end = side == .right ? "on the right" : "on the left"
                 banner = .warning("“\(name)” changed \(end) since it was verified — run Verify All again", log: .warn)
             case .unstamped:
-                banner = .warning("“\(name)” cannot be re-checked against its verification — run Verify All again", log: .warn)
+                banner = .refusal("“\(name)” cannot be re-checked against its verification — run Verify All again", log: .warn)
             }
             return nil
         }
