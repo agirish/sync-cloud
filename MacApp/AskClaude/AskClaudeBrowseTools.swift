@@ -661,7 +661,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             case .shown:
                 break
             case .noSuchPlace:
-                return AskClaudeToolOutcome(result: "Places are settings, activity, help, trash, info and sidebar; a settings tab or setting must be one Settings has.",
+                return AskClaudeToolOutcome(result: "Places are settings, activity, help, trash, info and sidebar; a settings tab or setting must be one Settings has, and an activity tab Events or Log.",
                                             isError: true, step: "No place called \(place)", logStep: "No place called that (no match, \(place.count) characters)")
             case .unavailable(let why):
                 let name = names[place] ?? place
@@ -671,7 +671,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 let did = visible ? "Showed \(name)" : "Hid \(name)"
                 return AskClaudeToolOutcome(result: did + ".", step: did)
             }
-            let label = place == "settings" ? "Settings" + (call.string("tab").map { " ▸ \(Self.settingsPlaceName($0))" } ?? "") : place.capitalized
+            let label = place == "settings" ? "Settings" + (call.string("tab").map { " ▸ \(Self.settingsPlaceName($0))" } ?? "")
+                : AskClaudeActivityPlace(place: place, tab: call.string("tab"))?.label ?? place.capitalized
             return AskClaudeToolOutcome(result: "Opened \(label).", step: "Opened \(label)", movedView: "Opened \(label)")
         case .settings: return await settings(call, ctx)
         case .listFolder: return await listFolder(call, ctx, &handles)

@@ -1486,9 +1486,13 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         let settings = await runner.run(call("show_in_app", ["place": .string("Settings"), "tab": .string("intelligence")]), handles: &handles)
         #expect(settings.step == "Opened Settings ▸ Ask Claude")
         _ = await runner.run(call("show_in_app", ["place": .string("trash")]), handles: &handles)
+        let log = await runner.run(call("show_in_app", ["place": .string("activity"), "tab": .string("Log")]), handles: &handles)
+        #expect(log.step == "Opened Activity ▸ Log")
+        let activity = await runner.run(call("show_in_app", ["place": .string("activity")]), handles: &handles)
+        #expect(activity.step == "Opened Activity")
         let bad = await runner.run(call("show_in_app", ["place": .string("printer")]), handles: &handles)
         #expect(bad.isError)
-        #expect(opened == ["settings:intelligence", "trash"])
+        #expect(opened == ["settings:intelligence", "trash", "activity:Log", "activity"])
     }
 
     @Test func showInAppShowsAndHidesTheInfoInspectorAndSidebar() async {

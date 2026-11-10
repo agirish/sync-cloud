@@ -49,20 +49,25 @@ public enum AskClaudeQuickCommand {
         /// The folder on screen, relative to its source: a folder above is a path from here.
         public let folderOnScreen: String
         public let settingsTabs: [String]
+        /// The workspace bar's names (Browse, Compare, Organize, Edit). Read by `direct` only: the
+        /// model's prompt doesn't list them.
+        public let workspaces: [String]
 
-        public init(disks: [String], sources: [String], folders: [String], folderOnScreen: String, settingsTabs: [String]) {
+        public init(disks: [String], sources: [String], folders: [String], folderOnScreen: String, settingsTabs: [String],
+                    workspaces: [String] = []) {
             self.disks = disks
             self.sources = sources
             self.folders = folders
             self.folderOnScreen = folderOnScreen
             self.settingsTabs = settingsTabs
+            self.workspaces = workspaces
         }
 
         /// From the screen Claude would be sent. A folder hidden from Claude lists no folders.
-        public init(screen: AskClaudeScreen, settingsTabs: [String]) {
+        public init(screen: AskClaudeScreen, settingsTabs: [String], workspaces: [String] = []) {
             self.init(disks: screen.disks, sources: screen.sources,
                       folders: screen.folderHidden ? [] : Array(screen.rows.filter(\.isDirectory).map(\.name).prefix(maxFolders)),
-                      folderOnScreen: screen.folder, settingsTabs: settingsTabs)
+                      folderOnScreen: screen.folder, settingsTabs: settingsTabs, workspaces: workspaces)
         }
     }
 
@@ -150,6 +155,93 @@ public enum AskClaudeQuickCommand {
         }
     }
 
+    // MARK: Said in so many words
+
+    /// A command said in so many words, run with no model at all: "open Settings", "show the log",
+    /// "go to Downloads", "Edit", "sort by size", "list view". Same answer every time, no Apple
+    /// Intelligence needed, nothing sent. A name that could be two things ("open Events" beside a
+    /// folder called Events) is no call here, and goes to the model, then Claude, as before.
+    ///
+    /// A bare name needs a verb, except a workspace's or one of the app's own places: a bare
+    /// folder name is as likely a reply as a go-to.
+    public static func direct(_ question: String, lists: Lists) -> AskClaudeToolCall? {
+        func tool(_ name: AskClaudeToolCatalog.Name, _ input: [String: JSONFragment]) -> AskClaudeToolCall {
+            AskClaudeToolCall(id: "on-device", name: name.rawValue, input: .object(input))
+        }
+        var text = question.lowercased()
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!")))
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        text = strip(text, prefixes: ["please "])
+        text = strip(text, suffixes: [" please"])
+        switch text {
+        case "show hidden files": return tool(.view, ["hidden_files": .bool(true)])
+        case "hide hidden files": return tool(.view, ["hidden_files": .bool(false)])
+        default: break
+        }
+        for sort in Sort.allCases where sort != .none {
+            if text == "sort by \(sort.rawValue)" { return tool(.view, ["sort": .string(sort.rawValue)]) }
+        }
+        let verbs = ["open up ", "open ", "show me ", "show ", "go to ", "switch to ", "take me to ", "bring up ", "view "]
+        let verb = verbs.first { text.hasPrefix($0) }
+        var name = String(text.dropFirst(verb?.count ?? 0))
+        name = strip(name, prefixes: ["the ", "my "])
+        let modes = ["list view": "list", "as list": "list", "as a list": "list",
+                     "column view": "columns", "columns view": "columns", "as columns": "columns", "in columns": "columns"]
+        if let mode = modes[name], verb != nil || name.hasSuffix(" view") { return tool(.view, ["mode": .string(mode)]) }
+        // "the Events tab" is no folder; "the Taxes folder" is no place.
+        let asPlace = [" tab", " window", " workspace", " pane", " page"].contains { name.hasSuffix($0) }
+        let asFolder = name.hasSuffix(" folder")
+        if asPlace || asFolder { name = String(name[..<name.lastIndex(of: " ")!]) }
+        guard !name.isEmpty else { return nil }
+
+        // Each with whether it may come bare: the app's own windows, tabs and workspaces may; Help,
+        // a source and a folder need a verb ("help" alone asks Claude for it).
+        var found: [(call: AskClaudeToolCall, bare: Bool)] = []
+        if !asFolder {
+            if ["settings", "preferences"].contains(name) {
+                found.append((tool(.showInApp, ["place": .string("settings")]), true))
+            } else if let tab = settingsTab(in: name, lists.settingsTabs) {
+                // "Edit settings", "settings Edit": the tab must be one Settings has, or it's no place.
+                guard let tab else { return nil }
+                found.append((tool(.showInApp, ["place": .string("settings"), "tab": .string(tab)]), true))
+            } else if let activity = AskClaudeActivityPlace(place: name, tab: nil) {
+                var input: [String: JSONFragment] = ["place": .string("activity")]
+                if let tab = activity.tab { input["tab"] = .string(tab) }
+                found.append((tool(.showInApp, input), true))
+            } else if name == "help" {
+                found.append((tool(.showInApp, ["place": .string("help")]), false))
+            }
+            if let workspace = exact(name, in: lists.workspaces) { found.append((tool(.goTo, ["workspace": .string(workspace)]), true)) }
+        }
+        if !asPlace {
+            if let source = exact(name, in: lists.sources) { found.append((tool(.goTo, ["source": .string(source)]), false)) }
+            if let folder = exact(name, in: lists.folders) {
+                found.append((tool(.goTo, ["folder": .string(path(folder, under: lists.folderOnScreen))]), false))
+            }
+        }
+        guard found.count == 1, verb != nil || found[0].bare else { return nil }
+        return found[0].call
+    }
+
+    /// The Settings tab "X settings", "settings X" or "X in Settings" names: nil when it names
+    /// none, `.some(nil)` when it names a tab Settings doesn't have.
+    private static func settingsTab(in name: String, _ tabs: [String]) -> String?? {
+        let named: String
+        if name.hasPrefix("settings ") { named = String(name.dropFirst("settings ".count)) }
+        else if name.hasSuffix(" in settings") { named = String(name.dropLast(" in settings".count)) }
+        else if name.hasSuffix(" settings") { named = String(name.dropLast(" settings".count)) }
+        else { return nil }
+        return .some(exact(named, in: tabs))
+    }
+
+    private static func strip(_ text: String, prefixes: [String]) -> String {
+        prefixes.first { text.hasPrefix($0) }.map { String(text.dropFirst($0.count)) } ?? text
+    }
+
+    private static func strip(_ text: String, suffixes: [String]) -> String {
+        suffixes.first { text.hasSuffix($0) }.map { String(text.dropLast($0.count)) } ?? text
+    }
+
     /// The step line Claude hears with the next question, as data: what ran here without it.
     public static func toldClaude(question: String, result: String) -> String {
         "On this Mac, without you, they asked “\(question)”: \(result)"
@@ -177,4 +269,42 @@ public enum AskClaudeQuickCommand {
     private static func path(_ folder: String, under parent: String) -> String {
         parent.isEmpty ? folder : parent + "/" + folder
     }
+}
+
+/// The Activity window and its two tabs, Events and Log, as `show_in_app` and a typed command name
+/// them. Events folded in Now and History (TE339), so a History tab, or Sync History, still means it.
+public enum AskClaudeActivityPlace: Equatable, Sendable {
+    /// The window on the tab it was last on.
+    case lastUsed
+    case events
+    case log
+
+    /// From `show_in_app`'s place and tab, any case; nil when they don't name Activity, or name a
+    /// tab it doesn't have.
+    public init?(place: String, tab: String?) {
+        let place = place.lowercased().trimmingCharacters(in: .whitespaces)
+        let tab = tab?.lowercased().trimmingCharacters(in: .whitespaces) ?? ""
+        // Not "history" alone as a place: that could be Past Chats.
+        let events: Set = ["events", "event", "sync history", "activity events", "activity history"]
+        let log: Set = ["log", "logs", "activity log", "activity logs", "the log"]
+        if events.contains(place) { self = .events; return }
+        if log.contains(place) { self = .log; return }
+        guard place == "activity" || place == "activity window" else { return nil }
+        if tab.isEmpty { self = .lastUsed }
+        else if events.contains(tab) || tab == "history" { self = .events }
+        else if log.contains(tab) { self = .log }
+        else { return nil }
+    }
+
+    /// The tab's name, as the window's own picker shows it.
+    public var tab: String? {
+        switch self {
+        case .lastUsed: return nil
+        case .events: return "Events"
+        case .log: return "Log"
+        }
+    }
+
+    /// "Activity ▸ Log": what the chat's step line says it opened.
+    public var label: String { tab.map { "Activity ▸ \($0)" } ?? "Activity" }
 }

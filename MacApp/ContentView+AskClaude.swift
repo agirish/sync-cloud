@@ -309,8 +309,12 @@ extension ContentView {
            !askClaudeChat.awaitsAnswer {
             // The names the screen card would give Claude, so nothing hidden from Claude is one.
             let lists = AskClaudeQuickCommand.Lists(screen: askClaudeScreen(),
-                                                    settingsTabs: SettingsView.SettingsTab.allCases.map(\.displayName))
+                                                    settingsTabs: SettingsView.SettingsTab.allCases.map(\.displayName),
+                                                    workspaces: Workspace.allCases.map(\.title))
             askClaudeChat.tryOnDevice(question, spoken: spoken, decide: {
+                // Said in so many words ("open the log", "Edit"): no model needed, so the same
+                // answer every time, with Apple Intelligence off too.
+                if let call = AskClaudeQuickCommand.direct(question, lists: lists) { return call }
                 guard let route = await AskClaudeOnDevice.route(question, lists: lists) else { return nil }
                 return AskClaudeQuickCommand.call(for: route, lists: lists)
             }, tools: askClaudeTools(), otherwise: {
@@ -1261,15 +1265,20 @@ extension ContentView {
                                             : "The sidebar isn’t available here: \(selectedWorkspace.title) has no sidebar.")
                     }
                     setFolderSidebarVisible(visible)
-                case "activity", "log", "activity log":
-                    openWindow(id: ActivityCenter.windowID)
                 case "help":
                     showHelp = true
                 case "trash":
                     // As the sidebar's own Trash row does: the Trash is Finder's to show.
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: NSHomeDirectory() + "/.Trash")
                 default:
-                    return .noSuchPlace
+                    // Activity, at its Events or Log tab when one is named.
+                    guard let activity = AskClaudeActivityPlace(place: place, tab: tab) else { return .noSuchPlace }
+                    switch activity {
+                    case .lastUsed: break
+                    case .events: ActivityCenter.shared.tab = .events
+                    case .log: ActivityCenter.shared.tab = .log
+                    }
+                    openWindow(id: ActivityCenter.windowID)
                 }
                 return .shown
             },

@@ -1148,3 +1148,20 @@ Needs an API key, Ask Claude open, and Suggestions on in Settings ▸ Ask Claude
   them". Click it: Claude sums them up by kind and folder.
 - [ ] **Switch off.** Turn Suggestions off in Settings: no chip shows.
 - [ ] **VoiceOver.** The chip reads its words, and the Actions rotor offers Not Now and Don't Suggest.
+
+## Ask Claude's exact commands run here (2026-11-09)
+
+Type each into Ask Claude. A command run here shows your words and one step line: no reply, no
+price, no receipt.
+
+- [ ] **Log and Events.** "Open logs": Activity opens on Log, step "Opened Activity ▸ Log". "Open
+  the Events tab": Events, "Opened Activity ▸ Events". With Activity already open on Events, "show
+  me the activity log" switches it to Log.
+- [ ] **Workspaces and Settings.** "Edit" goes to the Edit workspace; "open Edit settings" opens
+  Settings ▸ Edit; "Open Settings" opens Settings.
+- [ ] **Without Apple Intelligence.** Turn Apple Intelligence off in System Settings: "Open logs"
+  still runs here; "take me somewhere with my taxes" goes to Claude.
+- [ ] **Two meanings.** In a folder holding a folder called Events, "open events" goes to Claude
+  (or Apple Intelligence); "open the events folder" goes into the folder.
+- [ ] **Claude knows the tabs.** Ask "where do I see what synced last night?": Claude names the
+  Activity window's Events tab, not History.

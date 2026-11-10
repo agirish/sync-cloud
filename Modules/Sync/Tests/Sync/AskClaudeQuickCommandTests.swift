@@ -94,4 +94,95 @@ import Testing
         screen.folderHidden = true
         #expect(AskClaudeQuickCommand.Lists(screen: screen, settingsTabs: []).folders.isEmpty)
     }
+
+    // MARK: Said in so many words
+
+    private let screen = AskClaudeQuickCommand.Lists(
+        disks: ["SD Card"], sources: ["iCloud", "Dropbox"], folders: ["Downloads", "Taxes", "Events"],
+        folderOnScreen: "Documents", settingsTabs: ["General", "Edit", "Ask Claude"],
+        workspaces: ["Browse", "Compare", "Organize", "Edit"])
+
+    private func direct(_ question: String) -> AskClaudeToolCall? {
+        AskClaudeQuickCommand.direct(question, lists: screen)
+    }
+
+    private func place(_ question: String) -> String? {
+        guard let made = direct(question), made.name == "show_in_app", case .string(let place)? = made.input["place"] else { return nil }
+        if case .string(let tab)? = made.input["tab"] { return place + ":" + tab }
+        return place
+    }
+
+    /// The app's own places, from the words in the screenshot that went to Claude on 11-09: "Open
+    /// logs" and "Open Events tab" now open Activity at that tab here, without a model.
+    @Test func theAppsOwnPlacesNeedNoModel() {
+        #expect(place("Open logs") == "activity:Log")
+        #expect(place("show me the activity log.") == "activity:Log")
+        #expect(place("Log") == "activity:Log")
+        #expect(place("open the Events tab") == "activity:Events")
+        #expect(place("open sync history") == "activity:Events")
+        #expect(place("Open Activity") == "activity")
+        #expect(place("open activity window") == "activity")
+        #expect(place("Open Settings") == "settings")
+        #expect(place("please open preferences") == "settings")
+        #expect(place("open edit settings") == "settings:Edit")
+        #expect(place("go to settings ask claude") == "settings:Ask Claude")
+        #expect(place("open help") == "help")
+        #expect(direct("help") == nil, "help alone asks Claude for help")
+        #expect(direct("open history") == nil, "could be Past Chats")
+        #expect(direct("open printers settings") == nil, "no such Settings tab")
+    }
+
+    /// A workspace by its bar name, bare or not; Edit is the workspace, Settings ▸ Edit needs the
+    /// word Settings.
+    @Test func workspacesAreTheirBarNames() {
+        #expect(direct("Open Edit")?.input == .object(["workspace": .string("Edit")]))
+        #expect(direct("organize")?.input["workspace"] == .string("Organize"))
+        #expect(direct("switch to the compare workspace")?.input["workspace"] == .string("Compare"))
+    }
+
+    /// A source or a folder on screen by its own name, with a verb: a bare name may be a reply.
+    @Test func sourcesAndFoldersNeedAVerbAndTheirExactName() {
+        #expect(direct("go to Dropbox")?.input["source"] == .string("Dropbox"))
+        #expect(direct("open downloads")?.input["folder"] == .string("Documents/Downloads"))
+        #expect(direct("open the taxes folder")?.input["folder"] == .string("Documents/Taxes"))
+        #expect(direct("Downloads") == nil)
+        #expect(direct("open Download") == nil, "a partial name is the model's")
+        #expect(direct("open report.pdf") == nil)
+    }
+
+    /// A name that is two things is no call here: the model, then Claude, decide.
+    @Test func aNameThatIsTwoThingsIsNoCall() {
+        #expect(direct("open events") == nil, "Activity's Events and the folder Events")
+        #expect(place("open the events tab") == "activity:Events")
+        #expect(direct("open the events folder")?.input["folder"] == .string("Documents/Events"))
+    }
+
+    @Test func viewCommandsInSoManyWords() {
+        #expect(direct("Show hidden files")?.input["hidden_files"] == .bool(true))
+        #expect(direct("hide hidden files")?.input["hidden_files"] == .bool(false))
+        #expect(direct("sort by size")?.input["sort"] == .string("size"))
+        #expect(direct("sort by colour") == nil)
+        #expect(direct("list view")?.input["mode"] == .string("list"))
+        #expect(direct("switch to column view")?.input["mode"] == .string("columns"))
+        #expect(direct("show as a list")?.input["mode"] == .string("list"))
+        #expect(direct("as a list") == nil)
+    }
+
+    /// Longer requests and questions aren't commands, even with a place's name in them.
+    @Test func sentencesAroundAPlaceAreNotCommands() {
+        #expect(direct("open the log and find errors") == nil)
+        #expect(direct("why is the log empty") == nil)
+        #expect(direct("eject SD Card") == nil, "eject stays the model's, behind its dialog")
+        #expect(direct("") == nil)
+        #expect(direct("open") == nil)
+    }
+
+    @Test func activityPlacesFromShowInApp() {
+        #expect(AskClaudeActivityPlace(place: "Activity", tab: nil) == .lastUsed)
+        #expect(AskClaudeActivityPlace(place: "activity", tab: "History") == .events)
+        #expect(AskClaudeActivityPlace(place: "activity", tab: "Logs") == .log)
+        #expect(AskClaudeActivityPlace(place: "activity", tab: "Now playing") == nil)
+        #expect(AskClaudeActivityPlace(place: "events", tab: nil)?.label == "Activity ▸ Events")
+        #expect(AskClaudeActivityPlace(place: "trash", tab: nil) == nil)
+    }
 }

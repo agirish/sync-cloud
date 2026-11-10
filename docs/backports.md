@@ -15200,3 +15200,20 @@ tool list or system text. Ask Claude exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Ask Claude runs exact commands with no model, and knows Activity's tabs — main only
+
+2026-11-09, for v7.1. On `main`: a command said in so many words ("Open the log", "Edit", "Go to
+Downloads") runs on this Mac with no model (`AskClaudeQuickCommand.direct`), before Apple's
+on-device model is asked; `show_in_app` opens Activity at its Events or Log tab
+(`AskClaudeActivityPlace`). No maintenance line has Ask Claude:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeBrowseTools')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
